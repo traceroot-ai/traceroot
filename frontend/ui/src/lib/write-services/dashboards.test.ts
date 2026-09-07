@@ -12,7 +12,7 @@ const { tx, root } = vi.hoisted(() => ({
   tx: {
     project: { findUnique: vi.fn() },
     workspaceMember: { findUnique: vi.fn() },
-    dashboard: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    dashboard: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     widget: { create: vi.fn() },
     auditLog: { create: vi.fn() },
     // The locking read of the layout column; see lib/dashboard-layout.
@@ -90,6 +90,7 @@ beforeEach(() => {
   tx.project.findUnique.mockReset();
   tx.workspaceMember.findUnique.mockReset();
   tx.dashboard.findFirst.mockReset();
+  tx.dashboard.findMany.mockReset();
   tx.dashboard.create.mockReset();
   tx.dashboard.update.mockReset();
   tx.widget.create.mockReset();
@@ -234,7 +235,7 @@ describe("createDashboard", () => {
 
   it("stores the description and forwards agent provenance", async () => {
     mockAccess();
-    tx.dashboard.findFirst.mockResolvedValue(null);
+    tx.dashboard.findMany.mockResolvedValue([]);
     tx.dashboard.create.mockResolvedValue(dashboardRow);
     const r = await runDashboard({
       description: "Spend at a glance",
@@ -248,6 +249,100 @@ describe("createDashboard", () => {
     );
     expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
+    });
+  });
+
+  it("public-api transport reuses by name without ever listing same-prefix names", async () => {
+    mockAccess();
+    tx.dashboard.findFirst.mockResolvedValue(dashboardRow);
+    const r = await runDashboard({ provenance: { transport: "public-api" } });
+    expect(r).toEqual({ ok: true, created: false, data: dashboardRow });
+    expect(tx.dashboard.findMany).not.toHaveBeenCalled();
+    expect(tx.dashboard.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  describe("agent transport", () => {
+    const agent = { transport: "agent" as const, agentSessionId: "as1" };
+
+    it("creates under the bare name when a same-prefix dashboard exists but the exact name is free", async () => {
+      mockAccess();
+      tx.dashboard.findMany.mockResolvedValue([{ name: "Cost overview by model" }]);
+      tx.dashboard.create.mockResolvedValue(dashboardRow);
+      const r = await runDashboard({ provenance: agent });
+      expect(r).toEqual({ ok: true, created: true, data: dashboardRow });
+      expect(tx.dashboard.findMany).toHaveBeenCalledWith({
+        where: { projectId: "p1", name: { startsWith: "Cost overview" } },
+        select: { name: true },
+      });
+      // The reuse lookup is the public API's path; the agent never takes it.
+      expect(tx.dashboard.findFirst).not.toHaveBeenCalled();
+      expect(tx.dashboard.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ name: "Cost overview" }) }),
+      );
+      expect(root.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ summary: { name: "Cost overview" } }),
+      });
+    });
+
+    it('creates "X (2)" instead of reusing a same-name dashboard, and says what it renamed', async () => {
+      mockAccess();
+      tx.dashboard.findMany.mockResolvedValue([{ name: "Cost overview" }]);
+      const renamedRow = { ...dashboardRow, id: "dash2", name: "Cost overview (2)" };
+      tx.dashboard.create.mockResolvedValue(renamedRow);
+      const r = await runDashboard({ provenance: agent });
+      expect(r).toEqual({
+        ok: true,
+        created: true,
+        data: renamedRow,
+        renamedFrom: "Cost overview",
+      });
+      expect(tx.dashboard.create).toHaveBeenCalledWith({
+        data: {
+          projectId: "p1",
+          name: "Cost overview (2)",
+          description: null,
+          createdBy: "u1",
+        },
+        select: { id: true, name: true, projectId: true },
+      });
+      expect(root.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          operation: "create_dashboard",
+          resourceId: "dash2",
+          summary: { name: "Cost overview (2)", renamedFrom: "Cost overview" },
+          transport: "agent",
+          agentSessionId: "as1",
+        }),
+      });
+    });
+
+    it('skips a taken "X (2)" and picks "X (3)"', async () => {
+      mockAccess();
+      tx.dashboard.findMany.mockResolvedValue([
+        { name: "Cost overview (2)" },
+        { name: "Cost overview" },
+      ]);
+      tx.dashboard.create.mockResolvedValue({ ...dashboardRow, name: "Cost overview (3)" });
+      const r = await runDashboard({ provenance: agent });
+      expect(r).toMatchObject({ ok: true, created: true, renamedFrom: "Cost overview" });
+      expect(tx.dashboard.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ name: "Cost overview (3)" }) }),
+      );
+    });
+
+    it("trims the base so the suffixed name still fits the name cap", async () => {
+      mockAccess();
+      const base = "x".repeat(DASHBOARD_NAME_MAX);
+      const expected = `${"x".repeat(DASHBOARD_NAME_MAX - 4)} (2)`;
+      tx.dashboard.findMany.mockResolvedValue([{ name: base }]);
+      tx.dashboard.create.mockResolvedValue({ ...dashboardRow, name: expected });
+      const r = await runDashboard({ name: base, provenance: agent });
+      expect(r).toMatchObject({ ok: true, created: true, renamedFrom: base });
+      expect(expected).toHaveLength(DASHBOARD_NAME_MAX);
+      expect(tx.dashboard.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ name: expected }) }),
+      );
     });
   });
 });

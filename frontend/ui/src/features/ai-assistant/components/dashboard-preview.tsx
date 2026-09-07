@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { COLS, ROW_HEIGHT } from "@/features/dashboards/grid-constants";
-import { makeRange, resolveSiteRange } from "@/features/dashboards/range-presets";
+import { makeRange } from "@/features/dashboards/range-presets";
 import type { Widget } from "@/features/dashboards/types";
 import type { PreviewTile } from "../lib/resource-card";
 import { REFERENCE_COL_WIDTH, SNAPSHOT_QUERY_OPTIONS } from "./preview-constants";
@@ -112,14 +112,15 @@ export function DashboardPreview({ tiles }: { tiles: readonly PreviewTile[] }) {
   // action should not quietly slide its own axis while the transcript stays
   // open — and one range means react-query can serve every tile's remount
   // from cache. (`seen` only ever flips once, so this computes once.) Which
-  // window gets frozen is the site's own stored selection for the tiles'
-  // project (they all landed in one dashboard, so the first names it),
-  // falling back to the default when nothing usable is stored. `tiles` is
+  // window gets frozen is the card model's own snapshot, carried on the tiles
+  // (they all landed in one dashboard, so the first names it) — the same
+  // value the card header labels, so the two cannot disagree. `tiles` is
   // deliberately not a dependency: it is read only on the one seen=false→true
   // computation, and a later tiles identity change must not thaw the range.
   const range = useMemo(() => {
     if (!seen) return null;
-    return makeRange(resolveSiteRange(tiles[0]?.projectId).id);
+    const rangeId = tiles[0]?.range.id;
+    return rangeId === undefined ? null : makeRange(rangeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seen]);
 

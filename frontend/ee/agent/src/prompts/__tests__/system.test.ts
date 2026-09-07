@@ -33,6 +33,14 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("root-cause analysis");
   });
 
+  it("lists the detector templates so coverage gaps get a create_detector offer", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("failure, hallucination, logic, task, safety");
+    expect(prompt).toContain("blank (fully custom prompt)");
+    expect(prompt).toContain("offer to add one with create_detector using the");
+    expect(prompt).not.toContain("Detectors page");
+  });
+
   it("tells the agent telemetry is live so counts get re-queried, not recalled", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
     expect(prompt).toContain("Telemetry is live");
@@ -71,11 +79,10 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("report it, never");
   });
 
-  it("lists the detector templates so coverage gaps get a create_detector offer", () => {
+  it("tells the agent to adopt the suffixed name a collision gave a dashboard", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
-    expect(prompt).toContain("failure, hallucination, logic, task, safety");
-    expect(prompt).toContain("offer to add one with create_detector");
-    expect(prompt).not.toContain("Detectors page");
+    expect(prompt).toContain("got a new name");
+    expect(prompt).toContain("refer to it by that name");
   });
 
   it("includes current date in UTC", () => {

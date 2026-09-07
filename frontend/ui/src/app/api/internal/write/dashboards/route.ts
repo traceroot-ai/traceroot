@@ -42,5 +42,11 @@ export async function POST(request: NextRequest) {
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
-  return NextResponse.json({ created: result.created, dashboard: result.data });
+  return NextResponse.json({
+    created: result.created,
+    dashboard: result.data,
+    // Present only when the service had to pick a different name than the
+    // one requested; the agent tool turns it into the "renamed" receipt.
+    ...(result.renamedFrom === undefined ? {} : { renamedFrom: result.renamedFrom }),
+  });
 }

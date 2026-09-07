@@ -124,6 +124,44 @@ describe("SessionManager.buildContext", () => {
     });
   });
 
+  it("records the name a renamed dashboard actually got, so a rebuilt agent does not use the old one", async () => {
+    mocks.findUnique.mockResolvedValue({
+      id: "s1",
+      messages: [
+        row("1", "user", "make an Ops dashboard"),
+        row("2", "tool_step", "", {
+          metadata: {
+            toolCallId: "t1",
+            toolName: "create_dashboard",
+            args: { name: "Ops" },
+            result: {
+              content: [{ type: "text", text: "Created dashboard" }],
+              details: {
+                kind: "resource_created",
+                resourceType: "dashboard",
+                resourceId: "d2",
+                name: "Ops (2)",
+                renamedFrom: "Ops",
+                created: true,
+              },
+            },
+            isError: false,
+          },
+        }),
+      ],
+    });
+
+    const context = await new SessionManager("s1").buildContext();
+
+    expect(outcomeOf(context[2])).toEqual({
+      status: "created",
+      resourceType: "dashboard",
+      resourceId: "d2",
+      name: "Ops (2)",
+      renamedFrom: "Ops",
+    });
+  });
+
   it("labels reused, declined, and failed tool outcomes honestly", async () => {
     const toolRow = (id: string, metadata: Record<string, unknown>) =>
       row(id, "tool_step", "", { metadata });
