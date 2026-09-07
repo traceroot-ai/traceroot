@@ -1,9 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useState, type ReactNode } from "react";
+import { ChevronRight, ExternalLink, Eye, EyeOff } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { CHART_TILE_ASPECT, DashboardMiniature } from "./dashboard-miniature";
 import type { DetectorPrompt, ResourceCardBody, ResourceCardModel } from "../lib/resource-card";
 
@@ -23,13 +28,18 @@ const WidgetChartPreview = dynamic(
 );
 
 /**
- * The receipt for a resource the agent just created, shown in the transcript
- * where the plain tool line would otherwise be.
+ * The card for a resource the agent created (or, marked proposed, one it
+ * wants to create), shown in the transcript where the plain tool line would
+ * otherwise be.
  *
- * It is a receipt, not a prompt: nothing here is actionable — no status badge
- * waiting on the user, no buttons. The panel is also the narrowest surface in
- * the app, so every string wraps and nothing is allowed to set the card's
- * width.
+ * The card IS the bubble: the resource itself — a widget's chart, a
+ * dashboard's miniature, a detector's prompt — comes first, and one footer row
+ * names it. The footer's title opens a definition panel with what the card
+ * would otherwise have to say up front (the spec chips, a description), so
+ * the picture is never pushed down by its own caption. Nothing here decides
+ * anything: a proposal's create/skip lives in the composer, not the card. The
+ * panel is also the narrowest surface in the app, so the footer truncates and
+ * the body wraps — nothing is allowed to set the card's width.
  */
 
 function Chips({ chips }: { chips: string[] }) {
@@ -99,33 +109,26 @@ function DetectorPromptBlock({ prompt }: { prompt: DetectorPrompt }) {
   );
 }
 
-function CardBody({ body, resourceId }: { body: ResourceCardBody; resourceId: string }) {
+/**
+ * The body: the resource itself, or null when there is nothing to picture —
+ * a widget with no chart to draw, a detector with no prompt to show, a
+ * dashboard with no tiles, an empty receipt. The chips that describe a
+ * widget or detector are not body; they live in the definition panel.
+ */
+function cardBody(body: ResourceCardBody, resourceId: string): ReactNode | null {
   switch (body.kind) {
     case "widget":
-      // The widget itself, under the chips that name its spec. A widget with
-      // no chart to draw — a trace feed, or a spec the schema rejects — is the
-      // chips alone, as before.
+      if (body.chart === null) return null;
       return (
-        <div className="space-y-1.5">
-          <Chips chips={body.chips} />
-          {body.chart !== null && (
-            <WidgetChartPreview
-              projectId={body.chart.projectId}
-              widgetId={resourceId}
-              spec={body.chart.spec}
-              rangeId={body.chart.range.id}
-            />
-          )}
-        </div>
+        <WidgetChartPreview
+          projectId={body.chart.projectId}
+          widgetId={resourceId}
+          spec={body.chart.spec}
+          rangeId={body.chart.range.id}
+        />
       );
     case "detector":
-      if (body.chips.length === 0 && body.prompt === null) return null;
-      return (
-        <div className="space-y-1.5">
-          <Chips chips={body.chips} />
-          {body.prompt !== null && <DetectorPromptBlock prompt={body.prompt} />}
-        </div>
-      );
+      return body.prompt === null ? null : <DetectorPromptBlock prompt={body.prompt} />;
     case "receipt":
       if (body.rows.length === 0) return null;
       return (
@@ -141,32 +144,82 @@ function CardBody({ body, resourceId }: { body: ResourceCardBody; resourceId: st
         </dl>
       );
     case "dashboard":
-      // The dashboard itself, shrunk. With no tiles — the transcript created
-      // no widgets, or the dashboard was reused and its placements are
-      // unknowable — there is nothing to shrink, and the card stands on its
-      // header (plus the description a reused one carries).
-      if (body.tiles.length === 0) return null;
-      return <DashboardMiniature tiles={body.tiles} />;
+      // With no tiles — the transcript created no widgets, or the dashboard
+      // was reused and its placements are unknowable — there is nothing to
+      // shrink, and the card stands on its footer (plus the description a
+      // reused one carries, in the definition panel).
+      return body.tiles.length === 0 ? null : <DashboardMiniature tiles={body.tiles} />;
   }
 }
 
+/** True when the body is a picture the footer can hide: a chart or a miniature. */
+function hasPreview(body: ResourceCardBody): boolean {
+  return (
+    (body.kind === "widget" && body.chart !== null) ||
+    (body.kind === "dashboard" && body.tiles.length > 0)
+  );
+}
+
+/** The chips a widget or detector is defined by; a receipt or dashboard has none. */
+function definitionChips(body: ResourceCardBody): string[] {
+  return body.kind === "widget" || body.kind === "detector" ? body.chips : [];
+}
+
+const iconActionClasses =
+  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground";
+
 export function ResourceCard({
   model,
-  footer,
+  proposed = false,
 }: {
   model: ResourceCardModel;
-  /** Rendered under the body. Only the pending variant passes anything here —
-   *  a receipt card stays free of affordances. */
-  footer?: ReactNode;
+  /** True on the card of a write the agent has proposed but not run: the
+   *  footer meta says so, since the card is otherwise the receipt's twin. */
+  proposed?: boolean;
 }) {
-  const body = <CardBody body={model.body} resourceId={model.resourceId} />;
+  const [definitionOpen, setDefinitionOpen] = useState(false);
+  const [previewHidden, setPreviewHidden] = useState(false);
+
+  const body = cardBody(model.body, model.resourceId);
+  const previewable = hasPreview(model.body);
+  const bodyShown = body !== null && !(previewable && previewHidden);
+
+  const chips = definitionChips(model.body);
+  const hasDefinition = chips.length > 0 || model.description !== undefined;
+
+  const meta = (proposed ? ["Proposed", ...model.meta] : model.meta).join(" · ");
+  const previewLabel = previewHidden ? "Show preview" : "Hide preview";
 
   return (
-    <Card className="max-w-full space-y-1.5 border-border/80 bg-muted/20 px-2.5 py-2">
-      <div className="flex items-start justify-between gap-2">
-        <span className="min-w-0 break-words text-xs font-medium text-foreground [overflow-wrap:anywhere]">
-          {model.title}
-        </span>
+    <Card className="max-w-full overflow-hidden border-border bg-card">
+      {bodyShown && <div className="px-2.5 py-2">{body}</div>}
+
+      <div
+        className={cn(
+          "flex items-center gap-1.5 px-2.5 py-1",
+          bodyShown && "border-t border-border",
+        )}
+      >
+        {hasDefinition ? (
+          <button
+            type="button"
+            aria-expanded={definitionOpen}
+            onClick={() => setDefinitionOpen((open) => !open)}
+            className="flex min-w-0 flex-1 items-center gap-1 text-left text-xs font-medium text-foreground hover:text-foreground/80"
+          >
+            <ChevronRight
+              className={cn(
+                "h-3 w-3 shrink-0 text-muted-foreground/60 transition-transform duration-200",
+                definitionOpen && "rotate-90",
+              )}
+            />
+            <span className="truncate">{model.title}</span>
+          </button>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+            {model.title}
+          </span>
+        )}
         {/* A fresh create needs no badge — the card itself is the receipt. A
             reused row is the one surprising outcome, so only that gets labeled. */}
         {!model.created && (
@@ -174,15 +227,57 @@ export function ResourceCard({
             Reused
           </Badge>
         )}
+        <span className="min-w-0 max-w-[45%] truncate text-[11px] text-muted-foreground/70">
+          {meta}
+        </span>
+        {(model.href !== null || previewable) && (
+          <TooltipProvider delayDuration={150}>
+            <div className="flex shrink-0 items-center">
+              {model.href !== null && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={model.href}
+                      aria-label={`Open ${model.resourceType}`}
+                      className={iconActionClasses}
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Open</TooltipContent>
+                </Tooltip>
+              )}
+              {previewable && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={previewLabel}
+                      className={cn(iconActionClasses, "p-0")}
+                      onClick={() => setPreviewHidden((hidden) => !hidden)}
+                    >
+                      {previewHidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{previewLabel}</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          </TooltipProvider>
+        )}
       </div>
-      <p className="break-words text-[11px] text-muted-foreground/70">{model.meta.join(" · ")}</p>
-      {model.description !== undefined && (
-        <p className="break-words text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
-          {model.description}
-        </p>
+
+      {hasDefinition && definitionOpen && (
+        <div className="space-y-1.5 border-t border-border px-2.5 py-2">
+          {model.description !== undefined && (
+            <p className="break-words text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+              {model.description}
+            </p>
+          )}
+          <Chips chips={chips} />
+        </div>
       )}
-      {body}
-      {footer}
     </Card>
   );
 }

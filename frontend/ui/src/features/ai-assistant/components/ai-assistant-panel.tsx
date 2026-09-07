@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
+import { PendingDecisionBar } from "./pending-decision-bar";
 import { SessionHistory } from "./session-history";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
@@ -117,6 +118,7 @@ export function AiAssistantPanel({
     currentSessionId,
     modelSelection,
     hasPendingDecision,
+    pendingDecision,
     setHistoryOpen,
     setModelSelection,
     handleSend,
@@ -252,7 +254,17 @@ export function AiAssistantPanel({
             sessionStreaming={isStreaming}
             projectId={projectId}
             retentionDays={projectId ? retentionDays : undefined}
-            onDecision={handleDecision}
+          />
+        )}
+
+        {/* A parked proposal is decided here, at the composer, not on its
+            card: create/skip are the reply. Keyed by the decision so a
+            superseding proposal re-arms the buttons in place. */}
+        {pendingDecision !== null && (
+          <PendingDecisionBar
+            key={pendingDecision.decisionId}
+            decision={pendingDecision}
+            onDecide={handleDecision}
           />
         )}
 
@@ -264,7 +276,7 @@ export function AiAssistantPanel({
           disabled={!projectId || !hasModels}
           workspaceId={workspaceId}
           // While a proposal awaits a decision, a typed reply revises it.
-          placeholder={hasPendingDecision ? "Reply to revise, or use the buttons" : undefined}
+          placeholder={hasPendingDecision ? "Reply to revise" : undefined}
           actions={
             isStreaming && (
               <button

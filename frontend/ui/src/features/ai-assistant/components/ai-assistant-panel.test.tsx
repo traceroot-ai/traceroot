@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import type { PendingDecision } from "../hooks/use-ai-chat";
 
 const mocks = vi.hoisted(() => ({
   projectData: undefined as { workspace_id: string } | undefined,
@@ -24,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   messages: [] as Array<{ id: string; role: string; content: string }>,
   isStreaming: false,
   hasPendingDecision: false,
+  pendingDecision: null as PendingDecision | null,
+  handleDecision: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -44,6 +47,8 @@ vi.mock("./ai-chat-context", () => ({
     messages: mocks.messages,
     isStreaming: mocks.isStreaming,
     hasPendingDecision: mocks.hasPendingDecision,
+    pendingDecision: mocks.pendingDecision,
+    handleDecision: mocks.handleDecision,
     sessions: [],
     historyOpen: false,
     currentSessionId: null,
@@ -77,6 +82,8 @@ afterEach(() => {
   mocks.messages = [];
   mocks.isStreaming = false;
   mocks.hasPendingDecision = false;
+  mocks.pendingDecision = null;
+  mocks.handleDecision.mockReset();
   mocks.onClose.mockReset();
 });
 
@@ -134,15 +141,45 @@ describe("AiAssistantPanel", () => {
 
     render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
 
-    expect(screen.getByTestId("message-input").textContent).toBe(
-      "Reply to revise, or use the buttons",
-    );
+    expect(screen.getByTestId("message-input").textContent).toBe("Reply to revise");
   });
 
   it("keeps the default placeholder when nothing is pending", () => {
     render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
 
     expect(screen.getByTestId("message-input").textContent).toBe("");
+  });
+
+  it("puts the approval bar for a parked proposal directly above the composer", () => {
+    mocks.hasPendingDecision = true;
+    mocks.pendingDecision = {
+      toolCallId: "tc1",
+      decisionId: "d1",
+      resourceType: "widget",
+      title: "Tokens by model",
+    };
+    mocks.handleDecision.mockResolvedValue(true);
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    const create = screen.getByRole("button", { name: "Create widget" });
+    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
+    const input = screen.getByTestId("message-input");
+    expect(create.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(create);
+    expect(mocks.handleDecision).toHaveBeenCalledExactlyOnceWith({
+      toolCallId: "tc1",
+      decisionId: "d1",
+      action: "create",
+    });
+  });
+
+  it("shows no approval bar when nothing is parked", () => {
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.queryByRole("button", { name: /^Create / })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
   });
 
   it("lets the no-models gate win over the emptyState", () => {

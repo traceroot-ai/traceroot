@@ -1425,4 +1425,46 @@ describe("useAiChat revision by chat", () => {
     });
     expect(result.current.hasPendingDecision).toBe(false);
   });
+
+  it("exposes the active session's parked proposal as pendingDecision", async () => {
+    const { result } = await parkPendingCall();
+    expect(result.current.pendingDecision).toEqual({
+      toolCallId: "tc1",
+      decisionId: "d1",
+      resourceType: "widget",
+      title: "Tokens",
+    });
+
+    // A background session's parked call is not the composer's to decide.
+    await act(async () => {
+      await result.current.handleSelectSession(sessionB);
+    });
+    expect(result.current.pendingDecision).toBeNull();
+    expect(result.current.hasPendingDecision).toBe(false);
+
+    await act(async () => {
+      await result.current.handleSelectSession({ ...sessionB, id: "A" });
+    });
+    expect(result.current.pendingDecision?.decisionId).toBe("d1");
+  });
+
+  it("clears pendingDecision once the parked call is decided", async () => {
+    const { result } = await parkPendingCall();
+    await act(async () => {
+      await result.current.handleDecision({ toolCallId: "tc1", decisionId: "d1", action: "skip" });
+    });
+    expect(result.current.pendingDecision).toBeNull();
+    expect(result.current.hasPendingDecision).toBe(false);
+  });
+
+  it("keeps the same pendingDecision object across a streamed text delta", async () => {
+    const { result } = await parkPendingCall();
+    const before = result.current.pendingDecision;
+    sse.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "Shall I?" },
+    });
+    await waitFor(() => expect(result.current.messages.at(-1)?.content).toContain("Shall I?"));
+    expect(result.current.pendingDecision).toBe(before);
+  });
 });
