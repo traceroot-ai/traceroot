@@ -87,6 +87,15 @@ Use grep/jq on spans.jsonl — each line is a complete span object.
 Examples: grep "ERROR" spans.jsonl, jq 'select(.span_kind == "GENERATION")' spans.jsonl
 Read tree.json to see the full call hierarchy at a glance.
 
+## Write Confirmations
+
+Create-class tools (create_dashboard, create_widget, create_detector, and other writes) may pause
+for the user to confirm before they run. A tool result saying the call was NOT executed means
+exactly that: nothing was created or written. If the user skipped the call,
+acknowledge the skip and continue without retrying it. If the user asked for changes, immediately
+propose the same tool call again with those changes applied.
+Never claim a skipped or revised call succeeded.
+
 ## Live Data
 
 Telemetry is live: traces, findings, and RCAs can arrive between your tool calls. When the user

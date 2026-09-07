@@ -188,6 +188,69 @@ describe("runAgentStream", () => {
     await running;
   });
 
+  it("stamps proposal_declined details onto a declined call's tool result", async () => {
+    const decisions = new PendingDecisions();
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      const { decisionId, outcome } = park(decisions, "rs-7");
+      decisions.decide(decisionId, "rs-7", { action: "revise", text: "use p95" });
+      await outcome;
+      // What the loop emits for a blocked call: error result, empty details.
+      handler.onEvent({
+        type: "tool_execution_start",
+        toolCallId: "tc-1",
+        toolName: "create_detector",
+        args: {},
+      } as unknown as AgentEvent);
+      handler.onEvent({
+        type: "tool_execution_end",
+        toolCallId: "tc-1",
+        toolName: "create_detector",
+        result: { content: [{ type: "text", text: "declined" }], details: {} },
+        isError: true,
+      } as unknown as AgentEvent);
+      handler.onDone();
+    });
+
+    const stream = fakeStream();
+    const opts = options("rs-7", decisions);
+    await runAgentStream(stream, opts);
+
+    const declinedDetails = { kind: "proposal_declined", outcome: "revised", text: "use p95" };
+    const end = stream.events.find((e) => e.event === "tool_execution_end");
+    expect(JSON.parse(end!.data).result.details).toEqual(declinedDetails);
+    // The persisted row carries the same details, so reloaded history can
+    // label the outcome without inference.
+    expect(opts.sessionManager.appendMessage).toHaveBeenCalledWith(
+      "tool_step",
+      "",
+      expect.objectContaining({
+        result: expect.objectContaining({ details: declinedDetails }),
+        isError: true,
+      }),
+      undefined,
+    );
+  });
+
+  it("leaves an ordinary tool result's details untouched", async () => {
+    const decisions = new PendingDecisions();
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onEvent({
+        type: "tool_execution_end",
+        toolCallId: "tc-9",
+        toolName: "list_traces",
+        result: { content: [{ type: "text", text: "ok" }], details: { rows: 3 } },
+        isError: false,
+      } as unknown as AgentEvent);
+      handler.onDone();
+    });
+
+    const stream = fakeStream();
+    await runAgentStream(stream, options("rs-8", decisions));
+
+    const end = stream.events.find((e) => e.event === "tool_execution_end");
+    expect(JSON.parse(end!.data).result.details).toEqual({ rows: 3 });
+  });
+
   it("sends heartbeat comments through the stream while a decision is parked", async () => {
     vi.useFakeTimers();
     const decisions = new PendingDecisions();

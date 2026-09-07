@@ -45,6 +45,44 @@ describe("mapDbMessages", () => {
     expect(msg.toolStep?.isError).toBe(true);
   });
 
+  it("labels a persisted declined step from its proposal_declined details", () => {
+    const [skippedMsg, revisedMsg] = mapDbMessages([
+      {
+        ...base,
+        id: "row1",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t1",
+          toolName: "create_widget",
+          args: {},
+          result: { content: [], details: { kind: "proposal_declined", outcome: "skipped" } },
+          isError: true,
+        },
+      },
+      {
+        ...base,
+        id: "row2",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t2",
+          toolName: "create_widget",
+          args: {},
+          result: {
+            content: [],
+            details: { kind: "proposal_declined", outcome: "revised", text: "use p95" },
+          },
+          isError: true,
+        },
+      },
+    ]);
+    expect(skippedMsg.toolStep?.skipped).toBe(true);
+    expect(skippedMsg.toolStep?.revisedText).toBeUndefined();
+    expect(revisedMsg.toolStep?.revisedText).toBe("use p95");
+    expect(revisedMsg.toolStep?.skipped).toBeFalsy();
+  });
+
   it("tolerates a tool_step row with missing metadata", () => {
     const [msg] = mapDbMessages([
       { ...base, id: "row1", role: "tool_step", content: "", metadata: null },

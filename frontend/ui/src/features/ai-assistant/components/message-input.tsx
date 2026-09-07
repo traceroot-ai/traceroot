@@ -11,6 +11,8 @@ interface MessageInputProps {
   disabled?: boolean;
   workspaceId?: string;
   actions?: ReactNode;
+  /** Overrides the default hint — e.g. while a proposal awaits a decision. */
+  placeholder?: string;
 }
 
 export function MessageInput({
@@ -20,6 +22,7 @@ export function MessageInput({
   disabled,
   workspaceId,
   actions,
+  placeholder,
 }: MessageInputProps) {
   const [input, setInput] = useState("");
 
@@ -45,7 +48,7 @@ export function MessageInput({
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Ask me about your traces, errors, or performance."
+        placeholder={placeholder ?? "Ask me about your traces, errors, or performance."}
         disabled={disabled || noModelSelected}
         rows={3}
         className="w-full resize-none rounded-none border border-input bg-transparent px-3 py-2 text-[13px] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"

@@ -1,5 +1,5 @@
 import type { QueryKey } from "@tanstack/react-query";
-import { resourceCreatedDetails } from "./resource-navigation";
+import { resourceCreatedDetails } from "./resource-created";
 
 /** An optional scoping id from the payload, kept only when it is really a string. */
 function stringId(value: unknown): string | undefined {
