@@ -15,6 +15,7 @@ from db.clickhouse.query_settings import (
 )
 from rest.schemas.dashboards import (
     AggName,
+    QueryWindow,
     WidgetFilter,
     WidgetQueryRequest,
     WidgetQueryResponse,
@@ -58,9 +59,18 @@ def test_unknown_display_rejected():
         WidgetSpec.model_validate(make_spec(display={"type": "gauge"}))
 
 
-def test_request_requires_start_and_end_time():
+def test_request_accepts_a_spec_alone():
+    # The window is optional at the schema level: a bare spec means the site's
+    # default window, a preset names one, explicit bounds give one. Pairing and
+    # exclusivity are the route's job (rest.services.date_presets.resolve_window),
+    # so every query surface applies the same rules.
+    request = WidgetQueryRequest.model_validate({"spec": make_spec()})
+    assert (request.range, request.start_time, request.end_time) == (None, None, None)
+
+
+def test_request_rejects_an_unknown_range_id():
     with pytest.raises(ValidationError):
-        WidgetQueryRequest.model_validate({"spec": make_spec()})
+        WidgetQueryRequest.model_validate({"spec": make_spec(), "range": "2w"})
 
 
 # --- Drift-guard tests ---
@@ -378,6 +388,14 @@ def test_contains_filter_escapes_percent():
     assert params["f0"] == "%50\\%%"
 
 
+WINDOW = QueryWindow(
+    start_time=datetime(2026, 6, 1, tzinfo=UTC),
+    end_time=datetime(2026, 6, 8, tzinfo=UTC),
+    range=None,
+    clamped=False,
+)
+
+
 def test_bucket_timestamp_serializes_as_iso8601():
     """WidgetQueryResponse rows with datetime values must serialize to ISO-8601.
 
@@ -388,6 +406,7 @@ def test_bucket_timestamp_serializes_as_iso8601():
     response = WidgetQueryResponse(
         columns=["bucket", "value"],
         rows=[[datetime(2026, 6, 1), 1.0]],
+        window=WINDOW,
     )
     encoded = jsonable_encoder(response)
     assert encoded["rows"][0][0] == "2026-06-01T00:00:00"
@@ -395,7 +414,7 @@ def test_bucket_timestamp_serializes_as_iso8601():
 
 def test_empty_rows_validates_and_serializes():
     """WidgetQueryResponse with no rows is valid and encodes to rows: []."""
-    response = WidgetQueryResponse(columns=["value"], rows=[])
+    response = WidgetQueryResponse(columns=["value"], rows=[], window=WINDOW)
     encoded = jsonable_encoder(response)
     assert encoded["rows"] == []
 

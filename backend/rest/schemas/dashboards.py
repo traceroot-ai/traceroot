@@ -75,12 +75,47 @@ class WidgetSpec(_StrictModel):
     display: WidgetDisplay
 
 
+# The preset ids a window may be described with; the durations live in
+# rest.services.date_presets (a test keeps this Literal equal to that table).
+RangeId = Literal["30m", "1h", "3h", "6h", "1d", "7d", "14d", "30d", "60d", "90d"]
+
+
 class WidgetQueryRequest(_StrictModel):
-    """Envelope that pairs a WidgetSpec with the dashboard time window."""
+    """Envelope that pairs a WidgetSpec with the time window to answer it for.
+
+    The window is either a ``range`` preset (the site picker's ids — how the
+    agent and the CLI describe one) or explicit ``start_time``/``end_time``
+    (how the dashboard page and the card previews do). Neither means the
+    site's default window; both, or one bound alone, is rejected. The rules
+    live in ``rest.services.date_presets.resolve_window`` so every query
+    surface applies the same ones.
+    """
 
     spec: WidgetSpec
+    range: RangeId | None = Field(
+        default=None,
+        description=(
+            "A preset window ending now, by the site picker's id. Give this or "
+            "explicit start_time/end_time; neither means the site's 24-hour default."
+        ),
+    )
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+
+
+class QueryWindow(BaseModel):
+    """The window a query was actually answered for.
+
+    ``range`` is the preset id the caller gave (or the default's, when they
+    gave nothing) and None for explicit bounds. ``clamped`` is True when the
+    plan's retention pulled ``start_time`` forward — the honest reason a
+    caller's window and the answered one differ.
+    """
+
     start_time: datetime
     end_time: datetime
+    range: str | None
+    clamped: bool
 
 
 class WidgetQueryResponse(BaseModel):
@@ -89,3 +124,4 @@ class WidgetQueryResponse(BaseModel):
     columns: list[str]
     rows: list[list[Any]]
     meta: dict[str, Any] = Field(default_factory=dict)
+    window: QueryWindow

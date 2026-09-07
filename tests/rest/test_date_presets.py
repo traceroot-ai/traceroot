@@ -1,9 +1,11 @@
 """Tests for the query-window presets shared by the widget query surfaces."""
 
 from datetime import UTC, datetime, timedelta
+from typing import get_args
 
 import pytest
 
+from rest.schemas.dashboards import RangeId
 from rest.services.date_presets import (
     DEFAULT_RANGE_ID,
     RANGE_PRESET_MINUTES,
@@ -29,6 +31,12 @@ def test_preset_table_mirrors_the_ui_durations_id_for_id():
         "90d": 129600,
     }
     assert DEFAULT_RANGE_ID == "1d"
+
+
+def test_request_schema_literal_matches_the_table():
+    # The request schema advertises the ids as an enum (so generated tool and
+    # CLI schemas show them); it must never drift from the table that resolves them.
+    assert set(get_args(RangeId)) == set(RANGE_PRESET_MINUTES)
 
 
 def test_range_resolves_to_a_window_ending_now():
