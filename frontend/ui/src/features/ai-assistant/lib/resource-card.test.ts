@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
-import { DISPLAY_TYPES } from "@/features/dashboards/types";
 import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER } from "@/lib/date-filter";
 import { dateFilterStorageKey } from "@/lib/date-filter-storage";
 import {
@@ -10,7 +9,7 @@ import {
   resourceCardModel,
   suppressedWidgetStepIds,
 } from "./resource-card";
-import type { MiniatureTile } from "./resource-card";
+import type { PreviewTile } from "./resource-card";
 import type { AIMessage, ToolCallStep } from "../types";
 
 function step(overrides: {
@@ -152,11 +151,9 @@ describe("resourceCardModel", () => {
       details: created("widget", "w2", { projectId: "p1", dashboardId: "db1" }),
     });
     const widgets = new Map([["db1", [widgetStep(), second]]]);
-    const chart = {
-      projectId: "p1",
-      spec: { ...WIDGET_SPEC, filters: [] },
-      range: DEFAULT_DATE_FILTER,
-    };
+    // The raw spec, not the parsed one: the preview's tile body parses it
+    // itself, exactly as the dashboard's does.
+    const widget = { type: "query", spec: WIDGET_SPEC };
     expect(resourceCardModel(dashboard, widgets)).toEqual({
       resourceType: "dashboard",
       resourceId: "db1",
@@ -167,8 +164,28 @@ describe("resourceCardModel", () => {
       body: {
         kind: "dashboard",
         tiles: [
-          { id: "w1", title: "Tokens by model", glyph: "bar", chart, x: 0, y: 0, w: 6, h: 4 },
-          { id: "w2", title: "Cost", glyph: "bar", chart, x: 6, y: 0, w: 6, h: 4 },
+          {
+            id: "w1",
+            title: "Tokens by model",
+            projectId: "p1",
+            widget,
+            range: DEFAULT_DATE_FILTER,
+            x: 0,
+            y: 0,
+            w: 6,
+            h: 4,
+          },
+          {
+            id: "w2",
+            title: "Cost",
+            projectId: "p1",
+            widget,
+            range: DEFAULT_DATE_FILTER,
+            x: 6,
+            y: 0,
+            w: 6,
+            h: 4,
+          },
         ],
       },
     });
@@ -225,28 +242,6 @@ describe("resourceCardModel", () => {
       href: null,
       meta: ["Workspace"],
       body: { kind: "receipt", rows: [{ label: "id", value: "ws1" }] },
-    });
-  });
-
-  it("caps an oversized id wherever the card prints it", () => {
-    // The ids come from the payload, so a card must cap them like any other
-    // printed value — the identity it reports back stays whole.
-    const longProject = "p".repeat(200);
-    const longWorkspace = "w".repeat(200);
-    const project = step({
-      toolName: "create_project",
-      args: {},
-      details: created("project", longProject, { workspaceId: longWorkspace }),
-    });
-    const card = resourceCardModel(project);
-    expect(card?.resourceId).toBe(longProject);
-    expect(card?.title).toBe(`${"p".repeat(120)}\u2026`);
-    expect(card?.body).toEqual({
-      kind: "receipt",
-      rows: [
-        { label: "workspace", value: `${"w".repeat(64)}\u2026` },
-        { label: "id", value: `${"p".repeat(64)}\u2026` },
-      ],
     });
   });
 
@@ -344,6 +339,28 @@ describe("resourceCardModel", () => {
     });
   });
 
+  it("caps an oversized id wherever the card prints it", () => {
+    // The ids come from the payload, so a card must cap them like any other
+    // printed value — the identity it reports back stays whole.
+    const longProject = "p".repeat(200);
+    const longWorkspace = "w".repeat(200);
+    const project = step({
+      toolName: "create_project",
+      args: {},
+      details: created("project", longProject, { workspaceId: longWorkspace }),
+    });
+    const card = resourceCardModel(project);
+    expect(card?.resourceId).toBe(longProject);
+    expect(card?.title).toBe(`${"p".repeat(120)}\u2026`);
+    expect(card?.body).toEqual({
+      kind: "receipt",
+      rows: [
+        { label: "workspace", value: `${"w".repeat(64)}\u2026` },
+        { label: "id", value: `${"p".repeat(64)}\u2026` },
+      ],
+    });
+  });
+
   it("caps a runaway prompt so the card cannot flood the transcript", () => {
     const detector = step({
       toolName: "create_detector",
@@ -392,6 +409,73 @@ describe("resourceCardModel", () => {
     });
   });
 
+  it("titles the receipt with the name the resource was actually created under", () => {
+    // The args carry the name the model asked for; the details carry the one
+    // the service used. When they differ (a suffixed dashboard) the card
+    // must show the real one, or the reader would look for a dashboard that
+    // does not exist.
+    const renamed = step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      details: created("dashboard", "db2", {
+        projectId: "p1",
+        name: "Latency overview (2)",
+        renamedFrom: "Latency overview",
+      }),
+    });
+    const model = resourceCardModel(renamed);
+    expect(model?.title).toBe("Latency overview (2)");
+    expect(model?.created).toBe(true);
+    expect(model?.description).toBe(
+      'Renamed from "Latency overview": a dashboard with that name already existed.',
+    );
+    // Still a created dashboard: it keeps its preview and its link.
+    expect(model?.body).toEqual({ kind: "dashboard", tiles: [] });
+    expect(model?.href).toBe("/projects/p1/dashboard/db2");
+  });
+
+  it("prefers the details' name over the args' for every resource type", () => {
+    const model = resourceCardModel(
+      step({
+        toolName: "create_widget",
+        args: { title: "Tokens by model", type: "query", spec: WIDGET_SPEC },
+        details: created("widget", "w1", { projectId: "p1", dashboardId: "db1", name: "Tokens" }),
+      }),
+    );
+    expect(model?.title).toBe("Tokens");
+  });
+
+  it("falls back to the args' name when the details carry none or an unusable one", () => {
+    expect(resourceCardModel(widgetStep())?.title).toBe("Tokens by model");
+    const blank = step({
+      toolName: "create_widget",
+      args: { title: "Tokens by model" },
+      details: created("widget", "w1", { name: "   " }),
+    });
+    expect(resourceCardModel(blank)?.title).toBe("Tokens by model");
+    const wrongType = step({
+      toolName: "create_widget",
+      args: { title: "Tokens by model" },
+      details: created("widget", "w1", { name: { oops: true } }),
+    });
+    expect(resourceCardModel(wrongType)?.title).toBe("Tokens by model");
+  });
+
+  it("adds no rename note when renamedFrom is missing or unusable", () => {
+    const plain = step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview", description: "Where the time goes" },
+      details: created("dashboard", "db1", { name: "Latency overview" }),
+    });
+    expect(resourceCardModel(plain)?.description).toBeUndefined();
+    const junk = step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      details: created("dashboard", "db1", { renamedFrom: 7 }),
+    });
+    expect(resourceCardModel(junk)?.description).toBeUndefined();
+  });
+
   it("marks a reused resource as not created", () => {
     const dashboard = step({
       toolName: "create_dashboard",
@@ -401,7 +485,7 @@ describe("resourceCardModel", () => {
     expect(resourceCardModel(dashboard)?.created).toBe(false);
   });
 
-  it("gives a reused dashboard no miniature — transcript placements would lie", () => {
+  it("gives a reused dashboard no preview — transcript placements would lie", () => {
     // The real grid laid this dashboard out before the transcript existed, so
     // folding the transcript's widgets through an empty layout would draw
     // positions the grid never assigned. The card keeps the count and the
@@ -484,13 +568,17 @@ describe("resourceCardModel", () => {
   });
 });
 
-describe("dashboard miniature tiles", () => {
-  function widget(id: string, args: Record<string, unknown>): ToolCallStep {
+describe("dashboard preview tiles", () => {
+  function widget(
+    id: string,
+    args: Record<string, unknown> | string,
+    extra: Record<string, unknown> = { projectId: "p1" },
+  ): ToolCallStep {
     return step({
       toolCallId: `tc-${id}`,
       toolName: "create_widget",
       args,
-      details: created("widget", id, { projectId: "p1", dashboardId: "db1" }),
+      details: created("widget", id, { dashboardId: "db1", ...extra }),
     });
   }
 
@@ -503,7 +591,7 @@ describe("dashboard miniature tiles", () => {
     return resourceCardModel(dashboard, new Map([["db1", widgets]]));
   }
 
-  function tilesOf(widgets: ToolCallStep[]): MiniatureTile[] {
+  function tilesOf(widgets: ToolCallStep[]): PreviewTile[] {
     const body = dashboardModel(widgets)?.body;
     if (body?.kind !== "dashboard") throw new Error("expected a dashboard body");
     return body.tiles;
@@ -514,11 +602,17 @@ describe("dashboard miniature tiles", () => {
   const feed = (id: string, title: string) =>
     widget(id, { title, type: "trace_feed", spec: { filters: [], limit: 10 } });
 
+  it("caps an oversized id standing in for a missing tile title", () => {
+    const longId = "w".repeat(200);
+    const tiles = tilesOf([widget(longId, { type: "query", spec: WIDGET_SPEC })]);
+    expect(tiles[0].title).toBe(`${"w".repeat(64)}\u2026`);
+  });
+
   it("places tiles exactly as the service's placement function would", () => {
     const tiles = tilesOf([query("w1", "p95"), feed("w2", "Recent"), query("w3", "Errors")]);
 
     // The reference layout, folded through the real placement function the
-    // widget create route uses — the miniature must agree with it entry by
+    // widget create route uses — the preview must agree with it entry by
     // entry, id and geometry both.
     let layout: unknown = [];
     for (const w of [
@@ -536,26 +630,29 @@ describe("dashboard miniature tiles", () => {
     expect(tiles[2]).toMatchObject({ x: 0, y: 6, w: 6, h: 4 });
   });
 
-  it("caps an oversized id standing in for a missing tile title", () => {
-    const longId = "w".repeat(200);
-    const tiles = tilesOf([widget(longId, { type: "query", spec: WIDGET_SPEC })]);
-    expect(tiles[0].title).toBe(`${"w".repeat(64)}\u2026`);
+  it("hands each tile its widget as the real tile body takes it: type and raw spec", () => {
+    const [chart] = tilesOf([query("w1", "p95", "bar")]);
+    expect(chart).toMatchObject({
+      projectId: "p1",
+      widget: { type: "query", spec: { ...WIDGET_SPEC, display: { type: "bar" } } },
+    });
+    const [list] = tilesOf([feed("w2", "Recent")]);
+    expect(list).toMatchObject({
+      projectId: "p1",
+      widget: { type: "trace_feed", spec: { filters: [], limit: 10 } },
+    });
   });
 
-  it("gives every display type its own glyph and a feed its list glyph", () => {
-    for (const display of DISPLAY_TYPES) {
-      expect(tilesOf([query("w1", "t", display)])[0].glyph).toBe(display);
-    }
-    expect(tilesOf([feed("w1", "Recent")])[0].glyph).toBe("trace_feed");
-  });
-
-  it("falls back to a neutral tile for a display it does not know", () => {
+  it("leaves a spec the schema would reject to the tile body, which shows the dashboard's own message", () => {
     const odd = widget("w1", {
       title: "t",
       type: "query",
       spec: { ...WIDGET_SPEC, display: { type: "sparkline" } },
     });
-    expect(tilesOf([odd])[0].glyph).toBe("unknown");
+    expect(tilesOf([odd])[0].widget).toEqual({
+      type: "query",
+      spec: { ...WIDGET_SPEC, display: { type: "sparkline" } },
+    });
   });
 
   it("shows a widget once even when its create call was replayed", () => {
@@ -564,17 +661,13 @@ describe("dashboard miniature tiles", () => {
     expect(tiles[0]).toMatchObject({ id: "w1", title: "p95" });
   });
 
-  it("tiles a widget whose arguments did not survive, at a chart's size", () => {
-    const unreadable = step({
-      toolName: "create_widget",
-      args: "…elided…",
-      details: created("widget", "w1", { dashboardId: "db1" }),
-    });
-    expect(tilesOf([unreadable])[0]).toEqual({
+  it("tiles a widget whose arguments did not survive, at a chart's size with an empty spec", () => {
+    expect(tilesOf([widget("w1", "…elided…")])[0]).toEqual({
       id: "w1",
       title: "w1",
-      glyph: "unknown",
-      chart: null,
+      projectId: "p1",
+      widget: { type: "query", spec: {} },
+      range: DEFAULT_DATE_FILTER,
       x: 0,
       y: 0,
       w: 6,
@@ -582,28 +675,18 @@ describe("dashboard miniature tiles", () => {
     });
   });
 
-  it("carries the live query behind a chart tile — project and parsed spec", () => {
-    const [tileOf] = tilesOf([query("w1", "p95")]);
-    expect(tileOf.chart).toEqual({
-      projectId: "p1",
-      spec: { ...WIDGET_SPEC, filters: [], display: { type: "line" } },
-      range: DEFAULT_DATE_FILTER,
-    });
+  it("skips a widget whose details name no project, keeping the tiles after it in place", () => {
+    // Nothing could be queried for it. The real grid still placed it, so
+    // the next widget lands where it really did — not in the skipped slot.
+    const tiles = tilesOf([widget("w1", { title: "Lost" }, {}), query("w2", "p95")]);
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0]).toMatchObject({ id: "w2", x: 6, y: 0 });
   });
 
-  it("gives a feed tile and an unparseable spec no query to run", () => {
-    expect(tilesOf([feed("w1", "Recent")])[0].chart).toBeNull();
-    const odd = widget("w2", {
-      title: "t",
-      type: "query",
-      spec: { ...WIDGET_SPEC, display: { type: "sparkline" } },
-    });
-    expect(tilesOf([odd])[0].chart).toBeNull();
-  });
-
-  it("labels the card's window only when a tile will chart live data", () => {
+  it("labels the card's window whenever a tile will query it — a feed included", () => {
     expect(dashboardModel([query("w1", "p95")])?.meta).toContain("Last 24 hours");
-    expect(dashboardModel([feed("w1", "Recent")])?.meta).not.toContain("Last 24 hours");
+    expect(dashboardModel([feed("w1", "Recent")])?.meta).toContain("Last 24 hours");
+    expect(dashboardModel([])?.meta).not.toContain("Last 24 hours");
   });
 
   it("has no tiles when the transcript created no widgets in the dashboard", () => {
@@ -703,7 +786,7 @@ describe("suppressedWidgetStepIds", () => {
     expect(suppressed).toEqual(new Set(["tc1"]));
   });
 
-  it("suppresses every replay of a create the miniature already draws", () => {
+  it("suppresses every replay of a create the preview already draws", () => {
     const suppressed = suppressedWidgetStepIds([
       entry("tc0", dashboardStep()),
       entry("tc1", widgetStep({}, "tc1")),
@@ -713,7 +796,7 @@ describe("suppressedWidgetStepIds", () => {
   });
 
   it("keeps a widget's card when its dashboard was reused, not created", () => {
-    // A reused dashboard's card has no miniature, so the widget cards are the
+    // A reused dashboard's card has no preview, so the widget cards are the
     // only true receipt for the writes and must not be suppressed under it.
     const reused = step({
       toolName: "create_dashboard",
@@ -800,27 +883,22 @@ describe("pendingCardModel", () => {
     });
   });
 
+  it("previews no chart for a trace-feed proposal, whatever its spec parses as", () => {
+    // The guard keys on the declared type, not on whether the spec happens to
+    // parse: a feed handed a perfectly valid query spec still charts nothing.
+    const model = pendingCardModel(
+      runningStep("create_widget", { title: "Recent", type: "trace_feed", spec: WIDGET_SPEC }),
+      "p1",
+    );
+    expect(model?.body).toMatchObject({ kind: "widget", chart: null });
+  });
+
   it("keeps the chips but drops the chart when the spec fails the schema", () => {
     const model = pendingCardModel(
       runningStep("create_widget", { title: "Broken", type: "query", spec: { view: "spans" } }),
       "p1",
     );
     expect(model?.body).toEqual({ kind: "widget", chips: ["view spans"], chart: null });
-    expect(model?.meta).toEqual(["Widget"]);
-  });
-
-  it("previews no chart for a trace-feed proposal, whatever its spec parses as", () => {
-    // A feed proposal can carry a spec the chart schema accepts; the write
-    // would still be rejected, so the card must not draw a chart for it.
-    const model = pendingCardModel(
-      runningStep("create_widget", {
-        title: "Recent errors",
-        type: "trace_feed",
-        spec: WIDGET_SPEC,
-      }),
-      "p1",
-    );
-    expect(model?.body).toMatchObject({ kind: "widget", chart: null });
     expect(model?.meta).toEqual(["Widget"]);
   });
 
@@ -1041,7 +1119,7 @@ describe("meta window label follows the site's stored range", () => {
     expect(resourceCardModel(widgetStep())?.meta).toEqual(["Widget", "Last 7 days"]);
   });
 
-  it("labels a dashboard miniature with the stored range of its tiles' project", () => {
+  it("labels a dashboard preview with the stored range of its tiles' project", () => {
     stubStoredRange("p1", "7d");
     const dashboard = step({
       toolName: "create_dashboard",
