@@ -320,6 +320,7 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/workspaces": {"get": "list_workspaces", "post": "create_workspace"},
     "/api/v1/public/dashboards": {"get": "list_dashboards", "post": "create_dashboard"},
     "/api/v1/public/dashboards/{dashboard_id}": {"get": "get_dashboard"},
+    "/api/v1/public/dashboards/{dashboard_id}/data": {"get": "get_dashboard_data"},
     "/api/v1/public/alerts": {"get": "list_alerts", "post": "create_alert"},
     "/api/v1/public/alerts/{alert_id}": {"get": "get_alert"},
     "/api/v1/public/widgets": {"post": "create_widget"},
@@ -418,6 +419,7 @@ def test_x_tool_enabled_set_and_shape():
         "create_widget",
         "create_alert",
         "run_widget_query",
+        "get_dashboard_data",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
@@ -439,6 +441,7 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/detectors/traces/{trace_id}/finding",
     "/api/v1/public/dashboards",
     "/api/v1/public/dashboards/{dashboard_id}",
+    "/api/v1/public/dashboards/{dashboard_id}/data",
     "/api/v1/public/alerts",
     "/api/v1/public/alerts/{alert_id}",
 ]

@@ -11,6 +11,7 @@ through the shared internal read proxy, which owns the passthrough (400/403/
 404) and fail-closed (503) rules. Ids are never logged.
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -20,10 +21,18 @@ from pydantic import ValidationError
 
 from rest.retention import clamp_retention_window
 from rest.routers.internal_read_proxy import post_internal_read, service_error
-from rest.schemas.dashboards import QueryWindow, WidgetQueryRequest, WidgetQueryResponse
+from rest.schemas.dashboards import (
+    QueryWindow,
+    WidgetQueryRequest,
+    WidgetQueryResponse,
+    WidgetSpec,
+)
 from rest.schemas.public import (
+    DashboardDataResponse,
     DashboardDetail,
     DashboardListItem,
+    DashboardSummary,
+    DashboardWidgetData,
     DashboardWidgetItem,
     PublicDashboardListResponse,
 )
@@ -141,6 +150,46 @@ def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
+def _resolve_window_for_plan(
+    range_id: str | None,
+    start_time: datetime | None,
+    end_time: datetime | None,
+    billing_plan: str,
+) -> tuple[datetime, datetime, QueryWindow]:
+    """Resolve a caller's window description and clamp it to the plan's retention.
+
+    Args:
+        range_id (str | None): A preset id, or None for explicit bounds/default.
+        start_time (datetime | None): Explicit lower bound, if any.
+        end_time (datetime | None): Explicit upper bound, if any.
+        billing_plan (str): The plan whose retention bounds the window.
+
+    Returns:
+        tuple[datetime, datetime, QueryWindow]: The bounds to query with (the
+            start pulled to the retention cutoff when it fell before it) and
+            the window to echo, with ``clamped`` set when that happened.
+
+    Raises:
+        HTTPException: 422 when the window description is invalid.
+    """
+    try:
+        start, end, resolved_id = resolve_window(range_id, start_time, end_time)
+    except WindowSpecError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
+    # Retention gate: clamp the start to the plan's cutoff before any
+    # ClickHouse scan, so aggregates can't reach past the retention window
+    # (mirrors the list endpoints; unlimited plans pass through unchanged).
+    clamped_start, clamped_end = clamp_retention_window(billing_plan, start, end)
+    assert clamped_start is not None and clamped_end is not None  # a start was given
+    window = QueryWindow(
+        start_time=_as_utc(clamped_start),
+        end_time=_as_utc(clamped_end),
+        range=resolved_id,
+        clamped=_as_utc(clamped_start) != start,
+    )
+    return clamped_start, clamped_end, window
+
+
 def run_widget_query_page(body: WidgetQueryRequest, project_id: str, billing_plan: str) -> dict:
     """Answer one widget query for the window the caller described.
 
@@ -162,27 +211,15 @@ def run_widget_query_page(body: WidgetQueryRequest, project_id: str, billing_pla
         HTTPException: 422 when the window description or the spec is invalid
             (the spec error carries its ``step``); 500 when the query fails.
     """
-    try:
-        start, end, range_id = resolve_window(body.range, body.start_time, body.end_time)
-    except WindowSpecError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
-    # Retention gate: clamp the start to the plan's cutoff before any
-    # ClickHouse scan, so aggregates can't reach past the retention window
-    # (mirrors the list endpoints; unlimited plans pass through unchanged).
-    clamped_start, clamped_end = clamp_retention_window(billing_plan, start, end)
-    assert clamped_start is not None and clamped_end is not None  # a start was given
-    window = QueryWindow(
-        start_time=_as_utc(clamped_start),
-        end_time=_as_utc(clamped_end),
-        range=range_id,
-        clamped=_as_utc(clamped_start) != start,
+    start, end, window = _resolve_window_for_plan(
+        body.range, body.start_time, body.end_time, billing_plan
     )
     try:
         result = run_widget_query(
             spec=body.spec,
             project_id=project_id,
-            start_time=clamped_start,
-            end_time=clamped_end,
+            start_time=start,
+            end_time=end,
             bucket_seconds=body.bucket_seconds,
         )
     except WidgetSpecError as e:
@@ -197,3 +234,125 @@ def run_widget_query_page(body: WidgetQueryRequest, project_id: str, billing_pla
             detail="Widget query failed",
         ) from e
     return WidgetQueryResponse(**result, window=window).model_dump()
+
+
+# A dashboard data read answers every query widget at once, so it is bounded
+# three ways: rows per widget (a table widget can return hundreds; a caller
+# summarizing a dashboard needs the shape, not the tail), queries in flight
+# (twelve tiles must not open twelve ClickHouse connections), and per-widget
+# failure isolation (one stale spec must not fail the dashboard).
+DASHBOARD_DATA_ROW_CAP = 25
+DASHBOARD_DATA_CONCURRENCY = 4
+
+
+def _widget_error(widget: DashboardWidgetItem, reason: str) -> DashboardWidgetData:
+    return DashboardWidgetData(
+        id=widget.id, title=widget.title, type=widget.type, status="error", error=reason
+    )
+
+
+async def _answer_widget(
+    widget: DashboardWidgetItem,
+    project_id: str,
+    start: datetime,
+    end: datetime,
+    gate: asyncio.Semaphore,
+) -> DashboardWidgetData:
+    """Answer one widget for the window, never raising: every outcome is a status."""
+    if widget.type != "query":
+        return DashboardWidgetData(
+            id=widget.id, title=widget.title, type=widget.type, status="skipped"
+        )
+    try:
+        spec = WidgetSpec.model_validate(widget.spec)
+    except ValidationError as e:
+        problems = "; ".join(
+            f"{'.'.join(str(part) for part in err['loc'])}: {err['msg']}" for err in e.errors()[:3]
+        )
+        return _widget_error(widget, f"spec: {problems}")
+    try:
+        async with gate:
+            result = await asyncio.to_thread(
+                run_widget_query,
+                spec=spec,
+                project_id=project_id,
+                start_time=start,
+                end_time=end,
+            )
+    except WidgetSpecError as e:
+        return _widget_error(widget, f"{e.step}: {e.message}")
+    except Exception as e:
+        logger.exception(f"Dashboard widget query failed: {e}")
+        return _widget_error(widget, "Widget query failed")
+    rows = result["rows"]
+    return DashboardWidgetData(
+        id=widget.id,
+        title=widget.title,
+        type=widget.type,
+        status="ok",
+        columns=result["columns"],
+        rows=rows[:DASHBOARD_DATA_ROW_CAP],
+        meta=result.get("meta", {}),
+        truncated=len(rows) > DASHBOARD_DATA_ROW_CAP,
+    )
+
+
+async def get_dashboard_data_page(
+    project_id: str,
+    dashboard_id: str,
+    billing_plan: str,
+    range_id: str | None,
+    start_time: datetime | None,
+    end_time: datetime | None,
+    *,
+    caller_kind: str,
+) -> DashboardDataResponse:
+    """Answer every query widget on a dashboard for one window.
+
+    The shared body of the public ``get_dashboard_data`` and the internal
+    ``/dashboards/{dashboard_id}/data`` mirror. The window is resolved and
+    clamped first (a malformed window is a 422 before anything is fetched),
+    then the dashboard is read through the internal detail route and each
+    query widget runs under a concurrency gate; feeds are listed as skipped
+    and a failing widget becomes an inline error, so the dashboard's order and
+    count are always intact.
+
+    Args:
+        project_id (str): The project the caller's credential resolved to.
+        dashboard_id (str): The dashboard to answer.
+        billing_plan (str): The plan whose retention bounds the window.
+        range_id (str | None): A preset id, or None for explicit bounds/default.
+        start_time (datetime | None): Explicit lower bound, if any.
+        end_time (datetime | None): Explicit upper bound, if any.
+        caller_kind (str): Who is asking — the public route's ``auth.kind``
+            (``"user"`` or ``"api_key"``) or ``"internal"`` for the
+            secret-authed mirror. An API key is a project credential, not a
+            person, so it is not told who created the dashboard: ``creator``
+            comes back null for it, as ``get_dashboard`` already does.
+
+    Returns:
+        DashboardDataResponse: The dashboard, the window answered, and one
+            entry per widget in the dashboard's order.
+
+    Raises:
+        HTTPException: 422 for an invalid window; 404 passed through when the
+            dashboard is not in the project; 503 on dashboard-service ambiguity.
+    """
+    start, end, window = _resolve_window_for_plan(range_id, start_time, end_time, billing_plan)
+    detail = await get_dashboard_detail(project_id, dashboard_id)
+    gate = asyncio.Semaphore(DASHBOARD_DATA_CONCURRENCY)
+    widgets = await asyncio.gather(
+        *(_answer_widget(w, project_id, start, end, gate) for w in detail.widgets)
+    )
+    statuses = [w.status for w in widgets]
+    summary = DashboardSummary(**detail.model_dump(exclude={"widgets"}))
+    if caller_kind == "api_key":
+        summary.creator = None
+    return DashboardDataResponse(
+        dashboard=summary,
+        window=window,
+        widgets=list(widgets),
+        queried=statuses.count("ok"),
+        skipped=statuses.count("skipped"),
+        failed=statuses.count("error"),
+    )
