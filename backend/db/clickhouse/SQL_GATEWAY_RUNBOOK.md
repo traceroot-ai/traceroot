@@ -4,11 +4,12 @@ Provisioning for the read-only SQL gateway DB layer. Commands below are proven a
 ClickHouse **24.3.18.7** and re-proven against **25.2.1.3085**, the
 `bitnamilegacy/clickhouse` build staging deploys.
 
-> **Version.** The whole DDL check now passes on `bitnamilegacy/clickhouse:25.2.1-debian-12-r0`
-> as well as on 24.3.18.7: the explicit `DEFINER`, the read-only account reading the curated
-> views, that account being refused the physical tables with `ACCESS_DENIED`, the `readonly = 1`
-> profile rejecting a per-query `SETTINGS` override, and the row curation. Re-run
-> `scripts/spikes/clickhouse_public_views_ddl_check.sh` against any version you move to.
+> **Version.** The DDL check passes on `bitnamilegacy/clickhouse:25.2.1-debian-12-r0` as well
+> as on 24.3.18.7, covering **both** curated views and both physical tables: the explicit
+> `DEFINER`, the read-only account reading `spans_public_v1` and `traces_public_v1`, that
+> account refused `spans` and `traces` with `ACCESS_DENIED`, the `readonly = 1` profile
+> rejecting a per-query `SETTINGS` override, and the row curation. Run it against any version
+> you move to: `CH_IMAGE=<image> bash scripts/spikes/clickhouse_public_views_ddl_check.sh`.
 
 > **Tenant isolation is application-enforced.** DB grants do **not** restrict which
 > `project_id` a caller passes to a curated view — a holder of the view grant can call
@@ -240,6 +241,16 @@ DROP USER IF EXISTS <old_account>;
 
 ### Open items — must be settled before enabling the gateway in the cloud
 
+- **The evaluation exclusion stops excluding after a ClickHouse merge.** Verified on
+  25.2.1: a later batch rewrites the trace row to `is_evaluation = 0` with a newer
+  `ch_update_time`, and once `ReplacingMergeTree` merges the parts the flagged row is
+  physically gone — so the sub-select finds nothing and the evaluation trace becomes
+  readable through the public views. Set membership on `trace_id` is dedup-independent as
+  a *query*, but the row it depends on does not survive compaction. The exclusion is
+  defined by the public schema contract, so the fix belongs there (a retained per-project
+  evaluation set, or a flag ingest cannot regress to `0`); this migration implements the
+  contract as written. `clickhouse_public_views_ddl_check.sh` reproduces it and prints a
+  WARNING. **The gateway should not be enabled until this is resolved.**
 - **Nothing has run on a cluster.** The DDL check proves the SQL model against a local
   container of the same image staging deploys; it says nothing about the chart's hooks
   executing in order, the provisioning Job reaching ClickHouse, or the read-only credentials

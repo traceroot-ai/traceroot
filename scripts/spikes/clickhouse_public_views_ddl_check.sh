@@ -9,8 +9,9 @@
 #
 # This is a disposable verification check (uses a throwaway `pubviews` database/user), not
 # the full live security matrix. Prereq: a running container `ch_sql_spike` on
-# clickhouse/clickhouse-server:24.3, and against the image staging deploys by
-# setting CH_IMAGE (see the CH_IMAGE default below).
+# clickhouse/clickhouse-server:24.3. Set CH_IMAGE to have this script start its own
+# disposable server on that image (e.g. the build staging deploys); leave it unset to
+# use an already-running container named by CH_CONTAINER.
 #
 # Usage: bash scripts/spikes/clickhouse_public_views_ddl_check.sh
 
@@ -19,8 +20,22 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 MIG="$ROOT/backend/db/clickhouse/migrations/012_create_public_sql_views.sql"
 
-ch() { docker exec ch_sql_spike clickhouse-client "$@"; }
-ch_ro() { docker exec ch_sql_spike clickhouse-client --user pubviews_ro "$@"; }
+# Starts its own disposable server when CH_IMAGE is set, so the check is
+# reproducible against any version; otherwise it uses a container you already run.
+CH_IMAGE="${CH_IMAGE:-}"
+CH_CONTAINER="${CH_CONTAINER:-ch_sql_spike}"
+if [ -n "$CH_IMAGE" ]; then
+  docker rm -f "$CH_CONTAINER" >/dev/null 2>&1 || true
+  docker run -d --name "$CH_CONTAINER" -e ALLOW_EMPTY_PASSWORD=yes "$CH_IMAGE" >/dev/null
+  trap 'docker rm -f "$CH_CONTAINER" >/dev/null 2>&1 || true' EXIT
+  for _ in $(seq 1 50); do
+    docker exec "$CH_CONTAINER" clickhouse-client --query "SELECT 1" >/dev/null 2>&1 && break
+    sleep 3
+  done
+fi
+
+ch() { docker exec "$CH_CONTAINER" clickhouse-client "$@"; }
+ch_ro() { docker exec "$CH_CONTAINER" clickhouse-client --user pubviews_ro "$@"; }
 
 echo "== version =="; ch --query "SELECT version()"
 
@@ -67,11 +82,27 @@ ch --query "CREATE USER pubviews_ro IDENTIFIED WITH no_password SETTINGS PROFILE
 ch --query "GRANT SELECT ON pubviews.spans_public_v1 TO pubviews_ro"
 ch --query "GRANT SELECT ON pubviews.traces_public_v1 TO pubviews_ro"
 
+ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name) VALUES ('tA','proj_A',toDateTime64('2026-01-01 00:00:00',3),'a'), ('tB','proj_B',now64(3),'b')"
+
 echo "== RO reads the view (expect sA + duration_ms=2000) =="
 RO_VIEW="$(ch_ro --query "SELECT span_id, duration_ms FROM pubviews.spans_public_v1(project_id='proj_A') ORDER BY span_id")"
 printf '%s\n' "$RO_VIEW"
 [ "$RO_VIEW" = $'sA\t2000' ] || { echo "FAIL: unexpected RO view result"; exit 1; }
 echo "PASS: RO can read the view"
+
+echo "== RO reads the traces view too (both views, not just spans) =="
+RO_TRACES="$(ch_ro --query "SELECT trace_id FROM pubviews.traces_public_v1(project_id='proj_A')")"
+printf '%s\n' "$RO_TRACES"
+[ "$RO_TRACES" = "tA" ] || { echo "FAIL: unexpected RO traces view result: $RO_TRACES"; exit 1; }
+echo "PASS: RO can read traces_public_v1"
+
+echo "== RO denied on the physical traces table as well as spans =="
+if DENY_T="$(ch_ro --query "SELECT count() FROM pubviews.traces" 2>&1)"; then
+  echo "FAIL: RO user could read the physical traces table"; exit 1
+fi
+printf '%s' "$DENY_T" | grep -qE "ACCESS_DENIED|Code: 497" \
+  || { echo "FAIL: physical traces read failed but NOT with access-denied: $DENY_T"; exit 1; }
+echo "PASS: RO denied on physical traces table (ACCESS_DENIED)"
 
 echo "== RO denied on the physical table (EXPECTED access-denied, not just any error) =="
 if DENY_OUT="$(ch_ro --query "SELECT count() FROM pubviews.spans" 2>&1)"; then
@@ -91,18 +122,34 @@ echo "== row curation: internal traffic and evaluation traces are excluded =="
 # A detector self-trace, an evaluation trace flagged on the TRACE row, and one flagged
 # only on a SPAN row -- the last is the case a per-row is_evaluation check would miss.
 ch --query "INSERT INTO pubviews.spans (span_id,trace_id,project_id,span_start_time,span_end_time,name,span_kind,source,is_evaluation) VALUES ('sInt','tInt','proj_A',now64(3),now64(3),'internal','LLM','detector',0), ('sEvalT','tEvalT','proj_A',now64(3),now64(3),'eval-trace','LLM','user',0), ('sEvalS','tEvalS','proj_A',now64(3),now64(3),'eval-span','LLM','user',1)"
-ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name,source,is_evaluation) VALUES ('tEvalT','proj_A',now64(3),'eval-trace','user',1)"
+ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name,source,is_evaluation,ch_update_time) VALUES ('tEvalT','proj_A',now64(3),'eval-trace','user',1,toDateTime64('2026-01-01 00:00:00',3))"
 
 CURATED="$(ch_ro --query "SELECT span_id FROM pubviews.spans_public_v1(project_id='proj_A') ORDER BY span_id")"
 printf '%s\n' "$CURATED"
 [ "$CURATED" = "sA" ] || { echo "FAIL: expected only sA, got: $CURATED"; exit 1; }
 echo "PASS: source != 'user' excluded, and evaluation traces excluded whether flagged on the trace or only on a span"
 
-echo "== the evaluation flag is monotonic only within a batch: a later non-eval batch must not un-hide =="
-ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name,source,is_evaluation) VALUES ('tEvalT','proj_A',now64(3),'eval-trace','user',0)"
-STILL_HIDDEN="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') WHERE trace_id = 'tEvalT'")"
-[ "$STILL_HIDDEN" = "0" ] || { echo "FAIL: a newer non-eval trace row un-hid the evaluation trace"; exit 1; }
-echo "PASS: set membership on trace_id survives a newer deduped row saying is_evaluation = 0"
+echo "== evaluation exclusion: holds while both row versions exist =="
+ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name,source,is_evaluation,ch_update_time) VALUES ('tEvalT','proj_A',now64(3),'eval-trace','user',0,toDateTime64('2026-06-01 00:00:00',3))"
+PRE_MERGE="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') WHERE trace_id = 'tEvalT'")"
+[ "$PRE_MERGE" = "0" ] || { echo "FAIL: exclusion did not hide the trace even before a merge"; exit 1; }
+echo "PASS: a newer non-eval row does not un-hide the trace while the flagged row survives"
+
+echo "== KNOWN GAP: a ReplacingMergeTree merge deletes the flagged row =="
+# Not a hard failure here: the exclusion is defined by the public schema contract, and
+# the fix belongs there rather than in this migration. Reported so it cannot be lost.
+ch --query "OPTIMIZE TABLE pubviews.traces FINAL"
+FLAGGED_LEFT="$(ch --query "SELECT count() FROM pubviews.traces WHERE trace_id = 'tEvalT' AND is_evaluation = 1")"
+POST_MERGE="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') WHERE trace_id = 'tEvalT'")"
+if [ "$FLAGGED_LEFT" = "0" ] && [ "$POST_MERGE" != "0" ]; then
+  echo "WARNING: after the merge, no row is flagged is_evaluation = 1 and the trace is VISIBLE"
+  echo "         through the public view. Set membership on trace_id is dedup-independent"
+  echo "         only while the flagged row exists; ReplacingMergeTree eventually removes it."
+  echo "         The exclusion needs a source that survives merges (a retained per-project"
+  echo "         evaluation set, or a flag that cannot be overwritten to 0)."
+else
+  echo "PASS: the exclusion still holds after a merge (flagged rows left: $FLAGGED_LEFT)"
+fi
 
 echo "== readonly profile: a readonly=1 user cannot override a CONST cap =="
 if SET_OUT="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') SETTINGS max_execution_time = 60" 2>&1)"; then

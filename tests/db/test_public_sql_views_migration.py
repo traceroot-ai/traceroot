@@ -89,6 +89,14 @@ def _outer_projection(text: str, view: str) -> str:
     return block.group("proj")
 
 
+def _view_block(text: str, view: str) -> str:
+    """The whole CREATE ... statement for one view, so assertions are per-view.
+    File-wide counts cannot tell "both views have it" from "one view has it twice"."""
+    start = text.index(f"CREATE OR REPLACE VIEW {view}")
+    end = text.find("CREATE OR REPLACE VIEW", start + 1)
+    return text[start:] if end == -1 else text[start:end]
+
+
 def test_migration_exists(text):
     assert text.strip(), "migration 012 is empty or missing"
 
@@ -173,33 +181,43 @@ def test_metadata_comes_from_the_map_not_the_blob(text):
         )
 
 
-def test_views_return_customer_traffic_only(sql):
+def test_views_return_customer_traffic_only(text):
     """Names the value that IS customer traffic, so a marker added later is excluded
-    the day it appears rather than needing this list updated."""
-    assert sql.count("source = 'user'") == 2, "both views must filter to customer traffic"
+    the day it appears rather than needing this list updated. Asserted per view: a
+    file-wide count passes when one view has both filters and the other has none."""
+    for view in ("spans_public_v1", "traces_public_v1"):
+        assert "source = 'user'" in _view_block(text, view), (
+            f"{view} must filter to customer traffic"
+        )
 
 
-def test_views_exclude_evaluation_traces_by_trace_membership(sql):
+def test_views_exclude_evaluation_traces_by_trace_membership(text):
     """Not a per-row is_evaluation = 0: ingest makes the flag monotonic only within a
     batch, and child spans of an evaluation trace are stored as 0 regardless."""
-    assert sql.count("trace_id NOT IN (") == 2, "both views must exclude evaluation traces"
-    # both physical tables are consulted -- a trace flagged only on spans still counts
-    assert (
-        sql.count("FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1") == 2
-    )
-    assert (
-        sql.count("FROM spans  WHERE project_id = {project_id:String} AND is_evaluation = 1") == 2
-    )
-    assert sql.count("UNION DISTINCT") == 2
-    assert not re.search(r"is_evaluation\s*=\s*0", sql), (
-        "per-row is_evaluation = 0 leaks evaluation data; use trace membership"
-    )
+    for view in ("spans_public_v1", "traces_public_v1"):
+        block = _view_block(text, view)
+        assert "trace_id NOT IN (" in block, f"{view} must exclude evaluation traces"
+        # both physical tables are consulted -- a trace flagged only on spans still counts
+        for table in ("traces", "spans"):
+            assert re.search(
+                rf"FROM {table}\s+WHERE project_id = \{{project_id:String\}} AND is_evaluation = 1",
+                block,
+            ), f"{view} must consult {table} for the evaluation set"
+        assert "UNION DISTINCT" in block, f"{view} must union both evaluation sources"
+        # scoped to the view bodies: the header comment names this form to explain
+        # why it is NOT used, and matching that would be a false failure
+        assert not re.search(r"is_evaluation\s*=\s*0", block), (
+            f"{view} uses a per-row is_evaluation = 0, which leaks; use trace membership"
+        )
 
 
-def test_evaluation_subselect_repeats_the_project_scope(sql):
+def test_evaluation_subselect_repeats_the_project_scope(text):
     """A parameterized view cannot see the caller's WHERE, so the sub-select must
     bind the project itself or it would scan every tenant's traces."""
-    for block in re.findall(r"trace_id NOT IN \((.*?)\)", sql, re.DOTALL):
-        assert block.count("project_id = {project_id:String}") == 2, (
-            "each evaluation sub-select must be project-scoped"
+    for view in ("spans_public_v1", "traces_public_v1"):
+        block = _view_block(text, view)
+        excl = re.search(r"trace_id NOT IN \((.*?)\n      \)", block, re.DOTALL)
+        assert excl, f"could not locate the evaluation exclusion in {view}"
+        assert excl.group(1).count("project_id = {project_id:String}") == 2, (
+            f"each evaluation sub-select in {view} must be project-scoped"
         )

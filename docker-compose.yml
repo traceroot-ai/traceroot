@@ -62,9 +62,11 @@ services:
         condition: service_healthy
     volumes:
       - ./backend/db/clickhouse/bootstrap/sql_gateway_users.sql:/bootstrap/sql_gateway_users.sql:ro
-    # Credentials arrive as environment, not as command arguments, so they stay out
-    # of the container's command line and out of `docker inspect`. The $$ below are
-    # therefore escaped for the shell rather than substituted by Compose.
+    # Credentials arrive as environment rather than command arguments, so they stay
+    # out of the container's command line and out of `ps`. They are still readable
+    # via `docker inspect` and the container config -- that is inherent to compose
+    # environment, and anyone with daemon access is already root-equivalent here.
+    # The $$ below are escaped for the shell rather than substituted by Compose.
     environment:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
