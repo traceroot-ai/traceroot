@@ -17,7 +17,8 @@ export interface ToolCallStep {
   result?: unknown;
   isError?: boolean;
   status: "running" | "done" | "error";
-  /** Set while the call is parked awaiting the user's create/skip decision. */
+  /** Set while the call is parked awaiting the user's create/skip/revise
+   *  decision (create and skip are the card's buttons; a typed reply revises). */
   pending?: PendingConfirmation;
   /** True when the call was declined as a skip (user's, or a server-side
    *  release) — the tool line notes it instead of reading as a failure. */

@@ -408,6 +408,32 @@ describe("MessageList pending confirmation entries", () => {
     expect(screen.queryByText(/awaiting/i)).toBeNull();
   });
 
+  it("hides the between-turns spinner while a call is parked on the user's decision", () => {
+    const { container } = render(
+      <MessageList
+        messages={[toolEntry(pendingWidgetStep())]}
+        sessionStreaming
+        projectId="p1"
+        onDecision={vi.fn()}
+      />,
+    );
+    // The run is alive but waiting on the user, not generating.
+    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("shows the between-turns spinner once the parked call is decided and the run resumes", () => {
+    const decided: ToolCallStep = { ...pendingWidgetStep(), pending: undefined, status: "done" };
+    const { container } = render(
+      <MessageList
+        messages={[toolEntry(decided)]}
+        sessionStreaming
+        projectId="p1"
+        onDecision={vi.fn()}
+      />,
+    );
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+  });
+
   it("posts the decision with the step's tool call and decision ids", () => {
     const onDecision = vi.fn().mockResolvedValue(true);
     render(

@@ -4,7 +4,6 @@ import {
   APPROVAL_REQUIRED_REASON,
   CONFIRMATION_UNAVAILABLE_REASON,
   createWritePolicyHook,
-  writePolicyHook,
 } from "../write-policy.js";
 import {
   PendingDecisions,
@@ -49,10 +48,13 @@ function settlement<T>(promise: Promise<T>): { settled: () => boolean } {
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-describe("writePolicyHook", () => {
+/** The shared-registry hook built without a session: it has nothing to park on. */
+const sessionlessHook = createWritePolicyHook();
+
+describe("createWritePolicyHook", () => {
   it("lets tools without a registry policy proceed (read, sandbox, github)", async () => {
     for (const name of ["list_traces", "bash", "git_clone", "not_a_registered_tool"]) {
-      await expect(writePolicyHook(contextFor(name))).resolves.toBeUndefined();
+      await expect(sessionlessHook(contextFor(name))).resolves.toBeUndefined();
     }
   });
 
@@ -66,7 +68,7 @@ describe("writePolicyHook", () => {
     await expect(hook(contextFor("touch_nothing"))).resolves.toBeUndefined();
   });
 
-  it('blocks approvalClass "confirm" saying confirmation is not wired up yet', async () => {
+  it('blocks approvalClass "confirm" when the hook has no session channel to park on', async () => {
     const hook = createWritePolicyHook([
       {
         name: "create_detector",
@@ -79,10 +81,11 @@ describe("writePolicyHook", () => {
     });
   });
 
-  it('blocks the five registry creates (now "confirm") with the confirmation reason', async () => {
-    // All five curated creates carry approvalClass "confirm" in the registry.
-    for (const name of ["create_workspace", "create_detector", "create_widget"]) {
-      await expect(writePolicyHook(contextFor(name))).resolves.toEqual({
+  it("fails the agent-bound registry creates closed on a session-less hook (nothing to park on)", async () => {
+    // The registry creates carry approvalClass "confirm"; without a session
+    // channel there is no user to ask, so they block instead of parking.
+    for (const name of ["create_detector", "create_dashboard", "create_widget"]) {
+      await expect(sessionlessHook(contextFor(name))).resolves.toEqual({
         block: true,
         reason: CONFIRMATION_UNAVAILABLE_REASON,
       });
@@ -135,7 +138,7 @@ describe("writePolicyHook", () => {
   });
 });
 
-describe("writePolicyHook — parked confirmations", () => {
+describe("createWritePolicyHook — parked confirmations", () => {
   it("parks an attended confirm call: emits confirmation_pending and does not settle", async () => {
     const { decisions, emitted, hook } = attendedSetup();
     const parked = settlement(hook(contextFor("create_detector", { name: "latency" })));

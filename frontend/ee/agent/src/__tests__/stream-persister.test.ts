@@ -241,6 +241,66 @@ describe("StreamPersister", () => {
     expect(calls[0].metadata).toEqual({ runError: "model exploded" });
   });
 
+  it("keeps the error marker but drops the usage of a run that consumed nothing", async () => {
+    // A run that fails on its first provider request (bad key, 401/429)
+    // reports a model with zero tokens; persisting that usage would meter a
+    // run the user never got. The marker still lands so reload shows the
+    // failure, but with no usage so metering ignores the row.
+    const { persister, calls } = makePersister();
+    persister.onEvent({
+      type: "message_end",
+      message: { stopReason: "error", errorMessage: "401 invalid api key" },
+    } as unknown as AgentEvent);
+    await persister.finish({ ...USAGE, inputTokens: 0, outputTokens: 0, cost: 0 });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      role: "assistant",
+      content: "",
+      metadata: { runError: "401 invalid api key" },
+    });
+    expect(calls[0].tokenUsage).toBeUndefined();
+  });
+
+  it("persists nothing for a run that produced no output and consumed no tokens", async () => {
+    const { persister, calls } = makePersister();
+    await persister.finish({ ...USAGE, inputTokens: 0, outputTokens: 0, cost: 0 });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("keeps a run billable when it reported a cost but no tokens", async () => {
+    // Cached-read-only turns and providers that price without reporting a
+    // token split still cost money: a positive cost is consumption, and
+    // dropping the usage would meter the run at nothing.
+    const { persister, calls } = makePersister();
+    const usage = { ...USAGE, inputTokens: 0, outputTokens: 0, cost: 0.004 };
+    await persister.finish(usage);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].tokenUsage).toEqual(usage);
+  });
+
+  it("keeps an errored run billable when it consumed tokens before failing", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1"));
+    persister.onEvent(toolEnd("t1"));
+    persister.recordError("model exploded");
+    await persister.finish(USAGE);
+
+    expect(calls.map((c) => c.role)).toEqual(["tool_step", "assistant"]);
+    expect(calls[1]).toMatchObject({ metadata: { runError: "model exploded" }, tokenUsage: USAGE });
+  });
+
+  it("keeps a zero-token run billable when it still produced text (provider omitted usage)", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(textDelta("An answer."));
+    const usage = { ...USAGE, inputTokens: 0, outputTokens: 0, cost: 0 };
+    await persister.finish(usage);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].tokenUsage).toEqual(usage);
+  });
+
   it("keeps the first recorded error when message_end and onError both report", async () => {
     const { persister, calls } = makePersister();
     persister.onEvent({
