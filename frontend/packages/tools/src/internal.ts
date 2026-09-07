@@ -16,6 +16,8 @@ export const INTERNAL_BINDINGS: Readonly<Record<string, string>> = {
   get_finding_by_trace: "/api/v1/projects/{project_id}/detectors/traces/{trace_id}/finding",
   list_dashboards: "/api/v1/projects/{project_id}/dashboards",
   get_dashboard: "/api/v1/projects/{project_id}/dashboards/{dashboard_id}",
+  get_dashboard_data: "/api/v1/projects/{project_id}/dashboards/{dashboard_id}/data",
+  run_widget_query: "/api/v1/projects/{project_id}/widgets/query",
 };
 
 /**

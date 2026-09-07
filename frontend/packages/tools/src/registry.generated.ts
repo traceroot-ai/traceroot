@@ -549,6 +549,42 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_dashboard_data",
+    description:
+      "Answer every query widget on a dashboard for one window — the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows, skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
+    method: "get",
+    path: "/api/v1/public/dashboards/{dashboard_id}/data",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dashboard_id: {
+          type: "string",
+        },
+        range: {
+          enum: ["30m", "1h", "3h", "6h", "1d", "7d", "14d", "30d", "60d", "90d"],
+          type: "string",
+          description:
+            "A preset window ending now, by the site picker's id. Give this or explicit start_time/end_time; neither means the site's 24-hour default.",
+        },
+        start_time: {
+          format: "date-time",
+          type: "string",
+        },
+        end_time: {
+          format: "date-time",
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["dashboard_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_detector",
     description:
       "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
@@ -1111,6 +1147,118 @@ export const REGISTRY: readonly RegistryEntry[] = [
       properties: {},
       required: [],
       additionalProperties: false,
+    },
+  },
+  {
+    name: "run_widget_query",
+    description:
+      "Run a widget query and return its rows — the way to answer a metric question (error rate, p95 latency, cost by model) without a dashboard existing. Takes the same spec shape as create_widget (view, metric, breakdown, display, filters) plus a window: a range preset by the site picker's id (1h, 1d, 7d, 30d, …) or explicit start_time/end_time; neither means the site's default 24-hour window. The response echoes the window it was answered for and says when retention clamped it. A read that happens to be a POST: nothing is written.",
+    method: "post",
+    path: "/api/v1/public/widgets/query",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+        end_time: {
+          format: "date-time",
+          type: "string",
+        },
+        range: {
+          enum: ["30m", "1h", "3h", "6h", "1d", "7d", "14d", "30d", "60d", "90d"],
+          type: "string",
+          description:
+            "A preset window ending now, by the site picker's id. Give this or explicit start_time/end_time; neither means the site's 24-hour default.",
+        },
+        spec: {
+          additionalProperties: false,
+          description:
+            "Full declarative specification of a single dashboard widget.\n\nMirrors the canonical zod ``WidgetSpecSchema``\n(frontend/ui/src/features/dashboards/types.ts); the frontend\nwidget-spec-parity test guards the two against structural drift.",
+          properties: {
+            breakdown: {
+              type: "string",
+            },
+            display: {
+              additionalProperties: false,
+              description: "Controls how the query result is rendered on the dashboard.",
+              properties: {
+                type: {
+                  enum: ["line", "area", "bar", "pie", "number", "table", "histogram"],
+                  type: "string",
+                },
+              },
+              required: ["type"],
+              type: "object",
+            },
+            filters: {
+              items: {
+                additionalProperties: false,
+                description: "A single filter predicate applied to a widget query.",
+                properties: {
+                  field: {
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["=", "contains", ">", ">=", "<", "<="],
+                    type: "string",
+                  },
+                  value: {
+                    type: ["string", "number"],
+                    anyOf: [
+                      {
+                        minLength: 1,
+                        type: "string",
+                      },
+                      {
+                        type: "number",
+                      },
+                    ],
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              type: "array",
+            },
+            metric: {
+              additionalProperties: false,
+              description: "The measure and aggregation function that define the widget's y-axis.",
+              properties: {
+                agg: {
+                  enum: ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"],
+                  type: "string",
+                },
+                measure: {
+                  type: "string",
+                },
+              },
+              required: ["measure", "agg"],
+              type: "object",
+            },
+            view: {
+              enum: ["spans", "traces"],
+              type: "string",
+            },
+          },
+          required: ["view", "metric", "display"],
+          type: "object",
+        },
+        start_time: {
+          format: "date-time",
+          type: "string",
+        },
+      },
+      required: ["spec"],
+      additionalProperties: false,
+    },
+    bodyParams: ["end_time", "range", "spec", "start_time"],
+    policy: {
+      approvalClass: "none",
+      minRole: "VIEWER",
+      tenancy: "project",
     },
   },
   {
