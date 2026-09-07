@@ -1,11 +1,12 @@
 """Response schemas for the public, API-key-authenticated API."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
 from rest.schemas.common import PaginationMeta
+from rest.schemas.dashboards import QueryWindow
 from rest.schemas.traces import SpanResponse, TraceDetailResponse, TraceListItem
 
 
@@ -260,6 +261,42 @@ class DashboardDetail(DashboardSummary):
     """One dashboard with its widgets, ordered by creation time."""
 
     widgets: list[DashboardWidgetItem]
+
+
+class DashboardWidgetData(BaseModel):
+    """One widget's answer within a dashboard data read.
+
+    ``status`` says what happened: ``ok`` carries the engine's columns/rows/
+    meta (rows capped, with ``truncated`` set when the cap bit); ``skipped``
+    is a feed widget (a trace list, not an aggregate — read those with
+    ``list_traces`` and the feed's filters); ``error`` carries a short reason
+    and no rows, so one broken widget never fails the whole dashboard.
+    """
+
+    id: str
+    title: str
+    type: str
+    status: Literal["ok", "skipped", "error"]
+    columns: list[str] | None = None
+    rows: list[list[Any]] | None = None
+    meta: dict[str, Any] | None = None
+    truncated: bool = False
+    error: str | None = None
+
+
+class DashboardDataResponse(BaseModel):
+    """Every query widget on a dashboard answered for one window.
+
+    Widgets keep the dashboard's order. ``window`` is the window they were all
+    answered for — the one to name alongside any figure taken from here.
+    """
+
+    dashboard: DashboardSummary
+    window: QueryWindow
+    widgets: list[DashboardWidgetData]
+    queried: int
+    skipped: int
+    failed: int
 
 
 class PublicDashboardListResponse(BaseModel):

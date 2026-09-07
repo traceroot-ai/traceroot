@@ -477,6 +477,21 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
         "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
     },
+    "get_dashboard_data": {
+        "name": "get_dashboard_data",
+        "description": (
+            "Answer every query widget on a dashboard for one window — the way "
+            "to say what a dashboard shows, not just what it contains. Resolve "
+            "the dashboard id with list_dashboards and match its name; never "
+            "guess an id. Takes a window like run_widget_query (range preset "
+            "or explicit bounds; neither means the site's default). Widgets come "
+            "back in the dashboard's order with a status each: ok with rows, "
+            "skipped for a trace feed (read those with list_traces and the "
+            "feed's filters), or error with a reason. Every figure you report "
+            "must come from these rows, and name the window it was answered for."
+        ),
+        "enabled": True,
+    },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
