@@ -2073,6 +2073,44 @@
         "title": "PublicWorkspaceListResponse",
         "type": "object"
       },
+      "QueryWindow": {
+        "description": "The window a query was actually answered for.\n\n``range`` is the preset id the caller gave (or the default's, when they\ngave nothing) and None for explicit bounds. ``clamped`` is True when the\nplan's retention pulled ``start_time`` forward \u2014 the honest reason a\ncaller's window and the answered one differ.",
+        "properties": {
+          "clamped": {
+            "title": "Clamped",
+            "type": "boolean"
+          },
+          "end_time": {
+            "format": "date-time",
+            "title": "End Time",
+            "type": "string"
+          },
+          "range": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Range"
+          },
+          "start_time": {
+            "format": "date-time",
+            "title": "Start Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_time",
+          "end_time",
+          "range",
+          "clamped"
+        ],
+        "title": "QueryWindow",
+        "type": "object"
+      },
       "RCAResult": {
         "description": "Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).",
         "properties": {
@@ -3653,6 +3691,103 @@
           "agg"
         ],
         "title": "WidgetMetric",
+        "type": "object"
+      },
+      "WidgetQueryRequest": {
+        "additionalProperties": false,
+        "description": "Envelope that pairs a WidgetSpec with the time window to answer it for.\n\nThe window is either a ``range`` preset (the site picker's ids \u2014 how the\nagent and the CLI describe one) or explicit ``start_time``/``end_time``\n(how the dashboard page and the card previews do). Neither means the\nsite's default window; both, or one bound alone, is rejected. The rules\nlive in ``rest.services.date_presets.resolve_window`` so every query\nsurface applies the same ones.",
+        "properties": {
+          "end_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          },
+          "range": {
+            "anyOf": [
+              {
+                "enum": [
+                  "30m",
+                  "1h",
+                  "3h",
+                  "6h",
+                  "1d",
+                  "7d",
+                  "14d",
+                  "30d",
+                  "60d",
+                  "90d"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A preset window ending now, by the site picker's id. Give this or explicit start_time/end_time; neither means the site's 24-hour default.",
+            "title": "Range"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/WidgetSpec"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "title": "WidgetQueryRequest",
+        "type": "object"
+      },
+      "WidgetQueryResponse": {
+        "description": "Query result returned to the frontend; meta carries display hints (e.g. granularity for time-series displays).",
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "meta": {
+            "additionalProperties": true,
+            "title": "Meta",
+            "type": "object"
+          },
+          "rows": {
+            "items": {
+              "items": {},
+              "type": "array"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "window": {
+            "$ref": "#/components/schemas/QueryWindow"
+          }
+        },
+        "required": [
+          "columns",
+          "rows",
+          "window"
+        ],
+        "title": "WidgetQueryResponse",
         "type": "object"
       },
       "WidgetSpec": {
@@ -7116,6 +7251,113 @@
           "policy": {
             "approvalClass": "confirm",
             "minRole": "MEMBER",
+            "tenancy": "project"
+          }
+        }
+      }
+    },
+    "/api/v1/public/widgets/query": {
+      "post": {
+        "description": "Run a widget spec for a window and return its rows with the window answered.",
+        "operationId": "run_widget_query",
+        "parameters": [
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WidgetQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WidgetQueryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Run Widget Query",
+        "tags": [
+          "Dashboards (Public)"
+        ],
+        "x-tool": {
+          "description": "Run a widget query and return its rows \u2014 the way to answer a metric question (error rate, p95 latency, cost by model) without a dashboard existing. Takes the same spec shape as create_widget (view, metric, breakdown, display, filters) plus a window: a range preset by the site picker's id (1h, 1d, 7d, 30d, \u2026) or explicit start_time/end_time; neither means the site's default 24-hour window. The response echoes the window it was answered for and says when retention clamped it. A read that happens to be a POST: nothing is written.",
+          "enabled": true,
+          "name": "run_widget_query",
+          "policy": {
+            "approvalClass": "none",
+            "minRole": "VIEWER",
             "tenancy": "project"
           }
         }

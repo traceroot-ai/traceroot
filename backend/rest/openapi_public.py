@@ -461,6 +461,22 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         ),
         "enabled": True,
     },
+    "run_widget_query": {
+        "name": "run_widget_query",
+        "description": (
+            "Run a widget query and return its rows — the way to answer a "
+            "metric question (error rate, p95 latency, cost by model) without "
+            "a dashboard existing. Takes the same spec shape as create_widget "
+            "(view, metric, breakdown, display, filters) plus a window: a "
+            "range preset by the site picker's id (1h, 1d, 7d, 30d, …) or "
+            "explicit start_time/end_time; neither means the site's default "
+            "24-hour window. The response echoes the window it was answered "
+            "for and says when retention clamped it. A read that happens to "
+            "be a POST: nothing is written."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
+    },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
