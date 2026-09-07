@@ -65,11 +65,11 @@ const SPEC: WidgetSpec = {
   display: { type: "number" },
 };
 
-function renderPreview(spec: WidgetSpec = SPEC) {
+function renderPreview(spec: WidgetSpec = SPEC, rangeId = "1d") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <WidgetChartPreview projectId="p1" widgetId="w1" spec={spec} />
+      <WidgetChartPreview projectId="p1" widgetId="w1" spec={spec} rangeId={rangeId} />
     </QueryClientProvider>,
   );
 }
@@ -84,6 +84,7 @@ describe("WidgetChartPreview", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    window.localStorage.clear();
   });
 
   it("issues no query for a card that has never been visible", () => {
@@ -121,6 +122,29 @@ describe("WidgetChartPreview", () => {
   it("queries the default dashboard window, ending no earlier than a day back", async () => {
     vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
     renderPreview();
+    scrollIntoView();
+
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalled());
+    const range = vi.mocked(api.runWidgetQuery).mock.calls[0][2];
+    expect(range.end.getTime() - range.start.getTime()).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it("queries exactly the window the card snapshotted, not one it resolves itself", async () => {
+    // The card's header names this range; the plot must draw the same one,
+    // even if the site's stored selection has since changed.
+    window.localStorage.setItem("traceroot:date-filter:v1:p1", JSON.stringify({ id: "30d" }));
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    renderPreview(SPEC, "7d");
+    scrollIntoView();
+
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalled());
+    const range = vi.mocked(api.runWidgetQuery).mock.calls[0][2];
+    expect(range.end.getTime() - range.start.getTime()).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it("falls back to the default window for a range id it doesn't know", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    renderPreview(SPEC, "eleventy");
     scrollIntoView();
 
     await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalled());

@@ -39,17 +39,10 @@ export interface ResourceCreatedDetails {
   dashboardId?: string;
 }
 
+// No create_workspace / create_project here: the agent's tenancy is force-
+// injected from its session, so a workspace or project it created could never
+// be targeted by any later call — structural creates are CLI/API surface.
 const WRITE_TOOL_SPECS: Readonly<Record<string, WriteToolSpec>> = {
-  create_workspace: {
-    fieldMap: { name: "name" },
-    resourceKey: "workspace",
-    displayNameKey: "name",
-  },
-  create_project: {
-    fieldMap: { name: "name", trace_ttl_days: "traceTtlDays" },
-    resourceKey: "project",
-    displayNameKey: "name",
-  },
   create_detector: {
     fieldMap: {
       name: "name",
@@ -276,11 +269,5 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
     } as AgentTool<any>;
   };
 
-  return [
-    bind("create_workspace"),
-    bind("create_project"),
-    bind("create_detector"),
-    bind("create_dashboard"),
-    bind("create_widget"),
-  ];
+  return [bind("create_detector"), bind("create_dashboard"), bind("create_widget")];
 }

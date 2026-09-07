@@ -31,13 +31,17 @@ function fakeTool(name: string): AgentTool<any> {
   } as unknown as AgentTool<any>;
 }
 
-function config(sessionId: string, tools: AgentTool<any>[]): AgentRunnerConfig {
+function config(
+  sessionId: string,
+  tools: AgentTool<any>[],
+  systemPrompt = "sp",
+): AgentRunnerConfig {
   return {
     sessionId,
     projectId: "p1",
     workspaceId: "w1",
     userId: "u1",
-    systemPrompt: "sp",
+    systemPrompt,
     tools,
   };
 }
@@ -88,5 +92,21 @@ describe("getOrCreateAgent", () => {
     // write tools close over projectId, and the session cache outlives a
     // project switch, so stale closures would write into the wrong project.
     expect(second.agent.state.tools.map((t) => t.name)).toEqual(["fresh"]);
+  });
+
+  it("refreshes the system prompt on cached agents so the model never reasons about stale context", async () => {
+    // The prompt carries per-request context (current trace/session/project);
+    // pi-agent-core reads state.systemPrompt at prompt time, so a cache hit
+    // that keeps the constructed-time prompt would have the model reason
+    // about one context while its refreshed tools bind to another.
+    const first = await getOrCreateAgent(
+      config("prompt-session", [fakeTool("a")], "Currently viewing Trace ID: T1"),
+    );
+    const second = await getOrCreateAgent(
+      config("prompt-session", [fakeTool("a")], "Currently viewing Trace ID: T2"),
+    );
+
+    expect(second.agent).toBe(first.agent);
+    expect(second.agent.state.systemPrompt).toBe("Currently viewing Trace ID: T2");
   });
 });

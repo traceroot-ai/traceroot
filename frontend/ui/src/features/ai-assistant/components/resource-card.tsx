@@ -1,11 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CHART_TILE_ASPECT, DashboardMiniature } from "./dashboard-miniature";
-import type { ResourceCardBody, ResourceCardModel } from "../lib/resource-card";
+import type { DetectorPrompt, ResourceCardBody, ResourceCardModel } from "../lib/resource-card";
 
 // Loaded dynamically because the preview pulls in the dashboards renderers —
 // and with them recharts — while this card sits in the assistant panel, which
@@ -49,6 +49,56 @@ function Chips({ chips }: { chips: string[] }) {
   );
 }
 
+/**
+ * A custom prompt long enough to need the clamp. Measured on the text rather
+ * than the layout — a line-count/length heuristic agrees closely enough with
+ * the rendered height for a "Show more" affordance, and it works before paint.
+ */
+const PROMPT_CLAMP_LINES = 6;
+const PROMPT_CLAMP_CHARS = 400;
+
+function promptNeedsClamp(text: string): boolean {
+  return text.split("\n").length > PROMPT_CLAMP_LINES || text.length > PROMPT_CLAMP_CHARS;
+}
+
+/**
+ * The prompt is what a detector IS, so the card shows it: the call's own
+ * instructions in a monospace block — clamped to a few lines behind a
+ * Show more toggle when long — or one line naming the standard template
+ * prompt the call adopted by omitting its own.
+ */
+function DetectorPromptBlock({ prompt }: { prompt: DetectorPrompt }) {
+  const [expanded, setExpanded] = useState(false);
+  if (prompt.kind === "standard") {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        Uses the standard {prompt.templateLabel} prompt
+      </p>
+    );
+  }
+  const clampable = promptNeedsClamp(prompt.text);
+  const promptClasses = [
+    "whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-1.5 py-1 font-mono text-[10px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]",
+    clampable && !expanded ? "line-clamp-6" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <div className="space-y-0.5">
+      <pre className={promptClasses}>{prompt.text}</pre>
+      {clampable && (
+        <button
+          type="button"
+          className="text-[10px] font-medium text-muted-foreground underline-offset-2 hover:underline"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function CardBody({ body, resourceId }: { body: ResourceCardBody; resourceId: string }) {
   switch (body.kind) {
     case "widget":
@@ -63,12 +113,19 @@ function CardBody({ body, resourceId }: { body: ResourceCardBody; resourceId: st
               projectId={body.chart.projectId}
               widgetId={resourceId}
               spec={body.chart.spec}
+              rangeId={body.chart.range.id}
             />
           )}
         </div>
       );
     case "detector":
-      return <Chips chips={body.chips} />;
+      if (body.chips.length === 0 && body.prompt === null) return null;
+      return (
+        <div className="space-y-1.5">
+          <Chips chips={body.chips} />
+          {body.prompt !== null && <DetectorPromptBlock prompt={body.prompt} />}
+        </div>
+      );
     case "receipt":
       if (body.rows.length === 0) return null;
       return (

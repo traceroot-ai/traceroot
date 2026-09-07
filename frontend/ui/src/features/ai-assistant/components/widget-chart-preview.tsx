@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { QueryWidgetRenderer } from "@/features/dashboards/components/renderers";
 import { useWidgetData } from "@/features/dashboards/hooks/use-widget-data";
-import { DEFAULT_RANGE_ID, makeRange } from "@/features/dashboards/range-presets";
+import { makeRange } from "@/features/dashboards/range-presets";
 import type { WidgetSpec } from "@/features/dashboards/types";
 import { FIELD_UNIT } from "@/features/filters/filter-controls";
 import { CHART_TILE_ASPECT, SNAPSHOT_QUERY_OPTIONS } from "./dashboard-miniature";
@@ -24,13 +24,18 @@ interface WidgetChartPreviewProps {
    *  for this widget and this card share one cached result. */
   widgetId: string;
   spec: WidgetSpec;
+  /** The window the card's own header names, snapshotted when the card model
+   *  was built — so the label and the plot cannot name different ranges. */
+  rangeId: string;
 }
 
-function Plot({ projectId, widgetId, spec }: WidgetChartPreviewProps) {
+function Plot({ projectId, widgetId, spec, rangeId }: WidgetChartPreviewProps) {
   // The window is frozen at the moment the card first came into view: a
   // receipt for a past action should not quietly slide its own axis while the
-  // transcript stays open.
-  const range = useMemo(() => makeRange(DEFAULT_RANGE_ID), []);
+  // transcript stays open. WHICH window is the card model's own snapshot of
+  // the site's stored selection — the same value the header labels — so the
+  // two cannot disagree when the selection changes between the two moments.
+  const range = useMemo(() => makeRange(rangeId), [rangeId]);
   const { data, isPending, error } = useWidgetData(
     projectId,
     widgetId,

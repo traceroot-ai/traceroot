@@ -18,7 +18,8 @@
 
 import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
 import { triggerFieldDef, triggerOpLabel } from "@/features/detectors/trigger-fields";
-import { DEFAULT_RANGE_LABEL } from "@/features/dashboards/range-presets";
+import { resolveSiteRange } from "@/features/dashboards/range-presets";
+import type { DateFilterOption } from "@/lib/date-filter";
 import {
   DISPLAY_TYPES,
   isWidgetType,
@@ -53,13 +54,20 @@ export interface ReceiptRow {
 
 /**
  * What a widget card needs to draw the widget itself: the spec the model asked
- * for and the project to run it against. Null on a card that has no chart to
- * draw — a trace feed, a spec the widget schema rejects, or details that never
- * said which project the widget landed in.
+ * for, the project to run it against, and the window to run it over. Null on a
+ * card that has no chart to draw — a trace feed, a spec the widget schema
+ * rejects, or details that never said which project the widget landed in.
+ *
+ * `range` is resolved once here and carried, rather than re-resolved by the
+ * plot: the card's header names the window at model-build time while the plot
+ * freezes it at first visibility, and a selection changed in between would
+ * leave the card labeled one window and drawn over another. One snapshot
+ * feeds both.
  */
 export interface WidgetChart {
   projectId: string;
   spec: WidgetSpec;
+  range: DateFilterOption;
 }
 
 /**
@@ -86,15 +94,25 @@ export interface MiniatureTile {
 }
 
 /**
+ * What the detector card says about the prompt the detector will run: the
+ * call's own instructions verbatim, or the name of the standard template
+ * whose canonical instructions apply because the call omitted a prompt.
+ */
+export type DetectorPrompt =
+  | { kind: "custom"; text: string }
+  | { kind: "standard"; templateLabel: string };
+
+/**
  * The card body for each resource type. A dashboard's body is the miniature
  * of itself: its widgets as placed tiles (empty when the transcript created
- * none, and the card stays header-only).
+ * none, and the card stays header-only). A detector's body is its prompt —
+ * the thing the detector actually is — over its settings chips.
  */
 export type ResourceCardBody =
   | { kind: "widget"; chips: string[]; chart: WidgetChart | null }
   | { kind: "dashboard"; tiles: MiniatureTile[] }
   | { kind: "receipt"; rows: ReceiptRow[] }
-  | { kind: "detector"; chips: string[] };
+  | { kind: "detector"; chips: string[]; prompt: DetectorPrompt | null };
 
 export interface ResourceCardModel {
   resourceType: CardResourceType;
@@ -121,6 +139,9 @@ const MAX_TRIGGER_CHIPS = 3;
  */
 const MAX_TITLE_CHARS = 120;
 const MAX_VALUE_CHARS = 64;
+/** A detector prompt is the card's main content, so it gets real room — but a
+ *  runaway payload is still cut rather than left to flood the transcript. */
+const MAX_PROMPT_CHARS = 2000;
 
 function isCardResourceType(value: string): value is CardResourceType {
   return Object.prototype.hasOwnProperty.call(RESOURCE_TYPE_LABELS, value);
@@ -189,13 +210,16 @@ function widgetChips(args: Record<string, unknown>): string[] {
 function widgetChart(
   args: Record<string, unknown>,
   details: ResourceCreatedDetails,
+  retentionDays?: number | null,
 ): WidgetChart | null {
   // Not str(): this id addresses a request rather than being printed, so it is
   // checked but never capped.
   const projectId = typeof details.projectId === "string" ? details.projectId.trim() : "";
   if (projectId === "") return null;
   const spec = parseSpec(args.spec);
-  return spec === null ? null : { projectId, spec };
+  return spec === null
+    ? null
+    : { projectId, spec, range: resolveSiteRange(projectId, retentionDays) };
 }
 
 /**
@@ -214,16 +238,20 @@ function triggerChip(condition: unknown): string | null {
 }
 
 /**
- * A detector's settings as chips. Whether the prompt is the template's or the
- * model's own leads, because that is the choice most worth catching.
+ * A detector's settings as chips: how much traffic it samples, whether RCA
+ * runs, an explicit enabled/paused state, the model that judges, then the
+ * trigger conditions in the detector editor's own vocabulary. The prompt is
+ * not a chip — it is the card's body (see detectorPrompt).
  */
 function detectorChips(args: Record<string, unknown>): string[] {
-  const chips = [str(args.prompt) === null ? "template prompt" : "custom prompt"];
+  const chips: string[] = [];
   if (typeof args.sample_rate === "number" && Number.isFinite(args.sample_rate)) {
     chips.push(`sample ${args.sample_rate}%`);
   }
   if (typeof args.enable_rca === "boolean") chips.push(args.enable_rca ? "RCA on" : "RCA off");
-  if (args.enabled === false) chips.push("disabled");
+  if (typeof args.enabled === "boolean") chips.push(args.enabled ? "enabled" : "paused");
+  const detectionModel = str(args.detection_model);
+  if (detectionModel !== null) chips.push(`model ${detectionModel}`);
 
   if (Array.isArray(args.trigger_conditions)) {
     const triggers = args.trigger_conditions
@@ -275,7 +303,10 @@ function tileGlyph(args: Record<string, unknown> | null): MiniatureGlyph {
  * unreadable type falls back to a chart tile, the smaller of the two sizes;
  * a replayed create (same widget id twice) keeps its first tile.
  */
-function dashboardTiles(steps: readonly ToolCallStep[]): MiniatureTile[] {
+function dashboardTiles(
+  steps: readonly ToolCallStep[],
+  retentionDays?: number | null,
+): MiniatureTile[] {
   let layout: WidgetPlacement[] = [];
   const tiles: MiniatureTile[] = [];
   for (const step of steps) {
@@ -295,7 +326,7 @@ function dashboardTiles(steps: readonly ToolCallStep[]): MiniatureTile[] {
       // The same gate the widget card's own preview applies: a strict spec
       // parse plus the project the write landed in — a feed's spec fails the
       // parse, which is why a feed tile keeps its rows and never queries.
-      chart: args === null ? null : widgetChart(args, details),
+      chart: args === null ? null : widgetChart(args, details, retentionDays),
       x,
       y,
       w,
@@ -305,9 +336,39 @@ function dashboardTiles(steps: readonly ToolCallStep[]): MiniatureTile[] {
   return tiles;
 }
 
-/** "failure" -> "Failure" when it names a standard template; the raw id otherwise. */
+/**
+ * "failure" -> "Failure" when it names a standard template; "blank" -> the
+ * word a reader understands — a blank-template detector is a custom one, and
+ * the internal id would read as a detector with nothing in it. The raw id
+ * stands for anything unrecognised.
+ */
 function templateLabel(template: string): string {
+  if (template === "blank") return "Custom";
   return DETECTOR_TEMPLATES.find((t) => t.id === template)?.label ?? template;
+}
+
+/**
+ * The prompt the detector will actually run, as the card presents it. A
+ * supplied prompt is shown verbatim (capped) — it overrides any template
+ * default. An omitted prompt on a standard template means the template's
+ * canonical instructions, so the card names them rather than staying mute.
+ * A blank template with no prompt has nothing to claim.
+ *
+ * Seam: when a supplied prompt is a modified copy of its standard template's
+ * default, a diff-vs-template treatment could show just what changed; for now
+ * a custom prompt always renders whole.
+ */
+function detectorPrompt(args: Record<string, unknown>): DetectorPrompt | null {
+  const prompt = str(args.prompt, MAX_PROMPT_CHARS);
+  if (prompt !== null) return { kind: "custom", text: prompt };
+  const template = str(args.template);
+  // The blank template's default prompt is empty, so requiring a non-empty
+  // template prompt excludes it without naming it.
+  const standard =
+    template === null
+      ? undefined
+      : DETECTOR_TEMPLATES.find((t) => t.id === template && t.prompt !== "");
+  return standard === undefined ? null : { kind: "standard", templateLabel: standard.label };
 }
 
 function body(
@@ -315,11 +376,16 @@ function body(
   args: Record<string, unknown> | null,
   details: ResourceCreatedDetails,
   widgetSteps: readonly ToolCallStep[],
+  retentionDays?: number | null,
 ): ResourceCardBody {
   switch (resourceType) {
     case "widget":
       if (args === null) return { kind: "widget", chips: [], chart: null };
-      return { kind: "widget", chips: widgetChips(args), chart: widgetChart(args, details) };
+      return {
+        kind: "widget",
+        chips: widgetChips(args),
+        chart: widgetChart(args, details, retentionDays),
+      };
     case "dashboard":
       // Only a freshly CREATED dashboard gets a miniature. A reused
       // (idempotent-hit) dashboard was laid out before this transcript
@@ -328,10 +394,14 @@ function body(
       // the count/description body instead.
       return {
         kind: "dashboard",
-        tiles: details.created !== false ? dashboardTiles(widgetSteps) : [],
+        tiles: details.created !== false ? dashboardTiles(widgetSteps, retentionDays) : [],
       };
     case "detector":
-      return { kind: "detector", chips: args === null ? [] : detectorChips(args) };
+      return {
+        kind: "detector",
+        chips: args === null ? [] : detectorChips(args),
+        prompt: args === null ? null : detectorPrompt(args),
+      };
     default:
       return { kind: "receipt", rows: receiptRows(details) };
   }
@@ -345,10 +415,15 @@ function body(
  *
  * `widgetsByDashboard` supplies the widgets created into each dashboard, for
  * the card's count and its miniature; see createdWidgetsByDashboard.
+ *
+ * `retentionDays` is the plan's window; it clamps the range every chart here
+ * queries and every window label. Undefined while the plan is still
+ * resolving, which clamps nothing.
  */
 export function resourceCardModel(
   step: ToolCallStep,
   widgetsByDashboard?: ReadonlyMap<string, readonly ToolCallStep[]>,
+  retentionDays?: number | null,
 ): ResourceCardModel | null {
   const details = resourceCreatedDetails(step.result);
   if (details === null || !isCardResourceType(details.resourceType)) return null;
@@ -365,19 +440,24 @@ export function resourceCardModel(
     args,
     details,
     widgetsByDashboard?.get(details.resourceId) ?? [],
+    retentionDays,
   );
 
   const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
-  // A chart is a number without context until the window it covers is named.
-  if (cardBody.kind === "widget" && cardBody.chart !== null) meta.push(DEFAULT_RANGE_LABEL);
+  // A chart is a number without context until the window it covers is named —
+  // and the name must be the range the chart actually queries: the site's
+  // stored selection for the chart's own project, default otherwise.
+  if (cardBody.kind === "widget" && cardBody.chart !== null) {
+    meta.push(cardBody.chart.range.label);
+  }
   if (resourceType === "dashboard") {
     const widgetCount = widgetsByDashboard?.get(details.resourceId)?.length ?? 0;
     if (widgetCount > 0) meta.push(widgetCount === 1 ? "1 widget" : `${widgetCount} widgets`);
     // One window label for the whole miniature — the tiles share a single
     // frozen range, so naming it per tile would be twelve copies of one fact.
-    if (cardBody.kind === "dashboard" && cardBody.tiles.some((tile) => tile.chart !== null)) {
-      meta.push(DEFAULT_RANGE_LABEL);
-    }
+    // Any charted tile names the project, the same way the miniature aims it.
+    const chartedTile = cardBody.kind === "dashboard" ? cardBody.tiles.find((t) => t.chart) : null;
+    if (chartedTile?.chart) meta.push(chartedTile.chart.range.label);
   }
   if (resourceType === "detector" && args !== null) {
     const template = str(args.template);
@@ -431,6 +511,7 @@ const MAX_DESCRIPTION_CHARS = 200;
 export function pendingCardModel(
   step: ToolCallStep,
   panelProjectId: string | undefined,
+  retentionDays?: number | null,
 ): ResourceCardModel | null {
   const resourceType = PENDING_TOOL_RESOURCE_TYPES[step.toolName];
   if (resourceType === undefined) return null;
@@ -451,7 +532,11 @@ export function pendingCardModel(
         chart:
           spec === null || panelProjectId === undefined
             ? null
-            : { projectId: panelProjectId, spec },
+            : {
+                projectId: panelProjectId,
+                spec,
+                range: resolveSiteRange(panelProjectId, retentionDays),
+              },
       };
       break;
     }
@@ -459,7 +544,13 @@ export function pendingCardModel(
       body = { kind: "dashboard", tiles: [] };
       break;
     case "detector":
-      body = { kind: "detector", chips: args === null ? [] : detectorChips(args) };
+      // The same body the receipt builds — the gate must show exactly what
+      // the write would create, prompt included.
+      body = {
+        kind: "detector",
+        chips: args === null ? [] : detectorChips(args),
+        prompt: args === null ? null : detectorPrompt(args),
+      };
       break;
     default:
       // A project or workspace has no id yet, so there is no receipt to print.
@@ -467,7 +558,11 @@ export function pendingCardModel(
   }
 
   const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
-  if (body.kind === "widget" && body.chart !== null) meta.push(DEFAULT_RANGE_LABEL);
+  // The pending chart is aimed at the panel's project, so its window label
+  // resolves against the same project — what the preview will really query.
+  if (body.kind === "widget" && body.chart !== null) {
+    meta.push(body.chart.range.label);
+  }
   if (resourceType === "detector" && args !== null) {
     const template = str(args.template);
     if (template !== null) meta.push(templateLabel(template));
