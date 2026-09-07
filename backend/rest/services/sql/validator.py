@@ -242,6 +242,20 @@ def validate(sql: str) -> exp.Query:
             "Only SELECT statements are allowed; write operations and DDL are not permitted"
         )
 
+    # 5. Placeholders must be VALUE parameters. Besides `{name:String}`, ClickHouse
+    #    supports `{name:Identifier}`, which the SERVER substitutes as a table or
+    #    column name — after this validator has run, so every check below inspects
+    #    an AST that never contained the identifier the query actually reads. A
+    #    caller could name a column the policy forbids, or a table outside the
+    #    public schema, in a position no allowlist here can see. Only a data-typed
+    #    placeholder is a value; anything else (a bare `{name}`, or the raw
+    #    `Identifier` kind, which sqlglot models as a plain string rather than an
+    #    exp.DataType) is rejected. This runs BEFORE the table walk, which would
+    #    otherwise meet a Var where it expects a table name.
+    for placeholder in tree.find_all(exp.Placeholder):
+        if not isinstance(placeholder.args.get("kind"), exp.DataType):
+            raise SqlValidationError("Query parameters must be typed as values")
+
     public_table_names = set(PUBLIC_TABLES)  # {"spans", "traces"}
 
     # 6. CTE shadow: reject any CTE whose alias matches a public table name.

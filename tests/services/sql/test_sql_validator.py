@@ -421,3 +421,43 @@ def test_map_functions_do_not_open_the_wider_array_surface() -> None:
     # compose with mapKeys() are still rejected by the allowlist.
     with pytest.raises(SqlValidationError):
         validate("SELECT arrayJoin(mapKeys(metadata)) FROM spans")
+
+
+# ---------------------------------------------------------------------------
+# Identifier placeholders. ClickHouse substitutes `{name:Identifier}` as a table
+# or column name on the SERVER, after validation — so the allowlists here would
+# be inspecting an AST that never held the identifier the query actually reads.
+# ---------------------------------------------------------------------------
+IDENTIFIER_PLACEHOLDER_CASES = [
+    pytest.param("SELECT {col:Identifier} FROM spans", id="select-list"),
+    pytest.param("SELECT * FROM {tbl:Identifier}", id="table-position"),
+    pytest.param("SELECT * FROM spans WHERE {c:Identifier} = 1", id="predicate"),
+]
+
+
+@pytest.mark.parametrize("sql", IDENTIFIER_PLACEHOLDER_CASES)
+def test_identifier_placeholders_are_rejected(sql: str) -> None:
+    with pytest.raises(SqlValidationError):
+        validate(sql)
+
+
+def test_identifier_placeholder_in_table_position_raises_the_domain_error() -> None:
+    # It reaches the table walk as a Var rather than a table name; before the
+    # placeholder gate this escaped as a raw AttributeError, which is a 500 and a
+    # stack trace rather than a rejected query.
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate("SELECT * FROM {tbl:Identifier}")
+    assert "tbl" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("SELECT count() FROM spans WHERE span_id = {v:String}", id="string"),
+        pytest.param("SELECT * FROM spans WHERE cost > {c:Float64}", id="float"),
+    ],
+)
+def test_value_placeholders_remain_allowed(sql: str) -> None:
+    # A caller's own value parameters are a product feature; only the identifier
+    # form is refused.
+    assert isinstance(validate(sql), exp.Query)
