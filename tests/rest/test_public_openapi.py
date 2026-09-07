@@ -323,6 +323,7 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/alerts": {"get": "list_alerts", "post": "create_alert"},
     "/api/v1/public/alerts/{alert_id}": {"get": "get_alert"},
     "/api/v1/public/widgets": {"post": "create_widget"},
+    "/api/v1/public/widgets/query": {"post": "run_widget_query"},
     "/api/v1/public/detectors": {"get": "list_detectors", "post": "create_detector"},
     "/api/v1/public/detectors/findings": {"get": "list_findings"},
     "/api/v1/public/detectors/findings/{finding_id}": {"get": "get_finding"},
@@ -416,6 +417,7 @@ def test_x_tool_enabled_set_and_shape():
         "create_dashboard",
         "create_widget",
         "create_alert",
+        "run_widget_query",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
