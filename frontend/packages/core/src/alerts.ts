@@ -25,11 +25,11 @@ export function isAlertSeverity(value: string): value is AlertSeverity {
 
 /**
  * What a window that measured nothing means for this rule. HOLD reads a gap as
- * deciding nothing, so the rule stands on its last judgement and an outstanding
- * page stays open across it. ZERO suits a measure whose absence is itself a
- * number — no rows is a count of zero — and puts that zero to the threshold.
- * NOTIFY is for a source whose silence is the incident: the gap pages, and its
- * return pages again.
+ * deciding nothing: the severity reads NO_DATA, nothing pages or clears, and
+ * an outstanding page stays open across it. ZERO suits a measure whose absence
+ * is itself a number — no rows is a count of zero — and puts that zero to the
+ * threshold. NOTIFY is for a source whose silence is the incident: the gap
+ * pages, and its return pages again.
  */
 export const ALERT_NO_DATA_MODES = ["HOLD", "ZERO", "NOTIFY"] as const;
 export type AlertNoDataMode = (typeof ALERT_NO_DATA_MODES)[number];
