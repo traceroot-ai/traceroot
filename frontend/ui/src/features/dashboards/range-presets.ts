@@ -5,7 +5,7 @@ import {
   findDateFilterOption,
   type DateFilterOption,
 } from "@/lib/date-filter";
-import { readStoredDateFilter } from "@/lib/date-filter-storage";
+import { readStoredDateFilter, type StoredDateFilter } from "@/lib/date-filter-storage";
 import type { TimeRange } from "./types";
 
 // The widget builder's preview-window presets ARE the shared trace-list
@@ -94,4 +94,38 @@ export function makeRange(optionId: string): TimeRange {
     start: new Date(end.getTime() - minutes * 60_000),
     end,
   };
+}
+
+/**
+ * The window the agent should answer dashboard reads for, as the messages
+ * request carries it: the site's selected preset for this project, or — for
+ * the picker's custom option, which no preset can name — its explicit bounds.
+ */
+export type SiteWindow = { range: string } | { start_time: string; end_time: string };
+
+/**
+ * The window the rest of the site is using for this project, in the shape
+ * the agent's messages request takes. The same precedence as
+ * resolveSiteRange (URL pin, then the stored pick, then the default), but
+ * where that helper collapses the custom option to the default because a
+ * preset-only chart cannot draw it, a query can be answered for any bounds —
+ * so a custom selection with a valid, ordered pair is sent as explicit
+ * bounds. Retention clamping happens on the server, which echoes the window
+ * it answered for.
+ */
+export function resolveSiteWindow(
+  projectId: string | null | undefined,
+  retentionDays?: number | null,
+): SiteWindow {
+  const pinnedId = readUrlDateFilterId();
+  const stored: StoredDateFilter | null = projectId ? readStoredDateFilter(projectId) : null;
+  const selectedId = pinnedId ?? stored?.id ?? null;
+  if (selectedId === "custom" && stored?.id === "custom" && stored.start && stored.end) {
+    const start = Date.parse(stored.start);
+    const end = Date.parse(stored.end);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+      return { start_time: stored.start, end_time: stored.end };
+    }
+  }
+  return { range: resolveSiteRange(projectId, retentionDays).id };
 }
