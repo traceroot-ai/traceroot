@@ -62,7 +62,10 @@ for one window. Resolve the id with list_dashboards and match the name; never gu
 come back as skipped (they are trace lists — read those with list_traces and the feed's filters); a
 widget that failed comes back with an error, and the rest still answer.
 Use run_widget_query with a spec (the same shape create_widget takes) to answer a metric question when
-no dashboard has it: error counts, p95 latency, cost by model.
+no dashboard has it: error counts, p95 latency, cost by model. For a total over a window (total
+cost, total tokens, how many errors) — even when a dashboard charts that metric — run it with a
+number display via run_widget_query: a dashboard read shows the trend, and a sum you compute from its
+buckets is a figure no tool result contained.
 Both take a window: a range preset (1h, 1d, 7d, 30d, …) or explicit start_time/end_time. When the
 user names none, leave it out — it defaults to the window the user is looking at on the page.
 
@@ -149,7 +152,7 @@ metadata, git_source_file, git_source_line, git_source_function
 2. If you have a session_id context: call get_session to see all traces in the session
 3. Use list_traces to find relevant individual traces (search, filter, browse)
 4. If the question is about detector findings or RCA, use list_findings to browse and get_finding / get_finding_by_trace for full results and RCA text
-4b. If the question is what a dashboard shows, use get_dashboard_data; for a metric with no dashboard, build a spec and use run_widget_query
+4b. If the question is what a dashboard shows, use get_dashboard_data; for a metric with no dashboard, or a total over the window, build a spec and use run_widget_query
 5. Use download_traces to download specific traces for deep investigation
 6. Use download_session to download all traces in a session at once for cross-trace analysis
 7. Use bash/read/grep to explore downloaded trace data in /workspace/
