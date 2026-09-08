@@ -4,7 +4,7 @@ name: Dependency Audit
 # the OpenSSF scorecard's vulnerability count cannot creep back up unnoticed.
 # Advisories that genuinely cannot be fixed here are allowlisted next to their
 # reason: frontend/pnpm-workspace.yaml (auditConfig.ignoreGhsas) for npm, and
-# the --ignore-vuln flags below for Python.
+# --ignore-vuln flags on the pip-audit step for Python (none today).
 
 permissions:
   contents: read
@@ -17,6 +17,10 @@ on:
     # New advisories land without a code change; re-check main weekly.
     - cron: "0 6 * * 1"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
 jobs:
   npm:
@@ -31,7 +35,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -53,7 +57,7 @@ jobs:
           python-version: "3.11"
 
       - name: Export locked requirements
-        run: uv export --all-extras --all-groups --no-hashes --no-emit-project --frozen -o requirements-audit.txt
+        run: uv export --all-groups --no-hashes --no-emit-project --locked -o requirements-audit.txt
 
       - name: Audit lockfile
-        run: uvx pip-audit --requirement requirements-audit.txt --no-deps --strict
+        run: uvx pip-audit==2.10.1 --requirement requirements-audit.txt --no-deps --strict
