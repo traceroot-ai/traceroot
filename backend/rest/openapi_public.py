@@ -485,7 +485,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "get_dashboard_data": {
         "name": "get_dashboard_data",
         "description": (
-            "Answer every query widget on a dashboard for one window — the way "
+            "Answer a dashboard's query widgets (up to 24) for one window — the way "
             "to say what a dashboard shows, not just what it contains. Resolve "
             "the dashboard id with list_dashboards and match its name; never "
             "guess an id. Takes a window like run_widget_query (range preset "

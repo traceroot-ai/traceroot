@@ -83,7 +83,7 @@ async def get_dashboard_data(
     start_time: datetime | None = Query(default=None),
     end_time: datetime | None = Query(default=None),
 ) -> DashboardDataResponse:
-    """Answer every query widget on one dashboard for a window."""
+    """Answer one dashboard's query widgets, up to the per-request cap, for a window."""
     return await get_dashboard_data_page(
         auth.project_id, dashboard_id, auth.billing_plan, range, start_time, end_time
     )

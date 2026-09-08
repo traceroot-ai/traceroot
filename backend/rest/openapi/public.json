@@ -847,7 +847,7 @@
         "type": "object"
       },
       "DashboardDataResponse": {
-        "description": "Every query widget on a dashboard answered for one window.\n\nWidgets keep the dashboard's order. ``window`` is the window they were all\nanswered for \u2014 the one to name alongside any figure taken from here.",
+        "description": "A dashboard's query widgets, up to the per-request cap, answered for one window.\n\nWidgets keep the dashboard's order. ``window`` is the window they were all\nanswered for \u2014 the one to name alongside any figure taken from here.",
         "properties": {
           "dashboard": {
             "$ref": "#/components/schemas/DashboardSummary"
@@ -1080,7 +1080,7 @@
         "type": "object"
       },
       "DashboardWidgetData": {
-        "description": "One widget's answer within a dashboard data read.\n\n``status`` says what happened: ``ok`` carries the engine's columns/rows/\nmeta (rows capped, with ``truncated`` set when the cap bit); ``skipped``\nis a feed widget (a trace list, not an aggregate \u2014 read those with\n``list_traces`` and the feed's filters); ``error`` carries a short reason\nand no rows, so one broken widget never fails the whole dashboard.",
+        "description": "One widget's answer within a dashboard data read.\n\n``status`` says what happened: ``ok`` carries the engine's columns/rows/\nmeta (rows capped, with ``truncated`` set when the cap bit); ``skipped``\nis a feed widget (a trace list, not an aggregate \u2014 read those with\n``list_traces`` and the feed's filters); ``error`` carries a short reason\nand no rows \u2014 a broken widget, or a query widget past the per-request cap\nwith a reason naming it \u2014 so neither fails the whole dashboard.",
         "properties": {
           "columns": {
             "anyOf": [
@@ -4391,7 +4391,7 @@
     },
     "/api/v1/public/dashboards/{dashboard_id}/data": {
       "get": {
-        "description": "Answer every query widget on one dashboard for a window.",
+        "description": "Answer one dashboard's query widgets, up to the per-request cap, for a window.",
         "operationId": "get_dashboard_data",
         "parameters": [
           {
@@ -4563,7 +4563,7 @@
           "Dashboards (Public)"
         ],
         "x-tool": {
-          "description": "Answer every query widget on a dashboard for one window \u2014 the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows, skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
+          "description": "Answer a dashboard's query widgets (up to 24) for one window \u2014 the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows, skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
           "enabled": true,
           "name": "get_dashboard_data"
         }

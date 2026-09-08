@@ -322,14 +322,18 @@ async def run_widget_query_page(
     return WidgetQueryResponse(**result, window=window)
 
 
-# A dashboard data read answers every query widget at once, so it is bounded
-# three ways: rows per widget (a table widget can return hundreds; a caller
-# summarizing a dashboard needs the shape, not the tail), queries in flight
-# per request (twelve tiles must not open twelve ClickHouse connections at
-# once — concurrent requests are bounded by the READ rate bucket, not here),
-# and per-widget failure isolation (one stale spec must not fail the dashboard).
+# A dashboard data read answers a dashboard's query widgets at once, so it is
+# bounded four ways: rows per widget (a table widget can return hundreds; a
+# caller summarizing a dashboard needs the shape, not the tail), queries in
+# flight per request (twelve tiles must not open twelve ClickHouse connections
+# at once — concurrent requests are bounded by the READ rate bucket, not here),
+# queries per request (nothing caps widgets per dashboard, and one call must
+# not fan out into arbitrarily many queries; the rest come back as errors
+# naming the cap, so the caller can query them one at a time), and per-widget
+# failure isolation (one stale spec must not fail the dashboard).
 DASHBOARD_DATA_ROW_CAP = 25
 DASHBOARD_DATA_CONCURRENCY = 4
+DASHBOARD_DATA_QUERY_WIDGET_CAP = 24
 
 
 def _widget_error(widget: DashboardWidgetItem, reason: str) -> DashboardWidgetData:
@@ -396,15 +400,16 @@ async def get_dashboard_data_page(
     start_time: datetime | None,
     end_time: datetime | None,
 ) -> DashboardDataResponse:
-    """Answer every query widget on a dashboard for one window.
+    """Answer a dashboard's query widgets, up to the per-request cap, for one window.
 
     The shared body of the public ``get_dashboard_data`` and the internal
     ``/dashboards/{dashboard_id}/data`` mirror. The window is resolved and
     clamped first (a malformed window is a 422 before anything is fetched),
     then the dashboard is read through the internal detail route and each
-    query widget runs under a concurrency gate; feeds are listed as skipped
-    and a failing widget becomes an inline error, so the dashboard's order and
-    count are always intact.
+    query widget up to the per-request cap runs under a concurrency gate;
+    feeds are listed as skipped, a failing widget becomes an inline error and
+    so does a query widget past the cap, so the dashboard's order and count
+    are always intact.
 
     Args:
         project_id (str): The project the caller's credential resolved to.
@@ -425,9 +430,26 @@ async def get_dashboard_data_page(
     start, end, window = _resolve_window_for_plan(range_id, start_time, end_time, billing_plan)
     detail = await get_dashboard_detail(project_id, dashboard_id)
     gate = asyncio.Semaphore(DASHBOARD_DATA_CONCURRENCY)
-    widgets = await asyncio.gather(
-        *(_answer_widget(w, project_id, start, end, gate) for w in detail.widgets)
+    over_cap = (
+        f"not answered: the dashboard has more than {DASHBOARD_DATA_QUERY_WIDGET_CAP} query "
+        "widgets; run this one with run_widget_query"
     )
+
+    async def answer(w: DashboardWidgetItem, past_cap: bool) -> DashboardWidgetData:
+        if past_cap:
+            return _widget_error(w, over_cap)
+        return await _answer_widget(w, project_id, start, end, gate)
+
+    # Only query widgets count toward the cap; a feed anywhere is still a skip.
+    queries_seen = 0
+    calls = []
+    for w in detail.widgets:
+        past_cap = False
+        if w.type == "query":
+            queries_seen += 1
+            past_cap = queries_seen > DASHBOARD_DATA_QUERY_WIDGET_CAP
+        calls.append(answer(w, past_cap))
+    widgets = await asyncio.gather(*calls)
     statuses = [w.status for w in widgets]
     return DashboardDataResponse(
         dashboard=DashboardSummary(**detail.model_dump(exclude={"widgets"})),
