@@ -152,9 +152,37 @@ describe("useAiChat session switching", () => {
       expect(result.current.messages.some((m) => m.content === "history of B")).toBe(true),
     );
 
-    // session A's stream keeps producing — nothing may bleed into B's view
-    sseA.emit(" continues");
-    await new Promise((r) => setTimeout(r, 50));
+    // session A's stream keeps producing — nothing may bleed into B's view.
+    // Wait for the delta to land in A's own bucket (observable by switching
+    // back), not on a timer: a sleep either flakes or passes vacuously.
+    await act(async () => {
+      sseA.emit(" continues");
+    });
+    await act(async () => {
+      await result.current.handleSelectSession({ ...sessionB, id: "A" });
+    });
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "partial answer continues")).toBe(
+        true,
+      ),
+    );
+    // Back to B with its history fetch left hanging: the view is B's cached
+    // bucket, where a leaked delta would still be visible (a fresh history
+    // load would erase it and make this check vacuous).
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if ((init?.method ?? "GET") === "GET" && url.endsWith("/ai/sessions/B/messages")) {
+        return new Promise<Response>(() => {});
+      }
+      return answer(input, init);
+    });
+    act(() => {
+      void result.current.handleSelectSession(sessionB);
+    });
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "history of B")).toBe(true),
+    );
     expect(result.current.messages.every((m) => !m.content.includes("continues"))).toBe(true);
     // and the visible session is not "streaming"
     expect(result.current.isStreaming).toBe(false);

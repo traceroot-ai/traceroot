@@ -216,6 +216,60 @@ describe("useAIStream per-session isolation", () => {
     });
   });
 
+  it("a delta queued before abort never lands, even when React evaluates it after", async () => {
+    // The read loop schedules its state update when the chunk arrives; React
+    // evaluates the updater later. Abort in between: the updater must find
+    // the run stopped and leave the (frozen) bucket alone. Only microtasks
+    // are yielded here so the update is queued but not yet flushed.
+    const sse = createSSE();
+    fetchMock.mockResolvedValueOnce(sse.response);
+    const { result } = renderHook(() => useAIStream());
+    await send(result, "A");
+
+    sse.emit(textDelta("late"));
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    act(() => {
+      result.current.abortSession("A");
+    });
+
+    const bucket = result.current.messagesBySession["A"] ?? [];
+    expect(bucket.some((m) => m.content.includes("late"))).toBe(false);
+    expect(bucket.some((m) => m.isStreaming)).toBe(false);
+    expect(result.current.isSessionStreaming("A")).toBe(false);
+  });
+
+  it("setSessionMessages leaves a live run's bucket alone until the run ends", async () => {
+    // A history fetch resolving after a send started must not erase the
+    // user's turn and the partial answer the run has already put there.
+    const sse = createSSE();
+    fetchMock.mockResolvedValueOnce(sse.response);
+    const { result } = renderHook(() => useAIStream());
+    await send(result, "A");
+    sse.emit(textDelta("partial"));
+    await waitFor(() =>
+      expect(result.current.messagesBySession["A"]?.some((m) => m.content === "partial")).toBe(
+        true,
+      ),
+    );
+
+    act(() => {
+      result.current.setSessionMessages("A", [historyMsg("h1", "old history")]);
+    });
+    expect(result.current.messagesBySession["A"]?.some((m) => m.content === "partial")).toBe(true);
+    expect(result.current.messagesBySession["A"]?.some((m) => m.content === "old history")).toBe(
+      false,
+    );
+
+    // Once the run is over, history may replace the bucket again.
+    act(() => {
+      result.current.abortSession("A");
+    });
+    act(() => {
+      result.current.setSessionMessages("A", [historyMsg("h1", "old history")]);
+    });
+    expect(result.current.messagesBySession["A"]?.map((m) => m.content)).toEqual(["old history"]);
+  });
+
   it("setSessionMessages replaces the bucket of a non-streaming session", () => {
     const { result } = renderHook(() => useAIStream());
     act(() => {

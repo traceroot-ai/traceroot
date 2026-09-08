@@ -42,11 +42,12 @@ function frozen(messages: AIMessage[]): AIMessage[] {
 }
 
 interface SessionRun {
-  /** Monotonic id — a bucket write is valid only while this run is still the
-   * session's registered run with the same generation. */
-  gen: number;
   abortController: AbortController;
   reader: ReadableStreamDefaultReader<Uint8Array> | null;
+  /** Set by stopRun (superseded or aborted): the run's bucket writes are void
+   *  from then on. A run that merely finished deregisters itself without it,
+   *  so its final updates (freezing its bubble) still count. */
+  stopped: boolean;
 }
 
 /**
@@ -79,7 +80,6 @@ export function useAIStream(options?: UseAIStreamOptions) {
   const [messagesBySession, setMessagesBySession] = useState<Record<string, AIMessage[]>>({});
   const [streamingSessions, setStreamingSessions] = useState<Record<string, boolean>>({});
   const runsRef = useRef<Map<string, SessionRun>>(new Map());
-  const genRef = useRef(0);
   // Ref so the stream loop always sees the latest callback without resubscribing.
   const onToolResultRef = useRef(options?.onToolResult);
   onToolResultRef.current = options?.onToolResult;
@@ -95,6 +95,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
   const stopRun = useCallback((sessionId: string) => {
     const run = runsRef.current.get(sessionId);
     if (!run) return;
+    run.stopped = true;
     runsRef.current.delete(sessionId);
     run.reader?.cancel().catch(() => {});
     run.abortController.abort();
@@ -131,9 +132,19 @@ export function useAIStream(options?: UseAIStreamOptions) {
     setStreamingSessions({});
   }, []);
 
-  /** Replace a session's cached messages (history loads). */
+  /**
+   * Replace a session's cached messages (history loads) — unless a run owns
+   * the session. A history request that resolves after a send started would
+   * otherwise overwrite the live bucket, erasing the user's turn and the
+   * partial answer; the run's own updates are the truth while it lives.
+   * Checked inside the updater, since the run can start between scheduling
+   * and evaluation.
+   */
   const setSessionMessages = useCallback((sessionId: string, messages: AIMessage[]) => {
-    setMessagesBySession((prev) => ({ ...prev, [sessionId]: messages }));
+    setMessagesBySession((prev) => {
+      if (runsRef.current.has(sessionId)) return prev;
+      return { ...prev, [sessionId]: messages };
+    });
   }, []);
 
   /**
@@ -226,21 +237,23 @@ export function useAIStream(options?: UseAIStreamOptions) {
       end_time?: string;
     }) => {
       const { sessionId } = params;
-      const myGen = ++genRef.current;
 
       // Single-flight per session: cancel a prior run in THIS session only.
       // Runs in other sessions keep streaming into their own buckets.
       stopRun(sessionId);
 
       const abortController = new AbortController();
-      const run: SessionRun = { gen: myGen, abortController, reader: null };
+      const run: SessionRun = { abortController, reader: null, stopped: false };
       runsRef.current.set(sessionId, run);
 
-      // Valid only while this run is still the session's registered run —
-      // superseded/aborted runs' buffered chunks become no-ops.
+      // Void once stopRun has marked this run stopped — superseded/aborted
+      // runs' buffered chunks become no-ops. Checked inside the updater too,
+      // not only before scheduling it: React may evaluate a queued updater
+      // after a newer run has taken the session or after abort cleared the
+      // bucket, and a stale one must then leave that bucket alone.
       const safeUpdate = (updater: (prev: AIMessage[]) => AIMessage[]) => {
-        if (runsRef.current.get(sessionId)?.gen !== myGen) return;
-        updateBucket(sessionId, updater);
+        if (run.stopped) return;
+        updateBucket(sessionId, (prev) => (run.stopped ? prev : updater(prev)));
       };
 
       // Bubble tracking is local to this run so superseded streams cannot
@@ -465,7 +478,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
                 }
 
                 if (eventData.type === "tool_execution_end") {
-                  if (runsRef.current.get(sessionId)?.gen === myGen) {
+                  if (!run.stopped) {
                     onToolResultRef.current?.({ result: eventData.result });
                   }
                   // A declined proposal's result names its outcome in its
@@ -531,7 +544,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
         freezeCurrentBubble();
         safeUpdate(frozen);
         // Skip cleanup if a newer run owns this session — would clobber its state.
-        if (runsRef.current.get(sessionId)?.gen === myGen) {
+        if (runsRef.current.get(sessionId) === run) {
           runsRef.current.delete(sessionId);
           clearStreamingFlag(sessionId);
         }
