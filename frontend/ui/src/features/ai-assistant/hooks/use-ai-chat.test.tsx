@@ -5,6 +5,7 @@ import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useAiChat } from "./use-ai-chat";
+import { dateFilterStorageKey } from "@/lib/date-filter-storage";
 import type { AISession } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
@@ -304,6 +305,28 @@ describe("useAiChat session switching", () => {
     });
 
     expect(sessionPosts).toBe(1);
+  });
+
+  it("sends the site's selected range for the project with every message", async () => {
+    // jsdom: the stored pick is the page's selection; no URL pin here.
+    window.localStorage.setItem(dateFilterStorageKey("p1"), JSON.stringify({ id: "7d" }));
+    const bodies: Record<string, unknown>[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) return jsonResponse({ id: "A" });
+      if (method === "POST" && url.endsWith("/ai/sessions/A/messages")) {
+        bodies.push(JSON.parse(String(init?.body)));
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+    await act(async () => {
+      await result.current.handleSend("summarize it", MODEL);
+    });
+    expect(bodies[0]).toMatchObject({ message: "summarize it", range: "7d" });
+    window.localStorage.removeItem(dateFilterStorageKey("p1"));
   });
 
   it("concurrent sends share one in-flight session creation", async () => {

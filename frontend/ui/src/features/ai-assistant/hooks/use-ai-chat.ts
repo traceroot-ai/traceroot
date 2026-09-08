@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { resolveSiteWindow } from "@/features/dashboards/range-presets";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
 import { useAIStream, type LiveToolResult } from "./use-ai-stream";
@@ -32,6 +33,8 @@ export type PendingDecisionAction = "create" | "skip";
 interface UseAiChatOptions extends AiTraceContext {
   projectId: string | undefined;
   initialSessionId?: string; // pre-load an existing session (e.g. RCA session from Step 2)
+  /** The plan's retention, so the window sent with a message is already clamped; undefined while unknown. */
+  retentionDays?: number | null;
 }
 
 export function useAiChat({
@@ -39,6 +42,7 @@ export function useAiChat({
   traceId,
   traceSessionId,
   initialSessionId,
+  retentionDays,
 }: UseAiChatOptions) {
   const queryClient = useQueryClient();
 
@@ -348,6 +352,10 @@ export function useAiChat({
           activeSessionIdRef.current = sessionId;
           setActiveSessionId(sessionId);
         }
+        // The window the site is showing for this project rides with the
+        // message, so the agent's dashboard reads default to the same range
+        // the user is looking at. Read at send time: the picker can change
+        // between two messages in one session.
         sendMessage({
           sessionId,
           message,
@@ -357,6 +365,7 @@ export function useAiChat({
           source: modelSelection.source,
           traceId,
           traceSessionId,
+          ...resolveSiteWindow(projectId, retentionDays),
         });
       } finally {
         setActiveSends((n) => n - 1);
@@ -366,6 +375,7 @@ export function useAiChat({
       projectId,
       traceId,
       traceSessionId,
+      retentionDays,
       ensureSession,
       sendMessage,
       findActiveParkedStep,

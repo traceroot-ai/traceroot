@@ -220,6 +220,10 @@ export function useAIStream(options?: UseAIStreamOptions) {
       source?: "system" | "byok";
       traceId?: string;
       traceSessionId?: string;
+      /** The page's selected time range: the default window for the agent's dashboard reads. */
+      range?: string;
+      start_time?: string;
+      end_time?: string;
     }) => {
       const { sessionId } = params;
       const myGen = ++genRef.current;
@@ -319,6 +323,9 @@ export function useAIStream(options?: UseAIStreamOptions) {
             source: params.source,
             traceId: params.traceId,
             traceSessionId: params.traceSessionId,
+            range: params.range,
+            start_time: params.start_time,
+            end_time: params.end_time,
           }),
           signal: abortController.signal,
         });
