@@ -97,6 +97,12 @@
             ]
           },
           {
+            "group": "Alerts",
+            "pages": [
+              "alerts/introduction"
+            ]
+          },
+          {
             "group": "AI Agents",
             "pages": [
               "ai-agent/overview",
