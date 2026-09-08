@@ -128,7 +128,7 @@ class QueryWindow(BaseModel):
 
     start_time: datetime
     end_time: datetime
-    range: str | None
+    range: RangeId | None
     clamped: bool
 
 
