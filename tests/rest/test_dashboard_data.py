@@ -1,6 +1,6 @@
 """Integration tests for the dashboard data read (public route + internal mirror).
 
-One call answers every query widget on a dashboard for one window. The
+One call answers a dashboard's query widgets (up to a cap) for one window. The
 dashboard itself comes from the internal Next.js detail route (mocked with
 ``respx``); each widget's query runs through the engine, patched at the shared
 handler module so both surfaces are exercised through the same body.
@@ -16,7 +16,10 @@ from fastapi.testclient import TestClient
 from httpx import Response
 
 from rest.main import app
-from rest.routers.dashboard_read_common import DASHBOARD_DATA_ROW_CAP
+from rest.routers.dashboard_read_common import (
+    DASHBOARD_DATA_QUERY_WIDGET_CAP,
+    DASHBOARD_DATA_ROW_CAP,
+)
 from rest.services.widget_query import WidgetSpecError
 
 BASE_URL = "http://localhost:3000"
@@ -189,6 +192,44 @@ def test_rows_are_capped_per_widget_and_the_cap_is_reported():
     capped, whole = resp.json()["widgets"]
     assert len(capped["rows"]) == DASHBOARD_DATA_ROW_CAP and capped["truncated"] is True
     assert len(whole["rows"]) == 3 and whole["truncated"] is False
+
+
+@respx.mock
+def test_query_widgets_past_the_cap_come_back_as_errors_without_running():
+    """One request answers at most the cap; the rest are inline errors, order and count intact."""
+    _mock_key_auth()
+    n = DASHBOARD_DATA_QUERY_WIDGET_CAP + 2
+    _mock_detail(_detail([_widget(i) for i in range(1, n + 1)]))
+    with patch(RUN, return_value=_rows(1)) as run:
+        resp = TestClient(app).get(PATH, headers=KEY_HEADER, params={"range": "1d"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert run.call_count == DASHBOARD_DATA_QUERY_WIDGET_CAP
+    assert [w["id"] for w in body["widgets"]] == [f"w-{i}" for i in range(1, n + 1)]
+    statuses = [w["status"] for w in body["widgets"]]
+    assert statuses == ["ok"] * DASHBOARD_DATA_QUERY_WIDGET_CAP + ["error"] * 2
+    assert "query widgets" in body["widgets"][-1]["error"]
+    assert (body["queried"], body["failed"]) == (DASHBOARD_DATA_QUERY_WIDGET_CAP, 2)
+
+
+@respx.mock
+def test_a_feed_after_the_cap_is_still_skipped_not_failed():
+    """The cap counts query widgets only; a feed anywhere is a skip."""
+    _mock_key_auth()
+    queries = [_widget(i) for i in range(1, DASHBOARD_DATA_QUERY_WIDGET_CAP + 2)]
+    feed = _widget(99, type_="trace_feed", spec={"filters": []})
+    _mock_detail(_detail(queries + [feed]))
+    with patch(RUN, return_value=_rows(1)) as run:
+        resp = TestClient(app).get(PATH, headers=KEY_HEADER, params={"range": "1d"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert run.call_count == DASHBOARD_DATA_QUERY_WIDGET_CAP
+    assert body["widgets"][-1]["status"] == "skipped"
+    assert (body["queried"], body["skipped"], body["failed"]) == (
+        DASHBOARD_DATA_QUERY_WIDGET_CAP,
+        1,
+        1,
+    )
 
 
 @respx.mock

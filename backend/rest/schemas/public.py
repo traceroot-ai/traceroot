@@ -270,7 +270,8 @@ class DashboardWidgetData(BaseModel):
     meta (rows capped, with ``truncated`` set when the cap bit); ``skipped``
     is a feed widget (a trace list, not an aggregate — read those with
     ``list_traces`` and the feed's filters); ``error`` carries a short reason
-    and no rows, so one broken widget never fails the whole dashboard.
+    and no rows — a broken widget, or a query widget past the per-request cap
+    with a reason naming it — so neither fails the whole dashboard.
     """
 
     id: str
@@ -285,7 +286,7 @@ class DashboardWidgetData(BaseModel):
 
 
 class DashboardDataResponse(BaseModel):
-    """Every query widget on a dashboard answered for one window.
+    """A dashboard's query widgets, up to the per-request cap, answered for one window.
 
     Widgets keep the dashboard's order. ``window`` is the window they were all
     answered for — the one to name alongside any figure taken from here.

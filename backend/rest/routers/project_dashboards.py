@@ -62,7 +62,7 @@ async def get_dashboard_data(
     start_time: datetime | None = Query(default=None),
     end_time: datetime | None = Query(default=None),
 ) -> DashboardDataResponse:
-    """Answer every query widget on one dashboard for a window.
+    """Answer one dashboard's query widgets, up to the per-request cap, for a window.
 
     The window is bounded by the plan of whoever the agent acts for, so this
     read resolves project access like the other agent reads do — the router's
