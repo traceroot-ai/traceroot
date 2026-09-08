@@ -50,7 +50,7 @@ describe("formatRows", () => {
     ]);
     const out = formatRows(["bucket", "p95"], rows, { granularity: "1d" });
     expect(out).toContain("12 buckets (bucket, p95) | granularity 1d");
-    expect(out).toContain("min 100 | max 111 | latest 111");
+    expect(out).toContain("min 100 | max 111 (2026-09-03T00:00:00) | latest 111");
     expect(out).toContain("… 4 more buckets …");
     expect(out.split("\n").filter((l) => l.startsWith("  2026-")).length).toBe(8);
   });
@@ -64,7 +64,9 @@ describe("formatRows", () => {
       ["2026-09-03T00:00:00", null],
     ];
     const out = formatRows(["bucket", "p95"], rows, { granularity: "day" });
-    expect(out).toContain("min 1.8 | max 1.8 | latest bucket empty (last value 1.8)");
+    expect(out).toContain(
+      "min 1.8 | max 1.8 (2026-09-02T00:00:00) | latest bucket empty (last value 1.8)",
+    );
     expect(out).not.toMatch(/min 0|latest 0/);
     expect(out).toContain("  2026-09-01T00:00:00  —");
   });
@@ -83,8 +85,8 @@ describe("formatRows", () => {
     expect(lines[0]).toBe(
       "3 buckets × 2 series (bucket, model_name, value) | granularity day, 2026-09-01T00:00:00 → 2026-09-03T00:00:00",
     );
-    expect(lines[1]).toBe("  gpt-5: min 12.5 | max 20 | latest 20");
-    expect(lines[2]).toBe("  other: min 1 | max 3 | latest 1");
+    expect(lines[1]).toBe("  gpt-5: min 12.5 | max 20 (2026-09-03T00:00:00) | latest 20");
+    expect(lines[2]).toBe("  other: min 1 | max 3 (2026-09-01T00:00:00) | latest 1");
     expect(out).not.toContain("min 0");
     expect(lines).toHaveLength(3);
   });
@@ -98,8 +100,10 @@ describe("formatRows", () => {
       ["2026-09-03T00:00:00", "gpt-5", 8],
     ];
     const out = formatRows(["bucket", "model_name", "value"], rows, { granularity: "day" });
-    expect(out).toContain("gpt-5: min 8 | max 20 | latest 8");
-    expect(out).toContain("haiku: min 1 | max 3 | latest bucket empty (last value 1)");
+    expect(out).toContain("gpt-5: min 8 | max 20 (2026-09-02T00:00:00) | latest 8");
+    expect(out).toContain(
+      "haiku: min 1 | max 3 (2026-09-01T00:00:00) | latest bucket empty (last value 1)",
+    );
   });
 
   it("marks a server-capped series as partial and never names a latest value for it", () => {
@@ -111,6 +115,40 @@ describe("formatRows", () => {
     expect(out).toMatch(/partial/);
     expect(out).not.toMatch(/latest/);
     expect(out).toContain("min 0 | max 24");
+  });
+
+  it("lists the buckets that carry values when a series is sparse, instead of a blind head and tail", () => {
+    // 90 days with one spike: the head and tail are all zero, and a reader
+    // (or a model) needs the spike's date, not eight zeros.
+    const rows = Array.from({ length: 91 }, (_, i) => {
+      const day = new Date(Date.UTC(2026, 5, 10 + i)).toISOString().slice(0, 10);
+      return [`${day}T00:00:00`, day === "2026-08-31" ? 219292 : 0];
+    });
+    const out = formatRows(["bucket", "value"], rows, { granularity: "day" });
+    expect(out).toContain("min 0 | max 219,292 (2026-08-31T00:00:00) | latest 0");
+    expect(out).toContain("  2026-08-31T00:00:00  219,292");
+    expect(out).toContain("… 90 buckets at 0 not shown");
+    expect(out).not.toContain("  2026-06-10T00:00:00  0");
+  });
+
+  it("shows every bucket of a short series, zeros included, and tells empty from zero when sparse", () => {
+    // Seven days with two quiet days: room for all seven, so nothing is hidden.
+    const week = Array.from({ length: 7 }, (_, i) => [
+      `2026-09-0${i + 1}T00:00:00`,
+      i % 3 === 0 ? 0 : 5,
+    ]);
+    const short = formatRows(["bucket", "value"], week, { granularity: "day" });
+    expect(short).toContain("  2026-09-01T00:00:00  0");
+    expect(short).not.toContain("not shown");
+
+    // A long p95 series: the 0 days are measurements, the null days are gaps.
+    const long = Array.from({ length: 30 }, (_, i) => [
+      `2026-08-${String(i + 1).padStart(2, "0")}T00:00:00`,
+      i === 10 ? 1.8 : i < 5 ? null : 0,
+    ]);
+    const out = formatRows(["bucket", "p95"], long, { granularity: "day" });
+    expect(out).toContain("  2026-08-11T00:00:00  1.8");
+    expect(out).toContain("… 24 buckets at 0 and 5 empty not shown");
   });
 
   it("formats decimal strings like numbers", () => {
@@ -179,7 +217,7 @@ describe("formatDashboardData", () => {
     expect(lines[0]).toBe("Dashboard: d1 | Latency overview");
     expect(lines[1]).toMatch(/^Window: range 7d/);
     expect(out).toContain("#1 p95 latency | query | ok");
-    expect(out).toContain("min 1.2 | max 1.8 | latest 1.8");
+    expect(out).toContain("min 1.2 | max 1.8 (2026-09-02T00:00:00) | latest 1.8");
     expect(out).toContain(
       "#2 Recent errors | trace_feed | skipped\n  feed — not summarized; read it with list_traces",
     );

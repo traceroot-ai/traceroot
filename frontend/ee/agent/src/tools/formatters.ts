@@ -299,23 +299,29 @@ function toValue(cell: unknown): number | null {
 }
 
 /**
- * min | max | latest over the buckets that carry a value; honest about an
- * empty last bucket. A partial series (the server capped its rows) has no
- * latest: its last returned bucket is not the window's.
+ * min | max (with the bucket it fell in) | latest over the buckets that carry
+ * a value; honest about an empty last bucket. A partial series (the server
+ * capped its rows) has no latest: its last returned bucket is not the window's.
  */
-function seriesStats(values: Array<number | null>, partial = false): string {
+function seriesStats(values: Array<number | null>, labels: string[], partial = false): string {
   const present = values.filter((v): v is number => v !== null);
   if (present.length === 0) return "no values in any bucket";
-  if (partial) {
-    return `min ${formatNumber(Math.min(...present))} | max ${formatNumber(Math.max(...present))} over the returned rows (partial)`;
-  }
+  const max = Math.max(...present);
+  const peak = `max ${formatNumber(max)} (${labels[values.indexOf(max)]})`;
+  const min = `min ${formatNumber(Math.min(...present))}`;
+  if (partial) return `${min} | ${peak} over the returned rows (partial)`;
   const last = values[values.length - 1];
   const latest =
     last === null
       ? `latest bucket empty (last value ${formatNumber(present[present.length - 1])})`
       : `latest ${formatNumber(last)}`;
-  return `min ${formatNumber(Math.min(...present))} | max ${formatNumber(Math.max(...present))} | ${latest}`;
+  return `${min} | ${peak} | ${latest}`;
 }
+
+/** A long single series is sampled from its ends: this many from the head and the tail. */
+const HEAD_ROWS = 3;
+const TAIL_ROWS = 5;
+const SAMPLE_ROWS = HEAD_ROWS + TAIL_ROWS;
 
 /** How many series a breakdown-over-time answer shows before the rest is counted. */
 const SERIES_CAP = 10;
@@ -359,7 +365,7 @@ function formatSeries(
       .sort((a, b) => b.peak - a.peak);
     const shown = ranked
       .slice(0, SERIES_CAP)
-      .map(({ key, values }) => `  ${key}: ${seriesStats(values, partial)}`);
+      .map(({ key, values }) => `  ${key}: ${seriesStats(values, buckets, partial)}`);
     const more =
       ranked.length > SERIES_CAP ? [`  … ${ranked.length - SERIES_CAP} more series`] : [];
     const first = buckets[0];
@@ -371,24 +377,42 @@ function formatSeries(
     ].join("\n");
   }
   const values = rows.map((r) => toValue(r[valueIndex]));
+  const labels = rows.map((r) => String(r[0]));
   const line = (r: unknown[]) => `  ${String(r[0])}  ${formatNumber(r[valueIndex])}`;
-  const head = rows.slice(0, 3).map(line);
-  const tail = rows.length > 8 ? rows.slice(-5).map(line) : rows.slice(3).map(line);
-  const gap = rows.length > 8 ? [`  … ${rows.length - 8} more buckets …`] : [];
+  // A long series where only a few buckets carry a value shows exactly those
+  // buckets, with the rest counted: a 90-day window with one spike is the
+  // spike's date, not eight zeros from either end. A short series shows every
+  // bucket; a long dense one (or one with nothing in it) shows its ends.
+  // A measured 0 and an empty bucket are counted apart — for an average or a
+  // rate, 0 is a value, and the note must not read as "no data".
+  const carrying = rows.filter((_, i) => values[i] !== null && values[i] !== 0);
+  const sparse = rows.length > SAMPLE_ROWS && carrying.length > 0 && carrying.length <= SAMPLE_ROWS;
+  const zeros = values.filter((v) => v === 0).length;
+  const empties = values.filter((v) => v === null).length;
+  const omitted = [
+    ...(zeros > 0 ? [`${zeros} buckets at 0`] : []),
+    ...(empties > 0 ? [`${empties} empty`] : []),
+  ].join(" and ");
+  const sample = sparse
+    ? [...carrying.map(line), `  … ${omitted} not shown`]
+    : [
+        ...rows.slice(0, HEAD_ROWS).map(line),
+        ...(rows.length > SAMPLE_ROWS ? [`  … ${rows.length - SAMPLE_ROWS} more buckets …`] : []),
+        ...(rows.length > SAMPLE_ROWS ? rows.slice(-TAIL_ROWS) : rows.slice(HEAD_ROWS)).map(line),
+      ];
   return [
     `${rows.length} buckets (${columns.join(", ")})${granularity}`,
-    `  ${seriesStats(values, partial)}`,
-    ...head,
-    ...gap,
-    ...tail,
+    `  ${seriesStats(values, labels, partial)}`,
+    ...sample,
   ].join("\n");
 }
 
 /**
  * Render one query result: a short table for breakdowns, a shape summary for
- * a time series (first and last buckets plus min/max/latest — the model needs
- * the trend, not every bucket; one stats line per series for a breakdown over
- * time), the single value for a number display.
+ * a time series (min/max/latest, then every bucket of a short series, the
+ * carrying buckets of a long sparse one, or the ends of a long dense one —
+ * the model needs the trend, not every bucket; one stats line per series for
+ * a breakdown over time), the single value for a number display.
  */
 export function formatRows(
   columns: string[],
