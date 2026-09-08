@@ -43,7 +43,7 @@ jobs:
         run: cd frontend && pnpm install --frozen-lockfile
 
       - name: Audit lockfile
-        run: cd frontend && pnpm audit --audit-level moderate
+        run: cd frontend && pnpm audit --audit-level low
 
   python:
     name: pip-audit
