@@ -119,6 +119,9 @@ def test_answers_every_query_widget_in_layout_order_and_lists_feeds():
     assert [w["id"] for w in body["widgets"]] == ["w-1", "w-2", "w-3"]
     assert [w["status"] for w in body["widgets"]] == ["ok", "skipped", "ok"]
     assert body["widgets"][0]["rows"] == _rows(2)["rows"]
+    # The cap reaches the query itself (one extra row signals truncation), so
+    # the engine never materializes rows this read would drop.
+    assert run.call_args.kwargs["max_rows"] == DASHBOARD_DATA_ROW_CAP + 1
     assert body["widgets"][1]["rows"] is None
     assert (body["queried"], body["skipped"], body["failed"]) == (2, 1, 0)
     assert body["window"]["range"] == "7d"

@@ -106,8 +106,10 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
       const supplied = Object.fromEntries(
         Object.entries(params).filter(([, value]) => value !== undefined),
       );
-      const args = { ...(defaults?.() ?? {}), ...supplied, ...fixedArgs };
       try {
+        // Inside the boundary: a defaults callback that throws is reported to
+        // the model like any other failure, not surfaced as a rejected call.
+        const args = { ...(defaults?.() ?? {}), ...supplied, ...fixedArgs };
         const result = await dispatch(entry, args, client, { pathOverride, signal });
         const text = formatResult ? formatResult(result) : JSON.stringify(result, null, 2);
         return { content: [{ type: "text", text }], details: undefined };

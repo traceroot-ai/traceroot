@@ -137,8 +137,10 @@ def test_query_endpoint_spec_error_is_422_with_step(enterprise_client):
     assert detail["step"] == "breakdown"
 
 
-def test_query_threads_bucket_seconds_to_the_service(client):
+def test_query_threads_bucket_seconds_to_the_service(enterprise_client):
     # The alert form's grain rides the body; a saved dashboard tile omits it.
+    # Unlimited retention, so the fixed window is answered rather than refused.
+    client = enterprise_client
     fake = {"columns": [], "rows": [], "meta": {}}
     with patch(
         "rest.routers.dashboard_read_common.run_widget_query", return_value=fake
