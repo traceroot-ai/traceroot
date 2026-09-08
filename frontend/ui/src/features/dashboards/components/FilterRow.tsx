@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { X } from "lucide-react";
+import { AlertTriangle, Loader2, X } from "lucide-react";
 import {
   Dropdown,
   DropdownItem,
@@ -33,6 +33,8 @@ export function FilterRow({
   projectId,
   view,
   range,
+  fieldsLoading = false,
+  fieldsUnavailable = false,
 }: {
   index: number;
   filter: { field: string; op: string; value: string | number; key?: string };
@@ -46,6 +48,20 @@ export function FilterRow({
   projectId: string;
   view: "spans" | "traces" | undefined;
   range: TimeRange;
+  /**
+   * The field registry has not answered yet (pending, or failed and so never
+   * answered). A saved row is shown as text with a spinner until it does:
+   * rendered through the controls it would read as an empty row, which is not
+   * the same thing as a row still being resolved. Consumers that own the
+   * schema query must pass it, or a row would read as unknown while loading.
+   */
+  fieldsLoading?: boolean;
+  /**
+   * The field registry request failed. The saved row stays legible and
+   * removable, and says so, rather than spinning until a retry that may
+   * never come or reading as an unknown field.
+   */
+  fieldsUnavailable?: boolean;
 }) {
   const fieldMeta = fieldsMap[filter.field];
   const isNumeric = fieldMeta?.type === "number";
@@ -68,6 +84,52 @@ export function FilterRow({
     const hasCurrent = values.some((v) => v.value === current);
     return current && !hasCurrent ? [{ value: current }, ...values] : values;
   }, [values, filter.value]);
+
+  const subject = filter.key ? `${filter.field}[${filter.key}]` : filter.field;
+  const predicateText = `${subject} ${filter.op} ${String(filter.value)}`;
+
+  if (fieldsLoading && filter.field) {
+    return (
+      <div
+        role="status"
+        aria-label="Loading filter fields"
+        className="flex h-7 items-center gap-2 rounded-md border border-dashed border-border px-2 text-[12px] text-muted-foreground"
+      >
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+        <span className="truncate font-mono">{predicateText}</span>
+        <span className="ml-auto shrink-0">Loading fields…</span>
+      </div>
+    );
+  }
+
+  // The registry answered and does not know this field: a saved filter whose
+  // field was retired, or one this view never offered. Rendered through the
+  // controls it would read as an empty row, so name it and keep it removable.
+  // No gate on the registry being non-empty: an answered-but-empty registry
+  // knows the field no better than a populated one. A failed registry request
+  // takes the same row under its own label: the field may well be fine.
+  if (!fieldsLoading && filter.field && (fieldsUnavailable || !fieldMeta)) {
+    const label = fieldsUnavailable ? "Fields unavailable" : "Unknown field";
+    return (
+      <div
+        role="alert"
+        aria-label={fieldsUnavailable ? "Filter fields unavailable" : "Unknown filter field"}
+        className="flex h-7 items-center gap-2 rounded-md border border-dashed border-destructive/60 px-2 text-[12px] text-muted-foreground"
+      >
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+        <span className="truncate font-mono">{predicateText}</span>
+        <span className="ml-auto shrink-0">{label}</span>
+        <button
+          type="button"
+          onClick={() => onRemove(index)}
+          className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+          aria-label="Remove filter"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     // Both consumers' config columns run at 12px, so the shared controls

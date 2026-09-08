@@ -112,9 +112,9 @@ describe("buildAlertBlocks", () => {
     expect(outcome).toContain("`count` was 0, below the 10 threshold, over the last 30m.");
     expect(outcome).not.toContain("No data");
     expect(outcome).not.toContain("null");
-    // for a traffic drop the empty window is the evidence, so the spans link stays
+    // for a traffic drop the empty window is the evidence, so the traces link stays
     expect(links).toContain("date_filter=custom");
-    expect(links).toContain("|View spans>");
+    expect(links).toContain("|View traces>");
 
     // the unit suffix rides on the zero the same way it rides on any value
     const recovered = buildAlertBlocks({
@@ -151,7 +151,7 @@ describe("buildAlertBlocks", () => {
     // escaping them would break the link
     expect(links).toContain("|View alert>");
     expect(links).toContain(
-      `${SPANS_PATH}&start=2026-06-23T12%3A00%3A00.000Z&end=2026-06-23T12%3A30%3A00.000Z|View spans>`,
+      `${SPANS_PATH}&start=2026-06-23T12%3A00%3A00.000Z&end=2026-06-23T12%3A30%3A00.000Z|View traces>`,
     );
     expect(links).not.toContain("&amp;start=");
 
@@ -221,5 +221,69 @@ describe("buildAlertBlocks", () => {
       expect(JSON.stringify(message.blocks)).not.toMatch(pictographic);
       expect(message.text).not.toMatch(pictographic);
     }
+  });
+  it("states the rule's filters in the prose and carries the expressible ones in the link", () => {
+    const filtered = buildAlertBlocks({
+      ...alertBase,
+      filters: [
+        { field: "span_kind", op: "=", value: "LLM" },
+        { field: "metadata", key: "tenant", op: "contains", value: "acme" },
+        // `contains` on a categorical field has no trace-list operator: prose only
+        { field: "model_name", op: "contains", value: "gpt" },
+        // no trace-list counterpart at all: prose only
+        { field: "is_root", op: "=", value: "true" },
+      ],
+    });
+    const [outcome, links] = sectionTexts(filtered);
+    // every filter is named, in the rule's order, whether or not the link can carry it
+    expect(outcome).toContain(
+      "Where `span_kind = LLM` and `metadata[tenant] contains acme` and `model_name contains gpt` and `is_root = true`.",
+    );
+    // the fallback carries the clause too, for clients that render no blocks
+    expect(filtered.text).toContain("Where `span_kind = LLM` and");
+
+    const url = links.match(/<([^|]+)\|View traces>/)![1];
+    const filtersParam = new URL(url).searchParams.get("filters");
+    expect(JSON.parse(filtersParam!)).toEqual([
+      { field: "span_kind", op: "in", value: ["LLM"] },
+      { field: "metadata", key: "tenant", op: "contains", value: "acme" },
+    ]);
+    // the window range still frames the link
+    expect(url).toContain("date_filter=custom&start=2026-06-23T12%3A00%3A00.000Z");
+  });
+
+  it("keeps a backtick in a filter value from closing the code span", () => {
+    const message = buildAlertBlocks({
+      ...alertBase,
+      filters: [{ field: "name", op: "=", value: "tick`*bold*`tock" }],
+    });
+    const [outcome] = sectionTexts(message);
+    // exactly one code span, the look-alike standing in for each backtick
+    const where = outcome.slice(outcome.indexOf("Where "));
+    expect(where).toBe("Where `name = tickʼ*bold*ʼtock`.");
+    expect(where.split("`").length - 1).toBe(2);
+  });
+
+  it("omits the filter clause and the filters param when the rule has none", () => {
+    for (const filters of [undefined, []]) {
+      const message = buildAlertBlocks({ ...alertBase, filters });
+      const [outcome, links] = sectionTexts(message);
+      expect(outcome).not.toContain("Where");
+      expect(links).not.toContain("filters=");
+    }
+  });
+
+  it("escapes a filter value in the prose without corrupting the encoded link", () => {
+    const message = buildAlertBlocks({
+      ...alertBase,
+      filters: [{ field: "name", op: "=", value: "<!channel> & co" }],
+    });
+    const [outcome, links] = sectionTexts(message);
+    expect(outcome).toContain("`name = &lt;!channel&gt; &amp; co`");
+    expect(outcome).not.toContain("<!channel>");
+    const url = links.match(/<([^|]+)\|View traces>/)![1];
+    expect(JSON.parse(new URL(url).searchParams.get("filters")!)).toEqual([
+      { field: "name", op: "in", value: ["<!channel> & co"] },
+    ]);
   });
 });
