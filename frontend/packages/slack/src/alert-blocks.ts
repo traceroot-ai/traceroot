@@ -70,9 +70,20 @@ export function alertSpansUrl(
   return `${appBaseUrl}/projects/${encodeURIComponent(projectId)}/traces?${range}`;
 }
 
+// Cost is priced in dollars and a single LLM span lands in the 1e-5..1e-3
+// range, so two decimals would print every cost threshold and reading as 0
+// ("back within the 0 threshold"). Below 1 the message keeps three significant
+// digits instead; Intl never falls back to exponent notation, so 4.5e-5 reads
+// as 0.000045. At or above 1 two decimals stay the rule (1834.57ms).
+const SMALL_NUMBER_FORMAT = new Intl.NumberFormat("en-US", {
+  maximumSignificantDigits: 3,
+  useGrouping: false,
+});
+
 function formatNumber(value: number): string {
   if (!Number.isFinite(value)) return String(value);
   if (Number.isInteger(value)) return String(value);
+  if (Math.abs(value) < 1) return SMALL_NUMBER_FORMAT.format(value);
   return String(Math.round(value * 100) / 100);
 }
 

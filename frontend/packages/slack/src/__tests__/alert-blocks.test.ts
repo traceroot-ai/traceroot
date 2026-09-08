@@ -67,6 +67,36 @@ describe("buildAlertBlocks", () => {
     expect(counted).not.toContain("12ms");
   });
 
+  it("keeps sub-unit thresholds and readings legible instead of rounding them to 0", () => {
+    // cost is dollars: one gpt-4o-mini span is ~4.5e-5, a whole window ~1e-3.
+    // Two-decimal rounding turned both the threshold and the reading into "0".
+    const cost = {
+      ...alertBase,
+      measure: "cost",
+      aggregation: "sum",
+      threshold: 0.0005,
+      value: 0.001125,
+    };
+    expect(sectionTexts(buildAlertBlocks(cost))[0]).toContain(
+      "`sum(cost)` was 0.00113, above the 0.0005 threshold, over the last 30m.",
+    );
+    const tiny = {
+      ...cost,
+      severity: "OK" as const,
+      previousSeverity: "ALERT" as const,
+      value: 4.5e-5,
+    };
+    expect(sectionTexts(buildAlertBlocks(tiny))[0]).toContain(
+      "`sum(cost)` recovered to 0.000045, back within the 0.0005 threshold, over the last 30m.",
+    );
+    // a fraction of a millisecond is still two decimals once it is at or above 1
+    expect(sectionTexts(buildAlertBlocks({ ...alertBase, value: 1.256 }))[0]).toContain(
+      "was 1.26ms",
+    );
+    // and sub-unit readings on other measures use the same significant-digit rule
+    expect(sectionTexts(buildAlertBlocks({ ...alertBase, value: 0.5 }))[0]).toContain("was 0.5ms");
+  });
+
   it("names the row-count pseudo-measure once when aggregation and measure coincide", () => {
     const [outcome] = sectionTexts(
       buildAlertBlocks({
