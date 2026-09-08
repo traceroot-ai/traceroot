@@ -88,6 +88,13 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("use get_dashboard_data; for a metric with no dashboard");
   });
 
+  it("sends a total over a window to a number query, not to summed buckets", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain("even when a dashboard charts that metric");
+    expect(prompt).toContain("number display via run_widget_query");
+    expect(prompt).toContain("or a total over the window, build a spec");
+  });
+
   it("forbids figures that did not come from a tool result and requires the window be named", () => {
     const prompt = getSystemPrompt({ projectId: "p1" });
     expect(prompt).toContain("Figures come from tool results only");
