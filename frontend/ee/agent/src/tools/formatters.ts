@@ -298,10 +298,17 @@ function toValue(cell: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** min | max | latest over the buckets that carry a value; honest about an empty last bucket. */
-function seriesStats(values: Array<number | null>): string {
+/**
+ * min | max | latest over the buckets that carry a value; honest about an
+ * empty last bucket. A partial series (the server capped its rows) has no
+ * latest: its last returned bucket is not the window's.
+ */
+function seriesStats(values: Array<number | null>, partial = false): string {
   const present = values.filter((v): v is number => v !== null);
   if (present.length === 0) return "no values in any bucket";
+  if (partial) {
+    return `min ${formatNumber(Math.min(...present))} | max ${formatNumber(Math.max(...present))} over the returned rows (partial)`;
+  }
   const last = values[values.length - 1];
   const latest =
     last === null
@@ -313,42 +320,52 @@ function seriesStats(values: Array<number | null>): string {
 /** How many series a breakdown-over-time answer shows before the rest is counted. */
 const SERIES_CAP = 10;
 
+/** Rendering options a caller knows and the rows do not say. */
+interface RowsOptions {
+  /** The server capped the rows: a series is partial, and its trend stats say so. */
+  truncated?: boolean;
+}
+
 function formatSeries(
   columns: string[],
   rows: unknown[][],
   meta?: Record<string, unknown>,
+  options: RowsOptions = {},
 ): string {
+  const partial = options.truncated === true;
   const granularity =
     meta?.granularity !== undefined ? ` | granularity ${String(meta.granularity)}` : "";
   const valueIndex = columns.length - 1;
   if (columns.length >= 3) {
-    // [bucket, <breakdown>, value]: one line per series. The engine's filled
-    // rows carry '' in the breakdown column and belong to no series.
-    const buckets = new Set(rows.map((r) => String(r[0])));
-    const groups = new Map<string, Array<number | null>>();
+    // [bucket, <breakdown>, value]: one line per series, keyed by bucket so a
+    // series with no row in a bucket reads as empty there rather than
+    // borrowing its neighbour's position. The engine's filled rows carry ''
+    // in the breakdown column and belong to no series, but their bucket is
+    // still a bucket.
+    const buckets = [...new Set(rows.map((r) => String(r[0])))];
+    const byGroup = new Map<string, Map<string, number | null>>();
     for (const r of rows) {
       const key = r[1];
       if (key === "" || key === null || key === undefined) continue;
-      const list = groups.get(String(key)) ?? [];
-      list.push(toValue(r[valueIndex]));
-      groups.set(String(key), list);
+      const cells = byGroup.get(String(key)) ?? new Map<string, number | null>();
+      cells.set(String(r[0]), toValue(r[valueIndex]));
+      byGroup.set(String(key), cells);
     }
-    const ranked = [...groups.entries()]
-      .map(([key, values]) => ({
-        key,
-        values,
-        peak: Math.max(...values.map((v) => v ?? -Infinity)),
-      }))
+    const ranked = [...byGroup.entries()]
+      .map(([key, cells]) => {
+        const values = buckets.map((bucket) => cells.get(bucket) ?? null);
+        return { key, values, peak: Math.max(...values.map((v) => v ?? -Infinity)) };
+      })
       .sort((a, b) => b.peak - a.peak);
     const shown = ranked
       .slice(0, SERIES_CAP)
-      .map(({ key, values }) => `  ${key}: ${seriesStats(values)}`);
+      .map(({ key, values }) => `  ${key}: ${seriesStats(values, partial)}`);
     const more =
       ranked.length > SERIES_CAP ? [`  … ${ranked.length - SERIES_CAP} more series`] : [];
-    const first = rows[0]?.[0];
-    const last = rows[rows.length - 1]?.[0];
+    const first = buckets[0];
+    const last = buckets[buckets.length - 1];
     return [
-      `${buckets.size} buckets × ${groups.size} series (${columns.join(", ")})${granularity}, ${String(first)} → ${String(last)}`,
+      `${buckets.length} buckets × ${byGroup.size} series (${columns.join(", ")})${granularity}, ${String(first)} → ${String(last)}`,
       ...shown,
       ...more,
     ].join("\n");
@@ -360,7 +377,7 @@ function formatSeries(
   const gap = rows.length > 8 ? [`  … ${rows.length - 8} more buckets …`] : [];
   return [
     `${rows.length} buckets (${columns.join(", ")})${granularity}`,
-    `  ${seriesStats(values)}`,
+    `  ${seriesStats(values, partial)}`,
     ...head,
     ...gap,
     ...tail,
@@ -377,12 +394,13 @@ export function formatRows(
   columns: string[],
   rows: unknown[][],
   meta?: Record<string, unknown>,
+  options: RowsOptions = {},
 ): string {
   if (rows.length === 0) return "No rows in this window.";
   if (columns.length === 1 && rows.length === 1) {
     return `${columns[0]}: ${formatNumber(rows[0][0])}`;
   }
-  if (isTimeSeries(columns, meta, rows)) return formatSeries(columns, rows, meta);
+  if (isTimeSeries(columns, meta, rows)) return formatSeries(columns, rows, meta, options);
   const shown = rows.slice(0, WIDGET_ROW_CAP);
   const lines = shown.map(
     (r) => `  ${r.map((v, i) => (i === 0 ? String(v ?? "—") : formatNumber(v))).join("  |  ")}`,
@@ -423,6 +441,7 @@ export function formatDashboardData(data: unknown): string {
       Array.isArray(w.columns) ? w.columns : [],
       Array.isArray(w.rows) ? w.rows : [],
       w.meta ?? undefined,
+      { truncated: w.truncated === true },
     );
     const truncated = w.truncated ? "\n  (rows capped by the server)" : "";
     return `${title}\n${body}${truncated}`;

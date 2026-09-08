@@ -49,21 +49,35 @@ export function createRegistryReadTools(
     defaults?: ReturnType<typeof windowDefaults>,
   ) => {
     const entry = requireEntry(name);
-    return toPiAgentTool(entry, {
+    // The registry text says an omitted window means the site's default; in
+    // the chat it means the window the user is looking at. Said on the tool
+    // and on the range parameter itself, so the schema cannot contradict it.
+    const onThePage = "the window the user is looking at on the page";
+    const tool = toPiAgentTool(entry, {
       client,
       pathOverride: INTERNAL_BINDINGS[name],
       fixedArgs: { project_id: projectId },
       formatResult,
       ...(defaults !== undefined && {
         defaults,
-        // The registry text says an omitted window means the site's default;
-        // in the chat it means the window the user is looking at.
         description: entry.description.replace(
           /neither means the site's default[^.)]*/,
-          "leave it out to answer for the window the user is looking at on the page",
+          `leave it out to answer for ${onThePage}`,
         ),
       }),
     }) as AgentTool<any>;
+    const range = tool.parameters.properties.range as { description?: string } | undefined;
+    if (defaults !== undefined && range?.description !== undefined) {
+      // A defensive copy: don't depend on toPiAgentTool having cloned the schema.
+      tool.parameters.properties.range = {
+        ...range,
+        description: range.description.replace(
+          /neither means the site's[^.]*/,
+          `leave both out to answer for ${onThePage}`,
+        ),
+      };
+    }
+    return tool;
   };
   // The two data reads default to the window the page is showing, so the
   // agent's numbers match the dashboard beside it unless the user named a

@@ -111,6 +111,15 @@ describe("createRegistryReadTools", () => {
     }
   });
 
+  it("says the same on the range parameter itself, so the schema cannot contradict the description", () => {
+    for (const name of ["run_widget_query", "get_dashboard_data"]) {
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      const range = tool.parameters.properties.range as { description?: string };
+      expect(range.description).toContain("the window the user is looking at");
+      expect(range.description ?? "").not.toMatch(/site.s default/);
+    }
+  });
+
   it("sends no window at all when the page gave none and the model named none", async () => {
     const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
     const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard_data")!;

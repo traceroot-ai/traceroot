@@ -116,6 +116,12 @@ function readUrlCustomBounds(): { start: string; end: string } | null {
   }
 }
 
+function expiredBounds(bounds: SiteWindow, retentionDays: number | null | undefined): boolean {
+  if (retentionDays == null || !("end_time" in bounds)) return false;
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60_000;
+  return Date.parse(bounds.end_time) <= cutoff;
+}
+
 function validBounds(pair: { start?: string; end?: string } | null): SiteWindow | null {
   if (!pair?.start || !pair.end) return null;
   const start = Date.parse(pair.start);
@@ -136,7 +142,8 @@ function validBounds(pair: { start?: string; end?: string } | null): SiteWindow 
  * pair (from the URL when the page pins one, else from storage) is sent as
  * explicit bounds. A preset is clamped to the plan's retention here, like
  * the picker's own pages clamp theirs; custom bounds are sent as they are and
- * the server clamps them, echoing the window it answered for.
+ * the server clamps them, echoing the window it answered for — unless they
+ * end before the retention cutoff, when the default stands in for them.
  */
 export function resolveSiteWindow(
   projectId: string | null | undefined,
@@ -146,10 +153,18 @@ export function resolveSiteWindow(
   const stored: StoredDateFilter | null = projectId ? readStoredDateFilter(projectId) : null;
   const selectedId = pinnedId ?? stored?.id ?? null;
   if (selectedId === "custom") {
+    // The URL is the page's window when it pins one: a custom link with
+    // unusable bounds is the default, never whatever the picker last stored.
     const custom =
-      (pinnedId === "custom" ? validBounds(readUrlCustomBounds()) : null) ??
-      (stored?.id === "custom" ? validBounds(stored) : null);
-    if (custom !== null) return custom;
+      pinnedId === "custom"
+        ? validBounds(readUrlCustomBounds())
+        : stored?.id === "custom"
+          ? validBounds(stored)
+          : null;
+    // Bounds wholly before the plan's retention would only earn a 422 from
+    // the server; answer for the default instead. Bounds that still overlap
+    // retention go as they are, and the server clamps the start.
+    if (custom !== null && !expiredBounds(custom, retentionDays)) return custom;
   }
   return { range: resolveSiteRange(projectId, retentionDays).id };
 }
