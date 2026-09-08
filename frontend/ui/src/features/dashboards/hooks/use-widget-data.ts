@@ -108,7 +108,12 @@ export interface WidgetPreviewData {
   result: WidgetQueryResult;
 }
 
-export function useWidgetPreview(projectId: string, draft: unknown, range: TimeRange) {
+export function useWidgetPreview(
+  projectId: string,
+  draft: unknown,
+  range: TimeRange,
+  bucketSeconds?: number,
+) {
   const { user, sessionReady } = useTraceApiUser();
   const floored = quantizeRange(range);
 
@@ -119,10 +124,14 @@ export function useWidgetPreview(projectId: string, draft: unknown, range: TimeR
       JSON.stringify(draft),
       floored.start.getTime(),
       floored.end.getTime(),
+      bucketSeconds ?? null,
     ],
     queryFn: async (): Promise<WidgetPreviewData> => {
       const spec = parseSpec(draft)!;
-      return { spec, result: await api.runWidgetQuery(projectId, spec, floored, user) };
+      return {
+        spec,
+        result: await api.runWidgetQuery(projectId, spec, floored, user, bucketSeconds),
+      };
     },
     enabled: sessionReady && !!projectId && isSpecComplete(draft),
     staleTime: 10_000,
