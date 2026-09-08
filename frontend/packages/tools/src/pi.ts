@@ -47,10 +47,12 @@ export interface ToPiAgentToolOptions {
    * these stay in the model's schema and lose to a value the model supplies:
    * the page's selected time range is the motivating case — the agent should
    * query the window the user is looking at unless they named another.
-   * A function rather than a record because tools are built once per session
-   * while the window changes per message.
+   * A function of the model's own (visible) args, so a default can stand
+   * down when the model addressed the same concern another way — a page
+   * window with explicit bounds must not be merged under a range the model
+   * named. Read on every call because the window changes per message.
    */
-  defaults?: () => Record<string, unknown>;
+  defaults?: (supplied: Readonly<Record<string, unknown>>) => Record<string, unknown>;
 }
 
 /** "list_traces" -> "List traces" for the tool's human-readable label. */
@@ -109,7 +111,7 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
       try {
         // Inside the boundary: a defaults callback that throws is reported to
         // the model like any other failure, not surfaced as a rejected call.
-        const args = { ...(defaults?.() ?? {}), ...supplied, ...fixedArgs };
+        const args = { ...(defaults?.(supplied) ?? {}), ...supplied, ...fixedArgs };
         const result = await dispatch(entry, args, client, { pathOverride, signal });
         const text = formatResult ? formatResult(result) : JSON.stringify(result, null, 2);
         return { content: [{ type: "text", text }], details: undefined };

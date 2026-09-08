@@ -27,6 +27,7 @@ import {
   markSessionDeleted,
 } from "./executors/deleted-session-fence.js";
 import { createTools } from "./tools/index.js";
+import { parseQueryWindow } from "./tools/query-window.js";
 import type { Executor } from "./executors/interface.js";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import type { SessionManager } from "./session.js";
@@ -164,7 +165,23 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     traceSessionId?: string;
     providerName?: string;
     source?: ModelSource;
+    /** The page's selected time range: a preset id, or custom bounds. */
+    range?: string;
+    start_time?: string;
+    end_time?: string;
   }>();
+
+  // The window the page is showing rides with each message and becomes the
+  // default for the dashboard reads. Malformed is a 400, never a silent
+  // default: the caller asked for a window and would get another one's numbers.
+  const window = parseQueryWindow({
+    range: body.range,
+    start_time: body.start_time,
+    end_time: body.end_time,
+  });
+  if (window instanceof Error) {
+    return c.json({ error: `invalid window: ${window.message}` }, 400);
+  }
 
   // Authorize first: caller must own the session in THIS project (user-bound)
   // or have projectId scope on a system session — getSession treats a
@@ -200,6 +217,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     workspaceId: ownedSession.workspaceId,
     agentSessionId: sessionId,
     executor,
+    window,
   });
 
   console.log(
