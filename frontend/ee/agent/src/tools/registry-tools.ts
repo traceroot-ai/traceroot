@@ -7,6 +7,7 @@ import {
   toPiAgentTool,
 } from "@traceroot-ai/tools";
 import {
+  formatDashboardData,
   formatDashboardDetail,
   formatDashboardList,
   formatDetectorDetail,
@@ -16,7 +17,9 @@ import {
   formatSessionDetail,
   formatSessionList,
   formatTraceList,
+  formatWidgetQueryResult,
 } from "./formatters.js";
+import { type QueryWindow, windowDefaults } from "./query-window.js";
 
 function requireEntry(name: string) {
   const entry = REGISTRY.find((e) => e.name === name);
@@ -31,18 +34,31 @@ function requireEntry(name: string) {
  * internal project-scoped routes with service auth. Presentation (the text the
  * model sees) stays here — it's surface-local by design.
  */
-export function createRegistryReadTools(projectId: string, userId: string): AgentTool<any>[] {
+export function createRegistryReadTools(
+  projectId: string,
+  userId: string,
+  window?: QueryWindow,
+): AgentTool<any>[] {
   const client = new ApiClient({
     baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
     headers: internalAuth(process.env.INTERNAL_API_SECRET || "", userId),
   });
-  const bind = (name: string, formatResult: (data: unknown) => string) =>
+  const bind = (
+    name: string,
+    formatResult: (data: unknown) => string,
+    defaults?: ReturnType<typeof windowDefaults>,
+  ) =>
     toPiAgentTool(requireEntry(name), {
       client,
       pathOverride: INTERNAL_BINDINGS[name],
       fixedArgs: { project_id: projectId },
       formatResult,
+      ...(defaults !== undefined && { defaults }),
     }) as AgentTool<any>;
+  // The two data reads default to the window the page is showing, so the
+  // agent's numbers match the dashboard beside it unless the user named a
+  // window of their own.
+  const pageWindow = windowDefaults(window);
   return [
     bind("list_traces", formatTraceList),
     bind("list_sessions", formatSessionList),
@@ -54,5 +70,7 @@ export function createRegistryReadTools(projectId: string, userId: string): Agen
     bind("get_finding_by_trace", formatFindingDetail),
     bind("list_dashboards", formatDashboardList),
     bind("get_dashboard", formatDashboardDetail),
+    bind("run_widget_query", formatWidgetQueryResult, pageWindow),
+    bind("get_dashboard_data", formatDashboardData, pageWindow),
   ];
 }

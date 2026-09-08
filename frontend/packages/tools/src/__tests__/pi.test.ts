@@ -273,6 +273,17 @@ describe("toPiAgentTool defaults", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("hands the model's args to the defaults function so it can stand down", async () => {
+    const seen: unknown[] = [];
+    const { tool, fetch } = toolWith((supplied) => {
+      seen.push(supplied);
+      return "range" in supplied ? {} : { range: "7d" };
+    });
+    await tool.execute("c1", { label: "q", spec: { view: "spans" }, range: "1d" });
+    expect(seen).toEqual([{ spec: { view: "spans" }, range: "1d" }]);
+    expect((await bodySent(fetch)).range).toBe("1d");
+  });
+
   it("leaves the schema alone: a defaulted param stays visible and optional", () => {
     const { tool } = toolWith(() => ({ range: "7d" }));
     expect(tool.parameters.properties.range).toEqual({ type: "string", enum: ["1d", "7d"] });

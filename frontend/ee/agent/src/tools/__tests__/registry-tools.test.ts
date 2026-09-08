@@ -27,7 +27,7 @@ describe("createRegistryReadTools", () => {
     return impl;
   }
 
-  it("exposes exactly the ten internally-bound read tools", () => {
+  it("exposes exactly the twelve internally-bound read tools", () => {
     const names = createRegistryReadTools("p1", "u1").map((t) => t.name);
     expect(names).toEqual([
       "list_traces",
@@ -40,7 +40,76 @@ describe("createRegistryReadTools", () => {
       "get_finding_by_trace",
       "list_dashboards",
       "get_dashboard",
+      "run_widget_query",
+      "get_dashboard_data",
     ]);
+  });
+
+  it("run_widget_query POSTs the spec and window to the internal query route", async () => {
+    const impl = stubFetch({ columns: [], rows: [], meta: {}, window: {} });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "run_widget_query")!;
+    await tool.execute("id", { label: "x", spec: { view: "spans" }, range: "7d" });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/widgets/query");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      spec: { view: "spans" },
+      range: "7d",
+    });
+    expect((init as RequestInit).headers).toMatchObject({
+      "X-Internal-Secret": "s3cret",
+      "x-user-id": "u1",
+    });
+  });
+
+  it("get_dashboard_data GETs the internal data route with the window as query params", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard_data")!;
+    await tool.execute("id", { label: "x", dashboard_id: "d1", range: "7d" });
+    const [url] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/dashboards/d1/data?range=7d");
+  });
+
+  it("defaults both data reads to the page's window when the model names none", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tools = createRegistryReadTools("p1", "u1", { range: "30d" });
+    await tools
+      .find((t) => t.name === "get_dashboard_data")!
+      .execute("id", { label: "x", dashboard_id: "d1" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/projects/p1/dashboards/d1/data?range=30d",
+    );
+    await tools
+      .find((t) => t.name === "run_widget_query")!
+      .execute("id", { label: "x", spec: { view: "spans" } });
+    expect(JSON.parse((impl.mock.calls[1]![1] as RequestInit).body as string)).toEqual({
+      spec: { view: "spans" },
+      range: "30d",
+    });
+  });
+
+  it("a window the model names wins over the page's, even when the page's is custom bounds", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tools = createRegistryReadTools("p1", "u1", {
+      start_time: "2026-09-01T00:00:00Z",
+      end_time: "2026-09-02T00:00:00Z",
+    });
+    await tools
+      .find((t) => t.name === "get_dashboard_data")!
+      .execute("id", { label: "x", dashboard_id: "d1", range: "1h" });
+    // Only the model's range: merging the page's bounds under it would be a request the server rejects.
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/projects/p1/dashboards/d1/data?range=1h",
+    );
+  });
+
+  it("sends no window at all when the page gave none and the model named none", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard_data")!;
+    await tool.execute("id", { label: "x", dashboard_id: "d1" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/projects/p1/dashboards/d1/data",
+    );
   });
 
   it("hides the fixed project_id from every tool's model-facing schema", () => {
@@ -300,6 +369,8 @@ describe("createTools", () => {
     "get_finding_by_trace",
     "list_dashboards",
     "get_dashboard",
+    "run_widget_query",
+    "get_dashboard_data",
   ];
   const WRITE_TOOL_NAMES = ["create_detector", "create_dashboard", "create_widget"];
   const OTHER_TOOL_NAMES = [

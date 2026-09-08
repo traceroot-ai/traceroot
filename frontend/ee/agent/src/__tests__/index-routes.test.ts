@@ -522,3 +522,58 @@ describe("messages route SSE stream", () => {
     expect(pendingDecisions.channelFor("sse-1")).toBeUndefined();
   });
 });
+
+describe("POST messages — page window", () => {
+  function session() {
+    mockedGetSession.mockResolvedValue({
+      id: "win-1",
+      userId: "u1",
+      projectId: "p1",
+      workspaceId: "w1",
+      title: "t",
+    } as never);
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onDone();
+    });
+  }
+  const post = (body: Record<string, unknown>) =>
+    app.request("/api/v1/projects/p1/sessions/win-1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      body: JSON.stringify(body),
+    });
+
+  it("hands the page's range to the tools as their default window", async () => {
+    session();
+    vi.mocked(createTools).mockClear();
+    const res = await post({ message: "summarize it", range: "7d" });
+    await res.text();
+    expect(vi.mocked(createTools).mock.calls[0][0]).toMatchObject({ window: { range: "7d" } });
+  });
+
+  it("rejects a malformed window with 400 rather than defaulting silently", async () => {
+    session();
+    vi.mocked(createTools).mockClear();
+    const res = await post({ message: "summarize it", range: "2w" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid window: unknown range: 2w" });
+    expect(vi.mocked(createTools)).not.toHaveBeenCalled();
+  });
+
+  it("passes custom bounds through and leaves the window undefined when none was sent", async () => {
+    session();
+    vi.mocked(createTools).mockClear();
+    await (
+      await post({
+        message: "x",
+        start_time: "2026-09-01T00:00:00Z",
+        end_time: "2026-09-02T00:00:00Z",
+      })
+    ).text();
+    expect(vi.mocked(createTools).mock.calls[0][0]).toMatchObject({
+      window: { start_time: "2026-09-01T00:00:00Z", end_time: "2026-09-02T00:00:00Z" },
+    });
+    await (await post({ message: "x" })).text();
+    expect(vi.mocked(createTools).mock.calls[1][0].window).toBeUndefined();
+  });
+});

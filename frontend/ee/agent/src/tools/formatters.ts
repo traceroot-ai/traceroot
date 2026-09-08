@@ -4,6 +4,8 @@
  * hand-rolled query tools so the model-visible output is unchanged.
  */
 
+import { truncateHead } from "./truncate.js";
+
 /** Render a trace list response as the summary table text. */
 export function formatTraceList(data: unknown): string {
   const body = (data ?? {}) as { data?: unknown; meta?: unknown };
@@ -237,4 +239,135 @@ export function formatDashboardDetail(data: unknown): string {
   });
 
   return `${header}\n\nWidgets (${widgets.length}):\n${widgetLines.join("\n")}`;
+}
+
+// ── dashboard data reads ─────────────────────────────────────────────────────
+
+/** Rows a single widget's answer shows before the rest is summarized away. */
+const WIDGET_ROW_CAP = 25;
+/** Bytes one dashboard's answer may occupy in the transcript. */
+const DASHBOARD_DATA_BUDGET_BYTES = 16 * 1024;
+
+function formatNumber(value: unknown): string {
+  if (typeof value === "number") {
+    if (Number.isInteger(value)) return value.toLocaleString("en-US");
+    return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  }
+  if (typeof value === "string") {
+    // Decimal columns arrive as strings; render them like numbers.
+    const n = Number(value);
+    if (value.trim() !== "" && Number.isFinite(n)) return formatNumber(n);
+    return value;
+  }
+  if (value === null || value === undefined) return "—";
+  return String(value);
+}
+
+/** One line naming the window an answer was computed for — always shown, so a figure is never window-less. */
+export function formatWindow(window: unknown): string {
+  const w = (window ?? {}) as {
+    start_time?: string;
+    end_time?: string;
+    range?: string | null;
+    clamped?: boolean;
+  };
+  const label = w.range ? `range ${w.range}` : "explicit bounds";
+  const clamped = w.clamped ? " — start clamped to the plan's retention cutoff" : "";
+  return `Window: ${label} (${w.start_time ?? "?"} → ${w.end_time ?? "?"})${clamped}`;
+}
+
+function isTimeSeries(
+  columns: string[],
+  meta: Record<string, unknown> | undefined,
+  rows: unknown[][],
+): boolean {
+  if (meta?.granularity !== undefined) return true;
+  const first = rows[0]?.[0];
+  return columns.length === 2 && typeof first === "string" && /^\d{4}-\d{2}-\d{2}T/.test(first);
+}
+
+/**
+ * Render one query result: a short table for breakdowns, a shape summary for
+ * a time series (first and last buckets plus min/max/latest — the model needs
+ * the trend, not every bucket), the single value for a number display.
+ */
+export function formatRows(
+  columns: string[],
+  rows: unknown[][],
+  meta?: Record<string, unknown>,
+): string {
+  if (rows.length === 0) return "No rows in this window.";
+  if (columns.length === 1 && rows.length === 1) {
+    return `${columns[0]}: ${formatNumber(rows[0][0])}`;
+  }
+  if (isTimeSeries(columns, meta, rows)) {
+    const values = rows.map((r) => Number(r[1])).filter((n) => Number.isFinite(n));
+    const line = (r: unknown[]) => `  ${String(r[0])}  ${formatNumber(r[1])}`;
+    const head = rows.slice(0, 3).map(line);
+    const tail = rows.length > 8 ? rows.slice(-5).map(line) : rows.slice(3).map(line);
+    const gap = rows.length > 8 ? [`  … ${rows.length - 8} more buckets …`] : [];
+    const stats =
+      values.length > 0
+        ? `min ${formatNumber(Math.min(...values))} | max ${formatNumber(Math.max(...values))} | latest ${formatNumber(values[values.length - 1])}`
+        : "no numeric values";
+    const granularity =
+      meta?.granularity !== undefined ? ` | granularity ${String(meta.granularity)}` : "";
+    return [
+      `${rows.length} buckets (${columns.join(", ")})${granularity}`,
+      `  ${stats}`,
+      ...head,
+      ...gap,
+      ...tail,
+    ].join("\n");
+  }
+  const shown = rows.slice(0, WIDGET_ROW_CAP);
+  const lines = shown.map(
+    (r) => `  ${r.map((v, i) => (i === 0 ? String(v ?? "—") : formatNumber(v))).join("  |  ")}`,
+  );
+  const more =
+    rows.length > shown.length ? [`  … ${rows.length - shown.length} more rows not shown`] : [];
+  return [`${rows.length} rows (${columns.join(", ")})`, ...lines, ...more].join("\n");
+}
+
+/** The text the model sees for a run_widget_query result. */
+export function formatWidgetQueryResult(data: unknown): string {
+  const d = (data ?? {}) as {
+    columns?: string[];
+    rows?: unknown[][];
+    meta?: Record<string, unknown>;
+    window?: unknown;
+  };
+  const columns = Array.isArray(d.columns) ? d.columns : [];
+  const rows = Array.isArray(d.rows) ? d.rows : [];
+  return [formatWindow(d.window), formatRows(columns, rows, d.meta)].join("\n");
+}
+
+/** The text the model sees for a get_dashboard_data result: one block per widget, then the counts. */
+export function formatDashboardData(data: unknown): string {
+  const d = (data ?? {}) as any;
+  const dash = d.dashboard ?? {};
+  const widgets: any[] = Array.isArray(d.widgets) ? d.widgets : [];
+  const header = `Dashboard: ${dash.id ?? "?"} | ${dash.name || "(unnamed)"}${dash.is_default ? " (default)" : ""}`;
+  const blocks = widgets.map((w, i) => {
+    const title = `#${i + 1} ${w.title || "(untitled)"} | ${w.type ?? "unknown"} | ${w.status}`;
+    if (w.status === "skipped") {
+      return `${title}\n  feed — not summarized; read it with list_traces and the feed's filters`;
+    }
+    if (w.status === "error") {
+      return `${title}\n  error: ${w.error ?? "unknown"}`;
+    }
+    const body = formatRows(
+      Array.isArray(w.columns) ? w.columns : [],
+      Array.isArray(w.rows) ? w.rows : [],
+      w.meta ?? undefined,
+    );
+    const truncated = w.truncated ? "\n  (rows capped by the server)" : "";
+    return `${title}\n${body}${truncated}`;
+  });
+  const counts = `${d.queried ?? 0} widgets queried, ${d.skipped ?? 0} feeds skipped, ${d.failed ?? 0} failed`;
+  const text = [header, formatWindow(d.window), "", ...blocks, "", counts].join("\n");
+  const bounded = truncateHead(text, { maxBytes: DASHBOARD_DATA_BUDGET_BYTES });
+  return bounded.truncated
+    ? `${bounded.content}\n… output truncated at ${DASHBOARD_DATA_BUDGET_BYTES} bytes; ask about one widget with run_widget_query`
+    : bounded.content;
 }
