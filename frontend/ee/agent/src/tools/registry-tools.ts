@@ -47,14 +47,24 @@ export function createRegistryReadTools(
     name: string,
     formatResult: (data: unknown) => string,
     defaults?: ReturnType<typeof windowDefaults>,
-  ) =>
-    toPiAgentTool(requireEntry(name), {
+  ) => {
+    const entry = requireEntry(name);
+    return toPiAgentTool(entry, {
       client,
       pathOverride: INTERNAL_BINDINGS[name],
       fixedArgs: { project_id: projectId },
       formatResult,
-      ...(defaults !== undefined && { defaults }),
+      ...(defaults !== undefined && {
+        defaults,
+        // The registry text says an omitted window means the site's default;
+        // in the chat it means the window the user is looking at.
+        description: entry.description.replace(
+          /neither means the site's default[^.)]*/,
+          "leave it out to answer for the window the user is looking at on the page",
+        ),
+      }),
     }) as AgentTool<any>;
+  };
   // The two data reads default to the window the page is showing, so the
   // agent's numbers match the dashboard beside it unless the user named a
   // window of their own.

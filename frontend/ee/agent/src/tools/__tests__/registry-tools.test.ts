@@ -103,6 +103,14 @@ describe("createRegistryReadTools", () => {
     );
   });
 
+  it("tells the model an omitted window means the page's, not the site default", () => {
+    for (const name of ["run_widget_query", "get_dashboard_data"]) {
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      expect(tool.description).toContain("the window the user is looking at on the page");
+      expect(tool.description).not.toContain("site's default");
+    }
+  });
+
   it("sends no window at all when the page gave none and the model named none", async () => {
     const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
     const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard_data")!;

@@ -284,6 +284,14 @@ describe("toPiAgentTool defaults", () => {
     expect((await bodySent(fetch)).range).toBe("1d");
   });
 
+  it("lets a surface replace the entry's description with the truth that applies to it", () => {
+    const fetch = fakeFetch(200, {});
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl: fetch });
+    const tool = toPiAgentTool(queryEntry, { client, description: "Page-window edition." });
+    expect(tool.description).toBe("Page-window edition.");
+    expect(toPiAgentTool(queryEntry, { client }).description).toBe("Run a widget query.");
+  });
+
   it("leaves the schema alone: a defaulted param stays visible and optional", () => {
     const { tool } = toolWith(() => ({ range: "7d" }));
     expect(tool.parameters.properties.range).toEqual({ type: "string", enum: ["1d", "7d"] });

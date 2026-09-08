@@ -103,15 +103,40 @@ export function makeRange(optionId: string): TimeRange {
  */
 export type SiteWindow = { range: string } | { start_time: string; end_time: string };
 
+/** The custom option's bounds the URL pins (`?date_filter=custom&start=…&end=…`), if any. */
+function readUrlCustomBounds(): { start: string; end: string } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const params = new URLSearchParams(window.location?.search ?? "");
+    const start = params.get("start");
+    const end = params.get("end");
+    return start && end ? { start, end } : null;
+  } catch {
+    return null;
+  }
+}
+
+function validBounds(pair: { start?: string; end?: string } | null): SiteWindow | null {
+  if (!pair?.start || !pair.end) return null;
+  const start = Date.parse(pair.start);
+  const end = Date.parse(pair.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  // Normalized: the picker writes toISOString, but a hand-edited URL can carry
+  // any form Date.parse accepts, and the server takes only ISO instants.
+  return { start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString() };
+}
+
 /**
  * The window the rest of the site is using for this project, in the shape
  * the agent's messages request takes. The same precedence as
- * resolveSiteRange (URL pin, then the stored pick, then the default), but
- * where that helper collapses the custom option to the default because a
- * preset-only chart cannot draw it, a query can be answered for any bounds —
- * so a custom selection with a valid, ordered pair is sent as explicit
- * bounds. Retention clamping happens on the server, which echoes the window
- * it answered for.
+ * resolveSiteRange — the URL-pinned filter, then the stored pick, then the
+ * default — with one difference: where that helper collapses the custom
+ * option to the default because a preset-only chart cannot draw it, a query
+ * can be answered for any bounds, so a custom selection with a valid, ordered
+ * pair (from the URL when the page pins one, else from storage) is sent as
+ * explicit bounds. A preset is clamped to the plan's retention here, like
+ * the picker's own pages clamp theirs; custom bounds are sent as they are and
+ * the server clamps them, echoing the window it answered for.
  */
 export function resolveSiteWindow(
   projectId: string | null | undefined,
@@ -120,12 +145,11 @@ export function resolveSiteWindow(
   const pinnedId = readUrlDateFilterId();
   const stored: StoredDateFilter | null = projectId ? readStoredDateFilter(projectId) : null;
   const selectedId = pinnedId ?? stored?.id ?? null;
-  if (selectedId === "custom" && stored?.id === "custom" && stored.start && stored.end) {
-    const start = Date.parse(stored.start);
-    const end = Date.parse(stored.end);
-    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
-      return { start_time: stored.start, end_time: stored.end };
-    }
+  if (selectedId === "custom") {
+    const custom =
+      (pinnedId === "custom" ? validBounds(readUrlCustomBounds()) : null) ??
+      (stored?.id === "custom" ? validBounds(stored) : null);
+    if (custom !== null) return custom;
   }
   return { range: resolveSiteRange(projectId, retentionDays).id };
 }

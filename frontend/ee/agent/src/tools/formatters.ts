@@ -283,13 +283,95 @@ function isTimeSeries(
 ): boolean {
   if (meta?.granularity !== undefined) return true;
   const first = rows[0]?.[0];
-  return columns.length === 2 && typeof first === "string" && /^\d{4}-\d{2}-\d{2}T/.test(first);
+  return columns.length >= 2 && typeof first === "string" && /^\d{4}-\d{2}-\d{2}T/.test(first);
+}
+
+/**
+ * A cell as a number, or null when it carries no value. The engine emits
+ * real NULLs for the empty buckets of an average or percentile series (a gap,
+ * not a zero) and '' on the breakdown column of its filled rows; neither may
+ * become a figure. Decimal columns arrive as strings and count.
+ */
+function toValue(cell: unknown): number | null {
+  if (cell === null || cell === undefined || cell === "") return null;
+  const n = typeof cell === "number" ? cell : typeof cell === "string" ? Number(cell) : Number.NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+/** min | max | latest over the buckets that carry a value; honest about an empty last bucket. */
+function seriesStats(values: Array<number | null>): string {
+  const present = values.filter((v): v is number => v !== null);
+  if (present.length === 0) return "no values in any bucket";
+  const last = values[values.length - 1];
+  const latest =
+    last === null
+      ? `latest bucket empty (last value ${formatNumber(present[present.length - 1])})`
+      : `latest ${formatNumber(last)}`;
+  return `min ${formatNumber(Math.min(...present))} | max ${formatNumber(Math.max(...present))} | ${latest}`;
+}
+
+/** How many series a breakdown-over-time answer shows before the rest is counted. */
+const SERIES_CAP = 10;
+
+function formatSeries(
+  columns: string[],
+  rows: unknown[][],
+  meta?: Record<string, unknown>,
+): string {
+  const granularity =
+    meta?.granularity !== undefined ? ` | granularity ${String(meta.granularity)}` : "";
+  const valueIndex = columns.length - 1;
+  if (columns.length >= 3) {
+    // [bucket, <breakdown>, value]: one line per series. The engine's filled
+    // rows carry '' in the breakdown column and belong to no series.
+    const buckets = new Set(rows.map((r) => String(r[0])));
+    const groups = new Map<string, Array<number | null>>();
+    for (const r of rows) {
+      const key = r[1];
+      if (key === "" || key === null || key === undefined) continue;
+      const list = groups.get(String(key)) ?? [];
+      list.push(toValue(r[valueIndex]));
+      groups.set(String(key), list);
+    }
+    const ranked = [...groups.entries()]
+      .map(([key, values]) => ({
+        key,
+        values,
+        peak: Math.max(...values.map((v) => v ?? -Infinity)),
+      }))
+      .sort((a, b) => b.peak - a.peak);
+    const shown = ranked
+      .slice(0, SERIES_CAP)
+      .map(({ key, values }) => `  ${key}: ${seriesStats(values)}`);
+    const more =
+      ranked.length > SERIES_CAP ? [`  … ${ranked.length - SERIES_CAP} more series`] : [];
+    const first = rows[0]?.[0];
+    const last = rows[rows.length - 1]?.[0];
+    return [
+      `${buckets.size} buckets × ${groups.size} series (${columns.join(", ")})${granularity}, ${String(first)} → ${String(last)}`,
+      ...shown,
+      ...more,
+    ].join("\n");
+  }
+  const values = rows.map((r) => toValue(r[valueIndex]));
+  const line = (r: unknown[]) => `  ${String(r[0])}  ${formatNumber(r[valueIndex])}`;
+  const head = rows.slice(0, 3).map(line);
+  const tail = rows.length > 8 ? rows.slice(-5).map(line) : rows.slice(3).map(line);
+  const gap = rows.length > 8 ? [`  … ${rows.length - 8} more buckets …`] : [];
+  return [
+    `${rows.length} buckets (${columns.join(", ")})${granularity}`,
+    `  ${seriesStats(values)}`,
+    ...head,
+    ...gap,
+    ...tail,
+  ].join("\n");
 }
 
 /**
  * Render one query result: a short table for breakdowns, a shape summary for
  * a time series (first and last buckets plus min/max/latest — the model needs
- * the trend, not every bucket), the single value for a number display.
+ * the trend, not every bucket; one stats line per series for a breakdown over
+ * time), the single value for a number display.
  */
 export function formatRows(
   columns: string[],
@@ -300,26 +382,7 @@ export function formatRows(
   if (columns.length === 1 && rows.length === 1) {
     return `${columns[0]}: ${formatNumber(rows[0][0])}`;
   }
-  if (isTimeSeries(columns, meta, rows)) {
-    const values = rows.map((r) => Number(r[1])).filter((n) => Number.isFinite(n));
-    const line = (r: unknown[]) => `  ${String(r[0])}  ${formatNumber(r[1])}`;
-    const head = rows.slice(0, 3).map(line);
-    const tail = rows.length > 8 ? rows.slice(-5).map(line) : rows.slice(3).map(line);
-    const gap = rows.length > 8 ? [`  … ${rows.length - 8} more buckets …`] : [];
-    const stats =
-      values.length > 0
-        ? `min ${formatNumber(Math.min(...values))} | max ${formatNumber(Math.max(...values))} | latest ${formatNumber(values[values.length - 1])}`
-        : "no numeric values";
-    const granularity =
-      meta?.granularity !== undefined ? ` | granularity ${String(meta.granularity)}` : "";
-    return [
-      `${rows.length} buckets (${columns.join(", ")})${granularity}`,
-      `  ${stats}`,
-      ...head,
-      ...gap,
-      ...tail,
-    ].join("\n");
-  }
+  if (isTimeSeries(columns, meta, rows)) return formatSeries(columns, rows, meta);
   const shown = rows.slice(0, WIDGET_ROW_CAP);
   const lines = shown.map(
     (r) => `  ${r.map((v, i) => (i === 0 ? String(v ?? "—") : formatNumber(v))).join("  |  ")}`,
@@ -368,6 +431,6 @@ export function formatDashboardData(data: unknown): string {
   const text = [header, formatWindow(d.window), "", ...blocks, "", counts].join("\n");
   const bounded = truncateHead(text, { maxBytes: DASHBOARD_DATA_BUDGET_BYTES });
   return bounded.truncated
-    ? `${bounded.content}\n… output truncated at ${DASHBOARD_DATA_BUDGET_BYTES} bytes; ask about one widget with run_widget_query`
+    ? `${bounded.content}\n… output truncated at ${DASHBOARD_DATA_BUDGET_BYTES} bytes; read the dashboard with get_dashboard for a widget's spec, then run_widget_query for that widget`
     : bounded.content;
 }

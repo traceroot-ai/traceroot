@@ -55,6 +55,40 @@ describe("formatRows", () => {
     expect(out.split("\n").filter((l) => l.startsWith("  2026-")).length).toBe(8);
   });
 
+  it("treats NULL gap buckets as gaps, never as zero", () => {
+    // Averages and percentiles come back with real NULLs for empty buckets;
+    // a filled 0 would be a false collapse.
+    const rows = [
+      ["2026-09-01T00:00:00", null],
+      ["2026-09-02T00:00:00", 1.8],
+      ["2026-09-03T00:00:00", null],
+    ];
+    const out = formatRows(["bucket", "p95"], rows, { granularity: "day" });
+    expect(out).toContain("min 1.8 | max 1.8 | latest bucket empty (last value 1.8)");
+    expect(out).not.toMatch(/min 0|latest 0/);
+    expect(out).toContain("  2026-09-01T00:00:00  —");
+  });
+
+  it("summarizes a breakdown over time as one line per series, ignoring the filled rows", () => {
+    // [bucket, model_name, value] with the engine's '' fill rows.
+    const rows = [
+      ["2026-09-01T00:00:00", "gpt-5", 12.5],
+      ["2026-09-01T00:00:00", "other", 3],
+      ["2026-09-02T00:00:00", "", 0],
+      ["2026-09-03T00:00:00", "gpt-5", 20],
+      ["2026-09-03T00:00:00", "other", 1],
+    ];
+    const out = formatRows(["bucket", "model_name", "value"], rows, { granularity: "day" });
+    const lines = out.split("\n");
+    expect(lines[0]).toBe(
+      "3 buckets × 2 series (bucket, model_name, value) | granularity day, 2026-09-01T00:00:00 → 2026-09-03T00:00:00",
+    );
+    expect(lines[1]).toBe("  gpt-5: min 12.5 | max 20 | latest 20");
+    expect(lines[2]).toBe("  other: min 1 | max 3 | latest 1");
+    expect(out).not.toContain("min 0");
+    expect(lines).toHaveLength(3);
+  });
+
   it("formats decimal strings like numbers", () => {
     expect(formatRows(["model_name", "cost"], [["gpt-5", "184.2034"]])).toContain(
       "gpt-5  |  184.2",
@@ -144,8 +178,6 @@ describe("formatDashboardData", () => {
     }));
     const out = formatDashboardData({ ...data, widgets, queried: 40, skipped: 0, failed: 0 });
     expect(Buffer.byteLength(out, "utf-8")).toBeLessThan(16 * 1024 + 256);
-    expect(out).toContain(
-      "output truncated at 16384 bytes; ask about one widget with run_widget_query",
-    );
+    expect(out).toContain("output truncated at 16384 bytes; read the dashboard with get_dashboard");
   });
 });
