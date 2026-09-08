@@ -1,6 +1,6 @@
 import { getIPFromHeader } from "@better-auth/core/utils/ip";
 import { describe, expect, it } from "vitest";
-import { trustedProxyCidrs } from "./trusted-proxies";
+import { invalidTrustedProxyCidrs, trustedProxyCidrs } from "./trusted-proxies";
 
 describe("trustedProxyCidrs", () => {
   it("returns no trusted proxies when unset or blank", () => {
@@ -18,6 +18,14 @@ describe("trustedProxyCidrs", () => {
       "10.0.0.0/16",
       "203.0.113.0/24",
     ]);
+  });
+
+  it("names the invalid entries without throwing, for the config schema to report", () => {
+    expect(invalidTrustedProxyCidrs("10.0.0.0/8, nope, 300.1.1.1/8")).toEqual([
+      "nope",
+      "300.1.1.1/8",
+    ]);
+    expect(invalidTrustedProxyCidrs("")).toEqual([]);
   });
 
   it("rejects CIDRs better-auth cannot parse, naming them", () => {

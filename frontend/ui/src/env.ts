@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { invalidTrustedProxyCidrs } from "@/lib/trusted-proxies";
 
 // Values this repository shipped as defaults in .env.example or
 // docker-compose.prod.yml. They are public, so they are not secrets: a
@@ -31,8 +32,20 @@ const serverSchema = z.object({
   // Comma-separated CIDRs of proxies in front of this app, used to resolve the
   // real client address from x-forwarded-for. Blank means no trusted proxies
   // (better-auth's own default): only a single-entry header is trusted. See
-  // lib/trusted-proxies.ts for why a default is not safe to guess.
-  AUTH_TRUSTED_PROXY_CIDRS: z.string().default(""),
+  // lib/trusted-proxies.ts for why a default is not safe to guess. Validated
+  // here so a typo fails when the config is parsed, with the entries named.
+  AUTH_TRUSTED_PROXY_CIDRS: z
+    .string()
+    .default("")
+    .superRefine((value, ctx) => {
+      const invalid = invalidTrustedProxyCidrs(value);
+      if (invalid.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          message: `AUTH_TRUSTED_PROXY_CIDRS contains invalid CIDRs: ${invalid.join(", ")}`,
+        });
+      }
+    }),
   AUTH_GOOGLE_CLIENT_ID: z.string().default(""),
   AUTH_GOOGLE_CLIENT_SECRET: z.string().default(""),
   TRACEROOT_SMTP_URL: z.string().optional(),

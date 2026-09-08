@@ -25,21 +25,36 @@ import { findInvalidTrustedProxies } from "@better-auth/core/utils/ip";
  *   warning naming the invalid entries when the auth context is created, then
  *   continues with them dropped; if every entry were a typo the list would be
  *   empty and resolution would revert to single-entry mode behind one warn
- *   line. Throwing turns that into a failure. Note where it surfaces: Next.js
- *   swallows errors while preloading routes, so this fails on the first
- *   request that loads the auth module, not at container start. auth.test.ts
- *   pins that the throw reaches the import.
+ *   line. Throwing turns that into a failure. The env schema rejects the same
+ *   entries first (see invalidTrustedProxyCidrs), and instrumentation.ts
+ *   parses the config at server start, so a bad value is reported when the
+ *   server starts rather than on the first request that loads the auth
+ *   module; this throw is the backstop for any other caller. auth.test.ts
+ *   pins that it reaches the import.
  */
 export function trustedProxyCidrs(raw: string | undefined): string[] {
-  const configured = (raw ?? "")
-    .split(",")
-    .map((cidr) => cidr.trim())
-    .filter(Boolean);
-
-  const invalid = findInvalidTrustedProxies(configured);
+  const invalid = invalidTrustedProxyCidrs(raw);
   if (invalid.length > 0) {
     throw new Error(`AUTH_TRUSTED_PROXY_CIDRS contains invalid CIDRs: ${invalid.join(", ")}`);
   }
+  return splitCidrs(raw);
+}
 
-  return configured;
+/**
+ * Returns the entries of a comma-separated list that better-auth cannot parse
+ * as a CIDR, in order; empty when the list is well-formed or blank.
+ * Non-throwing, so the env schema can report them as a validation message.
+ *
+ * @param raw - Comma-separated CIDRs, typically AUTH_TRUSTED_PROXY_CIDRS.
+ * @returns The invalid entries, trimmed.
+ */
+export function invalidTrustedProxyCidrs(raw: string | undefined): string[] {
+  return findInvalidTrustedProxies(splitCidrs(raw));
+}
+
+function splitCidrs(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((cidr) => cidr.trim())
+    .filter(Boolean);
 }
