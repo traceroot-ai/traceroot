@@ -1,4 +1,4 @@
 google-adk>=1.31.1
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 
 traceroot==0.1.11

@@ -50,7 +50,7 @@ overrides:
   shell-quote@<1.9.0: ^1.9.0
   tar@<7.5.21: ^7.5.21
   undici@>=7.0.0 <7.29.0: ^7.29.0
-  uuid@>=11.0.0 <11.1.1: ^11.1.1
+  uuid@<11.1.1: ^11.1.1
   vite@>=8.0.0 <8.0.16: ^8.0.16
   ws@>=8.0.0 <8.21.0: ^8.21.0
   yaml@>=2.0.0 <2.8.3: ^2.8.3
@@ -97,7 +97,7 @@ importers:
         version: 0.148.0(ws@8.21.3)
       '@earendil-works/pi-agent-core':
         specifier: 0.74.0
-        version: 0.74.0(@opentelemetry/api@1.9.1)(ws@8.21.3)(zod@4.5.4)
+        version: 0.74.0(@opentelemetry/api@1.9.0)(ws@8.21.3)(zod@4.5.4)
       '@earendil-works/pi-ai':
         specifier: 0.80.3
         version: 0.80.3(ws@8.21.3)(zod@4.5.4)
@@ -5644,11 +5644,6 @@ packages:
     resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
     hasBin: true
 
-  uuid@8.3.2:
-    resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
-    hasBin: true
-
   vfile-message@4.0.3:
     resolution: {integrity: sha512-QTHzsGd1EhbZs4AsQ20JX1rC3cOlt/IWJruk893DfLRr57lcnOeMaWG4K0JrRta4mIJZKth2Au3mM3u03/JWKw==}
 
@@ -6748,9 +6743,9 @@ snapshots:
       - debug
       - supports-color
 
-  '@earendil-works/pi-agent-core@0.74.0(@opentelemetry/api@1.9.1)(ws@8.21.3)(zod@4.5.4)':
+  '@earendil-works/pi-agent-core@0.74.0(@opentelemetry/api@1.9.0)(ws@8.21.3)(zod@4.5.4)':
     dependencies:
-      '@earendil-works/pi-ai': 0.74.0(@opentelemetry/api@1.9.1)(ws@8.21.3)(zod@4.5.4)
+      '@earendil-works/pi-ai': 0.74.0(@opentelemetry/api@1.9.0)(ws@8.21.3)(zod@4.5.4)
       typebox: 1.1.38
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
@@ -6761,12 +6756,12 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-ai@0.74.0(@opentelemetry/api@1.9.1)(ws@8.21.3)(zod@4.5.4)':
+  '@earendil-works/pi-ai@0.74.0(@opentelemetry/api@1.9.0)(ws@8.21.3)(zod@4.5.4)':
     dependencies:
       '@anthropic-ai/sdk': 0.91.1(zod@4.5.4)
       '@aws-sdk/client-bedrock-runtime': 3.1048.0
       '@google/genai': 1.52.0
-      '@mistralai/mistralai': 2.2.6(@opentelemetry/api@1.9.1)
+      '@mistralai/mistralai': 2.2.6(@opentelemetry/api@1.9.0)
       chalk: 5.6.2
       openai: 6.26.0(ws@8.21.3)(zod@4.5.4)
       partial-json: 0.1.7
@@ -7194,18 +7189,6 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@4.4.3)
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
-  '@mistralai/mistralai@2.2.6(@opentelemetry/api@1.9.1)':
-    dependencies:
-      '@opentelemetry/semantic-conventions': 1.41.1
-      ws: 8.21.0
-      zod: 4.4.3
-      zod-to-json-schema: 3.25.2(zod@4.4.3)
-    optionalDependencies:
-      '@opentelemetry/api': 1.9.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -10833,7 +10816,7 @@ snapshots:
 
   node-cron@3.0.3:
     dependencies:
-      uuid: 8.3.2
+      uuid: 11.1.1
 
   node-domexception@1.0.0: {}
 
@@ -11833,8 +11816,6 @@ snapshots:
   util-deprecate@1.0.2: {}
 
   uuid@11.1.1: {}
-
-  uuid@8.3.2: {}
 
   vfile-message@4.0.3:
     dependencies:
