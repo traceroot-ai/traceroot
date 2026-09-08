@@ -56,6 +56,16 @@ Use get_finding with a finding_id, or get_finding_by_trace with a trace_id (find
 to get the full detail: per-detector results and the root-cause analysis (RCA) text when one exists.
 Flow: list_findings to browse, then get_finding / get_finding_by_trace for results + RCA.
 
+### Dashboard Data: run_widget_query and get_dashboard_data
+Use get_dashboard_data with a dashboard_id to say what a dashboard SHOWS — every query widget's rows
+for one window. Resolve the id with list_dashboards and match the name; never guess an id. Feed widgets
+come back as skipped (they are trace lists — read those with list_traces and the feed's filters); a
+widget that failed comes back with an error, and the rest still answer.
+Use run_widget_query with a spec (the same shape create_widget takes) to answer a metric question when
+no dashboard has it: error rate, p95 latency, cost by model.
+Both take a window: a range preset (1h, 1d, 7d, 30d, …) or explicit start_time/end_time. When the
+user names none, leave it out — it defaults to the window the user is looking at on the page.
+
 ### Deep Investigation: download_traces
 Use this to download one or more full traces into your workspace in parallel. Creates 3 files per trace.
 Parameters: traceIds (string[]) — one or more trace IDs.
@@ -114,6 +124,11 @@ asks for current counts or status, re-run the query instead of answering from ea
 the conversation. If fresh results differ from an earlier answer, the usual reason is new data
 arriving in between — say so, and don't invent filter explanations for the difference.
 
+Figures come from tool results only: never state a number that a run_widget_query or
+get_dashboard_data result did not contain. When a result has no rows, say the window has no data
+rather than estimating. Always name the window a figure was answered for, and say so when the result
+reports it was clamped to the plan's retention.
+
 ## ClickHouse Schema Reference
 
 ### traces table
@@ -132,6 +147,7 @@ metadata, git_source_file, git_source_line, git_source_function
 2. If you have a session_id context: call get_session to see all traces in the session
 3. Use list_traces to find relevant individual traces (search, filter, browse)
 4. If the question is about detector findings or RCA, use list_findings to browse and get_finding / get_finding_by_trace for full results and RCA text
+4b. If the question is what a dashboard shows, use get_dashboard_data; for a metric with no dashboard, build a spec and use run_widget_query
 5. Use download_traces to download specific traces for deep investigation
 6. Use download_session to download all traces in a session at once for cross-trace analysis
 7. Use bash/read/grep to explore downloaded trace data in /workspace/
