@@ -377,7 +377,7 @@ describe("sendAlertNotification", () => {
     findUnique.mockResolvedValue(noChannelRow);
 
     const { sendAlertNotification } = await importModule();
-    const { applyAlertStateMachine } = await import("../../alerts/state-machine.js");
+    const { applyAlertStateMachine } = await import("../../alerts/severity-state-machine.js");
     await sendAlertNotification(compensableJob);
 
     // Still breaching a minute later, and the row still records the page it

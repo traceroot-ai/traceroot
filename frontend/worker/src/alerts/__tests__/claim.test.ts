@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { AlertRenotify } from "@traceroot/core";
 import type { AlertRowLike } from "../rule.js";
-import type { AlertRuntimeState } from "../state-machine.js";
+import type { AlertRuntimeState } from "../severity-state-machine.js";
 import type { AlertTick } from "../tick.js";
 
 const findMany = vi.fn<(args: Record<string, unknown>) => Promise<AlertRowLike[]>>();
@@ -26,7 +26,7 @@ const {
 } = await import("../claim.js");
 // Real, not faked: whether a page survives the race below is a question about
 // what the state machine does next with the row the writes leave behind.
-const { applyAlertStateMachine } = await import("../state-machine.js");
+const { applyAlertStateMachine } = await import("../severity-state-machine.js");
 
 const NOW = new Date("2026-08-12T10:37:42.913Z");
 

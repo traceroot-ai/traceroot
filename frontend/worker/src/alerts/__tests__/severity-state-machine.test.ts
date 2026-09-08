@@ -10,7 +10,7 @@ import {
   compareToThreshold,
   deriveAlertSeverity,
   type AlertRuntimeState,
-} from "../state-machine.js";
+} from "../severity-state-machine.js";
 
 const T0 = new Date("2026-08-12T10:00:00.000Z");
 const NOW = new Date("2026-08-12T10:30:00.000Z");

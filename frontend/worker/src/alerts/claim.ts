@@ -2,7 +2,7 @@ import { prisma, type AlertSeverity, type AlertStatus } from "@traceroot/core";
 import { mapWithConcurrency } from "./concurrency.js";
 import { logError, logInfo } from "./log.js";
 import { parseAlertRule, type AlertRowLike, type AlertRule } from "./rule.js";
-import type { AlertRuntimeState } from "./state-machine.js";
+import type { AlertRuntimeState } from "./severity-state-machine.js";
 import type { AlertTick } from "./tick.js";
 
 const ACTIVE: AlertStatus = "ACTIVE";
