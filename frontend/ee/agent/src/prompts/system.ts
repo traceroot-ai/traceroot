@@ -62,7 +62,7 @@ for one window. Resolve the id with list_dashboards and match the name; never gu
 come back as skipped (they are trace lists — read those with list_traces and the feed's filters); a
 widget that failed comes back with an error, and the rest still answer.
 Use run_widget_query with a spec (the same shape create_widget takes) to answer a metric question when
-no dashboard has it: error rate, p95 latency, cost by model.
+no dashboard has it: error counts, p95 latency, cost by model.
 Both take a window: a range preset (1h, 1d, 7d, 30d, …) or explicit start_time/end_time. When the
 user names none, leave it out — it defaults to the window the user is looking at on the page.
 
