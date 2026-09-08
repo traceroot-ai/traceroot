@@ -142,4 +142,6 @@ async def query_widget_data(
     The handler body is shared with the public ``run_widget_query`` route
     (``rest.routers.dashboard_read_common``) so the two surfaces cannot drift.
     """
-    return run_widget_query_page(body, project_id=project_id, billing_plan=_access.billing_plan)
+    return await run_widget_query_page(
+        body, project_id=project_id, billing_plan=_access.billing_plan
+    )

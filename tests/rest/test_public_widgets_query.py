@@ -122,7 +122,7 @@ def test_retention_clamp_is_reported_not_silent():
     assert window["clamped"] is True
     floor = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=15, hours=2)
     assert _iso(window["start_time"]).replace(tzinfo=None) >= floor
-    assert run.call_args.kwargs["start_time"] == _iso(window["start_time"]).replace(tzinfo=None)
+    assert run.call_args.kwargs["start_time"] == _iso(window["start_time"])
 
 
 @respx.mock
@@ -152,6 +152,27 @@ def test_spec_error_is_422_with_its_step():
         resp = TestClient(app).post(PATH, json={"spec": SPEC}, headers=KEY_HEADER)
     assert resp.status_code == 422
     assert resp.json()["detail"] == {"step": "breakdown", "message": "not groupable"}
+
+
+@respx.mock
+def test_a_window_entirely_before_retention_is_422_naming_retention():
+    _mock_key_auth(FREE_KEY_BODY)
+    body = {"spec": SPEC, "start_time": "2020-01-01T00:00:00Z", "end_time": "2020-02-01T00:00:00Z"}
+    resp, run = _post(body, KEY_HEADER)
+    assert resp.status_code == 422
+    assert "before the plan's retention cutoff" in resp.json()["detail"]
+    run.assert_not_called()
+
+
+@respx.mock
+def test_an_unexpected_engine_failure_is_a_500_with_a_generic_detail():
+    _mock_key_auth()
+    with patch(
+        "rest.routers.dashboard_read_common.run_widget_query", side_effect=RuntimeError("down")
+    ):
+        resp = TestClient(app).post(PATH, json={"spec": SPEC}, headers=KEY_HEADER)
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Widget query failed"
 
 
 @respx.mock

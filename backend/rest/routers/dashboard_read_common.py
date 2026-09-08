@@ -16,7 +16,7 @@ the account-read and write-proxy siblings). Ids are never logged.
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -39,7 +39,7 @@ from rest.schemas.public import (
     DashboardWidgetItem,
     PublicDashboardListResponse,
 )
-from rest.services.date_presets import WindowSpecError, resolve_window
+from rest.services.date_presets import WindowSpecError, as_utc, resolve_window
 from rest.services.widget_query import WidgetSpecError, run_widget_query
 from shared.config import settings
 
@@ -223,11 +223,6 @@ async def get_dashboard_detail(project_id: str, dashboard_id: str) -> DashboardD
         raise _dashboard_service_error() from e
 
 
-def _as_utc(value: datetime) -> datetime:
-    """Return ``value`` as an aware UTC datetime (a naive one is read as UTC)."""
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
 def _resolve_window_for_plan(
     range_id: str | None,
     start_time: datetime | None,
@@ -248,7 +243,10 @@ def _resolve_window_for_plan(
             the window to echo, with ``clamped`` set when that happened.
 
     Raises:
-        HTTPException: 422 when the window description is invalid.
+        HTTPException: 422 when the window description is invalid, or when the
+            whole window lies before the plan's retention cutoff — clamping
+            would invert it, and a query engine error blaming the caller's
+            bounds would be the wrong message.
     """
     try:
         start, end, resolved_id = resolve_window(range_id, start_time, end_time)
@@ -257,18 +255,30 @@ def _resolve_window_for_plan(
     # Retention gate: clamp the start to the plan's cutoff before any
     # ClickHouse scan, so aggregates can't reach past the retention window
     # (mirrors the list endpoints; unlimited plans pass through unchanged).
-    clamped_start, clamped_end = clamp_retention_window(billing_plan, start, end)
-    assert clamped_start is not None and clamped_end is not None  # a start was given
+    # A start was given, so the clamp returns one; the Optional is for the
+    # list endpoints' open-ended windows.
+    clamped_start_opt, _ = clamp_retention_window(billing_plan, start, end)
+    clamped_start = as_utc(clamped_start_opt if clamped_start_opt is not None else start)
+    if clamped_start >= end:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "the window ends before the plan's retention cutoff "
+                f"({clamped_start.isoformat()}); nothing in it can be read"
+            ),
+        )
     window = QueryWindow(
-        start_time=_as_utc(clamped_start),
-        end_time=_as_utc(clamped_end),
+        start_time=clamped_start,
+        end_time=end,
         range=resolved_id,
-        clamped=_as_utc(clamped_start) != start,
+        clamped=clamped_start != start,
     )
-    return clamped_start, clamped_end, window
+    return clamped_start, end, window
 
 
-def run_widget_query_page(body: WidgetQueryRequest, project_id: str, billing_plan: str) -> dict:
+async def run_widget_query_page(
+    body: WidgetQueryRequest, project_id: str, billing_plan: str
+) -> WidgetQueryResponse:
     """Answer one widget query for the window the caller described.
 
     The shared body of the public ``run_widget_query`` and the internal
@@ -282,8 +292,8 @@ def run_widget_query_page(body: WidgetQueryRequest, project_id: str, billing_pla
         billing_plan (str): The plan whose retention bounds the window.
 
     Returns:
-        dict: A ``WidgetQueryResponse``-shaped dict — the engine's ``columns``,
-            ``rows`` and ``meta`` plus the answered ``window``.
+        WidgetQueryResponse: The engine's ``columns``, ``rows`` and ``meta``
+            plus the answered ``window``.
 
     Raises:
         HTTPException: 422 when the window description or the spec is invalid
@@ -293,8 +303,10 @@ def run_widget_query_page(body: WidgetQueryRequest, project_id: str, billing_pla
         body.range, body.start_time, body.end_time, billing_plan
     )
     try:
-        result = run_widget_query(
-            spec=body.spec, project_id=project_id, start_time=start, end_time=end
+        # The engine is synchronous; keep it off the event loop like every
+        # other ClickHouse read on the public surface.
+        result = await asyncio.to_thread(
+            run_widget_query, spec=body.spec, project_id=project_id, start_time=start, end_time=end
         )
     except WidgetSpecError as e:
         raise HTTPException(
@@ -307,14 +319,15 @@ def run_widget_query_page(body: WidgetQueryRequest, project_id: str, billing_pla
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Widget query failed",
         ) from e
-    return WidgetQueryResponse(**result, window=window).model_dump()
+    return WidgetQueryResponse(**result, window=window)
 
 
 # A dashboard data read answers every query widget at once, so it is bounded
 # three ways: rows per widget (a table widget can return hundreds; a caller
 # summarizing a dashboard needs the shape, not the tail), queries in flight
-# (twelve tiles must not open twelve ClickHouse connections), and per-widget
-# failure isolation (one stale spec must not fail the dashboard).
+# per request (twelve tiles must not open twelve ClickHouse connections at
+# once — concurrent requests are bounded by the READ rate bucket, not here),
+# and per-widget failure isolation (one stale spec must not fail the dashboard).
 DASHBOARD_DATA_ROW_CAP = 25
 DASHBOARD_DATA_CONCURRENCY = 4
 

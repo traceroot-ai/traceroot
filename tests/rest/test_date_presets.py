@@ -1,6 +1,8 @@
 """Tests for the query-window presets shared by the widget query surfaces."""
 
+import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import get_args
 
 import pytest
@@ -31,6 +33,24 @@ def test_preset_table_mirrors_the_ui_durations_id_for_id():
         "90d": 129600,
     }
     assert DEFAULT_RANGE_ID == "1d"
+
+
+DATE_FILTER_TS = (
+    Path(__file__).resolve().parents[2] / "frontend" / "ui" / "src" / "lib" / "date-filter.ts"
+)
+
+
+def test_preset_table_matches_the_ui_date_filter_options_source():
+    """The UI's DATE_FILTER_OPTIONS is the picker's vocabulary; the server table
+    must carry every duration option id for id (custom has no duration and is
+    expressed as explicit bounds). Read from the TS source so a change on
+    either side fails here."""
+    text = DATE_FILTER_TS.read_text(encoding="utf-8")
+    options = re.findall(r'\{\s*id: "([^"]+)",[^}]*?durationMinutes: (\d+|null)', text)
+    assert options, "no DATE_FILTER_OPTIONS entries parsed from date-filter.ts"
+    ui_durations = {id_: int(minutes) for id_, minutes in options if minutes != "null"}
+    assert ui_durations == RANGE_PRESET_MINUTES
+    assert [id_ for id_, minutes in options if minutes == "null"] == ["custom"]
 
 
 def test_request_schema_literal_matches_the_table():

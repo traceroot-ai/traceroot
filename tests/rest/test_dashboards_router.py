@@ -88,9 +88,12 @@ def test_query_endpoint_executes(enterprise_client):
 
 
 def test_query_clamps_start_for_limited_plan(client):
-    # Free plan: an out-of-window widget query has its start pulled to the cutoff
-    # before hitting ClickHouse, matching every other data endpoint.
-    body = {**VALID_BODY, "start_time": "2020-01-01T00:00:00Z", "end_time": "2020-02-01T00:00:00Z"}
+    # Free plan: a window that starts before the cutoff but ends inside it has
+    # its start pulled to the cutoff before hitting ClickHouse, matching every
+    # other data endpoint. (A window entirely before the cutoff is a 422 — see
+    # the test below — since clamping it would only invert it.)
+    end = datetime.now(UTC).replace(microsecond=0)
+    body = {**VALID_BODY, "start_time": "2020-01-01T00:00:00Z", "end_time": end.isoformat()}
     fake = {"columns": [], "rows": [], "meta": {}}
     with patch(
         "rest.routers.dashboard_read_common.run_widget_query", return_value=fake
@@ -98,8 +101,18 @@ def test_query_clamps_start_for_limited_plan(client):
         resp = client.post("/api/v1/projects/proj-1/widgets/query", json=body)
     assert resp.status_code == 200
     clamped = mock_run.call_args.kwargs["start_time"]
-    assert clamped > datetime(2020, 1, 2)  # not the ancient input
-    assert clamped >= _free_clamp_floor()  # pulled up to ~ now - 15 days
+    assert clamped > datetime(2020, 1, 2, tzinfo=UTC)  # not the ancient input
+    assert clamped.replace(tzinfo=None) >= _free_clamp_floor()  # pulled up to ~ now - 15 days
+    assert resp.json()["window"]["clamped"] is True
+
+
+def test_query_rejects_a_window_entirely_before_retention(client):
+    body = {**VALID_BODY, "start_time": "2020-01-01T00:00:00Z", "end_time": "2020-02-01T00:00:00Z"}
+    with patch("rest.routers.dashboard_read_common.run_widget_query") as mock_run:
+        resp = client.post("/api/v1/projects/proj-1/widgets/query", json=body)
+    assert resp.status_code == 422
+    assert "before the plan's retention cutoff" in resp.json()["detail"]
+    mock_run.assert_not_called()
 
 
 def test_query_preserves_window_for_unlimited_plan(enterprise_client):
@@ -290,7 +303,8 @@ def test_query_reports_a_retention_clamp_on_the_window(client):
     assert window["clamped"] is True
     start = datetime.fromisoformat(window["start_time"].replace("Z", "+00:00"))
     assert start.replace(tzinfo=None) >= _free_clamp_floor()
-    assert mock_run.call_args.kwargs["start_time"] == start.replace(tzinfo=None)
+    # The engine sees the clamped, aware start the window echoes.
+    assert mock_run.call_args.kwargs["start_time"] == start
 
 
 def test_query_rejects_range_alongside_explicit_bounds(enterprise_client):

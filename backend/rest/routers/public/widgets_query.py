@@ -39,4 +39,6 @@ async def run_widget_query(
     body: WidgetQueryRequest,
 ) -> WidgetQueryResponse:
     """Run a widget spec for a window and return its rows with the window answered."""
-    return run_widget_query_page(body, project_id=auth.project_id, billing_plan=auth.billing_plan)
+    return await run_widget_query_page(
+        body, project_id=auth.project_id, billing_plan=auth.billing_plan
+    )

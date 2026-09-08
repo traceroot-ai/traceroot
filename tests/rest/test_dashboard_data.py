@@ -137,14 +137,10 @@ def test_one_widget_failing_does_not_fail_the_dashboard():
     _mock_key_auth()
     _mock_detail(_detail([_widget(1), _widget(2), _widget(3)]))
 
-    def run(spec, project_id, start_time, end_time):
-        if spec.breakdown == "model_name" and getattr(run, "calls", 0) == 1:
-            run.calls += 1
-            raise WidgetSpecError("breakdown", "field is not groupable")
-        run.calls = getattr(run, "calls", 0) + 1
-        return _rows(1)
-
-    with patch(RUN, side_effect=run):
+    # Three widgets, one of which the engine rejects; a side-effect list keeps
+    # the outcome deterministic under the fan-out's threads.
+    outcomes = [_rows(1), WidgetSpecError("breakdown", "field is not groupable"), _rows(1)]
+    with patch(RUN, side_effect=outcomes):
         resp = TestClient(app).get(PATH, headers=KEY_HEADER)
     assert resp.status_code == 200, resp.text
     statuses = [w["status"] for w in resp.json()["widgets"]]
@@ -266,6 +262,22 @@ def test_retention_clamp_is_reported_on_the_window():
     assert window["clamped"] is True
     floor = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=15, hours=2)
     assert _iso(window["start_time"]).replace(tzinfo=None) >= floor
+
+
+@respx.mock
+def test_a_window_entirely_before_retention_is_422_naming_retention():
+    # Free plan (15-day retention) with explicit bounds years ago: clamping
+    # would invert the window, so the answer is a 422 that names retention —
+    # not an engine error blaming bounds that were valid.
+    _mock_key_auth({**KEY_OK_BODY, "billingPlan": "free"})
+    detail = _mock_detail(_detail([_widget(1)]))
+    params = {"start_time": "2020-01-01T00:00:00Z", "end_time": "2020-02-01T00:00:00Z"}
+    with patch(RUN) as run:
+        resp = TestClient(app).get(PATH, headers=KEY_HEADER, params=params)
+    assert resp.status_code == 422
+    assert "before the plan's retention cutoff" in resp.json()["detail"]
+    assert not detail.called
+    run.assert_not_called()
 
 
 @respx.mock

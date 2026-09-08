@@ -42,8 +42,15 @@ class WindowSpecError(ValueError):
     """
 
 
-def _as_utc(value: datetime) -> datetime:
-    """Return ``value`` as an aware UTC datetime, treating a naive one as UTC."""
+def as_utc(value: datetime) -> datetime:
+    """Return ``value`` as an aware UTC datetime, treating a naive one as UTC.
+
+    Args:
+        value (datetime): Aware or naive; the retention cutoff is naive UTC.
+
+    Returns:
+        datetime: The same instant with ``UTC`` attached.
+    """
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
@@ -81,7 +88,7 @@ def resolve_window(
     if has_bounds:
         if start_time is None or end_time is None:
             raise WindowSpecError("both start_time and end_time are required together")
-        start, end = _as_utc(start_time), _as_utc(end_time)
+        start, end = as_utc(start_time), as_utc(end_time)
         if end <= start:
             raise WindowSpecError("end_time must be after start_time")
         return start, end, None
@@ -91,5 +98,5 @@ def resolve_window(
     if minutes is None:
         known = ", ".join(RANGE_PRESET_MINUTES)
         raise WindowSpecError(f"unknown range '{resolved_id}' (expected one of: {known})")
-    end = _as_utc(now) if now is not None else datetime.now(UTC)
+    end = as_utc(now) if now is not None else datetime.now(UTC)
     return end - timedelta(minutes=minutes), end, resolved_id
