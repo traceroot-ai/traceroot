@@ -4,7 +4,12 @@ import type { EvalFixture, EvalPrisma, Scenario, ScenarioResult, TurnTranscript 
 /** The slice of `AgentClient` the runner needs, so tests can pass a fake. */
 export interface RunnerClient {
   createSession(projectId: string, title?: string): Promise<string>;
-  sendMessage(projectId: string, sessionId: string, message: string): Promise<TurnTranscript>;
+  sendMessage(
+    projectId: string,
+    sessionId: string,
+    message: string,
+    window?: { range: string },
+  ): Promise<TurnTranscript>;
   deleteSession(projectId: string, sessionId: string): Promise<void>;
 }
 
@@ -47,7 +52,7 @@ export async function runScenario(scenario: Scenario, deps: RunnerDeps): Promise
       // A fresh session per message is what makes the idempotency check
       // meaningful: the second ask must not lean on the first one's context.
       if (index > 0 && scenario.sessionPerMessage) sessionId = await openSession();
-      turns.push(await deps.client.sendMessage(projectId, sessionId, message));
+      turns.push(await deps.client.sendMessage(projectId, sessionId, message, scenario.window));
     }
 
     const after = await readProjectRows(deps.prisma, projectId);

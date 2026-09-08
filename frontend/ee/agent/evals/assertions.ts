@@ -64,6 +64,36 @@ export function assistantText(turns: TurnTranscript[]): string {
   return turns.map((turn) => turn.assistantText).join("\n");
 }
 
+// A figure in the reply is a number standing on its own. Digits glued to a
+// word or a hyphen are names — p95, gpt-5, w3 — and a name is not a claim
+// about the data. Tool results source liberally: any digit run in a result
+// can back a figure, so "range 7d" backs a "7 days" in the reply.
+const REPLY_FIGURE = /(?<![\w-])\d[\d,]*(?:\.\d+)?(?!\w)/g;
+const SOURCE_FIGURE = /\d[\d,]*(?:\.\d+)?/g;
+
+/**
+ * Every figure in the reply must appear in some tool result of the same turn:
+ * the mechanical form of "never state a number a tool did not return". Dates
+ * are figures too, so the check is deliberately strict — a reply that quotes
+ * a window's date is fine, since the window came back in the result.
+ */
+export function noUnsourcedFigures(turns: TurnTranscript[]): void {
+  for (const turn of turns) {
+    const sourced = new Set(
+      turn.toolResults.flatMap((r) => JSON.stringify(r.result).match(SOURCE_FIGURE) ?? []),
+    );
+    const normalize = (f: string) => f.replace(/,/g, "");
+    const sourcedNormalized = new Set([...sourced].map(normalize));
+    const unsourced = (turn.assistantText.match(REPLY_FIGURE) ?? []).filter(
+      (f) => !sourcedNormalized.has(normalize(f)),
+    );
+    expectThat(
+      unsourced.length === 0,
+      `the reply states figures no tool result contained: ${unsourced.join(", ")}`,
+    );
+  }
+}
+
 /** Everything the write tools can create in a project, at one point in time. */
 export async function readProjectRows(prisma: EvalPrisma, projectId: string): Promise<ProjectRows> {
   const [detectors, dashboards] = await Promise.all([
