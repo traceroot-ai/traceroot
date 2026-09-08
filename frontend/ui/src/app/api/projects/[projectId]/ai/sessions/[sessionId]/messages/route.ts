@@ -92,6 +92,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         source: body.source,
         traceId: body.traceId,
         traceSessionId: body.traceSessionId,
+        // The window the page is showing: the default for the agent's
+        // dashboard reads. Forwarded as sent; the service validates it.
+        range: body.range,
+        start_time: body.start_time,
+        end_time: body.end_time,
       }),
     },
   );
