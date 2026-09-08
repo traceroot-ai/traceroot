@@ -80,6 +80,12 @@ export function useAIStream(options?: UseAIStreamOptions) {
   const [messagesBySession, setMessagesBySession] = useState<Record<string, AIMessage[]>>({});
   const [streamingSessions, setStreamingSessions] = useState<Record<string, boolean>>({});
   const runsRef = useRef<Map<string, SessionRun>>(new Map());
+  // Per-session write epoch, bumped by every send: a history load carries the
+  // epoch it began under, and one older than the latest send is stale even
+  // after that run has finished (it would restore the transcript from before).
+  const writeEpochRef = useRef<Map<string, number>>(new Map());
+  const bumpWriteEpoch = (sessionId: string) =>
+    writeEpochRef.current.set(sessionId, (writeEpochRef.current.get(sessionId) ?? 0) + 1);
   // Ref so the stream loop always sees the latest callback without resubscribing.
   const onToolResultRef = useRef(options?.onToolResult);
   onToolResultRef.current = options?.onToolResult;
@@ -128,24 +134,40 @@ export function useAIStream(options?: UseAIStreamOptions) {
   }, [stopRun]);
 
   const clearAll = useCallback(() => {
-    setMessagesBySession({});
+    // Dropping a bucket is a write too: a history load still in flight for
+    // it must not bring it back.
+    setMessagesBySession((prev) => {
+      for (const sessionId of Object.keys(prev)) bumpWriteEpoch(sessionId);
+      return {};
+    });
     setStreamingSessions({});
   }, []);
 
+  /** The session's current write epoch; snapshot it when a history load begins. */
+  const sessionWriteEpoch = useCallback(
+    (sessionId: string) => writeEpochRef.current.get(sessionId) ?? 0,
+    [],
+  );
+
   /**
    * Replace a session's cached messages (history loads) — unless a run owns
-   * the session. A history request that resolves after a send started would
-   * otherwise overwrite the live bucket, erasing the user's turn and the
-   * partial answer; the run's own updates are the truth while it lives.
-   * Checked inside the updater, since the run can start between scheduling
-   * and evaluation.
+   * the session, or the load began before the latest send (`asOf`, the epoch
+   * snapshot the caller took). A history request that resolves after a send
+   * would otherwise overwrite the live bucket, or the finished transcript,
+   * with the state from before it. Checked inside the updater, since a run
+   * can start between scheduling and evaluation. Both checks are needed: a
+   * snapshot taken while a run is live shares that run's epoch.
    */
-  const setSessionMessages = useCallback((sessionId: string, messages: AIMessage[]) => {
-    setMessagesBySession((prev) => {
-      if (runsRef.current.has(sessionId)) return prev;
-      return { ...prev, [sessionId]: messages };
-    });
-  }, []);
+  const setSessionMessages = useCallback(
+    (sessionId: string, messages: AIMessage[], asOf: number) => {
+      setMessagesBySession((prev) => {
+        if (runsRef.current.has(sessionId)) return prev;
+        if (asOf !== (writeEpochRef.current.get(sessionId) ?? 0)) return prev;
+        return { ...prev, [sessionId]: messages };
+      });
+    },
+    [],
+  );
 
   /**
    * Locally resolve a parked call once its decision was accepted server-side.
@@ -211,6 +233,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
     (sessionId: string) => {
       stopRun(sessionId);
       clearStreamingFlag(sessionId);
+      bumpWriteEpoch(sessionId);
       setMessagesBySession((prev) => {
         if (!(sessionId in prev)) return prev;
         const next = { ...prev };
@@ -237,6 +260,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
       end_time?: string;
     }) => {
       const { sessionId } = params;
+      bumpWriteEpoch(sessionId);
 
       // Single-flight per session: cancel a prior run in THIS session only.
       // Runs in other sessions keep streaming into their own buckets.
@@ -558,14 +582,12 @@ export function useAIStream(options?: UseAIStreamOptions) {
   // SSE connections or keep burning LLM tokens after the UI is gone.
   useEffect(() => {
     const runs = runsRef.current;
+    // stopRun marks each run stopped before aborting it: an event already
+    // buffered must not reach the tool callback or write state after teardown.
     return () => {
-      for (const run of runs.values()) {
-        run.reader?.cancel().catch(() => {});
-        run.abortController.abort();
-      }
-      runs.clear();
+      for (const sessionId of [...runs.keys()]) stopRun(sessionId);
     };
-  }, []);
+  }, [stopRun]);
 
   return {
     messagesBySession,
@@ -573,6 +595,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
     isSessionStreaming,
     sendMessage,
     setSessionMessages,
+    sessionWriteEpoch,
     appendUserMessage,
     resolvePendingDecision,
     abortSession,

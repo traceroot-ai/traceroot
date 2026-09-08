@@ -310,6 +310,59 @@ describe("useAiChat session switching", () => {
     expect(result.current.isStreaming).toBe(true);
   });
 
+  it("a history load resolving after the run finished keeps the completed transcript", async () => {
+    const { result } = renderChat();
+    const sseB = createSSE();
+    let resolveHistory!: (r: Response) => void;
+    const deferredHistory = new Promise<Response>((r) => {
+      resolveHistory = r;
+    });
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/ai/sessions/B/messages")) return deferredHistory;
+      if (method === "POST" && url.endsWith("/ai/sessions/B/messages")) return sseB.response;
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    let selectPromise!: Promise<void>;
+    act(() => {
+      selectPromise = result.current.handleSelectSession(sessionB);
+    });
+    await act(async () => {
+      await result.current.handleSend("fresh question", MODEL);
+    });
+    sseB.emit("live reply");
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true),
+    );
+    // The run completes before the stale history resolves.
+    sseB.close();
+    await waitFor(() => expect(result.current.isStreaming).toBe(false));
+
+    resolveHistory(
+      new Response(
+        JSON.stringify({
+          messages: [
+            {
+              id: "b-old",
+              role: "user",
+              content: "history of B",
+              createTime: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await act(async () => {
+      await selectPromise;
+    });
+
+    expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true);
+    expect(result.current.messages.some((m) => m.content === "history of B")).toBe(false);
+  });
+
   it("a second send right after session creation reuses the session", async () => {
     let sessionPosts = 0;
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
