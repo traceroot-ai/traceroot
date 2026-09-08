@@ -79,6 +79,22 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("report it, never");
   });
 
+  it("describes the dashboard data tools and where their window comes from", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain("### Dashboard Data: run_widget_query and get_dashboard_data");
+    expect(prompt).toContain("say what a dashboard SHOWS");
+    expect(prompt).toContain("never guess an id");
+    expect(prompt).toContain("defaults to the window the user is looking at on the page");
+    expect(prompt).toContain("use get_dashboard_data; for a metric with no dashboard");
+  });
+
+  it("forbids figures that did not come from a tool result and requires the window be named", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain("Figures come from tool results only");
+    expect(prompt).toContain("say the window has no data");
+    expect(prompt).toContain("Always name the window a figure was answered for");
+  });
+
   it("tells the agent to adopt the suffixed name a collision gave a dashboard", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
     expect(prompt).toContain("got a new name");
