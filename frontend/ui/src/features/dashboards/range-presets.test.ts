@@ -192,6 +192,31 @@ describe("resolveSiteWindow", () => {
     ).toBeLessThanOrEqual(7 * 24 * 60);
   });
 
+  it("replaces custom bounds that lie wholly before the plan's retention with the default", () => {
+    // The server 422s a window entirely past the cutoff; the page would
+    // rather answer for the default than fail every read.
+    stub("", { id: "custom", start: "2026-01-01T00:00:00.000Z", end: "2026-01-02T00:00:00.000Z" });
+    expect(resolveSiteWindow("p1", 7)).toEqual({ range: DEFAULT_RANGE_ID });
+  });
+
+  it("keeps custom bounds that still overlap retention; the server clamps the start", () => {
+    const end = new Date().toISOString();
+    const start = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
+    stub("", { id: "custom", start, end });
+    expect(resolveSiteWindow("p1", 7)).toEqual({ start_time: start, end_time: end });
+  });
+
+  it("does not fall back to stored bounds when the URL pins custom without usable ones", () => {
+    // The URL is the page's window; a broken custom link is a default, not
+    // whatever the picker last stored for another visit.
+    stub("?date_filter=custom&start=x&end=y", {
+      id: "custom",
+      start: "2026-09-01T00:00:00.000Z",
+      end: "2026-09-02T00:00:00.000Z",
+    });
+    expect(resolveSiteWindow("p1")).toEqual({ range: DEFAULT_RANGE_ID });
+  });
+
   it("is the default with nothing stored and no project", () => {
     stub("", null);
     expect(resolveSiteWindow(null)).toEqual({ range: DEFAULT_RANGE_ID });

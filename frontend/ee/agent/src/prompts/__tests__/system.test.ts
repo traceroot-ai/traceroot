@@ -91,7 +91,11 @@ describe("getSystemPrompt", () => {
   it("forbids figures that did not come from a tool result and requires the window be named", () => {
     const prompt = getSystemPrompt({ projectId: "p1" });
     expect(prompt).toContain("Figures come from tool results only");
-    expect(prompt).toContain("say the window has no data");
+    // Scoped: one empty widget is not an empty window.
+    expect(prompt).toContain("say that widget has no data in the window");
+    expect(prompt).toContain("query widget came back empty");
+    // The rule is about metric figures; list tools' counts are theirs to report.
+    expect(prompt).toContain("may be reported from that result");
     expect(prompt).toContain("Always name the window a figure was answered for");
   });
 

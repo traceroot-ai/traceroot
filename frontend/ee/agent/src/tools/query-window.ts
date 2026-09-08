@@ -29,6 +29,15 @@ const RANGE_IDS: ReadonlySet<string> = new Set(RANGE_ENUM);
 // "malformed is a 400" only holds if a lenient Date.parse cannot let it by.
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
+/** Whether the date part names a day that exists: Date.parse would roll Feb 30 into March. */
+function realCalendarDate(instant: string): boolean {
+  const [year, month, day] = instant.slice(0, 10).split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
+}
+
 /** Whether a page-supplied window is well-formed: one preset id, or both bounds as ISO dates. */
 export function parseQueryWindow(input: unknown): QueryWindow | undefined | Error {
   if (input === undefined || input === null) return undefined;
@@ -49,6 +58,9 @@ export function parseQueryWindow(input: unknown): QueryWindow | undefined | Erro
     }
     if (!ISO_INSTANT.test(start_time) || !ISO_INSTANT.test(end_time)) {
       return new Error("start_time/end_time must be ISO-8601 instants");
+    }
+    if (!realCalendarDate(start_time) || !realCalendarDate(end_time)) {
+      return new Error("start_time/end_time must name real calendar dates");
     }
     const start = Date.parse(start_time);
     const end = Date.parse(end_time);

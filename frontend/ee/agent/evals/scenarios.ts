@@ -330,13 +330,18 @@ export const SCENARIOS: Scenario[] = [
       );
 
       const text = summaryTurn.assistantText;
-      for (const widget of ctx.created.widgets.filter((w) => w.dashboardId === dashboard.id)) {
+      const widgets = ctx.created.widgets.filter((w) => w.dashboardId === dashboard.id);
+      expectThat(
+        widgets.length === 2,
+        `the create turn left ${widgets.length} widget(s) on the dashboard; expected the two asked for`,
+      );
+      for (const widget of widgets) {
         expectThat(
           text.toLowerCase().includes(widget.title.toLowerCase()),
           `the summary never mentions the widget "${widget.title}"`,
         );
       }
-      expectThat(/7 days|7d/.test(text), "the summary never names the window it answered for");
+      expectThat(/7[ -]days?|7d/.test(text), "the summary never names the window it answered for");
       noUnsourcedFigures([summaryTurn]);
     },
   },

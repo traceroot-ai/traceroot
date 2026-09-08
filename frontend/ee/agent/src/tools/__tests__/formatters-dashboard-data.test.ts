@@ -89,6 +89,30 @@ describe("formatRows", () => {
     expect(lines).toHaveLength(3);
   });
 
+  it("keys a breakdown series by bucket, so a series absent from the last bucket reads as empty there", () => {
+    const rows = [
+      ["2026-09-01T00:00:00", "gpt-5", 12.5],
+      ["2026-09-01T00:00:00", "haiku", 3],
+      ["2026-09-02T00:00:00", "gpt-5", 20],
+      ["2026-09-02T00:00:00", "haiku", 1],
+      ["2026-09-03T00:00:00", "gpt-5", 8],
+    ];
+    const out = formatRows(["bucket", "model_name", "value"], rows, { granularity: "day" });
+    expect(out).toContain("gpt-5: min 8 | max 20 | latest 8");
+    expect(out).toContain("haiku: min 1 | max 3 | latest bucket empty (last value 1)");
+  });
+
+  it("marks a server-capped series as partial and never names a latest value for it", () => {
+    const rows = Array.from({ length: 25 }, (_, i) => [
+      `2026-08-${String(1 + i).padStart(2, "0")}T00:00:00`,
+      i,
+    ]);
+    const out = formatRows(["bucket", "count"], rows, { granularity: "day" }, { truncated: true });
+    expect(out).toMatch(/partial/);
+    expect(out).not.toMatch(/latest/);
+    expect(out).toContain("min 0 | max 24");
+  });
+
   it("formats decimal strings like numbers", () => {
     expect(formatRows(["model_name", "cost"], [["gpt-5", "184.2034"]])).toContain(
       "gpt-5  |  184.2",
@@ -164,6 +188,30 @@ describe("formatDashboardData", () => {
     );
     expect(out).toContain("#4 Errors | query | ok\nvalue: 412\n  (rows capped by the server)");
     expect(out.trim().endsWith("2 widgets queried, 1 feeds skipped, 1 failed")).toBe(true);
+  });
+
+  it("renders a capped series widget as partial rather than a complete trend", () => {
+    const capped = {
+      ...data,
+      widgets: [
+        {
+          id: "w1",
+          title: "p95 latency",
+          type: "query",
+          status: "ok",
+          columns: ["bucket", "p95"],
+          rows: Array.from({ length: 25 }, (_, i) => [
+            `2026-08-${String(1 + i).padStart(2, "0")}T00:00:00`,
+            1 + i,
+          ]),
+          meta: { granularity: "1d" },
+          truncated: true,
+        },
+      ],
+    };
+    const out = formatDashboardData(capped);
+    expect(out).toMatch(/partial/);
+    expect(out).not.toMatch(/latest/);
   });
 
   it("stays under its byte budget and says how to drill in when it cuts", () => {

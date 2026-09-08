@@ -124,10 +124,12 @@ asks for current counts or status, re-run the query instead of answering from ea
 the conversation. If fresh results differ from an earlier answer, the usual reason is new data
 arriving in between — say so, and don't invent filter explanations for the difference.
 
-Figures come from tool results only: never state a number that a run_widget_query or
-get_dashboard_data result did not contain. When a result has no rows, say the window has no data
-rather than estimating. Always name the window a figure was answered for, and say so when the result
-reports it was clamped to the plan's retention.
+Figures come from tool results only: never state a number no tool result contained. Metric figures
+come from run_widget_query or get_dashboard_data results; a count from list_traces, list_sessions or
+list_findings may be reported from that result. When a widget's result has no
+rows, say that widget has no data in the window; say the window itself has no data only when every
+query widget came back empty. Always name the window a figure was answered for, and say so when the
+result reports it was clamped to the plan's retention.
 
 ## ClickHouse Schema Reference
 

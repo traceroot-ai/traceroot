@@ -64,12 +64,12 @@ export function assistantText(turns: TurnTranscript[]): string {
   return turns.map((turn) => turn.assistantText).join("\n");
 }
 
-// A figure in the reply is a number standing on its own. Digits glued to a
-// word or a hyphen are names — p95, gpt-5, w3 — and a name is not a claim
-// about the data. Tool results source liberally: any digit run in a result
-// can back a figure, so "range 7d" backs a "7 days" in the reply.
-const REPLY_FIGURE = /(?<![\w-])\d[\d,]*(?:\.\d+)?(?!\w)/g;
-const SOURCE_FIGURE = /\d[\d,]*(?:\.\d+)?/g;
+// A figure in the reply is a number standing on its own, sign included. Digits
+// glued to a word or a hyphen are names — p95, gpt-5, w3 — and a name is not
+// a claim about the data. Tool results source liberally: any digit run in a
+// result can back a figure, so "range 7d" backs a "7 days" in the reply.
+const REPLY_FIGURE = /(?<![\w-])-?\d[\d,]*(?:\.\d+)?(?!\w)/g;
+const SOURCE_FIGURE = /-?\d[\d,]*(?:\.\d+)?/g;
 
 /**
  * Every figure in the reply must appear in some tool result of the same turn:
@@ -80,10 +80,20 @@ const SOURCE_FIGURE = /\d[\d,]*(?:\.\d+)?/g;
 export function noUnsourcedFigures(turns: TurnTranscript[]): void {
   for (const turn of turns) {
     const sourced = new Set(
-      turn.toolResults.flatMap((r) => JSON.stringify(r.result).match(SOURCE_FIGURE) ?? []),
+      // A result with no payload sources nothing (stringify gives undefined).
+      turn.toolResults.flatMap((r) => (JSON.stringify(r.result) ?? "").match(SOURCE_FIGURE) ?? []),
     );
-    const normalize = (f: string) => f.replace(/,/g, "");
-    const sourcedNormalized = new Set([...sourced].map(normalize));
+    // Thousands separators and leading zeros are spelling, not value: "Sep 7"
+    // is sourced by a "-07" in a date.
+    const normalize = (f: string) => f.replace(/,/g, "").replace(/^(-?)0+(?=\d)/, "$1");
+    // Liberal both ways: a "-31" pulled out of a date sources "31" as well as
+    // "-31"; only the reply side is strict about the sign.
+    const sourcedNormalized = new Set(
+      [...sourced].flatMap((f) => {
+        const n = normalize(f);
+        return n.startsWith("-") ? [n, n.slice(1)] : [n];
+      }),
+    );
     const unsourced = (turn.assistantText.match(REPLY_FIGURE) ?? []).filter(
       (f) => !sourcedNormalized.has(normalize(f)),
     );

@@ -276,6 +276,27 @@ describe("noUnsourcedFigures", () => {
       events: [],
     }) as never;
 
+  it("treats a tool result with no payload as sourcing nothing, instead of throwing", () => {
+    expect(() => noUnsourcedFigures([turn("Errors rose to 412.", [undefined])])).toThrow(/412/);
+    expect(() => noUnsourcedFigures([turn("No data.", [undefined])])).not.toThrow();
+  });
+
+  it("counts a negative figure as a claim, while a hyphenated name is still a name", () => {
+    expect(() => noUnsourcedFigures([turn("Latency changed by -5 ms.", ["value: 5"])])).toThrow(
+      /-5/,
+    );
+    expect(() => noUnsourcedFigures([turn("gpt-5 handled it.", ["gpt-5"])])).not.toThrow();
+    expect(() => noUnsourcedFigures([turn("Down -5 ms.", ["delta -5"])])).not.toThrow();
+  });
+
+  it("still sources a day or month quoted out of a result's date", () => {
+    expect(() =>
+      noUnsourcedFigures([
+        turn("From Aug 31 to Sep 7.", ["2026-08-31T18:04Z → 2026-09-07T18:04Z"]),
+      ]),
+    ).not.toThrow();
+  });
+
   it("passes when every figure in the reply appears in a tool result of the turn", () => {
     const result = "Window: range 7d (2026-08-31T18:04Z)\nvalue: 1,204,311\nmin 1.2 | max 1.84";
     expect(() =>
