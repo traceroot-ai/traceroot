@@ -275,6 +275,14 @@ def test_dashboard_read_routes_document_error_responses():
     assert responses["404"]["description"] == "Dashboard not found"
 
 
+def test_dashboard_data_route_documents_not_found_like_its_sibling():
+    """The data read passes the dashboard's 404 through, so its contract says so."""
+    paths = _schema()["paths"]
+    responses = paths["/api/v1/public/dashboards/{dashboard_id}/data"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "404", "422", "503"}
+    assert responses["404"]["description"] == "Dashboard not found"
+
+
 def test_dashboard_read_tools_steer_name_resolution():
     """Both dashboard read tools tell the model to resolve a dashboard by
     listing and matching its name — never to guess an id."""
@@ -295,7 +303,9 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/workspaces": {"get": "list_workspaces", "post": "create_workspace"},
     "/api/v1/public/dashboards": {"get": "list_dashboards", "post": "create_dashboard"},
     "/api/v1/public/dashboards/{dashboard_id}": {"get": "get_dashboard"},
+    "/api/v1/public/dashboards/{dashboard_id}/data": {"get": "get_dashboard_data"},
     "/api/v1/public/widgets": {"post": "create_widget"},
+    "/api/v1/public/widgets/query": {"post": "run_widget_query"},
     "/api/v1/public/detectors": {"get": "list_detectors", "post": "create_detector"},
     "/api/v1/public/detectors/findings": {"get": "list_findings"},
     "/api/v1/public/detectors/findings/{finding_id}": {"get": "get_finding"},
@@ -386,6 +396,8 @@ def test_x_tool_enabled_set_and_shape():
         "create_detector",
         "create_dashboard",
         "create_widget",
+        "run_widget_query",
+        "get_dashboard_data",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
@@ -407,6 +419,7 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/detectors/traces/{trace_id}/finding",
     "/api/v1/public/dashboards",
     "/api/v1/public/dashboards/{dashboard_id}",
+    "/api/v1/public/dashboards/{dashboard_id}/data",
 ]
 
 

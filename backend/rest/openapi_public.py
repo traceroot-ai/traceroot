@@ -139,6 +139,11 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
     )
     if dashboard_get_op is not None:
         dashboard_get_op["responses"].setdefault("404", _error_response("Dashboard not found"))
+    dashboard_data_op = (
+        schema["paths"].get("/api/v1/public/dashboards/{dashboard_id}/data", {}).get("get")
+    )
+    if dashboard_data_op is not None:
+        dashboard_data_op["responses"].setdefault("404", _error_response("Dashboard not found"))
 
     # Session read error contract (matches the route code).
     sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
@@ -458,6 +463,39 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "Fetch one dashboard with its widgets (id, title, type, query "
             "spec, creation time). Resolve the dashboard id by listing the "
             "project's dashboards and matching the name — never guess an id."
+        ),
+        "enabled": True,
+    },
+    "run_widget_query": {
+        "name": "run_widget_query",
+        "description": (
+            "Run a widget query and return its rows — the way to answer a "
+            "metric question (error counts, p95 latency, cost by model) without "
+            "a dashboard existing. Takes the same spec shape as create_widget "
+            "(view, metric, breakdown, display, filters) plus a window: a "
+            "range preset by the site picker's id (1h, 1d, 7d, 30d, …) or "
+            "explicit start_time/end_time; neither means the site's default "
+            "24-hour window. The response echoes the window it was answered "
+            "for and says when retention clamped it. A read that happens to "
+            "be a POST: nothing is written."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
+    },
+    "get_dashboard_data": {
+        "name": "get_dashboard_data",
+        "description": (
+            "Answer a dashboard's query widgets (up to 24) for one window — the way "
+            "to say what a dashboard shows, not just what it contains. Resolve "
+            "the dashboard id with list_dashboards and match its name; never "
+            "guess an id. Takes a window like run_widget_query (range preset "
+            "or explicit bounds; neither means the site's default). Widgets come "
+            "back in the dashboard's order with a status each: ok with rows "
+            "(a series carries every bucket; any other display is capped at 25 "
+            "rows, with truncated set), "
+            "skipped for a trace feed (read those with list_traces and the "
+            "feed's filters), or error with a reason. Every figure you report "
+            "must come from these rows, and name the window it was answered for."
         ),
         "enabled": True,
     },

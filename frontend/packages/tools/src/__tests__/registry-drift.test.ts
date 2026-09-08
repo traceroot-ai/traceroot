@@ -23,6 +23,7 @@ describe("committed registry", () => {
       "create_workspace",
       "export_trace",
       "get_dashboard",
+      "get_dashboard_data",
       "get_detector",
       "get_finding",
       "get_finding_by_trace",
@@ -36,6 +37,7 @@ describe("committed registry", () => {
       "list_trace_filter_values",
       "list_traces",
       "list_workspaces",
+      "run_widget_query",
       "whoami",
     ]);
   });

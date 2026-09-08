@@ -42,6 +42,15 @@ export interface ToPiAgentToolOptions {
   fixedArgs?: Record<string, unknown>;
   /** Renders the API result for the model; defaults to pretty-printed JSON. */
   formatResult?: (result: unknown) => string;
+  /**
+   * Values for params the model omits, read on every call. Unlike fixedArgs
+   * these stay in the model's schema and lose to a value the model supplies:
+   * the page's selected time range is the motivating case — the agent should
+   * query the window the user is looking at unless they named another.
+   * A function rather than a record because tools are built once per session
+   * while the window changes per message.
+   */
+  defaults?: () => Record<string, unknown>;
 }
 
 /** "list_traces" -> "List traces" for the tool's human-readable label. */
@@ -57,7 +66,7 @@ function humanizeName(name: string): string {
  * content.
  */
 export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOptions): PiAgentTool {
-  const { client, pathOverride, fixedArgs = {}, formatResult } = options;
+  const { client, pathOverride, fixedArgs = {}, formatResult, defaults } = options;
 
   // The registry keeps agentHiddenParams in inputSchema/bodyParams for full
   // API/CLI parity and leaves the stripping to consumers — this adapter is the
@@ -92,8 +101,15 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
       for (const name of hidden) {
         delete params[name];
       }
-      const args = { ...params, ...fixedArgs };
+      // Defaults under the model's args, fixedArgs over them; a param the
+      // model sent as undefined counts as omitted.
+      const supplied = Object.fromEntries(
+        Object.entries(params).filter(([, value]) => value !== undefined),
+      );
       try {
+        // Inside the boundary: a defaults callback that throws is reported to
+        // the model like any other failure, not surfaced as a rejected call.
+        const args = { ...(defaults?.() ?? {}), ...supplied, ...fixedArgs };
         const result = await dispatch(entry, args, client, { pathOverride, signal });
         const text = formatResult ? formatResult(result) : JSON.stringify(result, null, 2);
         return { content: [{ type: "text", text }], details: undefined };

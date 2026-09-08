@@ -9,7 +9,9 @@ bodies live in rest.routers.dashboard_read_common so behavior cannot drift
 between the surfaces.
 """
 
-from fastapi import APIRouter, Request, Response
+from datetime import datetime
+
+from fastapi import APIRouter, Query, Request, Response
 
 from rest.rate_limit import (
     BUCKET_READ,
@@ -18,9 +20,18 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.routers.dashboard_read_common import get_dashboard_detail, list_dashboards_page
+from rest.routers.dashboard_read_common import (
+    get_dashboard_data_page,
+    get_dashboard_detail,
+    list_dashboards_page,
+)
 from rest.routers.deps import RateLimitedProjectAccess
-from rest.schemas.public import DashboardDetail, PublicDashboardListResponse
+from rest.schemas.dashboards import RangeId
+from rest.schemas.public import (
+    DashboardDataResponse,
+    DashboardDetail,
+    PublicDashboardListResponse,
+)
 
 router = APIRouter(prefix="/projects/{project_id}/dashboards", tags=["Dashboards"])
 
@@ -52,3 +63,23 @@ async def get_dashboard(
 ) -> DashboardDetail:
     """Get one dashboard with its widgets."""
     return await get_dashboard_detail(project_id, dashboard_id)
+
+
+@router.get("/{dashboard_id}/data", response_model=DashboardDataResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_dashboard_data(
+    request: Request,
+    response: Response,
+    project_id: str,
+    dashboard_id: str,
+    _access: RateLimitedProjectAccess,
+    range: RangeId | None = Query(default=None),
+    start_time: datetime | None = Query(default=None),
+    end_time: datetime | None = Query(default=None),
+) -> DashboardDataResponse:
+    """Answer one dashboard's query widgets, up to the per-request cap, for a window."""
+    return await get_dashboard_data_page(
+        project_id, dashboard_id, _access.billing_plan, range, start_time, end_time
+    )

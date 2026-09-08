@@ -67,13 +67,61 @@ def _pick_granularity(start_time: datetime, end_time: datetime) -> str:
     return "hour" if end_time - start_time <= HOUR_BUCKET_MAX else "day"
 
 
+# Displays drawn over a time axis: one row per bucket (per breakdown group).
+SERIES_DISPLAYS = ("line", "area")
+
+
+def is_series(spec: WidgetSpec) -> bool:
+    """Whether the spec is drawn over a time axis, so its rows are the window's buckets."""
+    return spec.display.type in SERIES_DISPLAYS
+
+
+def _bucket_count(start_time: datetime, end_time: datetime) -> int:
+    granule_seconds = 3600 if _pick_granularity(start_time, end_time) == "hour" else 86400
+    window_seconds = (end_time - start_time).total_seconds()
+    # +1: misaligned windows straddle one extra bucket (half-open [start, end) over toStartOfX boundaries).
+    return math.ceil(window_seconds / granule_seconds) + 1
+
+
+def series_row_bound(spec: WidgetSpec, start_time: datetime, end_time: datetime) -> int:
+    """The most rows a series can return for the window: its buckets, times its groups.
+
+    Args:
+        spec: A series spec (see is_series).
+        start_time: Window start (inclusive).
+        end_time: Window end (exclusive).
+
+    Returns:
+        The bucket count, multiplied by the breakdown group cap plus the
+        'other' fold when the series is broken down.
+    """
+    groups = MAX_GROUPS + 1 if spec.breakdown is not None else 1
+    return _bucket_count(start_time, end_time) * groups
+
+
 def compile_widget_query(
     spec: WidgetSpec,
     project_id: str,
     start_time: datetime,
     end_time: datetime,
+    max_rows: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Return (sql, params) for the spec. Raises WidgetSpecError on bad specs."""
+    """Return (sql, params) for the spec. Raises WidgetSpecError on bad specs.
+
+    Args:
+        spec: The validated widget spec to compile.
+        project_id: Project the query is scoped to.
+        start_time: Window start (inclusive).
+        end_time: Window end (exclusive).
+        max_rows: Optional ceiling on the outer row limit. The display-derived
+            limit still applies; this only lowers it, for callers that will
+            keep fewer rows than the display needs and should not make the
+            engine materialize the rest. Ignored by histogram, whose output
+            is bounded by its bin count.
+
+    Returns:
+        The SQL string and its bound parameters.
+    """
     # Normalize like every other ClickHouse endpoint: mixed tz-aware/naive
     # datetimes (both accepted by the request schema) crash subtraction in
     # granularity picking, and a reversed window compiles a negative LIMIT
@@ -165,7 +213,7 @@ def compile_widget_query(
     group_cols: list[str] = []
     order_by = ""
 
-    is_timeseries = spec.display.type in ("line", "area")
+    is_timeseries = is_series(spec)
     if is_timeseries and spec.metric.agg in _NON_ADDITIVE_AGGS:
         # For count/sum an empty bucket genuinely is zero, but for averages
         # and percentiles it has NO value — a filled 0 would render as a false
@@ -246,13 +294,9 @@ def compile_widget_query(
         row_limit = MAX_TABLE_ROWS
     elif is_timeseries:
         # Each time bucket can have up to (MAX_GROUPS + 1) rows: one per
-        # breakdown group plus the 'other' fold bucket. Compute the number of
-        # expected buckets from the window size so every bucket is included.
-        granule_seconds = 3600 if gran == "hour" else 86400
-        window_seconds = (end_time - start_time).total_seconds()
-        # +1: misaligned windows straddle one extra bucket (half-open [start, end) over toStartOfX boundaries).
-        n_buckets = math.ceil(window_seconds / granule_seconds) + 1
-        row_limit = n_buckets * (MAX_GROUPS + 1)
+        # breakdown group plus the 'other' fold bucket. Derived from the
+        # window size so every bucket is included.
+        row_limit = _bucket_count(start_time, end_time) * (MAX_GROUPS + 1)
     elif spec.breakdown is not None:
         # Pure breakdown (no time axis): one row per group + 'other'.
         row_limit = MAX_GROUPS + 1
@@ -260,6 +304,8 @@ def compile_widget_query(
         # No dimensions: single aggregate row.
         row_limit = 1
 
+    if max_rows is not None:
+        row_limit = min(row_limit, max_rows)
     limit = f"LIMIT {row_limit}"
 
     sql = f"SELECT {', '.join(select_cols)} FROM {base} {where} {group_by} {order_by} {limit}"
@@ -267,21 +313,36 @@ def compile_widget_query(
 
 
 def run_widget_query(
-    spec: WidgetSpec, project_id: str, start_time: datetime, end_time: datetime
+    spec: WidgetSpec,
+    project_id: str,
+    start_time: datetime,
+    end_time: datetime,
+    max_rows: int | None = None,
 ) -> dict[str, Any]:
-    """Compile and execute, returning the response contract dict."""
+    """Compile and execute, returning the response contract dict.
+
+    Args:
+        spec: The validated widget spec to run.
+        project_id: Project the query is scoped to.
+        start_time: Window start (inclusive).
+        end_time: Window end (exclusive).
+        max_rows: Optional ceiling on the row limit; see compile_widget_query.
+
+    Returns:
+        A dict with ``columns``, ``rows`` and ``meta``.
+    """
     # Normalized once here; compile_widget_query re-normalizing is idempotent
     # and keeps it safe for direct callers.
     start_time = to_utc_naive(start_time)
     end_time = to_utc_naive(end_time)
-    sql, params = compile_widget_query(spec, project_id, start_time, end_time)
+    sql, params = compile_widget_query(spec, project_id, start_time, end_time, max_rows=max_rows)
     client = get_clickhouse_client()
     # Execution bounds (readonly, timeout, GROUP BY spill ceiling) are the shared read
     # settings: a dashboard tile is the same interactive, time-windowed GROUP BY as the
     # trace list and the filter-option scans, so it gets the same ceilings.
     result = client.query(sql, parameters=params, settings=READ_QUERY_SETTINGS)
     meta: dict[str, Any] = {}
-    if spec.display.type in ("line", "area"):
+    if is_series(spec):
         meta["granularity"] = _pick_granularity(start_time, end_time)
     return {
         "columns": list(result.column_names),

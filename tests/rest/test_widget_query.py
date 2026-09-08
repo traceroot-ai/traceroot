@@ -1,5 +1,6 @@
 """Tests for the widget spec models and the spec-to-SQL compiler."""
 
+import re
 from datetime import UTC, datetime
 from typing import get_args
 from unittest.mock import MagicMock
@@ -15,6 +16,7 @@ from db.clickhouse.query_settings import (
 )
 from rest.schemas.dashboards import (
     AggName,
+    QueryWindow,
     WidgetFilter,
     WidgetQueryRequest,
     WidgetQueryResponse,
@@ -58,9 +60,18 @@ def test_unknown_display_rejected():
         WidgetSpec.model_validate(make_spec(display={"type": "gauge"}))
 
 
-def test_request_requires_start_and_end_time():
+def test_request_accepts_a_spec_alone():
+    # The window is optional at the schema level: a bare spec means the site's
+    # default window, a preset names one, explicit bounds give one. Pairing and
+    # exclusivity are the route's job (rest.services.date_presets.resolve_window),
+    # so every query surface applies the same rules.
+    request = WidgetQueryRequest.model_validate({"spec": make_spec()})
+    assert (request.range, request.start_time, request.end_time) == (None, None, None)
+
+
+def test_request_rejects_an_unknown_range_id():
     with pytest.raises(ValidationError):
-        WidgetQueryRequest.model_validate({"spec": make_spec()})
+        WidgetQueryRequest.model_validate({"spec": make_spec(), "range": "2w"})
 
 
 # --- Drift-guard tests ---
@@ -207,18 +218,39 @@ def test_non_numeric_filter_value_raises():
     assert e.value.step == "filters"
 
 
+def outer_limit(sql: str) -> int:
+    """The outermost LIMIT (the row cap), not the LIMIT 1 BY inside the base SQL."""
+    matches = re.findall(r"LIMIT (\d+)(?! BY)", sql)
+    assert matches, "No outermost LIMIT found in SQL"
+    return int(matches[-1])
+
+
 def test_long_range_row_cap():
     """A misaligned 365-day window (noon-to-noon) touches 366 day buckets; LIMIT must cover all of them."""
     spec = WidgetSpec.model_validate(make_spec(display={"type": "line"}))
     start = datetime(2026, 1, 1, 12, 0)
     end = datetime(2027, 1, 1, 12, 0)  # 365 days, noon-anchored — straddles 366 day buckets
     sql, _ = compile_widget_query(spec, project_id="p", start_time=start, end_time=end)
-    # Extract the final LIMIT clause (the outermost row cap, not LIMIT 1 BY inside base SQL)
-    import re
+    assert outer_limit(sql) >= 366 * 51
 
-    matches = re.findall(r"LIMIT (\d+)(?! BY)", sql)
-    assert matches, "No outermost LIMIT found in SQL"
-    assert int(matches[-1]) >= 366 * 51
+
+def test_max_rows_lowers_the_row_cap_but_never_raises_it():
+    """A caller keeping few rows pushes its cap into the LIMIT; the display cap still holds."""
+    spec = WidgetSpec.model_validate(make_spec(display={"type": "table"}))
+    sql, _ = compile_widget_query(spec, project_id="p", start_time=START, end_time=END, max_rows=26)
+    assert outer_limit(sql) == 26
+    sql, _ = compile_widget_query(
+        spec, project_id="p", start_time=START, end_time=END, max_rows=wq.MAX_TABLE_ROWS * 2
+    )
+    assert outer_limit(sql) == wq.MAX_TABLE_ROWS
+    sql, _ = compile_widget_query(spec, project_id="p", start_time=START, end_time=END)
+    assert outer_limit(sql) == wq.MAX_TABLE_ROWS
+    # The window-derived series cap is the one that grows with the range.
+    series = WidgetSpec.model_validate(make_spec(display={"type": "line"}))
+    sql, _ = compile_widget_query(
+        series, project_id="p", start_time=START, end_time=END, max_rows=26
+    )
+    assert outer_limit(sql) == 26
 
 
 def test_breakdown_timeseries_order_by():
@@ -378,6 +410,14 @@ def test_contains_filter_escapes_percent():
     assert params["f0"] == "%50\\%%"
 
 
+WINDOW = QueryWindow(
+    start_time=datetime(2026, 6, 1, tzinfo=UTC),
+    end_time=datetime(2026, 6, 8, tzinfo=UTC),
+    range=None,
+    clamped=False,
+)
+
+
 def test_bucket_timestamp_serializes_as_iso8601():
     """WidgetQueryResponse rows with datetime values must serialize to ISO-8601.
 
@@ -388,6 +428,7 @@ def test_bucket_timestamp_serializes_as_iso8601():
     response = WidgetQueryResponse(
         columns=["bucket", "value"],
         rows=[[datetime(2026, 6, 1), 1.0]],
+        window=WINDOW,
     )
     encoded = jsonable_encoder(response)
     assert encoded["rows"][0][0] == "2026-06-01T00:00:00"
@@ -395,7 +436,7 @@ def test_bucket_timestamp_serializes_as_iso8601():
 
 def test_empty_rows_validates_and_serializes():
     """WidgetQueryResponse with no rows is valid and encodes to rows: []."""
-    response = WidgetQueryResponse(columns=["value"], rows=[])
+    response = WidgetQueryResponse(columns=["value"], rows=[], window=WINDOW)
     encoded = jsonable_encoder(response)
     assert encoded["rows"] == []
 

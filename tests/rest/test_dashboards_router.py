@@ -64,34 +64,64 @@ def test_schema_endpoint(client):
     assert body["spans"]["fields"]["cost"]["aggs"]
 
 
-def test_query_endpoint_executes(client):
+def test_query_endpoint_executes(enterprise_client):
+    # Unlimited retention, so the fixed June window is answered as given and
+    # the echo below is exact; the clamp path has its own test.
     fake = {"columns": ["model_name", "value"], "rows": [["gpt-4o", 1.5]], "meta": {}}
-    with patch("rest.routers.dashboards.run_widget_query", return_value=fake) as mock_run:
-        resp = client.post("/api/v1/projects/proj-1/widgets/query", json=VALID_BODY)
+    with patch(
+        "rest.routers.dashboard_read_common.run_widget_query", return_value=fake
+    ) as mock_run:
+        resp = enterprise_client.post("/api/v1/projects/proj-1/widgets/query", json=VALID_BODY)
     assert resp.status_code == 200
-    assert resp.json() == fake
+    # The result is the query engine's plus the window it was answered for.
+    assert resp.json() == {
+        **fake,
+        "window": {
+            "start_time": "2026-06-01T00:00:00Z",
+            "end_time": "2026-06-08T00:00:00Z",
+            "range": None,
+            "clamped": False,
+        },
+    }
     # project scoping comes from the path, never the body
     assert mock_run.call_args.kwargs["project_id"] == "proj-1"
 
 
 def test_query_clamps_start_for_limited_plan(client):
-    # Free plan: an out-of-window widget query has its start pulled to the cutoff
-    # before hitting ClickHouse, matching every other data endpoint.
-    body = {**VALID_BODY, "start_time": "2020-01-01T00:00:00Z", "end_time": "2020-02-01T00:00:00Z"}
+    # Free plan: a window that starts before the cutoff but ends inside it has
+    # its start pulled to the cutoff before hitting ClickHouse, matching every
+    # other data endpoint. (A window entirely before the cutoff is a 422 — see
+    # the test below — since clamping it would only invert it.)
+    end = datetime.now(UTC).replace(microsecond=0)
+    body = {**VALID_BODY, "start_time": "2020-01-01T00:00:00Z", "end_time": end.isoformat()}
     fake = {"columns": [], "rows": [], "meta": {}}
-    with patch("rest.routers.dashboards.run_widget_query", return_value=fake) as mock_run:
+    with patch(
+        "rest.routers.dashboard_read_common.run_widget_query", return_value=fake
+    ) as mock_run:
         resp = client.post("/api/v1/projects/proj-1/widgets/query", json=body)
     assert resp.status_code == 200
     clamped = mock_run.call_args.kwargs["start_time"]
-    assert clamped > datetime(2020, 1, 2)  # not the ancient input
-    assert clamped >= _free_clamp_floor()  # pulled up to ~ now - 15 days
+    assert clamped > datetime(2020, 1, 2, tzinfo=UTC)  # not the ancient input
+    assert clamped.replace(tzinfo=None) >= _free_clamp_floor()  # pulled up to ~ now - 15 days
+    assert resp.json()["window"]["clamped"] is True
+
+
+def test_query_rejects_a_window_entirely_before_retention(client):
+    body = {**VALID_BODY, "start_time": "2020-01-01T00:00:00Z", "end_time": "2020-02-01T00:00:00Z"}
+    with patch("rest.routers.dashboard_read_common.run_widget_query") as mock_run:
+        resp = client.post("/api/v1/projects/proj-1/widgets/query", json=body)
+    assert resp.status_code == 422
+    assert "before the plan's retention cutoff" in resp.json()["detail"]
+    mock_run.assert_not_called()
 
 
 def test_query_preserves_window_for_unlimited_plan(enterprise_client):
     # Enterprise (unlimited retention): the body window reaches the query verbatim.
     body = {**VALID_BODY, "start_time": "2020-01-01T00:00:00Z", "end_time": "2020-02-01T00:00:00Z"}
     fake = {"columns": [], "rows": [], "meta": {}}
-    with patch("rest.routers.dashboards.run_widget_query", return_value=fake) as mock_run:
+    with patch(
+        "rest.routers.dashboard_read_common.run_widget_query", return_value=fake
+    ) as mock_run:
         resp = enterprise_client.post("/api/v1/projects/proj-1/widgets/query", json=body)
     assert resp.status_code == 200
     assert mock_run.call_args.kwargs["start_time"] == datetime(2020, 1, 1, tzinfo=UTC)
@@ -221,3 +251,81 @@ class TestWidgetFieldValues:
         resp = client.get("/api/v1/projects/proj-1/widgets/field-values/spans/count")
         assert resp.status_code == 400
         mock_discovery.get_distinct_span_values.assert_not_called()
+
+
+# ── window presets (the agent and the CLI describe a window by preset id) ─────
+
+
+def _query_with(client, body, fake=None):
+    fake = fake if fake is not None else {"columns": [], "rows": [], "meta": {}}
+    with patch(
+        "rest.routers.dashboard_read_common.run_widget_query", return_value=fake
+    ) as mock_run:
+        resp = client.post("/api/v1/projects/proj-1/widgets/query", json=body)
+    return resp, mock_run
+
+
+def test_query_accepts_a_range_preset_and_echoes_it(enterprise_client):
+    body = {"spec": VALID_BODY["spec"], "range": "7d"}
+    before = datetime.now(UTC)
+    resp, mock_run = _query_with(enterprise_client, body)
+    after = datetime.now(UTC)
+    assert resp.status_code == 200
+    window = resp.json()["window"]
+    assert window["range"] == "7d"
+    assert window["clamped"] is False
+    end = datetime.fromisoformat(window["end_time"].replace("Z", "+00:00"))
+    start = datetime.fromisoformat(window["start_time"].replace("Z", "+00:00"))
+    assert before <= end <= after
+    assert end - start == timedelta(days=7)
+    # The resolved bounds are what the query engine saw.
+    assert mock_run.call_args.kwargs["start_time"] == start
+    assert mock_run.call_args.kwargs["end_time"] == end
+
+
+def test_query_with_no_window_uses_the_site_default(enterprise_client):
+    resp, _ = _query_with(enterprise_client, {"spec": VALID_BODY["spec"]})
+    assert resp.status_code == 200
+    window = resp.json()["window"]
+    assert window["range"] == "1d"
+    end = datetime.fromisoformat(window["end_time"].replace("Z", "+00:00"))
+    start = datetime.fromisoformat(window["start_time"].replace("Z", "+00:00"))
+    assert end - start == timedelta(days=1)
+
+
+def test_query_reports_a_retention_clamp_on_the_window(client):
+    # Free plan (15-day retention) asked for 90 days: the start is pulled up to
+    # the cutoff, and the response says so instead of silently narrowing.
+    resp, mock_run = _query_with(client, {"spec": VALID_BODY["spec"], "range": "90d"})
+    assert resp.status_code == 200
+    window = resp.json()["window"]
+    assert window["range"] == "90d"
+    assert window["clamped"] is True
+    start = datetime.fromisoformat(window["start_time"].replace("Z", "+00:00"))
+    assert start.replace(tzinfo=None) >= _free_clamp_floor()
+    # The engine sees the clamped, aware start the window echoes.
+    assert mock_run.call_args.kwargs["start_time"] == start
+
+
+def test_query_rejects_range_alongside_explicit_bounds(enterprise_client):
+    resp, mock_run = _query_with(enterprise_client, {**VALID_BODY, "range": "7d"})
+    assert resp.status_code == 422
+    assert "either range or start_time/end_time" in str(resp.json()["detail"])
+    mock_run.assert_not_called()
+
+
+def test_query_rejects_an_unknown_range_before_querying(enterprise_client):
+    # The schema advertises the ids as an enum, so an unknown one is a body
+    # validation error naming the field — and nothing is queried.
+    resp, mock_run = _query_with(enterprise_client, {"spec": VALID_BODY["spec"], "range": "2w"})
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["loc"] == ["body", "range"]
+    mock_run.assert_not_called()
+
+
+def test_query_rejects_one_bound_without_the_other(enterprise_client):
+    body = {"spec": VALID_BODY["spec"], "start_time": "2026-06-01T00:00:00Z"}
+    resp, mock_run = _query_with(enterprise_client, body)
+    assert resp.status_code == 422
+    assert "both start_time and end_time" in str(resp.json()["detail"])
+    mock_run.assert_not_called()

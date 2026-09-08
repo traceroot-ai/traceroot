@@ -28,6 +28,9 @@ BINDINGS = {
     "/api/v1/public/dashboards/{dashboard_id}": (
         "/api/v1/projects/{project_id}/dashboards/{dashboard_id}"
     ),
+    "/api/v1/public/dashboards/{dashboard_id}/data": (
+        "/api/v1/projects/{project_id}/dashboards/{dashboard_id}/data"
+    ),
 }
 
 
