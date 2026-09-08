@@ -484,6 +484,41 @@ describe("sendAlertNotification", () => {
     expect(logInfo.mock.calls[0][0]).toContain(`reason=${reason}`);
   });
 
+  it.each([
+    ["paused", alertRow({ status: "PAUSED" }), "alert-paused"],
+    ["deleted", null, "alert-deleted"],
+  ])(
+    "sends nothing for a rule %s while the channel was being resolved",
+    async (_label, rowAtSend, reason) => {
+      // The first read let the job through; the pause landed during the channel
+      // and token round trips. The kill switch has to hold at the send itself.
+      alertFindUnique.mockResolvedValueOnce(alertRow()).mockResolvedValueOnce(rowAtSend);
+      const { sendAlertNotification } = await importModule();
+      await sendAlertNotification(compensableJob);
+
+      expect(findUnique).toHaveBeenCalledTimes(1);
+      expect(alertFindUnique).toHaveBeenCalledTimes(2);
+      expect(postMessage).not.toHaveBeenCalled();
+      expect(notifyWrites()).toHaveLength(1);
+      expect(notifyWrites()[0].data.lastNotifyStatus).toBe("FAILED");
+      expect(notifyWrites()[0].data.lastNotifyError).toBe(reason);
+      expect(stateWrites()).toHaveLength(0);
+      expect(logInfo.mock.calls[0][0]).toContain(`reason=${reason} at=send`);
+    },
+  );
+
+  it("drops, at the send, an emission a later evaluation replaced during the round trips", async () => {
+    alertFindUnique
+      .mockResolvedValueOnce(alertRow())
+      .mockResolvedValueOnce(alertRow({ alertedAt: new Date(emission.evaluatedAt + 60_000) }));
+    const { sendAlertNotification } = await importModule();
+    await sendAlertNotification(compensableJob);
+
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(notifyWrites()).toHaveLength(1);
+    expect(notifyWrites()[0].data.lastNotifyStatus).toBe("SUPERSEDED");
+  });
+
   it("records FAILED without a revert for a job enqueued before the claim travelled", async () => {
     findUnique.mockResolvedValue(null);
     const { sendAlertNotification } = await importModule();
