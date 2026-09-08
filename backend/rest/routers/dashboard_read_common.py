@@ -359,12 +359,16 @@ async def _answer_widget(
         return _widget_error(widget, f"spec: {problems}")
     try:
         async with gate:
+            # The cap goes into the SQL LIMIT, not only onto the response: the
+            # extra row is the truncation signal, and the engine never
+            # materializes the rows this read would drop anyway.
             result = await asyncio.to_thread(
                 run_widget_query,
                 spec=spec,
                 project_id=project_id,
                 start_time=start,
                 end_time=end,
+                max_rows=DASHBOARD_DATA_ROW_CAP + 1,
             )
     except WidgetSpecError as e:
         return _widget_error(widget, f"{e.step}: {e.message}")

@@ -275,6 +275,14 @@ def test_dashboard_read_routes_document_error_responses():
     assert responses["404"]["description"] == "Dashboard not found"
 
 
+def test_dashboard_data_route_documents_not_found_like_its_sibling():
+    """The data read passes the dashboard's 404 through, so its contract says so."""
+    paths = _schema()["paths"]
+    responses = paths["/api/v1/public/dashboards/{dashboard_id}/data"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "404", "422", "503"}
+    assert responses["404"]["description"] == "Dashboard not found"
+
+
 def test_dashboard_read_tools_steer_name_resolution():
     """Both dashboard read tools tell the model to resolve a dashboard by
     listing and matching its name — never to guess an id."""

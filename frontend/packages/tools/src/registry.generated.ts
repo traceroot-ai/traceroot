@@ -1152,7 +1152,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
   {
     name: "run_widget_query",
     description:
-      "Run a widget query and return its rows — the way to answer a metric question (error rate, p95 latency, cost by model) without a dashboard existing. Takes the same spec shape as create_widget (view, metric, breakdown, display, filters) plus a window: a range preset by the site picker's id (1h, 1d, 7d, 30d, …) or explicit start_time/end_time; neither means the site's default 24-hour window. The response echoes the window it was answered for and says when retention clamped it. A read that happens to be a POST: nothing is written.",
+      "Run a widget query and return its rows — the way to answer a metric question (error counts, p95 latency, cost by model) without a dashboard existing. Takes the same spec shape as create_widget (view, metric, breakdown, display, filters) plus a window: a range preset by the site picker's id (1h, 1d, 7d, 30d, …) or explicit start_time/end_time; neither means the site's default 24-hour window. The response echoes the window it was answered for and says when retention clamped it. A read that happens to be a POST: nothing is written.",
     method: "post",
     path: "/api/v1/public/widgets/query",
     inputSchema: {

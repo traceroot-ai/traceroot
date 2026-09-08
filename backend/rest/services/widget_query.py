@@ -72,8 +72,24 @@ def compile_widget_query(
     project_id: str,
     start_time: datetime,
     end_time: datetime,
+    max_rows: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Return (sql, params) for the spec. Raises WidgetSpecError on bad specs."""
+    """Return (sql, params) for the spec. Raises WidgetSpecError on bad specs.
+
+    Args:
+        spec: The validated widget spec to compile.
+        project_id: Project the query is scoped to.
+        start_time: Window start (inclusive).
+        end_time: Window end (exclusive).
+        max_rows: Optional ceiling on the outer row limit. The display-derived
+            limit still applies; this only lowers it, for callers that will
+            keep fewer rows than the display needs and should not make the
+            engine materialize the rest. Ignored by histogram, whose output
+            is bounded by its bin count.
+
+    Returns:
+        The SQL string and its bound parameters.
+    """
     # Normalize like every other ClickHouse endpoint: mixed tz-aware/naive
     # datetimes (both accepted by the request schema) crash subtraction in
     # granularity picking, and a reversed window compiles a negative LIMIT
@@ -260,6 +276,8 @@ def compile_widget_query(
         # No dimensions: single aggregate row.
         row_limit = 1
 
+    if max_rows is not None:
+        row_limit = min(row_limit, max_rows)
     limit = f"LIMIT {row_limit}"
 
     sql = f"SELECT {', '.join(select_cols)} FROM {base} {where} {group_by} {order_by} {limit}"
@@ -267,14 +285,29 @@ def compile_widget_query(
 
 
 def run_widget_query(
-    spec: WidgetSpec, project_id: str, start_time: datetime, end_time: datetime
+    spec: WidgetSpec,
+    project_id: str,
+    start_time: datetime,
+    end_time: datetime,
+    max_rows: int | None = None,
 ) -> dict[str, Any]:
-    """Compile and execute, returning the response contract dict."""
+    """Compile and execute, returning the response contract dict.
+
+    Args:
+        spec: The validated widget spec to run.
+        project_id: Project the query is scoped to.
+        start_time: Window start (inclusive).
+        end_time: Window end (exclusive).
+        max_rows: Optional ceiling on the row limit; see compile_widget_query.
+
+    Returns:
+        A dict with ``columns``, ``rows`` and ``meta``.
+    """
     # Normalized once here; compile_widget_query re-normalizing is idempotent
     # and keeps it safe for direct callers.
     start_time = to_utc_naive(start_time)
     end_time = to_utc_naive(end_time)
-    sql, params = compile_widget_query(spec, project_id, start_time, end_time)
+    sql, params = compile_widget_query(spec, project_id, start_time, end_time, max_rows=max_rows)
     client = get_clickhouse_client()
     # Execution bounds (readonly, timeout, GROUP BY spill ceiling) are the shared read
     # settings: a dashboard tile is the same interactive, time-windowed GROUP BY as the

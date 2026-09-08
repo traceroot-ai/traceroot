@@ -261,6 +261,18 @@ describe("toPiAgentTool defaults", () => {
     expect((await bodySent(fetch)).range).toBe("30d");
   });
 
+  it("reports a throwing defaults callback as tool-result text, like any failure", async () => {
+    const { tool, fetch } = toolWith(() => {
+      throw new Error("no window for this message");
+    });
+    const result = await tool.execute("c1", { label: "q", spec: { view: "spans" } });
+    expect(result.content[0]).toEqual({
+      type: "text",
+      text: "Error calling run_widget_query: no window for this message",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("leaves the schema alone: a defaulted param stays visible and optional", () => {
     const { tool } = toolWith(() => ({ range: "7d" }));
     expect(tool.parameters.properties.range).toEqual({ type: "string", enum: ["1d", "7d"] });

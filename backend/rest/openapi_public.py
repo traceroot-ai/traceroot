@@ -139,6 +139,11 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
     )
     if dashboard_get_op is not None:
         dashboard_get_op["responses"].setdefault("404", _error_response("Dashboard not found"))
+    dashboard_data_op = (
+        schema["paths"].get("/api/v1/public/dashboards/{dashboard_id}/data", {}).get("get")
+    )
+    if dashboard_data_op is not None:
+        dashboard_data_op["responses"].setdefault("404", _error_response("Dashboard not found"))
 
     # Session read error contract (matches the route code).
     sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
@@ -465,7 +470,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "name": "run_widget_query",
         "description": (
             "Run a widget query and return its rows — the way to answer a "
-            "metric question (error rate, p95 latency, cost by model) without "
+            "metric question (error counts, p95 latency, cost by model) without "
             "a dashboard existing. Takes the same spec shape as create_widget "
             "(view, metric, breakdown, display, filters) plus a window: a "
             "range preset by the site picker's id (1h, 1d, 7d, 30d, …) or "
