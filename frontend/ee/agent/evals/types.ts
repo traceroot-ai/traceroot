@@ -146,6 +146,8 @@ export interface Scenario {
   name: string;
   /** What the eval user types, in order. */
   messages: string[];
+  /** The page's selected range, sent with every message the way the panel would. */
+  window?: { range: string };
   /** Send each message in its own fresh session (used by the idempotency check). */
   sessionPerMessage?: boolean;
   assert: (ctx: ScenarioContext) => void | Promise<void>;

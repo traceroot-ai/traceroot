@@ -1,6 +1,7 @@
 import {
   assistantText,
   expectThat,
+  noUnsourcedFigures,
   onlyCreated,
   onlyToolCall,
   toolCallsNamed,
@@ -290,6 +291,53 @@ export const SCENARIOS: Scenario[] = [
         foreign.length === 0,
         `${foreign.length} dashboard(s) were written into project ${FAKE_PROJECT_ID}`,
       );
+    },
+  },
+  {
+    // Reading a dashboard's data, not its definition: one get_dashboard_data
+    // call for the created dashboard, defaulting to the page's window (the
+    // scenario sends 7d the way the panel would, and the message names none).
+    // The fixture seeds no spans, so the honest reply says the window has no
+    // data — and, whatever it says, every figure in it came from a tool result.
+    name: "dashboard-summary",
+    messages: [
+      "Create a dashboard called Read check with a p95 latency widget and an errors-over-time widget.",
+      "Summarize the Read check dashboard.",
+    ],
+    window: { range: "7d" },
+    assert: async (ctx) => {
+      const [dashboard] = named(ctx.created.dashboards, "Read check");
+      expectThat(dashboard !== undefined, 'no dashboard named "Read check" was created');
+
+      const summaryTurn = ctx.turns[1];
+      const reads = summaryTurn.toolCalls.filter((c) => c.name === "get_dashboard_data");
+      expectThat(
+        reads.length === 1,
+        `get_dashboard_data was called ${reads.length} times in the summary turn; expected exactly one`,
+      );
+      expectThat(
+        reads[0].args.dashboard_id === dashboard.id,
+        `get_dashboard_data read ${JSON.stringify(reads[0].args.dashboard_id)}, not the created dashboard`,
+      );
+      expectThat(
+        reads[0].args.range === undefined,
+        "the message named no window, so the call should leave range to the page's default",
+      );
+      const result = summaryTurn.toolResults.find((r) => r.name === "get_dashboard_data");
+      expectThat(
+        result !== undefined && !result.isError && /range 7d/.test(JSON.stringify(result.result)),
+        "the dashboard read did not answer for the page's 7d window",
+      );
+
+      const text = summaryTurn.assistantText;
+      for (const widget of ctx.created.widgets.filter((w) => w.dashboardId === dashboard.id)) {
+        expectThat(
+          text.toLowerCase().includes(widget.title.toLowerCase()),
+          `the summary never mentions the widget "${widget.title}"`,
+        );
+      }
+      expectThat(/7 days|7d/.test(text), "the summary never names the window it answered for");
+      noUnsourcedFigures([summaryTurn]);
     },
   },
 ];

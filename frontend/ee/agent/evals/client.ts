@@ -133,6 +133,7 @@ export class AgentClient {
     projectId: string,
     sessionId: string,
     message: string,
+    window?: { range: string },
   ): Promise<TurnTranscript> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -148,7 +149,7 @@ export class AgentClient {
 
     try {
       return await Promise.race([
-        this.runTurn(projectId, sessionId, message, controller.signal),
+        this.runTurn(projectId, sessionId, message, controller.signal, window),
         deadline,
       ]);
     } finally {
@@ -161,9 +162,12 @@ export class AgentClient {
     sessionId: string,
     message: string,
     signal: AbortSignal,
+    window?: { range: string },
   ): Promise<TurnTranscript> {
     const body: Record<string, unknown> = { message };
     if (this.options.model !== undefined) body.model = this.options.model;
+    // The page's selected range, as the panel sends it with every message.
+    if (window !== undefined) body.range = window.range;
 
     const response = await this.fetchImpl(`${this.sessionPath(projectId, sessionId)}/messages`, {
       method: "POST",

@@ -9,6 +9,7 @@ import {
   probeWidgetQuery,
   readProjectRows,
   toolCallsNamed,
+  noUnsourcedFigures,
 } from "../assertions.js";
 import type { EvalPrisma, ProjectRows, TurnTranscript } from "../types.js";
 
@@ -256,5 +257,51 @@ describe("probeWidgetQuery", () => {
   it("returns the rejection status rather than throwing", async () => {
     const { run } = probeWith(new Response("{}", { status: 422 }));
     await expect(run()).resolves.toBe(422);
+  });
+});
+
+describe("noUnsourcedFigures", () => {
+  const turn = (assistantText: string, results: unknown[]) =>
+    ({
+      sessionId: "s",
+      message: "m",
+      toolCalls: [],
+      toolResults: results.map((result, i) => ({
+        toolCallId: `c${i}`,
+        name: "get_dashboard_data",
+        isError: false,
+        result,
+      })),
+      assistantText,
+      events: [],
+    }) as never;
+
+  it("passes when every figure in the reply appears in a tool result of the turn", () => {
+    const result = "Window: range 7d (2026-08-31T18:04Z)\nvalue: 1,204,311\nmin 1.2 | max 1.84";
+    expect(() =>
+      noUnsourcedFigures([turn("Over 7 days p95 peaked at 1.84 s; 1,204,311 tokens.", [result])]),
+    ).not.toThrow();
+  });
+
+  it("fails on a figure no tool result contained, naming it", () => {
+    expect(() => noUnsourcedFigures([turn("Errors rose 12% to 412.", ["value: 412"])])).toThrow(
+      /no tool result contained: 12/,
+    );
+  });
+
+  it("treats thousands separators as the same figure", () => {
+    expect(() => noUnsourcedFigures([turn("1204311 tokens", ["1,204,311"])])).not.toThrow();
+  });
+
+  it("ignores digits that are part of a name, such as p95 or gpt-5", () => {
+    expect(() =>
+      noUnsourcedFigures([turn("p95 for gpt-5 was 1.84 s", ["max 1.84"])]),
+    ).not.toThrow();
+  });
+
+  it("passes a reply with no figures at all, such as an honest no-data answer", () => {
+    expect(() =>
+      noUnsourcedFigures([turn("No data in this window.", ["No rows in this window."])]),
+    ).not.toThrow();
   });
 });

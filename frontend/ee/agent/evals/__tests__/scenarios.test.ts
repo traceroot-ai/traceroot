@@ -90,7 +90,7 @@ function makeCtx(overrides: Partial<ScenarioContext> = {}): ScenarioContext {
 const run = async (name: string, ctx: ScenarioContext) => scenarioNamed(name).assert(ctx);
 
 describe("the scenario suite", () => {
-  it("covers the seven v1 behaviors", () => {
+  it("covers the eight v1 behaviors", () => {
     expect(SCENARIOS.map((s) => s.name)).toEqual([
       "standard-detector",
       "custom-detector",
@@ -99,11 +99,12 @@ describe("the scenario suite", () => {
       "dashboard-compose",
       "idempotency",
       "tenancy",
+      "dashboard-summary",
     ]);
   });
 
-  it("sends one user message per scenario, except the two deliberate pairs", () => {
-    const pairs = new Set(["idempotency", "custom-detector"]);
+  it("sends one user message per scenario, except the three deliberate pairs", () => {
+    const pairs = new Set(["idempotency", "custom-detector", "dashboard-summary"]);
     for (const scenario of SCENARIOS) {
       expect(scenario.messages).toHaveLength(pairs.has(scenario.name) ? 2 : 1);
     }
