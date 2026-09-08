@@ -88,7 +88,11 @@ describe("useAIStream per-session isolation", () => {
 
     // user "switches" to session B: its history is loaded into B's bucket
     act(() => {
-      result.current.setSessionMessages("B", [historyMsg("b1", "old B message")]);
+      result.current.setSessionMessages(
+        "B",
+        [historyMsg("b1", "old B message")],
+        result.current.sessionWriteEpoch("B"),
+      );
     });
 
     sseA.emit(textDelta("Hello"));
@@ -238,6 +242,64 @@ describe("useAIStream per-session isolation", () => {
     expect(result.current.isSessionStreaming("A")).toBe(false);
   });
 
+  it("a history load that began before a send cannot overwrite the finished transcript", async () => {
+    // The run is over, so no run owns the session — but the load is older
+    // than the send, and the transcript it would restore predates it.
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    const beforeSend = result.current.sessionWriteEpoch("A");
+    fetchMock.mockResolvedValueOnce(sse.response);
+    let done!: Promise<void>;
+    act(() => {
+      done = result.current.sendMessage({ sessionId: "A", message: "hi A", projectId: "p1" });
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    sse.emit(textDelta("answer"));
+    sse.close();
+    await act(async () => {
+      await done;
+    });
+    expect(result.current.isSessionStreaming("A")).toBe(false);
+
+    act(() => {
+      result.current.setSessionMessages("A", [historyMsg("h1", "old history")], beforeSend);
+    });
+    expect(result.current.messagesBySession["A"]?.some((m) => m.content === "answer")).toBe(true);
+    expect(result.current.messagesBySession["A"]?.some((m) => m.content === "old history")).toBe(
+      false,
+    );
+
+    // A load that began after the send is current and may replace the bucket.
+    const afterSend = result.current.sessionWriteEpoch("A");
+    act(() => {
+      result.current.setSessionMessages("A", [historyMsg("h1", "old history")], afterSend);
+    });
+    expect(result.current.messagesBySession["A"]?.map((m) => m.content)).toEqual(["old history"]);
+  });
+
+  it("unmounting marks every run stopped, so a late event cannot reach the callback", async () => {
+    const sse = createSSE();
+    const onToolResult = vi.fn();
+    const { result, unmount } = renderHook(() => useAIStream({ onToolResult }));
+    fetchMock.mockResolvedValueOnce(sse.response);
+    let done!: Promise<void>;
+    act(() => {
+      done = result.current.sendMessage({ sessionId: "A", message: "hi A", projectId: "p1" });
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    // The event is already buffered when the host unmounts; the read loop
+    // still gets to it, and must find the run stopped.
+    sse.emit(toolEndEvent);
+    unmount();
+    sse.close();
+    await act(async () => {
+      await done;
+    });
+
+    expect(onToolResult).not.toHaveBeenCalled();
+  });
+
   it("setSessionMessages leaves a live run's bucket alone until the run ends", async () => {
     // A history fetch resolving after a send started must not erase the
     // user's turn and the partial answer the run has already put there.
@@ -253,7 +315,11 @@ describe("useAIStream per-session isolation", () => {
     );
 
     act(() => {
-      result.current.setSessionMessages("A", [historyMsg("h1", "old history")]);
+      result.current.setSessionMessages(
+        "A",
+        [historyMsg("h1", "old history")],
+        result.current.sessionWriteEpoch("A"),
+      );
     });
     expect(result.current.messagesBySession["A"]?.some((m) => m.content === "partial")).toBe(true);
     expect(result.current.messagesBySession["A"]?.some((m) => m.content === "old history")).toBe(
@@ -265,7 +331,11 @@ describe("useAIStream per-session isolation", () => {
       result.current.abortSession("A");
     });
     act(() => {
-      result.current.setSessionMessages("A", [historyMsg("h1", "old history")]);
+      result.current.setSessionMessages(
+        "A",
+        [historyMsg("h1", "old history")],
+        result.current.sessionWriteEpoch("A"),
+      );
     });
     expect(result.current.messagesBySession["A"]?.map((m) => m.content)).toEqual(["old history"]);
   });
@@ -273,11 +343,19 @@ describe("useAIStream per-session isolation", () => {
   it("setSessionMessages replaces the bucket of a non-streaming session", () => {
     const { result } = renderHook(() => useAIStream());
     act(() => {
-      result.current.setSessionMessages("C", [historyMsg("c1", "one"), historyMsg("c2", "two")]);
+      result.current.setSessionMessages(
+        "C",
+        [historyMsg("c1", "one"), historyMsg("c2", "two")],
+        result.current.sessionWriteEpoch("C"),
+      );
     });
     expect(result.current.messagesBySession["C"]).toHaveLength(2);
     act(() => {
-      result.current.setSessionMessages("C", [historyMsg("c3", "three")]);
+      result.current.setSessionMessages(
+        "C",
+        [historyMsg("c3", "three")],
+        result.current.sessionWriteEpoch("C"),
+      );
     });
     expect(result.current.messagesBySession["C"]).toHaveLength(1);
     expect(result.current.messagesBySession["C"]![0].content).toBe("three");
