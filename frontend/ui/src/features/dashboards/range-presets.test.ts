@@ -161,6 +161,24 @@ describe("resolveSiteWindow", () => {
     });
   });
 
+  it("honors a URL-pinned custom range's own bounds, like a shared link should", () => {
+    stub("?date_filter=custom&start=2026-09-03T00:00:00.000Z&end=2026-09-04T00:00:00.000Z", {
+      id: "7d",
+    });
+    expect(resolveSiteWindow("p1")).toEqual({
+      start_time: "2026-09-03T00:00:00.000Z",
+      end_time: "2026-09-04T00:00:00.000Z",
+    });
+  });
+
+  it("normalizes hand-edited custom bounds to the ISO instants the server requires", () => {
+    stub("?date_filter=custom&start=2026-09-03&end=2026-09-04T12:00:00Z", { id: "7d" });
+    expect(resolveSiteWindow("p1")).toEqual({
+      start_time: "2026-09-03T00:00:00.000Z",
+      end_time: "2026-09-04T12:00:00.000Z",
+    });
+  });
+
   it("falls back to the default for a custom selection with unusable bounds", () => {
     stub("", { id: "custom", start: "2026-09-02T00:00:00.000Z", end: "2026-09-01T00:00:00.000Z" });
     expect(resolveSiteWindow("p1")).toEqual({ range: DEFAULT_RANGE_ID });

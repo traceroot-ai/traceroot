@@ -12,15 +12,22 @@ export interface QueryWindow {
   end_time?: string;
 }
 
-const RANGE_IDS: ReadonlySet<string> = new Set(
-  // The registry entry's enum is the server's preset table as generated into
-  // the tool schema — the same list the model sees, so a mirror would drift.
-  (
-    REGISTRY.find((entry) => entry.name === "run_widget_query")?.inputSchema.properties.range as
-      | { enum?: string[] }
-      | undefined
-  )?.enum ?? [],
-);
+// The registry entry's enum is the server's preset table as generated into
+// the tool schema — the same list the model sees, so a mirror would drift.
+const RANGE_ENUM = (
+  REGISTRY.find((entry) => entry.name === "run_widget_query")?.inputSchema.properties.range as
+    | { enum?: string[] }
+    | undefined
+)?.enum;
+if (RANGE_ENUM === undefined || RANGE_ENUM.length === 0) {
+  // Loud at load, like requireEntry: a silent empty set would turn every
+  // page window into a 400 and look like a client bug.
+  throw new Error("registry entry run_widget_query carries no range enum");
+}
+const RANGE_IDS: ReadonlySet<string> = new Set(RANGE_ENUM);
+// The panel sends Date#toISOString; anything looser is a caller bug, and
+// "malformed is a 400" only holds if a lenient Date.parse cannot let it by.
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /** Whether a page-supplied window is well-formed: one preset id, or both bounds as ISO dates. */
 export function parseQueryWindow(input: unknown): QueryWindow | undefined | Error {
@@ -39,6 +46,9 @@ export function parseQueryWindow(input: unknown): QueryWindow | undefined | Erro
   if (hasBounds) {
     if (typeof start_time !== "string" || typeof end_time !== "string") {
       return new Error("both start_time and end_time are required together");
+    }
+    if (!ISO_INSTANT.test(start_time) || !ISO_INSTANT.test(end_time)) {
+      return new Error("start_time/end_time must be ISO-8601 instants");
     }
     const start = Date.parse(start_time);
     const end = Date.parse(end_time);

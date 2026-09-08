@@ -560,6 +560,16 @@ describe("POST messages — page window", () => {
     expect(vi.mocked(createTools)).not.toHaveBeenCalled();
   });
 
+  it("rejects bounds that are not ISO instants, however Date.parse feels about them", async () => {
+    session();
+    vi.mocked(createTools).mockClear();
+    const res = await post({ message: "x", start_time: "2026-09-01", end_time: "Sep 2 2026" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "invalid window: start_time/end_time must be ISO-8601 instants",
+    });
+  });
+
   it("passes custom bounds through and leaves the window undefined when none was sent", async () => {
     session();
     vi.mocked(createTools).mockClear();
