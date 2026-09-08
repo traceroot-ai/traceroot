@@ -551,7 +551,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
   {
     name: "get_dashboard_data",
     description:
-      "Answer a dashboard's query widgets (up to 24) for one window — the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows, skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
+      "Answer a dashboard's query widgets (up to 24) for one window — the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows (a series carries every bucket; any other display is capped at 25 rows, with truncated set), skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
     method: "get",
     path: "/api/v1/public/dashboards/{dashboard_id}/data",
     inputSchema: {

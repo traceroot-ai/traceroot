@@ -40,7 +40,12 @@ from rest.schemas.public import (
     PublicDashboardListResponse,
 )
 from rest.services.date_presets import WindowSpecError, as_utc, resolve_window
-from rest.services.widget_query import WidgetSpecError, run_widget_query
+from rest.services.widget_query import (
+    WidgetSpecError,
+    is_series,
+    run_widget_query,
+    series_row_bound,
+)
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
@@ -324,7 +329,8 @@ async def run_widget_query_page(
 
 # A dashboard data read answers a dashboard's query widgets at once, so it is
 # bounded four ways: rows per widget (a table widget can return hundreds; a
-# caller summarizing a dashboard needs the shape, not the tail), queries in
+# caller summarizing a dashboard needs the shape, not the tail; a series is
+# bounded by its bucket count instead — see _answer_widget), queries in
 # flight per request (twelve tiles must not open twelve ClickHouse connections
 # at once — concurrent requests are bounded by the READ rate bucket, not here),
 # queries per request (nothing caps widgets per dashboard, and one call must
@@ -332,6 +338,10 @@ async def run_widget_query_page(
 # naming the cap, so the caller can query them one at a time), and per-widget
 # failure isolation (one stale spec must not fail the dashboard).
 DASHBOARD_DATA_ROW_CAP = 25
+# Every preset window fits (90 days of a broken-down daily series is ~4.7k
+# rows); explicit bounds have no span ceiling, so a multi-year series is
+# refused rather than shipped.
+DASHBOARD_DATA_SERIES_ROW_CAP = 5_000
 DASHBOARD_DATA_CONCURRENCY = 4
 DASHBOARD_DATA_QUERY_WIDGET_CAP = 24
 
@@ -361,18 +371,28 @@ async def _answer_widget(
             f"{'.'.join(str(part) for part in err['loc'])}: {err['msg']}" for err in e.errors()[:3]
         )
         return _widget_error(widget, f"spec: {problems}")
+    # A series is answered whole: a row cap would keep the oldest buckets of a
+    # long window. Its size is the window's bucket count (times the groups),
+    # refused past a ceiling instead. Every other display is capped, and the
+    # cap goes into the SQL LIMIT, not only onto the response: the extra row
+    # is the truncation signal, and the engine never materializes the rows
+    # this read would drop anyway.
+    row_cap = None if is_series(spec) else DASHBOARD_DATA_ROW_CAP
+    if row_cap is None and series_row_bound(spec, start, end) > DASHBOARD_DATA_SERIES_ROW_CAP:
+        return _widget_error(
+            widget,
+            "not answered: the window has too many buckets for a dashboard read; "
+            "run this one with run_widget_query",
+        )
     try:
         async with gate:
-            # The cap goes into the SQL LIMIT, not only onto the response: the
-            # extra row is the truncation signal, and the engine never
-            # materializes the rows this read would drop anyway.
             result = await asyncio.to_thread(
                 run_widget_query,
                 spec=spec,
                 project_id=project_id,
                 start_time=start,
                 end_time=end,
-                max_rows=DASHBOARD_DATA_ROW_CAP + 1,
+                max_rows=None if row_cap is None else row_cap + 1,
             )
     except WidgetSpecError as e:
         return _widget_error(widget, f"{e.step}: {e.message}")
@@ -386,9 +406,9 @@ async def _answer_widget(
         type=widget.type,
         status="ok",
         columns=result["columns"],
-        rows=rows[:DASHBOARD_DATA_ROW_CAP],
+        rows=rows[:row_cap],
         meta=result.get("meta", {}),
-        truncated=len(rows) > DASHBOARD_DATA_ROW_CAP,
+        truncated=row_cap is not None and len(rows) > row_cap,
     )
 
 

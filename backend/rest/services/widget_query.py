@@ -67,6 +67,38 @@ def _pick_granularity(start_time: datetime, end_time: datetime) -> str:
     return "hour" if end_time - start_time <= HOUR_BUCKET_MAX else "day"
 
 
+# Displays drawn over a time axis: one row per bucket (per breakdown group).
+SERIES_DISPLAYS = ("line", "area")
+
+
+def is_series(spec: WidgetSpec) -> bool:
+    """Whether the spec is drawn over a time axis, so its rows are the window's buckets."""
+    return spec.display.type in SERIES_DISPLAYS
+
+
+def _bucket_count(start_time: datetime, end_time: datetime) -> int:
+    granule_seconds = 3600 if _pick_granularity(start_time, end_time) == "hour" else 86400
+    window_seconds = (end_time - start_time).total_seconds()
+    # +1: misaligned windows straddle one extra bucket (half-open [start, end) over toStartOfX boundaries).
+    return math.ceil(window_seconds / granule_seconds) + 1
+
+
+def series_row_bound(spec: WidgetSpec, start_time: datetime, end_time: datetime) -> int:
+    """The most rows a series can return for the window: its buckets, times its groups.
+
+    Args:
+        spec: A series spec (see is_series).
+        start_time: Window start (inclusive).
+        end_time: Window end (exclusive).
+
+    Returns:
+        The bucket count, multiplied by the breakdown group cap plus the
+        'other' fold when the series is broken down.
+    """
+    groups = MAX_GROUPS + 1 if spec.breakdown is not None else 1
+    return _bucket_count(start_time, end_time) * groups
+
+
 def compile_widget_query(
     spec: WidgetSpec,
     project_id: str,
@@ -181,7 +213,7 @@ def compile_widget_query(
     group_cols: list[str] = []
     order_by = ""
 
-    is_timeseries = spec.display.type in ("line", "area")
+    is_timeseries = is_series(spec)
     if is_timeseries and spec.metric.agg in _NON_ADDITIVE_AGGS:
         # For count/sum an empty bucket genuinely is zero, but for averages
         # and percentiles it has NO value — a filled 0 would render as a false
@@ -262,13 +294,9 @@ def compile_widget_query(
         row_limit = MAX_TABLE_ROWS
     elif is_timeseries:
         # Each time bucket can have up to (MAX_GROUPS + 1) rows: one per
-        # breakdown group plus the 'other' fold bucket. Compute the number of
-        # expected buckets from the window size so every bucket is included.
-        granule_seconds = 3600 if gran == "hour" else 86400
-        window_seconds = (end_time - start_time).total_seconds()
-        # +1: misaligned windows straddle one extra bucket (half-open [start, end) over toStartOfX boundaries).
-        n_buckets = math.ceil(window_seconds / granule_seconds) + 1
-        row_limit = n_buckets * (MAX_GROUPS + 1)
+        # breakdown group plus the 'other' fold bucket. Derived from the
+        # window size so every bucket is included.
+        row_limit = _bucket_count(start_time, end_time) * (MAX_GROUPS + 1)
     elif spec.breakdown is not None:
         # Pure breakdown (no time axis): one row per group + 'other'.
         row_limit = MAX_GROUPS + 1
@@ -314,7 +342,7 @@ def run_widget_query(
     # trace list and the filter-option scans, so it gets the same ceilings.
     result = client.query(sql, parameters=params, settings=READ_QUERY_SETTINGS)
     meta: dict[str, Any] = {}
-    if spec.display.type in ("line", "area"):
+    if is_series(spec):
         meta["granularity"] = _pick_granularity(start_time, end_time)
     return {
         "columns": list(result.column_names),

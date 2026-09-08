@@ -1080,7 +1080,7 @@
         "type": "object"
       },
       "DashboardWidgetData": {
-        "description": "One widget's answer within a dashboard data read.\n\n``status`` says what happened: ``ok`` carries the engine's columns/rows/\nmeta (rows capped, with ``truncated`` set when the cap bit); ``skipped``\nis a feed widget (a trace list, not an aggregate \u2014 read those with\n``list_traces`` and the feed's filters); ``error`` carries a short reason\nand no rows \u2014 a broken widget, or a query widget past the per-request cap\nwith a reason naming it \u2014 so neither fails the whole dashboard.",
+        "description": "One widget's answer within a dashboard data read.\n\n``status`` says what happened: ``ok`` carries the engine's columns/rows/\nmeta (a series carries every bucket of the window; every other display's\nrows are capped, with ``truncated`` set when the cap bit); ``skipped``\nis a feed widget (a trace list, not an aggregate \u2014 read those with\n``list_traces`` and the feed's filters); ``error`` carries a short reason\nand no rows \u2014 a broken widget, or a query widget past the per-request cap\nwith a reason naming it \u2014 so neither fails the whole dashboard.",
         "properties": {
           "columns": {
             "anyOf": [
@@ -4563,7 +4563,7 @@
           "Dashboards (Public)"
         ],
         "x-tool": {
-          "description": "Answer a dashboard's query widgets (up to 24) for one window \u2014 the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows, skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
+          "description": "Answer a dashboard's query widgets (up to 24) for one window \u2014 the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows (a series carries every bucket; any other display is capped at 25 rows, with truncated set), skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
           "enabled": true,
           "name": "get_dashboard_data"
         }

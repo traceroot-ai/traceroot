@@ -267,7 +267,8 @@ class DashboardWidgetData(BaseModel):
     """One widget's answer within a dashboard data read.
 
     ``status`` says what happened: ``ok`` carries the engine's columns/rows/
-    meta (rows capped, with ``truncated`` set when the cap bit); ``skipped``
+    meta (a series carries every bucket of the window; every other display's
+    rows are capped, with ``truncated`` set when the cap bit); ``skipped``
     is a feed widget (a trace list, not an aggregate — read those with
     ``list_traces`` and the feed's filters); ``error`` carries a short reason
     and no rows — a broken widget, or a query widget past the per-request cap

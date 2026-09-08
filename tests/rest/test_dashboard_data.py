@@ -195,6 +195,43 @@ def test_rows_are_capped_per_widget_and_the_cap_is_reported():
 
 
 @respx.mock
+def test_a_series_returns_every_bucket_uncapped():
+    """A trend is answered whole: capping a series would return the oldest buckets of a long window."""
+    _mock_key_auth()
+    series_spec = {**QUERY_SPEC, "breakdown": None, "display": {"type": "line"}}
+    _mock_detail(_detail([_widget(1, spec=series_spec)]))
+    rows = {
+        "columns": ["bucket", "value"],
+        "rows": [[f"2026-06-{1 + i % 28:02d}T00:00:00", float(i)] for i in range(40)],
+        "meta": {"granularity": "day"},
+    }
+    with patch(RUN, return_value=rows) as run:
+        resp = TestClient(app).get(PATH, headers=KEY_HEADER, params={"range": "90d"})
+    assert resp.status_code == 200, resp.text
+    widget = resp.json()["widgets"][0]
+    assert len(widget["rows"]) == 40 and widget["truncated"] is False
+    assert run.call_args.kwargs["max_rows"] is None
+
+
+@respx.mock
+def test_a_series_over_a_window_with_too_many_buckets_is_an_inline_error():
+    """Explicit bounds have no span ceiling; a multi-year breakdown series is refused, not shipped."""
+    _mock_key_auth()
+    series_spec = {**QUERY_SPEC, "display": {"type": "line"}}
+    _mock_detail(_detail([_widget(1, spec=series_spec)]))
+    with patch(RUN, return_value=_rows(1)) as run:
+        resp = TestClient(app).get(
+            PATH,
+            headers=KEY_HEADER,
+            params={"start_time": "2021-01-01T00:00:00Z", "end_time": "2026-01-01T00:00:00Z"},
+        )
+    assert resp.status_code == 200, resp.text
+    widget = resp.json()["widgets"][0]
+    assert widget["status"] == "error" and "run_widget_query" in widget["error"]
+    assert run.call_count == 0
+
+
+@respx.mock
 def test_query_widgets_past_the_cap_come_back_as_errors_without_running():
     """One request answers at most the cap; the rest are inline errors, order and count intact."""
     _mock_key_auth()
