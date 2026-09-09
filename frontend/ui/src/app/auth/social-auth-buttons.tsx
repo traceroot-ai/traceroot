@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FaGithub } from "react-icons/fa";
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
@@ -18,6 +18,14 @@ const providerLabels: Record<SocialAuthProvider, string> = {
   github: "GitHub",
 };
 
+// Anything that goes wrong once the browser has left for the provider fails on
+// the OAuth callback, which is a server redirect and so can never resolve back
+// into `onError` below: without a destination of our own those failures render
+// better-auth's built-in error page, outside the app shell. Naming one sends
+// them to /auth/error instead, which reads the `?error=<code>` that better-auth
+// appends.
+const errorCallbackURL = "/auth/error";
+
 export function SocialAuthButtons({
   callbackURL,
   enabledProviders,
@@ -27,26 +35,56 @@ export function SocialAuthButtons({
   const [loadingProvider, setLoadingProvider] = useState<SocialAuthProvider | null>(null);
   const hasSocialProviders = enabledProviders.google || enabledProviders.github;
 
+  // A redirect that starts successfully deliberately leaves the pending state
+  // set, because the tab is on its way to the provider and every button should
+  // stay inert until it goes. If the user comes back, though, the browser may
+  // restore this page from the back/forward cache, which replays the React
+  // state exactly as it was - no remount, no re-render, no effect - and would
+  // leave both buttons disabled on "Redirecting..." until a hard reload.
+  // `pageshow` with `persisted` is the one event that marks that restore;
+  // `visibilitychange` also fires on an ordinary tab switch, which would clear
+  // the state while a redirect was still in flight.
+  useEffect(() => {
+    function clearPendingProvider(event: PageTransitionEvent) {
+      if (event.persisted) {
+        setLoadingProvider(null);
+      }
+    }
+
+    window.addEventListener("pageshow", clearPendingProvider);
+    return () => window.removeEventListener("pageshow", clearPendingProvider);
+  }, []);
+
   if (!hasSocialProviders) {
     return null;
   }
 
-  async function handleSocialAuth(provider: SocialAuthProvider) {
-    const label = providerLabels[provider];
-    setLoadingProvider(provider);
-    onError(null);
-
+  // Resolves to the message to report, or to null once the browser is on its
+  // way to the provider. Reporting and unlocking stay with the caller so there
+  // is a single place that clears the pending state, rather than one per exit.
+  async function requestSocialAuth(provider: SocialAuthProvider): Promise<string | null> {
     try {
       const { error } = await authClient.signIn.social({
         provider,
         callbackURL,
+        errorCallbackURL,
       });
-      if (error) {
-        onError(error.message || `Failed to ${verb} with ${label}`);
-        setLoadingProvider(null);
+      if (!error) {
+        return null;
       }
+      return error.message || `Failed to ${verb} with ${providerLabels[provider]}`;
     } catch {
-      onError("An unexpected error occurred");
+      return "An unexpected error occurred";
+    }
+  }
+
+  async function handleSocialAuth(provider: SocialAuthProvider) {
+    setLoadingProvider(provider);
+    onError(null);
+
+    const message = await requestSocialAuth(provider);
+    if (message !== null) {
+      onError(message);
       setLoadingProvider(null);
     }
   }

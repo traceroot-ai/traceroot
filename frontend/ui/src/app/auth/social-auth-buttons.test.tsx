@@ -58,6 +58,7 @@ describe("SocialAuthButtons", () => {
       expect(mocks.signInSocial).toHaveBeenCalledWith({
         provider: "github",
         callbackURL: "/onboarding",
+        errorCallbackURL: "/auth/error",
       }),
     );
   });
@@ -123,5 +124,102 @@ describe("SocialAuthButtons", () => {
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Continue with Google" }).disabled,
     ).toBe(false);
+  });
+
+  it("re-enables every button when the page is restored from the back/forward cache", async () => {
+    // A redirect that starts successfully never comes back through the error
+    // paths, so the pending state is still set when the browser hands the tab
+    // to the provider. Coming back restores this page from the back/forward
+    // cache with the React state replayed verbatim - no remount, no effect -
+    // so without a `pageshow` reset both buttons stay locked on "Redirecting...".
+    mocks.signInSocial.mockResolvedValue({});
+
+    render(
+      <SocialAuthButtons
+        callbackURL="/"
+        enabledProviders={{ google: true, github: true }}
+        onError={vi.fn()}
+        verb="sign in"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub" }));
+
+    await waitFor(() => expect(mocks.signInSocial).toHaveBeenCalled());
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Redirecting..." }).disabled).toBe(
+      true,
+    );
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Continue with Google" }).disabled,
+    ).toBe(true);
+
+    fireEvent(window, new PageTransitionEvent("pageshow", { persisted: true }));
+
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Continue with GitHub" }).disabled,
+    ).toBe(false);
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Continue with Google" }).disabled,
+    ).toBe(false);
+  });
+
+  it("routes callback failures to the app error page for every provider", async () => {
+    // Only errors raised before the redirect ever reach `onError`; anything
+    // that fails on the OAuth callback is a server redirect, so the
+    // destination is the only way those failures reach the user.
+    mocks.signInSocial.mockResolvedValue({});
+
+    render(
+      <SocialAuthButtons
+        callbackURL="/onboarding"
+        enabledProviders={{ google: true, github: true }}
+        onError={vi.fn()}
+        verb="sign up"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Google" }));
+    await waitFor(() => expect(mocks.signInSocial).toHaveBeenCalledTimes(1));
+    expect(mocks.signInSocial).toHaveBeenLastCalledWith({
+      provider: "google",
+      callbackURL: "/onboarding",
+      errorCallbackURL: "/auth/error",
+    });
+
+    fireEvent(window, new PageTransitionEvent("pageshow", { persisted: true }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub" }));
+    await waitFor(() => expect(mocks.signInSocial).toHaveBeenCalledTimes(2));
+    expect(mocks.signInSocial).toHaveBeenLastCalledWith({
+      provider: "github",
+      callbackURL: "/onboarding",
+      errorCallbackURL: "/auth/error",
+    });
+  });
+
+  it("stops listening for restores once unmounted", () => {
+    const addEventListener = vi.spyOn(window, "addEventListener");
+    const removeEventListener = vi.spyOn(window, "removeEventListener");
+
+    try {
+      const { unmount } = render(
+        <SocialAuthButtons
+          callbackURL="/"
+          enabledProviders={{ google: true, github: false }}
+          onError={vi.fn()}
+          verb="sign in"
+        />,
+      );
+
+      const registration = addEventListener.mock.calls.find(([type]) => type === "pageshow");
+      expect(registration).toBeDefined();
+
+      unmount();
+
+      expect(removeEventListener).toHaveBeenCalledWith("pageshow", registration![1]);
+    } finally {
+      addEventListener.mockRestore();
+      removeEventListener.mockRestore();
+    }
   });
 });
