@@ -22,7 +22,7 @@ import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
-import { PlanType } from "@traceroot/core";
+import { toPlanType } from "@traceroot/core";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
 import { getTemplate } from "@/features/detectors/templates";
@@ -362,7 +362,7 @@ export default function DetectorsPage() {
         open={retention.showPricing}
         onOpenChange={retention.closePricing}
         workspaceId={retention.workspaceId}
-        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+        currentPlan={toPlanType(retention.billingPlan)}
       />
     </div>
   );

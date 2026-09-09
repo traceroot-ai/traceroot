@@ -10,6 +10,10 @@ import {
   isDetectorRunBlocked,
   isIngestionBlocked,
   hasEntitlement,
+  isUpgrade,
+  getPlanOrder,
+  toPlanType,
+  ENTITLEMENTS,
 } from "../plans.ts";
 
 describe("slack-integration entitlement", () => {
@@ -134,5 +138,69 @@ describe("isDetectorRunBlocked", () => {
   it("respects ENABLE_BILLING=false (unblocks all)", () => {
     vi.stubEnv("ENABLE_BILLING", "false");
     expect(isDetectorRunBlocked(PlanType.FREE, 9999)).toBe(false);
+  });
+});
+
+describe("toPlanType", () => {
+  beforeEach(() => {
+    vi.stubEnv("ENABLE_BILLING", "true");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns every recognized plan unchanged", () => {
+    for (const plan of Object.values(PlanType)) {
+      expect(toPlanType(plan)).toBe(plan);
+    }
+  });
+
+  it("fails closed to FREE for anything unrecognized", () => {
+    // billingPlan is free-form TEXT with no CHECK constraint, so these are all
+    // values a workspace row can actually hold.
+    expect(toPlanType("legacy-team")).toBe(PlanType.FREE);
+    expect(toPlanType("Pro")).toBe(PlanType.FREE); // matching is exact
+    expect(toPlanType("pro ")).toBe(PlanType.FREE); // trailing whitespace
+    expect(toPlanType("")).toBe(PlanType.FREE);
+    expect(toPlanType(null)).toBe(PlanType.FREE);
+    expect(toPlanType(undefined)).toBe(PlanType.FREE);
+  });
+
+  it("does not resolve prototype-chain keys to a plan", () => {
+    expect(toPlanType("constructor")).toBe(PlanType.FREE);
+    expect(toPlanType("toString")).toBe(PlanType.FREE);
+    expect(toPlanType("__proto__")).toBe(PlanType.FREE);
+  });
+
+  it("gives an unrecognized plan the same entitlements as an explicit FREE", () => {
+    // The failure mode this closes: an unrecognized plan is absent from the
+    // entitlement table, so every entitlement check answered false for it —
+    // byok included, which is granted on every plan including Free.
+    expect(hasEntitlement("legacy-team" as PlanType, "byok")).toBe(false);
+
+    expect(hasEntitlement(toPlanType("legacy-team"), "byok")).toBe(
+      hasEntitlement(PlanType.FREE, "byok"),
+    );
+    for (const entitlement of ENTITLEMENTS) {
+      expect(hasEntitlement(toPlanType("legacy-team"), entitlement)).toBe(
+        hasEntitlement(PlanType.FREE, entitlement),
+      );
+    }
+  });
+
+  it("restores plan ordering, which an unrecognized plan left undefined", () => {
+    expect(getPlanOrder("legacy-team" as PlanType)).toBeUndefined();
+    expect(isUpgrade("legacy-team" as PlanType, PlanType.PRO)).toBe(false);
+
+    expect(getPlanOrder(toPlanType("legacy-team"))).toBe(getPlanOrder(PlanType.FREE));
+    expect(isUpgrade(toPlanType("legacy-team"), PlanType.PRO)).toBe(true);
+  });
+
+  it("leaves a recognized plan's ordering and entitlements untouched", () => {
+    expect(isUpgrade(toPlanType("pro"), PlanType.ENTERPRISE)).toBe(true);
+    expect(isUpgrade(toPlanType("pro"), PlanType.STARTER)).toBe(false);
+    expect(hasEntitlement(toPlanType("pro"), "github-integration")).toBe(true);
+    expect(hasEntitlement(toPlanType("starter"), "github-integration")).toBe(false);
   });
 });

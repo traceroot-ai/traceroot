@@ -12,6 +12,31 @@ export const PlanType = {
 } as const;
 export type PlanType = (typeof PlanType)[keyof typeof PlanType];
 
+// `workspace.billingPlan` is a free-form TEXT column with no CHECK constraint,
+// so a legacy, mistyped or rolled-back plan name can reach code that is typed
+// on PlanType. Casting with `as` asserts at compile time and validates nothing
+// at runtime, which leaves the plan helpers answering nonsense: getPlanOrder
+// returns undefined, isUpgrade is false for every plan, and an unrecognized
+// plan is absent from the entitlement table rather than resolving to a known
+// one. Narrow through toPlanType instead.
+const PLAN_TYPE_VALUES: ReadonlySet<string> = new Set(Object.values(PlanType));
+
+/**
+ * Narrow an untyped billing-plan string to PlanType, failing closed to FREE.
+ *
+ * Matching is exact: a recognized plan is returned unchanged, and anything
+ * else — unknown name, wrong case, stray whitespace, empty, null, undefined —
+ * resolves to FREE. Deliberately no trimming or case-folding: inferring a paid
+ * plan from a malformed string would grant entitlements the stored value does
+ * not actually name. Set membership (rather than an object lookup) also keeps
+ * prototype-chain keys such as "constructor" from resolving to a plan.
+ */
+export function toPlanType(plan: string | null | undefined): PlanType {
+  return typeof plan === "string" && PLAN_TYPE_VALUES.has(plan)
+    ? (plan as PlanType)
+    : PlanType.FREE;
+}
+
 // =============================================================================
 // USAGE QUOTAS
 // =============================================================================

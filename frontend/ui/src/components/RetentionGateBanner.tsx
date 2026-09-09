@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Lock } from "lucide-react";
-import { PLANS, PlanType } from "@traceroot/core";
+import { PLANS, toPlanType } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 import { useProject } from "@/features/projects/hooks";
 import { useWorkspace } from "@/features/workspaces/hooks";
@@ -53,7 +53,7 @@ export function RetentionGateBanner({ projectId, detail }: RetentionGateBannerPr
         open={showPricing}
         onOpenChange={setShowPricing}
         workspaceId={workspaceId}
-        currentPlan={(workspace?.billingPlan as PlanType) || PlanType.FREE}
+        currentPlan={toPlanType(workspace?.billingPlan)}
         hasSubscription={!!workspace?.billingSubscriptionId}
       />
     </>

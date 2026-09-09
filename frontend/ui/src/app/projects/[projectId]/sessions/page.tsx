@@ -13,7 +13,7 @@ import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPa
 import { useSessions } from "@/features/traces/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
-import { PlanType } from "@traceroot/core";
+import { toPlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import {
@@ -275,7 +275,7 @@ export default function SessionsPage() {
         open={retention.showPricing}
         onOpenChange={retention.closePricing}
         workspaceId={retention.workspaceId}
-        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+        currentPlan={toPlanType(retention.billingPlan)}
       />
     </div>
   );
