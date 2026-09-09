@@ -130,27 +130,37 @@ printf '%s\n' "$CURATED"
 [ "$CURATED" = "sA" ] || { echo "FAIL: expected only sA, got: $CURATED"; exit 1; }
 echo "PASS: source != 'user' excluded, and evaluation traces excluded whether flagged on the trace or only on a span"
 
-echo "== evaluation exclusion: holds while both row versions exist =="
-ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name,source,is_evaluation,ch_update_time) VALUES ('tEvalT','proj_A',now64(3),'eval-trace','user',0,toDateTime64('2026-06-01 00:00:00',3))"
-PRE_MERGE="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') WHERE trace_id = 'tEvalT'")"
-[ "$PRE_MERGE" = "0" ] || { echo "FAIL: exclusion did not hide the trace even before a merge"; exit 1; }
-echo "PASS: a newer non-eval row does not un-hide the trace while the flagged row survives"
+echo "== evaluation exclusion survives a ReplacingMergeTree merge =="
+# The realistic shape, which an earlier version of this check got wrong by omitting the
+# flagged SPAN: ingest derives the trace-level flag FROM eval-kind spans, so a flagged
+# trace always has at least one flagged span of its own.
+#
+# The two halves behave differently under compaction, and that is the whole point of
+# building the set from both:
+#   traces -- one row per trace in a date bucket, so two versions collapse and the
+#             merge physically deletes the flagged one;
+#   spans  -- span_id is in the sort key, so distinct spans never collapse into each
+#             other, and a span's flag comes from its kind, which does not change
+#             between exports. The flagged span row therefore survives.
+ch --query "INSERT INTO pubviews.spans (span_id,trace_id,project_id,span_start_time,span_end_time,name,span_kind,source,is_evaluation,ch_update_time) VALUES ('sEvalRoot','tEvalM','proj_A',toDateTime64('2026-01-01 00:00:00',3),toDateTime64('2026-01-01 00:00:01',3),'eval-root','EVALUATION','user',1,toDateTime64('2026-01-01 00:00:00',3))"
+ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name,source,is_evaluation,ch_update_time) VALUES ('tEvalM','proj_A',toDateTime64('2026-01-01 00:00:00',3),'eval-trace','user',1,toDateTime64('2026-01-01 00:00:00',3))"
+# a later batch: ordinary child spans, and the trace row rewritten to 0
+ch --query "INSERT INTO pubviews.spans (span_id,trace_id,project_id,span_start_time,span_end_time,name,span_kind,source,is_evaluation,ch_update_time) VALUES ('sChild','tEvalM','proj_A',toDateTime64('2026-01-01 00:00:02',3),toDateTime64('2026-01-01 00:00:03',3),'child','LLM','user',0,toDateTime64('2026-06-01 00:00:00',3))"
+ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name,source,is_evaluation,ch_update_time) VALUES ('tEvalM','proj_A',toDateTime64('2026-01-01 00:00:00',3),'eval-trace','user',0,toDateTime64('2026-06-01 00:00:00',3))"
 
-echo "== KNOWN GAP: a ReplacingMergeTree merge deletes the flagged row =="
-# Not a hard failure here: the exclusion is defined by the public schema contract, and
-# the fix belongs there rather than in this migration. Reported so it cannot be lost.
+PRE="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') WHERE trace_id = 'tEvalM'")"
+[ "$PRE" = "0" ] || { echo "FAIL: evaluation trace visible before any merge"; exit 1; }
+
 ch --query "OPTIMIZE TABLE pubviews.traces FINAL"
-FLAGGED_LEFT="$(ch --query "SELECT count() FROM pubviews.traces WHERE trace_id = 'tEvalT' AND is_evaluation = 1")"
-POST_MERGE="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') WHERE trace_id = 'tEvalT'")"
-if [ "$FLAGGED_LEFT" = "0" ] && [ "$POST_MERGE" != "0" ]; then
-  echo "WARNING: after the merge, no row is flagged is_evaluation = 1 and the trace is VISIBLE"
-  echo "         through the public view. Set membership on trace_id is dedup-independent"
-  echo "         only while the flagged row exists; ReplacingMergeTree eventually removes it."
-  echo "         The exclusion needs a source that survives merges (a retained per-project"
-  echo "         evaluation set, or a flag that cannot be overwritten to 0)."
-else
-  echo "PASS: the exclusion still holds after a merge (flagged rows left: $FLAGGED_LEFT)"
-fi
+ch --query "OPTIMIZE TABLE pubviews.spans FINAL"
+TRACE_FLAGGED="$(ch --query "SELECT count() FROM pubviews.traces WHERE trace_id='tEvalM' AND is_evaluation=1")"
+SPAN_FLAGGED="$(ch --query "SELECT count() FROM pubviews.spans  WHERE trace_id='tEvalM' AND is_evaluation=1")"
+POST="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') WHERE trace_id = 'tEvalM'")"
+echo "  after merge: flagged traces rows=$TRACE_FLAGGED  flagged spans rows=$SPAN_FLAGGED"
+[ "$TRACE_FLAGGED" = "0" ] || echo "  (note: the traces row did not collapse here; the sort key must have differed)"
+[ "$SPAN_FLAGGED" != "0" ] || { echo "FAIL: the flagged span did not survive the merge -- the exclusion has no durable source"; exit 1; }
+[ "$POST" = "0" ] || { echo "FAIL: evaluation trace became visible after the merge"; exit 1; }
+echo "PASS: the flagged span survives compaction and keeps the trace excluded after the traces row collapses"
 
 echo "== readonly profile: a readonly=1 user cannot override a CONST cap =="
 if SET_OUT="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') SETTINGS max_execution_time = 60" 2>&1)"; then

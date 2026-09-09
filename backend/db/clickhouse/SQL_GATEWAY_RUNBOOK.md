@@ -239,18 +239,31 @@ warning, not a failure. Removing an orphaned account is a deliberate manual step
 DROP USER IF EXISTS <old_account>;
 ```
 
+### Settled: the evaluation exclusion survives compaction
+
+Worth recording, because it was investigated as a suspected leak and is not one.
+
+The two halves of `VIEW_EVALUATION_EXCLUSION` behave differently under a
+`ReplacingMergeTree` merge, and building the set from both is what makes it durable:
+
+- **`traces`** — one row per trace per `toDate(trace_start_time)` bucket, so a later batch
+  that rewrites the row with `is_evaluation = 0` and a newer `ch_update_time` collapses into
+  a single row on merge, physically deleting the flagged version. A traces-only predicate
+  would stop excluding at that point.
+- **`spans`** — `span_id` is in the sort key, so distinct spans never collapse into each
+  other, and a span's flag is derived from its kind (`otel_transform` sets
+  `is_evaluation = span_kind in EVALUATION_SPAN_KINDS`), which does not change between
+  exports of that span. The flagged span row survives.
+
+Ingest derives the trace-level flag *from* those spans, so a flagged trace always has a
+flagged span of its own — meaning the surviving half is always populated. Verified on
+25.2.1: after `OPTIMIZE ... FINAL` on both tables the flagged traces row is gone, the
+flagged span row remains, and the trace stays excluded.
+`clickhouse_public_views_ddl_check.sh` asserts exactly this, and fails if the flagged span
+ever stops surviving.
+
 ### Open items — must be settled before enabling the gateway in the cloud
 
-- **The evaluation exclusion stops excluding after a ClickHouse merge.** Verified on
-  25.2.1: a later batch rewrites the trace row to `is_evaluation = 0` with a newer
-  `ch_update_time`, and once `ReplacingMergeTree` merges the parts the flagged row is
-  physically gone — so the sub-select finds nothing and the evaluation trace becomes
-  readable through the public views. Set membership on `trace_id` is dedup-independent as
-  a *query*, but the row it depends on does not survive compaction. The exclusion is
-  defined by the public schema contract, so the fix belongs there (a retained per-project
-  evaluation set, or a flag ingest cannot regress to `0`); this migration implements the
-  contract as written. `clickhouse_public_views_ddl_check.sh` reproduces it and prints a
-  WARNING. **The gateway should not be enabled until this is resolved.**
 - **Nothing has run on a cluster.** The DDL check proves the SQL model against a local
   container of the same image staging deploys; it says nothing about the chart's hooks
   executing in order, the provisioning Job reaching ClickHouse, or the read-only credentials
