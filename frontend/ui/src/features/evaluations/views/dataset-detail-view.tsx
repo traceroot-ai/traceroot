@@ -235,15 +235,27 @@ export function DatasetDetailView({
       />
       <div className="flex h-full flex-col text-[13px]">
         <div className="flex min-h-0 flex-1 flex-col">
-          {/* Single toolbar row: search on the left; the Row action and the
-                version selector pushed to the right (version farthest). The version
-                id lives inside the dropdown, not spelled out in the bar. No date
-                filter: nothing here reads one. */}
+          {/* Single toolbar row: search and the dataset id on the left; the Row
+                action and the version selector pushed to the right (version
+                farthest). Both ids carry a copy button — they are what an SDK
+                call needs and neither is retypable by eye. No date filter:
+                nothing here reads one. */}
           <SearchFilterBar
             searchValue={keyword}
             onSearchChange={setKeyword}
             searchPlaceholder="Search..."
           >
+            <div className="flex min-w-0 items-center gap-1 font-mono text-[11px] text-muted-foreground">
+              {/* min-w-0 on both the chip and the span: a flex item defaults to
+                  min-width:auto, which would keep a long client dataset id at its
+                  full width and overflow the bar instead of ellipsizing. */}
+              <span className="min-w-0 truncate">{dataset.clientDatasetId ?? dataset.id}</span>
+              <CopyButton
+                value={dataset.clientDatasetId ?? dataset.id}
+                className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                title="Copy dataset ID"
+              />
+            </div>
             <div className="ml-auto flex items-center gap-2">
               <Button
                 variant="outline"
@@ -285,6 +297,15 @@ export function DatasetDetailView({
                       ))}
                     </SelectContent>
                   </Select>
+                  {(selectedVersion?.id ?? dataset.currentVersionId ?? versions[0]?.id) && (
+                    <CopyButton
+                      value={
+                        selectedVersion?.id ?? dataset.currentVersionId ?? versions[0]?.id ?? ""
+                      }
+                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                      title="Copy version ID"
+                    />
+                  )}
                 </div>
               )}
             </div>

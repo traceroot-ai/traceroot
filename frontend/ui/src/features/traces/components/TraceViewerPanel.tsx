@@ -363,16 +363,14 @@ export function TraceViewerPanel({
             <span className="truncate font-mono text-xs text-muted-foreground">
               {headerIdentity?.value ?? traceId}
             </span>
-            {/* Copy affordance for the header id. Only offered when an identity is
-                supplied (offline-eval's test case); the standard trace header is
-                unchanged. */}
-            {headerIdentity && (
-              <CopyButton
-                value={headerIdentity.value}
-                className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-                title={`Copy ${headerIdentity.label.toLowerCase()} id`}
-              />
-            )}
+            {/* Copy affordance for the header id, always offered: the trace id is
+                as worth copying as offline-eval's test case id, and the label
+                follows whichever identity the header is showing. */}
+            <CopyButton
+              value={headerIdentity?.value ?? traceId}
+              className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+              title={`Copy ${headerIdentity?.label?.toLowerCase() ?? "trace"} id`}
+            />
           </div>
           <div className="flex items-center gap-1">
             {headerStatus}

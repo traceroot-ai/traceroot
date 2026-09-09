@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { X, ArrowUp, ArrowDown } from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { useDetector, useUpdateDetector } from "../hooks/use-detectors";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
@@ -133,13 +134,6 @@ export function DetectorPanel({
     }
   }, [detectorId, detector]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [copied, setCopied] = useState(false);
-  const copyId = useCallback(() => {
-    void navigator.clipboard.writeText(detectorId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }, [detectorId]);
-
   const updateMutation = useUpdateDetector(projectId, detectorId);
 
   // Block Save while a filter row is incomplete (missing value or metadata
@@ -182,15 +176,14 @@ export function DetectorPanel({
           <span className="truncate text-[13px] text-muted-foreground">
             {detector?.name ?? detectorId}
           </span>
-          <button
-            type="button"
-            onClick={copyId}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground/60 transition-colors hover:bg-muted hover:text-muted-foreground"
-            title="Copy detector ID"
-          >
+          <span className="truncate font-mono text-[11px] text-muted-foreground/60">
             {detectorId}
-            {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-          </button>
+          </span>
+          <CopyButton
+            value={detectorId}
+            className="h-6 w-6 text-muted-foreground hover:text-foreground"
+            title="Copy detector ID"
+          />
         </div>
         <div className="flex items-center gap-1">
           {onNavigate && (

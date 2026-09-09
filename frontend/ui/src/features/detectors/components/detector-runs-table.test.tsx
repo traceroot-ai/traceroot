@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent, within } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { DetectorRunsTable } from "./detector-runs-table";
 import type { BackendRun } from "@/features/detectors/hooks/use-findings";
 
@@ -117,10 +117,15 @@ describe("DetectorRunsTable", () => {
     fireEvent.click(screen.getByText("Something went wrong"));
     expect(onTraceClick).not.toHaveBeenCalled();
 
-    // The only button in the row is the trace_id cell.
+    // trace_id is the only navigating control — run_id is plain text unless
+    // self_traced, and the two copy buttons write to the clipboard, they don't
+    // route. Titles pin down which button is which.
     const row = screen.getByText("Something went wrong").closest("tr")!;
-    // trace_id is the only link — run_id is plain text unless self_traced.
-    expect(within(row).getAllByRole("button")).toHaveLength(1);
+    expect(
+      within(row)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("title")),
+    ).toEqual(["Copy run ID", "trace-triggered", "Copy trace ID"]);
   });
 
   it("opens the self-trace when a self_traced row is clicked anywhere", () => {
@@ -182,5 +187,32 @@ describe("DetectorRunsTable", () => {
 
     expect(screen.queryByRole("button", { name: "run-clean" })).toBeNull();
     expect(screen.getByText("run-clean")).toBeTruthy();
+  });
+
+  it("copies the untruncated run and trace ids without navigating", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const onRunClick = vi.fn();
+    const onTraceClick = vi.fn();
+    const selfRun: BackendRun = { ...triggeredRun, self_traced: true };
+    render(
+      <DetectorRunsTable rows={[selfRun]} onTraceClick={onTraceClick} onRunClick={onRunClick} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy run ID" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("run-triggered"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy trace ID" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("trace-triggered"));
+
+    // The row and both cells are click targets; copying must not follow them.
+    expect(onRunClick).not.toHaveBeenCalled();
+    expect(onTraceClick).not.toHaveBeenCalled();
+  });
+
+  it("offers a copy affordance for a run with no self-trace", () => {
+    render(<DetectorRunsTable rows={[cleanRun]} onTraceClick={vi.fn()} onRunClick={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Copy run ID" })).toBeTruthy();
   });
 });

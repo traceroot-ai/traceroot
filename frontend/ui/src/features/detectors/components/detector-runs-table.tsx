@@ -1,5 +1,6 @@
 "use client";
 
+import { CopyButton } from "@/components/ui/copy-button";
 import { cn, formatDate } from "@/lib/utils";
 import { describeRcaStatus, type BackendRun } from "@/features/detectors/hooks/use-findings";
 import { DETECTOR_TH, DETECTOR_TD, IdentifiedBadge, SummaryText } from "./detector-table-cells";
@@ -60,36 +61,50 @@ export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRu
                 {formatDate(run.timestamp)}
               </td>
               <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
-                {run.self_traced ? (
+                <div className="flex min-w-0 items-center gap-1">
+                  {run.self_traced ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        // Same destination as the row click; stop propagation so
+                        // one click doesn't fire the navigation twice.
+                        e.stopPropagation();
+                        onRunClick(run);
+                      }}
+                      title={run.run_id}
+                      className="min-w-0 truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                    >
+                      {run.run_id}
+                    </button>
+                  ) : (
+                    <span className="min-w-0 truncate text-muted-foreground">{run.run_id}</span>
+                  )}
+                  <CopyButton
+                    value={run.run_id}
+                    className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+                    title="Copy run ID"
+                  />
+                </div>
+              </td>
+              <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
+                <div className="flex min-w-0 items-center gap-1">
                   <button
                     type="button"
                     onClick={(e) => {
-                      // Same destination as the row click; stop propagation so
-                      // one click doesn't fire the navigation twice.
                       e.stopPropagation();
-                      onRunClick(run);
+                      onTraceClick(run);
                     }}
-                    title={run.run_id}
-                    className="block max-w-full truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                    title={run.trace_id}
+                    className="min-w-0 truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
                   >
-                    {run.run_id}
+                    {run.trace_id}
                   </button>
-                ) : (
-                  <span className="text-muted-foreground">{run.run_id}</span>
-                )}
-              </td>
-              <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTraceClick(run);
-                  }}
-                  title={run.trace_id}
-                  className="block max-w-full truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
-                >
-                  {run.trace_id}
-                </button>
+                  <CopyButton
+                    value={run.trace_id}
+                    className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+                    title="Copy trace ID"
+                  />
+                </div>
               </td>
               <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
                 {findingId == null ? (

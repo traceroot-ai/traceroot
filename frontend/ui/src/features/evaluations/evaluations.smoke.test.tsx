@@ -11,9 +11,13 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
 
+// One spy shared by every useRouter() consumer, so a test can assert that a
+// nested control (a copy button inside a navigable row) did NOT navigate. A
+// fresh vi.fn() per call would make that unobservable.
+const routerPush = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1", datasetId: "ds1", runId: "run1" }),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: routerPush, replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
   usePathname: () => "/projects/p1/evaluations",
 }));
@@ -265,6 +269,10 @@ function payloadFor(url: string): unknown {
 }
 
 beforeEach(() => {
+  // A fresh clipboard spy per test: a file-wide one keeps its call history, so
+  // any `toHaveBeenCalledWith` below would pass on an earlier test's click.
+  Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } });
+  routerPush.mockClear();
   global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
     ok: true,
     status: 200,
@@ -293,6 +301,16 @@ describe("real Datasets + Evaluations views render server data", () => {
   it("Evaluations Runs tab shows a run with its candidate version", async () => {
     mount(<EvaluationsView projectId="p1" />);
     expect((await screen.findAllByText("git:4a91c02")).length).toBeGreaterThan(0);
+  });
+
+  it("Evaluations Runs tab provides a CopyButton for the dataset version id", async () => {
+    mount(<EvaluationsView projectId="p1" />);
+    const copyBtn = (await screen.findAllByTitle("Copy version ID"))[0];
+    fireEvent.click(copyBtn);
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("dv1"));
+    // The button sits inside a row whose onClick pushes the run detail route;
+    // copying an id must not also navigate away from the list.
+    expect(routerPush).not.toHaveBeenCalled();
   });
 
   it("Evaluations shows an empty state that points at the SDK (no Run evaluation CTA)", async () => {
