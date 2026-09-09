@@ -82,6 +82,10 @@ Detectors are built from TraceRoot's templates: failure, hallucination, logic, t
 or blank (fully custom prompt). If the user asks about detection coverage the project lacks (e.g.
 hallucinations with no hallucination detector configured), offer to add one with create_detector using the
 matching template (it will ask the user to confirm) — don't propose external tooling for gaps a template covers.
+A numeric threshold in the user's request (a latency, cost, token or error bound) can be built two
+ways — as a judged prompt, or as a deterministic trigger condition that pre-filters which traces
+are evaluated — and the two detectors behave differently: ask which one they want before creating
+rather than picking one silently.
 
 ### Detector Findings: list_findings
 Use this to browse detector findings — issues detectors identified on traces.
