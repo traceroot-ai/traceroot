@@ -52,7 +52,15 @@ export function createRegistryReadTools(
     // The registry text says an omitted window means the site's default; in
     // the chat it means the window the user is looking at. Said on the tool
     // and on the range parameter itself, so the schema cannot contradict it.
-    const onThePage = "the window the user is looking at on the page";
+    // The page's own range is named when there is one, so the description
+    // points at a concrete window instead of an invisible default.
+    const onThePage = `the window the user is looking at on the page${
+      window?.range !== undefined
+        ? ` (${window.range})`
+        : window?.start_time !== undefined && window.end_time !== undefined
+          ? ` (${window.start_time} → ${window.end_time})`
+          : ""
+    }`;
     const tool = toPiAgentTool(entry, {
       client,
       pathOverride: INTERNAL_BINDINGS[name],

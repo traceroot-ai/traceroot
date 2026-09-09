@@ -111,6 +111,31 @@ describe("createRegistryReadTools", () => {
     }
   });
 
+  it("names the page's actual range in that text, so the default is not invisible", () => {
+    for (const name of ["run_widget_query", "get_dashboard_data"]) {
+      const preset = createRegistryReadTools("p1", "u1", { range: "14d" }).find(
+        (t) => t.name === name,
+      )!;
+      expect(preset.description).toContain("looking at on the page (14d)");
+      expect(
+        (preset.parameters.properties.range as { description?: string }).description,
+      ).toContain("looking at on the page (14d)");
+
+      const custom = createRegistryReadTools("p1", "u1", {
+        start_time: "2026-08-25T00:00:00Z",
+        end_time: "2026-09-08T00:00:00Z",
+      }).find((t) => t.name === name)!;
+      expect(custom.description).toContain(
+        "on the page (2026-08-25T00:00:00Z → 2026-09-08T00:00:00Z)",
+      );
+
+      // No page window: the phrase stands alone, with no empty parentheses.
+      const none = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      expect(none.description).toContain("looking at on the page");
+      expect(none.description).not.toContain("page (");
+    }
+  });
+
   it("says the same on the range parameter itself, so the schema cannot contradict the description", () => {
     for (const name of ["run_widget_query", "get_dashboard_data"]) {
       const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;

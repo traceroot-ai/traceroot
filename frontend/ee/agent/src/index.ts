@@ -208,6 +208,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     projectId: ownedSession.projectId,
     traceId: body.traceId,
     traceSessionId: body.traceSessionId,
+    // The same window the read tools default to, stated in the prompt so the
+    // model can tell whether omitting it actually answers the question.
+    window,
   });
 
   // Get or create executor for this session (lazy — not initialized until tool use)

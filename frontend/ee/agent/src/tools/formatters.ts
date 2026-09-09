@@ -318,9 +318,17 @@ function seriesStats(values: Array<number | null>, labels: string[], partial = f
   return `${min} | ${peak} | ${latest}`;
 }
 
-/** A long single series is sampled from its ends: this many from the head and the tail. */
+/**
+ * A long single series is sampled from its ends: this many from the head and
+ * the tail, plus this many of its largest buckets wherever they fall. A series
+ * is read for anomalies as often as for trend, and the anomaly is almost never
+ * at either end — a sample that were only the two ends would hide the very
+ * bucket a "when did it spike" question is about, and the reader would have no
+ * way to tell it was hidden.
+ */
 const HEAD_ROWS = 3;
 const TAIL_ROWS = 5;
+const OUTLIER_ROWS = 3;
 const SAMPLE_ROWS = HEAD_ROWS + TAIL_ROWS;
 
 /** How many series a breakdown-over-time answer shows before the rest is counted. */
@@ -382,7 +390,8 @@ function formatSeries(
   // A long series where only a few buckets carry a value shows exactly those
   // buckets, with the rest counted: a 90-day window with one spike is the
   // spike's date, not eight zeros from either end. A short series shows every
-  // bucket; a long dense one (or one with nothing in it) shows its ends.
+  // bucket; a long dense one (or one with nothing in it) shows its ends and
+  // its peaks.
   // A measured 0 and an empty bucket are counted apart — for an average or a
   // rate, 0 is a value, and the note must not read as "no data".
   const carrying = rows.filter((_, i) => values[i] !== null && values[i] !== 0);
@@ -393,13 +402,62 @@ function formatSeries(
     ...(zeros > 0 ? [`${zeros} buckets at 0`] : []),
     ...(empties > 0 ? [`${empties} empty`] : []),
   ].join(" and ");
-  const sample = sparse
-    ? [...carrying.map(line), `  … ${omitted} not shown`]
-    : [
-        ...rows.slice(0, HEAD_ROWS).map(line),
-        ...(rows.length > SAMPLE_ROWS ? [`  … ${rows.length - SAMPLE_ROWS} more buckets …`] : []),
-        ...(rows.length > SAMPLE_ROWS ? rows.slice(-TAIL_ROWS) : rows.slice(HEAD_ROWS)).map(line),
-      ];
+  // A long dense series shows its head, its tail and its largest buckets, in
+  // chronological order, with each remaining stretch collapsed to its own note.
+  // The peaks cost at most three lines and keep the sample honest: whatever is
+  // elided is bounded above by a bucket the reader can see.
+  const denseSample = (): string[] => {
+    if (rows.length <= SAMPLE_ROWS) return rows.map(line);
+    const keep = new Set<number>();
+    for (let i = 0; i < HEAD_ROWS; i += 1) keep.add(i);
+    for (let i = rows.length - TAIL_ROWS; i < rows.length; i += 1) keep.add(i);
+    // A slot goes only to a bucket larger than anything the head and tail
+    // already show: a flat series has no outliers, and ties at the baseline
+    // would otherwise spend the slots on more of the same.
+    const visibleMax = Math.max(...[...keep].map((index) => values[index] ?? -Infinity));
+    const byValue = values
+      .map((value, index) => ({ value, index }))
+      .filter((entry): entry is { value: number; index: number } => entry.value !== null)
+      .filter(({ value, index }) => !keep.has(index) && value > visibleMax)
+      .sort((a, b) => b.value - a.value || a.index - b.index)
+      .slice(0, OUTLIER_ROWS);
+    for (const { index } of byValue) keep.add(index);
+    const lines: string[] = [];
+    let skipped = 0;
+    // An elision names the stretch it swallowed: the dates it spans and the
+    // values inside it. A bare count would leave the reader unable to tell a
+    // flat hidden stretch from one holding a second, smaller anomaly, and no
+    // way to date the run's edges except by guessing from the neighbouring
+    // lines. `at` is the index the elision ends before, so the elided rows are
+    // [at - skipped, at).
+    const flush = (at: number) => {
+      if (skipped > 0) {
+        const elided = rows.slice(at - skipped, at);
+        const span = `${String(elided[0][0])} → ${String(elided[elided.length - 1][0])}`;
+        const inside = values.slice(at - skipped, at);
+        const present = inside.filter((v): v is number => v !== null);
+        const summary =
+          present.length === 0
+            ? "all empty"
+            : present.length === inside.length && present.every((v) => v === present[0])
+              ? `all ${formatNumber(present[0])}`
+              : `min ${formatNumber(Math.min(...present))} | max ${formatNumber(Math.max(...present))}`;
+        lines.push(`  … ${skipped} more buckets ${span}, ${summary} …`);
+      }
+      skipped = 0;
+    };
+    for (let i = 0; i < rows.length; i += 1) {
+      if (!keep.has(i)) {
+        skipped += 1;
+        continue;
+      }
+      flush(i);
+      lines.push(line(rows[i]));
+    }
+    flush(rows.length);
+    return lines;
+  };
+  const sample = sparse ? [...carrying.map(line), `  … ${omitted} not shown`] : denseSample();
   return [
     `${rows.length} buckets (${columns.join(", ")})${granularity}`,
     `  ${seriesStats(values, labels, partial)}`,
@@ -410,7 +468,8 @@ function formatSeries(
 /**
  * Render one query result: a short table for breakdowns, a shape summary for
  * a time series (min/max/latest, then every bucket of a short series, the
- * carrying buckets of a long sparse one, or the ends of a long dense one —
+ * carrying buckets of a long sparse one, or the ends and the peaks of a long
+ * dense one —
  * the model needs the trend, not every bucket; one stats line per series for
  * a breakdown over time), the single value for a number display.
  */
@@ -422,7 +481,17 @@ export function formatRows(
 ): string {
   if (rows.length === 0) return "No rows in this window.";
   if (columns.length === 1 && rows.length === 1) {
-    return `${columns[0]}: ${formatNumber(rows[0][0])}`;
+    // An aggregate over nothing comes back as ONE row holding NULL, not zero
+    // rows, so the empty-result sentence above never fires for a number tile.
+    // Say the window is empty in words: a bare dash is the same glyph a null
+    // cell inside a table gets, and the model should not have to read a glyph
+    // to tell "no data" from "0". Tested on null/undefined rather than through
+    // toValue() so a legitimately non-numeric single value is not mislabelled.
+    const only = rows[0][0];
+    if (only === null || only === undefined) {
+      return `${columns[0]}: — (no rows in this window)`;
+    }
+    return `${columns[0]}: ${formatNumber(only)}`;
   }
   if (isTimeSeries(columns, meta, rows)) return formatSeries(columns, rows, meta, options);
   const shown = rows.slice(0, WIDGET_ROW_CAP);

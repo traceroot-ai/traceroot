@@ -33,6 +33,17 @@ describe("formatRows", () => {
     expect(formatRows(["value"], [[1204311]])).toBe("value: 1,204,311");
   });
 
+  it("says a number tile is empty in words, since an aggregate over nothing is one NULL row", () => {
+    // A dash alone is ambiguous: formatNumber prints the same glyph for a null
+    // cell inside a table, and "0" and "no data" are different answers.
+    expect(formatRows(["value"], [[null]])).toBe("value: — (no rows in this window)");
+    expect(formatRows(["total_tokens"], [[undefined]])).toBe(
+      "total_tokens: — (no rows in this window)",
+    );
+    // A real zero still reads as a measurement.
+    expect(formatRows(["value"], [[0]])).toBe("value: 0");
+  });
+
   it("renders a breakdown as a capped table with the overflow counted", () => {
     const rows = Array.from({ length: 30 }, (_, i) => [`m${i}`, i * 1.5]);
     const out = formatRows(["model_name", "value"], rows);
@@ -51,8 +62,63 @@ describe("formatRows", () => {
     const out = formatRows(["bucket", "p95"], rows, { granularity: "1d" });
     expect(out).toContain("12 buckets (bucket, p95) | granularity 1d");
     expect(out).toContain("min 100 | max 111 (2026-09-03T00:00:00) | latest 111");
-    expect(out).toContain("… 4 more buckets …");
+    expect(out).toContain(
+      "… 4 more buckets 2026-09-04T00:00:00 → 2026-09-07T00:00:00, min 103 | max 106 …",
+    );
     expect(out.split("\n").filter((l) => l.startsWith("  2026-")).length).toBe(8);
+  });
+
+  it("keeps a long dense series' largest buckets, so a mid-window spike is never elided", () => {
+    // 15 day-buckets flat at 3,000 with one spike in the middle: head and tail
+    // alone would hide the only bucket a "when did it spike" answer needs.
+    const days = Array.from({ length: 15 }, (_, i) =>
+      new Date(Date.UTC(2026, 7, 25) + i * 86_400_000).toISOString().slice(0, 10),
+    );
+    const rows: Array<[string, number]> = days.map((day) => [
+      day,
+      day === "2026-09-01" ? 219292 : 3000,
+    ]);
+
+    const out = formatRows(["bucket", "value"], rows, { granularity: "1d" });
+    const spike = "  2026-09-01  219,292";
+    expect(out).toContain(spike);
+    // The spike is its own line, not swallowed into an elision note.
+    const spikeLine = out.split("\n").find((l) => l.startsWith("  2026-09-01"));
+    expect(spikeLine).toBe(spike);
+    expect(out).toContain("max 219,292 (2026-09-01)");
+    // Head and tail are still shown, and the skipped stretches are counted.
+    expect(out).toContain("  2026-08-25  3,000");
+    expect(out).toContain("  2026-09-08  3,000");
+    expect(out.match(/… \d+ more buckets .+ …/g)).toHaveLength(2);
+    // Each elision says which dates it swallowed and what was inside them, so
+    // a flat hidden stretch is distinguishable from one hiding a second bump.
+    expect(out).toContain("… 4 more buckets 2026-08-28 → 2026-08-31, all 3,000 …");
+    expect(out).toContain("… 2 more buckets 2026-09-02 → 2026-09-03, all 3,000 …");
+  });
+
+  it("bounds a non-uniform elided stretch and calls an all-empty one empty", () => {
+    // 20 day-buckets: a rising middle the sample elides, a kept spike, then a
+    // run of NULL gaps. The reader must be able to tell those two hidden
+    // stretches apart — and date them — without re-querying the window.
+    const day = (i: number) =>
+      new Date(Date.UTC(2026, 6, 1) + i * 86_400_000).toISOString().slice(0, 19);
+    const values: Array<number | null> = Array.from({ length: 20 }, (_, i) => {
+      if (i >= 3 && i <= 8) return 8 + i; // rising, non-uniform
+      if (i === 9) return 999; // kept as an outlier, splitting the two runs
+      if (i >= 10 && i <= 14) return null; // a gap, not a zero
+      return 10;
+    });
+    const rows = values.map((v, i) => [day(i), v]);
+    const out = formatRows(["bucket", "value"], rows, { granularity: "1d" });
+
+    expect(out).toContain(
+      "… 4 more buckets 2026-07-04T00:00:00 → 2026-07-07T00:00:00, min 11 | max 14 …",
+    );
+    expect(out).toContain(
+      "… 5 more buckets 2026-07-11T00:00:00 → 2026-07-15T00:00:00, all empty …",
+    );
+    // No elision is left as a bare count.
+    expect(out).not.toMatch(/… \d+ more buckets …/);
   });
 
   it("treats NULL gap buckets as gaps, never as zero", () => {
