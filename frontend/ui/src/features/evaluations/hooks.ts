@@ -404,7 +404,7 @@ export interface ScorerRegistryRow {
   recentErrors: Array<{ message: string; at: string }>;
   /** Always "SDK": the catalog only shows what the SDK reported. */
   source: "SDK";
-  // SDK-reported scorer DEFINITION (offline-eval/sdk-ask/scorer-definition-reporting.md).
+  // SDK-reported scorer DEFINITION.
   // Every field is optional — absent → "Not provided by SDK", never inferred.
   scorerType: "llm_judge" | "code" | null;
   outputType: "score" | "classification" | null;

@@ -27,7 +27,7 @@ export interface RawScore {
   evaluationId: string | null;
 }
 
-/** The SDK-reported scorer DEFINITION (see offline-eval/sdk-ask/scorer-definition-reporting.md).
+/** The SDK-reported scorer DEFINITION.
  *  Every field is optional — absent → "Not provided by SDK", never inferred/fabricated. */
 export interface ScorerDefinition {
   /** Discriminator; drives the detail's top-half. */

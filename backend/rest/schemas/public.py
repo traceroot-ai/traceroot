@@ -120,6 +120,12 @@ class FindingSummary(BaseModel):
     summary: str
     timestamp: datetime
     detectors: list[str]
+    # The producing detector runs. A finding is per-trace but a run is
+    # per-(trace, detector), so a finding that fired N detectors has N runs —
+    # this lists all of them (parallel to ``detectors``, but as a set: not
+    # index-aligned). Empty when no run row references the finding (e.g.
+    # legacy/manually-created findings that predate run recording).
+    run_ids: list[str] = []
 
 
 class FindingDetail(FindingSummary):
@@ -150,8 +156,66 @@ class DetectorItem(BaseModel):
     created_at: datetime
 
 
+class DetectorDetail(DetectorItem):
+    """A detector's full configuration (Postgres ``detectors`` + optional trigger).
+
+    ``trigger_conditions`` comes from ``detector_triggers.conditions`` and is
+    None when the detector has no trigger row (it then runs on every sampled
+    trace).
+    """
+
+    prompt: str
+    output_schema: Any | None
+    sample_rate: int
+    enable_rca: bool
+    detection_model: str | None
+    detection_provider: str | None
+    detection_source: str | None
+    updated_at: datetime
+    trigger_conditions: Any | None
+
+
 class PublicDetectorListResponse(BaseModel):
     """Paginated list of the project's detectors for the public API."""
 
     data: list[DetectorItem]
     meta: PaginationMeta
+
+
+class WorkspaceListItem(BaseModel):
+    """A workspace the authenticated user belongs to, with their role in it."""
+
+    id: str
+    name: str
+    role: str
+
+
+class PublicWorkspaceListResponse(BaseModel):
+    """Account-scope discovery: the workspaces the user can access.
+
+    Returned by ``list_workspaces`` — a user-credential-only op that needs no
+    ``project_id``. Not paginated: a user's workspace membership is small and
+    bounded.
+    """
+
+    data: list[WorkspaceListItem]
+
+
+class ProjectListItem(BaseModel):
+    """A project the user can access, tagged with its owning workspace."""
+
+    id: str
+    name: str
+    workspace_id: str
+    workspace_name: str
+
+
+class PublicProjectListResponse(BaseModel):
+    """Account-scope discovery: the projects the user can access.
+
+    Returned by ``list_projects`` — a user-credential-only op. Projects are
+    flattened across the user's workspaces; an optional ``workspace_id`` query
+    narrows the result to one workspace.
+    """
+
+    data: list[ProjectListItem]

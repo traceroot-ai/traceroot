@@ -3,7 +3,7 @@ import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
-import { countResultStatuses, passRate, excludedSummary } from "@/lib/eval/pass-rate";
+import { countResultStatuses, excludedSummary } from "@/lib/eval/result-status-counts";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -319,10 +319,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       errorCount: r.taskErrorCount + r.scorerErrorCount,
       elapsedMs: caseDurationMs,
       ...statusCounts,
-      // Served, not left to each consumer: passed / (passed + failed), null when
-      // nothing was judged. A client recomputing it would divide by zero and render
-      // an all-errored run as a catastrophic-looking 0%.
-      passRate: passRate(statusCounts.passedCount, statusCounts.failedCount),
       excludedSummary: excludedSummary(statusCounts.erroredCount, statusCounts.notScoredCount),
     };
   });

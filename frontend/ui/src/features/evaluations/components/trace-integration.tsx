@@ -9,6 +9,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectEmpty,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -65,7 +66,11 @@ export function SaveTestCaseDrawer({
   onOpenChange: (open: boolean) => void;
 }) {
   const qc = useQueryClient();
-  const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
+  const {
+    data: datasetsData,
+    isLoading: datasetsLoading,
+    isError: datasetsError,
+  } = useDatasets(projectId, { limit: 200 });
   const datasets = datasetsData?.data ?? [];
 
   const { data: trace } = useQuery({
@@ -236,7 +241,12 @@ export function SaveTestCaseDrawer({
     }
   })();
 
-  const canSave = !!span && spanIOReady && !metadataError && datasetId !== "" && !save.isPending;
+  const canSave =
+    !!span &&
+    spanIOReady &&
+    !metadataError &&
+    datasets.some((d) => d.id === datasetId) &&
+    !save.isPending;
 
   const handleSave = async () => {
     if (!span || !canSave) return;
@@ -312,7 +322,7 @@ export function SaveTestCaseDrawer({
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-5 py-4">
           <FormCard label="Dataset">
             <Select
-              value={datasetId}
+              value={datasets.some((d) => d.id === datasetId) ? datasetId : ""}
               onValueChange={(value) => {
                 setDatasetId(value);
                 setDuplicate(null);
@@ -322,11 +332,21 @@ export function SaveTestCaseDrawer({
                 <SelectValue placeholder="Select dataset" />
               </SelectTrigger>
               <SelectContent>
-                {datasets.map((item) => (
-                  <SelectItem key={item.id} value={item.id} className="text-[12px]">
-                    {item.name}
-                  </SelectItem>
-                ))}
+                {datasets.length ? (
+                  datasets.map((item) => (
+                    <SelectItem key={item.id} value={item.id} className="text-[12px]">
+                      {item.name}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectEmpty>
+                    {datasetsLoading
+                      ? "Loading datasets…"
+                      : datasetsError
+                        ? "Couldn't load datasets"
+                        : "No datasets found"}
+                  </SelectEmpty>
+                )}
               </SelectContent>
             </Select>
             {duplicate && (

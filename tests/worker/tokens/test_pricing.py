@@ -245,6 +245,19 @@ class TestGpt56CachePricing:
         assert entry["prices"]["cacheRead"] == pytest.approx(entry["prices"]["input"] * 0.10)
 
 
+class TestGpt56TerraPublishedPrices:
+    """Ratio checks alone let a wrong base price stay internally consistent and pass —
+    gpt-5.6-terra was billed at $2.50/$15 per 1M tokens against a published $2/$12,
+    with TestGpt56CachePricing green throughout. Assert the absolute,
+    provider-published rate directly.
+    """
+
+    def test_input_and_output_match_published_rate(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gpt-5.6-terra")
+        assert entry["prices"]["input"] == pytest.approx(2e-6)  # $2 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(1.2e-5)  # $12 / 1M tokens
+
+
 class TestGpt56LunaPublishedPrices:
     """Ratio checks alone let a wrong base price stay internally consistent and
     pass. Assert the absolute, provider-published rate directly.
@@ -385,6 +398,14 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("claude-fable-5[1m]", "claude-fable-5"),
     ("anthropic/claude-fable-5", "claude-fable-5"),
     ("us.anthropic.claude-fable-5-20260701-v1:0", "claude-fable-5"),
+    # Opus 5 — plain, [1m] variant, anthropic/ prefix, Bedrock, Vertex
+    ("claude-opus-5", "claude-opus-5"),
+    ("claude-opus-5[1m]", "claude-opus-5"),
+    ("anthropic/claude-opus-5", "claude-opus-5"),
+    ("us.anthropic.claude-opus-5-20260728-v1:0", "claude-opus-5"),
+    ("eu.anthropic.claude-opus-5-20260728-v1:0", "claude-opus-5"),
+    ("claude-opus-5@20260728", "claude-opus-5"),
+    ("claude-5-opus@20260728", "claude-opus-5"),
     # Opus 4.8 — plain, [1m] variant, Bedrock, Vertex
     ("claude-opus-4-8", "claude-opus-4-8"),
     ("claude-opus-4-8[1m]", "claude-opus-4-8"),
@@ -466,6 +487,8 @@ class TestClaudeBedrockAndVertexIds:
 
 CLAUDE_FAST_AND_DOT_CASES = [
     # Fast mode — gateway slug, bare dot form, dashed canonical form
+    ("anthropic/claude-opus-5-fast", "claude-opus-5-fast"),
+    ("claude-opus-5-fast", "claude-opus-5-fast"),
     ("anthropic/claude-opus-4.8-fast", "claude-opus-4-8-fast"),
     ("claude-opus-4.8-fast", "claude-opus-4-8-fast"),
     ("claude-opus-4-8-fast", "claude-opus-4-8-fast"),

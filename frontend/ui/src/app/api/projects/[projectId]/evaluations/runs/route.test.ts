@@ -1,6 +1,6 @@
 /**
- * Run-list derivation. Status counts, pass rate, cost and duration come from one
- * grouped aggregate — no result rows cross the wire for them. The restrained
+ * Run-list derivation. Status counts, cost and duration come from one grouped
+ * aggregate — no result rows cross the wire for them. The restrained
  * comparison summary (regressedCaseCount + trustworthy scalar delta) still comes from
  * the SAME engine as run detail, but only for runs that declare a baseline, batched so
  * a page is a bounded number of queries and never a per-row N+1.
@@ -258,13 +258,11 @@ it("derives per-status counts for a listed run", async () => {
   const body = (await (await GET(nextUrl() as never, params)).json()) as {
     data: Record<string, unknown>[];
   };
-  expect(body.data[0].passedCount).toBe(2);
-  expect(body.data[0].failedCount).toBe(1);
   expect(body.data[0].erroredCount).toBe(1);
   expect(body.data[0].notScoredCount).toBe(1);
 });
 
-it("returns the pass rate, derived from the same counts", async () => {
+it("summarises the unscorable cases, derived from the same counts", async () => {
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([
     {
       id: "run_c",
@@ -292,8 +290,6 @@ it("returns the pass rate, derived from the same counts", async () => {
   ]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
   prismaMock.evaluationResult.groupBy.mockResolvedValue([
-    group("run_c", "passed", 18),
-    group("run_c", "failed", 4),
     group("run_c", "errored", 2),
     group("run_c", "not_scored", 1),
   ]);
@@ -301,15 +297,12 @@ it("returns the pass rate, derived from the same counts", async () => {
   const body = (await (await GET(nextUrl() as never, params)).json()) as {
     data: Record<string, unknown>[];
   };
-  // Exact, not toBeCloseTo: a loose tolerance would also accept a denominator that
-  // wrongly folded in the errored and not-scored cases.
-  expect(body.data[0].passRate).toBe(18 / 22);
   expect(body.data[0].excludedSummary).toBe("2 errored, 1 not scored");
+  expect(body.data[0].erroredCount).toBe(2);
+  expect(body.data[0].notScoredCount).toBe(1);
 });
 
-// The load-bearing rule, on the wire rather than left to each client: a run whose
-// harness broke must render "—", not a catastrophic-looking 0%.
-it("returns a null pass rate for an all-errored run, never 0", async () => {
+it("reports an all-errored run through its errored count", async () => {
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([
     {
       id: "run_c",
@@ -341,8 +334,8 @@ it("returns a null pass rate for an all-errored run, never 0", async () => {
   const body = (await (await GET(nextUrl() as never, params)).json()) as {
     data: Record<string, unknown>[];
   };
-  expect(body.data[0].passRate).toBeNull();
-  expect(body.data[0].passRate).not.toBe(0);
+  expect(body.data[0].erroredCount).toBe(3);
+  expect(body.data[0].notScoredCount).toBe(0);
   expect(body.data[0].excludedSummary).toBe("3 errored");
 });
 
@@ -385,10 +378,7 @@ it("reports a running duration for a mid-flight run with no completedAt", async 
   };
   const row = body.data[0];
   expect(row.elapsedMs).toBe(108000);
-  // Partial counts and cost stay coherent beside it.
-  expect(row.passedCount).toBe(80);
-  expect(row.failedCount).toBe(40);
-  expect(row.passRate).toBe(80 / 120);
+  // Cost stays coherent beside it.
   expect(row.cost).toBeCloseTo(0.6);
 });
 
@@ -418,53 +408,10 @@ it("reports zero counts for a run with no results, without extra queries", async
   const body = (await (await GET(nextUrl() as never, params)).json()) as {
     data: Record<string, unknown>[];
   };
-  expect(body.data[0].passedCount).toBe(0);
-  expect(body.data[0].failedCount).toBe(0);
-  expect(body.data[0].passRate).toBeNull();
+  expect(body.data[0].erroredCount).toBe(0);
+  expect(body.data[0].notScoredCount).toBe(0);
   // Still exactly one grouped query — the counts add no round trips.
   expect(prismaMock.evaluationResult.groupBy).toHaveBeenCalledTimes(1);
-});
-
-it("prefers the derived counts over a stored scoredCount that disagrees", async () => {
-  // scoredCount says 9, the result rows say 2 judged. The rows win: numerator and
-  // denominator must come from the same source or the fraction can exceed 1.
-  const run = {
-    id: "run_c",
-    projectId: "p1",
-    evaluationId: "e1",
-    datasetId: "ds1",
-    datasetVersionId: "dv1",
-    runNumber: 3,
-    candidateVersion: "sonnet",
-    status: "completed",
-    baselineRunId: null,
-
-    caseCount: 9,
-    scoredCount: 9,
-    taskErrorCount: 0,
-    scorerErrorCount: 0,
-    scorers: [{ name: "acc", version: "unversioned" }],
-    startedAt: new Date("2026-07-21T00:00:00Z"),
-    completedAt: new Date("2026-07-21T00:00:05Z"),
-    evaluation: { name: "ticket-routing" },
-    datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
-  };
-  prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run]);
-  prismaMock.evaluationRun.count.mockResolvedValue(1);
-  prismaMock.evaluationResult.groupBy.mockResolvedValue([
-    group("run_c", "passed", 1),
-    group("run_c", "failed", 1),
-  ]);
-
-  const body = (await (await GET(nextUrl() as never, params)).json()) as {
-    data: Record<string, unknown>[];
-  };
-  expect(body.data[0].passedCount).toBe(1);
-  expect(body.data[0].failedCount).toBe(1);
-  // The served rate uses the derived denominator, not scoredCount — 1/2, not 1/9.
-  expect(body.data[0].passRate).toBe(0.5);
-  // The stored counter is passed through untouched — it is not reconciled in v1.
-  expect(body.data[0].scoredCount).toBe(9);
 });
 
 // ── sort/order whitelist + started_after/started_before ────────────────────

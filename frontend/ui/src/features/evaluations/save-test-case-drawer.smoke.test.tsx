@@ -71,6 +71,9 @@ vi.mock("@/components/ui/select", () => ({
   SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
     <option value={value}>{children}</option>
   ),
+  SelectEmpty: ({ children }: { children: React.ReactNode }) => (
+    <option disabled>{children}</option>
+  ),
 }));
 
 import { SaveTestCaseDrawer } from "./components/trace-integration";

@@ -1,5 +1,11 @@
 import { prisma } from "@traceroot/core";
-import { publishDatasetVersion, newTestCaseId, type TestCaseSeed } from "./versions";
+import {
+  publishDatasetVersion,
+  canonicalJson,
+  DatasetNotFound,
+  type TestCaseSeed,
+} from "./versions";
+import { nextCaseId, resolveDatasetKey } from "./case-id";
 import { encodeEditedText } from "./json-value";
 
 /**
@@ -102,10 +108,12 @@ export async function saveResultToDataset(opts: {
     return currentExpected;
   };
 
-  // Is the result still backed by a live case in its originating dataset?
+  // Is the result still backed by a live case in its originating dataset? Also pull the
+  // key/name here so a save back into this same dataset reuses this row (the common case)
+  // instead of issuing a second identical lookup for the id-hash key below.
   const dataset = await prisma.dataset.findFirst({
     where: { id: originatingDatasetId, projectId: opts.projectId },
-    select: { currentVersionId: true },
+    select: { currentVersionId: true, key: true, name: true },
   });
   const originatingCaseLive =
     dataset?.currentVersionId != null &&
@@ -152,11 +160,29 @@ export async function saveResultToDataset(opts: {
     throw new CircularSaveConflict(result.testCaseId);
   }
 
-  const newSeed: TestCaseSeed = {
-    testCaseId: newTestCaseId(),
+  // The pre-image the case id is hashed from — the target dataset's stable key
+  // (see resolveDatasetKey). Reuse the row already fetched above when the target IS the
+  // originating dataset; only a save into a DIFFERENT dataset needs a fresh lookup.
+  // (publishDatasetVersion re-validates the dataset exists.)
+  const targetDataset =
+    targetDatasetId === originatingDatasetId
+      ? dataset
+      : await prisma.dataset.findFirst({
+          where: { id: targetDatasetId, projectId: opts.projectId },
+          select: { key: true, name: true },
+        });
+  // Fail fast rather than fabricating a key from the id: a made-up key would hash a
+  // `tc_` id no SDK author could reproduce. (publishDatasetVersion re-validates too.)
+  if (!targetDataset) throw new DatasetNotFound();
+  const targetDatasetKey = resolveDatasetKey(targetDataset);
+
+  // The raw text of a brand-new case's input: the caller's value, or the result's own.
+  const rawInputText = inputProvided ? (opts.input ?? "") : result.input;
+
+  const newSeedBase: Omit<TestCaseSeed, "testCaseId"> = {
     // No prior stored value, so encode the raw text as-is (a JSON-looking string like
     // "42" stays the string "42" instead of decoding to the number 42 on pull).
-    input: encodeEditedText(null, inputProvided ? (opts.input ?? "") : result.input),
+    input: encodeEditedText(null, rawInputText),
     // A brand-new case: expected defaults to null (never the candidate) unless set.
     expected: resolveExpected(null),
     metadata: metadataProvided ? opts.metadata : null,
@@ -170,15 +196,27 @@ export async function saveResultToDataset(opts: {
     sourceResultId: result.id,
     addedBy: opts.addedBy ?? null,
   };
+  // Canonical-JSON of the case's input, computed on the raw string value (identical to the
+  // stored value decoded, without the encode/decode round-trip) — what the id is hashed
+  // from, matching an SDK author whose SDK canonicalizes the native input. A lone UTF-16
+  // surrogate can't be canonicalized; the LoneSurrogateError it throws propagates to the
+  // route, which maps it to a 400 (a caller-fixable input) instead of an uncaught 500.
+  const canonicalInput = canonicalJson(rawInputText);
 
   return publishDatasetVersion({
     datasetId: targetDatasetId,
     projectId: opts.projectId,
     createdBy: opts.addedBy ?? null,
     idempotencyKey: opts.idempotencyKey ?? null,
-    transform: (current) => ({
-      cases: [...current, newSeed],
-      focusTestCaseId: newSeed.testCaseId,
-    }),
+    transform: (current) => {
+      // CONTENT-addressed id (parity with the SDK's `stableCaseId`): the same input saved
+      // here and pushed from the SDK under the same dataset key converge on one `tc_` id,
+      // so re-publishing matches (upsert on id) instead of duplicating. `occurrence` is the
+      // first slot whose id is still free, mirroring the SDK so a gap left by a delete
+      // never re-mints a live id.
+      const { testCaseId } = nextCaseId(current, targetDatasetKey, canonicalInput);
+      const newSeed: TestCaseSeed = { testCaseId, ...newSeedBase };
+      return { cases: [...current, newSeed], focusTestCaseId: testCaseId };
+    },
   });
 }

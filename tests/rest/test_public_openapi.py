@@ -163,6 +163,13 @@ def test_detectors_list_route_documents_error_responses():
     assert set(responses) >= {"200", "401", "500"}
 
 
+def test_detector_detail_route_documents_error_responses():
+    responses = _schema()["paths"]["/api/v1/public/detectors/{detector_id}"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "404", "500"}
+    assert responses["404"]["description"] == "Detector not found"
+    assert responses["500"]["description"] == "Failed to read detector"
+
+
 # --- Phase-4 evaluation reporting routes ------------------------------------
 
 
@@ -262,10 +269,13 @@ def test_session_read_routes_document_error_responses():
 _METHODS = {"get", "post", "put", "patch", "delete"}
 
 EXPECTED_OPERATION_IDS = {
+    "/api/v1/public/projects": {"get": "list_projects"},
+    "/api/v1/public/workspaces": {"get": "list_workspaces"},
     "/api/v1/public/detectors": {"get": "list_detectors"},
     "/api/v1/public/detectors/findings": {"get": "list_findings"},
     "/api/v1/public/detectors/findings/{finding_id}": {"get": "get_finding"},
     "/api/v1/public/detectors/traces/{trace_id}/finding": {"get": "get_finding_by_trace"},
+    "/api/v1/public/detectors/{detector_id}": {"get": "get_detector"},
     "/api/v1/public/sessions": {"get": "list_sessions"},
     "/api/v1/public/sessions/{session_id}": {"get": "get_session"},
     "/api/v1/public/traces": {"get": "list_traces", "post": "ingest_traces"},
@@ -333,12 +343,52 @@ def test_x_tool_enabled_set_and_shape():
         "list_sessions",
         "get_session",
         "list_detectors",
+        "get_detector",
         "list_findings",
         "get_finding",
         "get_finding_by_trace",
+        "list_workspaces",
+        "list_projects",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
+
+
+# The project-scoped read ops depend on the dual-credential auth, which adds an
+# optional `project_id` query param (required under a user credential, absent-or-
+# matching under an API key). Ingestion and whoami stay key-only and must not.
+_PROJECT_ID_READ_OPS = [
+    "/api/v1/public/traces",
+    "/api/v1/public/traces/{trace_id}",
+    "/api/v1/public/traces/{trace_id}/export",
+    "/api/v1/public/traces/filter-values/{field}",
+    "/api/v1/public/sessions",
+    "/api/v1/public/sessions/{session_id}",
+    "/api/v1/public/detectors",
+    "/api/v1/public/detectors/findings",
+    "/api/v1/public/detectors/findings/{finding_id}",
+    "/api/v1/public/detectors/traces/{trace_id}/finding",
+]
+
+
+def test_dual_credential_reads_expose_described_project_id_query_param():
+    paths = _schema()["paths"]
+    for p in _PROJECT_ID_READ_OPS:
+        params = paths[p]["get"].get("parameters", [])
+        matches = [q for q in params if q["name"] == "project_id" and q["in"] == "query"]
+        assert len(matches) == 1, p
+        assert matches[0].get("required") is not True, p
+        assert matches[0].get("description"), p
+
+
+def test_key_only_ops_have_no_project_id_param():
+    paths = _schema()["paths"]
+    # whoami stays on the key-only stamped auth (a later task handles account scope).
+    whoami_params = paths["/api/v1/public/whoami"]["get"].get("parameters", [])
+    assert not [q for q in whoami_params if q["name"] == "project_id"]
+    # ingestion is key-only and unchanged.
+    post_params = paths["/api/v1/public/traces"]["post"].get("parameters", [])
+    assert not [q for q in post_params if q["name"] == "project_id"]
 
 
 def _filters_param(schema):
@@ -381,6 +431,22 @@ def test_filters_param_is_json_content_with_registry_variants():
         else:
             assert v["required"] == ["field", "op", "value"]
             assert "key" not in v["properties"]
+
+
+def test_filters_param_properties_all_declare_a_type():
+    """Every predicate property carries an explicit ``type``.
+
+    ``const``/``enum`` alone are valid JSON Schema, but the registry feeds
+    model tool schemas and some providers reject properties without a type.
+    """
+    param = _filters_param(_schema())
+    variants = param["content"]["application/json"]["schema"]["items"]["anyOf"]
+    for v in variants:
+        field = v["properties"]["field"]["const"]
+        for name, prop in v["properties"].items():
+            assert prop.get("type"), f"{field}.{name} declares no type"
+        assert v["properties"]["field"]["type"] == "string"
+        assert v["properties"]["op"]["type"] == "string"
 
 
 def test_filters_param_value_types_match_field_kinds():

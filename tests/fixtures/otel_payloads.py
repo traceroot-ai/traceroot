@@ -33,7 +33,7 @@ def make_span(
     start_nanos: int = 1705320000000000000,
     end_nanos: int = 1705320001000000000,
     attributes: list[dict] | None = None,
-    status_code: int = 0,
+    status_code: int | str = 0,
 ) -> dict:
     """Build a single OTEL span dict."""
     span = {
@@ -70,7 +70,7 @@ def make_otel_payload(
 # run's spans (traceroot-py `feat/offline-eval-sdk`, engine.py `_set_root_attrs`
 # and the task/scorer child stampers) so backend contract tests exercise the
 # actual cross-surface payload shape rather than an independently invented one.
-# Source of truth for the key names: offline-eval/contract-notes/eval-trace-attributes.md.
+# Source of truth for the key names: backend/worker/otel_transform.py.
 
 
 def eval_root_attributes(

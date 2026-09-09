@@ -1,4 +1,5 @@
 packages:
+  - "ee/*"
   - "packages/*"
   - "ui"
   - "worker"

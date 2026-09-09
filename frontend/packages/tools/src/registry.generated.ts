@@ -19,8 +19,35 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description:
             "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["trace_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_detector",
+    description:
+      "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
+    method: "get",
+    path: "/api/v1/public/detectors/{detector_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        detector_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["detector_id"],
       additionalProperties: false,
     },
   },
@@ -34,6 +61,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
       properties: {
         finding_id: {
           type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["finding_id"],
@@ -50,6 +82,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
       properties: {
         trace_id: {
           type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["trace_id"],
@@ -78,6 +115,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Only traces before this time (exclusive, ISO 8601)",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["session_id"],
       additionalProperties: false,
@@ -99,6 +141,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description:
             "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["trace_id"],
@@ -129,6 +176,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only detectors created before this time (exclusive, ISO 8601)",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: [],
@@ -169,6 +221,29 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Filter to a single trace",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_projects",
+    description:
+      "List the projects the logged-in user can access, across workspaces (id, name, workspace). User-credential-only account discovery: use it to resolve the project_id a project-scoped request needs. Optionally filter by workspace_id.",
+    method: "get",
+    path: "/api/v1/public/projects",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace_id: {
+          type: "string",
+          description: "Restrict the result to projects in this workspace.",
+        },
       },
       required: [],
       additionalProperties: false,
@@ -204,6 +279,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Only sessions with traces before this time (exclusive, ISO 8601)",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: [],
       additionalProperties: false,
@@ -230,6 +310,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only consider spans starting before this timestamp",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["field"],
@@ -289,9 +374,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "trace_id",
                     title: "Trace ID",
+                    type: "string",
                   },
                   op: {
                     enum: ["eq", "contains"],
+                    type: "string",
                   },
                   value: {
                     maxLength: 1024,
@@ -308,9 +395,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "model_name",
                     title: "Model",
+                    type: "string",
                   },
                   op: {
                     enum: ["in"],
+                    type: "string",
                   },
                   value: {
                     items: {
@@ -330,9 +419,83 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "environment",
                     title: "Environment",
+                    type: "string",
                   },
                   op: {
                     enum: ["in"],
+                    type: "string",
+                  },
+                  value: {
+                    items: {
+                      maxLength: 1024,
+                      type: "string",
+                    },
+                    minItems: 1,
+                    type: "array",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
+                    const: "span_kind",
+                    title: "Span kind",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["in"],
+                    type: "string",
+                  },
+                  value: {
+                    items: {
+                      maxLength: 1024,
+                      type: "string",
+                    },
+                    minItems: 1,
+                    type: "array",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
+                    const: "status",
+                    title: "Status",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["in"],
+                    type: "string",
+                  },
+                  value: {
+                    items: {
+                      maxLength: 1024,
+                      type: "string",
+                    },
+                    minItems: 1,
+                    type: "array",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
+                    const: "name",
+                    title: "Span name",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["in"],
+                    type: "string",
                   },
                   value: {
                     items: {
@@ -352,9 +515,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "cost",
                     title: "Cost",
+                    type: "string",
                   },
                   op: {
                     enum: ["eq", "gt", "gte", "lt", "lte"],
+                    type: "string",
                   },
                   value: {
                     maximum: 999999999,
@@ -371,12 +536,13 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "total_tokens",
                     title: "Tokens",
+                    type: "string",
                   },
                   op: {
                     enum: ["eq", "gt", "gte", "lt", "lte"],
+                    type: "string",
                   },
                   value: {
-                    maximum: 9223372036854776000,
                     minimum: 0,
                     type: "integer",
                   },
@@ -390,12 +556,13 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "duration_ms",
                     title: "Latency",
+                    type: "string",
                   },
                   op: {
                     enum: ["eq", "gt", "gte", "lt", "lte"],
+                    type: "string",
                   },
                   value: {
-                    maximum: 9223372036854776000,
                     minimum: 0,
                     type: "integer",
                   },
@@ -409,12 +576,13 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "errors",
                     title: "Errors",
+                    type: "string",
                   },
                   op: {
                     enum: ["eq", "gt", "gte", "lt", "lte"],
+                    type: "string",
                   },
                   value: {
-                    maximum: 18446744073709552000,
                     minimum: 0,
                     type: "integer",
                   },
@@ -428,6 +596,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "metadata",
                     title: "Metadata",
+                    type: "string",
                   },
                   key: {
                     description: "Which metadata key the value is compared against",
@@ -437,6 +606,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   },
                   op: {
                     enum: ["eq", "contains"],
+                    type: "string",
                   },
                   value: {
                     maxLength: 1024,
@@ -454,7 +624,25 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description:
             "JSON array of typed filter predicates ({field, op, value}); the field catalog and per-field operators are defined in the schema",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_workspaces",
+    description:
+      "List the workspaces the logged-in user belongs to (id, name, role). User-credential-only account discovery: it needs no project_id and is not available to project-scoped API keys.",
+    method: "get",
+    path: "/api/v1/public/workspaces",
+    inputSchema: {
+      type: "object",
+      properties: {},
       required: [],
       additionalProperties: false,
     },

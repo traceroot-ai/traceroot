@@ -108,7 +108,9 @@ export function AiAssistantPanel({
     sessions,
     historyOpen,
     currentSessionId,
+    modelSelection,
     setHistoryOpen,
+    setModelSelection,
     handleSend,
     handleAbort,
     handleNewSession,
@@ -242,6 +244,8 @@ export function AiAssistantPanel({
         {/* Input */}
         <MessageInput
           onSend={handleSend}
+          modelSelection={modelSelection}
+          onModelChange={setModelSelection}
           disabled={!projectId || !hasModels}
           workspaceId={workspaceId}
           actions={

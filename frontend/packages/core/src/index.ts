@@ -38,6 +38,9 @@ export * from "./constants.ts";
 export * from "./schemas.ts";
 export * from "./eval-contract.ts";
 
+// Alert domain (shared by the API routes, the alerts UI and the worker)
+export * from "./alerts.ts";
+
 // LLM Providers
 export * from "./llm-providers.ts";
 

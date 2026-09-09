@@ -25,7 +25,7 @@ import {
   QuietAction,
   EmptyState,
 } from "./page-chrome";
-import { CreateDrawer, FormCard, AdvancedSection } from "./form-kit";
+import { FormCard } from "./form-kit";
 import { useRowSelection, SelectAllHeaderCell, SelectRowCell, BulkActionBar } from "./selection";
 import { UploadControl } from "./upload-control";
 
@@ -126,68 +126,6 @@ describe("form kit", () => {
       </FormCard>,
     );
     expect(screen.queryByText("required")).toBeNull();
-  });
-
-  it("AdvancedSection is a collapsed native disclosure with a default label", () => {
-    const { rerender } = render(
-      <AdvancedSection>
-        <span>hidden field</span>
-      </AdvancedSection>,
-    );
-    expect(screen.getByText("Advanced").tagName).toBe("SUMMARY");
-    rerender(
-      <AdvancedSection label="Scorer options">
-        <span>hidden field</span>
-      </AdvancedSection>,
-    );
-    expect(screen.getByText("Scorer options")).toBeDefined();
-  });
-
-  it("CreateDrawer wires Save and Cancel, and honours saveDisabled", () => {
-    const onSave = vi.fn();
-    const onOpenChange = vi.fn();
-    const { rerender } = render(
-      <CreateDrawer
-        title="New evaluation"
-        open
-        onOpenChange={onOpenChange}
-        onSave={onSave}
-        saveLabel="Create"
-        saveDisabled
-        width="w-[480px]"
-      >
-        <FormCard label="Name">
-          <input aria-label="name" />
-        </FormCard>
-      </CreateDrawer>,
-    );
-
-    expect(screen.getByText("New evaluation")).toBeDefined();
-    const save = screen.getByRole("button", { name: "Create" });
-    expect(save.hasAttribute("disabled")).toBe(true);
-    fireEvent.click(save);
-    expect(onSave).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-
-    // Enabled, with the default Save label.
-    rerender(
-      <CreateDrawer title="New evaluation" open onOpenChange={onOpenChange} onSave={onSave}>
-        <span>fields</span>
-      </CreateDrawer>,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(onSave).toHaveBeenCalled();
-  });
-
-  it("CreateDrawer renders nothing while closed", () => {
-    render(
-      <CreateDrawer title="New evaluation" open={false} onOpenChange={vi.fn()} onSave={vi.fn()}>
-        <span>fields</span>
-      </CreateDrawer>,
-    );
-    expect(screen.queryByText("New evaluation")).toBeNull();
   });
 });
 

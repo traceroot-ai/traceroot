@@ -174,8 +174,10 @@ describe("DetectorDetailPage", () => {
     mocks.useRuns.mockImplementation(defaultUseRuns);
     render(<DetectorDetailPage />);
 
-    // The finding id is an opaque internal correlation id — never displayed.
-    expect(screen.queryByText("f1")).toBeNull();
+    // The finding id is shown in its own column (correlates a finding to its
+    // trace/runs across surfaces).
+    expect(screen.getByRole("columnheader", { name: "Finding ID" })).toBeTruthy();
+    expect(screen.getByText("f1")).toBeTruthy();
     expect(screen.getByText("Something went wrong")).toBeTruthy();
     expect(screen.getAllByText("Done").length).toBeGreaterThan(0);
     expect(screen.getByRole("columnheader", { name: "Agent analysis" })).toBeTruthy();

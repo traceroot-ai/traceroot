@@ -1,9 +1,10 @@
-"""Public, API-key-authenticated trace read endpoints (for the CLI).
+"""Public trace read endpoints (for the CLI).
 
 `GET /api/v1/public/traces` (list) and `GET /api/v1/public/traces/{trace_id}`
-(get). Reads are scoped to the project the API key belongs to — the client
-never supplies a project id. Kept separate from the ingestion route so read and
-write concerns stay decoupled; both reuse the shared API-key auth dependency.
+(get). Authenticated by either an API key or a user session token
+(``DualStampedAuth``): an API key fixes its own project, while a user credential
+names the project via ``project_id``. Kept separate from the ingestion route so
+read and write concerns stay decoupled.
 """
 
 import logging
@@ -29,7 +30,7 @@ from rest.rate_limit import (
     resolve_limit,
 )
 from rest.retention import clamp_retention_window, enforce_retention_by_time
-from rest.routers.public.deps import StampedAuth
+from rest.routers.public.deps import DualStampedAuth
 from rest.routers.public.serialize import export_bundle, public_trace_detail
 from rest.schemas.public import (
     PublicTraceDetailResponse,
@@ -55,7 +56,7 @@ router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
 async def list_traces(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     start_after: datetime | None = Query(
         None,
@@ -83,7 +84,7 @@ async def list_traces(
         ),
     ),
 ):
-    """List recent traces for the API key's project (newest first).
+    """List recent traces for the caller's project (newest first).
 
     Offline-evaluation traces are excluded by default; pass
     ``include_evaluations=true`` to include them.
@@ -135,7 +136,7 @@ async def list_traces(
 async def list_trace_filter_values(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     field: str,
     start_after: datetime | None = Query(
         None, description="Only consider spans starting at or after this timestamp"
@@ -154,8 +155,9 @@ async def list_trace_filter_values(
     never be a raw client-supplied column name.
 
     Args:
-        auth (StampedAuth): Resolved API-key context; scopes the read to its
-            project and stamps the rate-limit identity.
+        auth (DualStampedAuth): Resolved credential context (API key or user
+            session token); scopes the read to its project and stamps the
+            rate-limit identity.
         field (str): The categorical field to enumerate.
         start_after (datetime | None): Lower bound on span start time (active
             window).
@@ -206,18 +208,19 @@ async def list_trace_filter_values(
 async def get_trace(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     trace_id: str,
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
 ):
-    """Get a single trace for the key's project.
+    """Get a single trace for the caller's project.
 
     Defaults to the lightweight `skeleton` projection (no per-span I/O); pass
     `fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.
 
     Args:
-        auth (StampedAuth): Resolved API-key context; scopes the read to its
-            project and stamps the rate-limit identity.
+        auth (DualStampedAuth): Resolved credential context (API key or user
+            session token); scopes the read to its project and stamps the
+            rate-limit identity.
         trace_id (str): Trace to fetch.
         fields (str | None): Comma-separated projection groups (e.g. ``io``,
             ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects
@@ -243,11 +246,11 @@ async def get_trace(
 async def export_trace(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     trace_id: str,
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
 ):
-    """Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.
+    """Export the V1 bundle (trace + spans + git_context + manifest) for the caller's project.
 
     Defaults to the `full` projection — an export is explicit intent to take the
     complete trace, so per-span input/output/metadata are included unless the
@@ -258,8 +261,9 @@ async def export_trace(
     full bundle.
 
     Args:
-        auth (StampedAuth): Resolved API-key context; scopes the read to its
-            project and stamps the rate-limit identity.
+        auth (DualStampedAuth): Resolved credential context (API key or user
+            session token); scopes the read to its project and stamps the
+            rate-limit identity.
         trace_id (str): Trace to export.
         fields (str | None): Comma-separated projection groups or an alias
             (``skeleton``/``full``). ``None`` selects the default `full`

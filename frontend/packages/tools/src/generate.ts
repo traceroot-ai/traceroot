@@ -1,3 +1,4 @@
+import { stripOversizedNumericBounds } from "./sanitize.js";
 import type { InputSchema, ParamSchema, RegistryEntry } from "./types.js";
 
 interface OpenApiParameter {
@@ -73,7 +74,8 @@ function buildInputSchema(op: OpenApiOperation): InputSchema {
     if (param.description !== undefined) {
       flattened.description = param.description;
     }
-    properties[param.name] = flattened;
+    // Column-range maxima are API-correct but break OpenAI tools; see sanitize.ts.
+    properties[param.name] = stripOversizedNumericBounds(flattened);
     if (param.required === true || param.in === "path") {
       required.push(param.name);
     }

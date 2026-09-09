@@ -1,5 +1,6 @@
 import type { ApiClient } from "./client.js";
 import { dispatch } from "./dispatch.js";
+import { stripOversizedNumericBounds } from "./sanitize.js";
 import type { ParamSchema, RegistryEntry } from "./types.js";
 
 /** One text block of a pi tool result. */
@@ -67,7 +68,8 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
     if (name in fixedArgs) {
       continue;
     }
-    properties[name] = schema;
+    // Generated entries are already clean; this also covers hand-authored ones.
+    properties[name] = stripOversizedNumericBounds(schema);
   }
   const required = ["label", ...entry.inputSchema.required.filter((name) => !(name in fixedArgs))];
 

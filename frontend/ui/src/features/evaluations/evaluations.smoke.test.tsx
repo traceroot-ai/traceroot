@@ -53,12 +53,9 @@ const RUN = {
   scoredCount: 22,
   taskErrorCount: 1,
   scorerErrorCount: 1,
-  // Matches caseCount (24): 22 passed, 0 failed, 1 errored, 1 not-scored. Real
-  // fixtures must carry these — the list route emits them unconditionally and
-  // PassRate's fraction/percentage render NaN when they're missing (see the
-  // "Passed column renders a real fraction" test below).
-  passedCount: 22,
-  failedCount: 0,
+  // The unscorable slice of caseCount (24): 1 errored, 1 not-scored. The remaining
+  // 22 produced scores; there is no case-level pass/fail to count. The list route
+  // emits both counts unconditionally, so real fixtures must carry them.
   erroredCount: 1,
   notScoredCount: 1,
   cost: 0.264,

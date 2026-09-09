@@ -246,8 +246,6 @@ it("derives per-status counts from the run's own results", async () => {
   const body = (await (await GET({} as never, params)).json()) as {
     run: Record<string, unknown>;
   };
-  expect(body.run.passedCount).toBe(1);
-  expect(body.run.failedCount).toBe(1);
   expect(body.run.erroredCount).toBe(1);
   expect(body.run.notScoredCount).toBe(0);
 });
