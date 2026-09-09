@@ -50,7 +50,7 @@ overrides:
   shell-quote@<1.9.0: ^1.9.0
   tar@<7.5.21: ^7.5.21
   undici@>=7.0.0 <7.29.0: ^7.29.0
-  uuid@>=11.0.0 <11.1.1: ^11.1.1
+  uuid@<11.1.1: ^11.1.1
   vite@>=8.0.0 <8.0.16: ^8.0.16
   ws@>=8.0.0 <8.21.0: ^8.21.0
   yaml@>=2.0.0 <2.8.3: ^2.8.3
@@ -5647,11 +5647,6 @@ packages:
     resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
     hasBin: true
 
-  uuid@8.3.2:
-    resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
-    hasBin: true
-
   vfile-message@4.0.3:
     resolution: {integrity: sha512-QTHzsGd1EhbZs4AsQ20JX1rC3cOlt/IWJruk893DfLRr57lcnOeMaWG4K0JrRta4mIJZKth2Au3mM3u03/JWKw==}
 
@@ -10833,7 +10828,7 @@ snapshots:
 
   node-cron@3.0.3:
     dependencies:
-      uuid: 8.3.2
+      uuid: 11.1.1
 
   node-domexception@1.0.0: {}
 
@@ -11833,8 +11828,6 @@ snapshots:
   util-deprecate@1.0.2: {}
 
   uuid@11.1.1: {}
-
-  uuid@8.3.2: {}
 
   vfile-message@4.0.3:
     dependencies:

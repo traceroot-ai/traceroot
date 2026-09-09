@@ -1,0 +1,63 @@
+name: Dependency Audit
+
+# Fails a pull request when a locked dependency carries a known advisory, so
+# the OpenSSF scorecard's vulnerability count cannot creep back up unnoticed.
+# Advisories that genuinely cannot be fixed here are allowlisted next to their
+# reason: frontend/pnpm-workspace.yaml (auditConfig.ignoreGhsas) for npm, and
+# --ignore-vuln flags on the pip-audit step for Python (none today).
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # New advisories land without a code change; re-check main weekly.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  npm:
+    name: npm audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Audit lockfile
+        run: cd frontend && pnpm audit --audit-level low
+
+  python:
+    name: pip-audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+
+      - name: Export locked requirements
+        run: uv export --all-groups --no-hashes --no-emit-project --locked -o requirements-audit.txt
+
+      - name: Audit lockfile
+        run: uvx pip-audit==2.10.1 --requirement requirements-audit.txt --no-deps --strict

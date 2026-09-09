@@ -1,5 +1,5 @@
-pydantic-ai>=0.2.0
+pydantic-ai>=1.106.0
 openai>=1.0.0
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 
 traceroot>=0.2.0

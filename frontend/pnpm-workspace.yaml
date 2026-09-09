@@ -3,3 +3,18 @@ packages:
   - "packages/*"
   - "ui"
   - "worker"
+
+# Advisories the CI audit gate tolerates. Each entry needs a reason and an
+# exit condition; remove it as soon as the upstream fix lands.
+auditConfig:
+  ignoreGhsas:
+    # @opentelemetry/core 1.x and @opentelemetry/propagator-jaeger 1.x are
+    # pulled in by @traceroot-ai/traceroot, whose current releases still pin
+    # OpenTelemetry 1.x. The fixes exist only in 2.x; drop these once the SDK
+    # ships on OpenTelemetry 2.x and the worker picks up that release.
+    # Exposure is nil in the meantime: neither the worker nor the SDK registers
+    # JaegerPropagator (or sets OTEL_PROPAGATORS), so the vulnerable propagator
+    # code is never instantiated, and the core advisory concerns parsing inbound
+    # baggage headers, which the worker does not receive.
+    - GHSA-8988-4f7v-96qf
+    - GHSA-45rx-2jwx-cxfr

@@ -1,7 +1,7 @@
-agno>=2.5.0
+agno>=2.6.6
 anthropic>=0.40.0
 yfinance>=0.2.0
 duckduckgo-search>=8.0.0
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 
 traceroot==0.1.11
