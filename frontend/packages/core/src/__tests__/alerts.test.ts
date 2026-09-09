@@ -35,6 +35,8 @@ import {
   resolveAlertMetricSource,
   windowToMs,
   type AlertFilter,
+  alertFiltersToTracePredicates,
+  describeAlertFilter,
 } from "../alerts.ts";
 
 describe("canonicalizeAlertFilters", () => {
@@ -295,5 +297,68 @@ describe("the filter field registry", () => {
       return operators.filter((op) => !isAlertFilterOperator(op)).map((op) => `${field}: ${op}`);
     });
     expect(undeclared).toEqual([]);
+  });
+});
+
+describe("alertFiltersToTracePredicates", () => {
+  it("maps `=` on a list-filterable field to a one-value `in`", () => {
+    expect(
+      alertFiltersToTracePredicates([
+        { field: "span_kind", op: "=", value: "LLM" },
+        { field: "status", op: "=", value: "ERROR" },
+        { field: "name", op: "=", value: "chat.completions" },
+        { field: "model_name", op: "=", value: "gpt-4o" },
+        { field: "environment", op: "=", value: "prod" },
+      ]),
+    ).toEqual([
+      { field: "span_kind", op: "in", value: ["LLM"] },
+      { field: "status", op: "in", value: ["ERROR"] },
+      { field: "name", op: "in", value: ["chat.completions"] },
+      { field: "model_name", op: "in", value: ["gpt-4o"] },
+      { field: "environment", op: "in", value: ["prod"] },
+    ]);
+  });
+
+  it("keeps a metadata filter keyed, with the list's operator names", () => {
+    expect(
+      alertFiltersToTracePredicates([
+        { field: "metadata", key: "tenant", op: "=", value: "acme" },
+        { field: "metadata", key: "region", op: "contains", value: "eu" },
+      ]),
+    ).toEqual([
+      { field: "metadata", key: "tenant", op: "eq", value: "acme" },
+      { field: "metadata", key: "region", op: "contains", value: "eu" },
+    ]);
+  });
+
+  it("drops what the trace list cannot express rather than sending a predicate it would reject", () => {
+    expect(
+      alertFiltersToTracePredicates([
+        // categorical fields take `in` only on the list
+        { field: "model_name", op: "contains", value: "gpt" },
+        // no list counterpart
+        { field: "is_root", op: "=", value: "true" },
+        // a half-filled row is not a predicate
+        { field: "span_kind", op: "=", value: "" },
+        { field: "metadata", op: "=", value: "acme" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("stringifies a numeric value: the list's `in` carries strings", () => {
+    expect(alertFiltersToTracePredicates([{ field: "name", op: "=", value: 42 }])).toEqual([
+      { field: "name", op: "in", value: ["42"] },
+    ]);
+  });
+});
+
+describe("describeAlertFilter", () => {
+  it("reads as field, operator, value, with a keyed field subscripted", () => {
+    expect(describeAlertFilter({ field: "span_kind", op: "=", value: "LLM" })).toBe(
+      "span_kind = LLM",
+    );
+    expect(
+      describeAlertFilter({ field: "metadata", key: "tenant", op: "contains", value: "acme" }),
+    ).toBe("metadata[tenant] contains acme");
   });
 });
