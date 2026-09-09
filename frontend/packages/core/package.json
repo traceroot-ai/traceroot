@@ -27,8 +27,7 @@
     "clean": "rm -rf dist",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest",
-    "generate:byok-docs": "tsx scripts/generate-byok-models-doc.ts"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.80.3",
