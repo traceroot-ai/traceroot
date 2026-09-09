@@ -73,6 +73,13 @@ def is_claude_model(model: str) -> bool:
 
     Normalized first: ``openrouter/anthropic/claude-opus-4-8`` is a Claude model,
     and answering False for it sends the token estimator to tiktoken's
-    ``cl100k_base`` instead of the Claude estimator.
+    ``cl100k_base`` instead of the Claude estimator — roughly half the real count
+    for Claude text, now attached to a cost that resolves.
+
+    Bedrock and its regional aliases qualify the family name with dots rather than
+    slashes (``us.anthropic.claude-opus-4-8``), so the name is not always the
+    leading segment and a bare ``startswith`` misses it. The catalogue prices that
+    shape, so the estimator has to recognise it too. Only a segment boundary
+    counts, which keeps ``my-org/claude-ish`` a non-match.
     """
-    return strip_gateway_prefixes(model).startswith("claude")
+    return any(segment.startswith("claude") for segment in strip_gateway_prefixes(model).split("."))

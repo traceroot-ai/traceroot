@@ -401,6 +401,42 @@ class TestGatewayPrefixedTokenEstimation:
         assert bare["cost"] is not None, "bare id must price, or this proves nothing"
         assert prefixed == bare
 
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            # Bedrock qualifies the family name with dots, so it is not the leading
+            # segment and a bare startswith misses it. The gateway-prefixed forms
+            # are the ones the price fallback newly resolves.
+            "bedrock/us.anthropic.claude-opus-4-8",
+            "bedrock/anthropic.claude-opus-4-8",
+            "amazon_bedrock/eu.anthropic.claude-opus-4-8",
+            # This shape already priced without a gateway in front of it, and was
+            # already being estimated with the wrong tokenizer.
+            "us.anthropic.claude-opus-4-8-v1:0",
+        ],
+    )
+    def test_bedrock_shaped_claude_ids_use_the_claude_estimator(self, model_id):
+        assert is_claude_model(model_id) is True
+        assert count_tokens("a" * 400, model_id) == 100
+
+    @pytest.mark.parametrize(
+        "model_id",
+        ["bedrock/amazon.nova-pro-v1:0", "us.meta.llama3-70b", "my-org/claude-ish"],
+    )
+    def test_dotted_non_claude_ids_stay_non_claude(self, model_id):
+        """Only a segment boundary counts, so the dot check cannot widen into a
+        substring match on unrelated vendors."""
+        assert is_claude_model(model_id) is False
+
+    def test_bedrock_prefixed_claude_costs_the_same_as_the_bare_id(self, real_cache):
+        text = "a" * 400
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            prefixed = calculate_cost("bedrock/us.anthropic.claude-opus-4-8", text, text)
+            bare = calculate_cost("claude-opus-4-8", text, text)
+
+        assert bare["cost"] is not None
+        assert prefixed == bare
+
 
 class TestGeminiModelIds:
     @pytest.mark.parametrize("model_id,expected_name", GEMINI_MODEL_CASES)
