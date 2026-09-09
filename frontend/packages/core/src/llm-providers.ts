@@ -102,6 +102,9 @@ export const SYSTEM_MODELS: {
     envVar: "ANTHROPIC_API_KEY",
     piAIProvider: "anthropic",
     apiProtocol: "anthropic-messages",
+    // claude-fable-5 is deliberately excluded from SYSTEM_MODELS: it runs at $10 / $50
+    // and requires 30-day data retention (not available under zero-data-retention
+    // configurations). It is available exclusively via BYOK (ADAPTER_MODELS.anthropic).
     models: [
       { id: "claude-opus-4-8", label: "claude-opus-4-8" },
       { id: "claude-opus-4-7", label: "claude-opus-4-7" },
