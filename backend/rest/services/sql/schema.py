@@ -145,6 +145,19 @@ VIEW_ROW_FILTERS: tuple[str, ...] = ("source = 'user'",)
 #: spans. So an evaluation-kind span can land with no ``traces`` row ever
 #: carrying the flag, and a traces-only predicate would hand those spans back.
 #:
+#: The ``spans`` half is also the half that SURVIVES A MERGE, which is what makes
+#: "any row anywhere flagged" true of the table and not just of the query. Both
+#: tables are ``ReplacingMergeTree(ch_update_time)``: two ``traces`` rows for one
+#: trace share a sort key, so a background merge keeps only the newest and can
+#: physically delete the flagged one, after which a traces-only sub-select
+#: returns nothing (verified on 25.2 -- before the merge the trace is hidden,
+#: after it is not). Span rows do not collapse into each other: ``span_id`` is in
+#: the sort key, so distinct spans are distinct rows, and the flag is derived
+#: from the span's own kind, which does not change between exports of that span.
+#: A trace is never flagged without an evaluation-kind span of its own -- ingest
+#: sets the trace flag FROM those spans -- so the surviving flagged span row is
+#: what keeps the trace excluded once the trace rows have collapsed.
+#:
 #: Both sub-selects repeat the project scope: ``project_id`` is the sort-key
 #: prefix of both tables, so each prunes to the caller's own data and can never
 #: read another tenant's rows. Neither is time-bounded, because a parameterized
