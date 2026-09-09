@@ -63,13 +63,21 @@ sep() { echo; echo "===================================================="; echo 
 
 # --- Assertion helpers: a security spike must FAIL LOUDLY, never print PASS unconditionally ---
 
-# expect_deny "label" <cmd...> : PASS only if the command exits non-zero (access denied / error).
-# Fails the whole script (exit 1) if the command unexpectedly SUCCEEDS.
+# expect_deny "label" <cmd...> : PASS only if the SERVER refused the query.
+# Fails the whole script (exit 1) if the command unexpectedly SUCCEEDS, and also if it
+# failed without ever reaching the server. A login or connection failure exits non-zero
+# too, so accepting any non-zero exit would let an unreachable account masquerade as a
+# denied one -- the assertion would still print PASS while testing nothing.
 expect_deny() {
   local label="$1"; shift
   local out
   if out=$("$@" 2>&1); then
     echo "FAIL [$label]: command unexpectedly SUCCEEDED (expected access-denied):"
+    printf '%s\n' "$out" | head -3
+    exit 1
+  fi
+  if printf '%s' "$out" | grep -qiE 'AUTHENTICATION_FAILED|Code: 516|Code: 210|NETWORK_ERROR|Connection refused|Cannot connect|Timeout exceeded while connecting'; then
+    echo "FAIL [$label]: failed BEFORE the server could refuse it (login/connection error, not a denial):"
     printf '%s\n' "$out" | head -3
     exit 1
   fi
@@ -288,6 +296,10 @@ $CH --query "CREATE SETTINGS PROFILE spike_ro_profile SETTINGS
   max_result_bytes = 536870912 CONST,
   max_memory_usage = 4294967296 CONST"
 
+# spike_ro is deliberately NOT host-restricted: the companion bound-parameter test
+# (clickhouse_connect_bound_param.py) logs in as this user over HTTP from the host, which
+# arrives as a Docker bridge IP and would be rejected by HOST LOCAL. It is confined instead
+# by publishing the container ports on loopback only (see the docker run above).
 $CH --query "CREATE USER spike_ro IDENTIFIED WITH no_password SETTINGS PROFILE 'spike_ro_profile'"
 
 $CH --query "GRANT SELECT ON spike.spans_definer_v1 TO spike_ro"
@@ -365,7 +377,7 @@ echo ""
 echo "--- 6c: CONST cap fires in practice (spike_tiny_cap: max_execution_time=0.001) ---"
 $CH --query "CREATE SETTINGS PROFILE spike_tiny_cap_profile SETTINGS
   readonly = 1, max_execution_time = 0.001 CONST"
-$CH --query "CREATE USER spike_tiny_cap IDENTIFIED WITH no_password SETTINGS PROFILE 'spike_tiny_cap_profile'"
+$CH --query "CREATE USER spike_tiny_cap IDENTIFIED WITH no_password HOST LOCAL SETTINGS PROFILE 'spike_tiny_cap_profile'"
 $CH --query "GRANT SELECT ON spike.spans_definer_v1 TO spike_tiny_cap"
 
 expect_timeout "6c: tiny-cap profile aborts the query" \
@@ -376,7 +388,11 @@ expect_timeout "6c: tiny-cap profile aborts the query" \
 # TEST 8 — DEFINER with a SCOPED (non-superuser) writer user
 # ---------------------------------------------------------------------------
 sep "TEST 8: DEFINER = scoped writer user (not superuser)"
-$CH --query "CREATE USER IF NOT EXISTS spike_writer IDENTIFIED WITH no_password"
+# HOST LOCAL, not HOST NONE: this account is the view's DEFINER *and* test 8 logs in as it
+# to prove the grant boundary. HOST NONE would block that login, and since a failed login
+# also exits non-zero, test 8 would report PASS while asserting nothing. HOST LOCAL still
+# refuses connections arriving through Docker port-mapping, which is the exposure that matters.
+$CH --query "CREATE USER IF NOT EXISTS spike_writer IDENTIFIED WITH no_password HOST LOCAL"
 $CH --query "GRANT SELECT ON spike.spans_phys TO spike_writer"   # writer scoped to the physical table only
 $CH --query "CREATE OR REPLACE VIEW spike.spans_definer_scoped_v1 DEFINER = spike_writer SQL SECURITY DEFINER AS
 SELECT span_id, trace_id, name FROM (
