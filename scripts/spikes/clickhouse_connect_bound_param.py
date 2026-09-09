@@ -4,7 +4,9 @@ Test 7: clickhouse-connect bound parameter in parameterized view call.
 Prerequisite: run `scripts/spikes/clickhouse_sql_security_24_3.sh` first — it
 creates the `spike_ro` user and the `spike.spans_definer_v1` view this script uses.
 
-Connects to localhost:18123 and runs the bound-param view-call form:
+Connects to localhost:$CH_HTTP_PORT (default 18123) — the same variable the spike
+script publishes the container on, so a non-default port reaches the right server —
+and runs the bound-param view-call form:
   SELECT span_id FROM spike.spans_definer_v1(project_id = {scope_project_id:String})
   ORDER BY span_id
   parameters={"scope_project_id": "proj_A"}
@@ -17,6 +19,7 @@ SELECT on `spike.spans_definer_v1` and can reach the HTTP port from the host.
 PASS  iff rows = ['sA1', 'sA2'] and no exception.
 """
 
+import os
 import sys
 
 try:
@@ -30,8 +33,10 @@ _ver = getattr(clickhouse_connect.__version__, "version", None) or getattr(
 )
 print(f"clickhouse_connect version: {_ver}", flush=True)
 
+_PORT = int(os.environ.get("CH_HTTP_PORT", "18123"))
+
 client = clickhouse_connect.get_client(
-    host="localhost", port=18123, username="spike_ro", password=""
+    host="localhost", port=_PORT, username="spike_ro", password=""
 )
 
 query = (

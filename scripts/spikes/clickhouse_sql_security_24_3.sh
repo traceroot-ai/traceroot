@@ -180,17 +180,42 @@ expect_eq "0: ClickHouse version matches the pinned baseline" "$EXPECTED_VERSION
 # Verify the RUNNING container's image repo-digest against the pinned baseline (drift detection),
 # rather than echoing a hardcoded value.
 IMG_ID=$(docker inspect --format '{{.Image}}' "$CH_CONTAINER")
-# Repo-agnostic: the baseline image is not always clickhouse/clickhouse-server
-# (the deployed build is a different repository), and a repo-specific pattern here
-# silently yielded an empty digest rather than a mismatch.
-# Matched against the repository actually configured, not merely the first entry:
-# an image can carry digests for several repositories, and comparing the pin to an
-# unrelated one would either pass or fail for the wrong reason.
-IMG_REPO=$(docker inspect --format '{{.Config.Image}}' "$CH_CONTAINER")
-IMG_REPO="${IMG_REPO%%:*}"
-ACTUAL_DIGEST=$(docker image inspect "$IMG_ID" --format '{{range .RepoDigests}}{{println .}}{{end}}' \
-  | sed -nE "s|^${IMG_REPO}@(sha256:[0-9a-f]+)\$|\1|p" | head -1)
-echo "running image: $(docker inspect --format '{{.Config.Image}}' "$CH_CONTAINER")  digest: ${ACTUAL_DIGEST:-<none>}"
+
+# Resolving the repository has been wrong three times, so this does it once, properly.
+# The three failure modes, all real:
+#   - a hardcoded repo yields an EMPTY digest on any other image, failing as <none>
+#     rather than as a mismatch, which is a drift check that cannot detect drift;
+#   - matching any repo lets an image carrying several digests compare against an
+#     unrelated one;
+#   - `.Config.Image` is the reference as given, which is an image ID (sha256:...)
+#     whenever the container was started by ID rather than by tag.
+# CH_IMAGE is authoritative when set, because it is what we asked Docker to run.
+if [ -n "$CH_IMAGE" ]; then
+  IMG_REPO="$CH_IMAGE"
+else
+  IMG_REPO=$(docker inspect --format '{{.Config.Image}}' "$CH_CONTAINER")
+  case "$IMG_REPO" in
+    sha256:*) IMG_REPO=$(docker image inspect "$IMG_ID" --format '{{if .RepoTags}}{{index .RepoTags 0}}{{end}}') ;;
+  esac
+fi
+IMG_REPO="${IMG_REPO%%@*}"   # drop any @sha256:... suffix
+IMG_REPO="${IMG_REPO%:*}"    # drop the tag, keeping any registry:port prefix
+
+# Exact prefix comparison rather than a regex: a repository can contain characters
+# that are regex metacharacters (a registry host has dots), and matching those
+# loosely is how an unrelated repository's digest gets accepted.
+ACTUAL_DIGEST=""
+while IFS= read -r _rd; do
+  [ -n "$_rd" ] || continue
+  if [ "${_rd#"${IMG_REPO}@"}" != "$_rd" ]; then
+    ACTUAL_DIGEST="${_rd#*@}"
+    break
+  fi
+done <<EOF
+$(docker image inspect "$IMG_ID" --format '{{range .RepoDigests}}{{println .}}{{end}}')
+EOF
+
+echo "running image: ${CH_IMAGE:-$(docker inspect --format '{{.Config.Image}}' "$CH_CONTAINER")}  repo: $IMG_REPO  digest: ${ACTUAL_DIGEST:-<none>}"
 if [ "$ACTUAL_DIGEST" != "$EXPECTED_DIGEST" ]; then
   echo "FAIL [0: image digest matches pinned baseline]: expected $EXPECTED_DIGEST, running image is ${ACTUAL_DIGEST:-<none>}"
   echo "       To prove the matrix on this image, re-run with it pinned:"
