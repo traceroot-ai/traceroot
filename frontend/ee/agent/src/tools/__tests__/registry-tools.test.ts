@@ -227,6 +227,49 @@ describe("createRegistryReadTools", () => {
     expect(result.content[0]!.text).toContain("Error calling list_traces");
     expect(result.content[0]!.text).toContain("Forbidden");
   });
+
+  it("renders get_finding_by_trace 404 as 'no finding' instead of a tool error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ detail: "Finding not found" }), { status: 404 }),
+      ),
+    );
+    const findingTool = createRegistryReadTools("p1", "u1").find(
+      (t) => t.name === "get_finding_by_trace",
+    )!;
+    const result404 = await findingTool.execute("id", { label: "x", trace_id: "t1" });
+    expect(result404.content[0]!.text).toBe("No detector finding is attached to trace.");
+    expect(result404.content[0]!.text).not.toContain("Error calling");
+
+    // Non-404 status still renders as an error
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ detail: "Internal server error" }), { status: 500 }),
+      ),
+    );
+    const result500 = await findingTool.execute("id", { label: "x", trace_id: "t1" });
+    expect(result500.content[0]!.text).toBe(
+      "Error calling get_finding_by_trace: API error 500: Internal server error",
+    );
+
+    // 404 on other tools (e.g. get_detector) still renders as an error
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ detail: "Detector not found" }), { status: 404 }),
+      ),
+    );
+    const detectorTool = createRegistryReadTools("p1", "u1").find(
+      (t) => t.name === "get_detector",
+    )!;
+    const detectorResult = await detectorTool.execute("id", { label: "x", detector_id: "d1" });
+    expect(detectorResult.content[0]!.text).toBe(
+      "Error calling get_detector: API error 404: Detector not found",
+    );
+  });
 });
 
 describe("createTools", () => {
