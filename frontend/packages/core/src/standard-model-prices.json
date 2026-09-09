@@ -186,10 +186,10 @@
     "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-terra)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
-      "input": 0.0000025,
-      "output": 0.000015,
-      "cacheRead": 0.00000025,
-      "cacheWrite": 0.000003125
+      "input": 0.000002,
+      "output": 0.000012,
+      "cacheRead": 0.0000002,
+      "cacheWrite": 0.0000025
     }
   },
   {

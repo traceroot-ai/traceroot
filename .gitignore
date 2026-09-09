@@ -243,6 +243,9 @@ references/**/node_modules/
 !*.tfvars.example
 .terraform/
 *.tfstate
-*.tfstate.backup
+*.tfstate.*
+terraform.tfstate.d/
 .terraform.lock.hcl
+tfplan*
+*.tfplan
 .worktrees/
