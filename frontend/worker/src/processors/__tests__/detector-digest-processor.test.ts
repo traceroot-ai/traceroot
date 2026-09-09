@@ -156,15 +156,39 @@ describe("flushDigest", () => {
   });
 
   it("does not count a finding triggered only by an RCA-disabled detector", async () => {
-    detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
-    readDetectorWindowSummary.mockResolvedValue({
-      distinctFindingCount: 0,
-      data: { d1: { finding_count: 0, run_count: 1, sample_trace_ids: [] } },
-    });
+    const allDetectors = [
+      { id: "d1", name: "Latency", enableRca: true },
+      { id: "d2", name: "Errors", enableRca: false },
+    ];
+    const allDetectorRows = {
+      d1: { finding_count: 0, run_count: 1, sample_trace_ids: [] },
+      d2: { finding_count: 1, run_count: 1, sample_trace_ids: ["trace-disabled"] },
+    };
+    detectorFindMany.mockImplementation(async (query: { where: { enableRca: boolean } }) =>
+      allDetectors.filter((detector) => detector.enableRca === query.where.enableRca),
+    );
+    let returnedDistinctFindingCount: number | undefined;
+    readDetectorWindowSummary.mockImplementation(
+      async (
+        _projectId,
+        _start,
+        _end,
+        opts: { detectorIds?: Array<keyof typeof allDetectorRows> },
+      ) => {
+        const detectorIds =
+          opts.detectorIds ?? (Object.keys(allDetectorRows) as Array<"d1" | "d2">);
+        const data = Object.fromEntries(detectorIds.map((id) => [id, allDetectorRows[id]]));
+        returnedDistinctFindingCount = detectorIds.includes("d2") ? 1 : 0;
+        return { distinctFindingCount: returnedDistinctFindingCount, data };
+      },
+    );
 
     await run();
 
-    expect(readDetectorWindowSummary.mock.calls[0][3].detectorIds).toEqual(["d1"]);
+    const requestedDetectorIds = readDetectorWindowSummary.mock.calls[0][3].detectorIds;
+    expect(requestedDetectorIds).toEqual(["d1"]);
+    expect(requestedDetectorIds).not.toContain("d2");
+    expect(returnedDistinctFindingCount).toBe(0);
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
   });

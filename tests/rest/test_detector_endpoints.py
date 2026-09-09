@@ -510,19 +510,32 @@ class TestListDetectorWindowSummary:
             },
         }
 
-    def test_returns_one_distinct_finding_shared_by_multiple_detectors(
+    def test_uses_clickhouse_total_row_instead_of_summing_detector_rows(
         self, client, mock_ch, secret
     ):
-        """The window total dedupes a finding shared by detector runs.
+        """Response parsing preserves ClickHouse's cross-detector total.
 
-        Both detectors triggered the same ``finding_id``. Their per-detector
-        trigger counts remain one each, while the window-level finding count is
-        one rather than the sum (two).
+        This is deliberately a client-contract unit test: ClickHouse returns a
+        grouping-set total of one alongside two per-detector trigger rows, and
+        the endpoint must not recompute that total as two. Query-shape tests
+        below separately guard the aggregate expression and single-pass order.
         """
         mock_ch.query.side_effect = [
-            self._fake_aggregate(
-                [("d-a", 1, 1, "trace-1"), ("d-b", 1, 1, "trace-1")],
-                distinct_finding_count=1,
+            _make_query_result(
+                # Put the total first so parsing does not depend on row order.
+                rows=[
+                    (1, "", 2, 2, "trace-2", 1),
+                    (0, "d-a", 1, 1, "trace-1", 1),
+                    (0, "d-b", 1, 1, "trace-2", 1),
+                ],
+                column_names=[
+                    "is_total",
+                    "detector_id",
+                    "run_count",
+                    "finding_count",
+                    "latest_trace_id",
+                    "distinct_finding_count",
+                ],
             ),
         ]
 
@@ -540,8 +553,10 @@ class TestListDetectorWindowSummary:
         assert body["distinct_finding_count"] == 1
         assert body["data"]["d-a"]["finding_count"] == 1
         assert body["data"]["d-b"]["finding_count"] == 1
+        assert sum(row["finding_count"] for row in body["data"].values()) == 2
         sql = mock_ch.query.call_args.args[0]
         assert "uniqExactIf(latest_finding_id, latest_finding_id IS NOT NULL)" in sql
+        assert "GROUP BY GROUPING SETS ((detector_id), ())" in sql
 
     def test_post_scopes_rollup_to_requested_detector_ids(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [
