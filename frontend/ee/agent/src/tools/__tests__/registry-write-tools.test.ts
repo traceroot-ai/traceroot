@@ -46,6 +46,21 @@ describe("createRegistryWriteTools", () => {
     expect(tool.parameters.required[0]).toBe("label");
   });
 
+  it("tells the model what a trigger condition is, so a numeric ask is not silently one-sided", () => {
+    // A threshold like "over 30 seconds" can be a judged prompt or a
+    // deterministic duration_ms filter, and the two detectors behave
+    // differently. Without the field vocabulary reaching the schema, the
+    // second option is invisible and the agent cannot offer the choice.
+    const tool = makeTools(stubClient().client).find((t) => t.name === "create_detector")!;
+    const conditions = tool.parameters.properties.trigger_conditions as { description?: string };
+    expect(conditions.description).toBeDefined();
+    expect(conditions.description).toContain("duration_ms");
+    expect(conditions.description).toContain("metadata also takes key");
+    expect(conditions.description).toContain("deterministic");
+    // The public contract describes the field; telling the agent to ask is the prompt's job.
+    expect(conditions.description).not.toMatch(/ask which/);
+  });
+
   it("leaves tools without agent-hidden params untouched", () => {
     const tool = makeTools(stubClient().client).find((t) => t.name === "create_detector")!;
     expect(Object.keys(tool.parameters.properties).sort()).toEqual(

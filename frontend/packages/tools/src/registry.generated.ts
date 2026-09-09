@@ -80,6 +80,8 @@ export const REGISTRY: readonly RegistryEntry[] = [
         trigger_conditions: {
           items: {},
           type: "array",
+          description:
+            "Conditions gating WHICH completed traces the detector evaluates; omit or pass [] to evaluate every completed trace. Each condition is {field, op, value} (metadata also takes key): model_name/environment take =, !=; cost/total_tokens/duration_ms/errors take >, >=, <, <=, =; metadata takes =, contains. A condition is a deterministic pre-filter, not the flag decision - the prompt still judges every trace that passes.",
         },
       },
       required: ["project_id", "name", "template"],

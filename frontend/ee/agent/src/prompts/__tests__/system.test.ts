@@ -127,6 +127,12 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("never restate it as a figure such as $0 or 0");
   });
 
+  it("tells the agent a numeric threshold could be a prompt or a trigger condition, and to ask", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain("deterministic trigger condition");
+    expect(prompt).toContain("ask which one they want before creating");
+  });
+
   it("tells the agent to adopt the suffixed name a collision gave a dashboard", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
     expect(prompt).toContain("got a new name");
