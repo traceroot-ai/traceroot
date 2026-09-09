@@ -207,11 +207,11 @@ Agentic Debugging Runtime의 기반을 제공하는 [pi-mono](https://github.com
 
 ## Star History
 
-<a href="https://star-history.com/#traceroot-ai/traceroot&Date">
+<a href="https://star-history.dera.page/#traceroot-ai/traceroot&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" style="border-radius: 15px;" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=traceroot-ai/traceroot&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=traceroot-ai/traceroot&type=Date" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=traceroot-ai/traceroot&type=Date" style="border-radius: 15px;" />
  </picture>
 </a>
 
