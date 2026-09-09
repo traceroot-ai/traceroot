@@ -7,11 +7,13 @@ the XML inside them, which is how an invalid comment shipped once.
 """
 
 import re
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
 import yaml
+
+# defusedxml rather than the stdlib xml modules: those are XXE-prone and scanners reject them.
+from defusedxml.ElementTree import parse as parse_xml
 
 _ROOT = Path(__file__).resolve().parents[2]
 _BOOTSTRAP = _ROOT / "backend" / "db" / "clickhouse" / "bootstrap"
@@ -21,7 +23,7 @@ _COMPOSE = [_ROOT / "docker-compose.yml", _ROOT / "docker-compose.prod.yml"]
 
 def test_bootstrap_xml_is_well_formed():
     """A SAXParseException here is an exit-232 server, not a failing test."""
-    ET.parse(_XML)
+    parse_xml(_XML)
 
 
 def test_bootstrap_xml_comments_have_no_double_hyphen():
@@ -33,7 +35,7 @@ def test_bootstrap_xml_comments_have_no_double_hyphen():
 
 def test_only_the_bootstrap_account_holds_access_management():
     """The privilege must not land on the account the application runs as."""
-    root = ET.parse(_XML).getroot()
+    root = parse_xml(_XML).getroot()
     holders = [
         user.tag for user in root.find("users") if user.find("access_management") is not None
     ]
@@ -44,7 +46,7 @@ def test_only_the_bootstrap_account_holds_access_management():
 
 def test_password_is_not_written_into_the_file():
     """It comes from the environment, so the mounted config carries no secret."""
-    root = ET.parse(_XML).getroot()
+    root = parse_xml(_XML).getroot()
     pw = root.find("users").find("sql_gateway_bootstrap").find("password")
     assert pw.get("from_env"), "password must use from_env"
     assert not (pw.text or "").strip(), "password literal present in the mounted config"

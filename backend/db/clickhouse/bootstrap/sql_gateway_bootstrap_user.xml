@@ -31,8 +31,19 @@
         <sql_gateway_bootstrap>
             <password from_env="SQL_GATEWAY_BOOTSTRAP_PASSWORD"/>
             <access_management>1</access_management>
+            <!--
+              Private ranges only. This account can create users and grant privileges,
+              so it must not be reachable from anywhere the compose network is exposed.
+              The ranges below cover the Docker bridge (172.16/12 by default) and the
+              loopback used when the stack is driven from the host; they deliberately
+              exclude the public internet, which `::/0` did not.
+            -->
             <networks>
-                <ip>::/0</ip>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+                <ip>10.0.0.0/8</ip>
+                <ip>172.16.0.0/12</ip>
+                <ip>192.168.0.0/16</ip>
             </networks>
             <profile>default</profile>
             <quota>default</quota>

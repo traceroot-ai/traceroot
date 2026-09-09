@@ -19,13 +19,15 @@
 -- The dev stack supplies a known weak default; the self-host production stack
 -- refuses to start without real values.
 --
--- Assumes the compose database `default` (migrate-clickhouse connects to /default).
+-- The database is substituted as `__DB__` by clickhouse-init from CLICKHOUSE_DATABASE,
+-- the same value migrate-clickhouse targets. Hardcoding `default` here meant the grants
+-- landed on a different database from the tables whenever that variable was changed.
 
 -- 1) Scoped writer = the view DEFINER. SELECT on the physical tables only; NOT a superuser.
 CREATE USER IF NOT EXISTS sql_gateway_writer IDENTIFIED WITH sha256_hash BY '__WRITER_HASH__';
 ALTER USER sql_gateway_writer IDENTIFIED WITH sha256_hash BY '__WRITER_HASH__';
-GRANT SELECT ON default.spans  TO sql_gateway_writer;
-GRANT SELECT ON default.traces TO sql_gateway_writer;
+GRANT SELECT ON __DB__.spans  TO sql_gateway_writer;
+GRANT SELECT ON __DB__.traces TO sql_gateway_writer;
 
 -- 2) Read-only caps as CONST (immutable; a readonly=1 user cannot change them).
 CREATE SETTINGS PROFILE IF NOT EXISTS sql_readonly_profile SETTINGS
@@ -42,5 +44,5 @@ CREATE USER IF NOT EXISTS sql_gateway_ro
 ALTER USER sql_gateway_ro
     IDENTIFIED WITH sha256_hash BY '__RO_HASH__'
     SETTINGS PROFILE 'sql_readonly_profile';
-GRANT SELECT ON default.spans_public_v1  TO sql_gateway_ro;
-GRANT SELECT ON default.traces_public_v1 TO sql_gateway_ro;
+GRANT SELECT ON __DB__.spans_public_v1  TO sql_gateway_ro;
+GRANT SELECT ON __DB__.traces_public_v1 TO sql_gateway_ro;

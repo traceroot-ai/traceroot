@@ -140,6 +140,7 @@ services:
       CLICKHOUSE_PASSWORD: "${SQL_GATEWAY_BOOTSTRAP_PASSWORD:?required - the only account permitted to create database users}"
       # Self-host production: no defaults. The writer reads the physical tables.
       SQL_GATEWAY_WRITER_PASSWORD: "${SQL_GATEWAY_WRITER_PASSWORD:?required - this account can read the raw spans and traces tables}"
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
       CLICKHOUSE_RO_PASSWORD: "${CLICKHOUSE_RO_PASSWORD:?required - this account serves the public SQL endpoint}"
     entrypoint: >
       /bin/sh -c "
@@ -147,6 +148,7 @@ services:
       W=$$(printf '%s' \"$$SQL_GATEWAY_WRITER_PASSWORD\" | sha256sum | cut -d' ' -f1);
       R=$$(printf '%s' \"$$CLICKHOUSE_RO_PASSWORD\" | sha256sum | cut -d' ' -f1);
       sed -e \"s/__WRITER_HASH__/$$W/g\" -e \"s/__RO_HASH__/$$R/g\"
+      -e \"s/__DB__/$$CLICKHOUSE_DATABASE/g\"
       /bootstrap/sql_gateway_users.sql > /tmp/sql_gateway_users.sql;
       clickhouse-client --host clickhouse --port 9000 --user \"$$CLICKHOUSE_USER\"
       --queries-file /tmp/sql_gateway_users.sql
@@ -157,15 +159,26 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.migrate-clickhouse
-    # Migrations run as the bootstrap identity: the curated views are created with an
-    # explicit DEFINER, and setting a view's definer to another account requires access
-    # management, which the application account deliberately does not hold.
-    #
-    # Previously this was the literal `clickhouse:clickhouse`, which ignored
-    # CLICKHOUSE_PASSWORD entirely -- changing the admin password broke migrations.
-    command:
-      - "clickhouse://sql_gateway_bootstrap:${SQL_GATEWAY_BOOTSTRAP_PASSWORD:?required - the only account permitted to create database users}@clickhouse:9000/${CLICKHOUSE_DATABASE:-default}"
-      - "up"
+    # The DSN is built inside the container rather than passed as an argument, for two
+    # reasons each caught in review:
+    #   - a password in `command:`/`entrypoint:` is visible in the container's argv and
+    #     in `docker inspect`, which is the exposure moving clickhouse-init's
+    #     credentials into the environment had already removed;
+    #   - a password containing a URL-reserved character breaks DSN parsing outright
+    #     ("invalid port" after host). Percent-encoding every byte is valid userinfo
+    #     and survives any character; verified against goose with a password of
+    #     p/a#s?w&o=rd.
+    environment:
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
+      SQL_GATEWAY_BOOTSTRAP_PASSWORD: "${SQL_GATEWAY_BOOTSTRAP_PASSWORD:?required - the only account permitted to create database users}"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        PW=$$(printf '%s' "$$SQL_GATEWAY_BOOTSTRAP_PASSWORD" | od -An -tx1 | tr -d '\n ' | sed 's/../%&/g')
+        exec goose -dir /migrations clickhouse \
+          "clickhouse://sql_gateway_bootstrap:$$PW@clickhouse:9000/$$CLICKHOUSE_DATABASE" up
     depends_on:
       clickhouse:
         condition: service_healthy

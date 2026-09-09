@@ -272,6 +272,12 @@ ever stops surviving.
 
 ### Open items — must be settled before enabling the gateway in the cloud
 
+- **ClickHouse passwords passed through the environment must not contain `&`.** The image
+  interpolates `CLICKHOUSE_PASSWORD` and `SQL_GATEWAY_BOOTSTRAP_PASSWORD` into its own
+  generated `users.xml` without escaping, so an ampersand makes that file invalid and the
+  server exits (`exit=232`) before it finishes starting. Verified on 24.3: `/`, `#`, `?` and
+  `=` are all accepted; only `&` breaks it. This is upstream behaviour, not something the
+  gateway introduced, and it applies to the admin password just as much.
 - **Nothing has run on a cluster.** The DDL check proves the SQL model against a local
   container of the same image staging deploys; it says nothing about the chart's hooks
   executing in order, the provisioning Job reaching ClickHouse, or the read-only credentials
