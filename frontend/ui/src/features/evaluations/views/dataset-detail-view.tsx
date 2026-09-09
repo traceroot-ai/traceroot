@@ -42,6 +42,10 @@ import { TestCaseEditorModal, type TestCaseEditorMode } from "../components/test
 import { DeleteTestCaseDialog } from "../components/delete-test-case-dialog";
 import type { TestCaseRow } from "../types";
 
+/** How long a just-published row stays highlighted. Matches the `.animate-row-flash`
+ *  duration in globals.css — the class is removed when this elapses. */
+const ROW_FLASH_MS = 2000;
+
 /** A dash for the list; empty reads as a placeholder, not a blank cell. */
 function orDash(value: string | null): React.ReactNode {
   return value && value.trim() !== "" ? value : <span className="text-muted-foreground">-</span>;
@@ -146,6 +150,60 @@ export function DatasetDetailView({
   // stable testCaseId — otherwise typing in the search box, or a save publishing
   // a new version's row ids, would silently unmount the open panel.
   const openCase = openCaseId ? (allCases.find((c) => c.testCaseId === openCaseId) ?? null) : null;
+
+  // The row a publish just touched, held with the version that publish created.
+  // Adding a case appends it, so on any dataset past one screenful the change
+  // happens off-screen and the page reads as a no-op. The id is the server's
+  // `focusTestCaseId` from the publish response, not re-derived here: where a
+  // case lands is the server's call.
+  const [focus, setFocus] = React.useState<{ caseId: string; version: number | null } | null>(null);
+  const tableRef = React.useRef<HTMLDivElement>(null);
+
+  // An edit keeps the case's stable testCaseId, so a row carrying that id is
+  // ALREADY on screen — from the pre-edit snapshot — while the refetch is still
+  // in flight. Matching it there would flash the old content and start the
+  // highlight's expiry against a row about to be replaced, so a refetch slower
+  // than the flash would leave the edited row arriving unmarked: the same
+  // failure the add path avoids by having no such row yet. Hold the target until
+  // the snapshot on screen is at least the version the publish created (`>=`, so
+  // a publish that raced ahead of ours still satisfies it). A failed refetch
+  // leaves the older snapshot in place, which retains the target rather than
+  // dropping it — the next successful fetch reveals it.
+  const focusCaseId =
+    focus &&
+    (focus.version === null || (data?.selectedVersion?.versionNumber ?? -1) >= focus.version)
+      ? focus.caseId
+      : null;
+
+  // A search left running while a row is added filters that row straight back
+  // out, leaving nothing to reveal. Drop the keyword instead — the whole point
+  // of the publish is to show what it wrote. (The table renders every case of
+  // the version, so the filter is the only thing that can hide one.)
+  React.useEffect(() => {
+    if (!focusCaseId) return;
+    if (!allCases.some((c) => c.testCaseId === focusCaseId)) return;
+    if (!cases.some((c) => c.testCaseId === focusCaseId)) setKeyword("");
+  }, [focusCaseId, allCases, cases]);
+
+  // Bring the row on screen, then drop the highlight. `block: "nearest"` is a
+  // no-op for a row already in view, so editing a visible row never yanks the
+  // table out from under the pointer. Re-runs as `cases` settles, because the
+  // row only exists once the refetch of the new version lands.
+  React.useEffect(() => {
+    if (!focusCaseId) return;
+    const row = Array.from(
+      tableRef.current?.querySelectorAll<HTMLElement>("tr[data-test-case-id]") ?? [],
+    ).find((el) => el.dataset.testCaseId === focusCaseId);
+    // The keyword filter can still hold the row out of the DOM for a render (the
+    // effect above drops the keyword on the same pass). Nothing is on screen and
+    // nothing is flashing, so its expiry doesn't start either.
+    if (!row) return;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+    row.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+    const timer = window.setTimeout(() => setFocus(null), ROW_FLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [focusCaseId, cases]);
+
   const confirmDelete = () => {
     if (!deleteRow) return;
     const target = deleteRow;
@@ -260,7 +318,13 @@ export function DatasetDetailView({
                   <span className="text-[12px] text-muted-foreground">Version</span>
                   <Select
                     value={selectedVersion?.id ?? ""}
-                    onValueChange={(v) => setSelectedVersionId(v)}
+                    onValueChange={(v) => {
+                      // Deliberately navigating to another snapshot supersedes a
+                      // pending reveal; left armed, it would fire on whatever
+                      // version the user lands on next.
+                      setFocus(null);
+                      setSelectedVersionId(v);
+                    }}
                   >
                     {/* The version id IS the time-sortable snowflake (`v.id`); the
                           dropdown pairs each version NUMBER with that id so both the
@@ -291,7 +355,7 @@ export function DatasetDetailView({
           </SearchFilterBar>
 
           {/* Table + focused-case slide-in panel */}
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div ref={tableRef} className="min-h-0 flex-1 overflow-auto">
             {cases.length === 0 ? (
               <EmptyState>
                 {keyword
@@ -323,6 +387,11 @@ export function DatasetDetailView({
                     return (
                       <TR
                         key={tc.id}
+                        // Keyed on the STABLE testCaseId, not the per-version row
+                        // id: a publish mints fresh row ids, and the id the server
+                        // hands back to focus is the stable one.
+                        data-test-case-id={tc.testCaseId}
+                        className={cn(tc.testCaseId === focusCaseId && "animate-row-flash")}
                         interactive
                         selected={tc.testCaseId === openCaseId}
                         tabIndex={0}
@@ -397,7 +466,10 @@ export function DatasetDetailView({
           datasetId={datasetId}
           mode={editorMode}
           onClose={() => setEditorMode(null)}
-          onSaved={() => setSelectedVersionId(null)}
+          onSaved={(focusTestCaseId, versionNumber) => {
+            setSelectedVersionId(null);
+            setFocus(focusTestCaseId ? { caseId: focusTestCaseId, version: versionNumber } : null);
+          }}
         />
       )}
 
