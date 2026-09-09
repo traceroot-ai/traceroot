@@ -43,7 +43,11 @@ jobs:
             tools-v*) ;;
             *) echo "::error::tag must start with tools-v, got '$TAG'"; exit 1 ;;
           esac
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          IS_DRAFT=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+          if [ "$IS_DRAFT" != "false" ]; then
+            echo "::error::$TAG is not a published release"
+            exit 1
+          fi
 
       - uses: actions/checkout@v4
         with:
