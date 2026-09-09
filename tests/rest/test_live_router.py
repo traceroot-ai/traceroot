@@ -74,6 +74,14 @@ def _mock_retention_lookup():
 
 
 @pytest.fixture()
+def mock_ch(monkeypatch):
+    """Mock ClickHouse client."""
+    mock = MagicMock()
+    monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: mock)
+    return mock
+
+
+@pytest.fixture()
 def client():
     async def mock_access(project_id: str, x_user_id=None):
         return ProjectAccessInfo(
@@ -106,19 +114,59 @@ class ConnectedRequest:
         return False
 
 
+class TestCompletionStateInClickHouse:
+    def test_queries_latest_span_versions_and_returns_timestamps(self, mock_ch):
+        """The helper pins the dedup query and returns ClickHouse timestamps."""
+        root_end_time = datetime(2026, 7, 28, 10, 0, 0)
+        last_ingest_time = datetime(2026, 7, 28, 10, 0, 5)
+        mock_ch.query.return_value = MagicMock(result_rows=[(root_end_time, last_ingest_time)])
+
+        result = live_router._completion_state_in_clickhouse(PROJECT_ID, TRACE_ID)
+
+        assert result == (root_end_time, last_ingest_time)
+        mock_ch.query.assert_called_once()
+
+        query_call = mock_ch.query.call_args
+        sql = " ".join(query_call.args[0].split())
+
+        assert "maxIf(span_end_time, isNull(parent_span_id))" in sql
+        assert "max(ch_update_time)" in sql
+        assert "ORDER BY ch_update_time DESC" in sql
+        assert "LIMIT 1 BY span_id" in sql
+        assert query_call.kwargs["parameters"] == {
+            "project_id": PROJECT_ID,
+            "trace_id": TRACE_ID,
+        }
+
+    def test_returns_open_root_state(self, mock_ch):
+        """A null root end time means the root span is still open."""
+        last_ingest_time = datetime(2026, 7, 28, 10, 0, 5)
+        mock_ch.query.return_value = MagicMock(result_rows=[(None, last_ingest_time)])
+
+        result = live_router._completion_state_in_clickhouse(PROJECT_ID, TRACE_ID)
+
+        assert result == (None, last_ingest_time)
+
+    def test_returns_empty_state_when_clickhouse_has_no_rows(self, mock_ch):
+        """No ClickHouse rows means no known completion or activity."""
+        mock_ch.query.return_value = MagicMock(result_rows=[])
+
+        result = live_router._completion_state_in_clickhouse(PROJECT_ID, TRACE_ID)
+
+        assert result == (None, None)
+
+
 class TestAlreadyCompleteTrace:
-    def test_emits_trace_complete_after_quiet_window(self, client):
+    def test_emits_trace_complete_after_quiet_window(self, client, mock_ch):
         """A root span with end_time starts the quiet window, then emits completion."""
         pubsub = MockPubSub([])
         mock_redis = MagicMock()
         mock_redis.pubsub.return_value = pubsub
+        completed_at = _utcnow_naive()
+        mock_ch.query.return_value = MagicMock(result_rows=[(completed_at, completed_at)])
 
         with (
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
-            patch(
-                "rest.routers.live._completion_state_in_clickhouse",
-                return_value=(_utcnow_naive(), _utcnow_naive()),
-            ),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             resp = client.get(ENDPOINT)
@@ -126,6 +174,7 @@ class TestAlreadyCompleteTrace:
         assert resp.status_code == 200
         events = parse_sse_events(resp.text)
         assert events == ["event: trace_complete"]
+        mock_ch.query.assert_called_once()
 
     def test_expired_quiet_window_closes_without_redis_poll(self, client):
         """If the quiet deadline has already elapsed, completion is emitted directly."""
@@ -467,22 +516,23 @@ class TestHardDeadline:
         events = parse_sse_events(resp.text)
         assert events == ["event: trace_complete"]
 
-    def test_hard_deadline_without_completed_root_emits_stream_timeout(self, client):
+    def test_hard_deadline_without_completed_root_emits_stream_timeout(self, client, mock_ch):
         """A trace whose root never completed hits the ceiling as a timeout,
         not a completion — the trace is not done."""
         pubsub = MockPubSub([])
         mock_redis = MagicMock()
         mock_redis.pubsub.return_value = pubsub
+        mock_ch.query.return_value = MagicMock(result_rows=[(None, None)])
 
         with (
             patch("rest.routers.live.MAX_STREAM_SECONDS", -1),
-            patch("rest.routers.live._completion_state_in_clickhouse", return_value=(None, None)),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             resp = client.get(ENDPOINT)
 
         events = parse_sse_events(resp.text)
         assert events == ["event: stream_timeout"]
+        mock_ch.query.assert_called_once()
 
 
 class TestRetentionGate:

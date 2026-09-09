@@ -4,6 +4,7 @@ import type { Span } from "@/types/api";
 import type { SpanTreeRow } from "../types";
 import { buildSpanTree } from "../utils";
 import { flattenTreeWithMetrics } from "../utils/timeline";
+import { mergeSpans } from "../hooks/use-trace-stream";
 import { getVisibleSpanRows, buildTreeRows } from "./SpanTreeView";
 
 // Minimal span factory — only fields relevant to the tree row model.
@@ -192,42 +193,59 @@ describe("buildTreeRows ↔ flattenTreeWithMetrics ordering parity", () => {
     expect(timelineIds).toEqual(treeIds);
   });
 
-  it("stabilizes sibling order when several spans are all in-progress", () => {
-    // Same start time and no end time on every child: the end-time comparison
-    // is Infinity vs Infinity, so ordering must come from the span_id
-    // tie-break regardless of arrival order.
-    const spans = [
-      makeSpan({ span_id: "root" }),
-      makeSpan({
-        span_id: "c-live",
-        parent_span_id: "root",
-        span_start_time: "2024-01-01T00:00:00.100Z",
-        span_end_time: null,
-      }),
-      makeSpan({
-        span_id: "a-live",
-        parent_span_id: "root",
-        span_start_time: "2024-01-01T00:00:00.100Z",
-        span_end_time: null,
-      }),
-      makeSpan({
-        span_id: "b-live",
-        parent_span_id: "root",
-        span_start_time: "2024-01-01T00:00:00.100Z",
-        span_end_time: null,
-      }),
+  it("keeps same-millisecond siblings deterministic across SSE arrival and final refetch order", () => {
+    const root = makeSpan({ span_id: "root" });
+    const aLive = makeSpan({
+      span_id: "a-live",
+      parent_span_id: "root",
+      span_start_time: "2024-01-01T00:00:00.100Z",
+      span_end_time: null,
+    });
+    const bLive = makeSpan({
+      span_id: "b-live",
+      parent_span_id: "root",
+      span_start_time: "2024-01-01T00:00:00.100Z",
+      span_end_time: null,
+    });
+    const cLive = makeSpan({
+      span_id: "c-live",
+      parent_span_id: "root",
+      span_start_time: "2024-01-01T00:00:00.100Z",
+      span_end_time: null,
+    });
+
+    function displayedOrders(spans: Span[]) {
+      const spanById = new Map(spans.map((span) => [span.span_id, span]));
+      const treeIds = buildTreeRows(buildSpanTree(spans), spanById, new Set()).flatMap((row) =>
+        row.type === "span" ? [row.row.span.span_id] : [],
+      );
+      const timelineIds = flattenTreeWithMetrics(spans, new Set(), 1000, 800).map(
+        (item) => item.span.span_id,
+      );
+      return { treeIds, timelineIds };
+    }
+
+    const finalRefetchOrder = displayedOrders([root, aLive, bLive, cLive]);
+
+    expect(finalRefetchOrder.treeIds).toEqual(["root", "a-live", "b-live", "c-live"]);
+    expect(finalRefetchOrder.timelineIds).toEqual(finalRefetchOrder.treeIds);
+
+    const sseArrivalOrders = [
+      [cLive, aLive, bLive],
+      [bLive, cLive, aLive],
+      [aLive, bLive, cLive],
     ];
 
-    const spanById = new Map(spans.map((s) => [s.span_id, s]));
-    const rows = buildSpanTree(spans);
-    const treeIds = buildTreeRows(rows, spanById, new Set()).flatMap((r) =>
-      r.type === "span" ? [r.row.span.span_id] : [],
-    );
-    const timelineIds = flattenTreeWithMetrics(spans, new Set(), 1000, 800).map(
-      (item) => item.span.span_id,
-    );
+    for (const arrivalOrder of sseArrivalOrders) {
+      const liveSpans = arrivalOrder.reduce<Span[]>(
+        (cachedSpans, arrivingSpan) => mergeSpans(cachedSpans, [arrivingSpan]),
+        [root],
+      );
+      const liveOrder = displayedOrders(liveSpans);
 
-    expect(treeIds).toEqual(["root", "a-live", "b-live", "c-live"]);
-    expect(timelineIds).toEqual(treeIds);
+      expect(liveOrder.timelineIds).toEqual(liveOrder.treeIds);
+      expect(liveOrder.treeIds).toEqual(finalRefetchOrder.treeIds);
+      expect(liveOrder.timelineIds).toEqual(finalRefetchOrder.timelineIds);
+    }
   });
 });
