@@ -84,8 +84,14 @@ export function useAIStream(options?: UseAIStreamOptions) {
   // epoch it began under, and one older than the latest send is stale even
   // after that run has finished (it would restore the transcript from before).
   const writeEpochRef = useRef<Map<string, number>>(new Map());
+  // Sessions no send or removal has touched sit at a shared baseline. Clearing every
+  // bucket raises the baseline past every epoch, so a load that began before
+  // the clear mismatches afterwards whether or not its session was known.
+  const baseEpochRef = useRef(0);
+  const epochOf = (sessionId: string) =>
+    writeEpochRef.current.get(sessionId) ?? baseEpochRef.current;
   const bumpWriteEpoch = (sessionId: string) =>
-    writeEpochRef.current.set(sessionId, (writeEpochRef.current.get(sessionId) ?? 0) + 1);
+    writeEpochRef.current.set(sessionId, epochOf(sessionId) + 1);
   // Ref so the stream loop always sees the latest callback without resubscribing.
   const onToolResultRef = useRef(options?.onToolResult);
   onToolResultRef.current = options?.onToolResult;
@@ -136,18 +142,14 @@ export function useAIStream(options?: UseAIStreamOptions) {
   const clearAll = useCallback(() => {
     // Dropping a bucket is a write too: a history load still in flight for
     // it must not bring it back.
-    setMessagesBySession((prev) => {
-      for (const sessionId of Object.keys(prev)) bumpWriteEpoch(sessionId);
-      return {};
-    });
+    baseEpochRef.current = Math.max(baseEpochRef.current, ...writeEpochRef.current.values()) + 1;
+    writeEpochRef.current.clear();
+    setMessagesBySession({});
     setStreamingSessions({});
   }, []);
 
   /** The session's current write epoch; snapshot it when a history load begins. */
-  const sessionWriteEpoch = useCallback(
-    (sessionId: string) => writeEpochRef.current.get(sessionId) ?? 0,
-    [],
-  );
+  const sessionWriteEpoch = useCallback((sessionId: string) => epochOf(sessionId), []);
 
   /**
    * Replace a session's cached messages (history loads) — unless a run owns
@@ -162,7 +164,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
     (sessionId: string, messages: AIMessage[], asOf: number) => {
       setMessagesBySession((prev) => {
         if (runsRef.current.has(sessionId)) return prev;
-        if (asOf !== (writeEpochRef.current.get(sessionId) ?? 0)) return prev;
+        if (asOf !== epochOf(sessionId)) return prev;
         return { ...prev, [sessionId]: messages };
       });
     },
