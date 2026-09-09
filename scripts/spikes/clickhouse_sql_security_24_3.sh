@@ -21,7 +21,12 @@
 # Usage:
 #   bash scripts/spikes/clickhouse_sql_security_24_3.sh
 #   CH_IMAGE=clickhouse/clickhouse-server:24.3 EXPECTED_VERSION=24.3.18.7 bash ...
-#   CH_IMAGE=bitnamilegacy/clickhouse:25.2.1-debian-12-r0 EXPECTED_VERSION=25.2.1.3085 bash ...
+#   CH_IMAGE=bitnamilegacy/clickhouse:25.2.1-debian-12-r0 \\
+#     EXPECTED_VERSION=25.2.1.3085 \\
+#     EXPECTED_DIGEST=sha256:3c1f49548968dce24832ea2487647fe80dcfbd832d2dbb2e9e735629d7c7fc31 bash ...
+#
+#   EXPECTED_DIGEST is required for any image other than the default: it defaults to the
+#   24.3 pin, so omitting it makes test 0 fail against a different build.
 #
 # EXPECTED_VERSION is asserted, so a run always records which server proved the model.
 
@@ -31,8 +36,15 @@ CH_CONTAINER="${CH_CONTAINER:-ch_sql_spike}"
 CH_IMAGE="${CH_IMAGE:-}"
 if [ -n "$CH_IMAGE" ]; then
   docker rm -f "$CH_CONTAINER" >/dev/null 2>&1 || true
-  docker run -d --name "$CH_CONTAINER" -e ALLOW_EMPTY_PASSWORD=yes "$CH_IMAGE" >/dev/null
-  trap 'docker rm -f "$CH_CONTAINER" >/dev/null 2>&1 || true' EXIT
+  # Ports are published because the companion bound-parameter test
+  # (clickhouse_connect_bound_param.py) connects over HTTP from the host, and it runs
+  # AFTER this script against the users and views this script creates. Teardown is
+  # therefore skippable: set CH_KEEP=1 to leave the server up for it.
+  docker run -d --name "$CH_CONTAINER" -e ALLOW_EMPTY_PASSWORD=yes \
+    -p "${CH_HTTP_PORT:-18123}:8123" -p "${CH_NATIVE_PORT:-19000}:9000" "$CH_IMAGE" >/dev/null
+  if [ -z "${CH_KEEP:-}" ]; then
+    trap 'docker rm -f "$CH_CONTAINER" >/dev/null 2>&1 || true' EXIT
+  fi
   for _ in $(seq 1 50); do
     docker exec "$CH_CONTAINER" clickhouse-client --query "SELECT 1" >/dev/null 2>&1 && break
     sleep 3
@@ -171,8 +183,13 @@ IMG_ID=$(docker inspect --format '{{.Image}}' "$CH_CONTAINER")
 # Repo-agnostic: the baseline image is not always clickhouse/clickhouse-server
 # (the deployed build is a different repository), and a repo-specific pattern here
 # silently yielded an empty digest rather than a mismatch.
+# Matched against the repository actually configured, not merely the first entry:
+# an image can carry digests for several repositories, and comparing the pin to an
+# unrelated one would either pass or fail for the wrong reason.
+IMG_REPO=$(docker inspect --format '{{.Config.Image}}' "$CH_CONTAINER")
+IMG_REPO="${IMG_REPO%%:*}"
 ACTUAL_DIGEST=$(docker image inspect "$IMG_ID" --format '{{range .RepoDigests}}{{println .}}{{end}}' \
-  | sed -nE 's|.*@(sha256:[0-9a-f]+).*|\1|p' | head -1)
+  | sed -nE "s|^${IMG_REPO}@(sha256:[0-9a-f]+)\$|\1|p" | head -1)
 echo "running image: $(docker inspect --format '{{.Config.Image}}' "$CH_CONTAINER")  digest: ${ACTUAL_DIGEST:-<none>}"
 if [ "$ACTUAL_DIGEST" != "$EXPECTED_DIGEST" ]; then
   echo "FAIL [0: image digest matches pinned baseline]: expected $EXPECTED_DIGEST, running image is ${ACTUAL_DIGEST:-<none>}"
