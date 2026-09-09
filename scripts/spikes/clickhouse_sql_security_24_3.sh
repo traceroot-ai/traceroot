@@ -64,6 +64,24 @@ else
     echo "FATAL: container '$CH_CONTAINER' not found. Set CH_IMAGE to have this script start one." >&2
     exit 1
   fi
+  # Port bindings only describe reachability when the container actually has its own network
+  # namespace. Under host networking ClickHouse listens straight on this machine's interfaces
+  # and NetworkSettings.Ports is empty, so the loop below would find nothing and wave it
+  # through; a shared namespace is governed by the other container's bindings, not this one's.
+  _netmode=$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$CH_CONTAINER" 2>/dev/null)
+  case "$_netmode" in
+    host)
+      echo "FATAL: '$CH_CONTAINER' uses host networking, so ClickHouse listens directly on this" >&2
+      echo "       machine's interfaces and no port binding confines it. This spike creates" >&2
+      echo "       no-password accounts and will not seed them into such a server." >&2
+      exit 1 ;;
+    container:*)
+      echo "FATAL: '$CH_CONTAINER' shares another container's network namespace ($_netmode), so its" >&2
+      echo "       reachability is governed by that container's port bindings, which this script" >&2
+      echo "       cannot vouch for. Use a container with its own loopback-published ports." >&2
+      exit 1 ;;
+  esac
+
   _bad=""
   for _binding in $(docker inspect \
       -f '{{range $p, $c := .NetworkSettings.Ports}}{{range $c}}{{$p}}@{{.HostIp}} {{end}}{{end}}' \
