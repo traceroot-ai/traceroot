@@ -144,21 +144,20 @@ class TmuxSession:
         )
 
     def verify_installation(self) -> bool:
-        from tmux_tools.schema import Prerequisite
-
-        dep = Prerequisite(
-            name="tmux is installed",
-            command="tmux -V",
-            expected_output="tmux 3.",
-            instructions="""
+        name = "tmux is installed"
+        command = "tmux -V"
+        instructions = """
 Please install tmux version 3 or above.
 
     Mac:   brew install tmux
     Linux: sudo apt install tmux
-""",
-        )
-        print("Checking prerequisite:", dep.name)
-        result = dep.check()
-        if not result.succeeded:
-            print(result.message)
-        return result.succeeded
+"""
+        print("Checking prerequisite:", name)
+        output = _shell(command)
+        if output.returncode == 0 and "tmux 3." in output.stdout:
+            return True
+
+        print(f"Failed to check: {name}")
+        print(_format_error(command, output))
+        print(instructions)
+        return False
