@@ -199,7 +199,12 @@ else
   esac
 fi
 IMG_REPO="${IMG_REPO%%@*}"   # drop any @sha256:... suffix
-IMG_REPO="${IMG_REPO%:*}"    # drop the tag, keeping any registry:port prefix
+# Strip a tag, but only a tag. A registry may carry a port ("registry:5000/foo"), and
+# blindly cutting at the last colon turned that into "registry". A colon is only a tag
+# separator when it appears in the LAST path segment.
+case "${IMG_REPO##*/}" in
+  *:*) IMG_REPO="${IMG_REPO%:*}" ;;
+esac
 
 # Exact prefix comparison rather than a regex: a repository can contain characters
 # that are regex metacharacters (a registry host has dots), and matching those
