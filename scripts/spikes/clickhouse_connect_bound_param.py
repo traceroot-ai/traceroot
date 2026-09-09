@@ -4,7 +4,7 @@ Test 7: clickhouse-connect bound parameter in parameterized view call.
 Prerequisite: run `scripts/spikes/clickhouse_sql_security_24_3.sh` first — it
 creates the `spike_ro` user and the `spike.spans_definer_v1` view this script uses.
 
-Connects to localhost:$CH_HTTP_PORT (default 18123) — the same variable the spike
+Connects to 127.0.0.1:$CH_HTTP_PORT (default 18123) — the same variable the spike
 script publishes the container on, so a non-default port reaches the right server —
 and runs the bound-param view-call form:
   SELECT span_id FROM spike.spans_definer_v1(project_id = {scope_project_id:String})
@@ -15,6 +15,10 @@ Note: uses spike_ro (no_password, no HOST restriction) because the `default` use
 has HOST LOCAL set, which blocks HTTP connections arriving through Docker port-mapping
 (the container sees a Docker bridge IP, not 127.0.0.1).  The `spike_ro` user has
 SELECT on `spike.spans_definer_v1` and can reach the HTTP port from the host.
+
+Because spike_ro is deliberately unrestricted by host and has no password, the spike
+script publishes the container ports on 127.0.0.1 only.  Do not republish them on
+0.0.0.0 to reach this server from another machine.
 
 PASS  iff rows = ['sA1', 'sA2'] and no exception.
 """
@@ -36,7 +40,7 @@ print(f"clickhouse_connect version: {_ver}", flush=True)
 _PORT = int(os.environ.get("CH_HTTP_PORT", "18123"))
 
 client = clickhouse_connect.get_client(
-    host="localhost", port=_PORT, username="spike_ro", password=""
+    host="127.0.0.1", port=_PORT, username="spike_ro", password=""
 )
 
 query = (

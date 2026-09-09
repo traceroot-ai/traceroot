@@ -40,8 +40,14 @@ if [ -n "$CH_IMAGE" ]; then
   # (clickhouse_connect_bound_param.py) connects over HTTP from the host, and it runs
   # AFTER this script against the users and views this script creates. Teardown is
   # therefore skippable: set CH_KEEP=1 to leave the server up for it.
+  #
+  # They are bound to loopback only. This server runs with ALLOW_EMPTY_PASSWORD and
+  # creates spike accounts with no password, so publishing on 0.0.0.0 would let anything
+  # that can route to this host read the physical tables directly and bypass the
+  # view-only scoping the spike exists to demonstrate.
   docker run -d --name "$CH_CONTAINER" -e ALLOW_EMPTY_PASSWORD=yes \
-    -p "${CH_HTTP_PORT:-18123}:8123" -p "${CH_NATIVE_PORT:-19000}:9000" "$CH_IMAGE" >/dev/null
+    -p "127.0.0.1:${CH_HTTP_PORT:-18123}:8123" \
+    -p "127.0.0.1:${CH_NATIVE_PORT:-19000}:9000" "$CH_IMAGE" >/dev/null
   if [ -z "${CH_KEEP:-}" ]; then
     trap 'docker rm -f "$CH_CONTAINER" >/dev/null 2>&1 || true' EXIT
   fi
