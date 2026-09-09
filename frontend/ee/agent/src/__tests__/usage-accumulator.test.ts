@@ -65,6 +65,18 @@ describe("UsageAccumulator", () => {
     warnSpy.mockRestore();
   });
 
+  it("warns for a cache-only run too, so it is not silently unbilled", async () => {
+    mocks.calculateCost.mockResolvedValueOnce(0);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const acc = new UsageAccumulator();
+    acc.onEvent(messageEnd({ input: 0, output: 0, cacheRead: 900, cacheWrite: 100 }));
+
+    const usage = await acc.toTokenUsage(false);
+    expect(usage?.cost).toBe(0);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("test-model"));
+    warnSpy.mockRestore();
+  });
+
   it("survives a failing pricing lookup with a zero-cost fallback", async () => {
     mocks.calculateCost.mockRejectedValueOnce(new Error("pricing db down"));
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

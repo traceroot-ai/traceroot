@@ -152,9 +152,37 @@ describe("useAiChat session switching", () => {
       expect(result.current.messages.some((m) => m.content === "history of B")).toBe(true),
     );
 
-    // session A's stream keeps producing — nothing may bleed into B's view
-    sseA.emit(" continues");
-    await new Promise((r) => setTimeout(r, 50));
+    // session A's stream keeps producing — nothing may bleed into B's view.
+    // Wait for the delta to land in A's own bucket (observable by switching
+    // back), not on a timer: a sleep either flakes or passes vacuously.
+    await act(async () => {
+      sseA.emit(" continues");
+    });
+    await act(async () => {
+      await result.current.handleSelectSession({ ...sessionB, id: "A" });
+    });
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "partial answer continues")).toBe(
+        true,
+      ),
+    );
+    // Back to B with its history fetch left hanging: the view is B's cached
+    // bucket, where a leaked delta would still be visible (a fresh history
+    // load would erase it and make this check vacuous).
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if ((init?.method ?? "GET") === "GET" && url.endsWith("/ai/sessions/B/messages")) {
+        return new Promise<Response>(() => {});
+      }
+      return answer(input, init);
+    });
+    act(() => {
+      void result.current.handleSelectSession(sessionB);
+    });
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "history of B")).toBe(true),
+    );
     expect(result.current.messages.every((m) => !m.content.includes("continues"))).toBe(true);
     // and the visible session is not "streaming"
     expect(result.current.isStreaming).toBe(false);
@@ -280,6 +308,59 @@ describe("useAiChat session switching", () => {
     expect(result.current.messages.some((m) => m.content === "fresh question")).toBe(true);
     expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true);
     expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("a history load resolving after the run finished keeps the completed transcript", async () => {
+    const { result } = renderChat();
+    const sseB = createSSE();
+    let resolveHistory!: (r: Response) => void;
+    const deferredHistory = new Promise<Response>((r) => {
+      resolveHistory = r;
+    });
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/ai/sessions/B/messages")) return deferredHistory;
+      if (method === "POST" && url.endsWith("/ai/sessions/B/messages")) return sseB.response;
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    let selectPromise!: Promise<void>;
+    act(() => {
+      selectPromise = result.current.handleSelectSession(sessionB);
+    });
+    await act(async () => {
+      await result.current.handleSend("fresh question", MODEL);
+    });
+    sseB.emit("live reply");
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true),
+    );
+    // The run completes before the stale history resolves.
+    sseB.close();
+    await waitFor(() => expect(result.current.isStreaming).toBe(false));
+
+    resolveHistory(
+      new Response(
+        JSON.stringify({
+          messages: [
+            {
+              id: "b-old",
+              role: "user",
+              content: "history of B",
+              createTime: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await act(async () => {
+      await selectPromise;
+    });
+
+    expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true);
+    expect(result.current.messages.some((m) => m.content === "history of B")).toBe(false);
   });
 
   it("a second send right after session creation reuses the session", async () => {

@@ -77,6 +77,7 @@ export function useAiChat({
     isSessionStreaming,
     sendMessage,
     setSessionMessages,
+    sessionWriteEpoch,
     appendUserMessage,
     resolvePendingDecision,
     abortSession,
@@ -169,6 +170,8 @@ export function useAiChat({
     setActiveSessionId(initialSessionId);
     if (isSessionStreaming(initialSessionId)) return;
 
+    // The hook drops this load if a send happens while it is in flight.
+    const asOf = sessionWriteEpoch(initialSessionId);
     const ac = new AbortController();
     fetch(`/api/projects/${projectId}/ai/sessions/${initialSessionId}/messages`, {
       signal: ac.signal,
@@ -176,10 +179,7 @@ export function useAiChat({
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (ac.signal.aborted || !data) return;
-        // A run may have started in this session while the fetch was in
-        // flight — the stale load must not wipe the live turn.
-        if (isSessionStreaming(initialSessionId)) return;
-        setSessionMessages(initialSessionId, mapDbMessages(data.messages || []));
+        setSessionMessages(initialSessionId, mapDbMessages(data.messages || []), asOf);
       })
       .catch((err) => {
         if (err?.name !== "AbortError")
@@ -443,20 +443,19 @@ export function useAiChat({
       // the in-flight assistant response until the run completes, so loading
       // history here would make the chat appear frozen.
       if (isSessionStreaming(session.id)) return;
+      // The hook drops this load if a send happens while it is in flight.
+      const asOf = sessionWriteEpoch(session.id);
       try {
         const res = await fetch(`/api/projects/${projectId}/ai/sessions/${session.id}/messages`);
         if (res.ok) {
           const data = await res.json();
-          // A run may have started in this session while the fetch was in
-          // flight — the stale load must not wipe the live turn.
-          if (isSessionStreaming(session.id)) return;
-          setSessionMessages(session.id, mapDbMessages(data.messages || []));
+          setSessionMessages(session.id, mapDbMessages(data.messages || []), asOf);
         }
       } catch (err) {
         console.error("[AI Chat] Failed to load session messages:", err);
       }
     },
-    [projectId, setSessionMessages, isSessionStreaming],
+    [projectId, setSessionMessages, sessionWriteEpoch, isSessionStreaming],
   );
 
   const handleDeleteSession = useCallback(
