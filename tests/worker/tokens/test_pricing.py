@@ -234,6 +234,18 @@ class TestOpenAIModelIds:
         assert result["cost"] > 0
 
 
+class TestGpt56CyberPublishedPrices:
+    """Cache-rate assertions are ratios of the input rate, so a wrong base price stays
+    internally consistent and passes. Assert the absolute, provider-published rate
+    directly.
+    """
+
+    def test_input_and_output_match_published_rate(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gpt-5.6-cyber")
+        assert entry["prices"]["input"] == pytest.approx(1.25e-5)  # $12.50 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(7.5e-5)  # $75 / 1M tokens
+
+
 class TestGpt56CachePricing:
     """gpt-5.6 is the first OpenAI family with non-null cacheWrite pricing."""
 
