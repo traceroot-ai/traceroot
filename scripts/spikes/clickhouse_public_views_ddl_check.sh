@@ -8,7 +8,8 @@
 # views but NOT the physical tables.
 #
 # This is a disposable verification check (uses a throwaway `pubviews` database/user), not
-# the full live security matrix. Prereq: a running container `ch_sql_spike` on
+# the full live security matrix. Prereq: a running container named by CH_CONTAINER
+# (default `ch_sql_spike`), or set CH_IMAGE to have this script start one, on
 # clickhouse/clickhouse-server:24.3. Set CH_IMAGE to have this script start its own
 # disposable server on that image (e.g. the build staging deploys); leave it unset to
 # use an already-running container named by CH_CONTAINER.
@@ -61,7 +62,7 @@ ch --query "CREATE VIEW pubviews.traces_public_v1 AS SELECT 1 AS stale"
 
 echo "== apply migration 012 Up section AS WRITTEN (DEFINER = sql_gateway_writer) =="
 awk '/-- \+goose Up/{f=1;next} /-- \+goose Down/{f=0} f' "$MIG" \
-  | docker exec -i ch_sql_spike clickhouse-client --database pubviews --multiquery
+  | docker exec -i "$CH_CONTAINER" clickhouse-client --database pubviews --multiquery
 echo "migration 012 Up applied OK"
 
 echo "== SHOW CREATE VIEW pubviews.spans_public_v1 =="
