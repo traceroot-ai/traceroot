@@ -2,9 +2,9 @@
 
 Pricing resolution is implemented twice — ``worker.tokens.pricing`` prices spans at
 ingest, ``frontend/packages/core/src/model-pricing/lookup.ts`` prices agent and
-chat calls — with no shared contract between them (#1597). Both now normalize
+chat calls — with no shared contract between them. Both now normalize
 gateway/router prefixes before matching, and neither side can import the other, so
-a prefix added to one list and not the other silently reinstates #1556 on the half
+a prefix added to one list and not the other silently reinstates the $0 miss on the half
 that was missed: the model prices correctly in one surface and reads $0 in the
 other, which looks like flaky cost rendering rather than a lookup gap.
 

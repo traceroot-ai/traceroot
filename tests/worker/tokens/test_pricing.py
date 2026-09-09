@@ -273,7 +273,7 @@ class TestGpt56LunaPublishedPrices:
 
 
 class TestGatewayPrefixes:
-    """Gateway/router-prefixed ids must price like the bare model (#1556).
+    """Gateway/router-prefixed ids must price like the bare model.
 
     Every catalogue pattern hand-encodes the prefixes it tolerates, so coverage
     drifted between siblings and no entry accepted the router prefixes real
@@ -345,7 +345,7 @@ class TestGatewayPrefixes:
 
 class TestGatewayPrefixedTokenEstimation:
     """A prefixed id has to mean the same model to the token estimator as it does
-    to the price lookup (#1556).
+    to the price lookup.
 
     is_claude_model was a bare startswith("claude"), so a gateway-prefixed Claude
     id fell through to tiktoken's cl100k_base — a materially different estimate,
@@ -383,6 +383,23 @@ class TestGatewayPrefixedTokenEstimation:
             tiktoken.get_encoding("cl100k_base").encode(text)
         )
         assert count_tokens(text, "azure/gpt-4o") == count_tokens(text, "gpt-4o")
+
+    def test_calculate_cost_prices_a_prefixed_claude_id_like_the_bare_one(self, real_cache):
+        """End to end, the two readers have to agree before a cost is trustworthy.
+
+        The price fallback alone is what makes this reachable: it turns a prefixed
+        Claude id from unpriced into priced, so a cost now gets recorded where none
+        was before. If the estimator still read the prefix it would reach for
+        tiktoken, and that cost would be recorded off a wrong token count -- worse
+        than the missing cost it replaced.
+        """
+        text = "a" * 400
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            prefixed = calculate_cost("azure/claude-opus-4-8", text, text)
+            bare = calculate_cost("claude-opus-4-8", text, text)
+
+        assert bare["cost"] is not None, "bare id must price, or this proves nothing"
+        assert prefixed == bare
 
 
 class TestGeminiModelIds:

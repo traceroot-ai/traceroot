@@ -192,7 +192,7 @@ describe("getModelPricing — uncompilable pattern", () => {
 
 // Every catalogue pattern hand-encodes the gateway prefixes it tolerates, so
 // coverage drifted between siblings and no entry accepted the router prefixes real
-// deployments emit — cost silently resolved to $0 (#1556). The fixture below keeps
+// deployments emit — cost silently resolved to $0. The fixture below keeps
 // the catalogue shape: it accepts `anthropic/` in-pattern and nothing else.
 describe("getModelPricing — gateway/router prefixes", () => {
   const CANONICAL = "claude-opus-4-7";
