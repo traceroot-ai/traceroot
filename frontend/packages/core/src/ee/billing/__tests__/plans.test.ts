@@ -10,6 +10,8 @@ import {
   isDetectorRunBlocked,
   isIngestionBlocked,
   hasEntitlement,
+  toPlanType,
+  getPlanOrder,
 } from "../plans.ts";
 
 describe("slack-integration entitlement", () => {
@@ -134,5 +136,30 @@ describe("isDetectorRunBlocked", () => {
   it("respects ENABLE_BILLING=false (unblocks all)", () => {
     vi.stubEnv("ENABLE_BILLING", "false");
     expect(isDetectorRunBlocked(PlanType.FREE, 9999)).toBe(false);
+  });
+});
+
+describe("toPlanType", () => {
+  it("passes through every known plan", () => {
+    for (const plan of Object.values(PlanType)) {
+      expect(toPlanType(plan)).toBe(plan);
+    }
+  });
+
+  it("fails closed to free for an unrecognized, missing, or prototype-chain plan", () => {
+    // billing_plan is a free-form TEXT column, so anything can arrive.
+    expect(toPlanType("legacy-team")).toBe(PlanType.FREE);
+    expect(toPlanType("")).toBe(PlanType.FREE);
+    expect(toPlanType(null)).toBe(PlanType.FREE);
+    expect(toPlanType(undefined)).toBe(PlanType.FREE);
+    expect(toPlanType("constructor")).toBe(PlanType.FREE);
+    expect(toPlanType("FREE")).toBe(PlanType.FREE);
+  });
+
+  it("keeps plan comparison well-defined for an unknown plan", () => {
+    // Without normalization getPlanOrder(unknown) is undefined, so every
+    // comparison against it is false and each CTA reads "Downgrade".
+    expect(getPlanOrder("legacy-team" as PlanType)).toBeUndefined();
+    expect(getPlanOrder(toPlanType("legacy-team"))).toBe(0);
   });
 });

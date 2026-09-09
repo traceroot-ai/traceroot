@@ -294,3 +294,45 @@ def test_unmodelled_field_still_reaches_the_handler(client, upstream):
     assert resp.status_code == 200
     assert upstream.calls.call_count == 1
     assert b"field_from_a_newer_sdk" in upstream.calls.last.request.content
+
+
+# --- Retention surface ---------------------------------------------------------
+
+
+class TestNoUngatedRetentionRead:
+    """The gateway exposes no time-windowed read of evaluation runs, so it has
+    nothing to apply ``rest.retention.clamp_retention_window`` to.
+
+    Evaluation-run *reads* are served by the Prisma-owned Next.js route
+    (``frontend/ui/src/app/api/projects/[projectId]/evaluations/runs/route.ts``),
+    which is where the plan clamp lives. What is asserted here is the premise that
+    makes that sufficient: this gateway's ``evaluation-runs`` surface is
+    write-only. Adding a listing GET without a retention clamp would reopen the
+    entitlement leak on a path the Next route never sees, so it fails here first.
+    """
+
+    def test_evaluation_runs_allowlist_is_write_only(self):
+        for shape, methods in eval_gateway._UPSTREAM_ROUTES:
+            if shape[0] != "evaluation-runs":
+                continue
+            assert methods <= {"POST"}, (
+                f"{'/'.join(shape)} now allows {sorted(methods - {'POST'})}. A read of "
+                "evaluation runs must clamp the window to the caller's plan "
+                "(rest.retention.clamp_retention_window) before it is allowlisted."
+            )
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/public/evaluation-runs",
+            "/api/v1/public/evaluation-runs?started_after=2020-01-01T00:00:00Z",
+            "/api/v1/public/evaluation-runs/run1",
+        ],
+    )
+    def test_reading_runs_through_the_gateway_is_refused(self, client, upstream, path):
+        resp = client.get(path, headers=AUTH_HEADER)
+        # 405 today (every `evaluation-runs` route is POST-only, so the read is
+        # refused at routing); 404 if the shape itself stops existing. Either way
+        # the request never reaches the control plane.
+        assert resp.status_code in (404, 405), resp.text
+        assert upstream.calls.call_count == 0
