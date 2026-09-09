@@ -27,7 +27,7 @@ from rest.routers.public.deps import (
     authenticate_user_token,
 )
 from rest.routers.public.traces import AuthResult, authenticate_api_key
-from shared.config import normalize_plan
+from shared.config import normalize_plan, settings
 
 BASE_URL = "http://localhost:3000"
 
@@ -301,6 +301,87 @@ class TestAuthenticateApiKey:
             await authenticate_api_key("Bearer test-key")
         assert exc_info.value.status_code == 503
         assert exc_info.value.detail == "Authentication service error"
+
+
+# ── get_project_access: trusted internal traffic ────────────────────────
+
+
+class TestGetProjectAccessInternal:
+    """The agent service and workers call with the shared secret. Traffic they
+    send on behalf of a user must see that user's plan, not enterprise access;
+    only a system session with no user keeps the enterprise-equivalent view."""
+
+    @pytest.fixture(autouse=True)
+    def _secret(self, monkeypatch):
+        monkeypatch.setattr(settings, "internal_api_secret", "internal-test-secret")
+
+    @respx.mock
+    async def test_user_initiated_request_resolves_the_users_plan(self):
+        route = respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
+            return_value=Response(
+                200,
+                json={
+                    "hasAccess": True,
+                    "role": "MEMBER",
+                    "workspaceId": "ws-456",
+                    "billingPlan": "free",
+                },
+            )
+        )
+        result = await get_project_access(
+            "proj-123", "user-456", x_internal_secret="internal-test-secret"
+        )
+        assert route.called
+        assert result.billing_plan == "free"
+        assert result.role == "MEMBER"
+        assert result.workspace_id == "ws-456"
+        assert result.user_id == "user-456"
+        # Still trusted traffic: not rate limited.
+        assert is_request_rate_limit_exempt()
+
+    @respx.mock
+    async def test_system_session_without_a_user_keeps_enterprise_access(self):
+        route = respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
+            return_value=Response(200, json={"hasAccess": True})
+        )
+        result = await get_project_access(
+            "proj-123", None, x_internal_secret="internal-test-secret"
+        )
+        assert not route.called
+        assert result.user_id == "system"
+        assert result.billing_plan == "enterprise"
+        assert is_request_rate_limit_exempt()
+
+    @respx.mock
+    async def test_user_initiated_request_is_refused_when_the_user_has_no_access(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
+            return_value=Response(200, json={"hasAccess": False, "error": "No access"})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await get_project_access(
+                "proj-123", "user-456", x_internal_secret="internal-test-secret"
+            )
+        assert exc_info.value.status_code == 403
+
+    @respx.mock
+    async def test_wrong_secret_with_a_user_is_plain_user_auth_and_not_exempt(self):
+        # A wrong secret is not "internal": the user path runs, and the request
+        # is rate limited like any other.
+        route = respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
+            return_value=Response(
+                200,
+                json={
+                    "hasAccess": True,
+                    "role": "MEMBER",
+                    "workspaceId": "ws-456",
+                    "billingPlan": "free",
+                },
+            )
+        )
+        result = await get_project_access("proj-123", "user-456", x_internal_secret="wrong")
+        assert route.called
+        assert result.billing_plan == "free"
+        assert is_request_rate_limit_exempt() is False
 
 
 # ── get_project_access ──────────────────────────────────────────────────
