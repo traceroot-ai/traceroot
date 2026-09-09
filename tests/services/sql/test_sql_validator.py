@@ -487,3 +487,36 @@ def test_value_placeholders_remain_allowed(sql: str) -> None:
     # A caller's own value parameters are a product feature; only the identifier
     # form is refused.
     assert isinstance(validate(sql), exp.Query)
+
+
+# ---------------------------------------------------------------------------
+# The reserved tenant name is refused in every identifier position, including the
+# two that introduce a name rather than reference one.
+# ---------------------------------------------------------------------------
+RESERVED_ALIAS_CASES = [
+    pytest.param("WITH project_id AS (SELECT 1 AS x) SELECT x FROM project_id", id="cte-alias"),
+    pytest.param(
+        "SELECT span_id FROM (SELECT span_id FROM spans) AS project_id", id="derived-table-alias"
+    ),
+]
+
+
+@pytest.mark.parametrize("sql", RESERVED_ALIAS_CASES)
+def test_reserved_name_is_refused_as_a_cte_or_derived_table_alias(sql: str) -> None:
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate(sql)
+    # Same generic wording as the other positions: the error never names the column.
+    assert "project_id" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param(
+            "WITH recent AS (SELECT span_id FROM spans) SELECT span_id FROM recent", id="cte"
+        ),
+        pytest.param("SELECT span_id FROM (SELECT span_id FROM spans) AS s", id="derived-table"),
+    ],
+)
+def test_ordinary_cte_and_derived_table_aliases_still_pass(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)

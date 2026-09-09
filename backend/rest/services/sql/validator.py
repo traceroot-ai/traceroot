@@ -366,8 +366,11 @@ def validate(sql: str) -> exp.Query:
         # 7. The reserved tenant-scoping name `project_id` is blocked in EVERY
         #    identifier position, for policy consistency: a column reference
         #    (SELECT project_id / WHERE project_id = …), a column's table
-        #    qualifier (project_id.col), an output alias (… AS project_id), and a
-        #    table alias (FROM spans AS project_id). All share the same generic
+        #    qualifier (project_id.col), an output alias (… AS project_id), a
+        #    table alias (FROM spans AS project_id), and the two alias positions
+        #    that introduce a NAME rather than reference one — a CTE
+        #    (WITH project_id AS …) and a derived table
+        #    (FROM (…) AS project_id). All share the same generic
         #    wording so the error never names the reserved column. (Tenant scoping
         #    itself is enforced by the rewriter's view injection, independent of
         #    these checks; this keeps the surface tidy and free of footguns.)
@@ -380,6 +383,9 @@ def validate(sql: str) -> exp.Query:
             raise SqlValidationError("Access to a restricted column is not allowed")
 
         if isinstance(node, exp.Table) and node.alias.lower() == "project_id":
+            raise SqlValidationError("Access to a restricted column is not allowed")
+
+        if isinstance(node, (exp.CTE, exp.Subquery)) and node.alias.lower() == "project_id":
             raise SqlValidationError("Access to a restricted column is not allowed")
 
         # 11. Reserved bound-parameter names ({name:Type}). ClickHouse
