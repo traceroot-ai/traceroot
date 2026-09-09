@@ -1,10 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-import { prisma, getStripeOrThrow, getPlanConfig, isUpgrade, PlanType } from "@traceroot/core";
+import {
+  prisma,
+  getStripeOrThrow,
+  getPlanConfig,
+  isUpgrade,
+  isBillingEnabled,
+  PlanType,
+} from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
+    if (!isBillingEnabled()) {
+      return NextResponse.json(
+        { error: "Billing is disabled on this deployment" },
+        { status: 400 },
+      );
+    }
+
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
