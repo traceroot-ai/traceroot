@@ -1,0 +1,118 @@
+---
+title: CLI Backend API Contract
+description: Maintainer handoff contract for traceroot-cli public API integration
+---
+
+This page is the backend handoff contract for maintainers of the standalone [`traceroot-cli`](https://github.com/traceroot-ai/traceroot-cli) repository. It points CLI implementers at the generated public API contract and records the CLI-specific integration rules that should not be inferred from TraceRoot monorepo internals.
+
+## Source Of Truth
+
+Generate CLI types from the committed public OpenAPI artifact:
+
+- Repository path: [`backend/rest/openapi/public.json`](https://github.com/traceroot-ai/traceroot/blob/main/backend/rest/openapi/public.json)
+- Raw URL template for vendoring: `https://raw.githubusercontent.com/traceroot-ai/traceroot/{commit-or-tag}/backend/rest/openapi/public.json`
+
+Vendor the schema from the same TraceRoot backend commit or release tag that the CLI targets. Do not generate CLI types from one backend revision and test them against another.
+
+The public route prefix is:
+
+```text
+/api/v1/public/*
+```
+
+Regenerate or verify the artifact from the monorepo root:
+
+```bash
+uv run python scripts/sync_public_openapi.py
+uv run python scripts/sync_public_openapi.py --check
+```
+
+The generator keeps only public paths, prunes unrelated schemas, applies bearer-auth metadata, and renders deterministic JSON for reviewable diffs. Treat `backend/rest/openapi/public.json` as the exact source for request bodies, query parameters, response fields, and documented status codes.
+
+## Host And Auth
+
+TraceRoot Cloud clients should default to:
+
+```text
+https://app.traceroot.ai
+```
+
+Self-hosted clients should use the host that serves the backend public API. Keep the CLI host configurable; do not hard-code cloud-only assumptions into command implementations.
+
+Every public endpoint requires a project API key:
+
+```http
+Authorization: Bearer <project_api_key>
+```
+
+Project API keys are created in the TraceRoot UI. The backend validates the key server-side and scopes reads, exports, and ingestion to the key's project, so CLI commands should not ask users for `project_id`.
+
+Minimal smoke test:
+
+```bash
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"
+export TRACEROOT_API_KEY="tr_live_example_key"
+
+curl -sS "$TRACEROOT_HOST_URL/api/v1/public/whoami" \
+  -H "Authorization: Bearer $TRACEROOT_API_KEY"
+```
+
+## Public Endpoints For CLI Orientation
+
+Use this table only as an orientation map. Generate exact method parameters, response models, and error handling from `backend/rest/openapi/public.json`.
+
+| Method | Path                                      | CLI relevance                                                                                               |
+| ------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/v1/public/whoami`                   | Validate credentials for `login` / `status`; return project, workspace, key, API host, and UI URL metadata. |
+| `GET`  | `/api/v1/public/traces`                   | List traces for the authenticated project.                                                                  |
+| `GET`  | `/api/v1/public/traces/{trace_id}`        | Read one trace for the authenticated project.                                                               |
+| `GET`  | `/api/v1/public/traces/{trace_id}/export` | Export the V1 trace bundle.                                                                                 |
+| `POST` | `/api/v1/public/traces`                   | OTLP protobuf ingestion used by SDKs and collectors; normal CLI read/export flows usually do not call it.   |
+
+Runtime clients should also tolerate cross-cutting rate-limit behavior from the public API limiter, even when generated types do not model every response header.
+
+## CLI-Specific Interpretation Rules
+
+### `whoami`
+
+Call `GET /api/v1/public/whoami` during `login` and `status` to validate credentials and display the resolved workspace/project identity.
+
+Use these interpretation rules with the generated `WhoamiResponse` type:
+
+- The full API key is never returned; public identity responses expose only `key_hint`.
+- Name fields such as project, workspace, and key names may be nullable.
+- `host` reflects the API host reached by the client and is informational. Do not persist it or route future requests from it.
+- `ui_base_url` is the browser-usable TraceRoot UI base URL. Persist or display it for links; it may differ from internal service URLs in self-hosted deployments.
+
+### Trace Links
+
+Trace list and trace detail responses include `trace_url`, built by the backend so CLI clients do not need to know frontend routing details.
+
+Use the returned `trace_url` value directly for “open in TraceRoot” links instead of rebuilding it in the CLI. This keeps the CLI compatible with frontend route changes.
+
+### Trace Projections
+
+Trace detail (`GET /api/v1/public/traces/{trace_id}`) and export endpoints support the `fields` projection contract exposed in the OpenAPI schema. Current projection groups are `core`, `usage`, `io`, and `metadata`, with `skeleton` and `full` aliases.
+
+CLI defaults should prefer generated schema behavior over hand-coded assumptions. In current backend behavior, trace detail defaults to the lightweight `skeleton` projection, while export defaults to `full` because export is an explicit full-trace action.
+
+### Export Bundle
+
+`GET /api/v1/public/traces/{trace_id}/export` returns the V1 export bundle. Generate the exact payload from `PublicTraceExportResponse`; the CLI should write the bundle members listed in the manifest:
+
+- `trace.json`
+- `spans.json`
+- `git_context.json`
+- `manifest.json`
+
+`bundle.trace.spans` and `bundle.spans` intentionally represent the same span payload. The separate `spans.json` file exists so downstream tools can consume spans without parsing the full trace object.
+
+### Ingestion Boundary
+
+`POST /api/v1/public/traces` is part of the public schema because SDKs and OpenTelemetry collectors ingest through it. CLI read/list/export implementations should treat it as out of scope unless a CLI command explicitly needs trace ingestion.
+
+## Non-Goals For The CLI
+
+- Do not parse dashboard-only, session-authenticated, internal, or `/api/v1/projects/*` routes for CLI behavior.
+- Do not require users to pass `project_id`; public routes derive it from the API key.
+- Do not derive response models from Prisma models, ClickHouse rows, or frontend types; generate from `backend/rest/openapi/public.json`.
