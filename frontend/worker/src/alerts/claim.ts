@@ -2,19 +2,20 @@ import { prisma, type AlertSeverity, type AlertStatus } from "@traceroot/core";
 import { mapWithConcurrency } from "./concurrency.js";
 import { logError, logInfo } from "./log.js";
 import { parseAlertRule, type AlertRowLike, type AlertRule } from "./rule.js";
-import type { AlertRuntimeState } from "./state-machine.js";
+import type { AlertRuntimeState } from "./severity-state-machine.js";
 import type { AlertTick } from "./tick.js";
 
 const ACTIVE: AlertStatus = "ACTIVE";
 const PARKED: AlertStatus = "PARKED";
 
 /**
- * Leftovers lead the next tick only while the due set fits `ALERT_CLAIM_SCAN_LIMIT`:
- * a project whose due rules all sort past the scan cap is not seen by the tick at all.
+ * Per tick. The scan below deals its cap across projects depth-first, so a
+ * project's backlog can only ever take its share of a slice, never the whole
+ * one; leftovers lead the next tick.
  */
 export const ALERT_CLAIM_LIMIT = 500;
 
-/** Headroom over the budget: read exactly the budget and one project's backlog fills it. */
+/** Headroom over the budget so the budget is shared among projects, not filled by the first. */
 export const ALERT_CLAIM_SCAN_LIMIT = ALERT_CLAIM_LIMIT * 2;
 
 /**
@@ -117,18 +118,47 @@ function shareBudgetAcrossProjects<T extends { readonly projectId: string }>(
   return selected;
 }
 
-/** The conditional update is the mutex: only the claim whose `lastClaimedAt` still holds wins. */
+/**
+ * The scan is fair by construction. Rows are numbered per project in due order
+ * and the cap is taken depth-first across projects, so one project's backlog can
+ * occupy at most its share of the slice; a single globally-ordered read let a
+ * project with a large due set push every other project's rules past the cap.
+ *
+ * Within a project, never-claimed rules (`nextRunAt` null, "due immediately")
+ * sort after rules that were actually due: a burst of new rules waits its turn
+ * instead of preempting the schedule. Postgres sorts NULL first under plain ASC,
+ * which is what made the preemption cheap to trigger.
+ *
+ * The conditional update in `claimRow` is the mutex: only the claim whose
+ * `lastClaimedAt` still holds wins.
+ */
 export async function claimDueAlerts(tick: AlertTick): Promise<ClaimedAlert[]> {
-  const due = await prisma.alert.findMany({
-    where: {
-      status: ACTIVE,
-      OR: [{ nextRunAt: null }, { nextRunAt: { lte: tick.now } }],
-      // Deletion is soft, so no cascade fires: without this a deleted project keeps paging.
-      project: { deleteTime: null },
-    },
-    orderBy: [{ nextRunAt: "asc" }, { createTime: "asc" }],
-    take: ALERT_CLAIM_SCAN_LIMIT,
-  });
+  const scanned = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM (
+      SELECT a.id, a.next_run_at, a.create_time,
+             row_number() OVER (
+               PARTITION BY a.project_id
+               ORDER BY a.next_run_at ASC NULLS LAST, a.create_time ASC
+             ) AS depth
+      FROM alerts a
+      JOIN projects p ON p.id = a.project_id
+      WHERE a.status = ${ACTIVE}
+        AND (a.next_run_at IS NULL OR a.next_run_at <= ${tick.now})
+        AND p.delete_time IS NULL
+    ) scan
+    ORDER BY depth ASC, next_run_at ASC NULLS LAST, create_time ASC
+    LIMIT ${ALERT_CLAIM_SCAN_LIMIT}
+  `;
+  if (scanned.length === 0) return [];
+
+  // The rows are re-read through the client for their typed shape; the scan's
+  // order is the schedule, and `findMany` does not keep it.
+  const ids = scanned.map((row) => row.id);
+  const rows = await prisma.alert.findMany({ where: { id: { in: ids } } });
+  const position = new Map(ids.map((id, index) => [id, index]));
+  const due = [...rows].sort(
+    (a, b) => (position.get(a.id) ?? ids.length) - (position.get(b.id) ?? ids.length),
+  );
 
   const settled = await mapWithConcurrency(
     shareBudgetAcrossProjects(due, ALERT_CLAIM_LIMIT),

@@ -341,6 +341,25 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
     "complete_run": {"enabled": False},
+    "list_workspaces": {
+        "name": "list_workspaces",
+        "description": (
+            "List the workspaces the logged-in user belongs to (id, name, role). "
+            "User-credential-only account discovery: it needs no project_id and "
+            "is not available to project-scoped API keys."
+        ),
+        "enabled": True,
+    },
+    "list_projects": {
+        "name": "list_projects",
+        "description": (
+            "List the projects the logged-in user can access, across workspaces "
+            "(id, name, workspace). User-credential-only account discovery: use it "
+            "to resolve the project_id a project-scoped request needs. Optionally "
+            "filter by workspace_id."
+        ),
+        "enabled": True,
+    },
 }
 
 

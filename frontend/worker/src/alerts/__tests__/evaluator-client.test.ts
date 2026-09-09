@@ -5,7 +5,7 @@ import {
   isSendableAlertSpec,
   type AlertEvaluationSpec,
 } from "../evaluator-client.js";
-import { deriveAlertSeverity } from "../state-machine.js";
+import { deriveAlertSeverity } from "../severity-state-machine.js";
 
 const specWith = (filters: AlertFilter[]): AlertEvaluationSpec => ({
   alert_id: "alert-1",

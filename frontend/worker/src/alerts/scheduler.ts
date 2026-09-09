@@ -19,7 +19,7 @@ import {
   type AlertEvaluationSpec,
 } from "./evaluator-client.js";
 import { logError, logInfo } from "./log.js";
-import { applyAlertStateMachine, deriveAlertSeverity } from "./state-machine.js";
+import { applyAlertStateMachine, deriveAlertSeverity } from "./severity-state-machine.js";
 import { alertWindowStart, computeAlertTick, ALERT_TICK_CRON, type AlertTick } from "./tick.js";
 
 /** One request carries one window pair, so the window token joins the key. */
@@ -219,6 +219,7 @@ async function settleClaim(
       window: rule.window,
       windowStart,
       windowEnd: tick.windowEnd,
+      filters: rule.filters,
       // Travels with the job so a delivery that provably sent nothing can undo
       // this write however many minutes later, matching on what it wrote.
       emission: {

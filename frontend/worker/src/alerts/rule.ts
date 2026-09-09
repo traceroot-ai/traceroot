@@ -15,7 +15,7 @@ import {
   type AlertView,
   type AlertWindow,
 } from "@traceroot/core";
-import type { AlertRuntimeState } from "./state-machine.js";
+import type { AlertRuntimeState } from "./severity-state-machine.js";
 
 /** Structural rather than the Prisma row type, so parsing stays client-free. */
 export interface AlertRowLike {
