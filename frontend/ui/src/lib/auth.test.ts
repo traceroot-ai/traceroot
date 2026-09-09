@@ -31,6 +31,8 @@ vi.mock("@/env", () => ({
     BETTER_AUTH_URL: "http://localhost:3000",
     AUTH_GOOGLE_CLIENT_ID: "",
     AUTH_GOOGLE_CLIENT_SECRET: "",
+    AUTH_GITHUB_CLIENT_ID: "",
+    AUTH_GITHUB_CLIENT_SECRET: "",
     // A getter, not a value: vi.resetModules() re-evaluates auth.ts but keeps
     // this mock cached, so the value has to be read at access time for the
     // invalid-CIDR test below to reach the config.
@@ -44,6 +46,8 @@ await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
+  socialProviders: Record<string, { clientId: string; clientSecret: string }>;
+  account: { accountLinking: { enabled: boolean; trustedProviders: string[] } };
 };
 
 describe("auth options", () => {
@@ -57,6 +61,22 @@ describe("auth options", () => {
 
   it("keeps the device-code creation cap", () => {
     expect(options.rateLimit.customRules["/device/code"]).toEqual({ window: 60, max: 10 });
+  });
+
+  it("registers only the social providers whose credentials are configured", () => {
+    // Both providers are blank in the env mock above, so better-auth must be
+    // handed an empty set rather than a provider with an empty clientId — that
+    // would render a sign-in button that dead-ends at the provider.
+    expect(options.socialProviders).toEqual({});
+  });
+
+  it("does not trust GitHub for account linking", () => {
+    // Trusting a provider tells better-auth to accept an email the provider
+    // itself reports as unverified as proof of ownership when linking into an
+    // account that already exists. account-linking.test.ts exercises what that
+    // means at runtime, in both directions.
+    expect(options.account.accountLinking.enabled).toBe(true);
+    expect(options.account.accountLinking.trustedProviders).not.toContain("github");
   });
 });
 

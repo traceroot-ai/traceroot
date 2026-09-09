@@ -1,12 +1,10 @@
-import { env } from "@/env";
+import { getSocialAuthConfig } from "@/lib/social-auth";
 import { SignUpClient } from "./sign-up-client";
 
 export const dynamic = "force-dynamic";
 
 export default function SignUpPage() {
-  const googleAuthConfigured = Boolean(
-    env.AUTH_GOOGLE_CLIENT_ID.trim() && env.AUTH_GOOGLE_CLIENT_SECRET.trim(),
-  );
+  const { enabledProviders } = getSocialAuthConfig();
 
-  return <SignUpClient googleAuthConfigured={googleAuthConfigured} />;
+  return <SignUpClient enabledProviders={enabledProviders} />;
 }

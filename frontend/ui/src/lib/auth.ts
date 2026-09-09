@@ -5,12 +5,15 @@ import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
+import { getSocialAuthConfig } from "@/lib/social-auth";
 import { trustedProxyCidrs } from "@/lib/trusted-proxies";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
   SESSION_UPDATE_AGE_SECONDS,
 } from "@/lib/session-config";
+
+const { socialProviders } = getSocialAuthConfig();
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -25,16 +28,21 @@ export const auth = betterAuth({
     minPasswordLength: 8,
   },
 
-  socialProviders: {
-    google: {
-      clientId: env.AUTH_GOOGLE_CLIENT_ID,
-      clientSecret: env.AUTH_GOOGLE_CLIENT_SECRET,
-    },
-  },
+  socialProviders,
 
   account: {
     accountLinking: {
       enabled: true,
+      // A trusted provider is one whose *unverified* email addresses may still
+      // be used as proof of ownership when linking into an account that already
+      // exists: better-auth skips the `emailVerified` check on the incoming
+      // profile for these. GitHub is deliberately absent. It serves the
+      // account's primary address whether or not that address has been
+      // confirmed, so trusting it would let anyone who adds a victim's address
+      // to their own GitHub account sign in as that victim. Leaving it out
+      // costs nothing a real user notices: a GitHub identity whose address *is*
+      // verified still links, and a first-time GitHub sign-in still creates an
+      // account either way. account-linking.test.ts pins both halves.
       trustedProviders: ["google"],
     },
   },
