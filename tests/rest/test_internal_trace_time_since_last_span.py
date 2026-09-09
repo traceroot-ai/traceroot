@@ -23,9 +23,9 @@ def secret(monkeypatch):
 
 @pytest.fixture()
 def mock_ch(monkeypatch):
-    """Mock the ClickHouse client used by the internal router."""
+    """Mock the ClickHouse client used by the internal detector endpoints."""
     mock = MagicMock()
-    monkeypatch.setattr("rest.routers.internal.get_clickhouse_client", lambda: mock)
+    monkeypatch.setattr("rest.routers.internal.detectors.get_clickhouse_client", lambda: mock)
     return mock
 
 
