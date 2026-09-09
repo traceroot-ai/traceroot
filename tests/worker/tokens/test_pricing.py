@@ -247,7 +247,7 @@ class TestGpt56CachePricing:
 
 class TestGpt56LunaPublishedPrices:
     """Ratio checks alone let a wrong base price stay internally consistent and
-    pass (#2045). Assert the absolute, provider-published rate directly.
+    pass. Assert the absolute, provider-published rate directly.
     """
 
     def test_input_and_output_match_published_rate(self, real_cache):
