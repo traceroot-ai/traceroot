@@ -73,8 +73,10 @@ def is_claude_model(model: str) -> bool:
 
     Normalized first: ``openrouter/anthropic/claude-opus-4-8`` is a Claude model,
     and answering False for it sends the token estimator to tiktoken's
-    ``cl100k_base`` instead of the Claude estimator — roughly half the real count
-    for Claude text, now attached to a cost that resolves.
+    ``cl100k_base`` instead of the Claude estimator. The two disagree by a margin
+    that depends on the content and does not favour either direction, so the
+    estimate turns on which one is picked — and the price fallback now attaches a
+    real cost to whichever answer comes back.
 
     Bedrock and its regional aliases qualify the family name with dots rather than
     slashes (``us.anthropic.claude-opus-4-8``), so the name is not always the
