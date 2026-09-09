@@ -357,7 +357,20 @@ export async function sendAlertNotification(payload: AlertNotificationJob): Prom
     window: payload.window,
     windowStart: new Date(payload.windowStart),
     windowEnd: new Date(payload.windowEnd),
+    filters: payload.filters ?? [],
   });
+
+  // Re-read on the edge of the send. Resolving the channel and decrypting the
+  // token took database round trips, and a pause or delete that landed in that
+  // gap has to win: a kill switch is only one if it is honoured at the last
+  // instant the worker can still choose not to post. The window between this
+  // read and Slack accepting the post cannot be closed from this side.
+  const stillSendable = await checkAlertStillSendable(payload);
+  if (!stillSendable.ok) {
+    logInfo(`slack skip ${tag} reason=${stillSendable.outcome.error} at=send`);
+    await recordAlertNotifyOutcome(stillSendable.outcome);
+    return;
+  }
 
   try {
     await createSlackClient(botToken).chat.postMessage({

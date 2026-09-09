@@ -40,6 +40,12 @@ export const PROJECT_SETTINGS_TABS: SettingsTab[] = [
   { id: "detectors", label: "Detectors", icon: DOMAIN_ICONS.detector, href: "detectors" },
 ];
 
+// User-level (not workspace/project scoped) settings — sessions are a
+// per-account concept, so this tab set lives outside both of the above.
+export const ACCOUNT_SETTINGS_TABS: SettingsTab[] = [
+  { id: "sessions", label: "Active sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
+];
+
 interface CrossLink {
   label: string;
   href: string;

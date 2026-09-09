@@ -250,6 +250,14 @@ describe("enqueueAlertNotification", () => {
 });
 
 describe("sendAlertNotification", () => {
+  it("hands the rule's filters to the message builder", async () => {
+    const { sendAlertNotification } = await importModule();
+    const filters = [{ field: "span_kind", op: "=", value: "LLM" }];
+    await sendAlertNotification({ ...job, filters });
+    const params = buildAlertBlocks.mock.calls[0][0] as { filters?: unknown };
+    expect(params.filters).toEqual(filters);
+  });
+
   it("posts the built message as a coloured attachment with unfurling off", async () => {
     const { sendAlertNotification } = await importModule();
     await sendAlertNotification(job);
@@ -271,6 +279,8 @@ describe("sendAlertNotification", () => {
     // The builder takes dates back, having been handed epoch ms over the queue.
     const params = buildAlertBlocks.mock.calls[0][0] as { windowStart: Date; windowEnd: Date };
     expect(params.windowStart.getTime()).toBe(job.windowStart);
+    // A job from before filters travelled renders as an unfiltered rule.
+    expect((params as { filters?: unknown }).filters).toEqual([]);
     expect(params.windowEnd.getTime()).toBe(job.windowEnd);
     expect(params).toMatchObject({ alertId: "al_1", measure: "latency", aggregation: "p95" });
   });
@@ -377,7 +387,7 @@ describe("sendAlertNotification", () => {
     findUnique.mockResolvedValue(noChannelRow);
 
     const { sendAlertNotification } = await importModule();
-    const { applyAlertStateMachine } = await import("../../alerts/state-machine.js");
+    const { applyAlertStateMachine } = await import("../../alerts/severity-state-machine.js");
     await sendAlertNotification(compensableJob);
 
     // Still breaching a minute later, and the row still records the page it
@@ -482,6 +492,41 @@ describe("sendAlertNotification", () => {
     // has nothing left to re-emit, so neither is rolled back.
     expect(stateWrites()).toHaveLength(0);
     expect(logInfo.mock.calls[0][0]).toContain(`reason=${reason}`);
+  });
+
+  it.each([
+    ["paused", alertRow({ status: "PAUSED" }), "alert-paused"],
+    ["deleted", null, "alert-deleted"],
+  ])(
+    "sends nothing for a rule %s while the channel was being resolved",
+    async (_label, rowAtSend, reason) => {
+      // The first read let the job through; the pause landed during the channel
+      // and token round trips. The kill switch has to hold at the send itself.
+      alertFindUnique.mockResolvedValueOnce(alertRow()).mockResolvedValueOnce(rowAtSend);
+      const { sendAlertNotification } = await importModule();
+      await sendAlertNotification(compensableJob);
+
+      expect(findUnique).toHaveBeenCalledTimes(1);
+      expect(alertFindUnique).toHaveBeenCalledTimes(2);
+      expect(postMessage).not.toHaveBeenCalled();
+      expect(notifyWrites()).toHaveLength(1);
+      expect(notifyWrites()[0].data.lastNotifyStatus).toBe("FAILED");
+      expect(notifyWrites()[0].data.lastNotifyError).toBe(reason);
+      expect(stateWrites()).toHaveLength(0);
+      expect(logInfo.mock.calls[0][0]).toContain(`reason=${reason} at=send`);
+    },
+  );
+
+  it("drops, at the send, an emission a later evaluation replaced during the round trips", async () => {
+    alertFindUnique
+      .mockResolvedValueOnce(alertRow())
+      .mockResolvedValueOnce(alertRow({ alertedAt: new Date(emission.evaluatedAt + 60_000) }));
+    const { sendAlertNotification } = await importModule();
+    await sendAlertNotification(compensableJob);
+
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(notifyWrites()).toHaveLength(1);
+    expect(notifyWrites()[0].data.lastNotifyStatus).toBe("SUPERSEDED");
   });
 
   it("records FAILED without a revert for a job enqueued before the claim travelled", async () => {

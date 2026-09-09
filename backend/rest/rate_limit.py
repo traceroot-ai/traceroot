@@ -5,9 +5,14 @@ Design
 * **Library**  ``slowapi`` (wraps ``limits``) with Redis storage shared across
   REST replicas, plus an in-memory fallback so a Redis outage degrades to
   per-process limiting instead of failing requests.
-* **Key**      the *workspace* (resolved from the API key for ingestion and the
-  public read API, and from the authenticated user for dashboard reads) — never
-  the raw API key, so a customer cannot multiply quota by minting more keys.
+* **Key**      the *workspace* for API-key traffic (ingestion and the public
+  read API) and for dashboard reads — never the raw API key, so a customer
+  cannot multiply quota by minting more keys. A *user-credentialed* read (the
+  CLI's session token) additionally gets a per-member bucket within its
+  workspace (``…:{workspace}:{user}``) so one member's CLI cannot starve a
+  teammate's reads; aggregate workspace read volume therefore scales with active
+  members — intended, since membership is real and not mintable, not a
+  per-workspace ceiling. Account-scope ops (no workspace) key on the user alone.
 * **Tiers**    per ``(bucket, billing-plan)`` limits resolved at request time
   from ``settings.rate_limit`` (see ``RateLimitSettings``).
 * **Self-host** deployments (``ENABLE_BILLING=false``) have no billing tiers, so
@@ -106,9 +111,12 @@ def is_request_rate_limit_exempt() -> bool:
 
 
 def set_rate_limit_identity(
-    request: Request, workspace_id: str | None, billing_plan: str | None
+    request: Request,
+    workspace_id: str | None,
+    billing_plan: str | None,
+    user_id: str | None = None,
 ) -> None:
-    """Stash the resolved workspace + plan on the request for the key/limit funcs.
+    """Stash the resolved workspace + plan (+ optional user) for the key/limit funcs.
 
     Called from the dependency layer, which runs before slowapi evaluates the
     limit, so ``key_func`` can read these off ``request.state``. Both enforced
@@ -117,6 +125,12 @@ def set_rate_limit_identity(
     calls are exempt and may legitimately carry no workspace; that is fine
     because the key is never evaluated for them.
 
+    ``user_id`` adds a per-user dimension for user-credential (session token)
+    requests, so one user's CLI cannot starve a teammate's within the same
+    workspace's bucket. It defaults to ``None`` (stamped as ``""``) so every
+    existing positional call site — which never passes it — keeps producing the
+    byte-identical, workspace-only key an API key has always used.
+
     Note: on self-host the limiter is disabled (see ``_build_limiter``), so this
     runs but is never read; it only matters on cloud (billing-enabled).
 
@@ -124,48 +138,88 @@ def set_rate_limit_identity(
         request (Request): Request whose ``state`` is stamped (read later by
             ``key_func`` / ``_record_exceeded``).
         workspace_id (str | None): Resolved workspace; an empty value is only
-            reachable on exempt internal calls, which are never keyed.
+            reachable on exempt internal calls or account-scope ops, which have
+            no single workspace.
         billing_plan (str | None): Resolved plan, normalized via ``normalize_plan``.
+        user_id (str | None): Resolved user id for a user-credential request;
+            ``None``/omitted for API-key requests, which must never carry a user
+            dimension in the key.
 
     Returns:
-        None. Stamps ``rl_workspace_id`` and ``rl_billing_plan`` onto
-        ``request.state``.
+        None. Stamps ``rl_workspace_id``, ``rl_billing_plan``, and
+        ``rl_user_id`` onto ``request.state``.
     """
     request.state.rl_workspace_id = workspace_id or ""
     request.state.rl_billing_plan = normalize_plan(billing_plan)
+    request.state.rl_user_id = user_id or ""
 
 
-def _identity(request: Request) -> tuple[str, str]:
+def _identity(request: Request) -> tuple[str, str, str]:
     # The dependency layer always stamps rl_workspace_id before slowapi calls
     # key_func, so the default is inert defensive code, never an enforced bucket.
     workspace_id = getattr(request.state, "rl_workspace_id", "")
     plan = normalize_plan(getattr(request.state, "rl_billing_plan", None))
-    return workspace_id, plan
+    user_id = getattr(request.state, "rl_user_id", "")
+    return workspace_id, plan, user_id
+
+
+def _bucket_key(bucket: str, request: Request) -> str:
+    """Compose a bucket key, adding the user dimension only when one is stamped.
+
+    Three shapes, chosen by which identity fields are set:
+      * API key (no user_id): ``rl:{bucket}:{plan}:{workspace_id}`` — unchanged
+        from before per-user keys existed, so existing API-key callers keep
+        their exact bucket.
+      * User project read (workspace_id + user_id): appends the user as a
+        trailing segment, ``rl:{bucket}:{plan}:{workspace_id}:{user_id}``.
+      * Account-scope op (user_id, no workspace_id): ``rl:{bucket}:{plan}:{user_id}``.
+
+    Args:
+        bucket (str): Bucket name (``BUCKET_READ`` / ``BUCKET_EXPORT``).
+        request (Request): Request carrying the stamped rate-limit identity.
+
+    Returns:
+        str: The composed bucket key.
+    """
+    workspace_id, plan, user_id = _identity(request)
+    if user_id and not workspace_id:
+        return f"{_KEY_PREFIX}:{bucket}:{plan}:{user_id}"
+    if user_id:
+        return f"{_KEY_PREFIX}:{bucket}:{plan}:{workspace_id}:{user_id}"
+    return f"{_KEY_PREFIX}:{bucket}:{plan}:{workspace_id}"
 
 
 def key_ingest(request: Request) -> str:
-    """Bucket key for ingestion: per workspace, with the plan embedded."""
-    workspace_id, plan = _identity(request)
+    """Bucket key for ingestion: per workspace, with the plan embedded.
+
+    Ingestion is API-key-only (never user auth), so this stays workspace-only
+    with no user dimension even if a user_id happens to be stamped.
+    """
+    workspace_id, plan, _ = _identity(request)
     request.state.rl_bucket = BUCKET_INGEST
     return f"{_KEY_PREFIX}:{BUCKET_INGEST}:{plan}:{workspace_id}"
 
 
 def key_read(request: Request) -> str:
-    """Bucket key for dashboard reads: per workspace, with the plan embedded."""
-    workspace_id, plan = _identity(request)
+    """Bucket key for dashboard reads: per workspace (+ user, when stamped).
+
+    An API-key request (no stamped user_id) yields the byte-identical
+    ``rl:read:{plan}:{workspace_id}`` key it always has; a user-credential
+    request adds the user dimension via :func:`_bucket_key`.
+    """
     request.state.rl_bucket = BUCKET_READ
-    return f"{_KEY_PREFIX}:{BUCKET_READ}:{plan}:{workspace_id}"
+    return _bucket_key(BUCKET_READ, request)
 
 
 def key_export(request: Request) -> str:
-    """Bucket key for the public export route: per workspace, plan embedded.
+    """Bucket key for the public export route: per workspace (+ user), plan embedded.
 
     Export has its own bucket (separate from ``read``) so its tighter tier
-    throttles independently of list/get on the same workspace.
+    throttles independently of list/get on the same workspace. Same
+    key/user-dimension rules as :func:`key_read`, via :func:`_bucket_key`.
     """
-    workspace_id, plan = _identity(request)
     request.state.rl_bucket = BUCKET_EXPORT
-    return f"{_KEY_PREFIX}:{BUCKET_EXPORT}:{plan}:{workspace_id}"
+    return _bucket_key(BUCKET_EXPORT, request)
 
 
 def resolve_limit(key: str) -> str:
@@ -173,7 +227,11 @@ def resolve_limit(key: str) -> str:
 
     slowapi passes the key (the output of ``key_func``), not the request, to a
     dynamic-limit callable — hence the plan is encoded in the key.
-    Key format: ``rl:{bucket}:{plan}:{workspace_id}``.
+    Key format: ``rl:{bucket}:{plan}:{workspace_id}``, optionally with a
+    trailing ``:{user_id}`` segment for user-credential requests (the plan
+    stays at the same fixed position either way — parsing below uses
+    ``maxsplit=3``, so a trailing segment folds into the last part instead of
+    shifting the plan).
 
     WARNING: the parameter MUST be named ``key`` — slowapi only forwards the
     bucket key when the callable's signature contains a literal ``key`` param
