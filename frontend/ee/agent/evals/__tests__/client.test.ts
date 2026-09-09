@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { AgentClient, AgentTurnError, StackNotRunningError } from "../client.js";
+import { mkdtemp, mkdir, writeFile, utimes } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  AgentClient,
+  AgentTurnError,
+  StackNotRunningError,
+  newestSourceChange,
+  type SourceChange,
+} from "../client.js";
 
 function sseResponse(chunks: string[]): Response {
   const stream = new ReadableStream<Uint8Array>({
@@ -68,20 +78,69 @@ const REAL_TURN_STREAM = [
   frame("agent_end", { type: "agent_end", messages: [] }),
 ].join("");
 
-function makeClient(fetchImpl: ReturnType<typeof vi.fn>) {
+function makeClient(
+  fetchImpl: ReturnType<typeof vi.fn>,
+  newest?: () => Promise<SourceChange | undefined>,
+) {
   return new AgentClient({
     baseUrl: "http://agent.test",
     userId: "user-1",
     workspaceId: "ws-1",
     fetchImpl: fetchImpl as never,
+    // Health preflight compares source mtimes against the service's boot
+    // time; unless a test is about staleness, report no sources at all.
+    newestSourceChange: newest ?? (async () => undefined),
   });
 }
 
+const BOOT = "2026-09-08T10:24:46.000Z";
+const healthy = () => jsonResponse({ status: "ok", service: "traceroot-agent", startedAt: BOOT });
+
+// The client reports the changed file relative to the package root, so the
+// fixture path has to be a real path under it (evals/__tests__ → ../..).
+const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+/** A source edit at an offset from the service's boot time. */
+const changedAt =
+  (offsetMs: number, file = join(PACKAGE_ROOT, "src", "prompts", "system.ts")) =>
+  async () => ({ file, mtimeMs: Date.parse(BOOT) + offsetMs });
+
 describe("AgentClient.checkHealth", () => {
   it("resolves when the service reports ok", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ status: "ok" }));
+    const fetchImpl = vi.fn().mockImplementation(async () => healthy());
     await expect(makeClient(fetchImpl).checkHealth()).resolves.toBeUndefined();
     expect(fetchImpl.mock.calls[0][0]).toBe("http://agent.test/health");
+  });
+
+  it("resolves when every source predates the running service", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => healthy());
+    await expect(makeClient(fetchImpl, changedAt(-60_000)).checkHealth()).resolves.toBeUndefined();
+  });
+
+  it("refuses to grade a service older than a source edit, naming file and both times", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => healthy());
+    const client = makeClient(fetchImpl, changedAt(100 * 60_000));
+
+    await expect(client.checkHealth()).rejects.toBeInstanceOf(StackNotRunningError);
+    await expect(client.checkHealth()).rejects.toThrow(
+      /booted 2026-09-08T10:24:46\.000Z but src\/prompts\/system\.ts changed 2026-09-08T12:04:46\.000Z/,
+    );
+    await expect(client.checkHealth()).rejects.toThrow(/restart it so evals grade current code/);
+  });
+
+  it("refuses a service whose /health reports no startedAt at all", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => jsonResponse({ status: "ok" }));
+    const client = makeClient(fetchImpl);
+
+    await expect(client.checkHealth()).rejects.toBeInstanceOf(StackNotRunningError);
+    await expect(client.checkHealth()).rejects.toThrow(/predates the freshness check/);
+  });
+
+  it("refuses a service whose startedAt is not a parseable instant", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ status: "ok", startedAt: "soon" }));
+    await expect(makeClient(fetchImpl).checkHealth()).rejects.toThrow(
+      /predates the freshness check/,
+    );
   });
 
   it("throws StackNotRunningError when the service is unreachable", async () => {
@@ -92,6 +151,35 @@ describe("AgentClient.checkHealth", () => {
   it("throws StackNotRunningError on a non-ok status", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ error: "nope" }, 500));
     await expect(makeClient(fetchImpl).checkHealth()).rejects.toBeInstanceOf(StackNotRunningError);
+  });
+});
+
+describe("newestSourceChange", () => {
+  it("returns the newest .ts file, ignoring tests and non-sources", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-src-"));
+    await mkdir(join(root, "prompts", "__tests__"), { recursive: true });
+    const write = async (path: string, seconds: number) => {
+      const full = join(root, path);
+      await writeFile(full, "//");
+      const when = new Date(Date.parse("2026-09-08T10:00:00.000Z") + seconds * 1000);
+      await utimes(full, when, when);
+      return full;
+    };
+    await write("index.ts", 0);
+    const newestSource = await write("prompts/system.ts", 60);
+    await write("prompts/notes.md", 600);
+    await write("prompts/__tests__/system.test.ts", 900);
+
+    const newest = await newestSourceChange(root);
+
+    expect(newest?.file).toBe(newestSource);
+    expect(newest?.mtimeMs).toBe(Date.parse("2026-09-08T10:01:00.000Z"));
+  });
+
+  it("returns undefined when the directory does not exist", async () => {
+    await expect(
+      newestSourceChange(join(tmpdir(), "agent-src-missing-xyz")),
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -165,6 +253,63 @@ describe("AgentClient.sendMessage", () => {
     ]);
     expect(turn.assistantText).toBe("Added the detector.");
     expect(turn.events.at(-1)).toEqual({ event: "done", data: {} });
+  });
+
+  it("approves a parked confirm-class write so the run resumes, and records the decision", async () => {
+    // Writes park on confirmation_pending; without an answer the turn would
+    // only end at the timeout. The harness answers as the eval user.
+    const pending = {
+      type: "confirmation_pending",
+      decisionId: "dec-1",
+      toolCallId: "tc-1",
+      toolName: "create_dashboard",
+      args: { label: "Creating it", name: "Probe" },
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          `event: tool_execution_start\ndata: ${JSON.stringify({
+            type: "tool_execution_start",
+            toolCallId: "tc-1",
+            toolName: "create_dashboard",
+            args: { name: "Probe" },
+          })}\n\n`,
+          `event: confirmation_pending\ndata: ${JSON.stringify(pending)}\n\n`,
+          "event: done\ndata: {}\n\n",
+        ]),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+    const turn = await makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "Create Probe.");
+
+    const [url, init] = fetchImpl.mock.calls[1];
+    expect(url).toBe("http://agent.test/api/v1/projects/proj-1/sessions/sess-1/decisions");
+    expect(JSON.parse(init.body)).toEqual({ decisionId: "dec-1", action: "create" });
+    expect(turn.decisions).toEqual([
+      {
+        decisionId: "dec-1",
+        toolCallId: "tc-1",
+        toolName: "create_dashboard",
+        args: { label: "Creating it", name: "Probe" },
+        action: "create",
+      },
+    ]);
+  });
+
+  it("fails the turn when the decision route rejects the answer", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          `event: confirmation_pending\ndata: ${JSON.stringify({ type: "confirmation_pending", decisionId: "dec-1" })}\n\n`,
+          "event: done\ndata: {}\n\n",
+        ]),
+      )
+      .mockResolvedValueOnce(new Response("nope", { status: 409 }));
+    await expect(makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "x")).rejects.toThrow(
+      /answering a confirmation failed with 409/,
+    );
   });
 
   it("posts the message to the session's route with both tenancy headers", async () => {
@@ -265,6 +410,48 @@ describe("AgentClient.sendMessage", () => {
       turn_end: 1,
       agent_end: 1,
     });
+  });
+
+  it("drains past agent_end to the service's done, so the run claim is released first", async () => {
+    // `agent_end` is pi's frame; the service writes `done` only after the
+    // persist chain drains, immediately before it releases the session's run
+    // claim. Returning at `agent_end` cancels the read mid-persist and races
+    // the next turn's POST into a 409, so the client has to keep reading.
+    const fetchImpl = vi.fn().mockResolvedValue(
+      sseResponse([
+        REAL_TURN_STREAM,
+        frame("done", {}),
+        // Nothing follows `done`; a frame here would mean the service kept
+        // writing after its terminal frame.
+      ]),
+    );
+
+    const turn = await makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "Add a detector.");
+
+    expect(turn.events.at(-1)).toEqual({ event: "done", data: {} });
+    expect(turn.events.filter((event) => event.event === "agent_end")).toHaveLength(1);
+    expect(turn.assistantText).toBe("Added the failure detector.");
+  });
+
+  it("keeps reading frames the service writes between agent_end and done", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          frame("agent_end", { type: "agent_end", messages: [] }),
+          textDelta("trailing"),
+          frame("done", {}),
+        ]),
+      );
+
+    const turn = await makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "Add a detector.");
+
+    expect(turn.assistantText).toBe("trailing");
+    expect(turn.events.map((event) => event.event)).toEqual([
+      "agent_end",
+      "message_update",
+      "done",
+    ]);
   });
 
   it("captures tool calls on a stream that terminates at agent_end", async () => {

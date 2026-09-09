@@ -2,11 +2,21 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 import {
   createEvalProject,
   EvalConfigError,
+  type EvalSeeder,
   requireEvalUserEmail,
   resolveEvalUser,
   teardownEvalProject,
 } from "../setup.js";
 import type { EvalPrisma } from "../types.js";
+
+/** A seeder that records what it was asked to do, writing nothing. */
+function makeSeeder(overrides: Partial<EvalSeeder> = {}): EvalSeeder {
+  return {
+    seed: vi.fn().mockResolvedValue(undefined),
+    unseed: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
 
 /** The delegate as the mock it really is, for call inspection and re-stubbing. */
 const asMock = (delegate: unknown): Mock => delegate as Mock;
@@ -168,6 +178,52 @@ describe("createEvalProject", () => {
     );
   });
 
+  it("seeds the ClickHouse dataset with the anchor it was given", async () => {
+    const prisma = makePrisma();
+    const seeder = makeSeeder();
+    const anchor = new Date("2026-09-08T16:30:00Z");
+
+    const fixture = await createEvalProject(prisma, { user, runId: "abc123", anchor, seeder });
+
+    expect(seeder.seed).toHaveBeenCalledWith(fixture.projectId, anchor);
+    expect(seeder.unseed).not.toHaveBeenCalled();
+  });
+
+  it("creates the project unseeded when no seeder is supplied", async () => {
+    const prisma = makePrisma();
+    await expect(createEvalProject(prisma, { user, runId: "abc123" })).resolves.toMatchObject({
+      runId: "abc123",
+    });
+  });
+
+  it("removes the rows it did write when seeding fails, then the project", async () => {
+    // A half-seeded project is the worst outcome: the run aborts before
+    // teardown, and its spans outlive the project row that cascades away.
+    const prisma = makePrisma();
+    const seeder = makeSeeder({ seed: vi.fn().mockRejectedValue(new Error("clickhouse down")) });
+
+    await expect(createEvalProject(prisma, { user, runId: "abc123", seeder })).rejects.toThrow(
+      /clickhouse down/,
+    );
+
+    const created = createdData(prisma.project.create);
+    expect(seeder.unseed).toHaveBeenCalledWith(created.id);
+    expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: created.id } });
+  });
+
+  it("reports the seed failure even when the rollback unseed also fails", async () => {
+    const prisma = makePrisma();
+    const seeder = makeSeeder({
+      seed: vi.fn().mockRejectedValue(new Error("clickhouse down")),
+      unseed: vi.fn().mockRejectedValue(new Error("unseed failed")),
+    });
+
+    await expect(createEvalProject(prisma, { user, runId: "abc123", seeder })).rejects.toThrow(
+      /clickhouse down/,
+    );
+    expect(prisma.project.delete).toHaveBeenCalled();
+  });
+
   it("seeds no starter widgets, so every widget row is agent-authored", async () => {
     const prisma = makePrisma();
     await createEvalProject(prisma, { user, runId: "abc123" });
@@ -193,6 +249,34 @@ describe("teardownEvalProject", () => {
 
     expect(order).toEqual(["audit", "project"]);
     expect(prisma.auditLog.deleteMany).toHaveBeenCalledWith({ where: { projectId: "proj-1" } });
+    expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: "proj-1" } });
+  });
+
+  it("clears the ClickHouse rows first: no cascade reaches another database", async () => {
+    const prisma = makePrisma();
+    const order: string[] = [];
+    const seeder = makeSeeder({
+      unseed: vi.fn(async () => {
+        order.push("unseed");
+      }),
+    });
+    asMock(prisma.project.delete).mockImplementation(async () => {
+      order.push("project");
+      return {};
+    });
+
+    await teardownEvalProject(prisma, "proj-1", seeder);
+
+    expect(seeder.unseed).toHaveBeenCalledWith("proj-1");
+    expect(order).toEqual(["unseed", "project"]);
+  });
+
+  it("still deletes the project when the unseed fails, then reports it", async () => {
+    // Orphan spans are inert; an orphan project on a shared stack is not.
+    const prisma = makePrisma();
+    const seeder = makeSeeder({ unseed: vi.fn().mockRejectedValue(new Error("mutation failed")) });
+
+    await expect(teardownEvalProject(prisma, "proj-1", seeder)).rejects.toThrow(/mutation failed/);
     expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: "proj-1" } });
   });
 });

@@ -5,6 +5,8 @@
  * executable placed here would silently drop out of the coverage report.
  */
 
+import type { SeedFacts } from "./seed.js";
+
 /** A parsed SSE frame from the agent service's message stream. */
 export interface SseFrame {
   event: string;
@@ -32,6 +34,15 @@ export interface EvalToolResult {
   result: unknown;
 }
 
+/** A confirm-class call the run parked on, and the decision the harness gave it. */
+export interface EvalDecision {
+  decisionId: string;
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  action: "create" | "skip";
+}
+
 /** Everything a single user message produced. */
 export interface TurnTranscript {
   sessionId: string;
@@ -40,6 +51,8 @@ export interface TurnTranscript {
   toolResults: EvalToolResult[];
   assistantText: string;
   events: SseEvent[];
+  /** Parked writes the harness decided on during the turn (absent in older transcripts). */
+  decisions?: EvalDecision[];
 }
 
 /** The user the eval runs as, plus the workspace their fixture project lives in. */
@@ -139,6 +152,12 @@ export interface ScenarioContext {
   probeWidgetQuery: (spec: unknown) => Promise<number>;
   /** The canonical prompt text a standard detector template carries. */
   canonicalPrompt: (templateId: string) => string;
+  /**
+   * The figures the run's seeded dataset actually holds, derived from the same
+   * anchor the seeder used — so a read scenario asserts on this run's spike
+   * date rather than a date literal that goes stale overnight.
+   */
+  facts: SeedFacts;
   prisma: EvalPrisma;
 }
 

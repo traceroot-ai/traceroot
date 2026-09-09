@@ -52,6 +52,22 @@ export async function resolveEvalUser(prisma: EvalPrisma, email: string): Promis
 }
 
 /**
+ * Writes and removes the fixture project's ClickHouse rows.
+ *
+ * Injected rather than imported so the fixture helpers stay unit-testable
+ * against a fake, and so a run can be asked for an unseeded project by
+ * passing nothing.
+ */
+export interface EvalSeeder {
+  /** Write the deterministic dataset for `projectId`, dated from `anchor`. */
+  seed(projectId: string, anchor: Date): Promise<unknown>;
+  /** Remove it again. Used on rollback and at teardown. */
+  unseed(projectId: string): Promise<unknown>;
+  /** Rows still carrying the project after unseed, per table; the teardown check. */
+  count?(projectId: string): Promise<{ traces: number; spans: number }>;
+}
+
+/**
  * Create the throwaway project every scenario writes into.
  *
  * It gets a "Default" dashboard because production seeds one at project
@@ -61,13 +77,23 @@ export async function resolveEvalUser(prisma: EvalPrisma, email: string): Promis
  * assertion before the agent did anything; keeping the dashboard empty means
  * every widget row in the project is one the agent wrote.
  *
- * The two inserts are all-or-nothing. A dashboard failure after the project
- * row lands aborts the run before teardown ever runs, leaving a fixture
- * project behind on a shared stack for every attempt.
+ * With a `seeder`, the project also gets its ClickHouse dataset, written
+ * after both rows exist and anchored to the caller's clock so the run and its
+ * assertions agree on what "8 days ago" means.
+ *
+ * All of it is all-or-nothing. A dashboard or seed failure after the project
+ * row lands would otherwise abort the run before teardown ever runs, leaving
+ * a fixture project — and its spans — behind on a shared stack for every
+ * attempt.
  */
 export async function createEvalProject(
   prisma: EvalPrisma,
-  { user, runId }: { user: EvalUser; runId: string },
+  {
+    user,
+    runId,
+    anchor = new Date(),
+    seeder,
+  }: { user: EvalUser; runId: string; anchor?: Date; seeder?: EvalSeeder },
 ): Promise<EvalFixture> {
   const projectName = `agent-eval-${runId}`;
 
@@ -88,10 +114,12 @@ export async function createEvalProject(
         layout: [],
       },
     });
+    await seeder?.seed(project.id, anchor);
   } catch (failure) {
     // Swallowed so the caller sees why the fixture could not be built, not
-    // why the cleanup of it failed. Nothing references the project yet, so
-    // there is no cascade to worry about.
+    // why the cleanup of it failed. A partial seed is cleaned up first: the
+    // spans it did write outlive the project row, which cascades away.
+    await seeder?.unseed(project.id).catch(() => {});
     await prisma.project.delete({ where: { id: project.id } }).catch(() => {});
     throw failure;
   }
@@ -103,11 +131,35 @@ export async function createEvalProject(
  * Drop the fixture project and everything it owns.
  *
  * Deleting the project row cascades to its agent sessions (and their
- * messages), detectors, dashboards and widgets. Audit rows are the exception:
- * they intentionally carry no foreign key so history survives deletion, so
- * they have to go first and explicitly.
+ * messages), detectors, dashboards and widgets. Two exceptions go explicitly:
+ * audit rows, which intentionally carry no foreign key so history survives
+ * deletion, and the seeded ClickHouse rows, which live in another database
+ * entirely and no cascade can reach.
+ *
+ * A failed unseed does not cost the project deletion — the orphan rows are
+ * inert, an orphan project on a shared stack is not — but it is re-thrown
+ * afterwards so the run says the spans are still there.
  */
-export async function teardownEvalProject(prisma: EvalPrisma, projectId: string): Promise<void> {
+export async function teardownEvalProject(
+  prisma: EvalPrisma,
+  projectId: string,
+  seeder?: EvalSeeder,
+): Promise<void> {
+  let unseedFailure: unknown;
+  if (seeder) {
+    try {
+      await seeder.unseed(projectId);
+      const left = await seeder.count?.(projectId);
+      if (left && left.traces + left.spans > 0) {
+        console.error(
+          `fixture project ${projectId} still has ${left.traces} trace and ${left.spans} span rows after unseed`,
+        );
+      }
+    } catch (failure) {
+      unseedFailure = failure;
+    }
+  }
   await prisma.auditLog.deleteMany({ where: { projectId } });
   await prisma.project.delete({ where: { id: projectId } });
+  if (unseedFailure !== undefined) throw unseedFailure;
 }
