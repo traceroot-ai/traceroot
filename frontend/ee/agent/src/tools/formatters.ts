@@ -303,7 +303,12 @@ function toValue(cell: unknown): number | null {
  * a value; honest about an empty last bucket. A partial series (the server
  * capped its rows) has no latest: its last returned bucket is not the window's.
  */
-function seriesStats(values: Array<number | null>, labels: string[], partial = false): string {
+function seriesStats(
+  values: Array<number | null>,
+  labels: string[],
+  partial = false,
+  lastOpen = false,
+): string {
   const present = values.filter((v): v is number => v !== null);
   if (present.length === 0) return "no values in any bucket";
   const max = Math.max(...present);
@@ -314,7 +319,7 @@ function seriesStats(values: Array<number | null>, labels: string[], partial = f
   const latest =
     last === null
       ? `latest bucket empty (last value ${formatNumber(present[present.length - 1])})`
-      : `latest ${formatNumber(last)}`;
+      : `latest ${formatNumber(last)}${lastOpen ? ` ${PARTIAL_NOTE}` : ""}`;
   return `${min} | ${peak} | ${latest}`;
 }
 
@@ -338,7 +343,34 @@ const SERIES_CAP = 10;
 interface RowsOptions {
   /** The server capped the rows: a series is partial, and its trend stats say so. */
   truncated?: boolean;
+  /** The window the rows were answered for; names a number tile's range and marks a still-open last bucket. */
+  window?: { start_time?: string; end_time?: string };
 }
+
+/**
+ * Whether the last bucket of a series is still in progress at the window's
+ * end: its interval, at the series' granularity, runs past the window. A
+ * bucket label is a naive UTC instant ("2026-09-08T00:00:00").
+ */
+function lastBucketOpen(
+  labels: string[],
+  meta: Record<string, unknown> | undefined,
+  window: RowsOptions["window"],
+): boolean {
+  const last = labels[labels.length - 1];
+  const end = window?.end_time;
+  const granularity = meta?.granularity;
+  // No granularity, no verdict: the engine names one for every series it
+  // builds, so its absence means this is not a series the engine bucketed.
+  if (last === undefined || end === undefined || granularity === undefined) return false;
+  const granule = /hour|^\d+h$/i.test(String(granularity)) ? 3_600_000 : 86_400_000;
+  const bucketStart = Date.parse(/[zZ]|[+-]\d{2}:\d{2}$/.test(last) ? last : `${last}Z`);
+  const windowEnd = Date.parse(end);
+  if (!Number.isFinite(bucketStart) || !Number.isFinite(windowEnd)) return false;
+  return bucketStart + granule > windowEnd;
+}
+
+const PARTIAL_NOTE = "(partial: bucket still in progress)";
 
 function formatSeries(
   columns: string[],
@@ -357,6 +389,7 @@ function formatSeries(
     // in the breakdown column and belong to no series, but their bucket is
     // still a bucket.
     const buckets = [...new Set(rows.map((r) => String(r[0])))];
+    const lastOpen = lastBucketOpen(buckets, meta, options.window);
     const byGroup = new Map<string, Map<string, number | null>>();
     for (const r of rows) {
       const key = r[1];
@@ -373,7 +406,7 @@ function formatSeries(
       .sort((a, b) => b.peak - a.peak);
     const shown = ranked
       .slice(0, SERIES_CAP)
-      .map(({ key, values }) => `  ${key}: ${seriesStats(values, buckets, partial)}`);
+      .map(({ key, values }) => `  ${key}: ${seriesStats(values, buckets, partial, lastOpen)}`);
     const more =
       ranked.length > SERIES_CAP ? [`  … ${ranked.length - SERIES_CAP} more series`] : [];
     const first = buckets[0];
@@ -386,7 +419,11 @@ function formatSeries(
   }
   const values = rows.map((r) => toValue(r[valueIndex]));
   const labels = rows.map((r) => String(r[0]));
-  const line = (r: unknown[]) => `  ${String(r[0])}  ${formatNumber(r[valueIndex])}`;
+  const lastOpen = lastBucketOpen(labels, meta, options.window);
+  // The still-open last bucket is marked on its own line too, so a reader who
+  // skips the stats line cannot take a low final value for a drop.
+  const line = (r: unknown[]) =>
+    `  ${String(r[0])}  ${formatNumber(r[valueIndex])}${lastOpen && r === rows[rows.length - 1] ? " (partial)" : ""}`;
   // A long series where only a few buckets carry a value shows exactly those
   // buckets, with the rest counted: a 90-day window with one spike is the
   // spike's date, not eight zeros from either end. A short series shows every
@@ -460,7 +497,7 @@ function formatSeries(
   const sample = sparse ? [...carrying.map(line), `  … ${omitted} not shown`] : denseSample();
   return [
     `${rows.length} buckets (${columns.join(", ")})${granularity}`,
-    `  ${seriesStats(values, labels, partial)}`,
+    `  ${seriesStats(values, labels, partial, lastOpen)}`,
     ...sample,
   ].join("\n");
 }
@@ -487,11 +524,16 @@ export function formatRows(
     // cell inside a table gets, and the model should not have to read a glyph
     // to tell "no data" from "0". Tested on null/undefined rather than through
     // toValue() so a legitimately non-numeric single value is not mislabelled.
+    // Labelled as the whole window's value: an aggregate is one figure for a
+    // range, not the last point of a series. The bounds themselves are on the
+    // window line every result starts with.
+    const w = options.window;
+    const range = w?.start_time !== undefined && w.end_time !== undefined ? " (whole window)" : "";
     const only = rows[0][0];
     if (only === null || only === undefined) {
-      return `${columns[0]}: — (no rows in this window)`;
+      return `${columns[0]}${range}: — (no rows in this window)`;
     }
-    return `${columns[0]}: ${formatNumber(only)}`;
+    return `${columns[0]}${range}: ${formatNumber(only)}`;
   }
   if (isTimeSeries(columns, meta, rows)) return formatSeries(columns, rows, meta, options);
   const shown = rows.slice(0, WIDGET_ROW_CAP);
@@ -513,34 +555,87 @@ export function formatWidgetQueryResult(data: unknown): string {
   };
   const columns = Array.isArray(d.columns) ? d.columns : [];
   const rows = Array.isArray(d.rows) ? d.rows : [];
-  return [formatWindow(d.window), formatRows(columns, rows, d.meta)].join("\n");
+  const window = d.window as RowsOptions["window"];
+  return [formatWindow(d.window), formatRows(columns, rows, d.meta, { window })].join("\n");
 }
 
-/** The text the model sees for a get_dashboard_data result: one block per widget, then the counts. */
-export function formatDashboardData(data: unknown): string {
+/** What a caller can add to a dashboard read that the payload itself does not carry. */
+export interface DashboardDataOptions {
+  /** The dashboard's page URL for an id, when the caller knows the site's origin and the project. */
+  dashboardUrl?: (dashboardId: string) => string;
+}
+
+const OVER_BUDGET_NOTE =
+  "  rows not included: the dashboard read is over its text budget — run this widget's spec with run_widget_query";
+
+/**
+ * The text the model sees for a get_dashboard_data result: the counts and
+ * the window first, then one block per widget in the dashboard's order.
+ *
+ * Space is spent rows-first: every widget always keeps its title and status
+ * line, so the model knows what the dashboard holds even when it cannot
+ * quote from all of it. Each widget's body is added, in dashboard order, if
+ * the text still fits with it; a widget whose body does not fit says how to
+ * get its rows, and a smaller one after it may still fit. Only when the
+ * widget list alone does not fit is the text cut, with a marker.
+ */
+export function formatDashboardData(data: unknown, options: DashboardDataOptions = {}): string {
   const d = (data ?? {}) as any;
   const dash = d.dashboard ?? {};
   const widgets: any[] = Array.isArray(d.widgets) ? d.widgets : [];
-  const header = `Dashboard: ${dash.id ?? "?"} | ${dash.name || "(unnamed)"}${dash.is_default ? " (default)" : ""}`;
+  const window = d.window as RowsOptions["window"];
+  const url =
+    typeof dash.id === "string" && options.dashboardUrl
+      ? [`URL: ${options.dashboardUrl(dash.id)}`]
+      : [];
+  const head = [
+    `Dashboard: ${dash.id ?? "?"} | ${dash.name || "(unnamed)"}${dash.is_default ? " (default)" : ""}`,
+    ...url,
+    formatWindow(d.window),
+    `${d.queried ?? 0} widgets queried, ${d.skipped ?? 0} feeds skipped, ${d.failed ?? 0} failed`,
+    "",
+  ];
   const blocks = widgets.map((w, i) => {
     const title = `#${i + 1} ${w.title || "(untitled)"} | ${w.type ?? "unknown"} | ${w.status}`;
     if (w.status === "skipped") {
-      return `${title}\n  feed — not summarized; read it with list_traces and the feed's filters`;
+      return {
+        title,
+        body: "  feed — not summarized; read it with list_traces and the feed's filters",
+        fixed: true,
+      };
     }
     if (w.status === "error") {
-      return `${title}\n  error: ${w.error ?? "unknown"}`;
+      return { title, body: `  error: ${w.error ?? "unknown"}`, fixed: true };
     }
-    const body = formatRows(
+    const rows = formatRows(
       Array.isArray(w.columns) ? w.columns : [],
       Array.isArray(w.rows) ? w.rows : [],
       w.meta ?? undefined,
-      { truncated: w.truncated === true },
+      { truncated: w.truncated === true, window },
     );
-    const truncated = w.truncated ? "\n  (rows capped by the server)" : "";
-    return `${title}\n${body}${truncated}`;
+    const capped = w.truncated
+      ? "\n  (rows capped by the server — run this widget's spec with run_widget_query for every row)"
+      : "";
+    return { title, body: `${rows}${capped}`, fixed: false };
   });
-  const counts = `${d.queried ?? 0} widgets queried, ${d.skipped ?? 0} feeds skipped, ${d.failed ?? 0} failed`;
-  const text = [header, formatWindow(d.window), "", ...blocks, "", counts].join("\n");
+  const bytes = (text: string) => Buffer.byteLength(text, "utf-8");
+  // The floor every widget costs whatever happens: its title with its
+  // one-line status, or its title with the over-budget note. Bodies are then
+  // swapped in for notes, in order, while the whole text still fits.
+  const floor = (b: { title: string; body: string; fixed: boolean }) =>
+    b.fixed ? `${b.title}\n${b.body}` : `${b.title}\n${OVER_BUDGET_NOTE}`;
+  let used = bytes([...head, ...blocks.map(floor)].join("\n"));
+  const rendered = blocks.map((b) => {
+    if (b.fixed) return floor(b);
+    const delta = bytes(b.body) - bytes(OVER_BUDGET_NOTE);
+    // A body no longer than the note always fits; it is the note's replacement.
+    if (delta <= 0 || used + delta <= DASHBOARD_DATA_BUDGET_BYTES) {
+      used += delta;
+      return `${b.title}\n${b.body}`;
+    }
+    return floor(b);
+  });
+  const text = [...head, ...rendered].join("\n");
   const bounded = truncateHead(text, { maxBytes: DASHBOARD_DATA_BUDGET_BYTES });
   return bounded.truncated
     ? `${bounded.content}\n… output truncated at ${DASHBOARD_DATA_BUDGET_BYTES} bytes; read the dashboard with get_dashboard for a widget's spec, then run_widget_query for that widget`

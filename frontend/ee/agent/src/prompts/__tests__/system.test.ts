@@ -133,6 +133,11 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("ask which one they want before creating");
   });
 
+  it("forbids assembling links from ids", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain("Link only to a URL a tool result contained");
+  });
+
   it("tells the agent to adopt the suffixed name a collision gave a dashboard", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
     expect(prompt).toContain("got a new name");

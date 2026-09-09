@@ -70,6 +70,29 @@ describe("createRegistryReadTools", () => {
     expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/dashboards/d1/data?range=7d");
   });
 
+  it("puts the dashboard's page URL in a dashboard read, on the browser-reachable origin", async () => {
+    // In a compose deployment the service reaches the web app as http://web:3000,
+    // which a browser cannot; the link must use the public origin instead.
+    const before = { ...process.env };
+    process.env.TRACEROOT_UI_URL = "http://web:3000";
+    process.env.TRACEROOT_PUBLIC_UI_URL = "https://app.test";
+    try {
+      stubFetch({ dashboard: { id: "d1", name: "Latency" }, window: {}, widgets: [] });
+      const tool = createRegistryReadTools("p1", "u1").find(
+        (t) => t.name === "get_dashboard_data",
+      )!;
+      const result = await tool.execute("id", { label: "x", dashboard_id: "d1" });
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain("URL: https://app.test/projects/p1/dashboard/d1");
+      expect(text).not.toContain("web:3000");
+    } finally {
+      process.env.TRACEROOT_UI_URL = before.TRACEROOT_UI_URL;
+      process.env.TRACEROOT_PUBLIC_UI_URL = before.TRACEROOT_PUBLIC_UI_URL;
+      if (before.TRACEROOT_UI_URL === undefined) delete process.env.TRACEROOT_UI_URL;
+      if (before.TRACEROOT_PUBLIC_UI_URL === undefined) delete process.env.TRACEROOT_PUBLIC_UI_URL;
+    }
+  });
+
   it("defaults both data reads to the page's window when the model names none", async () => {
     const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
     const tools = createRegistryReadTools("p1", "u1", { range: "30d" });

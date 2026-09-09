@@ -364,6 +364,8 @@ services:
       AGENT_SERVICE_URL: http://agent:8100
       BACKEND_INTERNAL_URL: http://rest:8000
       TRACEROOT_UI_URL: http://web:3000
+      # Browser-reachable origin for links the agent shows a person (dashboard reads).
+      TRACEROOT_PUBLIC_UI_URL: ${TRACEROOT_PUBLIC_UI_URL:-${NEXT_PUBLIC_APP_URL:-http://localhost:3000}}
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}

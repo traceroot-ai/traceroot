@@ -19,6 +19,7 @@ import {
   formatTraceList,
   formatWidgetQueryResult,
 } from "./formatters.js";
+import { publicUiUrl } from "./origins.js";
 import { type QueryWindow, windowDefaults } from "./query-window.js";
 
 function requireEntry(name: string) {
@@ -103,6 +104,15 @@ export function createRegistryReadTools(
     bind("list_dashboards", formatDashboardList),
     bind("get_dashboard", formatDashboardDetail),
     bind("run_widget_query", formatWidgetQueryResult, pageWindow),
-    bind("get_dashboard_data", formatDashboardData, pageWindow),
+    bind(
+      "get_dashboard_data",
+      (data) =>
+        formatDashboardData(data, {
+          // A link a person will click: the browser-reachable origin, never
+          // the service-to-service one.
+          dashboardUrl: (id) => `${publicUiUrl()}/projects/${projectId}/dashboard/${id}`,
+        }),
+      pageWindow,
+    ),
   ];
 }
