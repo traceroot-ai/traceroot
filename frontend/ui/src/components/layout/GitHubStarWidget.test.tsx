@@ -79,8 +79,10 @@ describe("GitHubStarWidget", () => {
       "github-star-count-cache",
       JSON.stringify({ count: 1, timestamp: Date.now() - 2 * 60 * 60 * 1000 }),
     );
+    // The widget goes through our own cached server route (not api.github.com
+    // directly), which returns `{ stars }`.
     const fetchMock = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ stargazers_count: 1500 }),
+      json: () => Promise.resolve({ stars: 1500 }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -90,7 +92,7 @@ describe("GitHubStarWidget", () => {
       await Promise.resolve();
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://api.github.com/repos/traceroot-ai/traceroot");
+    expect(fetchMock).toHaveBeenCalledWith("/api/github-stars");
     expect(container.textContent).toContain("1.5k");
   });
 });
