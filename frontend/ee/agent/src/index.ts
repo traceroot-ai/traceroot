@@ -27,6 +27,12 @@ import {
   markSessionDeleted,
 } from "./executors/deleted-session-fence.js";
 import { createTools } from "./tools/index.js";
+import {
+  closePreviousListener,
+  registerSignalHandlers,
+  rememberExecutors,
+  rememberListener,
+} from "./hot-reload.js";
 import { parseQueryWindow } from "./tools/query-window.js";
 import type { Executor } from "./executors/interface.js";
 import type { Agent } from "@earendil-works/pi-agent-core";
@@ -40,9 +46,14 @@ const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 // Per-session executor cache (executor lifecycle tied to session)
 const sessionExecutors = new Map<string, Executor>();
 
+// When this module was (re-)executed. Reported by /health so a caller can tell
+// whether the running process predates the sources it is being graded against
+// — the eval harness refuses to score a service older than its own code.
+const BOOT_TIME = new Date().toISOString();
+
 // Health check
 app.get("/health", (c) => {
-  return c.json({ status: "ok", service: "traceroot-agent" });
+  return c.json({ status: "ok", service: "traceroot-agent", startedAt: BOOT_TIME });
 });
 
 // Cache invalidation — called by Next.js API when a model provider is updated/deleted
@@ -301,11 +312,19 @@ async function shutdown(signal: string): Promise<void> {
   }
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
-
 async function main(): Promise<void> {
   console.log("[Agent] TraceRoot Agent Service starting...");
+
+  // First, before anything slow: under `vite-node --watch` this module is
+  // re-executed in the same process, so the previous execution's listener is
+  // still holding the port and its signal handlers are still registered.
+  // Leaving them in place makes serve() below throw EADDRINUSE and the
+  // process goes on serving the code it booted with.
+  await closePreviousListener();
+  registerSignalHandlers(["SIGTERM", "SIGINT"], (signal) => {
+    void shutdown(signal);
+  });
+  rememberExecutors(sessionExecutors);
 
   // Verify DB connection
   try {
@@ -319,9 +338,11 @@ async function main(): Promise<void> {
   // Sync standard model pricing from JSON → DB
   await syncStandardPrices();
 
-  serve({ fetch: app.fetch, port: PORT }, (info) => {
-    console.log(`[Agent] Listening on http://localhost:${info.port}`);
-  });
+  rememberListener(
+    serve({ fetch: app.fetch, port: PORT }, (info) => {
+      console.log(`[Agent] Listening on http://localhost:${info.port}`);
+    }),
+  );
 }
 
 // Under vitest the app is exercised via app.request — don't boot the server.
