@@ -425,13 +425,20 @@ describe("runClickHouseStatement", () => {
     const [file, args, options] = execImpl.mock.calls[0] as unknown as [
       string,
       string[],
-      { input?: string },
+      { input?: string; env?: NodeJS.ProcessEnv },
     ];
     expect(file).toBe("docker");
     expect(args).toContain("ch-container");
     expect(args).toContain("--query");
     expect(args.at(-1)).toBe("SELECT count()");
     expect(options.input).toBe("rows");
+    // The credential rides in the environment, never in argv.
+    expect(args.join(" ")).not.toContain(CONFIG.password);
+    expect(args.slice(args.indexOf("-e"), args.indexOf("-e") + 2)).toEqual([
+      "-e",
+      "CLICKHOUSE_PASSWORD",
+    ]);
+    expect(options.env?.CLICKHOUSE_PASSWORD).toBe(CONFIG.password);
   });
 });
 

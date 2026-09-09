@@ -472,16 +472,16 @@ export interface SeedIo {
   execImpl?: (
     file: string,
     args: string[],
-    options: { input?: string },
+    options: { input?: string; env?: NodeJS.ProcessEnv },
   ) => Promise<{ stdout: string }>;
 }
 
 async function execDocker(
   file: string,
   args: string[],
-  options: { input?: string },
+  options: { input?: string; env?: NodeJS.ProcessEnv },
 ): Promise<{ stdout: string }> {
-  const child = execFileAsync(file, args, { maxBuffer: 64 * 1024 * 1024 });
+  const child = execFileAsync(file, args, { maxBuffer: 64 * 1024 * 1024, env: options.env });
   if (options.input !== undefined) {
     child.child.stdin?.end(options.input);
   }
@@ -524,20 +524,24 @@ export async function runClickHouseStatement(
     });
   } catch {
     const exec = io.execImpl ?? execDocker;
+    // The password travels in the environment, not argv: `docker exec -e NAME`
+    // with no value forwards the caller's variable, and clickhouse-client
+    // reads CLICKHOUSE_PASSWORD itself, so it never appears in a process list.
     const { stdout } = await exec(
       "docker",
       [
         "exec",
         "-i",
+        "-e",
+        "CLICKHOUSE_PASSWORD",
         config.container,
         "clickhouse-client",
         `--user=${config.user}`,
-        `--password=${config.password}`,
         `--database=${config.database}`,
         "--query",
         statement,
       ],
-      { input: body },
+      { input: body, env: { ...process.env, CLICKHOUSE_PASSWORD: config.password } },
     );
     return stdout;
   }
