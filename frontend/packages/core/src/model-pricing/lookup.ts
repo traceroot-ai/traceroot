@@ -6,12 +6,44 @@ export interface ModelPricing {
   output: number;
   cacheRead: number | null;
   cacheWrite: number | null;
+  // Optional Anthropic 1-hour cache-write rate (2.0x input, versus 1.25x for the
+  // default 5-minute write). null when a model doesn't distinguish TTLs, in which
+  // case the combined `cacheWrite` rate (which already equals the 5-minute rate) is
+  // used. Only `cacheWrite1h` is populated in the price table today.
+  cacheWrite1h: number | null;
 }
 
 interface CachedModel {
   modelName: string;
-  matchPattern: string;
+  // Compiled at cache-load time, or null when the catalogue pattern cannot compile.
+  matcher: RegExp | null;
   prices: ModelPricing;
+}
+
+// `matchPattern` values are authored for the Python worker, which accepts the PCRE
+// inline flag `(?i)`. JavaScript's RegExp does not — it throws "Invalid group" — and
+// every catalogue pattern carries that prefix. Case-insensitivity is already supplied
+// by the "i" flag below, so the inline flag is redundant here and is stripped.
+const INLINE_IGNORECASE_PREFIX = /^\(\?i\)/;
+
+/**
+ * Compile a catalogue match pattern for the JS path, or null if it cannot compile.
+ *
+ * Called once per cache load rather than per lookup, so an uncompilable pattern is
+ * reported once instead of on every pricing call.
+ */
+function compileMatchPattern(matchPattern: string, modelName: string): RegExp | null {
+  try {
+    return new RegExp(matchPattern.replace(INLINE_IGNORECASE_PREFIX, ""), "i");
+  } catch (err) {
+    // A pattern that cannot compile is a catalogue defect. Swallowing it silently is
+    // what hid the fallback being dead: pricing just returned null and looked free.
+    console.warn(
+      `[model-pricing] Ignoring uncompilable matchPattern for "${modelName}": ${matchPattern}`,
+      err,
+    );
+    return null;
+  }
 }
 
 let cache: CachedModel[] | null = null;
@@ -37,12 +69,13 @@ async function loadCache(): Promise<CachedModel[]> {
     }
     return {
       modelName: m.modelName,
-      matchPattern: m.matchPattern,
+      matcher: compileMatchPattern(m.matchPattern, m.modelName),
       prices: {
         input: priceMap["input"] ?? 0,
         output: priceMap["output"] ?? 0,
         cacheRead: priceMap["cacheRead"] ?? null,
         cacheWrite: priceMap["cacheWrite"] ?? null,
+        cacheWrite1h: priceMap["cacheWrite1h"] ?? null,
       },
     };
   });
@@ -62,17 +95,54 @@ export async function getModelPricing(modelId: string): Promise<ModelPricing | n
   const exact = models.find((m) => m.modelName === modelId);
   if (exact) return exact.prices;
 
-  // Regex fallback
+  // Regex fallback — catches provider-prefixed and Bedrock/Vertex-style aliases
+  // (e.g. "anthropic/claude-opus-5", "us.anthropic.claude-opus-5-v1:0").
   for (const m of models) {
-    try {
-      const re = new RegExp(m.matchPattern, "i");
-      if (re.test(modelId)) return m.prices;
-    } catch {
-      // Invalid regex — skip
-    }
+    if (m.matcher?.test(modelId)) return m.prices;
   }
 
   return null;
+}
+
+/**
+ * Price token counts against a known ModelPricing. Pure (no DB lookup), so it is
+ * unit-testable without mocking Prisma, and mirrors the Python worker's cost formula.
+ *
+ * The 1-hour cache-write portion (cacheWrite1hTokens) is a sub-partition of
+ * cacheWriteTokens: clamped non-negative and capped so `1h <= total`, with the
+ * remainder priced at the combined `cacheWrite` rate (which already equals the
+ * 5-minute / default rate) and the 1-hour portion at its own rate (falling back to
+ * `cacheWrite`). When no 1-hour portion is supplied the remainder is the whole write
+ * total, so the result is identical to the pre-split formula.
+ */
+export function calculateCostFromPricing(
+  pricing: ModelPricing,
+  inputTokens: number,
+  outputTokens: number,
+  cacheReadTokens: number = 0,
+  cacheWriteTokens: number = 0,
+  cacheWrite1hTokens: number = 0,
+): number {
+  // Clamp every count non-negative so malformed input can't produce a negative
+  // cost, mirroring the worker's normalize_token_usage.
+  const input = Math.max(inputTokens, 0);
+  const output = Math.max(outputTokens, 0);
+  const cacheRead = Math.max(cacheReadTokens, 0);
+  const cacheWrite = Math.max(cacheWriteTokens, 0);
+  const cacheWrite1h = Math.min(Math.max(cacheWrite1hTokens, 0), cacheWrite);
+  const remainder = cacheWrite - cacheWrite1h;
+  const cacheWriteRate = pricing.cacheWrite ?? 0;
+
+  // `|| cacheWriteRate` (not `??`): a 0 rate is treated as unset and falls back to the
+  // base cache-write rate, matching the Python worker's truthy `_rate` fallback so the
+  // two cost formulas agree for every input (incl. an explicit cacheWrite1h of 0).
+  return (
+    input * pricing.input +
+    output * pricing.output +
+    cacheRead * (pricing.cacheRead ?? 0) +
+    remainder * cacheWriteRate +
+    cacheWrite1h * (pricing.cacheWrite1h || cacheWriteRate)
+  );
 }
 
 /**
@@ -85,14 +155,17 @@ export async function calculateCost(
   outputTokens: number,
   cacheReadTokens: number = 0,
   cacheWriteTokens: number = 0,
+  cacheWrite1hTokens: number = 0,
 ): Promise<number> {
   const pricing = await getModelPricing(modelId);
   if (!pricing) return 0;
 
-  return (
-    inputTokens * pricing.input +
-    outputTokens * pricing.output +
-    cacheReadTokens * (pricing.cacheRead ?? 0) +
-    cacheWriteTokens * (pricing.cacheWrite ?? 0)
+  return calculateCostFromPricing(
+    pricing,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    cacheWrite1hTokens,
   );
 }

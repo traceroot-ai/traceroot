@@ -1,0 +1,163 @@
+"use client";
+
+/**
+ * The trace filter input: one box holding the active-filter chips and — anchored to it —
+ * the filter builder popover. Clicking/focusing the box opens the builder; chips render
+ * INSIDE the box, each removable (or backspace removes the last). Filter-only: there is no
+ * free-text keyword search — find a trace by id via the `trace_id` = / contains filter.
+ */
+import { useRef, useState } from "react";
+import { ListFilter, X } from "lucide-react";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import type { Predicate } from "@/types/api";
+import { useFilterFields } from "./hooks";
+import { FilterBuilder } from "./filter-builder";
+import { predicateLabel, upsertPredicate } from "./predicate-ui";
+
+/**
+ * The key of a keyed predicate (metadata), or undefined for the ordinary
+ * field/operator/value ones. Read off the predicate rather than by field name so nothing
+ * here has to know which fields are keyed — the registry's `requires_key` is that answer.
+ */
+function predicateKey(p: Predicate): string | undefined {
+  return p.key;
+}
+
+interface TraceSearchFilterInputProps {
+  projectId: string;
+  filters: Predicate[];
+  onFiltersChange: (filters: Predicate[]) => void;
+  /** Active-window bounds, threaded to the lazy distinct-values query. */
+  startAfter?: string;
+  endBefore?: string;
+}
+
+export function TraceSearchFilterInput({
+  projectId,
+  filters,
+  onFiltersChange,
+  startAfter,
+  endBefore,
+}: TraceSearchFilterInputProps) {
+  const fields = useFilterFields(projectId);
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
+
+  // Merge into the active set: a lower bound (`greater than or equal to`) and an upper
+  // bound (`less than or equal to`) on the same field coexist to form a range (e.g.
+  // latency ≥ 5 and latency ≤ 10, AND-combined by the backend); a same-direction bound,
+  // an exact `equals`, a categorical value, or a contradictory opposite bound that would
+  // make an empty range (e.g. errors ≥ 5 then errors ≤ 3) is superseded by the new one.
+  // A keyed field merges per KEY, not per field — `metadata.session_id` and
+  // `metadata.user_id` are independent filters that coexist. The popover stays open and
+  // the builder resets, so another filter can be added at once.
+  const addPredicate = (p: Predicate) => onFiltersChange(upsertPredicate(filters, p));
+  const removeAt = (index: number) => onFiltersChange(filters.filter((_, i) => i !== index));
+
+  // Chips show the field's display name (its registry label, lowercased — e.g. `latency`
+  // rather than the raw `duration_ms`), falling back to the field key if it isn't loaded.
+  // Only the BARE name goes to predicateLabel: the label appends a keyed predicate's own
+  // key itself, so it reads as `metadata.session_id` there. Handing it a name that already
+  // carries the key would spell the key twice.
+  const fieldName = (field: string) =>
+    fields.find((f) => f.field === field)?.label.toLowerCase() ?? field;
+  // The remove button names the raw field (not its display label) so the accessible name
+  // is stable regardless of whether the registry has loaded; the key is appended so two
+  // metadata chips are distinguishable rather than both reading "Remove metadata filter".
+  const chipRemoveTarget = (p: Predicate) => {
+    const key = predicateKey(p);
+    return key === undefined ? p.field : `${p.field}.${key}`;
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverAnchor asChild>
+        <div
+          ref={anchorRef}
+          className={cn(
+            // Match the default SearchFilterBar input exactly: its absolute icon sits at
+            // left-2.5 (10px) with text at pl-8 (32px). Here the box has a 1px border, so
+            // pl-[9px] (1px border + 9px) puts the icon at the same 10px; mr-1 + gap-1
+            // (8px) then lands the text at 32px. Keeps the traces bar identical to
+            // users/sessions.
+            "flex min-h-8 min-w-[16rem] max-w-2xl flex-1 flex-wrap items-center gap-1 rounded-md",
+            "border border-input bg-transparent py-0.5 pl-[9px] pr-2 shadow-sm",
+            "focus-within:ring-1 focus-within:ring-ring",
+          )}
+          onMouseDown={(e) => {
+            // Clicking the empty area of the box focuses the text field (which opens the
+            // builder); let chip ✕ buttons and the field itself handle their own clicks.
+            if (e.target === e.currentTarget) {
+              e.preventDefault();
+              inputRef.current?.focus();
+            }
+          }}
+        >
+          <ListFilter className="mr-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          {filters.map((p, i) => (
+            <span
+              key={`${p.field}-${predicateKey(p) ?? ""}-${i}`}
+              className="flex items-center gap-1 rounded bg-muted/70 py-0.5 pl-1.5 pr-1 text-[12px]"
+            >
+              <span className="font-medium text-foreground">
+                {predicateLabel(p, fieldName(p.field))}
+              </span>
+              <button
+                type="button"
+                aria-label={`Remove ${chipRemoveTarget(p)} filter`}
+                onClick={() => removeAt(i)}
+                className="rounded p-0.5 transition-colors hover:bg-muted"
+              >
+                <X className="h-3 w-3 text-muted-foreground" />
+              </button>
+            </span>
+          ))}
+          <input
+            ref={inputRef}
+            readOnly
+            value=""
+            onFocus={() => setOpen(true)}
+            onClick={() => setOpen(true)}
+            onKeyDown={(e) => {
+              // Backspace removes the last filter chip, one per press (tokenized-input
+              // behavior). The box is filter-only — there's no keyword text to delete.
+              if (e.key === "Backspace" && filters.length > 0) {
+                removeAt(filters.length - 1);
+              }
+            }}
+            placeholder={filters.length === 0 ? "Filter traces…" : "Add filter…"}
+            className="h-6 min-w-[6rem] flex-1 cursor-text bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+      </PopoverAnchor>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onInteractOutside={(e) => {
+          // Clicking the search box (the anchor, not the content) must NOT close the
+          // popover — Radix would otherwise close-then-reopen it, remounting the
+          // builder and wiping the user's in-progress selections.
+          if (anchorRef.current?.contains(e.target as Node)) e.preventDefault();
+        }}
+        // z-40 keeps the filter menu above the list but BELOW the trace detail panel
+        // (fixed z-50), so it never overlaps on top of an open detail view.
+        // Width is 75% of the search bar (left-aligned, so the right ~25% stays
+        // uncovered) with a min floor so the field/operator/value/Add-filter row never
+        // cramps when the bar itself is narrow. The floor budgets for the widest row —
+        // a keyed field (metadata) inserts a fifth control, and the row stays one line.
+        className="z-40 w-[calc(var(--radix-popover-trigger-width)*0.75)] min-w-[28rem] p-0"
+      >
+        <FilterBuilder
+          projectId={projectId}
+          fields={fields}
+          startAfter={startAfter}
+          endBefore={endBefore}
+          onSubmit={addPredicate}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}

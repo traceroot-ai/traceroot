@@ -57,6 +57,7 @@ describe("Sidebar", () => {
   }
 
   it("renders expanded at w-48 with the star widget above the bottom links", () => {
+    process.env.NEXT_PUBLIC_APP_VERSION = "v1.2.3";
     render();
 
     const frame = container.querySelector("div.flex.h-screen");
@@ -67,6 +68,7 @@ describe("Sidebar", () => {
     expect(container.textContent).toContain("Workspaces");
     expect(container.textContent).toContain("GitHub");
     expect(container.textContent).toContain("Support");
+    expect(container.textContent).toContain("v1.2.3");
   });
 
   it("renders collapsed at w-14 and hides the star widget", () => {
@@ -78,12 +80,32 @@ describe("Sidebar", () => {
     expect(container.querySelector('[data-testid="star-widget"]')).toBeNull();
   });
 
-  it("shows the upgrade button only in project context", () => {
+  it("puts Home first among the project links, above Tracing", () => {
+    navigation.pathname = "/projects/p1/home";
+    navigation.params = { projectId: "p1" };
+    render();
+
+    const links = Array.from(container.querySelectorAll("nav a"));
+    expect(links.slice(0, 2).map((l) => l.textContent)).toEqual(["Home", "Tracing"]);
+
+    const home = links[0];
+    expect(home.getAttribute("href")).toBe("/projects/p1/home");
+    // Active state: the plain `bg-muted` token (not the `hover:` variant).
+    expect(home.className.split(" ")).toContain("bg-muted");
+    expect(links[1].className.split(" ")).not.toContain("bg-muted");
+  });
+
+  it("shows the upgrade button only in a project or workspace context", () => {
     render();
     expect(container.querySelector('[data-testid="upgrade-button"]')).toBeNull();
 
     navigation.pathname = "/projects/p1/traces";
     navigation.params = { projectId: "p1" };
+    render();
+    expect(container.querySelector('[data-testid="upgrade-button"]')).not.toBeNull();
+
+    navigation.pathname = "/workspaces/w1";
+    navigation.params = { workspaceId: "w1" };
     render();
     expect(container.querySelector('[data-testid="upgrade-button"]')).not.toBeNull();
   });

@@ -66,12 +66,14 @@ async def get_project_access(
         and settings.internal_api_secret
         and hmac.compare_digest(x_internal_secret, settings.internal_api_secret)
     ):
-        # Trusted internal traffic is not rate limited (system-controlled volume).
+        # Trusted internal traffic is not rate limited (system-controlled volume)
+        # and exempt from retention gating (enterprise-equivalent access).
         mark_request_rate_limit_exempt()
         return ProjectAccessInfo(
             project_id=project_id,
             user_id=x_user_id or "system",
             role=MemberRole.ADMIN,
+            billing_plan="enterprise",
         )
 
     if not x_user_id:

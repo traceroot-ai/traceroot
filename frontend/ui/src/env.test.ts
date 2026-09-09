@@ -6,8 +6,8 @@ async function loadEnv(overrides: Record<string, string | undefined>) {
   vi.resetModules();
   process.env = {
     ...originalEnv,
-    BETTER_AUTH_SECRET: "test-secret",
-    INTERNAL_API_SECRET: "internal-secret",
+    BETTER_AUTH_SECRET: "github-social-auth-test-secret-value",
+    INTERNAL_API_SECRET: "github-social-auth-test-secret-value",
     ...overrides,
   };
   return import("./env");

@@ -9,7 +9,17 @@ import {
   isRcaRunBlocked,
   isDetectorRunBlocked,
   isIngestionBlocked,
+  hasEntitlement,
 } from "../plans.ts";
+
+describe("slack-integration entitlement", () => {
+  it("is available on every plan (free tier included)", () => {
+    expect(hasEntitlement(PlanType.FREE, "slack-integration")).toBe(true);
+    expect(hasEntitlement(PlanType.STARTER, "slack-integration")).toBe(true);
+    expect(hasEntitlement(PlanType.PRO, "slack-integration")).toBe(true);
+    expect(hasEntitlement(PlanType.ENTERPRISE, "slack-integration")).toBe(true);
+  });
+});
 
 describe("RCA_RUN_QUOTAS", () => {
   it("mirrors AI_RUN_QUOTAS shape and values per resolved decision", () => {

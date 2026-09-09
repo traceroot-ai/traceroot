@@ -126,6 +126,17 @@
             ]
           },
           {
+            "group": "Evaluations",
+            "pages": [
+              "evals/introduction",
+              "evals/get-started",
+              "evals/datasets",
+              "evals/scorers",
+              "evals/running-evals",
+              "evals/reading-results"
+            ]
+          },
+          {
             "group": "CLI",
             "pages": [
               "cli/get-started"
@@ -162,8 +173,10 @@
               "integrations/langchain",
               "integrations/langchain-deepagents",
               "integrations/llamaindex",
+              "integrations/microsoft-agent-framework",
               "integrations/mastra",
               "integrations/openai-agents-sdk",
+              "integrations/pi",
               "integrations/pydantic-ai",
               "integrations/vercel-ai"
             ]

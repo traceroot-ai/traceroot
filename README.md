@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-[TraceRoot]("https://traceroot.ai/") is an open-source observability platform for AI agents — Capture traces, monitors production issues, and debug with AI that sees your source code and Github history.
+[TraceRoot](https://traceroot.ai/) is the open-source self-improving layer for AI agents — observability that detects failures in production, root-causes them against your source code and GitHub history, opens verified fix PRs, and evals every fix — so your agent gets more robust, accurate, and efficient with every release.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -31,8 +31,9 @@
 
 | Feature | Description |
 | ------- | ----------- |
-| Detectors | LLM-as-judge evaluator monitors incoming trace for hallucinations, tool/logic failures, safety violations, and intent drift — surfaces findings and auto-triggers root cause analysis with email and slack alerts. |
+| Detectors | LLM-as-judge evaluator monitors incoming traces for hallucinations, tool/logic failures, safety violations, and intent drift — surfaces findings and auto-triggers root cause analysis with email and Slack alerts. |
 | Agentic Debugging | AI that sees all your traces, connects to a sandbox with your production source code, identifies the exact failing line, and correlates the failure with your GitHub commits, PRs, and issues. BYOK support for any model provider. |
+| Datasets & Evals | Turn production findings into golden datasets with one click. Run offline evals from the TraceRoot CLI or SDK inside coding agents like Claude Code, Codex, and Cursor — verifying every fix and systematically improving your agent's robustness and performance over time. |
 | Tracing | Capture LLM calls, agent actions, and tool usage via OpenTelemetry-compatible SDK. Intelligently surfaces the traces that matter — noise filtered, signal prioritized. |
 
 ## Why TraceRoot?
@@ -41,9 +42,13 @@
 
   As AI agent systems grow more complex, manually sifting through every trace is unsustainable. TraceRoot's Detectors selectively screen incoming traces — flagging hallucinations, tool failures, logic errors, and safety issues automatically, so you spend time fixing problems, not hunting for them.
 
-- **Debugging AI agent systems is painful.**
+- **Debugging AI agent systems in production is painful.**
 
-  Root-causing failures across agent hallucinations, tool call instabilities, and version changes is hard. TraceRoot's AI connects to a sandbox running your production source code, identifies the exact failing line, and cross-references your GitHub history — commits, PRs, open issues and creates PR to fix it.
+  Root-causing failures across agent hallucinations, tool call instabilities, and version changes is hard. TraceRoot's AI connects to a sandbox running your production source code, identifies the exact failing line, cross-references your GitHub history — commits, PRs, open issues — and opens a PR to fix it.
+
+- **Agent improvement should be systematic, not ad hoc.**
+
+  Most teams debug production issues and move on — the learning evaporates. TraceRoot connects online and offline evaluation in a single loop: Detectors evaluate live traffic, confirmed failures become golden datasets, and offline evals verify every fix against them. Release over release, your agent gets measurably more robust and performant — improvement becomes a repeatable process, not a one-off firefight.
 
 - **Fully open source, no vendor lock-in.**
 
@@ -108,6 +113,7 @@ The fastest way to get started. Ample storage and LLM tokens for testing, no cre
 | [LangChain & LangGraph](https://traceroot.ai/docs/integrations/langchain) | Python, JS/TS | Automated instrumentation by passing callback handler to LangChain application. |
 | [LangChain DeepAgents](https://traceroot.ai/docs/integrations/langchain-deepagents) | Python, JS/TS | Automated instrumentation by passing callback handler to DeepAgents pipeline. |
 | [LlamaIndex](https://traceroot.ai/docs/integrations/llamaindex) | Python | Automated instrumentation of RAG pipelines, document ingestion, retrieval, and LLM synthesis. |
+| [Microsoft Agent Framework](https://traceroot.ai/docs/integrations/microsoft-agent-framework) | Python | Automated instrumentation of agent runs, model calls, and tool executions via Agent Framework's built-in OpenTelemetry emission. |
 | [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | Automated instrumentation via the TraceRoot OTLP exporter. |
 | [OpenAI Agents SDK](https://traceroot.ai/docs/integrations/openai-agents-sdk) | Python, JS/TS | Automated instrumentation of agent runs, tool executions, and handoff transitions. |
 | [Pydantic AI](https://traceroot.ai/docs/integrations/pydantic-ai) | Python | Automated instrumentation of agent runs, LLM calls, and tool invocations via pydantic-ai's native OpenTelemetry support. |
@@ -198,6 +204,16 @@ Special Thanks for [pi-mono](https://github.com/badlogic/pi-mono) project, which
 ## License
 
 This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise features](./ee/LICENSE).
+
+## Star History
+
+<a href="https://star-history.com/#traceroot-ai/traceroot&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" style="border-radius: 15px;" />
+ </picture>
+</a>
 
 ## Contributors
 

@@ -1,6 +1,6 @@
 // Database
 export { prisma } from "./lib/prisma.ts";
-export { PrismaClient } from "@prisma/client";
+export { PrismaClient, Prisma } from "@prisma/client";
 export * from "./ee/billing/index.ts";
 
 // Encryption
@@ -8,6 +8,9 @@ export { encryptKey, decryptKey, maskKey } from "./lib/encryption.ts";
 
 // BYOK key resolution
 export { resolveWorkspaceApiKey } from "./lib/workspace-api-key.ts";
+
+// Transactional-email card template
+export { escapeHtml, renderEmailCard } from "./lib/email-card.ts";
 
 // Re-export Prisma types
 export type {
@@ -20,11 +23,23 @@ export type {
   Account,
   GitHubInstallation,
   ModelProvider,
+  // Offline evaluation
+  Dataset,
+  DatasetVersion,
+  TestCase,
+  Evaluation,
+  EvaluationRun,
+  EvaluationResult,
+  Score,
 } from "@prisma/client";
 
 // Constants & Zod schemas
 export * from "./constants.ts";
 export * from "./schemas.ts";
+export * from "./eval-contract.ts";
+
+// Alert domain (shared by the API routes, the alerts UI and the worker)
+export * from "./alerts.ts";
 
 // LLM Providers
 export * from "./llm-providers.ts";

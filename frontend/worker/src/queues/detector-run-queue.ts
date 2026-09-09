@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import { Redis } from "ioredis";
+import { Redis, type RedisOptions } from "ioredis";
 
 export interface DetectorRunJob {
   traceId: string;
@@ -18,15 +18,20 @@ export interface DetectorRcaJob {
   projectId: string;
   traceId: string;
   workspaceId: string;
-  projectName: string;
   findings: DetectorRcaFinding[];
+  // epoch ms; stamped on the detector rows + keys the digest window. Optional
+  // because legacy jobs serialized to Redis before this field existed deserialize
+  // without it — scheduleDigestFlush guards the undefined case.
+  findingTimestamp?: number;
 }
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 
-export function createRedisConnection(): Redis {
+/** The default suits a BullMQ worker connection; producers override it. */
+export function createRedisConnection(overrides: RedisOptions = {}): Redis {
   return new Redis(REDIS_URL, {
     maxRetriesPerRequest: null, // required for BullMQ
+    ...overrides,
   });
 }
 

@@ -16,4 +16,16 @@ describe("@traceroot/core entrypoint", () => {
     expect(typeof core.calculateCost).toBe("function");
     expect(core.Role).toBeDefined();
   });
+
+  it("re-exports the offline-evaluation contract", async () => {
+    // The public eval routes, the OpenAPI mirror and the UI all reach these
+    // through `@traceroot/core`; a missing barrel line breaks every consumer.
+    const core = await import("../index.ts");
+    expect(core.PublishDatasetVersionRequestSchema).toBeDefined();
+    expect(core.RegisterRunRequestSchema).toBeDefined();
+    expect(core.UpsertResultRequestSchema).toBeDefined();
+    expect(core.CreateTestCaseRequestSchema).toBeDefined();
+    expect(core.UpdateDatasetRequestSchema).toBeDefined();
+    expect(core.DATASET_VERSION_MAX_CHANGES).toBe(1000);
+  });
 });

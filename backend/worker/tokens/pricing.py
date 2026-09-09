@@ -16,7 +16,7 @@ import psycopg2
 
 from shared.config import settings
 
-from .buckets import TokenBuckets
+from .buckets import TokenBuckets, reconcile_cache_write_1h
 from .usage import count_tokens
 
 logger = logging.getLogger(__name__)
@@ -105,6 +105,20 @@ def get_model_price(model: str) -> dict[str, float] | None:
     return None
 
 
+def _rate(prices: dict[str, float], key: str, *fallbacks: str) -> Decimal:
+    """Resolve a per-token rate as an exact Decimal, trying ``key`` then fallbacks.
+
+    A missing/null/zero rate falls through to the next key, and an absent rate is 0
+    (e.g. OpenAI has no cache-write rate). Lets the per-TTL cache-write rates fall
+    back to the combined ``cacheWrite`` rate when a model doesn't distinguish TTLs.
+    """
+    for name in (key, *fallbacks):
+        value = prices.get(name)
+        if value:
+            return Decimal(str(value))
+    return Decimal(0)
+
+
 def _bucket_cost_terms(
     prices: dict[str, float] | None, buckets: TokenBuckets
 ) -> dict[str, Decimal] | None:
@@ -114,17 +128,41 @@ def _bucket_cost_terms(
     Missing cacheRead / cacheWrite rates are treated as 0 (e.g. OpenAI has no
     cache-write rate). Both the total (cost_from_buckets) and the display-side
     breakdown (cost_breakdown_from_buckets) derive from this, so they cannot diverge.
+
+    Every count is clamped non-negative before pricing, so the cost can never go
+    negative and the formula matches the TS helper (calculateCostFromPricing) for any
+    input. For real traffic (all counts already >= 0) the clamps are no-ops, so the
+    result is identical to the unclamped formula.
+
+    The cache-write term prices the optional 1-hour portion as a sub-partition of the
+    write total: the 1-hour portion at its own rate (falling back to ``cacheWrite``
+    when a model doesn't distinguish TTLs) and the remainder at the combined
+    ``cacheWrite`` rate (which already IS the 5-minute / default write rate). When no
+    1-hour portion is reported the remainder equals the whole write total, so the term
+    is identical to ``cache_write * cacheWrite``. ``cache_write_cost`` stays a single
+    canonical term, so the total never double-counts.
     """
     if not prices:
         return None
 
+    # Reconcile the 1-hour portion here too — this is the single source of truth for
+    # the cost formula, so it must price each write token once for ANY TokenBuckets,
+    # not only ones built through normalize_token_usage. The total is clamped
+    # non-negative first (mirrors the TS helper) so a malformed negative total can
+    # never produce a negative cost; remainder = the cache-write tokens with no 1-hour
+    # attribution, priced at the combined cacheWrite rate.
+    cache_write_total = max(buckets.cache_write, 0)
+    cache_write_1h = reconcile_cache_write_1h(cache_write_total, buckets.cache_write_1h)
+    cache_write_remainder = cache_write_total - cache_write_1h
+    cache_write_cost = Decimal(cache_write_remainder) * _rate(prices, "cacheWrite") + Decimal(
+        cache_write_1h
+    ) * _rate(prices, "cacheWrite1h", "cacheWrite")
+
     return {
-        "input_uncached_cost": Decimal(buckets.input_uncached)
-        * Decimal(str(prices.get("input", 0))),
-        "cache_read_cost": Decimal(buckets.cache_read) * Decimal(str(prices.get("cacheRead") or 0)),
-        "cache_write_cost": Decimal(buckets.cache_write)
-        * Decimal(str(prices.get("cacheWrite") or 0)),
-        "output_cost": Decimal(buckets.output) * Decimal(str(prices.get("output", 0))),
+        "input_uncached_cost": Decimal(max(buckets.input_uncached, 0)) * _rate(prices, "input"),
+        "cache_read_cost": Decimal(max(buckets.cache_read, 0)) * _rate(prices, "cacheRead"),
+        "cache_write_cost": cache_write_cost,
+        "output_cost": Decimal(max(buckets.output, 0)) * _rate(prices, "output"),
     }
 
 

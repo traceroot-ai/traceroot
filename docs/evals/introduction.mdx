@@ -1,0 +1,38 @@
+---
+title: Introduction
+description: Run your AI system against a dataset and score every case
+---
+
+An **evaluation** runs your system against a dataset of cases and scores each result.
+
+In TraceRoot every case runs as its own trace, so you inspect an eval with the same span timeline, token, and cost views you already use for tracing. Each scorer emits a metric, and you read a run per metric — there is no single headline score.
+
+The SDK is available in **Python** and **TypeScript**, with the same API in both.
+
+## What you write
+
+- A **dataset** — the cases to run, each with an `input` and an optional `expected` answer.
+- A **task** — your system under evaluation, mapping an `input` to an `output`.
+- One or more **scorers** — functions that turn a case's result into a metric.
+
+Then `evaluate()` runs the task over every case, scores each result, and reports the run.
+
+## Where to start
+
+<CardGroup cols={2}>
+  <Card title="Get Started" icon="rocket" href="/evals/get-started">
+    Author a dataset, write a scorer, and run your first eval.
+  </Card>
+  <Card title="Datasets" icon="table" href="/evals/datasets">
+    Author, version, and publish the cases you run against.
+  </Card>
+  <Card title="Scorers" icon="ruler" href="/evals/scorers">
+    Code scorers and LLM-as-a-judge.
+  </Card>
+  <Card title="Running Evals" icon="play" href="/evals/running-evals">
+    <code>evaluate()</code> — the task, the scorers, and where a run reports.
+  </Card>
+  <Card title="Reading Results" icon="list-check" href="/evals/reading-results">
+    Per-metric summaries and per-case results.
+  </Card>
+</CardGroup>

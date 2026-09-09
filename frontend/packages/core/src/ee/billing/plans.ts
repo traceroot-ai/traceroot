@@ -142,6 +142,35 @@ export const SEAT_LIMITS: Record<PlanType, number> = {
 };
 
 // =============================================================================
+// DATA RETENTION
+// =============================================================================
+// Query-access window per plan, in days. null = unlimited. Data is never
+// deleted — retention only restricts how far back a query may reach. This is
+// the single source of truth for the numbers; the backend gate mirrors them in
+// backend/rest/retention.py (Python cannot import this module).
+export const RETENTION_DAYS: Record<PlanType, number | null> = {
+  [PlanType.FREE]: 15,
+  [PlanType.STARTER]: 30,
+  [PlanType.PRO]: 90,
+  [PlanType.ENTERPRISE]: null,
+};
+
+// Most-restrictive fallback for an unknown or missing plan — fail closed.
+export const FAIL_CLOSED_RETENTION_DAYS = 15;
+
+/**
+ * Retention window (days) for a plan, or null if unlimited. Accepts a raw
+ * string (billingPlan often arrives untyped) and fails closed to the most
+ * restrictive window for anything unrecognized. hasOwnProperty guards against
+ * prototype-chain keys (e.g. "constructor") resolving to a bogus window.
+ */
+export function getRetentionDays(plan: string): number | null {
+  return Object.prototype.hasOwnProperty.call(RETENTION_DAYS, plan)
+    ? RETENTION_DAYS[plan as PlanType]
+    : FAIL_CLOSED_RETENTION_DAYS;
+}
+
+// =============================================================================
 // FEATURE ENTITLEMENTS
 // =============================================================================
 const ENTITLEMENT_CONFIG = {
@@ -155,7 +184,7 @@ const ENTITLEMENT_CONFIG = {
   "ai-auto-triage": [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE],
   byok: [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE],
   "github-integration": [PlanType.PRO, PlanType.ENTERPRISE],
-  "slack-integration": [PlanType.PRO, PlanType.ENTERPRISE],
+  "slack-integration": [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE],
   soc2: [PlanType.PRO, PlanType.ENTERPRISE],
   "custom-compliance": [PlanType.ENTERPRISE],
   "sla-support": [PlanType.ENTERPRISE],
@@ -203,6 +232,7 @@ export const PLANS: Record<
       "30 chat runs/month",
       "30 RCA runs/month",
       "100 detector runs/month",
+      "Slack alerts for detectors",
       "BYOK or hosted LLM",
     ],
     support: "Discord",
@@ -241,7 +271,6 @@ export const PLANS: Record<
     features: [
       "Everything in Starter",
       "90-day retention",
-      "Slack integration for detector alerts",
       "20k ingest + 1k dashboard requests/min rate limits",
       "SOC2 compliance",
     ],
@@ -255,7 +284,7 @@ export const PLANS: Record<
     billingPriceId: "",
     highlighted: false,
     badge: null,
-    features: ["Everything in Pro", "Custom retention", "Slack + SLA support"],
+    features: ["Everything in Pro", "Custom retention", "SLA support"],
     support: "Discord + Slack + SLA",
     entitlements: getEntitlementsForPlan(PlanType.ENTERPRISE),
   },
