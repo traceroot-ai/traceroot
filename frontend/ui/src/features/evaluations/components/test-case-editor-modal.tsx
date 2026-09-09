@@ -36,10 +36,12 @@ function metadataToText(metadata: unknown): string {
  * the parsed object, or null when blank — so the dirty check compares meaning rather than
  * bytes. Metadata is stored parsed, so re-spacing `{"a": 1}` to `{"a":1}` or reordering
  * its keys is a no-op that must not enable Save (it would publish an identical version).
- * Text with no persisted form — half-typed JSON, or a lone surrogate `canonicalJson`
- * rejects — returns null: `metadataError` already blocks Save on it, and this runs during
- * render, so it must not throw. The null sentinel can't collide with a real result, which
- * is always a JSON string (blank metadata canonicalizes to `"null"`, not to null).
+ * Text with no persisted form — half-typed JSON, or a value `canonicalJson` rejects —
+ * returns null: `metadataError` runs the same parse AND the same canonicalization, so it
+ * blocks Save on either with a message, and a null here is never the only reason Save is
+ * off. This runs during render, so it must not throw. The null sentinel can't collide with
+ * a real result, which is always a JSON string (blank metadata canonicalizes to `"null"`,
+ * not to null).
  */
 function metadataSignature(text: string): string | null {
   const trimmed = text.trim();
@@ -84,18 +86,32 @@ export function TestCaseEditorModal({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
-  // Metadata must be empty or a JSON object; surfaced so a half-typed value blocks
-  // Save rather than being silently dropped.
+  // Metadata must be empty or a JSON object that canonicalizes; surfaced so a value with
+  // no persisted form blocks Save rather than being silently dropped.
   const metadataError = React.useMemo(() => {
     const trimmed = metadata.trim();
     if (trimmed === "") return null;
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return null;
-      return 'Metadata must be a JSON object, e.g. {"key": "value"}.';
+      parsed = JSON.parse(trimmed);
     } catch {
       return "Metadata isn't valid JSON.";
     }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return 'Metadata must be a JSON object, e.g. {"key": "value"}.';
+    }
+    // Valid JSON syntax is not enough. An unpaired UTF-16 surrogate parses fine but is not
+    // valid Unicode text, so `canonicalJson` rejects it (its only rejection) and the value
+    // has no canonical form to hash or compare by — which is exactly why `metadataSignature`
+    // can't produce one either. Reported here rather than left to the dirty check: a value
+    // we can't compare must not be savable, and two different uncanonicalizable values
+    // would otherwise read as "no change" and leave Save dead with nothing said.
+    try {
+      canonicalJson(parsed);
+    } catch {
+      return "Metadata contains invalid Unicode (an unpaired surrogate).";
+    }
+    return null;
   }, [metadata]);
 
   const pending = save.isPending || update.isPending;

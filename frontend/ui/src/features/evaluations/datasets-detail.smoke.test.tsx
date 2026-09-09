@@ -407,6 +407,62 @@ describe("Dataset detail — filtering and adding rows", () => {
     expect(save.hasAttribute("disabled")).toBe(false);
   });
 
+  it("a Metadata value that can't be canonicalized is reported, not silently unsavable", async () => {
+    // An unpaired UTF-16 surrogate is valid JSON SYNTAX but not valid Unicode text, so
+    // `canonicalJson` rejects it and the value has no canonical (persistable) form. Seeded
+    // from such a row, editing it to a DIFFERENT unpaired surrogate must not read as "no
+    // change" — the field is reported as invalid instead of Save going quietly dead.
+    const surrogateCase = testCase({
+      id: "row-4",
+      testCaseId: "tc_4",
+      input: "metadata the canonicalizer rejects",
+      metadata: { note: "\ud800" },
+    });
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        const s = String(url);
+        if (s.includes("/evaluations/runs")) {
+          return { data: [], meta: { page: 0, limit: 50, total: 0 } };
+        }
+        return { ...detail(null), testCases: [surrogateCase] };
+      },
+    })) as unknown as typeof fetch;
+    mountDetail();
+    await screen.findByText(/canonicalizer rejects/);
+    fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
+    fireEvent.click(await screen.findByText("Edit"));
+    expect(await screen.findByText("Edit Row")).toBeDefined();
+    const metadata = screen.getByLabelText("Metadata") as HTMLTextAreaElement;
+    expect(metadata.value).toContain("\\ud800");
+    expect(await screen.findByText(/invalid Unicode/i)).toBeDefined();
+
+    fireEvent.change(metadata, { target: { value: '{"note":"\\udbff"}' } });
+    // Still unsavable — but because the value is rejected, and the user is told so.
+    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/invalid Unicode/i)).toBeDefined();
+  });
+
+  it("editing Metadata to an unpaired surrogate blocks Save instead of persisting it", async () => {
+    mountDetail();
+    await screen.findByText(/charged twice/);
+    // Row 2 is the fixture case that carries metadata.
+    fireEvent.click((await screen.findAllByLabelText("Row actions"))[1]);
+    fireEvent.click(await screen.findByText("Edit"));
+    expect(await screen.findByText("Edit Row")).toBeDefined();
+    const metadata = screen.getByLabelText("Metadata") as HTMLTextAreaElement;
+    const save = screen.getByRole("button", { name: "Save" });
+
+    // The signature of an uncanonicalizable value differs from the stored one, so the
+    // dirty check alone would call this savable and PATCH a value the platform can
+    // neither hash nor compare; `metadataError` has to catch it first.
+    fireEvent.change(metadata, { target: { value: '{"channel":"\\ud800"}' } });
+    expect(save.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/invalid Unicode/i)).toBeDefined();
+    expect(requests.some((r) => r.method === "PATCH")).toBe(false);
+  });
+
   it("the row action menu deletes a row (DELETE) after confirming", async () => {
     mountDetail();
     await screen.findByText(/charged twice/);
