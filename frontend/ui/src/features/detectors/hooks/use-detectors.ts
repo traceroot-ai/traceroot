@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
+import { fetchNextApi } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/client";
 
 export interface Detector {
@@ -62,32 +63,25 @@ async function fetchDetectorList(
   if (query.search_query) params.set("search_query", query.search_query);
 
   const qs = params.toString();
-  const url = `/api/projects/${projectId}/detectors${qs ? `?${qs}` : ""}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    const body = await res
-      .json()
-      .catch(() => ({ detail: `Failed to fetch detectors: ${res.status}` }));
-    throw new ApiError(res.status, body.detail ?? `Failed to fetch detectors: ${res.status}`);
-  }
-  return res.json() as Promise<DetectorListResponse>;
+  const endpoint = `/projects/${projectId}/detectors${qs ? `?${qs}` : ""}`;
+
+  return fetchNextApi<DetectorListResponse>(endpoint);
 }
 
 async function fetchDetector(projectId: string, detectorId: string): Promise<Detector> {
-  const res = await fetch(`/api/projects/${projectId}/detectors/${detectorId}`);
-  if (!res.ok) throw new Error(`Failed to fetch detector: ${res.status}`);
-  const data = (await res.json()) as { detector: Detector };
+  const data = await fetchNextApi<{ detector: Detector }>(
+    `/projects/${projectId}/detectors/${detectorId}`,
+  );
+
   return data.detector;
 }
 
 async function createDetector(projectId: string, input: CreateDetectorInput): Promise<Detector> {
-  const res = await fetch(`/api/projects/${projectId}/detectors`, {
+  const data = await fetchNextApi<{ detector: Detector }>(`/projects/${projectId}/detectors`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to create detector: ${res.status}`);
-  const data = (await res.json()) as { detector: Detector };
+
   return data.detector;
 }
 
@@ -108,21 +102,21 @@ async function updateDetector(
   detectorId: string,
   input: UpdateDetectorInput,
 ): Promise<Detector> {
-  const res = await fetch(`/api/projects/${projectId}/detectors/${detectorId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  if (!res.ok) throw new Error(`Failed to update detector: ${res.status}`);
-  const data = (await res.json()) as { detector: Detector };
+  const data = await fetchNextApi<{ detector: Detector }>(
+    `/projects/${projectId}/detectors/${detectorId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+
   return data.detector;
 }
 
 async function deleteDetector(projectId: string, detectorId: string): Promise<void> {
-  const res = await fetch(`/api/projects/${projectId}/detectors/${detectorId}`, {
+  await fetchNextApi<void>(`/projects/${projectId}/detectors/${detectorId}`, {
     method: "DELETE",
   });
-  if (!res.ok) throw new Error(`Failed to delete detector: ${res.status}`);
 }
 
 /** List detectors for the list page (paginated, optional search). */
@@ -163,14 +157,10 @@ async function fetchDetectorCounts(
 ): Promise<Record<string, DetectorCountsItem>> {
   const params = new URLSearchParams({ start_after: startAfter });
   if (endBefore) params.set("end_before", endBefore);
-  const res = await fetch(`/api/projects/${projectId}/detector-counts?${params.toString()}`);
-  if (!res.ok) {
-    const body = await res
-      .json()
-      .catch(() => ({ detail: `Failed to fetch detector counts: ${res.status}` }));
-    throw new ApiError(res.status, body.detail ?? `Failed to fetch detector counts: ${res.status}`);
-  }
-  const body = (await res.json()) as { data: Record<string, DetectorCountsItem> };
+  const body = await fetchNextApi<{ data: Record<string, DetectorCountsItem> }>(
+    `/projects/${projectId}/detector-counts?${params.toString()}`,
+  );
+
   return body.data;
 }
 
