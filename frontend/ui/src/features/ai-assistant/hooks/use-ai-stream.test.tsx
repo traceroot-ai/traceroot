@@ -242,6 +242,29 @@ describe("useAIStream per-session isolation", () => {
     expect(result.current.isSessionStreaming("A")).toBe(false);
   });
 
+  it("clearAll also voids a history load for a session that had no bucket yet", () => {
+    // Closing the panel clears every bucket; a load still in flight for a
+    // session nothing had written to must not bring a transcript back.
+    const { result } = renderHook(() => useAIStream());
+    const beforeClear = result.current.sessionWriteEpoch("never-written");
+    act(() => {
+      result.current.clearAll();
+    });
+    act(() => {
+      result.current.setSessionMessages("never-written", [historyMsg("h1", "old")], beforeClear);
+    });
+    expect(result.current.messagesBySession["never-written"]).toBeUndefined();
+
+    // A load that began after the clear is current.
+    const afterClear = result.current.sessionWriteEpoch("never-written");
+    act(() => {
+      result.current.setSessionMessages("never-written", [historyMsg("h1", "old")], afterClear);
+    });
+    expect(result.current.messagesBySession["never-written"]?.map((m) => m.content)).toEqual([
+      "old",
+    ]);
+  });
+
   it("a history load that began before a send cannot overwrite the finished transcript", async () => {
     // The run is over, so no run owns the session — but the load is older
     // than the send, and the transcript it would restore predates it.
