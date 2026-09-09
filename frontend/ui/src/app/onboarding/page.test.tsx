@@ -101,4 +101,89 @@ describe("OnboardingPage", () => {
     await waitFor(() => expect(screen.getByText("workspace boom")).toBeDefined());
     expect(screen.queryByTestId("add-detectors-step")).toBeNull();
   });
+
+  it("submits successfully when pressing Enter in the workspace input", async () => {
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+
+    const workspaceInput = screen.getByPlaceholderText("Acme Inc");
+    fireEvent.change(workspaceInput, { target: { value: "My Company" } });
+    fireEvent.submit(workspaceInput);
+
+    await waitFor(() => expect(screen.getByTestId("add-detectors-step")).toBeDefined());
+    expect(mocks.createWorkspace).toHaveBeenCalledWith("My Company");
+    expect(mocks.createProject).toHaveBeenCalledWith("ws-1", "my-llm-project");
+  });
+
+  it("submits successfully when pressing Enter in the project input", async () => {
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "custom-project" });
+    renderPage();
+
+    const projectInput = screen.getByPlaceholderText("my-llm-project");
+    fireEvent.change(projectInput, { target: { value: "custom-project" } });
+    fireEvent.submit(projectInput);
+
+    await waitFor(() => expect(screen.getByTestId("add-detectors-step")).toBeDefined());
+    expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
+    expect(mocks.createProject).toHaveBeenCalledWith("ws-1", "custom-project");
+  });
+
+  it("displays validation errors when pressing Enter with invalid values", async () => {
+    renderPage();
+
+    const workspaceInput = screen.getByPlaceholderText("Acme Inc");
+    fireEvent.change(workspaceInput, { target: { value: "" } });
+    fireEvent.submit(workspaceInput);
+
+    await waitFor(() => {
+      expect(screen.getByText("Workspace name is required")).toBeDefined();
+    });
+
+    expect(mocks.createWorkspace).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+  });
+
+  it("displays validation errors when project name is empty and Enter is pressed", async () => {
+    renderPage();
+
+    const projectInput = screen.getByPlaceholderText("my-llm-project");
+    fireEvent.change(projectInput, { target: { value: "" } });
+    fireEvent.submit(projectInput);
+
+    await waitFor(() => {
+      expect(screen.getByText("Project name is required")).toBeDefined();
+    });
+
+    expect(mocks.createWorkspace).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+  });
+
+  it("does not trigger another submission when pressing Enter while loading", async () => {
+    let resolveWorkspacePromise: (value: any) => void = () => {};
+    const workspacePromise = new Promise((resolve) => {
+      resolveWorkspacePromise = resolve;
+    });
+    mocks.createWorkspace.mockReturnValue(workspacePromise);
+
+    renderPage();
+
+    const workspaceInput = screen.getByPlaceholderText("Acme Inc");
+    fireEvent.submit(workspaceInput);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Creating..." })).toBeDefined();
+    });
+
+    fireEvent.submit(workspaceInput);
+
+    resolveWorkspacePromise({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+
+    await waitFor(() => expect(screen.getByTestId("add-detectors-step")).toBeDefined());
+
+    expect(mocks.createWorkspace).toHaveBeenCalledTimes(1);
+    expect(mocks.createProject).toHaveBeenCalledTimes(1);
+  });
 });
