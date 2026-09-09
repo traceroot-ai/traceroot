@@ -1,6 +1,7 @@
 "use client";
 
 import { cn, formatDate } from "@/lib/utils";
+import { CopyButton } from "@/components/ui/copy-button";
 import { describeRcaStatus, type BackendRun } from "@/features/detectors/hooks/use-findings";
 import { DETECTOR_TH, DETECTOR_TD, IdentifiedBadge, SummaryText } from "./detector-table-cells";
 
@@ -60,23 +61,24 @@ export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRu
                 {formatDate(run.timestamp)}
               </td>
               <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
-                {run.self_traced ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      // Same destination as the row click; stop propagation so
-                      // one click doesn't fire the navigation twice.
-                      e.stopPropagation();
-                      onRunClick(run);
-                    }}
-                    title={run.run_id}
-                    className="block max-w-full truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
-                  >
-                    {run.run_id}
-                  </button>
-                ) : (
-                  <span className="text-muted-foreground">{run.run_id}</span>
-                )}
+                <div className="flex items-center gap-1">
+                  {run.self_traced ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRunClick(run);
+                      }}
+                      title={run.run_id}
+                      className="block max-w-full truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                    >
+                      {run.run_id}
+                    </button>
+                  ) : (
+                    <span className="truncate text-muted-foreground">{run.run_id}</span>
+                  )}
+                  <CopyButton value={run.run_id} />
+                </div>
               </td>
               <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
                 <button
