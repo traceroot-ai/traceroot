@@ -9,6 +9,7 @@ import {
   listSessions,
   deleteSession,
   updateSessionTitle,
+  resolveMessageKind,
 } from "./session.js";
 import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
 import { getSystemPrompt } from "./prompts/system.js";
@@ -111,6 +112,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
   const workspaceId = c.req.header("x-workspace-id") || "";
+  const kind = resolveMessageKind(userId);
   const body = await c.req.json<{
     message: string;
     model?: string;
@@ -170,7 +172,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
   // Persist user message to DB via SessionManager
-  await sessionManager.appendMessage("user", body.message);
+  await sessionManager.appendMessage("user", body.message, kind);
 
   // Auto-generate session title from first user message (we already have
   // the session loaded above for the auth check — reuse it).
@@ -287,7 +289,13 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
                   cost,
                 }
               : undefined;
-            await sessionManager.appendMessage("assistant", assistantText, undefined, tokenUsage);
+            await sessionManager.appendMessage(
+              "assistant",
+              assistantText,
+              kind,
+              undefined,
+              tokenUsage,
+            );
           }
           stream.writeSSE({ event: "done", data: "{}" });
           resolve();
