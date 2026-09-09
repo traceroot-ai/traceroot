@@ -1,4 +1,5 @@
 import { newRows, readProjectRows } from "./assertions.js";
+import type { SeedFacts } from "./seed.js";
 import type { EvalFixture, EvalPrisma, Scenario, ScenarioResult, TurnTranscript } from "./types.js";
 
 /** The slice of `AgentClient` the runner needs, so tests can pass a fake. */
@@ -19,6 +20,8 @@ export interface RunnerDeps {
   fixture: EvalFixture;
   probeWidgetQuery: (spec: unknown) => Promise<number>;
   canonicalPrompt: (templateId: string) => string;
+  /** What the run seeded, for the assertions that read it back. */
+  facts: SeedFacts;
   /** Called as each scenario finishes, so transcripts can be written eagerly. */
   onResult?: (result: ScenarioResult) => void | Promise<void>;
 }
@@ -65,6 +68,7 @@ export async function runScenario(scenario: Scenario, deps: RunnerDeps): Promise
       created: newRows(before, after),
       probeWidgetQuery: deps.probeWidgetQuery,
       canonicalPrompt: deps.canonicalPrompt,
+      facts: deps.facts,
       prisma: deps.prisma,
     });
   } catch (failure) {
