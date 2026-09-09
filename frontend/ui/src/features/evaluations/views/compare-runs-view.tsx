@@ -74,10 +74,15 @@ function meanNumeric(vals: (number | null)[]): number | null {
   return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
 }
 
-// A run plus two baseline-INDEPENDENT lookups over its own results, keep-first on a
-// duplicate key so a repeated case never silently drops a row from display/aggregates:
+// A run plus two baseline-INDEPENDENT lookups over its own results:
 //  · byTestCase — keyed by dataset-row id, for a run on the baseline's dataset;
 //  · byInput    — keyed by canonical input, for a run on a different dataset.
+// Both resolve a duplicate key keep-first (the EARLIEST result wins). On `byTestCase` that
+// only dedupes a repeated dataset-row id, which a well-formed run doesn't have. On `byInput`
+// it decides real semantics: a cross-dataset run that measures one input several times
+// contributes only its first such case, and its remaining duplicates are dropped — the same
+// rule that already drops any of its cases the baseline has no row for. (Duplicate inputs on
+// the BASELINE side are unaffected: they keep distinct ids, so they stay distinct rows.)
 // Which lookup a run is read through is decided per baseline, when its `byCase` is built.
 type RunBundle = {
   run: RunDetail;

@@ -7,8 +7,10 @@
  * alongside cross-dataset runs. One colour-keyed value per run stacks in each metric
  * cell. Asserts the scorer columns, the per-run stacked values, the baseline legend,
  * that Input collapses when the runs agree, cross-dataset (and 3-run mixed) alignment,
- * and that the removed chrome (swap / main score / status / filter tabs / verdict / row
- * drill-in) is gone.
+ * the duplicate-input rules on both sides (a baseline's duplicate rows stay distinct and
+ * a lone cross case fills each of them; a cross run's own extra occurrences of one input
+ * are dropped keep-first), and that the removed chrome (swap / main score / status /
+ * filter tabs / verdict / row drill-in) is gone.
  *
  * Fixture: the ticket-routing lab (opus #41 baseline vs sonnet #42) sharing two
  * dataset rows; ticket-05 routes differently between the two runs.
@@ -427,7 +429,7 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(screen.getAllByText("6.6s").length).toBeGreaterThan(0);
   });
 
-  it("keeps same-dataset duplicate-input cases distinct when a cross-dataset run joins (finding #14)", () => {
+  it("keeps same-dataset duplicate-input cases distinct when a cross-dataset run joins", () => {
     // A (baseline) and B are BOTH on dataset X (ds1) and each carry two cases with the SAME
     // input "Hello" but distinct testCaseIds (the SDK disambiguates same-input cases by
     // occurrence) and distinct outputs/scores. C is on a DIFFERENT dataset Y (ds2) with a
@@ -492,5 +494,51 @@ describe("CompareRunsView — N-run diff table", () => {
     // (d): C's per-row duration (4.4s) shows in both rows and the aggregate sums them to 8.8s.
     expect(screen.getAllByText("4.4s").length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("8.8s").length).toBeGreaterThan(0);
+  });
+
+  it("takes only a cross-dataset run's FIRST case for an input it measured more than once", () => {
+    // The mirror of the baseline-side duplicate cases above: here the duplicate input is on
+    // the CROSS run's side and the baseline has a single row for it, so there is nothing to
+    // hang the extra occurrences on. They can't be paired by occurrence either — a case's
+    // `occurrence` is a slot allocated within ONE dataset's history (a delete leaves a gap),
+    // not a portable ordinal, so dataset Y's 2nd copy of an input means nothing relative to
+    // dataset X's. So the lookup is keep-first: the baseline row takes the cross run's FIRST
+    // case for that input and its later duplicates are dropped, exactly as any of its cases
+    // the baseline has no row for already are.
+    const DUP = "Ticket 9: refund status for order 7788";
+    const BASE = {
+      run: runDetail("opus", 41, "opus"), // ds1, ONE row for DUP
+      results: [result("only-a", DUP, "billing", { routing_accuracy: 1, is_known_category: 1 })],
+    };
+    const CROSS = {
+      run: { ...runDetail("sonnet", 42, "sonnet"), datasetId: "ds2", datasetName: "tickets-v2" },
+      // Two cases for the SAME input, with durations that tell the three candidate
+      // behaviours apart: keep-first → 3.3s, keep-last → 7.7s, counting both → 11.0s.
+      results: [
+        {
+          ...result("x1", DUP, "cross-first", { routing_accuracy: 1, is_known_category: 1 }),
+          durationMs: 3300,
+        },
+        {
+          ...result("x2", DUP, "cross-second", { routing_accuracy: 0, is_known_category: 1 }),
+          durationMs: 7700,
+        },
+      ],
+    };
+    const R: Record<string, unknown> = { opus: BASE, sonnet: CROSS };
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({ data: R[id], isLoading: false, isError: false })),
+    );
+    mount();
+    // One row: the two runs agree on the aligning input, so Input collapses to a single value.
+    expect(screen.getAllByText(DUP)).toHaveLength(1);
+    // The FIRST cross case fills it; the second never appears.
+    expect(screen.getByText("cross-first")).toBeTruthy();
+    expect(screen.queryByText("cross-second")).toBeNull();
+    // ...and only the first contributes to the cross run's duration total (row + aggregate),
+    // so the dropped duplicate can't inflate it.
+    expect(screen.getAllByText("3.3s").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("7.7s")).toBeNull();
+    expect(screen.queryByText("11.0s")).toBeNull();
   });
 });

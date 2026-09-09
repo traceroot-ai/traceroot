@@ -14,7 +14,20 @@
 
 /** Deterministic JSON with recursively sorted object keys — so two structurally equal
  *  values compare equal regardless of key order (JSONB round-trips don't preserve it).
- *  Shared by dataset content-signing (versions.ts) and cross-dataset run comparison. */
+ *
+ *  For IN-PROCESS EQUALITY ONLY — cross-dataset run comparison (`canonicalInputKey`) and
+ *  scorer-manifest equality (`metrics.ts`). Its output is never hashed, stored, or sent
+ *  anywhere, so any total key order does, and it must never throw: a legacy value carrying
+ *  a lone UTF-16 surrogate has to still compare rather than break the page rendering it
+ *  (`JSON.stringify` escapes such a string instead of failing).
+ *
+ *  It is deliberately NOT the canonicalizer for content-addressed case ids, which lives
+ *  separately in `versions.ts`. `stableCaseId` hashes that one's output, so it has to stay
+ *  byte-identical to the TS/Python SDK canonicalizers, and it is stricter in two ways: it
+ *  sorts object keys by Unicode code POINT (Python `sorted()` order) where this one sorts by
+ *  UTF-16 code UNIT, and it REJECTS a lone surrogate. The two therefore produce different
+ *  strings for exactly those inputs — which is harmless while each stays on its own side,
+ *  and is why an id must never be derived from this one. */
 export function canonicalJson(v: unknown): string {
   if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
   if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
