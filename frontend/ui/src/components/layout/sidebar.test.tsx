@@ -115,4 +115,43 @@ describe("Sidebar", () => {
     render();
     expect(container.innerHTML).toBe("");
   });
+
+  // Regression guard for #1503: collapsing the sidebar must not let a label
+  // tooltip open without a fresh hover. The fix suspends the zero-delay tooltip
+  // opening for one width-transition after every collapse toggle, surfaced as the
+  // `data-collapse-settling` flag on the sidebar frame. jsdom can't exercise
+  // Radix's real pointer-hover timing, so we assert the guard window instead.
+  describe("collapse tooltip guard (#1503)", () => {
+    function frame() {
+      return container.querySelector("div.flex.h-screen");
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    });
+
+    it("opens the settling window on collapse and clears it after the transition", () => {
+      render({ collapsed: false });
+      // Let the initial mount's settling window elapse first.
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(frame()?.getAttribute("data-collapse-settling")).toBeNull();
+
+      // Toggling to collapsed re-opens the settling window.
+      render({ collapsed: true });
+      expect(frame()?.getAttribute("data-collapse-settling")).toBe("true");
+
+      // After the width transition settles, the guard clears so fresh hovers work.
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(frame()?.getAttribute("data-collapse-settling")).toBeNull();
+    });
+  });
 });
