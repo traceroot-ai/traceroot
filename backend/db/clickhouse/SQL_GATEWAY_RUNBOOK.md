@@ -104,6 +104,12 @@ order above is the safe logical sequence for staged/manual provisioning.
   into `users.d/` so the admin user (`CLICKHOUSE_USER`) gains `ACCESS MANAGEMENT` +
   `SET DEFINER` — the stock user has broad DDL but **not** access management, so without
   it the `CREATE USER` bootstrap fails and migration 012 cannot set its explicit definer.
+  That privilege is held by a dedicated `sql_gateway_bootstrap` account, **not** by
+  `CLICKHOUSE_USER`: the application services (`rest`, `worker`, `billing`, `detector`) all
+  authenticate as `CLICKHOUSE_USER`, so granting it access management would let a compromise
+  of any one of them create further accounts. Only `clickhouse-init` and `migrate-clickhouse`
+  use the bootstrap identity, and its password reaches ClickHouse through `from_env` rather
+  than being written into the mounted config.
 - **CI — no action.** CI does not apply ClickHouse migrations against a live server;
   the `tests/db/` migration/config/client tests are static/mocked.
 - **Self-host / manual.** Run the "Provisioning order" SQL above (with **real secrets**,
@@ -246,10 +252,12 @@ Worth recording, because it was investigated as a suspected leak and is not one.
 The two halves of `VIEW_EVALUATION_EXCLUSION` behave differently under a
 `ReplacingMergeTree` merge, and building the set from both is what makes it durable:
 
-- **`traces`** — one row per trace per `toDate(trace_start_time)` bucket, so a later batch
-  that rewrites the row with `is_evaluation = 0` and a newer `ch_update_time` collapses into
-  a single row on merge, physically deleting the flagged version. A traces-only predicate
-  would stop excluding at that point.
+- **`traces`** — two versions of a trace collapse only when they share the *whole* sort key,
+  which includes the `toDate(trace_start_time)` bucket as well as `trace_id`. When they do,
+  a later batch that rewrites the row with `is_evaluation = 0` and a newer `ch_update_time`
+  wins the merge and the flagged version is physically deleted, and a traces-only predicate
+  would stop excluding from that point. Versions whose start times fall in different date
+  buckets both survive, so this is the common shape rather than an inevitability.
 - **`spans`** — `span_id` is in the sort key, so distinct spans never collapse into each
   other, and a span's flag is derived from its kind (`otel_transform` sets
   `is_evaluation = span_kind in EVALUATION_SPAN_KINDS`), which does not change between

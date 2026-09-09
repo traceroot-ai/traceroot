@@ -155,12 +155,17 @@ ch --query "OPTIMIZE TABLE pubviews.traces FINAL"
 ch --query "OPTIMIZE TABLE pubviews.spans FINAL"
 TRACE_FLAGGED="$(ch --query "SELECT count() FROM pubviews.traces WHERE trace_id='tEvalM' AND is_evaluation=1")"
 SPAN_FLAGGED="$(ch --query "SELECT count() FROM pubviews.spans  WHERE trace_id='tEvalM' AND is_evaluation=1")"
-POST="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') WHERE trace_id = 'tEvalM'")"
 echo "  after merge: flagged traces rows=$TRACE_FLAGGED  flagged spans rows=$SPAN_FLAGGED"
 [ "$TRACE_FLAGGED" = "0" ] || echo "  (note: the traces row did not collapse here; the sort key must have differed)"
 [ "$SPAN_FLAGGED" != "0" ] || { echo "FAIL: the flagged span did not survive the merge -- the exclusion has no durable source"; exit 1; }
-[ "$POST" = "0" ] || { echo "FAIL: evaluation trace became visible after the merge"; exit 1; }
-echo "PASS: the flagged span survives compaction and keeps the trace excluded after the traces row collapses"
+# Both curated views, not just spans: they carry the same exclusion and a regression in
+# either one leaks. Checking only one is how the earlier version of this check passed
+# while asserting nothing about traces_public_v1.
+for V in spans_public_v1 traces_public_v1; do
+  POST="$(ch_ro --query "SELECT count() FROM pubviews.$V(project_id='proj_A') WHERE trace_id = 'tEvalM'")"
+  [ "$POST" = "0" ] || { echo "FAIL: evaluation trace visible through $V after the merge"; exit 1; }
+done
+echo "PASS: the flagged span survives compaction and keeps the trace excluded from both curated views"
 
 echo "== readonly profile: a readonly=1 user cannot override a CONST cap =="
 if SET_OUT="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') SETTINGS max_execution_time = 60" 2>&1)"; then

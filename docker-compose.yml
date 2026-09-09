@@ -34,15 +34,18 @@ services:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-default}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}  # CHANGEME
+      # Read by sql_gateway_bootstrap_user.xml via from_env, so the password for the
+      # only access-management account is never written into a mounted config file.
+      SQL_GATEWAY_BOOTSTRAP_PASSWORD: ${SQL_GATEWAY_BOOTSTRAP_PASSWORD:-dev-sql-gateway-bootstrap}
     ports:
       - 127.0.0.1:8123:8123
       - 127.0.0.1:9000:9000
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
-      # Grants the admin user SQL access management + SET DEFINER, required for the
-      # SQL-gateway user provisioning (clickhouse-init) and migration 006's definer.
-      - ./backend/db/clickhouse/bootstrap/clickhouse_access_management.xml:/etc/clickhouse-server/users.d/zz-access-management.xml:ro
+      # Defines sql_gateway_bootstrap, the only account holding access management.
+      # Kept off the application account, which rest/worker/billing/detector all use.
+      - ./backend/db/clickhouse/bootstrap/sql_gateway_bootstrap_user.xml:/etc/clickhouse-server/users.d/zz-sql-gateway-bootstrap.xml:ro
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
       interval: 5s
@@ -68,8 +71,11 @@ services:
     # environment, and anyone with daemon access is already root-equivalent here.
     # The $$ below are escaped for the shell rather than substituted by Compose.
     environment:
-      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      # Provisioning runs as the bootstrap identity, not the application account:
+      # CREATE USER and SET DEFINER need access management, which the account the app
+      # runs as deliberately does not have.
+      CLICKHOUSE_USER: sql_gateway_bootstrap
+      CLICKHOUSE_PASSWORD: ${SQL_GATEWAY_BOOTSTRAP_PASSWORD:-dev-sql-gateway-bootstrap}
       # Dev stack: weak known defaults, matching this stack's other credentials.
       SQL_GATEWAY_WRITER_PASSWORD: ${SQL_GATEWAY_WRITER_PASSWORD:-dev-sql-gateway-writer}
       CLICKHOUSE_RO_PASSWORD: ${CLICKHOUSE_RO_PASSWORD:-dev-sql-gateway-ro}
@@ -139,7 +145,10 @@ services:
       - -dir
       - /migrations
       - clickhouse
-      - clickhouse://${CLICKHOUSE_USER:-clickhouse}:${CLICKHOUSE_PASSWORD:-clickhouse}@clickhouse:9000/${CLICKHOUSE_DATABASE:-default}
+      # Migrations run as the bootstrap identity too: the curated views are created
+      # with an explicit DEFINER, and setting a view's definer to another account
+      # requires access management, which the application account does not hold.
+      - clickhouse://sql_gateway_bootstrap:${SQL_GATEWAY_BOOTSTRAP_PASSWORD:-dev-sql-gateway-bootstrap}@clickhouse:9000/${CLICKHOUSE_DATABASE:-default}
     command: ["up"]
     depends_on:
       clickhouse:
