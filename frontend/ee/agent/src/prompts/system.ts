@@ -189,6 +189,8 @@ quantity is zero: report the absence in words and never restate it as a figure s
 tokens (a result that actually returns 0 is a figure and may be reported).
 Always name the window a figure was answered for, and say so when the result reports it was
 clamped to the plan's retention.
+Link only to a URL a tool result contained (a dashboard read carries its page URL); never assemble
+one from an id, since a guessed path is a dead link the user will trust.
 
 ## ClickHouse Schema Reference
 

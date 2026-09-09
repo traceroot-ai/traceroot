@@ -217,6 +217,34 @@ describe("formatRows", () => {
     expect(out).toContain("… 24 buckets at 0 and 5 empty not shown");
   });
 
+  it("marks the last bucket partial when the window ends inside it", () => {
+    // A daily series read at 16:00: today's bucket is still filling. The model
+    // must not read a low last bucket as a drop.
+    const rows = Array.from({ length: 9 }, (_, i) => [`2026-09-0${i + 1}T00:00:00`, 3000]);
+    rows[8][1] = 900;
+    const window = { start_time: "2026-09-01T00:00:00Z", end_time: "2026-09-09T16:00:00Z" };
+    const out = formatRows(["bucket", "value"], rows, { granularity: "day" }, { window });
+    expect(out).toContain("latest 900 (partial: bucket still in progress)");
+    expect(out).toContain("  2026-09-09T00:00:00  900 (partial)");
+    // Read exactly at the bucket boundary, nothing is partial.
+    const closed = formatRows(
+      ["bucket", "value"],
+      rows,
+      { granularity: "day" },
+      {
+        window: { start_time: "2026-09-01T00:00:00Z", end_time: "2026-09-10T00:00:00Z" },
+      },
+    );
+    expect(closed).not.toContain("partial");
+  });
+
+  it("labels a number tile as the whole window's value", () => {
+    const out = formatRows(["total_tokens"], [[18000]], undefined, {
+      window: { start_time: "2026-09-02T17:00:00Z", end_time: "2026-09-09T17:00:00Z" },
+    });
+    expect(out).toBe("total_tokens (whole window): 18,000");
+  });
+
   it("formats decimal strings like numbers", () => {
     expect(formatRows(["model_name", "cost"], [["gpt-5", "184.2034"]])).toContain(
       "gpt-5  |  184.2",
@@ -290,8 +318,11 @@ describe("formatDashboardData", () => {
     expect(out).toContain(
       "#3 Cost by model | query | error\n  error: breakdown: field is not groupable",
     );
-    expect(out).toContain("#4 Errors | query | ok\nvalue: 412\n  (rows capped by the server)");
-    expect(out.trim().endsWith("2 widgets queried, 1 feeds skipped, 1 failed")).toBe(true);
+    expect(out).toContain(
+      "#4 Errors | query | ok\nvalue (whole window): 412\n  (rows capped by the server — run",
+    );
+    // The counts lead, so they survive any cut at the tail.
+    expect(lines[2]).toBe("2 widgets queried, 1 feeds skipped, 1 failed");
   });
 
   it("renders a capped series widget as partial rather than a complete trend", () => {
@@ -318,7 +349,21 @@ describe("formatDashboardData", () => {
     expect(out).not.toMatch(/latest/);
   });
 
-  it("stays under its byte budget and says how to drill in when it cuts", () => {
+  it("tells the model how to get the rest of a capped widget", () => {
+    const out = formatDashboardData(data);
+    expect(out).toContain(
+      "(rows capped by the server — run this widget's spec with run_widget_query for every row)",
+    );
+  });
+
+  it("puts the dashboard's URL in the header when the caller can build one", () => {
+    const out = formatDashboardData(data, {
+      dashboardUrl: (id) => `http://ui.test/projects/p1/dashboard/${id}`,
+    });
+    expect(out.split("\n")[1]).toBe("URL: http://ui.test/projects/p1/dashboard/d1");
+  });
+
+  it("keeps every widget's identity when the read is over budget, dropping rows first", () => {
     const rows = Array.from({ length: 25 }, (_, i) => [`series-${"x".repeat(200)}-${i}`, i]);
     const widgets = Array.from({ length: 40 }, (_, i) => ({
       id: `w${i}`,
@@ -330,6 +375,25 @@ describe("formatDashboardData", () => {
     }));
     const out = formatDashboardData({ ...data, widgets, queried: 40, skipped: 0, failed: 0 });
     expect(Buffer.byteLength(out, "utf-8")).toBeLessThan(16 * 1024 + 256);
-    expect(out).toContain("output truncated at 16384 bytes; read the dashboard with get_dashboard");
+    // The counts survive at the top, every widget keeps its title line, the
+    // early widgets keep their rows and the late ones say how to get theirs.
+    expect(out.split("\n").slice(0, 4).join("\n")).toContain("40 widgets queried");
+    for (let i = 0; i < 40; i += 1) expect(out).toContain(`#${i + 1} Widget ${i} | query | ok`);
+    expect(out).toContain("#1 Widget 0 | query | ok\n25 rows (k, v)");
+    expect(out).toContain("rows not included: the dashboard read is over its text budget");
+    expect(out).not.toContain("output truncated at");
+  });
+
+  it("cuts with a visible marker only when even the widget list does not fit", () => {
+    const widgets = Array.from({ length: 900 }, (_, i) => ({
+      id: `w${i}`,
+      title: `Widget ${i} ${"y".repeat(40)}`,
+      type: "query",
+      status: "error",
+      error: "spec: broken",
+    }));
+    const out = formatDashboardData({ ...data, widgets, queried: 0, skipped: 0, failed: 900 });
+    expect(Buffer.byteLength(out, "utf-8")).toBeLessThan(16 * 1024 + 256);
+    expect(out).toContain("output truncated at 16384 bytes");
   });
 });

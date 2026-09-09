@@ -9,8 +9,7 @@ import { createBashTool, createReadTool, createWriteTool } from "./sandbox.js";
 import { createCheckGitHubAccessTool } from "./github-access.js";
 import { createGitCloneTool } from "./git-clone.js";
 import type { QueryWindow } from "./query-window.js";
-
-const UI_BASE_URL = process.env.TRACEROOT_UI_URL || "http://localhost:3000";
+import { internalUiUrl } from "./origins.js";
 
 /**
  * Create all tools for the agent.
@@ -39,7 +38,7 @@ export function createTools(params: {
   // session to record as provenance — system/RCA sessions get no write tools.
   if (params.userId && params.agentSessionId) {
     const client = new ApiClient({
-      baseUrl: UI_BASE_URL,
+      baseUrl: internalUiUrl(),
       headers: internalAuth(process.env.INTERNAL_API_SECRET || "", params.userId),
     });
     tools.push(
@@ -55,8 +54,8 @@ export function createTools(params: {
   tools.push(createDownloadSessionTool(params.projectId, params.userId, params.executor));
 
   // GitHub tools (host-side, workspace-scoped — installation lives at workspace level)
-  tools.push(createCheckGitHubAccessTool(params.workspaceId, UI_BASE_URL));
-  tools.push(createGitCloneTool(params.workspaceId, UI_BASE_URL, params.executor));
+  tools.push(createCheckGitHubAccessTool(params.workspaceId, internalUiUrl()));
+  tools.push(createGitCloneTool(params.workspaceId, internalUiUrl(), params.executor));
 
   // Sandbox-side tools (run inside Docker container via executor)
   tools.push(createBashTool(params.executor));
