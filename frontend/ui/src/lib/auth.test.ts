@@ -70,11 +70,13 @@ describe("auth options", () => {
     expect(options.socialProviders).toEqual({});
   });
 
-  it("passes trusted account linking through to better-auth", () => {
-    expect(options.account.accountLinking).toEqual({
-      enabled: true,
-      trustedProviders: ["google", "github"],
-    });
+  it("does not trust GitHub for account linking", () => {
+    // Trusting a provider tells better-auth to accept an email the provider
+    // itself reports as unverified as proof of ownership when linking into an
+    // account that already exists. account-linking.test.ts exercises what that
+    // means at runtime, in both directions.
+    expect(options.account.accountLinking.enabled).toBe(true);
+    expect(options.account.accountLinking.trustedProviders).not.toContain("github");
   });
 });
 

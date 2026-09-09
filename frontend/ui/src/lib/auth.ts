@@ -33,7 +33,17 @@ export const auth = betterAuth({
   account: {
     accountLinking: {
       enabled: true,
-      trustedProviders: ["google", "github"],
+      // A trusted provider is one whose *unverified* email addresses may still
+      // be used as proof of ownership when linking into an account that already
+      // exists: better-auth skips the `emailVerified` check on the incoming
+      // profile for these. GitHub is deliberately absent. It serves the
+      // account's primary address whether or not that address has been
+      // confirmed, so trusting it would let anyone who adds a victim's address
+      // to their own GitHub account sign in as that victim. Leaving it out
+      // costs nothing a real user notices: a GitHub identity whose address *is*
+      // verified still links, and a first-time GitHub sign-in still creates an
+      // account either way. account-linking.test.ts pins both halves.
+      trustedProviders: ["google"],
     },
   },
 
