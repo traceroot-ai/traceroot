@@ -148,10 +148,14 @@ VIEW_ROW_FILTERS: tuple[str, ...] = ("source = 'user'",)
 #: The ``spans`` half is also the half that SURVIVES A MERGE, which is what makes
 #: "any row anywhere flagged" true of the table and not just of the query. Both
 #: tables are ``ReplacingMergeTree(ch_update_time)``: two ``traces`` rows for one
-#: trace share a sort key, so a background merge keeps only the newest and can
-#: physically delete the flagged one, after which a traces-only sub-select
-#: returns nothing (verified on 25.2 -- before the merge the trace is hidden,
-#: after it is not). Span rows do not collapse into each other: ``span_id`` is in
+#: trace collapse when they share the whole sort key, which for ``traces`` means
+#: the same ``toDate(trace_start_time)`` bucket as well as the same ``trace_id``.
+#: When they do, a background merge keeps only the newest and physically deletes
+#: the flagged one, after which a traces-only sub-select returns nothing
+#: (verified on 25.2 -- before the merge the trace is hidden, after it is not).
+#: Versions whose start times fall in different date buckets both survive, so the
+#: collapse is narrower than "every trace eventually loses its flag" -- but it is
+#: the common shape, since the versions of one trace usually start on one day. Span rows do not collapse into each other: ``span_id`` is in
 #: the sort key, so distinct spans are distinct rows, and the flag is derived
 #: from the span's own kind, which does not change between exports of that span.
 #: A trace is never flagged without an evaluation-kind span of its own -- ingest
