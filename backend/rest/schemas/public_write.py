@@ -71,7 +71,19 @@ class CreateDetectorRequest(BaseModel):
     )
     sample_rate: int | None = None
     output_schema: list | None = None
-    trigger_conditions: list | None = None
+    trigger_conditions: list | None = Field(
+        default=None,
+        description=(
+            "Conditions gating WHICH completed traces the detector evaluates; "
+            "omit or pass [] to evaluate every completed trace. Each condition "
+            "is {field, op, value} (metadata also takes key): "
+            "model_name/environment take =, !=; "
+            "cost/total_tokens/duration_ms/errors take >, >=, <, <=, =; "
+            "metadata takes =, contains. A condition is a deterministic "
+            "pre-filter, not the flag decision - the prompt still judges every "
+            "trace that passes."
+        ),
+    )
     detection_source: str | None = None
     detection_model: str | None = None
     detection_provider: str | None = None

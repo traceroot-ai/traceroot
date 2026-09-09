@@ -27,7 +27,7 @@ describe("createRegistryReadTools", () => {
     return impl;
   }
 
-  it("exposes exactly the ten internally-bound read tools", () => {
+  it("exposes exactly the twelve internally-bound read tools", () => {
     const names = createRegistryReadTools("p1", "u1").map((t) => t.name);
     expect(names).toEqual([
       "list_traces",
@@ -40,7 +40,141 @@ describe("createRegistryReadTools", () => {
       "get_finding_by_trace",
       "list_dashboards",
       "get_dashboard",
+      "run_widget_query",
+      "get_dashboard_data",
     ]);
+  });
+
+  it("run_widget_query POSTs the spec and window to the internal query route", async () => {
+    const impl = stubFetch({ columns: [], rows: [], meta: {}, window: {} });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "run_widget_query")!;
+    await tool.execute("id", { label: "x", spec: { view: "spans" }, range: "7d" });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/widgets/query");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      spec: { view: "spans" },
+      range: "7d",
+    });
+    expect((init as RequestInit).headers).toMatchObject({
+      "X-Internal-Secret": "s3cret",
+      "x-user-id": "u1",
+    });
+  });
+
+  it("get_dashboard_data GETs the internal data route with the window as query params", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard_data")!;
+    await tool.execute("id", { label: "x", dashboard_id: "d1", range: "7d" });
+    const [url] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/dashboards/d1/data?range=7d");
+  });
+
+  it("puts the dashboard's page URL in a dashboard read, on the browser-reachable origin", async () => {
+    // In a compose deployment the service reaches the web app as http://web:3000,
+    // which a browser cannot; the link must use the public origin instead.
+    const before = { ...process.env };
+    process.env.TRACEROOT_UI_URL = "http://web:3000";
+    process.env.TRACEROOT_PUBLIC_UI_URL = "https://app.test";
+    try {
+      stubFetch({ dashboard: { id: "d1", name: "Latency" }, window: {}, widgets: [] });
+      const tool = createRegistryReadTools("p1", "u1").find(
+        (t) => t.name === "get_dashboard_data",
+      )!;
+      const result = await tool.execute("id", { label: "x", dashboard_id: "d1" });
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain("URL: https://app.test/projects/p1/dashboard/d1");
+      expect(text).not.toContain("web:3000");
+    } finally {
+      process.env.TRACEROOT_UI_URL = before.TRACEROOT_UI_URL;
+      process.env.TRACEROOT_PUBLIC_UI_URL = before.TRACEROOT_PUBLIC_UI_URL;
+      if (before.TRACEROOT_UI_URL === undefined) delete process.env.TRACEROOT_UI_URL;
+      if (before.TRACEROOT_PUBLIC_UI_URL === undefined) delete process.env.TRACEROOT_PUBLIC_UI_URL;
+    }
+  });
+
+  it("defaults both data reads to the page's window when the model names none", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tools = createRegistryReadTools("p1", "u1", { range: "30d" });
+    await tools
+      .find((t) => t.name === "get_dashboard_data")!
+      .execute("id", { label: "x", dashboard_id: "d1" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/projects/p1/dashboards/d1/data?range=30d",
+    );
+    await tools
+      .find((t) => t.name === "run_widget_query")!
+      .execute("id", { label: "x", spec: { view: "spans" } });
+    expect(JSON.parse((impl.mock.calls[1]![1] as RequestInit).body as string)).toEqual({
+      spec: { view: "spans" },
+      range: "30d",
+    });
+  });
+
+  it("a window the model names wins over the page's, even when the page's is custom bounds", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tools = createRegistryReadTools("p1", "u1", {
+      start_time: "2026-09-01T00:00:00Z",
+      end_time: "2026-09-02T00:00:00Z",
+    });
+    await tools
+      .find((t) => t.name === "get_dashboard_data")!
+      .execute("id", { label: "x", dashboard_id: "d1", range: "1h" });
+    // Only the model's range: merging the page's bounds under it would be a request the server rejects.
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/projects/p1/dashboards/d1/data?range=1h",
+    );
+  });
+
+  it("tells the model an omitted window means the page's, not the site default", () => {
+    for (const name of ["run_widget_query", "get_dashboard_data"]) {
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      expect(tool.description).toContain("the window the user is looking at on the page");
+      expect(tool.description).not.toContain("site's default");
+    }
+  });
+
+  it("names the page's actual range in that text, so the default is not invisible", () => {
+    for (const name of ["run_widget_query", "get_dashboard_data"]) {
+      const preset = createRegistryReadTools("p1", "u1", { range: "14d" }).find(
+        (t) => t.name === name,
+      )!;
+      expect(preset.description).toContain("looking at on the page (14d)");
+      expect(
+        (preset.parameters.properties.range as { description?: string }).description,
+      ).toContain("looking at on the page (14d)");
+
+      const custom = createRegistryReadTools("p1", "u1", {
+        start_time: "2026-08-25T00:00:00Z",
+        end_time: "2026-09-08T00:00:00Z",
+      }).find((t) => t.name === name)!;
+      expect(custom.description).toContain(
+        "on the page (2026-08-25T00:00:00Z → 2026-09-08T00:00:00Z)",
+      );
+
+      // No page window: the phrase stands alone, with no empty parentheses.
+      const none = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      expect(none.description).toContain("looking at on the page");
+      expect(none.description).not.toContain("page (");
+    }
+  });
+
+  it("says the same on the range parameter itself, so the schema cannot contradict the description", () => {
+    for (const name of ["run_widget_query", "get_dashboard_data"]) {
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      const range = tool.parameters.properties.range as { description?: string };
+      expect(range.description).toContain("the window the user is looking at");
+      expect(range.description ?? "").not.toMatch(/site.s default/);
+    }
+  });
+
+  it("sends no window at all when the page gave none and the model named none", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard_data")!;
+    await tool.execute("id", { label: "x", dashboard_id: "d1" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/projects/p1/dashboards/d1/data",
+    );
   });
 
   it("hides the fixed project_id from every tool's model-facing schema", () => {
@@ -300,6 +434,8 @@ describe("createTools", () => {
     "get_finding_by_trace",
     "list_dashboards",
     "get_dashboard",
+    "run_widget_query",
+    "get_dashboard_data",
   ];
   const WRITE_TOOL_NAMES = ["create_detector", "create_dashboard", "create_widget"];
   const OTHER_TOOL_NAMES = [

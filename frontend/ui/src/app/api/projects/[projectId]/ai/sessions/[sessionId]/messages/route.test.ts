@@ -67,6 +67,34 @@ describe("POST /api/projects/[projectId]/ai/sessions/[sessionId]/messages", () =
     expect((init.headers as Record<string, string>)["x-user-id"]).toBe("u1");
   });
 
+  it("forwards exactly the fields the panel can send, window included, and nothing else", async () => {
+    // The allowlist is the contract: a field the hook adds and the proxy
+    // drops must show up here as a test edit, not as a silent default.
+    fetchMock.mockResolvedValue(new Response("data: {}\n\n", { status: 200 }));
+    const everything = {
+      ...sendBody,
+      traceId: "t1",
+      traceSessionId: "ts1",
+      range: "14d",
+      start_time: "2026-09-01T00:00:00.000Z",
+      end_time: "2026-09-02T00:00:00.000Z",
+      extra: "never forwarded",
+    };
+
+    await POST(makeRequest(everything), { params });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const { extra: _extra, ...forwarded } = everything;
+    expect(JSON.parse(init.body as string)).toEqual(forwarded);
+  });
+
+  it("sends no window keys at all when the panel sent none, so the service falls back", async () => {
+    fetchMock.mockResolvedValue(new Response("data: {}\n\n", { status: 200 }));
+    await POST(makeRequest(sendBody), { params });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const parsed = JSON.parse(init.body as string);
+    for (const key of ["range", "start_time", "end_time"]) expect(parsed).not.toHaveProperty(key);
+  });
+
   it("forwards the service's own error text when a run is already in flight", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ error: "a run is already in progress for this session" }), {

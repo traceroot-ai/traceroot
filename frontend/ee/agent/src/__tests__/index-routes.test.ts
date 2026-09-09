@@ -8,6 +8,7 @@ import { clearSessionDeleted, isSessionDeleted } from "../executors/deleted-sess
 import { waitForRunToSettle } from "../run-stream.js";
 import { createTools } from "../tools/index.js";
 import { createWritePolicyHook } from "../tools/write-policy.js";
+import { getSystemPrompt } from "../prompts/system.js";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 
 vi.mock("@traceroot/core", () => ({
@@ -53,6 +54,23 @@ vi.mock("../run-stream.js", async () => {
 vi.mock("../prompts/system.js", () => ({
   getSystemPrompt: vi.fn(() => "system prompt"),
 }));
+
+describe("GET /health", () => {
+  it("reports the boot time so a caller can spot a process older than its sources", async () => {
+    const before = Date.now();
+    const response = await app.request("/health");
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { status: string; startedAt: string };
+    expect(body.status).toBe("ok");
+    // The module was loaded by this test run, so its boot time is a real
+    // instant no later than now — that is what the eval preflight compares
+    // source mtimes against.
+    const startedAt = Date.parse(body.startedAt);
+    expect(Number.isFinite(startedAt)).toBe(true);
+    expect(startedAt).toBeLessThanOrEqual(before + 1000);
+  });
+});
 
 const mockedGetSession = vi.mocked(getSession);
 const mockedDeleteSession = vi.mocked(deleteSession);
@@ -520,5 +538,98 @@ describe("messages route SSE stream", () => {
     expect(text).toContain("event: done");
     // The run finished: no confirmation channel may outlive it.
     expect(pendingDecisions.channelFor("sse-1")).toBeUndefined();
+  });
+});
+
+describe("POST messages — page window", () => {
+  function session() {
+    mockedGetSession.mockResolvedValue({
+      id: "win-1",
+      userId: "u1",
+      projectId: "p1",
+      workspaceId: "w1",
+      title: "t",
+    } as never);
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onDone();
+    });
+  }
+  const post = (body: Record<string, unknown>) =>
+    app.request("/api/v1/projects/p1/sessions/win-1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      body: JSON.stringify(body),
+    });
+
+  it("hands the page's range to the tools as their default window", async () => {
+    session();
+    vi.mocked(createTools).mockClear();
+    const res = await post({ message: "summarize it", range: "7d" });
+    await res.text();
+    expect(vi.mocked(createTools).mock.calls[0][0]).toMatchObject({ window: { range: "7d" } });
+  });
+
+  it("states the same window in the system prompt the tools default to", async () => {
+    // The tools silently default an omitted window to the page's range; the
+    // model can only judge whether omitting it answers the question if the
+    // prompt names that same range, so both have to receive it.
+    session();
+    vi.mocked(getSystemPrompt).mockClear();
+    await (await post({ message: "which days had errors?", range: "14d" })).text();
+    expect(vi.mocked(getSystemPrompt).mock.calls[0][0]).toMatchObject({
+      window: { range: "14d" },
+    });
+
+    vi.mocked(getSystemPrompt).mockClear();
+    await (
+      await post({
+        message: "x",
+        start_time: "2026-09-01T00:00:00Z",
+        end_time: "2026-09-02T00:00:00Z",
+      })
+    ).text();
+    expect(vi.mocked(getSystemPrompt).mock.calls[0][0]).toMatchObject({
+      window: { start_time: "2026-09-01T00:00:00Z", end_time: "2026-09-02T00:00:00Z" },
+    });
+
+    vi.mocked(getSystemPrompt).mockClear();
+    await (await post({ message: "x" })).text();
+    expect(vi.mocked(getSystemPrompt).mock.calls[0][0].window).toBeUndefined();
+  });
+
+  it("rejects a malformed window with 400 rather than defaulting silently", async () => {
+    session();
+    vi.mocked(createTools).mockClear();
+    const res = await post({ message: "summarize it", range: "2w" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid window: unknown range: 2w" });
+    expect(vi.mocked(createTools)).not.toHaveBeenCalled();
+  });
+
+  it("rejects bounds that are not ISO instants, however Date.parse feels about them", async () => {
+    session();
+    vi.mocked(createTools).mockClear();
+    const res = await post({ message: "x", start_time: "2026-09-01", end_time: "Sep 2 2026" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "invalid window: start_time/end_time must be ISO-8601 instants",
+    });
+  });
+
+  it("passes custom bounds through and leaves the window undefined when none was sent", async () => {
+    session();
+    vi.mocked(createTools).mockClear();
+    await (
+      await post({
+        message: "x",
+        start_time: "2026-09-01T00:00:00Z",
+        end_time: "2026-09-02T00:00:00Z",
+      })
+    ).text();
+    expect(vi.mocked(createTools).mock.calls[0][0]).toMatchObject({
+      window: { start_time: "2026-09-01T00:00:00Z", end_time: "2026-09-02T00:00:00Z" },
+    });
+    await (await post({ message: "x" })).text();
+    expect(vi.mocked(createTools).mock.calls[1][0].window).toBeUndefined();
   });
 });

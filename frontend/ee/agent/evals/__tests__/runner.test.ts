@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { runAll, runScenario } from "../runner.js";
+import { seedFacts } from "../seed.js";
 import type { EvalPrisma, Scenario, TurnTranscript } from "../types.js";
+
+/** What the run seeded, as the runner hands it to a scenario's assertions. */
+const FACTS = seedFacts(new Date("2026-09-08T12:00:00Z"));
 
 function makeDeps(overrides: Partial<Parameters<typeof runScenario>[1]> = {}) {
   const sendMessage = vi.fn(
@@ -35,6 +39,7 @@ function makeDeps(overrides: Partial<Parameters<typeof runScenario>[1]> = {}) {
     },
     probeWidgetQuery: vi.fn(async () => 200),
     canonicalPrompt: () => "CANON",
+    facts: FACTS,
     ...overrides,
   } as unknown as Parameters<typeof runScenario>[1] & { client: typeof client };
 }
@@ -47,6 +52,15 @@ const scenario = (overrides: Partial<Scenario> = {}): Scenario => ({
 });
 
 describe("runScenario", () => {
+  it("hands the run's seeded facts to the assertions", async () => {
+    // Without this the read scenarios have no way to know which day the run
+    // put the spike on, since the seeder dates it from the run's own clock.
+    const assert = vi.fn();
+    await runScenario(scenario({ assert }), makeDeps());
+
+    expect(assert.mock.calls[0]![0].facts).toBe(FACTS);
+  });
+
   it("passes when the assertions hold", async () => {
     const result = await runScenario(scenario(), makeDeps());
 

@@ -27,6 +27,13 @@ import {
   markSessionDeleted,
 } from "./executors/deleted-session-fence.js";
 import { createTools } from "./tools/index.js";
+import {
+  closePreviousListener,
+  registerSignalHandlers,
+  rememberExecutors,
+  rememberListener,
+} from "./hot-reload.js";
+import { parseQueryWindow } from "./tools/query-window.js";
 import type { Executor } from "./executors/interface.js";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import type { SessionManager } from "./session.js";
@@ -39,9 +46,14 @@ const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 // Per-session executor cache (executor lifecycle tied to session)
 const sessionExecutors = new Map<string, Executor>();
 
+// When this module was (re-)executed. Reported by /health so a caller can tell
+// whether the running process predates the sources it is being graded against
+// — the eval harness refuses to score a service older than its own code.
+const BOOT_TIME = new Date().toISOString();
+
 // Health check
 app.get("/health", (c) => {
-  return c.json({ status: "ok", service: "traceroot-agent" });
+  return c.json({ status: "ok", service: "traceroot-agent", startedAt: BOOT_TIME });
 });
 
 // Cache invalidation — called by Next.js API when a model provider is updated/deleted
@@ -164,7 +176,23 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     traceSessionId?: string;
     providerName?: string;
     source?: ModelSource;
+    /** The page's selected time range: a preset id, or custom bounds. */
+    range?: string;
+    start_time?: string;
+    end_time?: string;
   }>();
+
+  // The window the page is showing rides with each message and becomes the
+  // default for the dashboard reads. Malformed is a 400, never a silent
+  // default: the caller asked for a window and would get another one's numbers.
+  const window = parseQueryWindow({
+    range: body.range,
+    start_time: body.start_time,
+    end_time: body.end_time,
+  });
+  if (window instanceof Error) {
+    return c.json({ error: `invalid window: ${window.message}` }, 400);
+  }
 
   // Authorize first: caller must own the session in THIS project (user-bound)
   // or have projectId scope on a system session — getSession treats a
@@ -180,6 +208,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     projectId: ownedSession.projectId,
     traceId: body.traceId,
     traceSessionId: body.traceSessionId,
+    // The same window the read tools default to, stated in the prompt so the
+    // model can tell whether omitting it actually answers the question.
+    window,
   });
 
   // Get or create executor for this session (lazy — not initialized until tool use)
@@ -200,6 +231,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     workspaceId: ownedSession.workspaceId,
     agentSessionId: sessionId,
     executor,
+    window,
   });
 
   console.log(
@@ -283,11 +315,19 @@ async function shutdown(signal: string): Promise<void> {
   }
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
-
 async function main(): Promise<void> {
   console.log("[Agent] TraceRoot Agent Service starting...");
+
+  // First, before anything slow: under `vite-node --watch` this module is
+  // re-executed in the same process, so the previous execution's listener is
+  // still holding the port and its signal handlers are still registered.
+  // Leaving them in place makes serve() below throw EADDRINUSE and the
+  // process goes on serving the code it booted with.
+  await closePreviousListener();
+  registerSignalHandlers(["SIGTERM", "SIGINT"], (signal) => {
+    void shutdown(signal);
+  });
+  rememberExecutors(sessionExecutors);
 
   // Verify DB connection
   try {
@@ -301,9 +341,11 @@ async function main(): Promise<void> {
   // Sync standard model pricing from JSON → DB
   await syncStandardPrices();
 
-  serve({ fetch: app.fetch, port: PORT }, (info) => {
-    console.log(`[Agent] Listening on http://localhost:${info.port}`);
-  });
+  rememberListener(
+    serve({ fetch: app.fetch, port: PORT }, (info) => {
+      console.log(`[Agent] Listening on http://localhost:${info.port}`);
+    }),
+  );
 }
 
 // Under vitest the app is exercised via app.request — don't boot the server.

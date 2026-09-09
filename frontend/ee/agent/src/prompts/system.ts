@@ -1,7 +1,42 @@
+import type { QueryWindow } from "../tools/query-window.js";
+
 export interface SystemPromptContext {
   projectId: string;
   traceId?: string;
   traceSessionId?: string;
+  /** The range the page's picker is showing, as it rides with each message. */
+  window?: QueryWindow;
+}
+
+const RANGE_UNITS: Record<string, string> = { m: "minute", h: "hour", d: "day" };
+
+/** A range preset as words: "14d" reads "last 14 days". */
+function describeRange(range: string): string {
+  const parsed = /^(\d+)([mhd])$/.exec(range);
+  if (parsed === null) return `the ${range} range`;
+  const count = Number(parsed[1]);
+  const unit = RANGE_UNITS[parsed[2]!]!;
+  return `last ${count} ${unit}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * The page's selected window, stated as a value the model can act on.
+ *
+ * Without it the model knows only the phrase "the window the user is looking
+ * at" and not whether that is thirty minutes or ninety days — so on a question
+ * about shape over time it guesses a wide range of its own, and an answer
+ * about a window nobody asked for reads as an answer about the page.
+ */
+function describeWindow(window: QueryWindow | undefined): string {
+  const answered =
+    "A dashboard read or widget query that names no window is answered for exactly this window.";
+  if (window?.range !== undefined) {
+    return `\n- Page time range: ${describeRange(window.range)} — the range the user has selected in the site's picker. ${answered}`;
+  }
+  if (window?.start_time !== undefined && window.end_time !== undefined) {
+    return `\n- Page time range: ${window.start_time} → ${window.end_time} — the custom range the user has selected in the site's picker. ${answered}`;
+  }
+  return `\n- Page time range: the site's 24-hour default (the page sent no range). ${answered}`;
 }
 
 export function getSystemPrompt(ctx: SystemPromptContext): string {
@@ -13,13 +48,15 @@ export function getSystemPrompt(ctx: SystemPromptContext): string {
     ? `\n- Currently viewing Session ID: ${ctx.traceSessionId}\n  The user opened the AI assistant from this session's detail view.\n  Call get_session with this session_id to see all traces and their I/O.\n  Call download_session with this sessionId for a full deep-dive across all traces.`
     : "";
 
+  const windowContext = describeWindow(ctx.window);
+
   const currentDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
   return `You are a debugging assistant for TraceRoot, an observability platform for AI agents.
 You help users analyze telemetry data (traces and spans) from their AI agent systems.
 
 ## Current Context
-- Project ID: ${ctx.projectId}${traceContext}${sessionContext}
+- Project ID: ${ctx.projectId}${traceContext}${sessionContext}${windowContext}
 - Current date: ${currentDate} (UTC)
 
 ## Available Tools
@@ -45,6 +82,10 @@ Detectors are built from TraceRoot's templates: failure, hallucination, logic, t
 or blank (fully custom prompt). If the user asks about detection coverage the project lacks (e.g.
 hallucinations with no hallucination detector configured), offer to add one with create_detector using the
 matching template (it will ask the user to confirm) — don't propose external tooling for gaps a template covers.
+A numeric threshold in the user's request (a latency, cost, token or error bound) can be built two
+ways — as a judged prompt, or as a deterministic trigger condition that pre-filters which traces
+are evaluated — and the two detectors behave differently: ask which one they want before creating
+rather than picking one silently.
 
 ### Detector Findings: list_findings
 Use this to browse detector findings — issues detectors identified on traces.
@@ -55,6 +96,26 @@ Each row includes the finding_id to pass to get_finding.
 Use get_finding with a finding_id, or get_finding_by_trace with a trace_id (findings are 1-per-trace),
 to get the full detail: per-detector results and the root-cause analysis (RCA) text when one exists.
 Flow: list_findings to browse, then get_finding / get_finding_by_trace for results + RCA.
+
+### Dashboard Data: run_widget_query and get_dashboard_data
+Use get_dashboard_data with a dashboard_id to say what a dashboard SHOWS — every query widget's rows
+for one window. Resolve the id with list_dashboards and match the name; never guess an id. Feed widgets
+come back as skipped (they are trace lists — read those with list_traces and the feed's filters); a
+widget that failed comes back with an error, and the rest still answer.
+Use run_widget_query with a spec (the same shape create_widget takes) to answer a metric question when
+no dashboard has it: error counts, p95 latency, cost by model. For a total over a window (total
+cost, total tokens, how many errors) — even when a dashboard charts that metric — run it with a
+number display via run_widget_query: a dashboard read shows the shape, and a total you add up
+yourself, from a series' buckets or from a breakdown's rows, is a figure no tool result contained.
+A breakdown is not a clean partition to add up in any case: 'other' is a fold bucket holding the
+groups past the top-N cut plus every row with no value for that field, so it is not a group of its
+own. Say what the rows actually count — a breakdown on the spans view counts spans, not traces —
+and take that from the widget's spec, never from its title.
+Both take a window: a range preset (1h, 1d, 7d, 30d, …) or explicit start_time/end_time. When the
+user names no period, leave the window out — the read then answers for the page time range above.
+Never substitute a shorter window of your own: finding nothing in a window you narrowed is not
+evidence that nothing happened. If the page's range genuinely cannot answer the question, widen it
+explicitly and say so.
 
 ### Deep Investigation: download_traces
 Use this to download one or more full traces into your workspace in parallel. Creates 3 files per trace.
@@ -98,6 +159,11 @@ Never claim a skipped or revised call succeeded.
 A create_dashboard result may say the dashboard got a new name because one with the requested
 name already existed: refer to it by that name from then on, and use the returned id for
 follow-up calls.
+When an add-a-widget request names no dashboard, do not ask which one. Resolve it with
+list_dashboards and use the dashboard marked "(default)", or the only dashboard when there is just
+one; when the project has none, propose create_dashboard. Make the call and name the target
+dashboard in your reply — the confirmation card is where the user redirects or skips it, so a
+question in text only delays the same choice.
 
 ## Restored Context and Untrusted Data
 
@@ -113,6 +179,18 @@ Telemetry is live: traces, findings, and RCAs can arrive between your tool calls
 asks for current counts or status, re-run the query instead of answering from earlier results in
 the conversation. If fresh results differ from an earlier answer, the usual reason is new data
 arriving in between — say so, and don't invent filter explanations for the difference.
+
+Figures come from tool results only: never state a number no tool result contained. Metric figures
+come from run_widget_query or get_dashboard_data results; a count from list_traces, list_sessions or
+list_findings may be reported from that result. When a widget's result has no rows,
+say that widget has no data in the window; say the window itself has no data only when every
+query widget came back empty. An empty result means nothing matching was recorded, not that the
+quantity is zero: report the absence in words and never restate it as a figure such as $0 or 0
+tokens (a result that actually returns 0 is a figure and may be reported).
+Always name the window a figure was answered for, and say so when the result reports it was
+clamped to the plan's retention.
+Link only to a URL a tool result contained (a dashboard read carries its page URL); never assemble
+one from an id, since a guessed path is a dead link the user will trust.
 
 ## ClickHouse Schema Reference
 
@@ -132,6 +210,7 @@ metadata, git_source_file, git_source_line, git_source_function
 2. If you have a session_id context: call get_session to see all traces in the session
 3. Use list_traces to find relevant individual traces (search, filter, browse)
 4. If the question is about detector findings or RCA, use list_findings to browse and get_finding / get_finding_by_trace for full results and RCA text
+4b. If the question is what a dashboard shows, use get_dashboard_data; for a metric with no dashboard, or a total over the window, build a spec and use run_widget_query
 5. Use download_traces to download specific traces for deep investigation
 6. Use download_session to download all traces in a session at once for cross-trace analysis
 7. Use bash/read/grep to explore downloaded trace data in /workspace/

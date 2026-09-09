@@ -7,10 +7,13 @@
  *
  *   pnpm --filter @traceroot/agent evals
  *
- * Requires the dev stack to be up; this never starts or stops anything.
+ * Requires the dev stack to be up; this never starts or stops anything. The
+ * fixture project is seeded with the deterministic ClickHouse dataset (see
+ * `seed.ts`) so read scenarios have real figures to assert on.
  * Env: EVAL_USER_EMAIL (required — the account to run as), AGENT_SERVICE_URL,
- * TRACE_API_URL (or NEXT_PUBLIC_API_URL), EVAL_MODEL, EVAL_TIMEOUT_MS, and
- * --keep to retain the fixture project for inspection.
+ * TRACE_API_URL (or NEXT_PUBLIC_API_URL), CLICKHOUSE_* (the seeder's
+ * connection, already in .env), EVAL_MODEL, EVAL_TIMEOUT_MS, and --keep to
+ * retain the fixture project — spans included — for inspection.
  */
 
 import { randomBytes } from "node:crypto";
@@ -23,9 +26,11 @@ import { AgentClient, StackNotRunningError } from "./client.js";
 import { runAll } from "./runner.js";
 import { SCENARIOS } from "./scenarios.js";
 import { allPassed, formatScorecard } from "./scorecard.js";
+import { seedFacts, seedProject, unseedProject, countSeededRows } from "./seed.js";
 import {
   createEvalProject,
   EvalConfigError,
+  type EvalSeeder,
   requireEvalUserEmail,
   resolveEvalUser,
   teardownEvalProject,
@@ -52,6 +57,10 @@ function parseTimeout(): number | undefined {
 async function main(): Promise<number> {
   const keepFixture = process.argv.includes("--keep");
   const runId = `${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
+  // One instant for the whole run: the seeded dates and anything an assertion
+  // derives from them have to come from the same clock reading.
+  const anchor = new Date();
+  const seeder: EvalSeeder = { count: countSeededRows, seed: seedProject, unseed: unseedProject };
 
   const user = await resolveEvalUser(db, requireEvalUserEmail());
   const client = new AgentClient({
@@ -70,10 +79,15 @@ async function main(): Promise<number> {
   const resultsDir = join(RESULTS_ROOT, runId);
   mkdirSync(resultsDir, { recursive: true });
 
-  const fixture = await createEvalProject(db, { user, runId });
+  const fixture = await createEvalProject(db, { user, runId, anchor, seeder });
+  const facts = seedFacts(anchor);
 
   console.log(`run ${runId}  user ${user.email}  project ${fixture.projectName}`);
-  console.log(`agent ${AGENT_SERVICE_URL}  backend ${TRACE_API_URL}\n`);
+  console.log(`agent ${AGENT_SERVICE_URL}  backend ${TRACE_API_URL}`);
+  console.log(
+    `seeded ${facts.totalSpans} spans / ${facts.totalTraces} traces over ${facts.dates.length} days` +
+      `  spike ${facts.spikeDate} = ${facts.spikeTotalTokens} tokens\n`,
+  );
 
   let results: ScenarioResult[] = [];
   try {
@@ -81,6 +95,7 @@ async function main(): Promise<number> {
       client,
       prisma: db,
       fixture,
+      facts,
       canonicalPrompt: makeCanonicalPrompt(),
       probeWidgetQuery: (spec) =>
         probeWidgetQuery(spec, {
@@ -103,7 +118,13 @@ async function main(): Promise<number> {
     if (keepFixture) {
       console.log(`\nkeeping fixture project ${fixture.projectId} (--keep)`);
     } else {
-      await teardownEvalProject(db, fixture.projectId);
+      // A teardown failure must not discard a finished run: the scorecard and
+      // exit code come from the scenarios; the leftover is reported loudly.
+      try {
+        await teardownEvalProject(db, fixture.projectId, seeder);
+      } catch (failure) {
+        console.error(`\nteardown of fixture project ${fixture.projectId} failed:`, failure);
+      }
     }
   }
 
