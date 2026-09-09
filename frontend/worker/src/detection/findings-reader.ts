@@ -9,20 +9,18 @@ const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
 
 /**
- * Make an authenticated GET request to the internal backend API.
+ * Make an authenticated POST request to the internal backend API.
  */
-async function internalGet<T>(path: string, params: Record<string, string>): Promise<T> {
+async function internalPost<T>(path: string, body: unknown): Promise<T> {
   const url = new URL(path, BACKEND_URL);
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value);
-  }
 
   const response = await fetch(url.toString(), {
-    method: "GET",
+    method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Internal-Secret": INTERNAL_API_SECRET,
     },
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -48,26 +46,46 @@ export type DetectorWindowSummary = Record<
   }
 >;
 
+export interface DetectorWindowSummaryResult {
+  data: DetectorWindowSummary;
+  /** Distinct finding ids across the selected detector runs in the window. */
+  distinctFindingCount: number;
+}
+
 /**
- * Read the per-detector window summary (finding counts + each detector's sample
- * triggered traces) for a project over a time window. Detectors with zero runs
- * in the window are absent from the map.
+ * Read the window's distinct finding count and per-detector summary (trigger
+ * counts + each detector's sample triggered traces). Detectors with zero runs
+ * in the window are absent from the data map.
  */
 export async function readDetectorWindowSummary(
   projectId: string,
   start: Date,
   end: Date,
-  opts: { includeSummaries?: boolean } = {},
-): Promise<DetectorWindowSummary> {
-  const params: Record<string, string> = {
+  opts: { includeSummaries?: boolean; detectorIds?: string[] } = {},
+): Promise<DetectorWindowSummaryResult> {
+  const body = await internalPost<{
+    data: DetectorWindowSummary;
+    distinct_finding_count: unknown;
+  }>("/api/v1/internal/detector-window-summary", {
     project_id: projectId,
     start_after: start.toISOString(),
     end_before: end.toISOString(),
+    include_summaries: opts.includeSummaries === true,
+    detector_ids: opts.detectorIds ?? [],
+  });
+  const distinctFindingCount = body.distinct_finding_count;
+  if (
+    typeof distinctFindingCount !== "number" ||
+    !Number.isFinite(distinctFindingCount) ||
+    !Number.isInteger(distinctFindingCount) ||
+    distinctFindingCount < 0
+  ) {
+    throw new Error(
+      "Invalid detector-window-summary distinct_finding_count: expected a finite nonnegative integer",
+    );
+  }
+  return {
+    data: body.data,
+    distinctFindingCount,
   };
-  if (opts.includeSummaries) params.include_summaries = "true";
-  const body = await internalGet<{ data: DetectorWindowSummary }>(
-    "/api/v1/internal/detector-window-summary",
-    params,
-  );
-  return body.data;
 }

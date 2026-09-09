@@ -56,8 +56,11 @@ const PROJECT = {
 beforeEach(() => {
   vi.clearAllMocks();
   readDetectorWindowSummary.mockResolvedValue({
-    d1: { finding_count: 4, run_count: 9, sample_trace_ids: ["trace-d1"] },
-    d2: { finding_count: 1, run_count: 3, sample_trace_ids: ["trace-d2"] },
+    distinctFindingCount: 5,
+    data: {
+      d1: { finding_count: 4, run_count: 9, sample_trace_ids: ["trace-d1"] },
+      d2: { finding_count: 1, run_count: 3, sample_trace_ids: ["trace-d2"] },
+    },
   });
   detectorFindMany.mockResolvedValue([
     { id: "d1", name: "Latency", enableRca: true },
@@ -76,6 +79,35 @@ async function run() {
 }
 
 describe("flushDigest", () => {
+  it("counts a finding shared by multiple detectors once in the digest header", async () => {
+    readDetectorWindowSummary.mockResolvedValue({
+      distinctFindingCount: 1,
+      data: {
+        d1: { finding_count: 1, run_count: 1, sample_trace_ids: ["trace-shared"] },
+        d2: { finding_count: 1, run_count: 1, sample_trace_ids: ["trace-shared"] },
+      },
+    });
+
+    await run();
+
+    const slackArg = sendDigestAlertSlack.mock.calls[0][0];
+    expect(slackArg.total).toBe(1);
+    expect(slackArg.entries).toEqual([
+      {
+        detectorId: "d1",
+        detectorName: "Latency",
+        findingCount: 1,
+        latestTraceId: "trace-shared",
+      },
+      {
+        detectorId: "d2",
+        detectorName: "Errors",
+        findingCount: 1,
+        latestTraceId: "trace-shared",
+      },
+    ]);
+  });
+
   it("builds one digest grouped by detector and sends it on both channels", async () => {
     await run();
 
@@ -105,6 +137,10 @@ describe("flushDigest", () => {
       { id: "d1", name: "Latency", enableRca: true },
       { id: "d2", name: "Errors", enableRca: false },
     ]);
+    readDetectorWindowSummary.mockResolvedValue({
+      distinctFindingCount: 4,
+      data: { d1: { finding_count: 4, run_count: 9, sample_trace_ids: ["trace-d1"] } },
+    });
 
     await run();
 
@@ -112,17 +148,39 @@ describe("flushDigest", () => {
     expect(slackArg.entries).toHaveLength(1);
     expect(slackArg.entries[0].detectorId).toBe("d1");
     expect(slackArg.total).toBe(4);
+    expect(detectorFindMany).toHaveBeenCalledWith({
+      where: { projectId: "p1", enableRca: true },
+      select: { id: true, name: true, enableRca: true },
+    });
+    expect(readDetectorWindowSummary.mock.calls[0][3].detectorIds).toEqual(["d1"]);
   });
 
-  it("sends nothing when no detector has findings in the window", async () => {
+  it("does not count a finding triggered only by an RCA-disabled detector", async () => {
+    detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
     readDetectorWindowSummary.mockResolvedValue({
-      d1: { finding_count: 0, run_count: 9, sample_trace_ids: [] },
-      d2: { finding_count: 0, run_count: 3, sample_trace_ids: [] },
+      distinctFindingCount: 0,
+      data: { d1: { finding_count: 0, run_count: 1, sample_trace_ids: [] } },
     });
 
     await run();
 
-    expect(detectorFindMany).not.toHaveBeenCalled();
+    expect(readDetectorWindowSummary.mock.calls[0][3].detectorIds).toEqual(["d1"]);
+    expect(sendDigestAlertSlack).not.toHaveBeenCalled();
+    expect(sendDigestAlertEmail).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing when no detector has findings in the window", async () => {
+    readDetectorWindowSummary.mockResolvedValue({
+      distinctFindingCount: 0,
+      data: {
+        d1: { finding_count: 0, run_count: 9, sample_trace_ids: [] },
+        d2: { finding_count: 0, run_count: 3, sample_trace_ids: [] },
+      },
+    });
+
+    await run();
+
+    expect(detectorFindMany).toHaveBeenCalledTimes(1);
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
   });
@@ -135,8 +193,9 @@ describe("flushDigest", () => {
 
     await run();
 
-    // resolveRecipients runs first (project has channels), but we still bail at
-    // the RCA-disabled filter before building entries or sending.
+    // Resolve the RCA-enabled scope before reading ClickHouse so an empty scope
+    // never falls back to an unfiltered window count.
+    expect(readDetectorWindowSummary).not.toHaveBeenCalled();
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
   });
@@ -181,11 +240,14 @@ describe("flushDigest", () => {
 
   it("passes the generated summary to both channels and writes an AIMessage", async () => {
     readDetectorWindowSummary.mockResolvedValue({
-      d1: {
-        finding_count: 4,
-        run_count: 9,
-        sample_trace_ids: ["trace-d1"],
-        sample_summaries: ["s1", "s2"],
+      distinctFindingCount: 4,
+      data: {
+        d1: {
+          finding_count: 4,
+          run_count: 9,
+          sample_trace_ids: ["trace-d1"],
+          sample_summaries: ["s1", "s2"],
+        },
       },
     });
     detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
@@ -201,7 +263,10 @@ describe("flushDigest", () => {
       },
     });
     await run();
-    expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: true });
+    expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({
+      includeSummaries: true,
+      detectorIds: ["d1"],
+    });
     expect(generateDigestSummary.mock.calls[0][0].detectors).toEqual([
       { name: "Latency", findingCount: 4, sampleSummaries: ["s1", "s2"] },
     ]);
@@ -233,7 +298,10 @@ describe("flushDigest", () => {
     await run();
     expect(generateDigestSummary).not.toHaveBeenCalled();
     // Blocked workspaces also skip the extra ClickHouse summaries join.
-    expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: false });
+    expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({
+      includeSummaries: false,
+      detectorIds: ["d1", "d2"],
+    });
     expect(sendDigestAlertSlack).toHaveBeenCalledTimes(1); // digest still sends
   });
 
@@ -245,7 +313,10 @@ describe("flushDigest", () => {
       try {
         await run();
         expect(generateDigestSummary).not.toHaveBeenCalled();
-        expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: false });
+        expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({
+          includeSummaries: false,
+          detectorIds: ["d1", "d2"],
+        });
         expect(sendDigestAlertSlack).toHaveBeenCalledTimes(1); // digest still sends
       } finally {
         vi.unstubAllEnvs();
@@ -257,7 +328,10 @@ describe("flushDigest", () => {
     vi.stubEnv("DIGEST_SUMMARY_ENABLED", "0");
     try {
       await run();
-      expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: true });
+      expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({
+        includeSummaries: true,
+        detectorIds: ["d1", "d2"],
+      });
     } finally {
       vi.unstubAllEnvs();
     }

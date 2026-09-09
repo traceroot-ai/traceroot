@@ -16,6 +16,7 @@ export function truncate(text: string, max = SECTION_LIMIT): string {
 export interface DigestEntry {
   detectorId: string;
   detectorName: string;
+  /** Per-detector trigger count; one finding may trigger several detectors. */
   findingCount: number;
   latestTraceId: string;
 }
@@ -130,7 +131,7 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
     // break the Slack <url|text> link syntax.
     const name = escapeMrkdwn(e.detectorName);
     const text =
-      `*<${findingsUrl}|${name}>* — ${e.findingCount} ${e.findingCount === 1 ? "finding" : "findings"}` +
+      `*<${findingsUrl}|${name}>* — ${e.findingCount} ${e.findingCount === 1 ? "trigger" : "triggers"}` +
       (e.latestTraceId
         ? ` · latest: <${traceUrl(appBaseUrl, projectId, e.latestTraceId)}|${shortTrace}>`
         : "");
