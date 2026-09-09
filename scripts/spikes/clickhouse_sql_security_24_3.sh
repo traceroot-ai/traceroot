@@ -55,6 +55,31 @@ if [ -n "$CH_IMAGE" ]; then
     docker exec "$CH_CONTAINER" clickhouse-client --query "SELECT 1" >/dev/null 2>&1 && break
     sleep 3
   done
+else
+  # Existing-container mode: this script did not choose how that container publishes its
+  # ports, so the loopback guarantee above does not carry over. It seeds no-password accounts
+  # (spike_ro is deliberately not host-restricted so the companion HTTP test can log in), so
+  # refuse to create them on a server that is reachable off-box.
+  if ! docker inspect "$CH_CONTAINER" >/dev/null 2>&1; then
+    echo "FATAL: container '$CH_CONTAINER' not found. Set CH_IMAGE to have this script start one." >&2
+    exit 1
+  fi
+  _bad=""
+  for _binding in $(docker inspect \
+      -f '{{range $p, $c := .NetworkSettings.Ports}}{{range $c}}{{$p}}@{{.HostIp}} {{end}}{{end}}' \
+      "$CH_CONTAINER" 2>/dev/null); do
+    case "${_binding#*@}" in
+      127.0.0.1|::1|localhost) ;;
+      *) _bad="$_bad $_binding" ;;
+    esac
+  done
+  if [ -n "$_bad" ]; then
+    echo "FATAL: '$CH_CONTAINER' publishes ports on non-loopback addresses:$_bad" >&2
+    echo "       This spike creates no-password accounts, so it will not seed them into a" >&2
+    echo "       server that is reachable off-box. Republish those ports on 127.0.0.1," >&2
+    echo "       or unset CH_CONTAINER and set CH_IMAGE to let this script start its own." >&2
+    exit 1
+  fi
 fi
 
 CH="docker exec $CH_CONTAINER clickhouse-client"
@@ -76,8 +101,8 @@ expect_deny() {
     printf '%s\n' "$out" | head -3
     exit 1
   fi
-  if printf '%s' "$out" | grep -qiE 'AUTHENTICATION_FAILED|Code: 516|Code: 210|NETWORK_ERROR|Connection refused|Cannot connect|Timeout exceeded while connecting'; then
-    echo "FAIL [$label]: failed BEFORE the server could refuse it (login/connection error, not a denial):"
+  if printf '%s' "$out" | grep -qiE 'AUTHENTICATION_FAILED|Code: 516|Code: 210|NETWORK_ERROR|Connection refused|Cannot connect|Timeout exceeded while connecting|Error response from daemon|No such container|is not running|OCI runtime exec failed|Cannot connect to the Docker daemon'; then
+    echo "FAIL [$label]: failed BEFORE the server could refuse it (login/connection/container error, not a denial):"
     printf '%s\n' "$out" | head -3
     exit 1
   fi
@@ -299,7 +324,8 @@ $CH --query "CREATE SETTINGS PROFILE spike_ro_profile SETTINGS
 # spike_ro is deliberately NOT host-restricted: the companion bound-parameter test
 # (clickhouse_connect_bound_param.py) logs in as this user over HTTP from the host, which
 # arrives as a Docker bridge IP and would be rejected by HOST LOCAL. It is confined instead
-# by publishing the container ports on loopback only (see the docker run above).
+# by the container's ports being loopback-only -- published that way above when this script
+# starts the server, and verified above when an existing CH_CONTAINER is supplied.
 $CH --query "CREATE USER spike_ro IDENTIFIED WITH no_password SETTINGS PROFILE 'spike_ro_profile'"
 
 $CH --query "GRANT SELECT ON spike.spans_definer_v1 TO spike_ro"
