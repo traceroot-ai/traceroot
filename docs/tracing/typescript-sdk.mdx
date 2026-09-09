@@ -20,6 +20,10 @@ TraceRoot.initialize({
 const openai = new OpenAI();
 ```
 
+<Note>
+  Call `initialize()` explicitly before using any tracing APIs. If you skip it, the SDK auto-initializes on first use and logs a one-time warning — but relying on auto-init can cause spans created before the first call to be lost.
+</Note>
+
 ## The Observe Wrapper
 
 Wrap any async function to create a span:
@@ -82,6 +86,7 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
   updateCurrentSpan({
     input: { query: userInput },
     output: { response: agentOutput },
+    usage: { input: 512, output: 128, total: 640 },
     metadata: { model: 'gpt-4o' },
   });
 
@@ -100,6 +105,7 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 |-----------|------|-------------|
 | `input` | `unknown` | Input data |
 | `output` | `unknown` | Output data |
+| `usage` | `TokenUsage` | Token counts — emits standard `llm.token_count.*` OpenInference keys that power cost tracking |
 | `metadata` | `Record<string, unknown>` | Custom metadata |
 
 ### `updateCurrentTrace` Parameters
@@ -110,6 +116,140 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 | `sessionId` | `string` | Session identifier |
 | `tags` | `string[]` | Tags for the trace |
 | `metadata` | `Record<string, unknown>` | Trace-level metadata |
+
+## Streaming & Long-Lived Spans
+
+### When to use `startSpan` vs `observe`
+
+`observe()` is the right choice for most spans — it opens a span, runs your callback, and closes the span when the callback resolves. Use `startSpan()` when a span must **outlive a single async callback**: the most common case is a streaming LLM call whose full output and token usage are only available after the stream finishes draining.
+
+| Situation | API |
+|-----------|-----|
+| Work fits inside one `async` callback | `observe()` |
+| Span must stay open across multiple awaits or event-loop turns | `startSpan()` |
+| Streaming LLM call — output/usage known only after stream drains | `startSpan()` |
+
+### `startSpan`
+
+`startSpan()` returns a `Span` handle you control directly:
+
+```typescript
+import { startSpan, type TokenUsage } from '@traceroot-ai/traceroot';
+
+const span = startSpan({ name: 'llm_call', type: 'llm' });
+
+try {
+  const stream = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: prompt }],
+    stream: true,
+    stream_options: { include_usage: true },
+  });
+
+  let output = '';
+  let usage: TokenUsage | undefined;
+
+  for await (const chunk of stream) {
+    output += chunk.choices[0]?.delta?.content ?? '';
+    if (chunk.usage) {
+      usage = {
+        input: chunk.usage.prompt_tokens,
+        output: chunk.usage.completion_tokens,
+        total: chunk.usage.total_tokens,
+      };
+    }
+  }
+
+  span.update({ output, usage });
+} catch (err) {
+  span.setError(err);
+  throw err;
+} finally {
+  span.end();
+}
+```
+
+#### `Span` methods
+
+| Method | Description |
+|--------|-------------|
+| `span.update(fields)` | Set `input`, `output`, `usage`, or `metadata` on the span. Can be called multiple times; later calls merge. |
+| `span.setError(err)` | Record an error on the span and mark it as failed. |
+| `span.end()` | Close the span. Always call this — typically in a `finally` block. |
+| `span.startSpan(options)` | Open a child span under this span. Returns a new `Span` handle. |
+
+### `usingSpan`
+
+`usingSpan(span, fn)` runs `fn` with `span` as the **active context**, so any spans created inside `fn` (whether by `observe()`, `startSpan()`, or auto-instrumentation) are parented under it:
+
+```typescript
+import { observe, startSpan, usingSpan } from '@traceroot-ai/traceroot';
+
+const turn = startSpan({ name: 'agent_turn', type: 'agent' });
+
+try {
+  await usingSpan(turn, async () => {
+    // These observe() calls nest under `turn`
+    await observe({ name: 'tool_call', type: 'tool' }, () => fetchWeather());
+    await observe({ name: 'llm_response', type: 'llm' }, () => generateReply());
+  });
+} finally {
+  turn.end();
+}
+```
+
+### `getCurrentSpan`
+
+`getCurrentSpan()` returns the `Span` that is currently active in async context, or `undefined` if none. Useful for attaching metadata from deep inside a call stack without threading the span through arguments:
+
+```typescript
+import { getCurrentSpan } from '@traceroot-ai/traceroot';
+
+async function processChunk(chunk: string) {
+  // ... processing logic ...
+
+  const span = getCurrentSpan();
+  if (span) {
+    span.update({ metadata: { lastChunk: chunk.slice(0, 50) } });
+  }
+}
+```
+
+### `TokenUsage`
+
+`TokenUsage` is the shape accepted by `span.update({ usage })` and `updateCurrentSpan({ usage })`. Each field maps to a standard OpenInference `llm.token_count.*` attribute, which powers TraceRoot's cost tracking dashboard.
+
+```typescript
+import { type TokenUsage } from '@traceroot-ai/traceroot';
+
+const usage: TokenUsage = {
+  input: 1024,      // llm.token_count.prompt
+  output: 256,      // llm.token_count.completion
+  cacheRead: 800,   // llm.token_count.prompt_details.cache_read
+  cacheWrite: 224,  // llm.token_count.prompt_details.cache_write
+  total: 1280,      // llm.token_count.total
+};
+```
+
+All fields are optional — set only the ones your provider returns.
+
+### Attributes escape hatch
+
+Pass raw OpenTelemetry attributes via the `attributes` field when you need to set keys that have no first-class SDK parameter:
+
+```typescript
+const span = startSpan({
+  name: 'my_span',
+  type: 'llm',
+  attributes: {
+    'gen_ai.request.model': 'gpt-4o',
+    'gen_ai.system': 'openai',
+    'custom.pipeline_stage': 'retrieval',
+  },
+});
+```
+
+Attribute values must be `string | number | boolean | string[] | number[] | boolean[]` (standard OpenTelemetry attribute types).
 
 ## Environment Variables
 
