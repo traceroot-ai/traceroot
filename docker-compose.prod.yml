@@ -145,6 +145,9 @@ services:
     entrypoint: >
       /bin/sh -c "
       set -e;
+      case \"$$CLICKHOUSE_DATABASE\" in ''|[0-9]*|*[!A-Za-z0-9_]*)
+      echo 'FATAL: CLICKHOUSE_DATABASE must be an unquoted ClickHouse identifier matching [A-Za-z_][A-Za-z0-9_]*' >&2;
+      exit 1;; esac;
       W=$$(printf '%s' \"$$SQL_GATEWAY_WRITER_PASSWORD\" | sha256sum | cut -d' ' -f1);
       R=$$(printf '%s' \"$$CLICKHOUSE_RO_PASSWORD\" | sha256sum | cut -d' ' -f1);
       sed -e \"s/__WRITER_HASH__/$$W/g\" -e \"s/__RO_HASH__/$$R/g\"
@@ -176,7 +179,7 @@ services:
       - -c
       - |
         set -e
-        PW=$$(printf '%s' "$$SQL_GATEWAY_BOOTSTRAP_PASSWORD" | od -An -tx1 | tr -d '\n ' | sed 's/../%&/g')
+        PW=$$(printf '%s' "$$SQL_GATEWAY_BOOTSTRAP_PASSWORD" | od -An -v -tx1 | tr -d '\n ' | sed 's/../%&/g')
         exec goose -dir /migrations clickhouse \
           "clickhouse://sql_gateway_bootstrap:$$PW@clickhouse:9000/$$CLICKHOUSE_DATABASE" up
     depends_on:
