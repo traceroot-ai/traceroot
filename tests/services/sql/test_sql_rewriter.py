@@ -146,8 +146,9 @@ class TestCteBodyRewrittenAliasNot:
     def test_cte_alias_x_appears_in_from(self) -> None:
         # The outer FROM x must remain a reference to the CTE alias, not a view call.
         rendered, _ = scope_and_render(self.SQL, PID)
-        # "FROM x" should still appear in the rendered SQL (CTE alias, not rewritten).
-        assert " x " in rendered or "FROM x" in rendered
+        # Assert the FROM specifically. A bare `" x "` also matches the `WITH x AS`
+        # definition, so it would hold even if the outer reference had been rewritten.
+        assert "FROM x" in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -440,3 +441,43 @@ def test_cte_named_after_a_public_table_cannot_exempt_it(monkeypatch: pytest.Mon
     # Layer 3 did not forgive a surviving bare table.
     assert "spans_public_v1" in rendered
     assert binds == {"scope_project_id": PID}
+
+
+# ---------------------------------------------------------------------------
+# Layer-3 has three invariants. The surviving-table branch is covered above via
+# the _rewrite_table no-op; these cover the other two, because this module is
+# the tenant-isolation boundary and a fail-closed path that never fails closed
+# in a test is an assumption rather than a guarantee.
+# ---------------------------------------------------------------------------
+def test_layer3_rejects_an_injected_view_it_does_not_recognise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rest.services.sql import rewriter as rewriter_module
+
+    real_build = rewriter_module._build_view_table
+
+    def _wrong_view(view_name: str, alias_node, param_value):  # type: ignore[no-untyped-def]
+        return real_build("somewhere_else_v1", alias_node, param_value)
+
+    monkeypatch.setattr(rewriter_module, "_build_view_table", _wrong_view)
+
+    with pytest.raises(SqlValidationError) as exc_info:
+        scope_and_render("SELECT span_id FROM spans", PID)
+    assert "unexpected anonymous table reference" in str(exc_info.value)
+
+
+def test_layer3_rejects_a_blocked_function_in_the_rewritten_tree() -> None:
+    import sqlglot
+
+    from rest.services.sql import rewriter as rewriter_module
+
+    # A tree shaped like a correct rewrite, with a blocked function smuggled into
+    # it. Verification re-scans the rewritten AST rather than trusting that Layer 1
+    # saw this tree, so it must still fire.
+    tree = sqlglot.parse_one(
+        "SELECT sleep(1) FROM spans_public_v1(project_id = {scope_project_id:String}) AS spans",
+        dialect="clickhouse",
+    )
+    with pytest.raises(SqlValidationError) as exc_info:
+        rewriter_module._verify_rewritten_ast(tree, set())
+    assert "blocked function" in str(exc_info.value)
