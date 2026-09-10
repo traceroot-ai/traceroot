@@ -65,6 +65,8 @@ OPENAI_MODEL_CASES = [
     ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
     ("azure/gpt-5.6-sol", "gpt-5.6-sol"),
     ("gpt-5.6-sol-2026-07-09", "gpt-5.6-sol"),
+    # gpt-5.6 is the provider-documented alias for gpt-5.6-sol.
+    ("gpt-5.6", "gpt-5.6-sol"),
     ("gpt-5.6-terra", "gpt-5.6-terra"),
     ("openai/gpt-5.6-terra", "gpt-5.6-terra"),
     ("azure/gpt-5.6-terra", "gpt-5.6-terra"),
@@ -275,6 +277,19 @@ class TestGpt56TerraPublishedPrices:
         entry = next(e for e in real_cache if e["model_name"] == "gpt-5.6-terra")
         assert entry["prices"]["input"] == pytest.approx(2e-6)  # $2 / 1M tokens
         assert entry["prices"]["output"] == pytest.approx(1.2e-5)  # $12 / 1M tokens
+
+
+class TestGpt56SolPublishedPrices:
+    """Ratio checks alone let a wrong base price stay internally consistent and
+    pass — gpt-5.6-sol was billed at $5/$30 per 1M tokens against a
+    published $4/$20 for months with TestGpt56CachePricing green throughout.
+    Assert the absolute, provider-published rate directly.
+    """
+
+    def test_input_and_output_match_published_rate(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gpt-5.6-sol")
+        assert entry["prices"]["input"] == pytest.approx(4e-6)  # $4 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(2e-5)  # $20 / 1M tokens
 
 
 class TestGpt56LunaPublishedPrices:

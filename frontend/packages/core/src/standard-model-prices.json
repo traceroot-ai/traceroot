@@ -171,13 +171,13 @@
   {
     "id": "tr-gpt-5-6-sol",
     "modelName": "gpt-5.6-sol",
-    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-sol)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-sol|gpt-5\\.6)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
-      "input": 0.000005,
-      "output": 0.00003,
-      "cacheRead": 0.0000005,
-      "cacheWrite": 0.00000625
+      "input": 0.000004,
+      "output": 0.00002,
+      "cacheRead": 0.0000004,
+      "cacheWrite": 0.000005
     }
   },
   {
