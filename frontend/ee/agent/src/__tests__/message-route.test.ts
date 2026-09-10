@@ -44,6 +44,7 @@ vi.mock("../executors/index.js", () => ({ createExecutor: vi.fn(() => ({ destroy
 vi.mock("../tools/index.js", () => ({ createTools: vi.fn(() => ({})) }));
 
 const { app } = await import("../index.ts");
+const { getSession } = await import("../session.js");
 
 const URL_PATH = "/api/v1/projects/proj-1/sessions/sess-1/messages";
 
@@ -88,19 +89,23 @@ describe("POST messages — which meter the turn is billed to", () => {
     ]);
   });
 
-  it("bills a follow-up as chat even though the session has no owner", async () => {
-    // The reported bug. getSession resolves this system session for both callers,
-    // so nothing about the session distinguishes the two turns above — only the
-    // header does, which is why the decision cannot be read off the session.
-    await postMessage({ "x-user-id": "user-1" });
+  it("does not read the decision off the session's owner", async () => {
+    // The mirror of the two cases above, and the one that pins the direction of
+    // the dependency: an owned session with no user id on the request is the
+    // automatic turn, not a chat turn. Deriving kind from the session answered
+    // this backwards, which is how a person's follow-up in an ownerless RCA
+    // session came to be billed as auto-RCA.
+    vi.mocked(getSession).mockResolvedValueOnce({
+      workspaceId: "ws-1",
+      title: "existing",
+      userId: "user-1",
+    } as never);
 
-    expect(kindsPersisted().every((row) => row.kind === "chat")).toBe(true);
-  });
+    await postMessage({});
 
-  it("keeps a turn's two rows on the same meter", async () => {
-    await postMessage({ "x-user-id": "user-1" });
-    const kinds = kindsPersisted().map((row) => row.kind);
-
-    expect(new Set(kinds).size).toBe(1);
+    expect(kindsPersisted()).toEqual([
+      { role: "user", kind: "rca" },
+      { role: "assistant", kind: "rca" },
+    ]);
   });
 });
