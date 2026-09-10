@@ -8,7 +8,7 @@ import json
 import re
 
 from rest.services.trace_reader import customer_traffic_only
-from rest.services.widget_registry import REGISTRY, registry_schema
+from rest.services.widget_registry import KEYED_COLUMN_SLOT, REGISTRY, registry_schema
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,10 @@ def test_every_field_expr_is_reachable_in_base_sql():
     """Each field's expr must be an alias or column token exposed by the view's base_sql."""
     for view_name, view in REGISTRY.items():
         for fname, fdef in view.fields.items():
-            assert _exposed_in_base_sql(fdef.expr, view.base_sql), (
+            base_sql = view.base_sql
+            if fdef.requires_key:
+                base_sql = base_sql.replace(KEYED_COLUMN_SLOT, f", {fdef.expr}")
+            assert _exposed_in_base_sql(fdef.expr, base_sql), (
                 f"{view_name}.{fname}: expr={fdef.expr!r} not found in base_sql"
             )
 
@@ -153,3 +156,48 @@ def test_every_base_relation_excludes_detector_self_traces():
                 f"{view_name}: the scan of `{scan.group(1)}` at offset {scan.start()} "
                 f"has no detector guard in its own WHERE"
             )
+
+
+# ── tokens_per_second grain ───────────────────────────────────────────────────
+
+
+def _tokens_per_second_expr() -> str:
+    """The throughput expression as base_sql defines it."""
+    match = re.search(r"(if\(.+?\))\s+AS tokens_per_second", REGISTRY["spans"].base_sql)
+    assert match is not None, "the spans view no longer defines tokens_per_second in base_sql"
+    return match.group(1)
+
+
+def test_token_throughput_divides_by_the_millisecond_duration():
+    """A span shorter than a second still has a rate.
+
+    The divisor used to be a second count, so every sub-second span divided by zero and
+    dropped out: 30% of spans on the local stack, holding the average at 290.62 vs 1077.61.
+    """
+    expr = _tokens_per_second_expr()
+    assert "duration_ms" in expr, f"tokens_per_second no longer reads duration_ms: {expr}"
+    assert "1000" in expr, f"tokens_per_second no longer converts milliseconds to seconds: {expr}"
+    assert not re.search(r"date_?diff\(\s*'second'", REGISTRY["spans"].base_sql, re.IGNORECASE), (
+        "a second-boundary count is back in the spans view: it reads zero for "
+        "any span under a second, and a rate over it is NULL"
+    )
+
+
+def test_token_throughput_is_null_only_for_a_zero_length_span():
+    """The guard has to sit at zero: higher drops short spans, lower divides by zero."""
+    expr = _tokens_per_second_expr()
+    assert re.search(r"if\(\s*duration_ms\s*>\s*0\s*,", expr), (
+        f"tokens_per_second guards on something other than a positive duration: {expr}"
+    )
+    assert expr.rstrip().endswith("NULL)"), (
+        f"tokens_per_second no longer reads NULL for an unmeasurable span: {expr}"
+    )
+
+
+def test_span_duration_itself_is_millisecond_grained():
+    """duration_ms is a millisecond difference; a second-grained one reintroduces the zero."""
+    assert re.search(
+        r"date_?diff\(\s*'millisecond',[^)]+\)\s+AS duration_ms",
+        REGISTRY["spans"].base_sql,
+        re.IGNORECASE,
+    ), "duration_ms is no longer a millisecond difference"
