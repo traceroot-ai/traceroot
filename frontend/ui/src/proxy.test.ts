@@ -26,6 +26,7 @@ describe("middleware matcher exemptions", () => {
     expect(isProtected("/api/auth/callback")).toBe(false);
     expect(isProtected("/api/internal/validate-api-key")).toBe(false);
     expect(isProtected("/api/billing/webhook")).toBe(false);
+    expect(isProtected("/api/health")).toBe(false);
   });
 
   it("still protects app pages and session-authed API routes", () => {
