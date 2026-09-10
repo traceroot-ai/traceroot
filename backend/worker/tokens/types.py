@@ -81,7 +81,15 @@ def is_claude_model(model: str) -> bool:
     Bedrock and its regional aliases qualify the family name with dots rather than
     slashes (``us.anthropic.claude-opus-4-8``), so the name is not always the
     leading segment and a bare ``startswith`` misses it. The catalogue prices that
-    shape, so the estimator has to recognise it too. Only a segment boundary
-    counts, which keeps ``my-org/claude-ish`` a non-match.
+    shape, so the estimator has to recognise it too.
+
+    A dot segment beginning with ``claude`` is not on its own enough to say a model
+    is Claude: ``my-org.claude-proxy`` is somebody else's routing name, and pricing
+    treats it as unknown. So the dotted form additionally requires the ``anthropic``
+    qualifier the catalogue's Bedrock patterns require, which keeps classification
+    no wider than what pricing will match.
     """
-    return any(segment.startswith("claude") for segment in strip_gateway_prefixes(model).split("."))
+    segments = strip_gateway_prefixes(model).split(".")
+    if segments[0].startswith("claude"):
+        return True
+    return "anthropic" in segments and any(segment.startswith("claude") for segment in segments)
