@@ -1,7 +1,7 @@
 """Shared helpers for building ClickHouse parameterized queries.
 
 These are cross-module utilities — both `services/trace_reader.py` and
-`routers/internal.py` rely on them, so the helpers live in a feature-neutral
+`routers/internal/detectors.py` rely on them, so the helpers live in a feature-neutral
 spot rather than as private symbols inside any one caller.
 """
 
