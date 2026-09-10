@@ -576,6 +576,16 @@ class TestTransformOtelToClickhouse:
                 "gen_ai.usage.details.cache_read_input_tokens",
                 "gen_ai.usage.details.cache_write_tokens",
             ),
+            # traceroot SDKs' Claude Agent SDK instrumentation spells cache-write
+            # with Anthropic's own "cache_creation" word (python and ts both emit
+            # this exact key); both sum input + cache_read + cache_creation into
+            # llm.token_count.prompt, so the prompt arrives GROSS.
+            (
+                "traceroot.claude-agent-sdk",
+                "llm.token_count.prompt",
+                "llm.token_count.prompt_details.cache_read",
+                "llm.token_count.prompt_details.cache_creation",
+            ),
             # Vercel AI SDK: gen_ai totals are emitted natively on doGenerate
             # spans, but cache detail exists only under the raw ai.* namespace.
             (
@@ -958,6 +968,45 @@ class TestTransformOtelToClickhouse:
                 )
             ],
             scope_name="openinference.instrumentation.anthropic",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        ud = spans[0]["usage_details"]
+        assert ud["cache_write_tokens"] == 900
+        assert ud["cache_write_1h_tokens"] == 600
+        expected = 100 * prices["input"] + 300 * prices["cacheWrite"] + 600 * prices["cacheWrite1h"]
+        assert spans[0]["cost"] == pytest.approx(expected)
+
+    def test_cache_write_1h_survives_the_cache_creation_spelling(self):
+        """The 1h sub-bucket is reconciled against the write TOTAL (capped at it),
+        so a missed cache_creation-spelled total would zero the write bucket and
+        clamp the 1h portion away with it — the pair must land together."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000005,
+            "output": 0.000025,
+            "cacheRead": 0.0000005,
+            "cacheWrite": 0.00000625,
+            "cacheWrite1h": 0.00001,
+        }
+        # gross input 1000 = 100 uncached + 900 write; of the 900: 600 @1h, 300 remainder.
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-opus-4-7"),
+                        make_attr("llm.token_count.prompt", 1000),
+                        make_attr("llm.token_count.completion", 0),
+                        make_attr("llm.token_count.prompt_details.cache_creation", 900),
+                        make_attr("llm.token_count.prompt_details.cache_write_1h", 600),
+                    ],
+                )
+            ],
+            scope_name="traceroot.claude-agent-sdk",
         )
         with patch("worker.tokens.pricing.get_model_price", return_value=prices):
             _, spans = transform_otel_to_clickhouse(payload, "proj-1")
@@ -1725,8 +1774,8 @@ class TestCacheTokenMetadata:
         assert ud["cache_write_1h_tokens"] == 300
 
     def test_absent_1h_portion_keeps_usage_details_keys_unchanged(self):
-        # No 1-hour portion reported (every span today) -> no extra key is added, so the
-        # stored map is identical to before this change.
+        # No 1-hour portion reported -> no extra key is added, so the stored map
+        # is identical to a pre-split span's.
         payload = make_otel_payload(
             [
                 make_span(
