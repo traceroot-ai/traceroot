@@ -97,6 +97,35 @@ function toText(value: unknown): string {
 }
 
 /**
+ * Text redaction that also sees through JSON. A string leaf (or a string tool
+ * result) is often a JSON document in disguise: a tool that returns
+ * `JSON.stringify({ apiToken })` hands over a credential under a camelCase key
+ * the text patterns never match, since their assignment and colon forms need
+ * an `_`-separated name. Parse it, redact it by key like any structured value,
+ * and re-serialise only when that changed something, so a document with
+ * nothing to hide keeps its original whitespace. Anything that is not a JSON
+ * object or array goes through the text patterns as before.
+ */
+function redactText(text: string): string {
+  const trimmed = text.trimStart();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return redactSecrets(text);
+    }
+    if (parsed !== null && typeof parsed === "object") {
+      const redacted = redactStructured(parsed);
+      const before = JSON.stringify(parsed);
+      const after = JSON.stringify(redacted);
+      return after === before ? redactSecrets(text) : redactSecrets(after);
+    }
+  }
+  return redactSecrets(text);
+}
+
+/**
  * Key-aware redaction for a structured value (a tool result that is an object
  * or array): a credential-shaped KEY blanks its whole value whatever the type,
  * and every string leaf goes through the text patterns. The text patterns alone
@@ -105,7 +134,7 @@ function toText(value: unknown): string {
  * name, so camelCase keys need this walk. Same rule `capArgs` applies to args.
  */
 export function redactStructured(value: unknown): unknown {
-  if (typeof value === "string") return redactSecrets(value);
+  if (typeof value === "string") return redactText(value);
   if (Array.isArray(value)) return value.map(redactStructured);
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
@@ -164,12 +193,16 @@ export function applyCapturePolicy(
   const outputBytes = Buffer.byteLength(toText(input.result), "utf8");
   // A structured result is redacted by key before it is serialised (the text
   // patterns below cannot see a credential-shaped key once it is just text);
-  // a string result only has the text patterns.
-  const raw = toText(
-    input.result !== null && typeof input.result === "object"
-      ? redactStructured(input.result)
-      : input.result,
-  );
+  // a string result gets the same key walk if it parses as JSON, and the text
+  // patterns otherwise.
+  const raw =
+    typeof input.result === "string"
+      ? redactText(input.result)
+      : toText(
+          input.result !== null && typeof input.result === "object"
+            ? redactStructured(input.result)
+            : input.result,
+        );
   if (!OUTPUT_ALLOWLIST.has(input.toolName)) {
     return { args, outputBytes, truncated: argsTruncated, withheld: "not-allowlisted" };
   }
@@ -200,7 +233,7 @@ const WITHHELD_BUDGET = "[withheld: budget]";
  * Byte accounting here is close but not exact:
  *  - a key costs `JSON.stringify(key)` bytes plus 1 for its colon;
  *  - a scalar (number/boolean/null) costs `JSON.stringify(value)` bytes;
- *  - a string costs `redactSecrets`+`truncateTo`'s cut, plus 2 for the
+ *  - a string costs `redactText`+`truncateTo`'s cut, plus 2 for the
  *    quotes `JSON.stringify` will wrap it in — the cut itself reserves those
  *    2 bytes first, so a string that gets cut lands on the budget exactly;
  *  - `{`/`}`/`[`/`]` cost 2 bytes per container, and each element after the
@@ -251,7 +284,7 @@ function capArgs(
       // `\\`, control characters), so the cut is bounded by that size too:
       // start from the raw allowance and shrink by the overshoot until the
       // escaped form fits — a string with no escapes converges in one pass.
-      const redacted = redactSecrets(value);
+      const redacted = redactText(value);
       let target = room - 2;
       let cut = truncateTo(redacted, target);
       let escapedBytes = Buffer.byteLength(JSON.stringify(cut.text), "utf8");
