@@ -568,3 +568,15 @@ def test_reserved_name_is_refused_as_a_cte_or_derived_table_alias(sql: str) -> N
 )
 def test_ordinary_cte_and_derived_table_aliases_still_pass(sql: str) -> None:
     assert isinstance(validate(sql), exp.Query)
+
+
+def test_reserved_name_is_refused_as_an_alias_on_a_cte_reference() -> None:
+    # A CTE reference takes an early exit from the table walk, which used to skip
+    # the reserved-alias check that a plain table reference still went through.
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate("WITH c AS (SELECT 1 AS x) SELECT x FROM c AS project_id")
+    assert "project_id" not in str(exc_info.value)
+
+
+def test_ordinary_alias_on_a_cte_reference_still_passes() -> None:
+    assert isinstance(validate("WITH c AS (SELECT 1 AS x) SELECT x FROM c AS ok"), exp.Query)
