@@ -34,6 +34,13 @@ dependencies = [
     # Offline verification of the CLI access JWTs against the app's JWKS
     # (EdDSA/Ed25519 needs the crypto extra -> cryptography).
     "pyjwt[crypto]>=2.9",
+    # SQL validation. Pinned EXACTLY, not to a range: the validator's function
+    # gate is built on how this version normalises function names (uniq ->
+    # APPROX_DISTINCT, formatDateTime -> TimeToStr, and the rest documented in
+    # ALLOWED_FUNCTIONS), so a lockfile refresh that moved the parse could change
+    # what the allowlist admits without a line of our code changing. Bump it
+    # deliberately, with the suite as the gate.
+    "sqlglot==26.33.0",
     # Tokenization
     "tiktoken>=0.5.0",
     # PostgreSQL (for standard model pricing lookup)
