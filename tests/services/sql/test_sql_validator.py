@@ -344,11 +344,14 @@ def test_reserved_scope_placeholders_are_rejected(sql: str) -> None:
         validate(sql)
 
 
-def test_user_placeholder_outside_scope_namespace_is_allowed() -> None:
-    # A user's own bound parameter is a legitimate feature; only the reserved
-    # `scope_` namespace is off-limits.
-    result = validate("SELECT span_id FROM spans WHERE span_id = {myval:String}")
-    assert isinstance(result, exp.Query)
+def test_user_placeholder_outside_scope_namespace_is_refused_while_unwired() -> None:
+    # A user's own bound parameter is a legitimate feature and the reserved
+    # `scope_` namespace is what keeps it away from the scope bind -- but nothing
+    # populates the payload yet, so accepting one only buys a ClickHouse
+    # `Substitution ... is not set` error that names the parameter back. Refuse
+    # here until the endpoint binds them; the reserved-name branch stays either way.
+    with pytest.raises(SqlValidationError):
+        validate("SELECT span_id FROM spans WHERE span_id = {myval:String}")
 
 
 def test_uniqexact_allowed_but_uniq_rejected() -> None:
@@ -457,10 +460,55 @@ def test_identifier_placeholder_in_table_position_raises_the_domain_error() -> N
         pytest.param("SELECT * FROM spans WHERE cost > {c:Float64}", id="float"),
     ],
 )
-def test_value_placeholders_remain_allowed(sql: str) -> None:
-    # A caller's own value parameters are a product feature; only the identifier
-    # form is refused.
+def test_value_placeholders_are_refused_while_unwired(sql: str) -> None:
+    # A caller's own value parameters are a product feature, but nothing binds
+    # them yet. Left accepted, the query reaches ClickHouse and comes back with
+    # `Code: 456 ... Substitution 'v' is not set` -- an error that echoes the
+    # parameter name, which this layer exists to prevent. Lift with the endpoint.
+    with pytest.raises(SqlValidationError) as exc_info:
+        validate(sql)
+    assert str(exc_info.value) != "v"
+    assert "Substitution" not in str(exc_info.value)
+
+
+def test_reserved_parameter_names_keep_their_own_error() -> None:
+    # The reserved-name check must stay distinct from the blanket refusal above:
+    # it is the branch that survives when user parameters are wired.
+    for sql in (
+        "SELECT span_id FROM spans WHERE trace_id = {project_id:String}",
+        "SELECT span_id FROM spans WHERE trace_id = {scope_project_id:String}",
+    ):
+        with pytest.raises(SqlValidationError) as exc_info:
+            validate(sql)
+        assert "reserved name" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# EXISTS is a predicate over a subquery, not a call the allowlist rules on.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("SELECT span_id FROM spans WHERE EXISTS (SELECT 1 FROM traces)", id="exists"),
+        pytest.param(
+            "SELECT span_id FROM spans AS s"
+            " WHERE NOT EXISTS (SELECT 1 FROM traces AS t WHERE t.trace_id = s.trace_id)",
+            id="not-exists-correlated",
+        ),
+    ],
+)
+def test_exists_is_allowed_like_its_not_in_equivalent(sql: str) -> None:
     assert isinstance(validate(sql), exp.Query)
+
+
+def test_exists_subquery_is_still_validated() -> None:
+    # Skipping the function gate for EXISTS must not skip the walk inside it.
+    for sql in (
+        "SELECT span_id FROM spans WHERE EXISTS (SELECT 1 FROM system.tables)",
+        "SELECT span_id FROM spans WHERE EXISTS (SELECT sleep(5) FROM traces)",
+    ):
+        with pytest.raises(SqlValidationError):
+            validate(sql)
 
 
 # ---------------------------------------------------------------------------
