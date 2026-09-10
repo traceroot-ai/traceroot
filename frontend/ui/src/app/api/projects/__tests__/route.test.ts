@@ -36,9 +36,12 @@ describe("GET /api/projects/[projectId]", () => {
     });
 
     const { GET } = await import("../[projectId]/route");
-    const res = await GET(new Request("http://localhost/"), {
-      params: Promise.resolve({ projectId: "p1" }),
-    } as any);
+    const res = await GET(
+      new Request("http://localhost/") as any,
+      {
+        params: Promise.resolve({ projectId: "p1" }),
+      } as any,
+    );
     const body = await res.json();
     expect(body.rca_provider).toBe("my-openai");
     expect(body.rca_source).toBe("byok");
