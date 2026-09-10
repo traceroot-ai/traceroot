@@ -1,10 +1,12 @@
 // In-memory fixed-window rate limiter for the public JWT-mint endpoint
 // (`/api/cli/token`). better-auth's own rate limiter only covers `/api/auth/*`,
 // so this route needs its own bound. Per-instance memory is fine at the current
-// single replica; the robust, cross-replica control — and reliable per-client
-// keying that app-level XFF parsing can't guarantee behind the ALB — is a WAF
-// rate rule at the edge, which is also the right layer to resolve the true
-// client IP behind the load balancer.
+// single replica; the robust, cross-replica control is a WAF rate rule at the
+// edge. Per-client keying is sound at this layer though — the last hop is the
+// address the ALB observed, as rateLimitClientKey explains below, and
+// better-auth reads from the same end of the chain once trusted proxies are
+// configured, though it skips trusted hops and normalises IPv6 to a /64 (see
+// lib/trusted-proxies.ts).
 //
 // Minting requires a valid session (the route 401s otherwise), so the real
 // concern this bounds is an unauthenticated flood forcing a session lookup per
