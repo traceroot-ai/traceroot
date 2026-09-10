@@ -79,9 +79,9 @@ def sql() -> str:
 
 
 def _outer_projection(text: str, view: str) -> str:
-    """Return the outer SELECT projection (between `AS SELECT` and `FROM <table> FINAL`)."""
+    """Return the outer SELECT projection (between `AS SELECT` and the `FROM (` wrapper)."""
     block = re.search(
-        rf"CREATE (?:OR REPLACE )?VIEW[^\n]*\b{view}\b.*?\bAS\s+SELECT(?P<proj>.*?)\bFROM\s+\w+\s+FINAL\b",
+        rf"CREATE (?:OR REPLACE )?VIEW[^\n]*\b{view}\b.*?\bAS\s+SELECT(?P<proj>.*?)\bFROM\s*\(",
         text,
         re.DOTALL | re.IGNORECASE,
     )
@@ -127,21 +127,28 @@ def test_views_set_explicit_scoped_writer_definer(sql):
     assert len(re.findall(r"DEFINER = sql_gateway_writer SQL SECURITY DEFINER", sql)) == 2
 
 
-def test_replacingmergetree_dedup_resolves_before_row_filters(sql):
-    """Dedup must be FINAL on the outer read, never a LIMIT BY wrapper.
+def test_dedup_is_by_logical_id_and_runs_before_the_row_filters(sql):
+    """Dedup must resolve the row by its logical id, and must precede the filters.
 
-    A LIMIT BY wrapper applies `source = 'user'` before the dedup, so a row whose
-    newest version is no longer customer traffic stays visible through its older
-    version. It also blocks predicate pushdown, so the caller's time range cannot
-    prune. Both were reproduced against the production schema.
+    FINAL alone is not enough: ReplacingMergeTree collapses only rows sharing the
+    whole sort key, and `traces` is keyed on toDate(trace_start_time), so a later
+    update landing on another date survives OPTIMIZE FINAL. Verified on 25.2.1,
+    where FINAL returned both rows and LIMIT 1 BY trace_id returned the newest.
+
+    Filtering before the dedup is the other half: it lets a row whose newest version
+    left customer traffic stay visible through its stale `source = 'user'` version.
     """
-    assert "FROM spans FINAL" in sql
-    assert "FROM traces FINAL" in sql
-    assert "LIMIT 1 BY" not in sql, "LIMIT BY dedup filters before it resolves the row"
+    assert "LIMIT 1 BY span_id" in sql
+    assert "LIMIT 1 BY trace_id" in sql
+    assert sql.count("ORDER BY ch_update_time DESC") == 2
+    assert "FINAL" not in sql, "FINAL cannot dedup across the sort key here"
 
-    # The evaluation sub-selects must NOT be FINAL: they have to see any version that
-    # was ever flagged, not only the latest one.
-    assert sql.count("FINAL") == 2, "FINAL belongs on the outer read only"
+    # The filters live OUTSIDE the dedup subquery, so the dedup sees every version.
+    for view, id_col in (("spans_public_v1", "span_id"), ("traces_public_v1", "trace_id")):
+        block = _view_block(sql, view)
+        dedup = block.index(f"LIMIT 1 BY {id_col}")
+        filt = block.index("WHERE source = 'user'")
+        assert dedup < filt, f"{view} filters before it deduplicates"
 
 
 def test_materialized_columns_are_selected_directly(sql):
@@ -153,6 +160,29 @@ def test_materialized_columns_are_selected_directly(sql):
     """
     assert "SELECT *" not in sql, "a SELECT * wrapper cannot resolve metadata_map"
     assert sql.count("metadata_map AS metadata") == 2
+    # named in the inner SELECT too, or the outer reference cannot resolve
+    assert sql.count("metadata_map,") == 2
+
+
+def test_inner_select_provides_every_projected_column(sql):
+    """Every column the outer projection names must be produced by the inner SELECT.
+
+    This is the failure that shipped: `metadata_map` is MATERIALIZED so a `SELECT *`
+    wrapper omitted it, and naming columns explicitly then dropped the git_source_*
+    trio. Both created cleanly and failed on every read with UNKNOWN_IDENTIFIER,
+    because ClickHouse defers body validation for parameterized views.
+    """
+    for view in ("spans_public_v1", "traces_public_v1"):
+        block = _view_block(sql, view)
+        inner = block[block.index("FROM\n(") : block.index("    FROM ")]
+        provided = {c.strip() for c in inner.split("SELECT", 1)[1].replace("\n", " ").split(",")}
+        for projected in _outer_projection(sql, view).replace("\n", " ").split(","):
+            projected = projected.strip()
+            if not projected or " AS " in projected or "(" in projected:
+                continue  # computed or renamed, checked by its own test
+            assert projected in provided, (
+                f"{view} projects {projected!r} but the inner SELECT does not provide it"
+            )
 
 
 def test_duration_ms_is_computed(text):

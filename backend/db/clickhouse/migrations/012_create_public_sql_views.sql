@@ -19,31 +19,39 @@
 -- a view already exists from a prior version. See the runbook:
 -- backend/db/clickhouse/SQL_GATEWAY_RUNBOOK.md
 --
--- Dedup: spans/traces are ReplacingMergeTree(ch_update_time), and these views read
--- them with FINAL. Two reasons FINAL rather than a `ORDER BY ch_update_time DESC
--- LIMIT 1 BY <id>` wrapper:
+-- Dedup: spans/traces are ReplacingMergeTree(ch_update_time), and the dedup here is an
+-- explicit `ORDER BY ch_update_time DESC LIMIT 1 BY <id>` over the LOGICAL id, applied
+-- BEFORE the row filters. Three things that shape has to get right:
 --
---   * Correctness. A LIMIT BY wrapper applies the row filters BEFORE the dedup, so a
---     row whose newest version is no longer customer traffic stays visible through its
---     older `source = 'user'` version. FINAL resolves the row first and then filters,
---     so a retraction takes effect. This is the same failure mode already documented
---     below for `is_evaluation`, and it applies to `source` as well.
+--   * FINAL is not sufficient. ReplacingMergeTree collapses only rows sharing the whole
+--     sort key, and `traces` is ordered by (project_id, toDate(trace_start_time),
+--     trace_id). A traces row copies its trace_start_time from one of the trace's spans,
+--     so a later root update can land on a different DATE, giving two rows that survive
+--     even OPTIMIZE FINAL. Verified on 25.2.1: FINAL returns both, LIMIT 1 BY trace_id
+--     returns the newest. `spans` has the same exposure through span_start_time. The
+--     product's own read path dedups the same way, by id rather than by sort key.
 --
---   * Cost. ClickHouse cannot push a predicate past LIMIT BY, because doing so would
---     change the result. The caller's time range is therefore applied only after the
---     whole project history has been read and sorted, so every query costs the same
---     whatever window it asks for. With FINAL the caller's WHERE prunes normally.
+--   * The dedup must come BEFORE the row filters, not after. Filtering first lets a row
+--     whose newest version is no longer customer traffic stay visible through its older
+--     `source = 'user'` version, because the filter keeps the stale row and the dedup
+--     then picks it as the only candidate. Resolving the row first makes a retraction
+--     take effect.
 --
--- FINAL applies ONLY to the outer read. The evaluation sub-selects below deliberately
--- do NOT use it: they must see any version that was ever flagged, not the latest one.
+--   * The inner SELECT names its columns instead of using `SELECT *`, because
+--     `metadata_map` is MATERIALIZED and `SELECT *` does not include materialized
+--     columns. A wrapper over `SELECT *` cannot resolve it, and the failure appears only
+--     at query time: ClickHouse defers body validation for parameterized views, so the
+--     view is created cleanly and then errors on every read with UNKNOWN_IDENTIFIER.
 --
--- Columns are listed explicitly rather than via a subquery over `SELECT *`, because
--- `metadata_map` is a MATERIALIZED column and `SELECT *` does not include those; a
--- wrapper over `SELECT *` cannot resolve it at all. Curated projection excludes
--- project_id, ch_create_time, ch_update_time, and the input/output blobs. `metadata`
--- is the queryable one-level `metadata_map`, renamed; the raw JSON document stays
--- unexposed.
+-- Cost note: LIMIT BY blocks predicate pushdown, so the caller's time range is applied
+-- after the project's rows have been read and sorted. That is the price of deduplicating
+-- by an id that is not a sort-key prefix. The fix is to parameterize the views on a time
+-- range so the bound reaches the view body, which is a larger change than this migration.
 --
+-- Curated projection excludes project_id, ch_create_time, ch_update_time, and the
+-- input/output blobs. `metadata` is the queryable one-level `metadata_map`, renamed; the
+-- raw JSON document stays unexposed.
+
 -- Rows are curated too, not just columns. A row the product hides on every other
 -- read path must not reappear here:
 --
@@ -90,9 +98,19 @@ SELECT
     git_source_file,
     git_source_line,
     git_source_function
-FROM spans FINAL
-WHERE project_id = {project_id:String}
-  AND source = 'user'
+FROM
+(
+    SELECT
+        span_id, trace_id, parent_span_id, span_start_time, span_end_time, name,
+        span_kind, status, status_message, model_name, cost, input_tokens,
+        output_tokens, total_tokens, environment, metadata_map,
+        git_source_file, git_source_line, git_source_function, source
+    FROM spans
+    WHERE project_id = {project_id:String}
+    ORDER BY ch_update_time DESC
+    LIMIT 1 BY span_id
+)
+WHERE source = 'user'
   AND trace_id NOT IN (
       SELECT trace_id FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1
       UNION DISTINCT
@@ -111,9 +129,17 @@ SELECT
     git_repo,
     environment,
     metadata_map AS metadata
-FROM traces FINAL
-WHERE project_id = {project_id:String}
-  AND source = 'user'
+FROM
+(
+    SELECT
+        trace_id, trace_start_time, name, user_id, session_id, git_ref, git_repo,
+        environment, metadata_map, source
+    FROM traces
+    WHERE project_id = {project_id:String}
+    ORDER BY ch_update_time DESC
+    LIMIT 1 BY trace_id
+)
+WHERE source = 'user'
   AND trace_id NOT IN (
       SELECT trace_id FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1
       UNION DISTINCT
