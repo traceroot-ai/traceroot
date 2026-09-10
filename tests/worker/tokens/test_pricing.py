@@ -65,12 +65,17 @@ OPENAI_MODEL_CASES = [
     ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
     ("azure/gpt-5.6-sol", "gpt-5.6-sol"),
     ("gpt-5.6-sol-2026-07-09", "gpt-5.6-sol"),
+    # gpt-5.6 is the provider-documented alias for gpt-5.6-sol.
+    ("gpt-5.6", "gpt-5.6-sol"),
     ("gpt-5.6-terra", "gpt-5.6-terra"),
     ("openai/gpt-5.6-terra", "gpt-5.6-terra"),
     ("azure/gpt-5.6-terra", "gpt-5.6-terra"),
     ("gpt-5.6-luna", "gpt-5.6-luna"),
     ("openai/gpt-5.6-luna", "gpt-5.6-luna"),
     ("azure/gpt-5.6-luna", "gpt-5.6-luna"),
+    ("gpt-5.6-cyber", "gpt-5.6-cyber"),
+    ("openai/gpt-5.6-cyber", "gpt-5.6-cyber"),
+    ("azure/gpt-5.6-cyber", "gpt-5.6-cyber"),
     ("gpt-5.5", "gpt-5.5"),
     ("openai/gpt-5.5", "gpt-5.5"),
     ("azure/gpt-5.5", "gpt-5.5"),
@@ -231,18 +236,71 @@ class TestOpenAIModelIds:
         assert result["cost"] > 0
 
 
+class TestGpt56CyberPublishedPrices:
+    """Cache-rate assertions are ratios of the input rate, so a wrong base price stays
+    internally consistent and passes. Assert the absolute, provider-published rate
+    directly.
+    """
+
+    def test_input_and_output_match_published_rate(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gpt-5.6-cyber")
+        assert entry["prices"]["input"] == pytest.approx(1.25e-5)  # $12.50 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(7.5e-5)  # $75 / 1M tokens
+
+
 class TestGpt56CachePricing:
     """gpt-5.6 is the first OpenAI family with non-null cacheWrite pricing."""
 
-    @pytest.mark.parametrize("model_name", ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])
+    @pytest.mark.parametrize(
+        "model_name", ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-cyber"]
+    )
     def test_cache_write_is_1_25x_input_rate(self, real_cache, model_name):
         entry = next(e for e in real_cache if e["model_name"] == model_name)
         assert entry["prices"]["cacheWrite"] == pytest.approx(entry["prices"]["input"] * 1.25)
 
-    @pytest.mark.parametrize("model_name", ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])
+    @pytest.mark.parametrize(
+        "model_name", ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-cyber"]
+    )
     def test_cache_read_is_90_percent_discount(self, real_cache, model_name):
         entry = next(e for e in real_cache if e["model_name"] == model_name)
         assert entry["prices"]["cacheRead"] == pytest.approx(entry["prices"]["input"] * 0.10)
+
+
+class TestGpt56TerraPublishedPrices:
+    """Ratio checks alone let a wrong base price stay internally consistent and pass —
+    gpt-5.6-terra was billed at $2.50/$15 per 1M tokens against a published $2/$12,
+    with TestGpt56CachePricing green throughout. Assert the absolute,
+    provider-published rate directly.
+    """
+
+    def test_input_and_output_match_published_rate(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gpt-5.6-terra")
+        assert entry["prices"]["input"] == pytest.approx(2e-6)  # $2 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(1.2e-5)  # $12 / 1M tokens
+
+
+class TestGpt56SolPublishedPrices:
+    """Ratio checks alone let a wrong base price stay internally consistent and
+    pass — gpt-5.6-sol was billed at $5/$30 per 1M tokens against a
+    published $4/$20 for months with TestGpt56CachePricing green throughout.
+    Assert the absolute, provider-published rate directly.
+    """
+
+    def test_input_and_output_match_published_rate(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gpt-5.6-sol")
+        assert entry["prices"]["input"] == pytest.approx(4e-6)  # $4 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(2e-5)  # $20 / 1M tokens
+
+
+class TestGpt56LunaPublishedPrices:
+    """Ratio checks alone let a wrong base price stay internally consistent and
+    pass. Assert the absolute, provider-published rate directly.
+    """
+
+    def test_input_and_output_match_published_rate(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gpt-5.6-luna")
+        assert entry["prices"]["input"] == pytest.approx(2e-7)  # $0.20 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(1.2e-6)  # $1.20 / 1M tokens
 
 
 class TestGeminiModelIds:
