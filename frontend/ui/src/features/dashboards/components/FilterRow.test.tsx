@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WidgetSchemaField } from "../types";
+import { Dropdown, FilterControlSizeProvider } from "@/features/filters/filter-controls";
 import { FilterRow } from "./FilterRow";
 
 vi.mock("../hooks/use-widget-data", () => ({ useWidgetFieldValues: vi.fn() }));
 import { useWidgetFieldValues } from "../hooks/use-widget-data";
+
+// The key combobox suggests keys from the discovery endpoint; stubbed to test layout only.
+vi.mock("@/features/filters/hooks", () => ({
+  useMetadataKeys: () => ({ keys: [{ value: "tenant_id", count: 4 }], isLoading: false }),
+}));
 
 const stringField: WidgetSchemaField = {
   type: "string",
@@ -22,6 +28,14 @@ const numberField: WidgetSchemaField = {
   aggs: ["sum"],
 };
 const durationField: WidgetSchemaField = { ...numberField, label: "Duration" };
+const keyedField: WidgetSchemaField = {
+  type: "string",
+  label: "Metadata",
+  filterOps: ["=", "contains"],
+  groupable: false,
+  aggs: [],
+  requiresKey: true,
+};
 
 const baseProps = {
   index: 0,
@@ -41,6 +55,94 @@ const baseProps = {
 describe("FilterRow value input", () => {
   // RTL auto-cleanup needs vitest globals, which this config doesn't enable.
   afterEach(cleanup);
+
+  it("shows a saved row as text with a spinner while the field registry is still loading", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        fieldsLoading
+        filter={{ field: "metadata", key: "tenant", op: "=", value: "acme" }}
+      />,
+    );
+    const row = screen.getByRole("status", { name: "Loading filter fields" });
+    // the saved predicate is legible as-is: not an empty field dropdown
+    expect(row.textContent).toContain("metadata[tenant] = acme");
+    expect(row.textContent).toContain("Loading fields");
+    expect(screen.queryByRole("button", { name: "Field" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove filter" })).toBeNull();
+  });
+
+  it("names a saved field the resolved registry does not know, and keeps it removable", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const onRemove = vi.fn();
+    render(
+      <FilterRow
+        {...baseProps}
+        onRemove={onRemove}
+        filter={{ field: "retired_field", op: "=", value: "x" }}
+      />,
+    );
+    const row = screen.getByRole("alert", { name: "Unknown filter field" });
+    expect(row.textContent).toContain("retired_field = x");
+    expect(row.textContent).toContain("Unknown field");
+    expect(screen.queryByRole("status")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter" }));
+    expect(onRemove).toHaveBeenCalledWith(0);
+  });
+
+  it("says the registry is unavailable, and keeps the row removable, when its request failed", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const onRemove = vi.fn();
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        fieldsUnavailable
+        onRemove={onRemove}
+        filter={{ field: "model_name", op: "=", value: "gpt-4o" }}
+      />,
+    );
+    const row = screen.getByRole("alert", { name: "Filter fields unavailable" });
+    expect(row.textContent).toContain("model_name = gpt-4o");
+    expect(row.textContent).toContain("Fields unavailable");
+    // not blamed on the field: the registry never answered
+    expect(row.textContent).not.toContain("Unknown field");
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter" }));
+    expect(onRemove).toHaveBeenCalledWith(0);
+  });
+
+  it("names an unknown field even when the resolved registry offers no fields at all", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        filter={{ field: "retired_field", op: "=", value: "x" }}
+      />,
+    );
+    expect(screen.getByRole("alert", { name: "Unknown filter field" })).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("renders the controls for an empty row even while the registry is loading", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        fieldsLoading
+        filter={{ field: "", op: "", value: "" }}
+      />,
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("button", { name: "Field" })).toBeTruthy();
+  });
 
   it("offers stored values with counts for string equality, and selecting one propagates", () => {
     vi.mocked(useWidgetFieldValues).mockReturnValue({
@@ -123,7 +225,13 @@ describe("FilterRow value input", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Field" }));
     fireEvent.click(screen.getByRole("option", { name: /Cost/ }));
-    expect(onChange).toHaveBeenCalledWith(0, { field: "cost", op: ">", value: "" });
+    // The key clears with the value, to undefined rather than "": the schema rejects "".
+    expect(onChange).toHaveBeenCalledWith(0, {
+      field: "cost",
+      op: ">",
+      value: "",
+      key: undefined,
+    });
   });
 
   it("disables the op and value controls until a field is picked", () => {
@@ -188,5 +296,104 @@ describe("FilterRow value input", () => {
     );
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "claude" } });
     expect(onChange).toHaveBeenCalledWith(0, { value: "claude" });
+  });
+});
+
+describe("FilterRow keyed fields", () => {
+  afterEach(cleanup);
+
+  const keyedProps = {
+    ...baseProps,
+    filterableFields: [...baseProps.filterableFields, ["metadata", keyedField]] as [
+      string,
+      WidgetSchemaField,
+    ][],
+    fieldsMap: { ...baseProps.fieldsMap, metadata: keyedField },
+  };
+
+  it("renders the key control only for a keyed field", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const { unmount } = render(
+      <FilterRow {...keyedProps} filter={{ field: "model_name", op: "=", value: "" }} />,
+    );
+    expect(screen.queryByLabelText("metadata key")).toBeNull();
+    unmount();
+
+    render(
+      <FilterRow {...keyedProps} filter={{ field: "metadata", op: "=", value: "", key: "" }} />,
+    );
+    expect(screen.getByLabelText("metadata key")).toBeTruthy();
+  });
+
+  it("propagates a typed key through onChange", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const onChange = vi.fn();
+    render(
+      <FilterRow
+        {...keyedProps}
+        onChange={onChange}
+        filter={{ field: "metadata", op: "=", value: "", key: "" }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("metadata key"), { target: { value: "tenant_id" } });
+    expect(onChange).toHaveBeenCalledWith(0, { key: "tenant_id" });
+  });
+
+  it("keeps a keyed field's value free text — its values sit behind a key, not in a column", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({
+      values: [{ value: "should-not-appear", count: 1 }],
+      isLoading: false,
+    });
+    render(
+      <FilterRow {...keyedProps} filter={{ field: "metadata", op: "=", value: "", key: "k" }} />,
+    );
+    // Two text inputs: the key and the value. No stored-value dropdown, no distinct-values query.
+    expect(screen.getAllByRole("textbox")).toHaveLength(2);
+    expect(vi.mocked(useWidgetFieldValues).mock.calls.at(-1)?.[4]).toBe(false);
+  });
+});
+
+describe("FilterRow field control", () => {
+  afterEach(cleanup);
+
+  // The field trigger is the shared FieldDropdown, which takes no styling from either caller.
+  it("renders the field trigger with the shared chrome at the builder's compact size", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const { container } = render(
+      <FilterRow {...baseProps} filter={{ field: "", op: "", value: "" }} />,
+    );
+    const trigger = within(container).getByRole("button", { name: "Field" });
+    const className = trigger.className;
+
+    expect(className).toContain("w-[8.5rem]");
+    expect(className).toContain("shrink-0");
+    expect(className).toContain("text-[12px]");
+
+    const reference = render(
+      <FilterControlSizeProvider size="sm">
+        <Dropdown trigger={<span>ref</span>} triggerClassName="w-[8.5rem] shrink-0">
+          {() => null}
+        </Dropdown>
+      </FilterControlSizeProvider>,
+    );
+    // Exactly the shared trigger chrome at that size plus the width.
+    expect(className).toBe(
+      within(reference.container).getByRole("button", { name: "ref" }).className,
+    );
+  });
+
+  it("keeps the same trigger width once a field is picked", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const unset = render(<FilterRow {...baseProps} filter={{ field: "", op: "", value: "" }} />);
+    const unsetClass = within(unset.container).getByRole("button", { name: "Field" }).className;
+    cleanup();
+
+    const picked = render(
+      <FilterRow {...baseProps} filter={{ field: "cost", op: ">", value: 5 }} />,
+    );
+
+    expect(within(picked.container).getByRole("button", { name: /Cost/ }).className).toBe(
+      unsetClass,
+    );
   });
 });

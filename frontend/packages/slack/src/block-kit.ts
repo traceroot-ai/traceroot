@@ -1,14 +1,14 @@
-const SECTION_LIMIT = 3000;
+export const SECTION_LIMIT = 3000;
 
 // Render cap for the LLM digest paragraph — readability bound, far under the
 // 3000-char Slack section limit. Shared with the email digest.
 export const DIGEST_SUMMARY_RENDER_CAP = 700;
 
-function escapeMrkdwn(text: string): string {
+export function escapeMrkdwn(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function truncate(text: string, max = SECTION_LIMIT): string {
+export function truncate(text: string, max = SECTION_LIMIT): string {
   if (text.length <= max) return text;
   return text.slice(0, max - 1) + "…";
 }
