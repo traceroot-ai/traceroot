@@ -29,12 +29,16 @@ def secret(monkeypatch):
     return "test-secret"
 
 
+DEFAULT_CH_FAMILY = "detectors"
+
+
 @pytest.fixture()
-def mock_ch(monkeypatch):
-    """Mock the ClickHouse client used by the internal router."""
+def mock_ch(monkeypatch, request):
+    """Mock the ClickHouse client the endpoint family under test binds."""
     mock = MagicMock()
+    family = getattr(request.cls, "CH_FAMILY", DEFAULT_CH_FAMILY)
     monkeypatch.setattr(
-        "rest.routers.internal.get_clickhouse_client",
+        f"rest.routers.internal.{family}.get_clickhouse_client",
         lambda: mock,
     )
     return mock
@@ -782,6 +786,7 @@ def _otlp_body(
 
 
 class TestInternalTraceIngest:
+    CH_FAMILY = "ingest"
     URL = "/api/v1/internal/traces?project_id=proj-1"
 
     def test_rejects_missing_secret(self, client):
@@ -944,15 +949,19 @@ class TestInternalTraceIngest:
 
     def test_route_never_references_detection_enqueue(self):
         """Anti-recursion by construction: the module cannot enqueue detection."""
-        import rest.routers.internal as internal_module
+        from rest.routers.internal import ingest as ingest_module
 
-        assert "enqueue_detector_runs" not in inspect.getsource(internal_module)
+        source = inspect.getsource(ingest_module)
+        # The package __init__ only mounts sub-routers, so scanning it would assert nothing.
+        assert 'router.post("/traces"' in source
+        assert "enqueue_detector_runs" not in source
 
 
 class TestPerSpanProjectAttribution:
     """Attribute-at-source routing: the worker stamps traceroot.project_id
     per span; the request-level project id is only a single-project fallback."""
 
+    CH_FAMILY = "ingest"
     URL = "/api/v1/internal/traces"
 
     def test_mixed_project_batch_fans_each_trace_to_its_own_project(self, client, secret, mock_ch):
@@ -1057,6 +1066,7 @@ class TestPerSpanProjectAttribution:
 
 
 class TestUsageBillsEveryStoredRow:
+    CH_FAMILY = "usage"
     PARAMS: typing.ClassVar[dict[str, str]] = {
         "project_ids": "p1",
         "start": "2026-07-01T00:00:00Z",
@@ -1096,6 +1106,54 @@ class TestUsageBillsEveryStoredRow:
         assert resp.status_code == 200
         combined_sql = mock_ch.query.call_args_list[0].args[0]
         assert "source" not in combined_sql
+
+    def test_usage_bounds_are_normalized_to_utc(self, client, mock_ch, secret):
+        """An aware non-UTC offset must bill the UTC instant, not the wall clock sent."""
+        mock_ch.query.side_effect = [
+            _make_query_result([(1,)], ["total"]),
+            _make_query_result([(1,)], ["total"]),
+            _make_query_result([(0,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params={
+                "project_ids": "p1",
+                "start": "2026-07-01T02:00:00+02:00",
+                "end": "2026-08-01T02:00:00+02:00",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        for call in mock_ch.query.call_args_list:
+            params = call.kwargs["parameters"]
+            assert params["start"] == "2026-07-01 00:00:00"
+            assert params["end"] == "2026-08-01 00:00:00"
+
+    def test_usage_total_bounds_are_normalized_to_utc(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [_make_query_result([(0,)], ["total"])]
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params={
+                "project_ids": "p1",
+                "start": "2026-07-01T02:00:00+02:00",
+                "end": "2026-08-01T02:00:00+02:00",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        params = mock_ch.query.call_args_list[0].kwargs["parameters"]
+        assert params["start"] == "2026-07-01 00:00:00"
+        assert params["end"] == "2026-08-01 00:00:00"
+
+    def test_non_ascii_secret_header_is_rejected_not_500(self, client, mock_ch, secret):
+        """Starlette decodes headers as latin-1; a 0x80-0xFF byte must still 403."""
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params=self.PARAMS,
+            # Raw bytes: httpx would refuse the non-ASCII str client-side.
+            headers={b"X-Internal-Secret": "sécret\xff".encode("latin-1")},
+        )
+        assert resp.status_code == 403
 
 
 # =============================================================================
