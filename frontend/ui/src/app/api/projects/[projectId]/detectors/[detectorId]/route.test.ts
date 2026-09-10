@@ -73,10 +73,12 @@ describe("PATCH .../detectors/[detectorId] — role gating", () => {
 });
 
 describe("PATCH .../detectors/[detectorId] — name conflicts", () => {
-  const p2002 = () => Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+  /** A duck-typed Prisma unique-violation naming the violated constraint. */
+  const p2002 = (target: unknown) =>
+    Object.assign(new Error("Unique constraint failed"), { code: "P2002", meta: { target } });
 
-  it("returns 409 when a rename collides on the per-project unique index", async () => {
-    detectorUpdateMock.mockRejectedValue(p2002());
+  it("returns 409 when a rename collides on the per-project unique index (index-name target)", async () => {
+    detectorUpdateMock.mockRejectedValue(p2002("uq_detector_project_name"));
     const res = await PATCH(makeRequest({ name: "Taken" }), makeParams());
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: string }).error).toBe(
@@ -84,11 +86,24 @@ describe("PATCH .../detectors/[detectorId] — name conflicts", () => {
     );
   });
 
-  it("rethrows a P2002 on a PATCH that carries no name, so a trigger-upsert race is not mislabeled", async () => {
-    detectorUpdateMock.mockRejectedValue(p2002());
-    await expect(PATCH(makeRequest({ triggerConditions: [] }), makeParams())).rejects.toMatchObject(
-      { code: "P2002" },
-    );
+  it("returns 409 when the unique violation is reported as the (projectId, name) fields", async () => {
+    detectorUpdateMock.mockRejectedValue(p2002(["projectId", "name"]));
+    const res = await PATCH(makeRequest({ name: "Taken" }), makeParams());
+    expect(res.status).toBe(409);
+  });
+
+  it("rethrows a trigger-upsert P2002 even when the PATCH also carries a name", async () => {
+    detectorUpdateMock.mockRejectedValue(p2002("detector_triggers_detector_id_key"));
+    await expect(
+      PATCH(makeRequest({ name: "Renamed", triggerConditions: [] }), makeParams()),
+    ).rejects.toMatchObject({ code: "P2002" });
+  });
+
+  it("rethrows a P2002 that names no constraint at all", async () => {
+    detectorUpdateMock.mockRejectedValue(p2002(undefined));
+    await expect(PATCH(makeRequest({ name: "Renamed" }), makeParams())).rejects.toMatchObject({
+      code: "P2002",
+    });
   });
 
   it("propagates non-P2002 update failures", async () => {

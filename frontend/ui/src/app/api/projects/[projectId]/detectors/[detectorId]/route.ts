@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
-import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
   requireAuth,
@@ -165,10 +165,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       include: { trigger: true },
     });
   } catch (e) {
-    // Only a rename can hit uq_detector_project_name; a P2002 raised while
-    // this PATCH carries no name (e.g. the trigger upsert racing its own first
-    // insert) must not be mislabeled as a name conflict.
-    if (!isPrismaKnownError(e, "P2002") || name === undefined) throw e;
+    // Only a rename can hit uq_detector_project_name. The trigger upsert can
+    // raise its own P2002 (racing a concurrent first insert on the trigger's
+    // detector-id key) even when this PATCH carries a name, so discriminate by
+    // the violated constraint: Prisma reports it as the index name or as the
+    // (projectId, name) fields, and only the name index mentions "name".
+    if (!isPrismaKnownError(e, "P2002") || !prismaErrorTarget(e).includes("name")) throw e;
     return errorResponse("A detector with this name already exists", 409);
   }
 
