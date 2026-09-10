@@ -246,7 +246,12 @@ class ClickHouseClient:
         Returns:
             QueryResult: The clickhouse-connect query result.
         """
-        merged = {**self._default_settings, **(settings or {})}
+        # Defaults are applied LAST so they win. They are caps, not preferences: the
+        # self-host fallback sets them precisely because no settings profile is enforcing
+        # them server-side, and a caller that could override one could raise it or pass 0,
+        # which ClickHouse reads as unlimited. A caller wanting a stricter limit should
+        # lower the configured cap rather than pass a per-query override.
+        merged = {**(settings or {}), **self._default_settings}
         return self._client.query(query, parameters=parameters, settings=merged or None)
 
     def close(self) -> None:

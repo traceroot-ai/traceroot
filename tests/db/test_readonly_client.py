@@ -18,6 +18,21 @@ class TestQueryForwarding:
             "SELECT 1", parameters={"p": "x"}, settings={"max_execution_time": 5}
         )
 
+    def test_default_settings_cannot_be_relaxed_by_the_caller(self):
+        """Defaults are caps, so a caller must not be able to raise or disable one.
+
+        ClickHouse reads 0 as unlimited for these, so a caller override that wins would
+        turn the self-host fallback's only limit into no limit at all.
+        """
+        internal = MagicMock()
+        client = ClickHouseClient(internal, {"max_execution_time": 30, "max_result_rows": 100})
+        client.query("SELECT 1", settings={"max_execution_time": 0, "max_threads": 4})
+        sent = internal.query.call_args.kwargs["settings"]
+        assert sent["max_execution_time"] == 30, "caller must not raise a cap"
+        assert sent["max_result_rows"] == 100
+        # A setting the caps do not cover still passes through.
+        assert sent["max_threads"] == 4
+
     def test_query_defaults_pass_none(self):
         internal = MagicMock()
         client = ClickHouseClient(internal)
