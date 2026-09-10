@@ -52,6 +52,26 @@ class TestReadonlyClient:
         # the RO client must not auto-generate a sticky session (shared pooled reads)
         assert captured["autogenerate_session_id"] is False
 
+    def test_ro_user_path_sends_no_per_query_settings(self, monkeypatch):
+        """The read-only user runs under ``readonly = 1``.
+
+        That setting makes the server REJECT any per-query settings override with
+        Code 164, including a more restrictive one, so its caps must come from the
+        CONST settings profile instead. The self-host fallback attaches caps to its
+        handle; this asserts that treatment never reaches the real RO client, where
+        it would fail every single query rather than tighten anything.
+        """
+        ch = ch_client_mod.settings.clickhouse
+        monkeypatch.setattr(ch, "ro_user", "sql_gateway_ro", raising=False)
+        monkeypatch.setattr(ch, "ro_password", "ro_pass", raising=False)
+        internal = MagicMock()
+        monkeypatch.setattr(ch_client_mod.clickhouse_connect, "get_client", lambda **kw: internal)
+
+        client = ch_client_mod.get_readonly_clickhouse_client()
+        client.query("SELECT 1")
+
+        internal.query.assert_called_once_with("SELECT 1", parameters=None, settings=None)
+
     def test_readonly_from_settings_raises_without_ro_user(self, monkeypatch):
         # the public factory must not silently build a privileged client
         ch = ch_client_mod.settings.clickhouse
