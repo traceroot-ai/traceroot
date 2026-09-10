@@ -100,13 +100,22 @@ describe("project PATCH rename collisions", () => {
     update.mockReset();
   });
 
-  it("maps a rename collision (Prisma P2002) to 409 instead of 500", async () => {
-    update.mockRejectedValue(
-      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
-    );
+  /** A duck-typed Prisma unique-violation naming the violated constraint. */
+  const p2002 = (target: unknown) =>
+    Object.assign(new Error("Unique constraint failed"), { code: "P2002", meta: { target } });
+
+  it("maps a rename collision (Prisma P2002 on the name index) to 409 instead of 500", async () => {
+    update.mockRejectedValue(p2002("uq_project_workspace_live_name"));
     const res = await patch({ name: "Taken" });
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe("A project with this name already exists");
+  });
+
+  it("rethrows an alertConfig-upsert P2002 even when the PATCH also carries a name", async () => {
+    update.mockRejectedValue(p2002(["projectId"]));
+    await expect(
+      patch({ name: "Checkout", alert_emails: ["a@example.com"] }),
+    ).rejects.toMatchObject({ code: "P2002" });
   });
 
   it("propagates non-P2002 update failures", async () => {
@@ -114,14 +123,10 @@ describe("project PATCH rename collisions", () => {
     await expect(patch({ name: "Renamed" })).rejects.toThrow("connection lost");
   });
 
-  it("rethrows a P2002 when the PATCH carries no name — not every unique violation is a rename", async () => {
-    // The update spans the alertConfig upsert; its rare concurrent-first-insert
-    // P2002 must not surface as "A project with this name already exists".
-    update.mockRejectedValue(
-      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
-    );
-    await expect(patch({ alert_emails: ["a@example.com"] })).rejects.toThrow(
-      "Unique constraint failed",
-    );
+  it("rethrows a P2002 that names no constraint at all", async () => {
+    update.mockRejectedValue(p2002(undefined));
+    await expect(patch({ alert_emails: ["a@example.com"] })).rejects.toMatchObject({
+      code: "P2002",
+    });
   });
 });

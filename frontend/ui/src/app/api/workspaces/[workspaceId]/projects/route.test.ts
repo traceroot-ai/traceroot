@@ -54,17 +54,25 @@ beforeEach(() => {
 });
 
 describe("POST /api/workspaces/[workspaceId]/projects", () => {
-  it("creates the project with 201", async () => {
+  it("creates the project with 201 and returns its payload", async () => {
+    const createTime = new Date("2026-09-02T12:00:00Z");
     projectCreateMock.mockResolvedValue({
       id: "p1",
       name: "Checkout",
       traceTtlDays: null,
-      createTime: new Date(),
+      createTime,
     });
     const res = (await POST(makeRequest({ name: "Checkout" }), makeParams())) as MockResponse;
     expect(res.status).toBe(201);
     expect(projectCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({ workspaceId: "ws-1", name: "Checkout" }),
+    });
+    expect(await res.json()).toEqual({
+      id: "p1",
+      name: "Checkout",
+      trace_ttl_days: null,
+      access_key_count: 0,
+      create_time: createTime,
     });
   });
 

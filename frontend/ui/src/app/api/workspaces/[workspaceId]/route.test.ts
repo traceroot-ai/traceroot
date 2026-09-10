@@ -54,14 +54,16 @@ beforeEach(() => {
 });
 
 describe("PUT /api/workspaces/[workspaceId]", () => {
-  it("renames the workspace", async () => {
-    workspaceUpdateMock.mockResolvedValue({
-      id: "ws-1",
-      name: "Renamed",
-      updateTime: new Date(),
-    });
+  it("renames the workspace and echoes the new name", async () => {
+    const updateTime = new Date("2026-09-02T12:00:00Z");
+    workspaceUpdateMock.mockResolvedValue({ id: "ws-1", name: "Renamed", updateTime });
     const res = (await PUT(makeRequest({ name: "Renamed" }), makeParams())) as MockResponse;
     expect(res.status).toBe(200);
+    expect(workspaceUpdateMock).toHaveBeenCalledWith({
+      where: { id: "ws-1" },
+      data: { name: "Renamed", updateTime: expect.any(Date) },
+    });
+    expect(await res.json()).toEqual({ id: "ws-1", name: "Renamed", update_time: updateTime });
   });
 
   it("maps a rename collision (Prisma P2002) to 409 instead of 500", async () => {

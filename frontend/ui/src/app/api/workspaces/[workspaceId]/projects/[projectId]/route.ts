@@ -7,7 +7,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
-import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
 
 const updateProjectSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long").optional(),
@@ -150,10 +150,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       include: { alertConfig: true },
     });
   } catch (e) {
-    // Only a rename can hit the project-name unique index; a P2002 raised while
-    // this PATCH carries no name (e.g. the alertConfig upsert racing its own
-    // first insert) must not be mislabeled as a name conflict.
-    if (!isPrismaKnownError(e, "P2002") || name === undefined) throw e;
+    // Only a rename can hit uq_project_workspace_live_name. The alertConfig
+    // upsert can raise its own P2002 (racing a concurrent first insert on its
+    // project-id key) even when this PATCH carries a name, so discriminate by
+    // the violated constraint: the partial name index is raw SQL, so Prisma
+    // reports it by index name, and only that name mentions "name".
+    if (!isPrismaKnownError(e, "P2002") || !prismaErrorTarget(e).includes("name")) throw e;
     return errorResponse("A project with this name already exists", 409);
   }
 
