@@ -235,6 +235,14 @@ export function TraceViewerPanel({
   const hasRca = !!traceFinding && !!rcaData?.rca;
   const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
 
+  // Single source of truth for the header's id — the display value and the
+  // copy control must never diverge, so both read from the same two consts.
+  const headerLabel = headerIdentity?.label ?? "Trace";
+  const headerValue = headerIdentity?.value ?? traceId;
+  const headerCopyTitle = headerIdentity
+    ? `Copy ${headerIdentity.label.toLowerCase()} id`
+    : "Copy trace id";
+
   // Auto-open chat with RCA session loaded when arriving from /detectors.
   // Waits for rcaSessionId so the chat opens already pointing at the session,
   // avoiding a fresh-chat flash before the id resolves.
@@ -359,20 +367,16 @@ export function TraceViewerPanel({
         <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
           <div className="flex min-w-0 items-center gap-1.5">
             <DOMAIN_ICONS.trace className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="shrink-0 text-sm font-medium">{headerIdentity?.label ?? "Trace"}</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">
-              {headerIdentity?.value ?? traceId}
-            </span>
-            {/* Copy affordance for the header id. Only offered when an identity is
-                supplied (offline-eval's test case); the standard trace header is
-                unchanged. */}
-            {headerIdentity && (
-              <CopyButton
-                value={headerIdentity.value}
-                className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-                title={`Copy ${headerIdentity.label.toLowerCase()} id`}
-              />
-            )}
+            <span className="shrink-0 text-sm font-medium">{headerLabel}</span>
+            <span className="truncate font-mono text-xs text-muted-foreground">{headerValue}</span>
+            {/* Copy affordance for the header id — always shown, reading the
+                same headerLabel/headerValue as the display above so the
+                copied text can never diverge from what's shown. */}
+            <CopyButton
+              value={headerValue}
+              className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+              title={headerCopyTitle}
+            />
           </div>
           <div className="flex items-center gap-1">
             {headerStatus}

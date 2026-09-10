@@ -6,7 +6,7 @@
  *
  * Complements TraceViewerPanel.test.tsx, which covers layout and content states.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, act } from "@testing-library/react";
 import type { Span, TraceDetail } from "@/types/api";
 
@@ -160,6 +160,10 @@ function renderPanel(props: Partial<React.ComponentProps<typeof TraceViewerPanel
   );
 }
 
+beforeAll(() => {
+  Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } });
+});
+
 beforeEach(() => {
   mocks.aiPanelOpen = false;
   mocks.findings = undefined;
@@ -243,6 +247,20 @@ describe("TraceViewerPanel header actions", () => {
     fireEvent.click(close!);
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("copies the trace id with no headerIdentity — the default header contract", () => {
+    // This is the production shape: no caller besides offline-eval's
+    // run-detail-view ever supplies headerIdentity, so the header falls
+    // back to "Trace" + traceId and the copy button must follow the same
+    // fallback instead of disappearing. ("Trace" alone isn't asserted here
+    // — it also labels the unrelated Trace/Detectors view-toggle pill
+    // elsewhere in the panel.)
+    renderPanel();
+    expect(screen.getByText("trace-1")).toBeTruthy();
+    const button = screen.getByTitle("Copy trace id");
+    fireEvent.click(button);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("trace-1");
+  });
 });
 
 describe("TraceViewerPanel RCA alert", () => {
@@ -281,7 +299,9 @@ describe("TraceViewerPanel offline-eval extensions", () => {
     renderPanel({ headerIdentity: { label: "Test case", value: "case-1" } });
     expect(screen.getByText("Test case")).toBeTruthy();
     expect(screen.getByText("case-1")).toBeTruthy();
-    expect(screen.getByTitle("Copy test case id")).toBeTruthy();
+    const button = screen.getByTitle("Copy test case id");
+    fireEvent.click(button);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("case-1");
   });
 
   it("renders a header status badge", () => {
