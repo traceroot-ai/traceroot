@@ -9,7 +9,7 @@ import pytest
 import tiktoken
 
 from worker.tokens.pricing import calculate_cost, get_model_price
-from worker.tokens.types import is_claude_model, strip_gateway_prefixes
+from worker.tokens.types import GATEWAY_PREFIXES, is_claude_model, strip_gateway_prefixes
 from worker.tokens.usage import count_tokens
 
 MATCHED_MODEL_NAME = "__matched_model_name"
@@ -296,6 +296,17 @@ class TestGatewayPrefixes:
             ("portkey/openai/gpt-4o", "gpt-4o"),
             # A gateway in front of a Bedrock-shaped id still resolves.
             ("bedrock/us.anthropic.claude-opus-4-8", "claude-opus-4-8"),
+            # A gateway's own alternate spelling of itself. Each of these had a
+            # sibling in the set already, so the id read as unpriced while the
+            # spelling beside it worked.
+            ("gemini/gemini-2.5-pro", "gemini-2.5-pro"),
+            ("litellm_proxy/openai/gpt-5", "gpt-5"),
+            ("bedrock_converse/us.anthropic.claude-opus-4-8", "claude-opus-4-8"),
+            # A router's vendor slug need not match LiteLLM's spelling of the same
+            # vendor. These resolved only for the vendors where the two happen to
+            # coincide, so the gap was invisible behind the ones that passed.
+            ("openrouter/z-ai/glm-4.6", "glm-4.6"),
+            ("openrouter/moonshotai/kimi-k3", "kimi-k3"),
         ],
     )
     def test_prefixed_id_resolves_to_the_bare_model(self, real_cache, model_id, expected_name):
@@ -322,6 +333,27 @@ class TestGatewayPrefixes:
 
         assert price is not None
         assert price[MATCHED_MODEL_NAME] == expected_name
+
+    @pytest.mark.parametrize(
+        "litellm_spelling,router_spelling",
+        [
+            ("zai", "z-ai"),
+            ("moonshot", "moonshotai"),
+            ("xai", "x-ai"),
+            ("mistral", "mistralai"),
+        ],
+    )
+    def test_both_spellings_of_a_vendor_are_carried(self, litellm_spelling, router_spelling):
+        """A vendor reached through two routers is written two ways.
+
+        Carrying only the LiteLLM spelling leaves the OpenRouter form unpriced, and
+        the reverse leaves the direct form unpriced. Neither failure is visible from
+        a test that only exercises a vendor whose two spellings coincide, so the
+        pairing is asserted directly. Only two of these four have a catalogue entry
+        to resolve against today; all four are one model launch away from mattering.
+        """
+        assert litellm_spelling in GATEWAY_PREFIXES
+        assert router_spelling in GATEWAY_PREFIXES
 
     def test_unknown_model_behind_a_gateway_is_still_unpriced(self, real_cache):
         """Stripping must not manufacture a match — an unknown SKU stays None so

@@ -172,6 +172,52 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
   });
 });
 
+// A returned row order that is not asked for is not a stable order. Both lookups
+// take the first pattern that matches, so ordering is part of the answer.
+describe("getModelPricing — catalogue order", () => {
+  // Both patterns match "claude-sonnet-4-6". The worker resolves it against rows
+  // ordered by model_name, where claude-sonnet-4 sorts first and wins; an
+  // unordered findMany can return either row first, so the two surfaces can price
+  // the same id differently, and the TypeScript answer can change after an UPDATE
+  // reshuffles rows. Same rates today, so nothing mis-bills until one is repriced.
+  const OVERLAPPING = [
+    {
+      modelName: "claude-sonnet-4-6",
+      matchPattern: "(?i)^(anthropic\\/)?claude-sonnet-4-6$",
+      prices: [{ usageType: "input", price: 0.000004 }],
+    },
+    {
+      modelName: "claude-sonnet-4",
+      matchPattern: "(?i)^(anthropic\\/)?claude-sonnet-4(-\\d+)?$",
+      prices: [{ usageType: "input", price: 0.000003 }],
+    },
+  ];
+
+  it("asks the database for a deterministic order", async () => {
+    vi.resetModules();
+    const findMany = vi.fn().mockResolvedValue(OVERLAPPING);
+    vi.doMock("../lib/prisma", () => ({ prisma: { standardModel: { findMany } } }));
+    const { getModelPricing: lookup } = await import("../model-pricing/lookup.ts");
+
+    await lookup("claude-sonnet-4-6");
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { modelName: "asc" } }),
+    );
+  });
+
+  it("takes the first matching pattern, so the requested order decides the answer", async () => {
+    // Rows as the ordered query returns them: claude-sonnet-4 sorts first. The
+    // worker resolves this id to claude-sonnet-4 for the same reason, and it is
+    // first-match-wins on both sides that makes the ordering above load-bearing
+    // rather than cosmetic.
+    const ascending = [...OVERLAPPING].sort((a, b) => a.modelName.localeCompare(b.modelName));
+    const { getModelPricing: lookup } = await loadWithCatalogue(ascending);
+    const price = await lookup("anthropic/claude-sonnet-4-6");
+    expect(price?.input).toBe(0.000003);
+  });
+});
+
 describe("getModelPricing — uncompilable pattern", () => {
   it("reports the catalogue defect instead of failing silently", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

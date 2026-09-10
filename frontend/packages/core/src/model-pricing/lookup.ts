@@ -58,8 +58,14 @@ registerCacheClear(clearCache);
 async function loadCache(): Promise<CachedModel[]> {
   if (cache) return cache;
 
+  // Ordered by modelName to match the worker's `ORDER BY m.model_name` (pricing.py).
+  // Both lookups take the first pattern that matches, so wherever two patterns
+  // cover one id — `claude-sonnet-4` and `claude-sonnet-4-6` both match
+  // `claude-sonnet-4-6` — an unordered findMany can answer differently from the
+  // worker, and can change its own answer after an UPDATE reshuffles rows.
   const models = await prisma.standardModel.findMany({
     include: { prices: true },
+    orderBy: { modelName: "asc" },
   });
 
   cache = models.map((m) => {
@@ -90,7 +96,7 @@ async function loadCache(): Promise<CachedModel[]> {
  * drifts between siblings and no entry accepts the router prefixes real
  * deployments emit. Normalizing once here fixes every row at the same time.
  *
- * Keep in sync with GATEWAY_PREFIXES in backend/worker/tokens/pricing.py — the two
+ * Keep in sync with GATEWAY_PREFIXES in backend/worker/tokens/types.py — the two
  * lookups must agree on what a model id means. The Python test
  * tests/worker/tokens/test_gateway_prefix_parity.py fails if they drift.
  */
@@ -100,22 +106,29 @@ export const GATEWAY_PREFIXES = new Set([
   "azure",
   "azure_ai",
   "bedrock",
+  "bedrock_converse",
   "deepseek",
   "fireworks_ai",
+  "gemini",
   "google",
   "googleai",
   "groq",
   "litellm",
+  "litellm_proxy",
   "mistral",
+  "mistralai",
   "models",
   "moonshot",
+  "moonshotai",
   "openai",
   "openrouter",
   "portkey",
   "together_ai",
   "vertex_ai",
   "vertexai",
+  "x-ai",
   "xai",
+  "z-ai",
   "zai",
 ]);
 

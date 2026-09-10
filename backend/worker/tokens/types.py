@@ -23,22 +23,29 @@ GATEWAY_PREFIXES = frozenset(
         "azure",
         "azure_ai",
         "bedrock",
+        "bedrock_converse",
         "deepseek",
         "fireworks_ai",
+        "gemini",
         "google",
         "googleai",
         "groq",
         "litellm",
+        "litellm_proxy",
         "mistral",
+        "mistralai",
         "models",
         "moonshot",
+        "moonshotai",
         "openai",
         "openrouter",
         "portkey",
         "together_ai",
         "vertex_ai",
         "vertexai",
+        "x-ai",
         "xai",
+        "z-ai",
         "zai",
     }
 )
@@ -57,8 +64,18 @@ def strip_gateway_prefixes(model: str) -> str:
     Only segments in GATEWAY_PREFIXES are removed, so an id whose first segment is
     part of the model's real name is returned untouched. Bedrock's
     ``us.anthropic.claude-…`` and Vertex's ``model@date`` forms are distinct id
-    shapes rather than simple slash prefixes, and the catalogue patterns already
-    handle them, so they pass through here unchanged.
+    shapes rather than simple slash prefixes, so they pass through here unchanged.
+    Bedrock's is recognised by the catalogue patterns; the Vertex ``@date`` form is
+    only recognised by the entries that spell out an ``@`` alternation, which 15 of
+    the 19 Claude entries do. Closing that remaining gap belongs with the catalogue
+    patterns rather than here, since it is a suffix rather than a prefix.
+
+    The set carries two spellings of several vendors on purpose. A router does not
+    have to agree with LiteLLM on how to spell the vendor it proxies: OpenRouter
+    writes ``z-ai``, ``moonshotai``, ``x-ai`` and ``mistralai`` where LiteLLM writes
+    ``zai``, ``moonshot``, ``xai`` and ``mistral``. Carrying only one spelling
+    leaves ``openrouter/z-ai/glm-4.6`` unpriced while ``zai/glm-4.6`` resolves, and
+    that gap is invisible for the vendors whose two spellings happen to coincide.
     """
     for _ in range(_MAX_PREFIX_DEPTH):
         head, separator, tail = model.partition("/")
