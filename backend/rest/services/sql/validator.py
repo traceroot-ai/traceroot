@@ -342,6 +342,15 @@ def validate(sql: str) -> exp.Query:
 
             # CTE alias references are allowed only when the CTE is visible
             # in this table's own scope (scope-aware; see cte_ref_ids above).
+            #
+            # The reserved-alias check has to happen BEFORE that `continue`,
+            # because `continue` skips the rest of this node's walk, check 7
+            # included. Without it, `FROM some_cte AS project_id` was accepted
+            # while `FROM spans AS project_id` was refused: same alias, same
+            # reserved name, different verdict depending on what it aliased.
+            if node.alias.lower() == "project_id":
+                raise SqlValidationError("Access to a restricted column is not allowed")
+
             if id(node) in cte_ref_ids:
                 continue
 
