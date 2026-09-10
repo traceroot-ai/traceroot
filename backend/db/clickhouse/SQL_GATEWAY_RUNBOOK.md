@@ -100,11 +100,12 @@ order above is the safe logical sequence for staged/manual provisioning.
   `--no-deps`, so the launcher runs it explicitly). The script is idempotent and runs
   against the live server, so it also provisions existing data volumes. Dev accounts take
   weak known defaults from `SQL_GATEWAY_WRITER_PASSWORD` and `CLICKHOUSE_RO_PASSWORD`;
-  neither account is passwordless on any stack, because the writer can read the raw tables. The compose ClickHouse also mounts `clickhouse_access_management.xml`
-  into `users.d/` so the admin user (`CLICKHOUSE_USER`) gains `ACCESS MANAGEMENT` +
-  `SET DEFINER` — the stock user has broad DDL but **not** access management, so without
-  it the `CREATE USER` bootstrap fails and migration 012 cannot set its explicit definer.
-  That privilege is held by a dedicated `sql_gateway_bootstrap` account, **not** by
+  neither account is passwordless on any stack, because the writer can read the raw tables.
+  The compose ClickHouse also mounts `sql_gateway_bootstrap_user.xml` into `users.d/`, which
+  defines a dedicated `sql_gateway_bootstrap` account holding `ACCESS MANAGEMENT` +
+  `SET DEFINER` — the stock admin has broad DDL but **not** access management, so without
+  that account the `CREATE USER` bootstrap fails and migration 012 cannot set its explicit
+  definer. That privilege is deliberately held by `sql_gateway_bootstrap` and **not** by
   `CLICKHOUSE_USER`: the application services (`rest`, `worker`, `billing`, `detector`) all
   authenticate as `CLICKHOUSE_USER`, so granting it access management would let a compromise
   of any one of them create further accounts. Only `clickhouse-init` and `migrate-clickhouse`
