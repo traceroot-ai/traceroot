@@ -12,6 +12,56 @@
  * re-decoding strings, otherwise a genuine JSON-looking string would be double-decoded.
  */
 
+/** Deterministic JSON with recursively sorted object keys — so two structurally equal
+ *  values compare equal regardless of key order (JSONB round-trips don't preserve it).
+ *
+ *  For IN-PROCESS EQUALITY ONLY — cross-dataset run comparison (`canonicalInputKey`) and
+ *  scorer-manifest equality (`metrics.ts`). Its output is never hashed, stored, or sent
+ *  anywhere, so any total key order does, and it must never throw: a legacy value carrying
+ *  a lone UTF-16 surrogate has to still compare rather than break the page rendering it
+ *  (`JSON.stringify` escapes such a string instead of failing).
+ *
+ *  It is deliberately NOT the canonicalizer for content-addressed case ids, which lives
+ *  separately in `versions.ts`. `stableCaseId` hashes that one's output, so it has to stay
+ *  byte-identical to the TS/Python SDK canonicalizers, and it is stricter in two ways: it
+ *  sorts object keys by Unicode code POINT (Python `sorted()` order) where this one sorts by
+ *  UTF-16 code UNIT, and it REJECTS a lone surrogate. The two therefore produce different
+ *  strings for exactly those inputs — which is harmless while each stays on its own side,
+ *  and is why an id must never be derived from this one. */
+export function canonicalJson(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
+    .join(",")}}`;
+}
+
+/**
+ * A dataset-independent alignment key for a stored `input` value: decode the stored
+ * text back to its native value, then canonicalize it. Two datasets holding the same
+ * input — regardless of object key order or encoding — produce the same key, even
+ * though their `testCaseId`s (which are dataset-scoped) differ. This is what lets a
+ * run comparison line up cases across datasets by shared input.
+ *
+ * Unlike a dataset test case (whose `input` is encoded through `encodeJsonValue`), a
+ * run RESULT's `input` has no enforced encoding contract: the same logical value can
+ * arrive JSON-encoded or as legacy plain text. Decoding both forms of a value converges
+ * them (a legacy plain-text `hello` and JSON `"hello"` both decode to the string
+ * `hello`), so a scalar is keyed by its JSON representation — which keeps the TYPE, so a
+ * string, number, and boolean that merely share the same text stay distinct (`123` →
+ * `s:123`, `"123"` → `s:"123"`, `true` → `s:true`, `"true"` → `s:"true"`). Objects/arrays
+ * keep their structural, key-order-independent canonical form. The `s:` / `o:` prefixes
+ * keep a genuine string that merely looks like JSON (e.g. `"{\"a\":1}"`) from colliding
+ * with the object it resembles.
+ */
+export function canonicalInputKey(input: string): string {
+  const decoded = decodeJsonValue(input);
+  if (decoded === null || typeof decoded !== "object") return `s:${JSON.stringify(decoded)}`;
+  return `o:${canonicalJson(decoded)}`;
+}
+
 /** Encode a native JSON value for text storage so its type round-trips on read. */
 export function encodeJsonValue(value: unknown): string {
   // JSON.stringify(undefined) is `undefined`; callers guard undefined separately,
