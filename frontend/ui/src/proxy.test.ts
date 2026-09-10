@@ -29,6 +29,11 @@ describe("middleware matcher exemptions", () => {
     expect(isProtected("/api/health")).toBe(false);
   });
 
+  it("exempts only the exact health path, not neighbours", () => {
+    expect(isProtected("/api/healthcheck")).toBe(true);
+    expect(isProtected("/api/health/deep")).toBe(true);
+  });
+
   it("still protects app pages and session-authed API routes", () => {
     expect(isProtected("/projects/p1/datasets")).toBe(true);
     expect(isProtected("/api/projects/p1/datasets")).toBe(true);
