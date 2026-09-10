@@ -40,9 +40,10 @@ class ClickHouseSettings(BaseSettings):
 
     # SQL gateway resource caps. These MIRROR the read-only user's CONST settings
     # profile, which is the authoritative server-side enforcement (under readonly=1
-    # the RO user cannot change settings per-query). They are kept here so
-    # the operational profile values live in one place; the query service
-    # does NOT send them as per-query settings for RO execution.
+    # the RO user cannot change settings per-query, so they are NOT sent per-query on
+    # that path). They are also the live values on the self-host fallback path, where
+    # there is no RO user and therefore no profile: db.clickhouse.client sends them as
+    # per-query settings there, which a privileged client is permitted to accept.
     # Env: CLICKHOUSE_SQL_MAX_EXECUTION_TIME, CLICKHOUSE_SQL_MAX_RESULT_ROWS,
     # CLICKHOUSE_SQL_MAX_RESULT_BYTES, CLICKHOUSE_SQL_MAX_MEMORY_USAGE.
     sql_max_execution_time: int = 30

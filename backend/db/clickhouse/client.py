@@ -16,8 +16,22 @@ logger = logging.getLogger(__name__)
 class ClickHouseClient:
     """ClickHouse client wrapper for trace data operations."""
 
-    def __init__(self, client: Client):
+    def __init__(self, client: Client, default_settings: dict[str, Any] | None = None):
         self._client = client
+        # Applied to every query this wrapper issues, unless the caller overrides the
+        # same key. Empty for normal clients; used by the SQL gateway's self-host
+        # fallback to carry the resource caps that the read-only user would otherwise
+        # get from its CONST settings profile.
+        self._default_settings = default_settings or {}
+
+    def with_default_settings(self, default_settings: dict[str, Any]) -> "ClickHouseClient":
+        """A view of this client that applies ``default_settings`` to every query.
+
+        Shares the underlying connection rather than opening a second one, so the
+        caps travel with the handle without giving the SQL gateway its own pool or
+        imposing them on the shared client every other caller uses.
+        """
+        return ClickHouseClient(self._client, default_settings)
 
     @classmethod
     def from_settings(cls) -> "ClickHouseClient":
@@ -232,7 +246,8 @@ class ClickHouseClient:
         Returns:
             QueryResult: The clickhouse-connect query result.
         """
-        return self._client.query(query, parameters=parameters, settings=settings)
+        merged = {**self._default_settings, **(settings or {})}
+        return self._client.query(query, parameters=parameters, settings=merged or None)
 
     def close(self) -> None:
         """Close the client connection."""
@@ -290,5 +305,17 @@ def get_readonly_clickhouse_client() -> ClickHouseClient:
         "ClickHouse client. This is acceptable for local/dev/self-host only — cloud deployments "
         "MUST set CLICKHOUSE_RO_USER."
     )
-    _ro_client = get_clickhouse_client()
+    # The caps normally come from the read-only user's CONST settings profile. Without
+    # that user there is no profile, so without this the fallback runs user SQL with no
+    # execution-time, result-row, result-byte or memory limit at all. A privileged client
+    # is the one kind that CAN take them per query -- readonly = 1 is what forbids it.
+    ch = settings.clickhouse
+    _ro_client = get_clickhouse_client().with_default_settings(
+        {
+            "max_execution_time": ch.sql_max_execution_time,
+            "max_result_rows": ch.sql_max_result_rows,
+            "max_result_bytes": ch.sql_max_result_bytes,
+            "max_memory_usage": ch.sql_max_memory_usage,
+        }
+    )
     return _ro_client

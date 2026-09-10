@@ -78,7 +78,19 @@ class TestReadonlyClient:
         with caplog.at_level(logging.WARNING):
             client = ch_client_mod.get_readonly_clickhouse_client()
 
-        assert client is sentinel
+        # The fallback must not hand back the bare privileged client. Without the
+        # read-only user there is no CONST settings profile, so the caps have to ride
+        # on the handle or user SQL runs with no limits at all.
+        assert client is sentinel.with_default_settings.return_value
+        caps = sentinel.with_default_settings.call_args.args[0]
+        assert set(caps) == {
+            "max_execution_time",
+            "max_result_rows",
+            "max_result_bytes",
+            "max_memory_usage",
+        }, f"self-host fallback must carry every resource cap, got {sorted(caps)}"
+        assert all(isinstance(v, int) and v > 0 for v in caps.values())
+
         assert any(
             "CLICKHOUSE_RO_USER" in r.message and r.levelno == logging.WARNING
             for r in caplog.records
