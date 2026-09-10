@@ -92,6 +92,21 @@ describe("resolvePiModel", () => {
     expect(m.id).not.toMatch(/claude/i);
   });
 
+  it("does not use the preview model as the OpenAI BYOK fallback", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "openai",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+
+    const m = resolvePiModel(undefined, cfg);
+
+    expect(m.provider).toBe("openai");
+    expect(m.id).toBe("gpt-5.6-sol");
+    expect(m.id).not.toBe("gpt-6-astra");
+  });
+
   it("throws (instead of substituting an Anthropic default) for free-text adapter with no model id", () => {
     // azure, amazon-bedrock, openrouter aren't in ADAPTER_MODELS; without explicit
     // modelId the resolver would have nothing sensible to use, so it must throw
