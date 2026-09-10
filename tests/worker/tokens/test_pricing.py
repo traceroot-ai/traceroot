@@ -364,9 +364,7 @@ class TestXAIModelIds:
     )
     def test_xai_absolute_rates(self, model_name, input_rate, output_rate, cache_read_rate):
         # The id-matching tests pass for any price table, so pin the published rates.
-        entry = next(
-            (e for e in _standard_price_entries() if e["modelName"] == model_name), None
-        )
+        entry = next((e for e in _standard_price_entries() if e["modelName"] == model_name), None)
         assert entry is not None, f"{model_name} missing from standard-model-prices.json"
         prices = entry["prices"]
         assert prices["input"] == pytest.approx(input_rate)
