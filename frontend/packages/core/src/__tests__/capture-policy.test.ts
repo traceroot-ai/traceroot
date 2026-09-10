@@ -179,6 +179,60 @@ describe("applyCapturePolicy", () => {
     expect(out.outputBytes).not.toBe(Buffer.byteLength(out.result!, "utf8"));
   });
 
+  it("redacts a camelCase credential key inside a JSON-shaped string result", () => {
+    // A tool that returns `JSON.stringify(obj)` hands over the same document a
+    // structured result would, but as text; the text patterns need an
+    // `_`-separated name, so `apiToken` walked straight through. Parsing the
+    // string and redacting it by key closes that gap.
+    const out = applyCapturePolicy(
+      {
+        toolName: "download_traces",
+        args: {},
+        result: JSON.stringify({
+          rows: [{ apiToken: "hunter2", dbPassword: 42, note: "plain" }],
+          Authorization: "Bearer abcdefghijklmnop",
+        }),
+      },
+      { spentBytes: 0 },
+    );
+    expect(out.result).not.toContain("hunter2");
+    expect(out.result).not.toContain("42");
+    expect(out.result).not.toContain("abcdefghijklmnop");
+    expect(out.result).toContain('"note":"plain"');
+    expect(JSON.parse(out.result as string).rows[0].apiToken).toBe("[REDACTED]");
+  });
+
+  it("keeps a JSON string result's own formatting when nothing in it is redacted", () => {
+    const pretty = JSON.stringify({ rows: [{ id: 1, note: "plain" }] }, null, 2);
+    const out = applyCapturePolicy(
+      { toolName: "download_traces", args: {}, result: pretty },
+      { spentBytes: 0 },
+    );
+    expect(out.result).toBe(pretty);
+  });
+
+  it("treats a string result that only looks like JSON as text", () => {
+    const out = applyCapturePolicy(
+      { toolName: "download_traces", args: {}, result: "{not json, TOKEN=abc123}" },
+      { spentBytes: 0 },
+    );
+    expect(out.result).toBe("{not json, TOKEN=[REDACTED]}");
+  });
+
+  it("redacts a camelCase credential key inside a JSON-shaped string arg", () => {
+    const r = applyCapturePolicy(
+      {
+        toolName: "bash",
+        args: { body: JSON.stringify({ apiToken: "hunter2", plain: "kept" }) },
+        result: "",
+      },
+      { spentBytes: 0 },
+    );
+    const body = (r.args as { body: string }).body;
+    expect(body).not.toContain("hunter2");
+    expect(body).toContain('"plain":"kept"');
+  });
+
   it("redacts inside args too", () => {
     const r = applyCapturePolicy(
       {
