@@ -27,6 +27,8 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/traces/{trace_id}/detector-runs"),
     ("GET", "/api/v1/internal/detector-window-summary"),
     ("POST", "/api/v1/internal/traces"),
+    # Alerts (#1889): the worker asks REST to evaluate a rule's measure over a window.
+    ("POST", "/api/v1/internal/alert-evaluate"),
 }
 
 
