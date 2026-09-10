@@ -104,6 +104,7 @@ export function runWidgetQuery(
   spec: WidgetSpec,
   range: TimeRange,
   user?: TraceApiUser,
+  bucketSeconds?: number,
 ) {
   return fetchTraceApi<WidgetQueryResult>(
     `/projects/${projectId}/widgets/query`,
@@ -113,6 +114,7 @@ export function runWidgetQuery(
         spec,
         start_time: range.start.toISOString(),
         end_time: range.end.toISOString(),
+        ...(bucketSeconds === undefined ? {} : { bucket_seconds: bucketSeconds }),
       }),
     },
     user,

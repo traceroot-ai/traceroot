@@ -21,7 +21,19 @@ export const DASHBOARD_NAME_MAX = 50;
 export const WIDGET_TITLE_MAX = 100;
 export const DASHBOARD_DESCRIPTION_MAX = 500;
 
-export const AGGS = ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"] as const;
+export const AGGS = [
+  "count",
+  "sum",
+  "avg",
+  "min",
+  "max",
+  "p50",
+  "p75",
+  "p90",
+  "p95",
+  "p99",
+  "uniq",
+] as const;
 
 export const WidgetFilterSchema = z.object({
   field: z.string().min(1),
@@ -30,6 +42,10 @@ export const WidgetFilterSchema = z.object({
   // at "") must keep the spec incomplete, not save a widget that silently
   // matches only empty-valued rows.
   value: z.union([z.string().min(1), z.number()]),
+  // Declared because the schema strips what it does not declare — without it a
+  // metadata filter reaches the engine keyless. Which fields require a key, and
+  // whether one belongs, is the engine's call.
+  key: z.string().min(1).optional(),
 });
 
 // Pie and bar plot one mark per category — without a breakdown dimension the
@@ -113,7 +129,9 @@ export interface DashboardDetail extends DashboardSummary {
 export interface WidgetQueryResult {
   columns: string[];
   rows: (string | number | null)[][];
-  meta: { granularity?: "hour" | "day" };
+  // A number is a bucket width in milliseconds, reported when the caller asked
+  // for one specific grain rather than letting the range pick it.
+  meta: { granularity?: "hour" | "day" | number };
 }
 
 export interface WidgetSchemaField {
@@ -126,6 +144,11 @@ export interface WidgetSchemaField {
   // the count(*) sentinel). Optional so older cached schemas keep working;
   // treat absence as histogrammable.
   histogrammable?: boolean;
+  // Whether a filter on this field carries a map key alongside op and value.
+  requiresKey?: boolean;
+  // Whether the widget builder offers this field. Optional so an older cached
+  // schema keeps working — treat absence as offered.
+  inBuilder?: boolean;
 }
 
 export type WidgetSchema = Record<
@@ -147,9 +170,10 @@ export interface WidgetFieldValuesResponse {
  * Whether a filter's value is one of the field's stored values (so the builder
  * offers a dropdown of them). Equality on a string dimension is enumerable;
  * `contains` stays free text and numeric fields take a number input.
+ * A keyed field is never enumerable; see `requires_key` in widget_registry.py.
  */
 export function isEnumerableFilter(field: WidgetSchemaField | undefined, op: string): boolean {
-  return !!field && field.type === "string" && op === "=";
+  return !!field && field.type === "string" && !field.requiresKey && op === "=";
 }
 
 // Numeric comparison symbols shared with the trace-list filter chips.

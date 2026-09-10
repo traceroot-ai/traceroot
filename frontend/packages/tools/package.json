@@ -19,7 +19,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=20.3"
+    "node": ">=24"
   },
   "scripts": {
     "build": "tsc",
