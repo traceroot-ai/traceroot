@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from urllib.parse import quote
 
 DEFAULTS = {
     "CLICKHOUSE_HOST": "localhost",
@@ -50,12 +51,21 @@ def migrations_dir() -> Path:
 
 def goose_dbstring(env: dict[str, str] | None = None) -> str:
     values = {**DEFAULTS, **(env or {})}
+    # goose parses the DSN as a URL, so credential and database values must be
+    # percent-encoded. A password (or user/database) containing a URL-reserved
+    # character such as '&', '=', '?', '#', '+', '/', or a space would otherwise
+    # corrupt the query string — splitting the password early or bleeding into
+    # the next parameter — and silently break the migration connection. quote()
+    # with safe="" encodes every reserved character, including '&' and '='.
+    username = quote(values["CLICKHOUSE_USER"], safe="")
+    password = quote(values["CLICKHOUSE_PASSWORD"], safe="")
+    database = quote(values["CLICKHOUSE_DATABASE"], safe="")
     return (
         "tcp://"
         f"{values['CLICKHOUSE_HOST']}:{values['CLICKHOUSE_PORT']}"
-        f"?username={values['CLICKHOUSE_USER']}"
-        f"&password={values['CLICKHOUSE_PASSWORD']}"
-        f"&database={values['CLICKHOUSE_DATABASE']}"
+        f"?username={username}"
+        f"&password={password}"
+        f"&database={database}"
     )
 
 
