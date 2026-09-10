@@ -185,6 +185,38 @@ KIMI_MODEL_CASES = [
     ("kimi-k3-20260716", "kimi-k3"),
 ]
 
+# Every codex SKU the OpenAI provider table ships, with the sibling forms that make
+# the entries easy to get wrong: the -max / -mini / -spark suffixes are not dated
+# revisions, so a pattern ending in (-[\d-]+)? does not reach them and each needs
+# its own entry.
+CODEX_MODEL_CASES = [
+    ("gpt-5.3-codex", "gpt-5.3-codex"),
+    ("openai/gpt-5.3-codex", "gpt-5.3-codex"),
+    ("gpt-5.3-codex-spark", "gpt-5.3-codex-spark"),
+    ("openai/gpt-5.3-codex-spark", "gpt-5.3-codex-spark"),
+    ("gpt-5.2-codex", "gpt-5.2-codex"),
+    ("gpt-5.1-codex", "gpt-5.1-codex"),
+    ("gpt-5.1-codex-max", "gpt-5.1-codex-max"),
+    ("gpt-5.1-codex-mini", "gpt-5.1-codex-mini"),
+    ("openai/gpt-5.1-codex-mini", "gpt-5.1-codex-mini"),
+    ("gpt-5-codex", "gpt-5-codex"),
+    ("openai/gpt-5-codex", "gpt-5-codex"),
+    # Dated revisions still fold into the base SKU.
+    ("gpt-5.1-codex-2026-01-20", "gpt-5.1-codex"),
+    ("gpt-5-codex-2025-09-15", "gpt-5-codex"),
+]
+
+# Per-1M-token rates from the OpenAI provider table, as USD per token.
+CODEX_PUBLISHED_RATES = [
+    ("gpt-5-codex", 1.25e-06, 1e-05, 1.25e-07),
+    ("gpt-5.1-codex", 1.25e-06, 1e-05, 1.25e-07),
+    ("gpt-5.1-codex-max", 1.25e-06, 1e-05, 1.25e-07),
+    ("gpt-5.1-codex-mini", 2.5e-07, 2e-06, 2.5e-08),
+    ("gpt-5.2-codex", 1.75e-06, 1.4e-05, 1.75e-07),
+    ("gpt-5.3-codex", 1.75e-06, 1.4e-05, 1.75e-07),
+    ("gpt-5.3-codex-spark", 1.75e-06, 1.4e-05, 1.75e-07),
+]
+
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
 class TestGetModelPrice:
@@ -301,6 +333,69 @@ class TestGpt56LunaPublishedPrices:
         entry = next(e for e in real_cache if e["model_name"] == "gpt-5.6-luna")
         assert entry["prices"]["input"] == pytest.approx(2e-7)  # $0.20 / 1M tokens
         assert entry["prices"]["output"] == pytest.approx(1.2e-6)  # $1.20 / 1M tokens
+
+
+class TestCodexModelIds:
+    """Codex SKUs price like any other model rather than reading $0 (#1545).
+
+    Only gpt-5.3-codex was catalogued, so six of the seven shipped SKUs matched no
+    pattern: get_model_price returned None, cost was stored as null, and the span
+    rendered with no cost at all — which reads as a broken dashboard rather than a
+    missing catalogue row.
+    """
+
+    @pytest.mark.parametrize("model_id,expected_name", CODEX_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    @pytest.mark.parametrize("model_id,expected_name", CODEX_MODEL_CASES)
+    def test_matches_exactly_one_entry(self, real_cache, model_id, expected_name):
+        """The SKU names nest — gpt-5.1-codex is a prefix of gpt-5.1-codex-max — so a
+        pattern that forgets its anchor prices two models at once and the winner
+        depends on catalogue order."""
+        matching = [
+            e["model_name"]
+            for e in real_cache
+            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+        ]
+        assert matching == [expected_name], (
+            f"{model_id} must match exactly the {expected_name} pattern, got {matching}"
+        )
+
+    @pytest.mark.parametrize(
+        "model_name,input_rate,output_rate,cache_read_rate", CODEX_PUBLISHED_RATES
+    )
+    def test_rates_match_the_published_figures(
+        self, real_cache, model_name, input_rate, output_rate, cache_read_rate
+    ):
+        """Absolute rates, not ratios: sibling SKUs share a rate card, so a row copied
+        from the wrong sibling stays internally consistent and passes a ratio check."""
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        assert entry["prices"]["input"] == pytest.approx(input_rate)
+        assert entry["prices"]["output"] == pytest.approx(output_rate)
+        assert entry["prices"]["cacheRead"] == pytest.approx(cache_read_rate)
+
+    def test_mini_is_not_priced_like_the_rest_of_the_family(self, real_cache):
+        """gpt-5.1-codex-mini bills at a fifth of gpt-5.1-codex. Copying the family
+        rate card onto it would overcharge every mini span by 5x."""
+        mini = next(e for e in real_cache if e["model_name"] == "gpt-5.1-codex-mini")
+        full = next(e for e in real_cache if e["model_name"] == "gpt-5.1-codex")
+        assert mini["prices"]["input"] == pytest.approx(full["prices"]["input"] / 5)
+        assert mini["prices"]["output"] == pytest.approx(full["prices"]["output"] / 5)
+
+    def test_reported_model_calculates_a_cost(self, real_cache):
+        """The id from the issue, end to end."""
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            result = calculate_cost("gpt-5.1-codex-mini", "Hello world", "Hi there")
+
+        assert result["cost"] is not None
+        assert result["cost"] > 0
 
 
 class TestGeminiModelIds:
