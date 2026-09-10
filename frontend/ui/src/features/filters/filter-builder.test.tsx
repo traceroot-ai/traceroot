@@ -2,7 +2,7 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { FilterBuilder } from "./filter-builder";
-import { ValueDropdown } from "./filter-controls";
+import { Dropdown, ValueDropdown } from "./filter-controls";
 import { isValidPredicate } from "./predicate";
 import type { FilterFieldDef, FilterValue } from "./registry";
 
@@ -515,5 +515,35 @@ describe("FilterBuilder (Metadata key)", () => {
     for (const call of mockUseFilterValues.mock.calls) {
       expect(call).not.toContain("metadata");
     }
+  });
+});
+
+describe("FilterBuilder field control", () => {
+  // The field trigger is the shared FieldDropdown; the width is the component's own.
+  const referenceTrigger = () => {
+    render(
+      <Dropdown trigger={<span>ref</span>} triggerClassName="w-[8.5rem] shrink-0">
+        {() => null}
+      </Dropdown>,
+    );
+    return screen.getByRole("button", { name: "ref" }).className;
+  };
+
+  it("renders the field trigger with the shared chrome and its own fixed width", () => {
+    renderBuilder([COST]);
+    const trigger = screen.getByRole("button", { name: "Field" });
+
+    expect(trigger.className).toContain("w-[8.5rem]");
+    expect(trigger.className).toContain("shrink-0");
+    // Exactly the shared trigger chrome at this size plus that width.
+    expect(trigger.className).toBe(referenceTrigger());
+  });
+
+  it("keeps the same trigger width once a field is picked", () => {
+    renderBuilder([COST]);
+    const unset = screen.getByRole("button", { name: "Field" }).className;
+    pickField(/Cost/);
+
+    expect(screen.getByRole("button", { name: /Cost/ }).className).toBe(unset);
   });
 });
