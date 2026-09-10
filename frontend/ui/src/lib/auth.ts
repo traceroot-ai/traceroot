@@ -5,6 +5,7 @@ import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
+import { trustedProxyCidrs } from "@/lib/trusted-proxies";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -51,16 +52,26 @@ export const auth = betterAuth({
     freshAge: SESSION_FRESH_AGE_SECONDS,
   },
 
+  advanced: {
+    ipAddress: {
+      // Resolves the caller from x-forwarded-for. Empty means only a
+      // single-entry header is trusted; ranges switch it to walking the chain
+      // from the right. See lib/trusted-proxies.ts for why that matters and
+      // what configuring it costs.
+      trustedProxies: trustedProxyCidrs(env.AUTH_TRUSTED_PROXY_CIDRS),
+    },
+  },
+
   rateLimit: {
     // Enabled automatically in production. `/device/code` is unauthenticated and
     // inserts a device_codes row on every call, so a loop would grow the table
-    // unbounded — cap creation. better-auth keys the limit on the client IP,
-    // read from x-forwarded-for by default; behind a proxy that *appends* to
-    // XFF the address can't be resolved and every caller falls into one shared
-    // bucket, so for reliable per-client keying set
-    // `advanced.ipAddress.trustedProxies` to the edge's CIDRs (a deploy config).
-    // Storage is per-instance memory by default: a coarse bound, not a
-    // cross-replica guarantee.
+    // unbounded — cap creation. The cap is keyed on the resolved client
+    // address, so it is only per-caller when that address resolves; see
+    // advanced.ipAddress above.
+    //
+    // Storage is per-instance memory: N replicas means N budgets per client and
+    // a restart clears them. A coarse bound, not a cross-replica guarantee, so
+    // the unforgeable per-address bound lives at the edge WAF.
     customRules: {
       "/device/code": { window: 60, max: 10 },
     },

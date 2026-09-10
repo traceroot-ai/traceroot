@@ -217,9 +217,13 @@ describe("useWidgetPreview", () => {
     // The result carries the spec that produced it so the preview can render
     // kept-previous data with matching display/unit/agg semantics.
     await waitFor(() => expect(result.current.data).toEqual({ spec: parsed, result: queryResult }));
-    expect(api.runWidgetQuery).toHaveBeenCalledWith("p1", parsed, RANGE, {
-      id: "u1",
-      email: "u@example.com",
-    });
+    expect(api.runWidgetQuery).toHaveBeenCalledWith(
+      "p1",
+      parsed,
+      RANGE,
+      { id: "u1", email: "u@example.com" },
+      // No bucket width asked for: the engine derives one from the range.
+      undefined,
+    );
   });
 });
