@@ -144,6 +144,13 @@ XAI_MODEL_CASES = [
     ("grok-4.20", "grok-4.20"),
     ("xai/grok-4.20", "grok-4.20"),
     ("grok-4.20-20260601", "grok-4.20"),
+    ("grok-4.20-0309-reasoning", "grok-4.20"),
+    ("grok-4.20-0309-non-reasoning", "grok-4.20"),
+    ("grok-4.20-multi-agent-0309", "grok-4.20"),
+    ("xai/grok-4.20-0309-reasoning", "grok-4.20"),
+    ("grok-4.20-non-reasoning-latest", "grok-4.20"),
+    ("grok-4.20-non-reasoning-gv2", "grok-4.20"),
+    ("grok-4.20-multi-agent-experimental-beta-0304", "grok-4.20"),
     ("grok-4", "grok-4"),
     ("xai/grok-4", "grok-4"),
     ("grok-4-0709", "grok-4"),
@@ -345,6 +352,26 @@ class TestXAIModelIds:
         # prefix. The grok-4 entry must not absorb it at grok-4's rates.
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price("grok-4-fast") is None
+
+    @pytest.mark.parametrize(
+        "model_name,input_rate,output_rate,cache_read_rate",
+        [
+            # USD per token. grok-4 slugs retired on 2026-05-15 and xAI now bills
+            # them at grok-4.3 rates, which grok-4.20 shares.
+            ("grok-4.20", 0.00000125, 0.0000025, 0.0000002),
+            ("grok-4", 0.00000125, 0.0000025, 0.0000002),
+        ],
+    )
+    def test_xai_absolute_rates(self, model_name, input_rate, output_rate, cache_read_rate):
+        # The id-matching tests pass for any price table, so pin the published rates.
+        entry = next(
+            (e for e in _standard_price_entries() if e["modelName"] == model_name), None
+        )
+        assert entry is not None, f"{model_name} missing from standard-model-prices.json"
+        prices = entry["prices"]
+        assert prices["input"] == pytest.approx(input_rate)
+        assert prices["output"] == pytest.approx(output_rate)
+        assert prices["cacheRead"] == pytest.approx(cache_read_rate)
 
     def test_grok_4_calculates_cost(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
