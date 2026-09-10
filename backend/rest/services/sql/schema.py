@@ -35,7 +35,13 @@ columns. ``duration_ms`` is not a physical column; the ``spans_public_v1`` view
 computes it as ``dateDiff('millisecond', span_start_time, span_end_time)``.
 ``metadata`` is the physical ``metadata_map`` column surfaced under the name the
 rest of the product uses; the views rename it. Keying it (``metadata['user_id']``)
-is the supported access -- the raw JSON document behind it stays unexposed.
+is the supported access, and the raw JSON document behind it stays unexposed.
+``metadata_map`` is MATERIALIZED, which carries one consequence for whoever writes
+the view body: ``SELECT *`` does not include materialized columns, so a view that
+projects ``metadata_map AS metadata`` over an inner ``SELECT * FROM spans`` cannot
+resolve it. ClickHouse defers body validation for a parameterized view, so that
+shape creates cleanly and then fails on every read with ``Unknown expression
+identifier``. Name the columns off the physical table instead.
 
 The module is pure data: no database/network access, no configuration
 dependency, and no runtime side effects.
@@ -120,9 +126,18 @@ TABLE_VIEW_MAP: dict[str, str] = {
 #:
 #: ``source = 'user'`` names the one value that IS customer traffic instead of
 #: excluding the internal markers known today, so a marker added tomorrow is
-#: excluded the day it appears -- the reasoning behind
+#: excluded the day it appears. That is the reasoning behind
 #: ``rest.services.trace_reader.customer_traffic_only``, which spells the same
 #: rule for the internal read paths.
+#:
+#: These apply to the DEDUPED row, and the distinction is not academic. Filtering
+#: raw versions first leaves a row visible through a stale version after its
+#: current version stopped qualifying: a span retracted to an internal ``source``
+#: still answers, because the older customer-traffic version survives the filter
+#: and wins the dedup among what is left. Note the contrast with
+#: ``VIEW_EVALUATION_EXCLUSION`` below, which must NOT be deduped: a per-row
+#: predicate reads the current state, while set membership deliberately reads
+#: every version.
 VIEW_ROW_FILTERS: tuple[str, ...] = ("source = 'user'",)
 
 #: Offline-evaluation exclusion the curated views MUST apply. Deliberately NOT a
