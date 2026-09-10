@@ -438,6 +438,9 @@ model Detector {
   project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   trigger DetectorTrigger?
 
+  // Backs the idempotent create; detectors have no soft delete, so the
+  // unique is unconditional.
+  @@unique([projectId, name], map: "uq_detector_project_name")
   @@index([projectId], map: "ix_detector_project_id")
   @@map("detectors")
 }

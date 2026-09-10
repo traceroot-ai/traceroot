@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
@@ -158,27 +159,35 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
   const resolvedEnabled = enabled ?? resolvedSampleRate > 0;
 
-  const detector = await prisma.detector.create({
-    data: {
-      projectId,
-      name,
-      template,
-      prompt,
-      outputSchema: (outputSchema as object) ?? [],
-      sampleRate: resolvedSampleRate,
-      enabled: resolvedEnabled,
-      enableRca: resolvedEnableRca,
-      detectionModel: resolvedModel,
-      detectionProvider: resolvedProvider,
-      detectionSource: sourceStr,
-      trigger: {
-        create: {
-          conditions: (triggerConditions as object) ?? [],
+  // No duplicate-name pre-check: uq_detector_project_name is the check, and
+  // the only race-free one.
+  let detector;
+  try {
+    detector = await prisma.detector.create({
+      data: {
+        projectId,
+        name,
+        template,
+        prompt,
+        outputSchema: (outputSchema as object) ?? [],
+        sampleRate: resolvedSampleRate,
+        enabled: resolvedEnabled,
+        enableRca: resolvedEnableRca,
+        detectionModel: resolvedModel,
+        detectionProvider: resolvedProvider,
+        detectionSource: sourceStr,
+        trigger: {
+          create: {
+            conditions: (triggerConditions as object) ?? [],
+          },
         },
       },
-    },
-    include: { trigger: true },
-  });
+      include: { trigger: true },
+    });
+  } catch (e) {
+    if (!isPrismaKnownError(e, "P2002")) throw e;
+    return errorResponse("A detector with this name already exists", 409);
+  }
 
   return successResponse({ detector }, 201);
 }

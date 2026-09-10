@@ -1,13 +1,14 @@
 """Guards the shape of the write-path name-constraint migration.
 
 The migration backs the idempotent creates with unique indexes on
-(created_by, name) / (workspace_id, name) / (project_id, name). Creating a
-unique index over pre-existing duplicate rows aborts the migration, so the
-file must deduplicate each table (deterministic rename) *before* its index —
-and the workspace backfill must run before the workspace dedupe partitions on
-the very column it fills. These are pure string/order assertions over the
-migration SQL so a refactor that reorders or drops a step trips a test
-instead of failing (or silently skipping dedupe) on a real database.
+(created_by, name) / (workspace_id, name) / (project_id, name) for dashboards
+and detectors. Creating a unique index over pre-existing duplicate rows aborts
+the migration, so the file must deduplicate each table (deterministic rename)
+*before* its index — and the workspace backfill must run before the workspace
+dedupe partitions on the very column it fills. These are pure string/order
+assertions over the migration SQL so a refactor that reorders or drops a step
+trips a test instead of failing (or silently skipping dedupe) on a real
+database.
 """
 
 import re
@@ -21,6 +22,7 @@ MIGRATION = MIGRATIONS_DIR / "20260902000000_write_name_constraints" / "migratio
 INDEXES = {
     "uq_workspace_created_by_name": ('"workspaces"("created_by", "name")', "workspaces"),
     "uq_dashboard_project_name": ('"dashboards"("project_id", "name")', "dashboards"),
+    "uq_detector_project_name": ('"detectors"("project_id", "name")', "detectors"),
     "uq_project_workspace_live_name": ('"projects" ("workspace_id", "name")', "projects"),
 }
 
@@ -85,7 +87,8 @@ def test_dedupe_scopes_match_index_scopes():
     sql = _sql()
     assert "PARTITION BY created_by, name" in sql
     assert "PARTITION BY workspace_id, name" in sql
-    assert "PARTITION BY project_id, name" in sql
+    # Dashboards and detectors both key on (project_id, name): one loop each.
+    assert sql.count("PARTITION BY project_id, name") == 2
     project_block = sql[
         _dedupe_block_start(sql, "projects") - 500 : _dedupe_block_start(sql, "projects")
     ]
@@ -95,12 +98,13 @@ def test_dedupe_scopes_match_index_scopes():
 
 
 def test_schema_declares_the_expressible_uniques():
-    """The two non-partial indexes are declared in schema.prisma (so Prisma's
+    """The three non-partial indexes are declared in schema.prisma (so Prisma's
     client and future diffs know them); the partial one cannot be, and must
     stay raw SQL in the migration."""
     schema = (MIGRATIONS_DIR.parent / "schema.prisma").read_text(encoding="utf-8")
     assert 'map: "uq_workspace_created_by_name"' in schema
     assert 'map: "uq_dashboard_project_name"' in schema
+    assert 'map: "uq_detector_project_name"' in schema
     assert "uq_project_workspace_live_name" not in schema.replace(
         "// A partial unique index uq_project_workspace_live_name", ""
     ), "the partial project index must not be declared as a Prisma index"

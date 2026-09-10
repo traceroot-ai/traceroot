@@ -72,6 +72,33 @@ describe("PATCH .../detectors/[detectorId] — role gating", () => {
   });
 });
 
+describe("PATCH .../detectors/[detectorId] — name conflicts", () => {
+  const p2002 = () => Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+
+  it("returns 409 when a rename collides on the per-project unique index", async () => {
+    detectorUpdateMock.mockRejectedValue(p2002());
+    const res = await PATCH(makeRequest({ name: "Taken" }), makeParams());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "A detector with this name already exists",
+    );
+  });
+
+  it("rethrows a P2002 on a PATCH that carries no name, so a trigger-upsert race is not mislabeled", async () => {
+    detectorUpdateMock.mockRejectedValue(p2002());
+    await expect(PATCH(makeRequest({ triggerConditions: [] }), makeParams())).rejects.toMatchObject(
+      { code: "P2002" },
+    );
+  });
+
+  it("propagates non-P2002 update failures", async () => {
+    detectorUpdateMock.mockRejectedValue(new Error("Database connection lost"));
+    await expect(PATCH(makeRequest({ name: "Renamed" }), makeParams())).rejects.toThrow(
+      "Database connection lost",
+    );
+  });
+});
+
 describe("DELETE .../detectors/[detectorId] — role gating", () => {
   it("returns 403 for a VIEWER-role member and never deletes", async () => {
     requireProjectAccessMock.mockResolvedValue({

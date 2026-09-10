@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
   requireAuth,
@@ -144,23 +145,32 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
   }
 
-  const detector = await prisma.detector.update({
-    where: { id: detectorId },
-    data: {
-      ...detectorData,
-      ...(triggerConditions !== undefined
-        ? {
-            trigger: {
-              upsert: {
-                create: { conditions: triggerConditions as object },
-                update: { conditions: triggerConditions as object },
+  let detector;
+  try {
+    detector = await prisma.detector.update({
+      where: { id: detectorId },
+      data: {
+        ...detectorData,
+        ...(triggerConditions !== undefined
+          ? {
+              trigger: {
+                upsert: {
+                  create: { conditions: triggerConditions as object },
+                  update: { conditions: triggerConditions as object },
+                },
               },
-            },
-          }
-        : {}),
-    },
-    include: { trigger: true },
-  });
+            }
+          : {}),
+      },
+      include: { trigger: true },
+    });
+  } catch (e) {
+    // Only a rename can hit uq_detector_project_name; a P2002 raised while
+    // this PATCH carries no name (e.g. the trigger upsert racing its own first
+    // insert) must not be mislabeled as a name conflict.
+    if (!isPrismaKnownError(e, "P2002") || name === undefined) throw e;
+    return errorResponse("A detector with this name already exists", 409);
+  }
 
   return successResponse({ detector });
 }

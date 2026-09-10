@@ -1,5 +1,6 @@
 import { prisma, Role, hasMinRole } from "@traceroot/core";
 import { z } from "zod";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import { writeAudit, type AuditEntry } from "./audit";
@@ -78,102 +79,120 @@ export async function createDetector(input: {
 }): Promise<ServiceResult<DetectorCreated>> {
   // The transaction hands the audit entry back rather than writing it: a failed
   // audit INSERT would abort the transaction and discard the detector.
-  const { result, audit } = await prisma.$transaction(async (tx): TxOutcome => {
-    const project = await tx.project.findUnique({
-      where: { id: input.projectId },
-      select: { workspaceId: true, deleteTime: true },
-    });
-    if (!project || project.deleteTime !== null) {
-      return {
-        result: { ok: false, status: 404, error: "Project not found" },
-      };
-    }
-    const member = await tx.workspaceMember.findUnique({
-      where: {
-        workspaceId_userId: {
-          workspaceId: project.workspaceId,
-          userId: input.actorUserId,
+  let outcome: Awaited<TxOutcome>;
+  try {
+    outcome = await prisma.$transaction(async (tx): TxOutcome => {
+      const project = await tx.project.findUnique({
+        where: { id: input.projectId },
+        select: { workspaceId: true, deleteTime: true },
+      });
+      if (!project || project.deleteTime !== null) {
+        return {
+          result: { ok: false, status: 404, error: "Project not found" },
+        };
+      }
+      const member = await tx.workspaceMember.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId: project.workspaceId,
+            userId: input.actorUserId,
+          },
         },
-      },
-      select: { role: true },
-    });
-    if (!member) {
-      // Same status and message as a missing project: a 403 here would tell a
-      // signed-in outsider that the project id exists in someone else's
-      // workspace, which the read paths deliberately never reveal.
-      return {
-        result: { ok: false, status: 404, error: "Project not found" },
-      };
-    }
-    if (!hasMinRole(member.role, Role.MEMBER)) {
-      return {
-        result: { ok: false, status: 403, error: "Requires MEMBER role or higher" },
-      };
-    }
+        select: { role: true },
+      });
+      if (!member) {
+        // Same status and message as a missing project: a 403 here would tell a
+        // signed-in outsider that the project id exists in someone else's
+        // workspace, which the read paths deliberately never reveal.
+        return {
+          result: { ok: false, status: 404, error: "Project not found" },
+        };
+      }
+      if (!hasMinRole(member.role, Role.MEMBER)) {
+        return {
+          result: { ok: false, status: 403, error: "Requires MEMBER role or higher" },
+        };
+      }
 
-    const parsed = inputSchema.safeParse(input);
-    if (!parsed.success) {
-      return {
-        result: { ok: false, status: 400, error: parsed.error.issues[0].message },
-      };
-    }
-    const { name, template, prompt, detectionSource, enableRca, enabled } = parsed.data;
-    const triggerConditions = (parsed.data.triggerConditions as unknown[] | undefined) ?? [];
-    const resolvedSampleRate = parsed.data.sampleRate ?? DEFAULT_DETECTOR_SAMPLE_RATE;
-    // A detector created at 0% sampling should not show as "enabled but never
-    // fires" — default enabled to sampleRate > 0 so it starts paused instead.
-    const resolvedEnabled = enabled ?? resolvedSampleRate > 0;
+      const parsed = inputSchema.safeParse(input);
+      if (!parsed.success) {
+        return {
+          result: { ok: false, status: 400, error: parsed.error.issues[0].message },
+        };
+      }
+      const { name, template, prompt, detectionSource, enableRca, enabled } = parsed.data;
+      const triggerConditions = (parsed.data.triggerConditions as unknown[] | undefined) ?? [];
+      const resolvedSampleRate = parsed.data.sampleRate ?? DEFAULT_DETECTOR_SAMPLE_RATE;
+      // A detector created at 0% sampling should not show as "enabled but never
+      // fires" — default enabled to sampleRate > 0 so it starts paused instead.
+      const resolvedEnabled = enabled ?? resolvedSampleRate > 0;
 
-    // Idempotent create: a detector with the same name in this project is
-    // returned as-is, so agent/CLI retries can't fan out duplicates.
-    const existing = await tx.detector.findFirst({
-      where: { projectId: input.projectId, name },
-      select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
-    });
-    if (existing) {
-      return { result: { ok: true, created: false, data: existing } };
-    }
+      // Idempotent create: a detector with the same name in this project is
+      // returned as-is, so agent/CLI retries can't fan out duplicates. This
+      // findFirst is the fast path; uq_detector_project_name is the backstop
+      // that makes the idempotency atomic under concurrency.
+      const existing = await tx.detector.findFirst({
+        where: { projectId: input.projectId, name },
+        select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
+      });
+      if (existing) {
+        return { result: { ok: true, created: false, data: existing } };
+      }
 
-    const detector = await tx.detector.create({
-      data: {
-        projectId: input.projectId,
-        name,
-        template,
-        prompt,
-        outputSchema: (parsed.data.outputSchema ?? []) as object,
-        sampleRate: resolvedSampleRate,
-        enabled: resolvedEnabled,
-        enableRca: enableRca ?? true,
-        detectionModel: parsed.data.detectionModel || null,
-        detectionProvider: parsed.data.detectionProvider || null,
-        detectionSource: detectionSource ?? null,
-        ...(triggerConditions.length > 0
-          ? { trigger: { create: { conditions: triggerConditions as object } } }
-          : {}),
-      },
-      select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
-    });
-    return {
-      result: { ok: true, created: true, data: detector },
-      audit: {
-        actorUserId: input.actorUserId,
-        operation: "create_detector",
-        resourceType: "detector",
-        resourceId: detector.id,
-        workspaceId: project.workspaceId,
-        projectId: input.projectId,
-        summary: {
+      const detector = await tx.detector.create({
+        data: {
+          projectId: input.projectId,
           name,
           template,
+          prompt,
+          outputSchema: (parsed.data.outputSchema ?? []) as object,
           sampleRate: resolvedSampleRate,
           enabled: resolvedEnabled,
+          enableRca: enableRca ?? true,
+          detectionModel: parsed.data.detectionModel || null,
+          detectionProvider: parsed.data.detectionProvider || null,
+          detectionSource: detectionSource ?? null,
+          ...(triggerConditions.length > 0
+            ? { trigger: { create: { conditions: triggerConditions as object } } }
+            : {}),
         },
-        transport: input.provenance.transport,
-        agentSessionId: input.provenance.agentSessionId ?? null,
-      },
-    };
-  });
+        select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
+      });
+      return {
+        result: { ok: true, created: true, data: detector },
+        audit: {
+          actorUserId: input.actorUserId,
+          operation: "create_detector",
+          resourceType: "detector",
+          resourceId: detector.id,
+          workspaceId: project.workspaceId,
+          projectId: input.projectId,
+          summary: {
+            name,
+            template,
+            sampleRate: resolvedSampleRate,
+            enabled: resolvedEnabled,
+          },
+          transport: input.provenance.transport,
+          agentSessionId: input.provenance.agentSessionId ?? null,
+        },
+      };
+    });
+  } catch (e) {
+    if (!isPrismaKnownError(e, "P2002")) throw e;
+    // A concurrent identical create won the race on the unique index.
+    // Postgres aborts the losing transaction, so re-read after rollback and
+    // answer idempotently, exactly as the fast path would have. The create
+    // only ran after validation, so the parsed name is the raw input name.
+    const raced = await prisma.detector.findFirst({
+      where: { projectId: input.projectId, name: input.name },
+      select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
+    });
+    if (!raced) throw e;
+    return { ok: true, created: false, data: raced };
+  }
 
+  const { result, audit } = outcome;
   if (audit) {
     await writeAudit(prisma, audit);
   }

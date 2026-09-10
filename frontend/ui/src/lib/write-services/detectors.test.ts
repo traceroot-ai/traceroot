@@ -10,7 +10,7 @@ const { tx, root } = vi.hoisted(() => ({
     detector: { findFirst: vi.fn(), create: vi.fn() },
     auditLog: { create: vi.fn() },
   },
-  root: { auditLog: { create: vi.fn() } },
+  root: { auditLog: { create: vi.fn() }, detector: { findFirst: vi.fn() } },
 }));
 vi.mock("@traceroot/core", () => {
   const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
@@ -18,6 +18,7 @@ vi.mock("@traceroot/core", () => {
     prisma: {
       $transaction: (fn: (t: unknown) => unknown) => fn(tx),
       auditLog: root.auditLog,
+      detector: root.detector,
     },
     Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
     hasMinRole: (userRole: string, minRole: string) =>
@@ -64,7 +65,11 @@ beforeEach(() => {
   tx.auditLog.create.mockResolvedValue({});
   root.auditLog.create.mockReset();
   root.auditLog.create.mockResolvedValue({});
+  root.detector.findFirst.mockReset();
 });
+
+/** A duck-typed Prisma unique-violation, as the P2002 handlers match it. */
+const p2002 = () => Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
 
 describe("createDetector", () => {
   it("returns 404 when the project does not exist", async () => {
@@ -245,6 +250,37 @@ describe("createDetector", () => {
     });
     expect(tx.detector.create).not.toHaveBeenCalled();
     expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("returns the raced detector as created=false when the insert loses the unique race", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockRejectedValue(p2002());
+    root.detector.findFirst.mockResolvedValue(createdRow);
+    const r = await run();
+    expect(r).toEqual({ ok: true, created: false, data: createdRow });
+    expect(root.detector.findFirst).toHaveBeenCalledWith({
+      where: { projectId: "p1", name: "Latency spike" },
+      select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
+    });
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a P2002 whose winner vanished before the re-read", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockRejectedValue(p2002());
+    root.detector.findFirst.mockResolvedValue(null);
+    await expect(run()).rejects.toMatchObject({ code: "P2002" });
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("propagates non-P2002 transaction failures without a re-read", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockRejectedValue(new Error("connection lost"));
+    await expect(run()).rejects.toThrow("connection lost");
+    expect(root.detector.findFirst).not.toHaveBeenCalled();
   });
 
   it("audits through the root client, not the transaction, so a failed audit cannot roll the detector back", async () => {

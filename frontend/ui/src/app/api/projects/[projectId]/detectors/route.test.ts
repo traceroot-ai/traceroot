@@ -75,6 +75,26 @@ describe("POST .../detectors — role gating", () => {
   });
 });
 
+describe("POST .../detectors — name conflicts", () => {
+  it("returns 409 when the name collides on the per-project unique index", async () => {
+    detectorCreateMock.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+    const res = await POST(makeRequest(validBody()), makeParams());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "A detector with this name already exists",
+    );
+  });
+
+  it("propagates non-P2002 create failures", async () => {
+    detectorCreateMock.mockRejectedValue(new Error("Database connection lost"));
+    await expect(POST(makeRequest(validBody()), makeParams())).rejects.toThrow(
+      "Database connection lost",
+    );
+  });
+});
+
 describe("POST .../detectors — sampleRate default", () => {
   it("defaults sampleRate to 25 when omitted", async () => {
     const res = await POST(makeRequest(validBody()), makeParams());

@@ -95,11 +95,35 @@ BEGIN
   END LOOP;
 END $$;
 
+-- Detectors have no soft delete either: every row competes.
+DO $$
+DECLARE renamed integer;
+BEGIN
+  LOOP
+    WITH ranked AS (
+      SELECT id, row_number() OVER (
+        PARTITION BY project_id, name ORDER BY create_time, id
+      ) AS rn
+      FROM detectors
+    )
+    UPDATE detectors dt
+    SET name = dt.name || ' (' || r.rn || ')',
+        update_time = now()
+    FROM ranked r
+    WHERE dt.id = r.id AND r.rn > 1;
+    GET DIAGNOSTICS renamed = ROW_COUNT;
+    EXIT WHEN renamed = 0;
+  END LOOP;
+END $$;
+
 -- CreateIndex
 CREATE UNIQUE INDEX "uq_workspace_created_by_name" ON "workspaces"("created_by", "name");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "uq_dashboard_project_name" ON "dashboards"("project_id", "name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "uq_detector_project_name" ON "detectors"("project_id", "name");
 
 -- Partial index (raw SQL — not expressible in the Prisma schema): a live
 -- project's name is unique per workspace; soft-deleted projects release the
