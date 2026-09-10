@@ -384,23 +384,6 @@ class TestGatewayPrefixedTokenEstimation:
         )
         assert count_tokens(text, "azure/gpt-4o") == count_tokens(text, "gpt-4o")
 
-    def test_calculate_cost_prices_a_prefixed_claude_id_like_the_bare_one(self, real_cache):
-        """End to end, the two readers have to agree before a cost is trustworthy.
-
-        The price fallback alone is what makes this reachable: it turns a prefixed
-        Claude id from unpriced into priced, so a cost now gets recorded where none
-        was before. If the estimator still read the prefix it would reach for
-        tiktoken, and that cost would be recorded off a wrong token count -- worse
-        than the missing cost it replaced.
-        """
-        text = "a" * 400
-        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
-            prefixed = calculate_cost("azure/claude-opus-4-8", text, text)
-            bare = calculate_cost("claude-opus-4-8", text, text)
-
-        assert bare["cost"] is not None, "bare id must price, or this proves nothing"
-        assert prefixed == bare
-
     @pytest.mark.parametrize(
         "model_id",
         [
@@ -421,20 +404,48 @@ class TestGatewayPrefixedTokenEstimation:
 
     @pytest.mark.parametrize(
         "model_id",
-        ["bedrock/amazon.nova-pro-v1:0", "us.meta.llama3-70b", "my-org/claude-ish"],
+        [
+            "bedrock/amazon.nova-pro-v1:0",
+            "us.meta.llama3-70b",
+            "my-org/claude-ish",
+            "my-org.claude-proxy",
+            "acme.claude-router",
+        ],
     )
     def test_dotted_non_claude_ids_stay_non_claude(self, model_id):
-        """Only a segment boundary counts, so the dot check cannot widen into a
-        substring match on unrelated vendors."""
+        """A dotted segment starting with ``claude`` is somebody else's routing name
+        unless it is qualified by ``anthropic``, which is what the catalogue's Bedrock
+        patterns require. Classifying those as Claude would send an id pricing does not
+        recognise to the Claude token estimator."""
         assert is_claude_model(model_id) is False
 
-    def test_bedrock_prefixed_claude_costs_the_same_as_the_bare_id(self, real_cache):
+    @pytest.mark.parametrize(
+        "prefixed_id",
+        [
+            "azure/claude-opus-4-8",
+            "openrouter/anthropic/claude-opus-4-8",
+            "bedrock/us.anthropic.claude-opus-4-8",
+        ],
+    )
+    def test_prefixed_claude_costs_the_same_as_the_bare_id(self, real_cache, prefixed_id):
+        """End to end, the two readers have to agree before a cost is trustworthy.
+
+        The price fallback alone is what makes this reachable: it turns a prefixed
+        Claude id from unpriced into priced, so a cost now gets recorded where none
+        was before. If the estimator still read the prefix it would reach for
+        tiktoken, and that cost would be recorded off a wrong token count -- worse
+        than the missing cost it replaced.
+
+        The plain slash form and the Bedrock dot-qualified form reach the estimator
+        through different branches, so each is pinned rather than assumed from the
+        other.
+        """
         text = "a" * 400
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
-            prefixed = calculate_cost("bedrock/us.anthropic.claude-opus-4-8", text, text)
+            prefixed = calculate_cost(prefixed_id, text, text)
             bare = calculate_cost("claude-opus-4-8", text, text)
 
-        assert bare["cost"] is not None
+        assert bare["cost"] is not None, "bare id must price, or this proves nothing"
         assert prefixed == bare
 
 
