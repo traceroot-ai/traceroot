@@ -1093,8 +1093,36 @@ class TestUsageBillsEveryStoredRow:
         # would silently stop billing self-traces again.
         assert "source" not in traces_sql
         assert "source" not in spans_sql
-        # detector_runs was never filtered — it is the per-evaluation result record.
+        # detector_runs is filtered on status, never on source: a scan counts whoever
+        # paid for the inference, so the BYOK/system split must stay invisible here.
         assert "source" not in runs_sql
+
+    def test_detector_runs_are_metered_only_when_the_scan_completed(self, client, mock_ch, secret):
+        """A failed attempt is not a scan.
+
+        detector_runs holds a row per attempt, and the worker writes status='failed'
+        for runs that never reached a model — a missing provider key, or a
+        spans-download error. Counting those bills inference that never happened:
+        a run of key failures exhausts a Free workspace's 100-scan cap, and on paid
+        plans it inflates the scansRun denominator that apportions hosted-LLM overage.
+        """
+        mock_ch.query.side_effect = [
+            _make_query_result([(3,)], ["total"]),
+            _make_query_result([(9,)], ["total"]),
+            _make_query_result([(2,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        runs_sql = mock_ch.query.call_args_list[2].args[0]
+        assert "status = 'completed'" in runs_sql
+        # The traces / spans meters are storage, not inference — a status predicate
+        # there would silently stop billing stored rows.
+        assert "status" not in mock_ch.query.call_args_list[0].args[0]
+        assert "status" not in mock_ch.query.call_args_list[1].args[0]
 
     def test_usage_total_counts_rows_from_every_source(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [_make_query_result([(12,)], ["total"])]

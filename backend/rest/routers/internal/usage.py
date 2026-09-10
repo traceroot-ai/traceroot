@@ -130,10 +130,19 @@ async def get_usage_details(
     traces = int(traces_result.result_rows[0][0]) if traces_result.result_rows else 0
     spans = int(spans_result.result_rows[0][0]) if spans_result.result_rows else 0
 
-    # Detector runs: count every scan attempt recorded by the detector worker
+    # Detector runs: count the scans the worker actually completed
     # (BYOK + system source both count toward Free-plan hard cap).
     # uniqExact on run_id dedups pre-merge duplicates in the ReplacingMergeTree —
     # same pattern as the traces / spans queries above.
+    #
+    # status is filtered because detector_runs records a row per attempt, and a
+    # failed attempt is not a scan: a missing provider key or a spans-download
+    # error writes a run that never reached a model. Left uncounted, a run of
+    # those burns a Free workspace's 100-scan cap without any inference, and on
+    # paid plans it inflates the scansRun denominator that apportions hosted-LLM
+    # overage. Filtering rows rather than the merged state is safe here: a retry
+    # reuses the deterministic run_id, so an attempt that failed and then
+    # succeeded contributes one completed row and uniqExact counts it once.
     detector_runs_result = ch.query(
         """
         SELECT uniqExact(run_id) as total
@@ -141,6 +150,7 @@ async def get_usage_details(
         WHERE project_id IN {project_ids:Array(String)}
           AND timestamp >= {start:String}
           AND timestamp < {end:String}
+          AND status = 'completed'
         """,
         parameters={
             "project_ids": project_id_list,
