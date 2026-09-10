@@ -125,15 +125,13 @@ export function resolvePiModel(
         | Record<string, string>
         | undefined;
 
-      // BYOK with no model id: use the adapter's default model rather than
-      // relying on catalog ordering. The OpenAI catalog is newest-first, so
-      // its first entry may be a preview model that isn't broadly available.
-      // For free-text adapters (azure, amazon-bedrock, openrouter) the catalog
-      // is empty — caller MUST provide modelId, else we'd silently send a
-      // wrong model name to that provider.
+      // BYOK with no model id: use the adapter's first curated model so we
+      // don't accidentally fall back to an Anthropic default for an OpenAI-
+      // compatible BYOK row. For free-text adapters (azure, amazon-bedrock,
+      // openrouter) the catalog is empty — caller MUST provide modelId, else
+      // we'd silently send a wrong model name to that provider.
       const catalog = ADAPTER_MODELS[providerConfig.adapter as keyof typeof ADAPTER_MODELS];
-      const fallbackModelId =
-        modelId || (providerConfig.adapter === "openai" ? "gpt-5.6-sol" : catalog?.[0]?.id);
+      const fallbackModelId = modelId || catalog?.[0]?.id;
       if (!fallbackModelId) {
         throw new Error(
           `BYOK adapter "${providerConfig.adapter}" has no curated model catalog ` +
