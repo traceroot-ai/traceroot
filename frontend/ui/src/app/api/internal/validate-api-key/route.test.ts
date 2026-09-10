@@ -28,6 +28,7 @@ vi.mock("@/lib/auth-helpers", () => ({
 }));
 
 import { POST } from "./route";
+import { LAST_USE_TIME_REFRESH_INTERVAL_MS } from "./last-use";
 
 function makeRequest(body: unknown) {
   return { json: async () => body } as unknown as Parameters<typeof POST>[0];
@@ -41,6 +42,7 @@ function accessKeyRow(overrides: Record<string, unknown> = {}) {
     name: "CI key",
     keyHint: "tr-d0a3-57e3",
     expireTime: null,
+    lastUseTime: null,
     project: {
       id: "proj-123",
       name: "My Project",
@@ -84,8 +86,35 @@ describe("POST /api/internal/validate-api-key", () => {
       ingestionBlocked: false,
       expiresAt: null,
     });
-    // lastUseTime is bumped on every successful validation.
+    // A never-used key (lastUseTime null) gets its "last seen" stamped once.
     expect(updateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes lastUseTime when it is older than the interval", async () => {
+    const stale = new Date(Date.now() - LAST_USE_TIME_REFRESH_INTERVAL_MS - 1_000);
+    findUniqueMock.mockResolvedValue(accessKeyRow({ lastUseTime: stale }));
+
+    const res = await POST(makeRequest({ keyHash: "abc123" }));
+
+    expect(res.status).toBe(200);
+    expect(updateMock).toHaveBeenCalledTimes(1);
+    expect(updateMock).toHaveBeenCalledWith({
+      where: { id: "key-1" },
+      data: { lastUseTime: expect.any(Date) },
+    });
+  });
+
+  it("skips the write when lastUseTime is within the interval", async () => {
+    const fresh = new Date(Date.now() - 1_000);
+    findUniqueMock.mockResolvedValue(accessKeyRow({ lastUseTime: fresh }));
+
+    const res = await POST(makeRequest({ keyHash: "abc123" }));
+    const body = await res.json();
+
+    // Still a successful validation — only the redundant DB write is skipped.
+    expect(res.status).toBe(200);
+    expect(body.valid).toBe(true);
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
   it("returns keyName null when the access key is unnamed", async () => {

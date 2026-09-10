@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, PlanType } from "@traceroot/core";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
+import { shouldRefreshLastUseTime } from "./last-use";
 
 const validateKeySchema = z.object({
   keyHash: z.string().min(1, "Key hash is required"),
@@ -68,11 +69,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ valid: false, error: "API key has expired" }, { status: 200 });
   }
 
-  // Update lastUseTime
-  await prisma.accessKey.update({
-    where: { id: accessKey.id },
-    data: { lastUseTime: new Date() },
-  });
+  // Refresh lastUseTime only when it is stale (see ./last-use), so heavily-used
+  // keys don't trigger a write on every validation.
+  const now = new Date();
+  if (shouldRefreshLastUseTime(accessKey.lastUseTime, now)) {
+    await prisma.accessKey.update({
+      where: { id: accessKey.id },
+      data: { lastUseTime: now },
+    });
+  }
 
   const billingPlan = accessKey.project.workspace.billingPlan || PlanType.FREE;
 
