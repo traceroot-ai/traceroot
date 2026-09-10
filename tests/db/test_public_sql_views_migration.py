@@ -79,9 +79,9 @@ def sql() -> str:
 
 
 def _outer_projection(text: str, view: str) -> str:
-    """Return the outer SELECT projection (between `AS SELECT` and `FROM (`) for a view."""
+    """Return the outer SELECT projection (between `AS SELECT` and `FROM <table> FINAL`)."""
     block = re.search(
-        rf"CREATE (?:OR REPLACE )?VIEW[^\n]*\b{view}\b.*?\bAS\s+SELECT(?P<proj>.*?)\bFROM\s*\(",
+        rf"CREATE (?:OR REPLACE )?VIEW[^\n]*\b{view}\b.*?\bAS\s+SELECT(?P<proj>.*?)\bFROM\s+\w+\s+FINAL\b",
         text,
         re.DOTALL | re.IGNORECASE,
     )
@@ -127,19 +127,32 @@ def test_views_set_explicit_scoped_writer_definer(sql):
     assert len(re.findall(r"DEFINER = sql_gateway_writer SQL SECURITY DEFINER", sql)) == 2
 
 
-def test_replacingmergetree_dedup_after_project_filter(text, sql):
-    assert "LIMIT 1 BY span_id" in text
-    assert "LIMIT 1 BY trace_id" in text
-    # dedup must order by the version column, descending
-    assert sql.count("ORDER BY ch_update_time DESC") == 2
-    # the project filter precedes the dedup in both views
-    for view in ("span_id", "trace_id"):
-        assert re.search(
-            r"WHERE project_id = \{project_id:String\}.*?ORDER BY ch_update_time DESC\s+LIMIT 1 BY "
-            + view,
-            text,
-            re.DOTALL,
-        ), f"project filter must precede dedup for {view}"
+def test_replacingmergetree_dedup_resolves_before_row_filters(sql):
+    """Dedup must be FINAL on the outer read, never a LIMIT BY wrapper.
+
+    A LIMIT BY wrapper applies `source = 'user'` before the dedup, so a row whose
+    newest version is no longer customer traffic stays visible through its older
+    version. It also blocks predicate pushdown, so the caller's time range cannot
+    prune. Both were reproduced against the production schema.
+    """
+    assert "FROM spans FINAL" in sql
+    assert "FROM traces FINAL" in sql
+    assert "LIMIT 1 BY" not in sql, "LIMIT BY dedup filters before it resolves the row"
+
+    # The evaluation sub-selects must NOT be FINAL: they have to see any version that
+    # was ever flagged, not only the latest one.
+    assert sql.count("FINAL") == 2, "FINAL belongs on the outer read only"
+
+
+def test_materialized_columns_are_selected_directly(sql):
+    """`metadata_map` is MATERIALIZED, and `SELECT *` omits materialized columns.
+
+    Selecting it through a `SELECT *` subquery makes every query against the view
+    fail with UNKNOWN_IDENTIFIER, which is not visible at CREATE time because
+    ClickHouse defers body validation for parameterized views.
+    """
+    assert "SELECT *" not in sql, "a SELECT * wrapper cannot resolve metadata_map"
+    assert sql.count("metadata_map AS metadata") == 2
 
 
 def test_duration_ms_is_computed(text):
@@ -216,7 +229,7 @@ def test_evaluation_subselect_repeats_the_project_scope(text):
     bind the project itself or it would scan every tenant's traces."""
     for view in ("spans_public_v1", "traces_public_v1"):
         block = _view_block(text, view)
-        excl = re.search(r"trace_id NOT IN \((.*?)\n      \)", block, re.DOTALL)
+        excl = re.search(r"trace_id NOT IN \((.*?)\n\s*\)", block, re.DOTALL)
         assert excl, f"could not locate the evaluation exclusion in {view}"
         assert excl.group(1).count("project_id = {project_id:String}") == 2, (
             f"each evaluation sub-select in {view} must be project-scoped"

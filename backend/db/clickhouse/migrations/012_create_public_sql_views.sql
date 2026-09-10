@@ -19,11 +19,30 @@
 -- a view already exists from a prior version. See the runbook:
 -- backend/db/clickhouse/SQL_GATEWAY_RUNBOOK.md
 --
--- Dedup: spans/traces are ReplacingMergeTree(ch_update_time); the project filter
--- runs first, then `ORDER BY ch_update_time DESC LIMIT 1 BY <id>` keeps the latest
--- version of each row. Curated projection excludes project_id, ch_create_time,
--- ch_update_time, and the input/output blobs. `metadata` is the queryable one-level
--- `metadata_map`, renamed; the raw JSON document stays unexposed.
+-- Dedup: spans/traces are ReplacingMergeTree(ch_update_time), and these views read
+-- them with FINAL. Two reasons FINAL rather than a `ORDER BY ch_update_time DESC
+-- LIMIT 1 BY <id>` wrapper:
+--
+--   * Correctness. A LIMIT BY wrapper applies the row filters BEFORE the dedup, so a
+--     row whose newest version is no longer customer traffic stays visible through its
+--     older `source = 'user'` version. FINAL resolves the row first and then filters,
+--     so a retraction takes effect. This is the same failure mode already documented
+--     below for `is_evaluation`, and it applies to `source` as well.
+--
+--   * Cost. ClickHouse cannot push a predicate past LIMIT BY, because doing so would
+--     change the result. The caller's time range is therefore applied only after the
+--     whole project history has been read and sorted, so every query costs the same
+--     whatever window it asks for. With FINAL the caller's WHERE prunes normally.
+--
+-- FINAL applies ONLY to the outer read. The evaluation sub-selects below deliberately
+-- do NOT use it: they must see any version that was ever flagged, not the latest one.
+--
+-- Columns are listed explicitly rather than via a subquery over `SELECT *`, because
+-- `metadata_map` is a MATERIALIZED column and `SELECT *` does not include those; a
+-- wrapper over `SELECT *` cannot resolve it at all. Curated projection excludes
+-- project_id, ch_create_time, ch_update_time, and the input/output blobs. `metadata`
+-- is the queryable one-level `metadata_map`, renamed; the raw JSON document stays
+-- unexposed.
 --
 -- Rows are curated too, not just columns. A row the product hides on every other
 -- read path must not reappear here:
@@ -71,20 +90,14 @@ SELECT
     git_source_file,
     git_source_line,
     git_source_function
-FROM
-(
-    SELECT *
-    FROM spans
-    WHERE project_id = {project_id:String}
-      AND source = 'user'
-      AND trace_id NOT IN (
-          SELECT trace_id FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1
-          UNION DISTINCT
-          SELECT trace_id FROM spans  WHERE project_id = {project_id:String} AND is_evaluation = 1
-      )
-    ORDER BY ch_update_time DESC
-    LIMIT 1 BY span_id
-);
+FROM spans FINAL
+WHERE project_id = {project_id:String}
+  AND source = 'user'
+  AND trace_id NOT IN (
+      SELECT trace_id FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1
+      UNION DISTINCT
+      SELECT trace_id FROM spans  WHERE project_id = {project_id:String} AND is_evaluation = 1
+  );
 
 CREATE OR REPLACE VIEW traces_public_v1
     DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS
@@ -98,20 +111,14 @@ SELECT
     git_repo,
     environment,
     metadata_map AS metadata
-FROM
-(
-    SELECT *
-    FROM traces
-    WHERE project_id = {project_id:String}
-      AND source = 'user'
-      AND trace_id NOT IN (
-          SELECT trace_id FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1
-          UNION DISTINCT
-          SELECT trace_id FROM spans  WHERE project_id = {project_id:String} AND is_evaluation = 1
-      )
-    ORDER BY ch_update_time DESC
-    LIMIT 1 BY trace_id
-);
+FROM traces FINAL
+WHERE project_id = {project_id:String}
+  AND source = 'user'
+  AND trace_id NOT IN (
+      SELECT trace_id FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1
+      UNION DISTINCT
+      SELECT trace_id FROM spans  WHERE project_id = {project_id:String} AND is_evaluation = 1
+  );
 
 -- +goose Down
 DROP VIEW IF EXISTS spans_public_v1;
