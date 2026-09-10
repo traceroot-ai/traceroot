@@ -9,18 +9,18 @@ overrides:
   '@grpc/grpc-js@>=1.14.0 <1.14.4': ^1.14.4
   '@hono/node-server@<1.19.15': ^1.19.15
   '@humanfs/node@<0.16.8': ^0.16.8
-  '@opentelemetry/context-async-hooks@>=2.0.0 <2.11.0': ^2.11.0
-  '@opentelemetry/core@>=2.0.0 <2.11.0': ^2.11.0
+  '@opentelemetry/context-async-hooks@>=2.0.0 <2.11.0': 2.11.0
+  '@opentelemetry/core@>=2.0.0 <2.11.0': 2.11.0
   '@opentelemetry/exporter-prometheus@<0.217.0': ^0.217.0
-  '@opentelemetry/exporter-zipkin@>=2.0.0 <2.11.0': ^2.11.0
+  '@opentelemetry/exporter-zipkin@>=2.0.0 <2.11.0': 2.11.0
   '@opentelemetry/propagator-b3@>=2.0.0 <2.11.0': ^2.11.0
-  '@opentelemetry/propagator-jaeger@>=2.0.0 <2.11.0': ^2.11.0
-  '@opentelemetry/resources@>=2.0.0 <2.11.0': ^2.11.0
-  '@opentelemetry/sdk-metrics@>=2.0.0 <2.11.0': ^2.11.0
+  '@opentelemetry/propagator-jaeger@>=2.0.0 <2.11.0': 2.11.0
+  '@opentelemetry/resources@>=2.0.0 <2.11.0': 2.11.0
+  '@opentelemetry/sdk-metrics@>=2.0.0 <2.11.0': 2.11.0
   '@opentelemetry/sdk-node@<0.217.0': ^0.217.0
-  '@opentelemetry/sdk-trace-base@>=2.0.0 <2.11.0': ^2.11.0
-  '@opentelemetry/sdk-trace-node@>=2.0.0 <2.11.0': ^2.11.0
-  '@opentelemetry/sdk-trace@>=2.0.0 <2.11.0': ^2.11.0
+  '@opentelemetry/sdk-trace-base@>=2.0.0 <2.11.0': 2.11.0
+  '@opentelemetry/sdk-trace-node@>=2.0.0 <2.11.0': 2.11.0
+  '@opentelemetry/sdk-trace@>=2.0.0 <2.11.0': 2.11.0
   '@protobufjs/utf8@<1.1.1': ^1.1.1
   axios@<1.18.0: ^1.18.0
   basic-ftp: '>=5.3.0'
@@ -426,7 +426,7 @@ importers:
         version: 14.25.0
     devDependencies:
       '@opentelemetry/sdk-trace-node':
-        specifier: ^2.11.0
+        specifier: 2.11.0
         version: 2.11.0(@opentelemetry/api@1.9.1)
       '@types/node':
         specifier: ^22.0.0
@@ -4028,7 +4028,7 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '*'
       '@opentelemetry/exporter-trace-otlp-proto': '*'
-      '@opentelemetry/sdk-trace-base': ^2.11.0
+      '@opentelemetry/sdk-trace-base': 2.11.0
       openai: '*'
       ws: ^8.21.0
     peerDependenciesMeta:
@@ -6878,7 +6878,7 @@ snapshots:
 
   '@mistralai/mistralai@2.2.6(@opentelemetry/api@1.9.0)':
     dependencies:
-      '@opentelemetry/semantic-conventions': 1.41.1
+      '@opentelemetry/semantic-conventions': 1.43.0
       ws: 8.21.0
       zod: 4.4.3
       zod-to-json-schema: 3.25.2(zod@4.4.3)
