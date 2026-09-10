@@ -7,6 +7,8 @@ view mapping. These tests pin the contract so downstream consumers (validator,
 rewriter, view migration, schema endpoint, CLI) derive from a stable surface.
 """
 
+import pytest
+
 from rest.services.sql.schema import (
     PUBLIC_TABLES,
     TABLE_VIEW_MAP,
@@ -196,3 +198,12 @@ def test_metadata_is_the_queryable_map_not_the_raw_blob():
         assert metadata.type.startswith("Map("), (
             f"{table}.metadata must be the queryable map, got {metadata.type}"
         )
+
+
+def test_exported_mappings_reject_mutation():
+    # The frozen dataclasses only protect a table once you hold it. The mappings
+    # are what every consumer reaches through, so they are read-only too.
+    with pytest.raises(TypeError):
+        PUBLIC_TABLES["spans"] = PUBLIC_TABLES["traces"]  # type: ignore[index]
+    with pytest.raises(TypeError):
+        TABLE_VIEW_MAP["spans"] = "somewhere_else"  # type: ignore[index]
