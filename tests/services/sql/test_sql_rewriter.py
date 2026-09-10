@@ -414,3 +414,29 @@ def test_injected_view_filter_is_project_scoped() -> None:
     assert len(pattern.findall(rendered)) == 2
     # and no other column is used as the scope filter
     assert "!=" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# The CTE exemption must not be able to shield a public table name, even if a
+# query reached the rewriter without the validator's CTE-shadow check.
+# ---------------------------------------------------------------------------
+def test_cte_named_after_a_public_table_cannot_exempt_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sqlglot
+
+    from rest.services.sql import rewriter as rewriter_module
+
+    # Stand in for a validator that let a shadowing CTE through. The rewriter is
+    # the layer holding the tenant boundary; it must not rely on an invariant
+    # enforced in another module.
+    monkeypatch.setattr(
+        rewriter_module,
+        "validate",
+        lambda sql: sqlglot.parse_one(sql, dialect="clickhouse"),
+    )
+
+    rendered, binds = scope_and_render("WITH spans AS (SELECT 1 AS x) SELECT x FROM spans", PID)
+
+    # The reference was rewritten to the curated view rather than exempted, and
+    # Layer 3 did not forgive a surviving bare table.
+    assert "spans_public_v1" in rendered
+    assert binds == {"scope_project_id": PID}

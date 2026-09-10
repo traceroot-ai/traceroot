@@ -254,7 +254,18 @@ def scope_and_render(sql: str, project_id: str) -> tuple[str, dict[str, str]]:
     tree = tree.copy()
 
     # Step 3 — collect CTE aliases.
+    #
+    # This is a flat, query-wide set, deliberately narrower in one respect than
+    # the validator's scope-aware resolution: a public table name is removed from
+    # it outright. Without that subtraction, a CTE named `spans` anywhere in the
+    # query would exempt every `FROM spans` from rewriting -- and Layer 3 would
+    # forgive the survivor, because it consults this same set. That query cannot
+    # reach here today: validator check 6 rejects a CTE shadowing a public table.
+    # But that is an invariant in another module with nothing tying the two
+    # together, and the rewriter is the layer holding the tenant boundary. It
+    # should not depend on being handed only well-formed input.
     cte_aliases: set[str] = {n.alias.lower() for n in tree.walk() if isinstance(n, exp.CTE)}
+    cte_aliases -= set(TABLE_VIEW_MAP)
 
     # Step 4 — build the parameter-value expression.
     if USE_BOUND_PARAM:
