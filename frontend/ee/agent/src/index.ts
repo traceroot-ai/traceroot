@@ -10,6 +10,7 @@ import {
   deleteSession,
   updateSessionTitle,
 } from "./session.js";
+import type { MessageKind } from "./session.js";
 import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
@@ -169,8 +170,12 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
   console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
-  // Persist user message to DB via SessionManager
-  await sessionManager.appendMessage("user", body.message);
+  // Persist user message to DB via SessionManager. The turn's kind decides which
+  // meter it lands in, and it is a property of the request, not of the session:
+  // the worker's automatic RCA prompt arrives without x-user-id, while a person
+  // asking a follow-up inside that same RCA session arrives with one.
+  const turnKind: MessageKind = userId ? "chat" : "rca";
+  await sessionManager.appendMessage("user", body.message, turnKind);
 
   // Auto-generate session title from first user message (we already have
   // the session loaded above for the auth check — reuse it).
@@ -287,7 +292,13 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
                   cost,
                 }
               : undefined;
-            await sessionManager.appendMessage("assistant", assistantText, undefined, tokenUsage);
+            await sessionManager.appendMessage(
+              "assistant",
+              assistantText,
+              turnKind,
+              undefined,
+              tokenUsage,
+            );
           }
           stream.writeSSE({ event: "done", data: "{}" });
           resolve();
