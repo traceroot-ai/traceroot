@@ -599,7 +599,8 @@ def transform_otel_to_clickhouse(
     """Transform OTEL JSON to ClickHouse traces and spans.
 
     Never sets `source` on a record. Classification belongs to the ingest route, not
-    the payload: the internal route stamps 'detector' after this returns, and every
+    the payload: the internal route stamps the authenticated caller's source ('detector'
+    or 'agent') after this returns, and every
     other row is written as 'user' by the insert helpers (the column's DEFAULT is the
     backfill backstop for pre-migration rows, not the path live writes take). That makes the anti-spoof
     guarantee structural — a tenant-supplied traceroot.source is simply never read

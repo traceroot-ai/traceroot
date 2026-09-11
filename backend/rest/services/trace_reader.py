@@ -35,6 +35,9 @@ DEFAULT_SPAN_SCAN_LOOKBACK_HOURS = 24
 # column's DEFAULT); internal telemetry carries a marker of its own.
 USER_SOURCE = "user"
 DETECTOR_SOURCE = "detector"
+AGENT_SOURCE = "agent"
+# Sources a caller may opt into by name. Anything else resolves to customer traffic.
+INTERNAL_SOURCES = frozenset({DETECTOR_SOURCE, AGENT_SOURCE})
 
 # Distinct-value dropdown scan: cap the returned options, and briefly cache each
 # (column, window) so repeatedly opening the same filter does not re-scan spans.
@@ -50,11 +53,12 @@ def customer_traffic_only(alias: str = "") -> str:
     calls this rather than spelling the comparison out, so a new surface can't quietly
     ship without it.
 
-    Asserts ``source = 'user'`` rather than ``!= 'detector'`` deliberately. The
-    inequality is fail-open — a second internal marker (an RCA or assistant self-trace,
-    say) would pass it and leak into customer lists, sessions and dropdowns until every
-    call site was revisited. Naming the one value that IS customer traffic excludes any
-    future internal marker the day it is introduced.
+    Asserts ``source = 'user'`` rather than the negated comparison against the
+    detector marker deliberately. That inequality is fail-open — a second internal
+    marker (an RCA or assistant self-trace, say) would pass it and leak into customer
+    lists, sessions and dropdowns until every call site was revisited. Naming the one
+    value that IS customer traffic excludes any future internal marker the day it is
+    introduced.
 
     Args:
         alias (str): Table alias qualifying the column (e.g. ``"t"``), or ``""`` when the
@@ -378,7 +382,11 @@ class TraceReaderService:
     _HAS_TRACES_CACHE_MAX = 1024
 
     def has_traces(self, project_id: str) -> bool:
-        """Check if a project has ever ingested any spans (ignores retention)."""
+        """Check if a project has ever ingested any customer spans (ignores retention).
+
+        Scoped like the list: a project holding only internal self-traces must not
+        report that traces exist while its trace list is empty.
+        """
         now = time.monotonic()
         cached = self._has_traces_cache.get(project_id)
         if cached is not None:
@@ -387,7 +395,8 @@ class TraceReaderService:
                 return value
 
         result = self._client.query(
-            "SELECT 1 FROM spans WHERE project_id = {project_id:String} LIMIT 1",
+            "SELECT 1 FROM spans WHERE project_id = {project_id:String} "
+            f"AND {customer_traffic_only()} LIMIT 1",
             parameters={"project_id": project_id},
         )
         found = len(result.result_rows) > 0
@@ -660,9 +669,10 @@ class TraceReaderService:
         Args:
             project_id (str): Project that owns the trace.
             trace_id (str): Trace to fetch.
-            source (str | None): "detector" restricts the read to self-traces.
-                Anything else — including None — restricts it to customer
-                traffic; reading internal telemetry is opt-in, never a default.
+            source (str | None): "detector" or "agent" restricts the read to
+                that internal source. Anything else — including None —
+                restricts it to customer traffic; reading internal telemetry
+                is opt-in, never a default.
 
         Returns:
             dict | None: The trace with span skeletons, or None when no row
@@ -683,8 +693,8 @@ class TraceReaderService:
         # reached through a trace this predicate already resolved, so they are not a
         # way in, but they are not themselves scoped — don't read this comment as
         # covering every span read in the file.
-        if source == DETECTOR_SOURCE:
-            source_condition = f"source = '{DETECTOR_SOURCE}'"
+        if source in INTERNAL_SOURCES:
+            source_condition = f"source = '{source}'"
         else:
             source_condition = customer_traffic_only()
         source_predicate = f"AND {source_condition}"
