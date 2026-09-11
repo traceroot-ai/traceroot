@@ -37,10 +37,12 @@ describe("@traceroot/core entrypoint", () => {
     // way that only shows up at build time.
     const barrel = await import("../index.ts");
     expect(Object.keys(barrel)).not.toContain("allocateExecution");
+    expect(Object.keys(barrel)).not.toContain("applyCapturePolicy");
 
     const pkg = (await import("../../package.json", { with: { type: "json" } })).default as {
       exports: Record<string, unknown>;
     };
     expect(pkg.exports["./rca-executions"]).toBeDefined();
+    expect(pkg.exports["./capture-policy"]).toBeDefined();
   });
 });
