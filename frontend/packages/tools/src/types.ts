@@ -2,7 +2,10 @@
  * (no anyOf-null); structured params (e.g. typed filter arrays) are carried
  * verbatim from the public schema. */
 export interface ParamSchema {
-  type?: string;
+  /** A single JSON-schema type, or a list of them for a union the public
+   * schema writes out as `["string", "number"]` (the provider-compatible form
+   * of an anyOf, used by the alert filter value). */
+  type?: string | string[];
   description?: string;
   format?: string;
   [key: string]: unknown;

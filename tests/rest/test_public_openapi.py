@@ -291,6 +291,10 @@ def test_dashboard_read_tools_steer_name_resolution():
 def test_alert_read_routes_document_error_responses():
     paths = _schema()["paths"]
     assert set(paths["/api/v1/public/alerts"]["get"]["responses"]) >= {"200", "401", "503"}
+    # The create documents the cap conflict beside the shared write errors.
+    write_responses = paths["/api/v1/public/alerts"]["post"]["responses"]
+    assert set(write_responses) >= {"200", "400", "401", "403", "404", "409", "503"}
+    assert "alert limit" in write_responses["409"]["description"]
     responses = paths["/api/v1/public/alerts/{alert_id}"]["get"]["responses"]
     assert set(responses) >= {"200", "401", "404", "503"}
     assert responses["404"]["description"] == "Alert not found"
@@ -316,7 +320,7 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/workspaces": {"get": "list_workspaces", "post": "create_workspace"},
     "/api/v1/public/dashboards": {"get": "list_dashboards", "post": "create_dashboard"},
     "/api/v1/public/dashboards/{dashboard_id}": {"get": "get_dashboard"},
-    "/api/v1/public/alerts": {"get": "list_alerts"},
+    "/api/v1/public/alerts": {"get": "list_alerts", "post": "create_alert"},
     "/api/v1/public/alerts/{alert_id}": {"get": "get_alert"},
     "/api/v1/public/widgets": {"post": "create_widget"},
     "/api/v1/public/detectors": {"get": "list_detectors", "post": "create_detector"},
@@ -411,6 +415,7 @@ def test_x_tool_enabled_set_and_shape():
         "create_detector",
         "create_dashboard",
         "create_widget",
+        "create_alert",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
@@ -679,7 +684,7 @@ def test_agent_hidden_params_must_be_nonempty_string_list(monkeypatch, bad_value
         build_public_schema(app)
 
 
-# The five public creates, pinned to their exact write-tool policy. approvalClass
+# The six public creates, pinned to their exact write-tool policy. approvalClass
 # and minRole must match what the write service actually enforces; tenancy names
 # the scope the target resource lives in.
 _CREATE_TOOL_POLICIES = {
@@ -701,6 +706,10 @@ _CREATE_TOOL_POLICIES = {
     ),
     "create_widget": (
         "/api/v1/public/widgets",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "create_alert": (
+        "/api/v1/public/alerts",
         {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
     ),
 }

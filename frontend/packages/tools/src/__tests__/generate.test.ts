@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateRegistry, type OpenApiDocument } from "../generate.js";
+import type { ParamSchema } from "../types.js";
 
 /** Minimal fake of the public OpenAPI document, in the shapes FastAPI emits. */
 function fakeDoc(): OpenApiDocument {
@@ -459,6 +460,36 @@ describe("generateRegistry write operations", () => {
     expect(entry.inputSchema.properties.cursor).toEqual({
       anyOf: [{ type: "string" }, { type: "integer" }],
     });
+  });
+
+  it("carries a type list on a body property verbatim (the union form of a filter value)", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest = {
+      type: "object",
+      properties: {
+        name: { title: "Name", type: "string" },
+        filters: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              field: { type: "string" },
+              value: { type: ["string", "number"] },
+            },
+            required: ["field", "value"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["name"],
+    };
+    const entry = generateRegistry(doc)[0]!;
+    const filters = entry.inputSchema.properties.filters!;
+    // The declared ParamSchema type admits the list form, so the generated
+    // entry is honest about what it carries rather than widened by a cast.
+    const value = (filters.items as { properties: Record<string, ParamSchema> }).properties.value!;
+    expect(value.type).toEqual(["string", "number"]);
+    expect(entry.bodyParams).toEqual(["filters", "name"]);
   });
 
   it("copies agentHiddenParams verbatim without filtering the schema or bodyParams", () => {

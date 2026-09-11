@@ -16,6 +16,7 @@ describe("committed registry", () => {
 
   it("pins the curated tool surface", () => {
     expect(REGISTRY.map((entry) => entry.name)).toEqual([
+      "create_alert",
       "create_dashboard",
       "create_detector",
       "create_project",
@@ -60,6 +61,41 @@ describe("committed registry", () => {
     expect(get.policy).toBeUndefined();
     expect(Object.keys(get.inputSchema.properties).sort()).toEqual(["dashboard_id", "project_id"]);
     expect(get.inputSchema.required).toEqual(["dashboard_id"]);
+  });
+
+  it("generates the alert create with the stable enums and a full policy", () => {
+    const create = REGISTRY.find((entry) => entry.name === "create_alert")!;
+    expect(create.method).toBe("post");
+    expect(create.path).toBe("/api/v1/public/alerts");
+    expect(create.policy).toEqual({ approvalClass: "none", minRole: "MEMBER", tenancy: "project" });
+    expect(create.bodyParams).toEqual([
+      "aggregation",
+      "filters",
+      "measure",
+      "name",
+      "no_data_mode",
+      "project_id",
+      "renotify",
+      "threshold",
+      "threshold_operator",
+      "view",
+      "window",
+    ]);
+    expect(create.inputSchema.required).toEqual([
+      "project_id",
+      "name",
+      "view",
+      "measure",
+      "aggregation",
+      "window",
+      "threshold_operator",
+      "threshold",
+      "renotify",
+    ]);
+    const props = create.inputSchema.properties as Record<string, { enum?: unknown[] }>;
+    expect(props.window!.enum).toEqual(["1m", "5m", "10m", "30m", "1h", "2h"]);
+    expect(props.threshold_operator!.enum).toEqual([">", ">=", "<", "<=", "=", "!="]);
+    expect(props.no_data_mode!.enum).toEqual(["HOLD", "ZERO", "NOTIFY"]);
   });
 
   it("generates the alert reads as pure GET tools with the paging params", () => {
