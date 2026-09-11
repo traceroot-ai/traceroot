@@ -26,6 +26,22 @@ function createSSE() {
         // stream already cancelled — fine, tests assert on hook state
       }
     },
+    /** Push a NAMED SSE event (`event: name` + `data:`), like the agent's final trace event. */
+    emitNamed(name: string, data: Record<string, unknown>) {
+      try {
+        controller.enqueue(encoder.encode(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`));
+      } catch {
+        // stream already cancelled
+      }
+    },
+    /** Push raw wire text, for malformed or partial SSE frames. */
+    emitRaw(text: string) {
+      try {
+        controller.enqueue(encoder.encode(text));
+      } catch {
+        // stream already cancelled
+      }
+    },
     close() {
       try {
         controller.close();
@@ -219,5 +235,90 @@ describe("useAIStream per-session isolation", () => {
     });
     expect(result.current.messagesBySession["C"]).toHaveLength(1);
     expect(result.current.messagesBySession["C"]![0].content).toBe("three");
+  });
+});
+
+describe("final trace event annotation", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("annotates the live assistant message with traceId/traceStatus so Open span appears without a reload", async () => {
+    const sse = createSSE();
+    fetchMock.mockResolvedValueOnce(sse.response);
+    const { result } = renderHook(() => useAIStream());
+    act(() => {
+      void result.current.sendMessage({ sessionId: "T", message: "hi", projectId: "p1" });
+    });
+
+    sse.emit(textDelta("answer"));
+    sse.emitNamed("trace", { status: "available", traceId: "abc123" });
+    sse.close();
+
+    await waitFor(() => {
+      const msgs = result.current.messagesBySession["T"];
+      const assistant = msgs?.find((m) => m.role === "assistant");
+      expect(assistant?.traceId).toBe("abc123");
+      expect(assistant?.traceStatus).toBe("available");
+    });
+  });
+
+  it("leaves the message unannotated when tracing was disabled for the run", async () => {
+    const sse = createSSE();
+    fetchMock.mockResolvedValueOnce(sse.response);
+    const { result } = renderHook(() => useAIStream());
+    act(() => {
+      void result.current.sendMessage({ sessionId: "T2", message: "hi", projectId: "p1" });
+    });
+
+    sse.emit(textDelta("answer"));
+    sse.emitNamed("trace", { status: "disabled", traceId: "abc123" });
+    sse.close();
+
+    // Wait for the stream to END, not just for the text delta: the trace event
+    // is a separately enqueued chunk, so asserting after the delta alone would
+    // pass whether or not the disabled event was consumed. streamingSessions
+    // only goes falsy in the hook's finally, after the read loop has drained.
+    await waitFor(() => {
+      expect(result.current.streamingSessions["T2"]).toBeFalsy();
+    });
+    const assistant = result.current.messagesBySession["T2"]!.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe("answer");
+    expect(assistant?.traceId).toBeUndefined();
+  });
+
+  it("scopes an event name to its own frame: a dataless or non-JSON named event never swallows the next data line", async () => {
+    const sse = createSSE();
+    fetchMock.mockResolvedValueOnce(sse.response);
+    const { result } = renderHook(() => useAIStream());
+    act(() => {
+      void result.current.sendMessage({ sessionId: "T3", message: "hi", projectId: "p1" });
+    });
+
+    // A named event with no data line, closed by the blank line. With the
+    // name left set, the delta that follows was read as the trace payload
+    // and dropped.
+    sse.emitRaw("event: trace\n\n");
+    sse.emit(textDelta("first"));
+    // A named event whose data is not JSON (the agent's `event: error` can
+    // carry a raw string): the parse failure must still consume the name.
+    sse.emitRaw("event: trace\ndata: not json\n\n");
+    sse.emit(textDelta(" second"));
+    sse.close();
+
+    await waitFor(() => {
+      expect(result.current.streamingSessions["T3"]).toBeFalsy();
+    });
+    const assistant = result.current.messagesBySession["T3"]!.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe("first second");
+    expect(assistant?.traceId).toBeUndefined();
   });
 });

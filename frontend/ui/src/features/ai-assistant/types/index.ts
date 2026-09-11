@@ -1,3 +1,5 @@
+import type { TraceStatus } from "@traceroot/core";
+
 export interface ToolCallStep {
   toolCallId: string;
   toolName: string;
@@ -5,6 +7,16 @@ export interface ToolCallStep {
   result?: unknown;
   isError?: boolean;
   status: "running" | "done" | "error";
+  /** ClickHouse span id for this tool call, when the run was traced. */
+  spanId?: string;
+  /**
+   * Capture-policy outcome on a persisted step (absent on the live stream,
+   * which shows the result in full): why the result was not kept, whether
+   * what was kept was cut, and how big the real output was.
+   */
+  withheld?: "not-allowlisted" | "budget" | null;
+  truncated?: boolean;
+  outputBytes?: number;
 }
 
 export interface AIMessage {
@@ -20,6 +32,10 @@ export interface AIMessage {
   costUsd?: number;
   // only set when role === "tool_step"
   toolStep?: ToolCallStep;
+  /** Trace id for the run this assistant segment belongs to, when traced. */
+  traceId?: string;
+  /** Export status of `traceId` — a step's "Open span" only shows once it's "available". */
+  traceStatus?: TraceStatus;
 }
 
 export interface AISession {

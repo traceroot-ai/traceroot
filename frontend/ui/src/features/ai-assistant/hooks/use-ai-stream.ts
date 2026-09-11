@@ -232,6 +232,11 @@ export function useAIStream() {
         run.reader = reader;
         const decoder = new TextDecoder();
         let buffer = "";
+        // Name from the preceding `event:` line, consumed by the next `data:`
+        // line. The agent's final trace event is a NAMED event whose payload
+        // has no `type` field, so without this it would be silently skipped
+        // and the live turn's steps would never grow their "Open span" links.
+        let namedEvent = "";
 
         while (true) {
           const { done, value } = await reader.read();
@@ -242,9 +247,41 @@ export function useAIStream() {
           buffer = lines.pop() || "";
 
           for (const line of lines) {
+            // A blank line ends the SSE event: a name with no data line of
+            // its own must not leak onto the next event's data.
+            if (line === "") {
+              namedEvent = "";
+              continue;
+            }
+            if (line.startsWith("event: ")) {
+              namedEvent = line.slice(7).trim();
+              continue;
+            }
             if (line.startsWith("data: ")) {
+              // The name is consumed by this data line whether or not it
+              // parses (`event: error` can carry a raw string).
+              const eventName = namedEvent;
+              namedEvent = "";
               try {
                 const eventData = JSON.parse(line.slice(6));
+
+                if (eventName === "trace") {
+                  // {status, traceId} — same fields the persisted row carries,
+                  // so the reloaded session renders the identical footer link.
+                  if (eventData.traceId && eventData.status !== "disabled") {
+                    const lastId = currentTextId ?? lastFrozenId;
+                    if (lastId) {
+                      safeUpdate((prev) =>
+                        prev.map((m) =>
+                          m.id === lastId
+                            ? { ...m, traceId: eventData.traceId, traceStatus: eventData.status }
+                            : m,
+                        ),
+                      );
+                    }
+                  }
+                  continue;
+                }
 
                 if (eventData.type === "message_update") {
                   const delta = eventData.assistantMessageEvent;

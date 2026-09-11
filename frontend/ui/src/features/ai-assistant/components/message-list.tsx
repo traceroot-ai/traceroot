@@ -321,7 +321,16 @@ function formatToolName(name: string): string {
   return name.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
-function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolean }) {
+function ToolStepItem({
+  step,
+  isActive,
+  onOpenSpan,
+}: {
+  step: ToolCallStep;
+  isActive: boolean;
+  /** Present only when this step's turn has a resolved trace to focus into. */
+  onOpenSpan?: (spanId: string) => void;
+}) {
   const [isOpen, setIsOpen] = useState(isActive);
 
   useEffect(() => {
@@ -336,6 +345,15 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
 
   const argsStr = JSON.stringify(step.args, null, 2);
   const resultStr = step.result != null ? JSON.stringify(step.result, null, 2) : null;
+  // A reloaded step carries the capture policy's verdict; the live stream
+  // showed everything, so say what is missing rather than render a bubble
+  // with no output and no explanation.
+  const sizeNote = step.outputBytes != null ? ` · ${step.outputBytes.toLocaleString()} bytes` : "";
+  const captureNote = step.withheld
+    ? `[output withheld: ${step.withheld}${sizeNote}]`
+    : step.truncated
+      ? `[captured I/O truncated${sizeNote ? `${sizeNote} of output` : ""}]`
+      : null;
 
   return (
     <div className="text-[11px]">
@@ -348,8 +366,12 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
         )}
         {step.status === "done" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />}
         {step.status === "error" && <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />}
-        <span className="italic text-muted-foreground/80">{formatToolName(step.toolName)}</span>
-        <span className="font-mono text-[10px] text-muted-foreground/40">({step.toolName})</span>
+        <span className="shrink-0 whitespace-nowrap italic text-muted-foreground/80">
+          {formatToolName(step.toolName)}
+        </span>
+        <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/40">
+          ({step.toolName})
+        </span>
         <ChevronRight
           className={cn(
             "ml-auto h-3 w-3 shrink-0 text-muted-foreground/30 transition-transform duration-200",
@@ -385,6 +407,16 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
                   {resultStr}
                 </pre>
               </div>
+            )}
+            {captureNote && <p className="italic text-muted-foreground/50">{captureNote}</p>}
+            {step.spanId && onOpenSpan && (
+              <button
+                type="button"
+                className="text-muted-foreground/60 hover:underline"
+                onClick={() => onOpenSpan(step.spanId!)}
+              >
+                Open span
+              </button>
             )}
           </div>
         </div>
@@ -444,7 +476,7 @@ function UserBubble({ msg }: { msg: AIMessage }) {
 
 function UsageFooter({ msg }: { msg: AIMessage }) {
   return (
-    <div className="mt-1 flex items-center gap-2 px-1 text-[10px] text-muted-foreground/60">
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap px-1 text-[10px] text-muted-foreground/60">
       <span title="Input tokens">{msg.inputTokens!.toLocaleString()} in</span>
       <span>&middot;</span>
       <span title="Output tokens">{msg.outputTokens!.toLocaleString()} out</span>
@@ -470,9 +502,11 @@ function UsageFooter({ msg }: { msg: AIMessage }) {
 interface MessageListProps {
   messages: AIMessage[];
   sessionStreaming?: boolean;
+  /** Opens the sidebar's agent-trace sheet on `traceId`, focused on a tool step's `spanId`. */
+  onOpenTrace?: (traceId: string, spanId?: string) => void;
 }
 
-export function MessageList({ messages, sessionStreaming = false }: MessageListProps) {
+export function MessageList({ messages, sessionStreaming = false, onOpenTrace }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
@@ -539,13 +573,37 @@ export function MessageList({ messages, sessionStreaming = false }: MessageListP
   return (
     <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-3 pt-3">
       <div ref={innerRef}>
-        {messages.map((msg) => {
+        {messages.map((msg, index) => {
           if (msg.role === "tool_step" && msg.toolStep) {
+            // A tool step belongs to the turn that produced it, and that turn's
+            // trace id arrives on the assistant bubble later in the list. The
+            // search must stop at the next user message: a tool-only run
+            // produces no assistant bubble, and scanning past the turn boundary
+            // would attach this step to the *next* turn's trace — a different
+            // trace that does not contain this span.
+            const turnEnd = messages.findIndex((m, i) => i > index && m.role === "user");
+            const turn = messages.slice(index + 1, turnEnd === -1 ? undefined : turnEnd);
+            // The trace outcome is stamped on the run's LAST text segment only
+            // (persister and live hook alike), so in a text → tool → text turn
+            // the bubble right after this step has none — look for the one that
+            // carries it. A pending or failed export has no trace to open.
+            const turnAssistant = turn.find(
+              (m) => m.role === "assistant" && m.traceStatus === "available",
+            );
+            const turnTraceId = turnAssistant?.traceId;
+            const onOpenSpan =
+              onOpenTrace && turnTraceId
+                ? (spanId: string) => onOpenTrace(turnTraceId, spanId)
+                : undefined;
             return (
               <AnimatedItem key={msg.id}>
                 <div className="flex justify-start">
                   <div className="min-w-0" style={{ maxWidth: bubbleMaxWidth }}>
-                    <ToolStepItem step={msg.toolStep} isActive={msg.id === activeToolStepId} />
+                    <ToolStepItem
+                      step={msg.toolStep}
+                      isActive={msg.id === activeToolStepId}
+                      onOpenSpan={onOpenSpan}
+                    />
                   </div>
                 </div>
               </AnimatedItem>
