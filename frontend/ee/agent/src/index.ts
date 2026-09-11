@@ -362,7 +362,12 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
     const outcome = await withAgentTrace(traceMeta, run, {
       recordOutput: ({ persister }) => persister.finalText() || undefined,
-      runError: ({ error }) => error,
+      // The root span's exception and status message are read by anyone who
+      // can open the trace, so the raw provider/agent error (connection
+      // strings, stack frames, an echoed credential) stays in the server log
+      // above and only the same sanitised form the SSE frame carries is
+      // recorded here.
+      runError: ({ error }) => (error ? new Error(publicErrorMessage(error)) : undefined),
     });
     const { persister } = outcome.value;
 
