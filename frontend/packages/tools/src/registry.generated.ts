@@ -1490,7 +1490,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                     type: "string",
                   },
                   key: {
-                    type: ["string", "null"],
+                    type: "string",
                   },
                   op: {
                     enum: ["=", "contains", ">", ">=", "<", "<="],
