@@ -1,4 +1,4 @@
-import { Daytona, DaytonaTimeoutError } from "@daytonaio/sdk";
+import { Daytona, DaytonaError, DaytonaTimeoutError } from "@daytonaio/sdk";
 import type { Sandbox } from "@daytonaio/sdk";
 import type { Executor, ExecResult, ExecOptions } from "./interface.js";
 
@@ -14,13 +14,20 @@ const TOOL_INSTALL_TIMEOUT_SECONDS = 300;
 
 /**
  * Whether an executeCommand rejection is the per-command deadline expiring.
- * The SDK raises DaytonaTimeoutError for deadlines it enforces itself; a
- * `timeout` exceeded inside the toolbox comes back as a generic DaytonaError
- * whose message names the timeout. Anything else is a real failure.
+ * The SDK raises DaytonaTimeoutError for deadlines it enforces itself. A
+ * `timeout` exceeded inside the toolbox is answered by the server, so the SDK
+ * wraps it as a DaytonaError that carries the HTTP status and a message naming
+ * the timeout. A transport failure (sandbox gone, toolbox unreachable, socket
+ * timeout) never carries a status, so it stays fatal even when its message
+ * mentions a timeout.
  */
 function isCommandTimeout(error: unknown): boolean {
   if (error instanceof DaytonaTimeoutError) return true;
-  return error instanceof Error && /timed out|timeout/i.test(error.message);
+  return (
+    error instanceof DaytonaError &&
+    typeof error.statusCode === "number" &&
+    /timed out|timeout/i.test(error.message)
+  );
 }
 
 export class DaytonaExecutor implements Executor {

@@ -22,17 +22,25 @@ const mockDaytona = {
 
 vi.mock("@daytonaio/sdk", () => {
   // Declared inside the factory: vi.mock is hoisted above top-level bindings.
-  class DaytonaTimeoutError extends Error {}
+  class DaytonaError extends Error {
+    statusCode?: number;
+    constructor(message: string, statusCode?: number) {
+      super(message);
+      this.statusCode = statusCode;
+    }
+  }
+  class DaytonaTimeoutError extends DaytonaError {}
   return {
     // A function (not an arrow) so vitest 4 can construct it with `new`.
     Daytona: vi.fn(function Daytona() {
       return mockDaytona;
     }),
+    DaytonaError,
     DaytonaTimeoutError,
   };
 });
 
-import { DaytonaTimeoutError } from "@daytonaio/sdk";
+import { DaytonaError, DaytonaTimeoutError } from "@daytonaio/sdk";
 import { DaytonaExecutor } from "../daytona.js";
 
 describe("DaytonaExecutor", () => {
@@ -99,7 +107,9 @@ describe("DaytonaExecutor", () => {
     it("finishes init when the tool install times out", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
-        if (cmd.includes("apt-get")) throw new Error("Command timed out after 300 seconds");
+        // The toolbox answered: a server-side per-command deadline.
+        if (cmd.includes("apt-get"))
+          throw new DaytonaError("Command timed out after 300 seconds", 408);
         return { exitCode: 0, result: "" };
       });
 
@@ -121,6 +131,22 @@ describe("DaytonaExecutor", () => {
 
       await expect(executor.init()).resolves.toBeUndefined();
       expect(executor.isReady()).toBe(true);
+      warn.mockRestore();
+    });
+
+    it("rethrows a transport failure even when its message mentions a timeout", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // No HTTP status: the request never reached the toolbox.
+      const failure = new DaytonaError("connect ETIMEDOUT 10.0.0.5:2280");
+      mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
+        if (cmd.includes("apt-get")) throw failure;
+        return { exitCode: 0, result: "" };
+      });
+
+      await expect(executor.init()).rejects.toBe(failure);
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("Tool install did not finish within"),
+      );
       warn.mockRestore();
     });
 
