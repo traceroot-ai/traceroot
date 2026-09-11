@@ -1,0 +1,84 @@
+---
+title: Alerts
+description: Monitor trace metrics and notify your team in Slack
+---
+
+Metric alerts watch your project's spans over a recent time window. Each rule summarizes a measure, compares the result with a threshold, and posts changes to your workspace's Slack channel.
+
+Metric alerts are separate from [detector alerts](/detectors/alerts). Detectors use an LLM-as-a-judge to find problems in individual traces, while metric alerts evaluate numeric conditions such as latency, cost, token usage, or span count.
+
+## Before you create an alert
+
+You need:
+
+- A project that is sending traces to TraceRoot.
+- A Slack workspace and destination channel connected under **Workspace settings > Integrations**. Slack integration is available on all current plans. Ask a workspace admin to connect or change the channel if you can't manage workspace settings.
+
+## Create an alert
+
+Open a project in [TraceRoot Cloud](https://app.traceroot.ai), select **Alerts** from the left navigation, then select **New Alert**.
+
+### Choose the metric
+
+Under **Metric**, choose a measure and aggregation. Available measures cover:
+
+- Span and distinct trace counts.
+- Latency and cost.
+- Input, output, and total token usage.
+- Token throughput.
+- Distinct users and sessions.
+
+The aggregation menu only offers operations that the selected measure supports. The **Live preview** charts the current rule so you can check the metric before saving it.
+
+Use **Add filter** to limit the spans included in the rule. Alerts support filters for model, environment, status, span kind, span name, root spans, and metadata. Metadata filters also require a key. The form previews and saves only complete, supported filter combinations.
+
+Distinct users and distinct sessions can't be combined with filters. Remove the filters or choose a different measure before creating the alert.
+
+### Set the condition
+
+Under **Conditions**:
+
+1. Choose a comparison operator and enter the threshold.
+2. Choose a lookback window from 1 minute to 2 hours.
+3. Choose how often to repeat a notification while the rule remains in breach.
+
+**Off (alert only on transitions)** posts when the metric enters the alert state and when it recovers. **Re-alert at a regular interval** also repeats the breach notification at the interval you enter.
+
+### Name and save the alert
+
+Under **Notifications**, enter the name that should appear in Slack. Confirm that the workspace is connected to Slack and has a destination channel, then select **Create Alert**.
+
+New alerts are active immediately. TraceRoot evaluates active rules once per minute, so the first result should appear within a minute.
+
+## Read alert states
+
+The Alerts table shows the rule's latest state:
+
+- **OK** — the latest measured value is within the threshold.
+- **Alert** — the latest measured value breaches the threshold.
+- **No Data** — the latest window returned no value, or the rule is waiting for a fresh result after it was created, after you changed an evaluation setting, or after you resumed it.
+- **Failing** — the last evaluation failed. Open the badge for details and check the rule's measure and filters if failures continue.
+- **Paused** — evaluation and notifications are stopped until you resume the rule.
+
+For rules created in the current form, an empty window doesn't send a notification or resolve an outstanding breach. If a breach was already announced, it remains outstanding until data returns and the rule can evaluate again.
+
+## Use Slack notifications
+
+Slack messages show the rule name, state, measured value, threshold, window, and filters. A breach notification includes:
+
+- **View alert**, which opens the rule.
+- **View traces**, which opens the evaluated time window in the trace list.
+
+The trace list carries supported rule filters where it can, but the list is trace-based while the alert evaluates spans. The linked results can therefore be broader than the exact spans that triggered the rule. Check the filter text in the Slack message for the complete rule conditions.
+
+Recovery messages include **View alert** but don't include **View traces**, because the metric is back within its threshold.
+
+## Manage alerts
+
+Use the actions menu on an alert to:
+
+- **Pause** or **Resume** evaluation and notifications.
+- **Edit** the metric, condition, filters, name, or renotify setting.
+- **Delete** the rule permanently. Deleting stops evaluation and notifications immediately and removes the recorded state.
+
+You can also search alerts by name from the Alerts page.
