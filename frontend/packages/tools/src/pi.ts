@@ -11,7 +11,9 @@ export interface PiToolResultContent {
 
 export interface PiToolResult {
   content: PiToolResultContent[];
-  details: undefined;
+  /** Structured data beside the text, for a surface that renders results
+   *  (the chat panel's cards); undefined unless the binding asked for it. */
+  details: unknown;
 }
 
 /**
@@ -42,6 +44,13 @@ export interface ToPiAgentToolOptions {
   fixedArgs?: Record<string, unknown>;
   /** Renders the API result for the model; defaults to pretty-printed JSON. */
   formatResult?: (result: unknown) => string;
+  /**
+   * Structured details surfaced beside the text on a successful call, for a
+   * surface that renders results rather than reading them — the model sees
+   * only the text. Forwarded and persisted verbatim, so keep it a compact
+   * projection of the payload, not the payload itself.
+   */
+  details?: (result: unknown) => unknown;
   /**
    * Replaces the registry entry's description for this surface. The entry's
    * text is written for the public API and CLI; a surface that changes a
@@ -76,7 +85,15 @@ function humanizeName(name: string): string {
  * content.
  */
 export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOptions): PiAgentTool {
-  const { client, pathOverride, fixedArgs = {}, formatResult, defaults, description } = options;
+  const {
+    client,
+    pathOverride,
+    fixedArgs = {},
+    formatResult,
+    details,
+    defaults,
+    description,
+  } = options;
 
   // The registry keeps agentHiddenParams in inputSchema/bodyParams for full
   // API/CLI parity and leaves the stripping to consumers — this adapter is the
@@ -122,7 +139,7 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
         const args = { ...(defaults?.(supplied) ?? {}), ...supplied, ...fixedArgs };
         const result = await dispatch(entry, args, client, { pathOverride, signal });
         const text = formatResult ? formatResult(result) : JSON.stringify(result, null, 2);
-        return { content: [{ type: "text", text }], details: undefined };
+        return { content: [{ type: "text", text }], details: details?.(result) };
       } catch (error) {
         // Deliberate divergence from the runtime's throw-on-failure contract:
         // errors are returned as tool-result text so the model can read the
