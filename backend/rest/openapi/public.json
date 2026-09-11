@@ -1,6 +1,513 @@
 {
   "components": {
     "schemas": {
+      "AlertCapacity": {
+        "description": "How many alerts the project holds against its per-project cap.",
+        "properties": {
+          "max": {
+            "title": "Max",
+            "type": "integer"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "used",
+          "max"
+        ],
+        "title": "AlertCapacity",
+        "type": "object"
+      },
+      "AlertDetail": {
+        "description": "One alert with its full rule: the summary plus filters and gap handling.",
+        "properties": {
+          "aggregation": {
+            "title": "Aggregation",
+            "type": "string"
+          },
+          "alerted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alerted At"
+          },
+          "create_time": {
+            "format": "date-time",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "creator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creator"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/AlertFilterItem"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Evaluated At"
+          },
+          "last_notify_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify At"
+          },
+          "last_notify_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify Error"
+          },
+          "last_notify_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify Status"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "no_data_mode": {
+            "title": "No Data Mode",
+            "type": "string"
+          },
+          "renotify": {
+            "$ref": "#/components/schemas/AlertRenotify"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "severity_changed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity Changed At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "threshold_operator": {
+            "title": "Threshold Operator",
+            "type": "string"
+          },
+          "update_time": {
+            "format": "date-time",
+            "title": "Update Time",
+            "type": "string"
+          },
+          "view": {
+            "title": "View",
+            "type": "string"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "view",
+          "measure",
+          "aggregation",
+          "window",
+          "threshold_operator",
+          "threshold",
+          "status",
+          "severity",
+          "severity_changed_at",
+          "alerted_at",
+          "last_evaluated_at",
+          "last_error",
+          "last_error_at",
+          "last_notify_status",
+          "last_notify_error",
+          "last_notify_at",
+          "create_time",
+          "update_time",
+          "creator",
+          "filters",
+          "renotify",
+          "no_data_mode"
+        ],
+        "title": "AlertDetail",
+        "type": "object"
+      },
+      "AlertFilterItem": {
+        "description": "A row predicate an alert's measure is evaluated over.\n\nMirrors the alert filter vocabulary in the frontend core package: ``op``\nis one of the two alert operators, and ``key`` names the map entry on a\nkeyed field (metadata).",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "op": {
+            "enum": [
+              "=",
+              "contains"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "AlertFilterItem",
+        "type": "object"
+      },
+      "AlertListMeta": {
+        "description": "Pagination plus the project's alert capacity.",
+        "properties": {
+          "capacity": {
+            "$ref": "#/components/schemas/AlertCapacity"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "page",
+          "limit",
+          "total",
+          "capacity"
+        ],
+        "title": "AlertListMeta",
+        "type": "object"
+      },
+      "AlertRenotify": {
+        "description": "How often an alert re-notifies while it stays in the alerting state.\n\nKept a single-level object rather than a discriminated union: the tool\nregistry generator refuses nested schema references. The cross-field\nrule is enforced by a validator instead, so a contradictory stored rule\nfails the detail read closed rather than passing through half-typed.",
+        "properties": {
+          "interval_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Minutes"
+          },
+          "mode": {
+            "enum": [
+              "OFF",
+              "EVERY"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "AlertRenotify",
+        "type": "object"
+      },
+      "AlertSummary": {
+        "description": "The alert fields shared by the list and detail reads (Postgres ``alerts``).\n\n``threshold`` is stored as a decimal and served as a JSON number.\n``creator`` is the created-by user's display name (or email), resolved by\nthe internal route; it is None when the creating account was deleted.",
+        "properties": {
+          "aggregation": {
+            "title": "Aggregation",
+            "type": "string"
+          },
+          "alerted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alerted At"
+          },
+          "create_time": {
+            "format": "date-time",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "creator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creator"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Evaluated At"
+          },
+          "last_notify_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify At"
+          },
+          "last_notify_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify Error"
+          },
+          "last_notify_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify Status"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "severity_changed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity Changed At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "threshold_operator": {
+            "title": "Threshold Operator",
+            "type": "string"
+          },
+          "update_time": {
+            "format": "date-time",
+            "title": "Update Time",
+            "type": "string"
+          },
+          "view": {
+            "title": "View",
+            "type": "string"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "view",
+          "measure",
+          "aggregation",
+          "window",
+          "threshold_operator",
+          "threshold",
+          "status",
+          "severity",
+          "severity_changed_at",
+          "alerted_at",
+          "last_evaluated_at",
+          "last_error",
+          "last_error_at",
+          "last_notify_status",
+          "last_notify_error",
+          "last_notify_at",
+          "create_time",
+          "update_time",
+          "creator"
+        ],
+        "title": "AlertSummary",
+        "type": "object"
+      },
       "CompleteRunRequest": {
         "description": "Complete/fail a run, reporting final completeness counts.",
         "properties": {
@@ -1322,6 +1829,27 @@
           "workspace_name"
         ],
         "title": "ProjectListItem",
+        "type": "object"
+      },
+      "PublicAlertListResponse": {
+        "description": "Paginated list of the project's alerts for the public API.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/AlertSummary"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/AlertListMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "PublicAlertListResponse",
         "type": "object"
       },
       "PublicDashboardListResponse": {
@@ -3120,6 +3648,261 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/public/alerts": {
+      "get": {
+        "description": "List the alerts in the caller's project (oldest first) with its capacity.",
+        "operationId": "list_alerts",
+        "parameters": [
+          {
+            "description": "Items per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "0-based page index",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "0-based page index",
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Case-insensitive substring match on the alert name",
+            "in": "query",
+            "name": "search_query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive substring match on the alert name",
+              "title": "Search Query"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicAlertListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Alerts",
+        "tags": [
+          "Alerts (Public)"
+        ],
+        "x-tool": {
+          "description": "List the project's threshold alerts (id, name, rule summary, status, current severity, last evaluation and notification state, creator) with the project's alert capacity. Paginated; search_query matches the alert name. To resolve an alert by name, list here and match its name \u2014 never guess an alert id.",
+          "enabled": true,
+          "name": "list_alerts"
+        }
+      }
+    },
+    "/api/v1/public/alerts/{alert_id}": {
+      "get": {
+        "description": "Get one alert with its full rule for the caller's project.",
+        "operationId": "get_alert",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "title": "Alert Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Alert not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Alert",
+        "tags": [
+          "Alerts (Public)"
+        ],
+        "x-tool": {
+          "description": "Fetch one alert's full rule by id: view, measure, aggregation, filters, window, threshold, renotify and no-data handling, plus its evaluation state. Resolve the alert id by listing the project's alerts and matching the name \u2014 never guess an id.",
+          "enabled": true,
+          "name": "get_alert"
+        }
+      }
+    },
     "/api/v1/public/dashboards": {
       "get": {
         "description": "List the dashboards in the caller's project (default first).",
