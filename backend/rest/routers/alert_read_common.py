@@ -126,6 +126,37 @@ async def list_alerts_page(
         raise _alert_service_error() from e
 
 
+def alert_detail_from_internal(alert: Any) -> AlertDetail:
+    """Build the public detail model from one camelCase alert record.
+
+    Shared by the detail read and the create proxy, which both receive the
+    full serialized alert from the Next.js side.
+
+    Args:
+        alert (Any): The ``alert`` object from an internal route's body.
+
+    Returns:
+        AlertDetail: The alert's summary plus filters, renotify and gap mode.
+
+    Raises:
+        KeyError: If a required field is missing (the caller fails closed).
+        TypeError: If the record is not a mapping (the caller fails closed).
+        AttributeError: If ``renotify`` is not a mapping (the caller fails closed).
+        ValidationError: If a field has the wrong type (the caller fails closed).
+    """
+    renotify: Any = alert["renotify"]
+    return AlertDetail(
+        **_summary_fields(alert),
+        filters=alert["filters"],
+        # The stored rule is camelCase; the public surface renames so a create
+        # request and a read answer spell the interval the same way.
+        renotify=AlertRenotify(
+            mode=renotify["mode"], interval_minutes=renotify.get("intervalMinutes")
+        ),
+        no_data_mode=alert["noDataMode"],
+    )
+
+
 async def get_alert_detail(project_id: str, alert_id: str) -> AlertDetail:
     """Fetch one alert with its full rule via the internal route.
 
@@ -147,17 +178,6 @@ async def get_alert_detail(project_id: str, alert_id: str) -> AlertDetail:
         _INTERNAL_PATH, {"projectId": project_id, "alertId": alert_id}, service=_SERVICE
     )
     try:
-        alert: Any = data["alert"]
-        renotify: Any = alert["renotify"]
-        return AlertDetail(
-            **_summary_fields(alert),
-            filters=alert["filters"],
-            # The stored rule is camelCase; the public surface renames so a
-            # create request and a read answer spell the interval the same way.
-            renotify=AlertRenotify(
-                mode=renotify["mode"], interval_minutes=renotify.get("intervalMinutes")
-            ),
-            no_data_mode=alert["noDataMode"],
-        )
+        return alert_detail_from_internal(data["alert"])
     except (KeyError, TypeError, ValidationError, AttributeError) as e:
         raise _alert_service_error() from e

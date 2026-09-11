@@ -4,6 +4,125 @@ import type { RegistryEntry } from "./types.js";
 
 export const REGISTRY: readonly RegistryEntry[] = [
   {
+    name: "create_alert",
+    description:
+      "Create a threshold alert in a project: a measure of the spans view, aggregated over a window and compared to a threshold, with optional row filters and renotify/no-data settings. Strict create, never idempotent: alerts share names freely, so to avoid a duplicate list the project's alerts first and match the name.",
+    method: "post",
+    path: "/api/v1/public/alerts",
+    inputSchema: {
+      type: "object",
+      properties: {
+        aggregation: {
+          enum: ["sum", "avg", "count", "max", "min", "p50", "p75", "p90", "p95", "p99", "uniq"],
+          type: "string",
+        },
+        filters: {
+          description: "Row predicates the measure is evaluated over",
+          items: {
+            additionalProperties: false,
+            properties: {
+              field: {
+                description: "A span field, e.g. model_name or metadata",
+                type: "string",
+              },
+              key: {
+                description: "The map entry to compare; required for the metadata field",
+                type: "string",
+              },
+              op: {
+                enum: ["=", "contains"],
+                type: "string",
+              },
+              value: {
+                type: ["string", "number"],
+              },
+            },
+            required: ["field", "op", "value"],
+            type: "object",
+          },
+          type: "array",
+        },
+        measure: {
+          description: "A measure of the view, e.g. latency, cost, count",
+          type: "string",
+        },
+        name: {
+          type: "string",
+        },
+        no_data_mode: {
+          enum: ["HOLD", "ZERO", "NOTIFY"],
+          type: "string",
+          description: "What a window that measured nothing means; column default when omitted",
+        },
+        project_id: {
+          type: "string",
+        },
+        renotify: {
+          description: "How often an alert re-notifies while it stays in the alerting state.",
+          properties: {
+            interval_minutes: {
+              description: "Minutes between repeat notifications; required when mode is EVERY",
+              title: "Interval Minutes",
+              type: "integer",
+            },
+            mode: {
+              enum: ["OFF", "EVERY"],
+              title: "Mode",
+              type: "string",
+            },
+          },
+          required: ["mode"],
+          type: "object",
+        },
+        threshold: {
+          type: "number",
+        },
+        threshold_operator: {
+          enum: [">", ">=", "<", "<=", "=", "!="],
+          type: "string",
+        },
+        view: {
+          const: "SPANS",
+          type: "string",
+        },
+        window: {
+          enum: ["1m", "5m", "10m", "30m", "1h", "2h"],
+          type: "string",
+        },
+      },
+      required: [
+        "project_id",
+        "name",
+        "view",
+        "measure",
+        "aggregation",
+        "window",
+        "threshold_operator",
+        "threshold",
+        "renotify",
+      ],
+      additionalProperties: false,
+    },
+    bodyParams: [
+      "aggregation",
+      "filters",
+      "measure",
+      "name",
+      "no_data_mode",
+      "project_id",
+      "renotify",
+      "threshold",
+      "threshold_operator",
+      "view",
+      "window",
+    ],
+    policy: {
+      approvalClass: "none",
+      minRole: "MEMBER",
+      tenancy: "project",
+    },
+  },
+  {
     name: "create_dashboard",
     description:
       "Create a dashboard in a project (idempotent on the dashboard name within the project); add charts to it with create_widget.",
