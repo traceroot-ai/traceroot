@@ -7,6 +7,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 
 const createProjectSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -79,29 +80,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const { name, trace_ttl_days } = result.data;
 
-  // Check for duplicate name in workspace
-  const existingProject = await prisma.project.findFirst({
-    where: {
-      workspaceId,
-      name,
-      deleteTime: null,
-    },
-  });
-
-  if (existingProject) {
-    return errorResponse("A project with this name already exists", 409);
-  }
-
   const projectId = crypto.randomUUID();
 
-  const project = await prisma.project.create({
-    data: {
-      id: projectId,
-      workspaceId,
-      name,
-      traceTtlDays: trace_ttl_days ?? null,
-    },
-  });
+  // No duplicate pre-check: uq_project_workspace_live_name is the check, and
+  // the only race-free one.
+  let project;
+  try {
+    project = await prisma.project.create({
+      data: {
+        id: projectId,
+        workspaceId,
+        name,
+        traceTtlDays: trace_ttl_days ?? null,
+      },
+    });
+  } catch (e) {
+    if (!isPrismaKnownError(e, "P2002")) throw e;
+    return errorResponse("A project with this name already exists", 409);
+  }
 
   return NextResponse.json(
     {
