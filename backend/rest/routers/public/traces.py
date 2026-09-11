@@ -27,18 +27,18 @@ from pydantic import BaseModel
 from ee.license import is_billing_enabled
 from rest.rate_limit import key_ingest, limiter, resolve_limit
 
-# Auth is defined in the shared public deps module so read routes don't import
+# KeyAuth is defined in the shared public deps module so read routes don't import
 # it from this ingestion endpoint. Re-exported here for backward compatibility.
 from rest.routers.public.deps import (
-    Auth,
     AuthResult,
-    StampedAuth,
+    KeyAuth,
+    KeyStampedAuth,
     authenticate_api_key,
 )
 from rest.services.s3 import get_s3_service
 from worker.ingest_tasks import process_s3_traces
 
-__all__ = ["AuthResult", "Auth", "authenticate_api_key", "router"]
+__all__ = ["AuthResult", "KeyAuth", "authenticate_api_key", "router"]
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
 
 # Ingest shares the workspace/plan stamping wrapper with the public read routes
 # (defined in deps); the limiter keys ingest by its own bucket via ``key_ingest``.
-IngestAuth = StampedAuth
+IngestAuth = KeyStampedAuth
 
 
 def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:

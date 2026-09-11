@@ -56,6 +56,94 @@ describe("FilterRow value input", () => {
   // RTL auto-cleanup needs vitest globals, which this config doesn't enable.
   afterEach(cleanup);
 
+  it("shows a saved row as text with a spinner while the field registry is still loading", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        fieldsLoading
+        filter={{ field: "metadata", key: "tenant", op: "=", value: "acme" }}
+      />,
+    );
+    const row = screen.getByRole("status", { name: "Loading filter fields" });
+    // the saved predicate is legible as-is: not an empty field dropdown
+    expect(row.textContent).toContain("metadata[tenant] = acme");
+    expect(row.textContent).toContain("Loading fields");
+    expect(screen.queryByRole("button", { name: "Field" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove filter" })).toBeNull();
+  });
+
+  it("names a saved field the resolved registry does not know, and keeps it removable", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const onRemove = vi.fn();
+    render(
+      <FilterRow
+        {...baseProps}
+        onRemove={onRemove}
+        filter={{ field: "retired_field", op: "=", value: "x" }}
+      />,
+    );
+    const row = screen.getByRole("alert", { name: "Unknown filter field" });
+    expect(row.textContent).toContain("retired_field = x");
+    expect(row.textContent).toContain("Unknown field");
+    expect(screen.queryByRole("status")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter" }));
+    expect(onRemove).toHaveBeenCalledWith(0);
+  });
+
+  it("says the registry is unavailable, and keeps the row removable, when its request failed", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const onRemove = vi.fn();
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        fieldsUnavailable
+        onRemove={onRemove}
+        filter={{ field: "model_name", op: "=", value: "gpt-4o" }}
+      />,
+    );
+    const row = screen.getByRole("alert", { name: "Filter fields unavailable" });
+    expect(row.textContent).toContain("model_name = gpt-4o");
+    expect(row.textContent).toContain("Fields unavailable");
+    // not blamed on the field: the registry never answered
+    expect(row.textContent).not.toContain("Unknown field");
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter" }));
+    expect(onRemove).toHaveBeenCalledWith(0);
+  });
+
+  it("names an unknown field even when the resolved registry offers no fields at all", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        filter={{ field: "retired_field", op: "=", value: "x" }}
+      />,
+    );
+    expect(screen.getByRole("alert", { name: "Unknown filter field" })).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("renders the controls for an empty row even while the registry is loading", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        fieldsLoading
+        filter={{ field: "", op: "", value: "" }}
+      />,
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("button", { name: "Field" })).toBeTruthy();
+  });
+
   it("offers stored values with counts for string equality, and selecting one propagates", () => {
     vi.mocked(useWidgetFieldValues).mockReturnValue({
       values: [{ value: "gpt-4o", count: 3 }],

@@ -7,19 +7,17 @@ import {
 } from "@traceroot/core";
 import { logError, logInfo } from "./log.js";
 import { parseAlertRule, type AlertRowLike, type AlertRule } from "./rule.js";
-import type { AlertRuntimeState } from "./state-machine.js";
+import type { AlertRuntimeState } from "./severity-state-machine.js";
 import { alertNextRunAt, type AlertTick } from "./tick.js";
 
 const ACTIVE: AlertStatus = "ACTIVE";
 
 /**
- * Leftovers lead the next tick only while the due set fits `ALERT_CLAIM_SCAN_LIMIT`:
- * a project whose due rules all sort past the scan cap is not seen by the tick at all.
+ * Per tick. The claim deals its cap across projects depth-first, so a project's
+ * backlog can only ever take its share of a slice, never the whole one; leftovers
+ * lead the next tick.
  */
 export const ALERT_CLAIM_LIMIT = 500;
-
-/** Headroom over the budget: read exactly the budget and one project's backlog fills it. */
-export const ALERT_CLAIM_SCAN_LIMIT = ALERT_CLAIM_LIMIT * 2;
 
 export interface ClaimedAlert {
   readonly rule: AlertRule;
@@ -61,15 +59,18 @@ function nextRunAtCase(tick: AlertTick): Prisma.Sql {
 
 /**
  * Select, claim and read back the batch in one statement, because the claim is one
- * write per due rule and a full tick is 500 of them: as `findMany` plus a CAS per
- * row that was 500 round-trips a minute against the pool the detector consumers
- * share.
+ * write per due rule and a full tick is 500 of them: as a scan, a `findMany` and a
+ * CAS per row that was 500 round-trips a minute against the pool the detector
+ * consumers share.
  *
- * `row_number()` is the round-robin: dealing by depth before due time takes one rule
- * from every project in the scan before any project takes a second, so a project
- * whose backlog could fill the budget on its own cannot. Nulls sort last, as they do
- * today — ordering them first put every rule created since the last tick ahead of
- * every rule that was actually due.
+ * The selection is fair by construction. `due` numbers every due rule per project,
+ * and `picked` takes the cap depth-first across projects, so one project's backlog
+ * can occupy at most its share of the slice; a single globally-ordered read let a
+ * project with a large due set push every other project's rules past the cap.
+ *
+ * Within a project, never-claimed rules (`nextRunAt` null, "due immediately")
+ * sort after rules that were actually due: a burst of new rules waits its turn
+ * instead of preempting the schedule.
  *
  * `FOR UPDATE SKIP LOCKED` replaces the per-row CAS on `lastClaimedAt` as the mutex,
  * and it has to sit in its own scan because a locking clause cannot share a query
@@ -98,19 +99,17 @@ function claimStatement(tick: AlertTick): Prisma.Sql {
         a.create_time,
         row_number() OVER (
           PARTITION BY a.project_id
-          ORDER BY a.next_run_at ASC, a.create_time ASC
+          ORDER BY a.next_run_at ASC NULLS LAST, a.create_time ASC
         ) AS depth
       FROM alerts a
       -- Deletion is soft, so no cascade fires: without this a deleted project keeps paging.
       JOIN projects p ON p.id = a.project_id AND p.delete_time IS NULL
       WHERE a.status = ${ACTIVE}
         AND (a.next_run_at IS NULL OR a.next_run_at <= ${utc(tick.now)})
-      ORDER BY a.next_run_at ASC, a.create_time ASC
-      LIMIT ${ALERT_CLAIM_SCAN_LIMIT}
     ),
     picked AS (
       SELECT id FROM due
-      ORDER BY depth ASC, next_run_at ASC, create_time ASC
+      ORDER BY depth ASC, next_run_at ASC NULLS LAST, create_time ASC
       LIMIT ${ALERT_CLAIM_LIMIT}
     ),
     locked AS MATERIALIZED (

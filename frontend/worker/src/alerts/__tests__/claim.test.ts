@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { AlertRenotify, Prisma } from "@traceroot/core";
 import type { AlertRowLike } from "../rule.js";
-import type { AlertRuntimeState } from "../state-machine.js";
+import type { AlertRuntimeState } from "../severity-state-machine.js";
 import type { AlertTick } from "../tick.js";
 
 const queryRaw = vi.fn<(query: Prisma.Sql) => Promise<AlertRowLike[]>>();
@@ -22,14 +22,13 @@ const {
   recordAlertNotifyOutcome,
   revertAlertEmissionState,
   ALERT_CLAIM_LIMIT,
-  ALERT_CLAIM_SCAN_LIMIT,
 } = await import("../claim.js");
 // Imported after the mock factory rather than at the top: a value import from
 // `@traceroot/core` loads the module before the spies above are initialized.
 const { ALERT_WINDOWS } = await import("@traceroot/core");
 // Real, not faked: whether a page survives the race below is a question about
 // what the state machine does next with the row the writes leave behind.
-const { applyAlertStateMachine } = await import("../state-machine.js");
+const { applyAlertStateMachine } = await import("../severity-state-machine.js");
 
 const NOW = new Date("2026-08-12T10:37:42.913Z");
 
@@ -103,26 +102,30 @@ describe("claimDueAlerts — the statement that selects candidates", () => {
     expect(sql).toContain("JOIN projects p ON p.id = a.project_id AND p.delete_time IS NULL");
   });
 
-  it("orders the scan by due time, leaving the unscheduled last", async () => {
+  it("orders each project by due time, leaving the unscheduled last", async () => {
     await claimDueAlerts(TICK);
+    const sql = claimSql().replace(/\s+/g, " ");
 
-    expect(claimSql()).toContain("ORDER BY a.next_run_at ASC, a.create_time ASC");
-    // `NULLS FIRST` put every rule created since the last tick ahead of every rule
-    // that was actually due, so a burst of new rules preempted the schedule.
-    expect(claimSql()).not.toContain("NULLS FIRST");
+    // Null `nextRunAt` is "due immediately": a burst of new rules would lead every
+    // project's slice and preempt the schedule. Within a project the schedule goes first.
+    expect(sql).toContain(
+      "PARTITION BY a.project_id ORDER BY a.next_run_at ASC NULLS LAST, a.create_time ASC",
+    );
+    expect(sql).not.toContain("NULLS FIRST");
   });
 
-  it("scans wider than the budget and deals the budget across projects", async () => {
+  it("deals the budget across projects over the whole due set", async () => {
     await claimDueAlerts(TICK);
-    const sql = claimSql();
+    const sql = claimSql().replace(/\s+/g, " ");
 
-    expect(ALERT_CLAIM_SCAN_LIMIT).toBeGreaterThan(ALERT_CLAIM_LIMIT);
-    expect(sql).toContain(`LIMIT ${ALERT_CLAIM_SCAN_LIMIT}`);
-    // Depth before due time: every project in the scan gives up a rule before any
-    // project takes a second, so one project's backlog cannot fill the budget.
-    expect(sql).toContain("PARTITION BY a.project_id");
-    expect(sql).toContain("ORDER BY depth ASC, next_run_at ASC, create_time ASC");
-    expect(sql).toContain(`LIMIT ${ALERT_CLAIM_LIMIT}`);
+    // Depth before due time: every project gives up a rule before any project takes
+    // a second, so one project's backlog cannot fill the budget.
+    expect(sql).toContain(
+      `ORDER BY depth ASC, next_run_at ASC NULLS LAST, create_time ASC LIMIT ${ALERT_CLAIM_LIMIT}`,
+    );
+    // The budget is the only cap. A cap on a globally-ordered read ahead of the
+    // numbering let a project with a large due set push every other one past it.
+    expect(sql.match(/\bLIMIT\b/g)).toHaveLength(1);
   });
 });
 

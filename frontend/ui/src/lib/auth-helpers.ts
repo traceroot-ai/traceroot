@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "crypto";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
@@ -143,10 +144,24 @@ export async function requireProjectAccess(
 
 /**
  * Verify internal API secret for Python backend calls.
+ *
+ * Compared in constant time (crypto.timingSafeEqual) so response timing cannot
+ * be used to recover the secret byte-by-byte. Both sides are hashed first so
+ * the compared buffers always have equal length — timingSafeEqual throws on a
+ * length mismatch, and any length-dependent early exit would leak the secret's
+ * length. Fails closed on a missing header or a blank configured secret (env
+ * validation already rejects the latter at boot; guarded here anyway).
  */
 export function verifyInternalSecret(request: Request): boolean {
-  const secret = request.headers.get("X-Internal-Secret");
-  return secret === env.INTERNAL_API_SECRET;
+  const provided = request.headers.get("X-Internal-Secret");
+  const expected = env.INTERNAL_API_SECRET;
+  if (!provided || !expected) {
+    return false;
+  }
+  return timingSafeEqual(
+    createHash("sha256").update(provided).digest(),
+    createHash("sha256").update(expected).digest(),
+  );
 }
 
 /**

@@ -4,6 +4,199 @@ import type { RegistryEntry } from "./types.js";
 
 export const REGISTRY: readonly RegistryEntry[] = [
   {
+    name: "create_dashboard",
+    description:
+      "Create a dashboard in a project (idempotent on the dashboard name within the project); add charts to it with create_widget.",
+    method: "post",
+    path: "/api/v1/public/dashboards",
+    inputSchema: {
+      type: "object",
+      properties: {
+        description: {
+          type: "string",
+        },
+        name: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+        },
+      },
+      required: ["project_id", "name"],
+      additionalProperties: false,
+    },
+    bodyParams: ["description", "name", "project_id"],
+    policy: {
+      approvalClass: "none",
+      minRole: "MEMBER",
+      tenancy: "project",
+    },
+  },
+  {
+    name: "create_detector",
+    description:
+      "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project — idempotent on the detector name within the project.",
+    method: "post",
+    path: "/api/v1/public/detectors",
+    inputSchema: {
+      type: "object",
+      properties: {
+        detection_model: {
+          type: "string",
+        },
+        detection_provider: {
+          type: "string",
+        },
+        detection_source: {
+          type: "string",
+        },
+        enable_rca: {
+          type: "boolean",
+        },
+        enabled: {
+          type: "boolean",
+        },
+        name: {
+          type: "string",
+        },
+        output_schema: {
+          items: {},
+          type: "array",
+        },
+        project_id: {
+          type: "string",
+        },
+        prompt: {
+          type: "string",
+        },
+        sample_rate: {
+          type: "integer",
+        },
+        template: {
+          type: "string",
+        },
+        trigger_conditions: {
+          items: {},
+          type: "array",
+        },
+      },
+      required: ["project_id", "name", "template", "prompt"],
+      additionalProperties: false,
+    },
+    bodyParams: [
+      "detection_model",
+      "detection_provider",
+      "detection_source",
+      "enable_rca",
+      "enabled",
+      "name",
+      "output_schema",
+      "project_id",
+      "prompt",
+      "sample_rate",
+      "template",
+      "trigger_conditions",
+    ],
+    policy: {
+      approvalClass: "none",
+      minRole: "MEMBER",
+      tenancy: "project",
+    },
+  },
+  {
+    name: "create_project",
+    description:
+      "Create a project in a workspace the logged-in user can write to (idempotent on the project name within the workspace).",
+    method: "post",
+    path: "/api/v1/public/projects",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+        },
+        trace_ttl_days: {
+          type: "integer",
+        },
+        workspace_id: {
+          type: "string",
+        },
+      },
+      required: ["workspace_id", "name"],
+      additionalProperties: false,
+    },
+    bodyParams: ["name", "trace_ttl_days", "workspace_id"],
+    agentHiddenParams: ["trace_ttl_days"],
+    policy: {
+      approvalClass: "none",
+      minRole: "MEMBER",
+      tenancy: "workspace",
+    },
+  },
+  {
+    name: "create_widget",
+    description:
+      "Add a widget (title, type, query spec) to an existing dashboard. Strict create: every call adds a new widget.",
+    method: "post",
+    path: "/api/v1/public/widgets",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dashboard_id: {
+          type: "string",
+        },
+        display_config: {
+          additionalProperties: true,
+          type: "object",
+        },
+        project_id: {
+          type: "string",
+        },
+        spec: {
+          additionalProperties: true,
+          type: "object",
+        },
+        title: {
+          type: "string",
+        },
+        type: {
+          type: "string",
+        },
+      },
+      required: ["project_id", "dashboard_id", "title", "type", "spec"],
+      additionalProperties: false,
+    },
+    bodyParams: ["dashboard_id", "display_config", "project_id", "spec", "title", "type"],
+    policy: {
+      approvalClass: "none",
+      minRole: "MEMBER",
+      tenancy: "project",
+    },
+  },
+  {
+    name: "create_workspace",
+    description:
+      "Create a workspace administered by the logged-in user. Idempotent: re-creating a same-named workspace the caller already administers returns it instead of duplicating.",
+    method: "post",
+    path: "/api/v1/public/workspaces",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+        },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    bodyParams: ["name"],
+    policy: {
+      approvalClass: "none",
+      minRole: "VIEWER",
+      tenancy: "account",
+    },
+  },
+  {
     name: "export_trace",
     description: "Export the complete bundle (trace, spans, git context, manifest) for one trace.",
     method: "get",
@@ -19,8 +212,35 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description:
             "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["trace_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_dashboard",
+    description:
+      "Fetch one dashboard with its widgets (id, title, type, query spec, creation time). Resolve the dashboard id by listing the project's dashboards and matching the name — never guess an id.",
+    method: "get",
+    path: "/api/v1/public/dashboards/{dashboard_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dashboard_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["dashboard_id"],
       additionalProperties: false,
     },
   },
@@ -35,6 +255,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
       properties: {
         detector_id: {
           type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["detector_id"],
@@ -52,6 +277,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
         finding_id: {
           type: "string",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["finding_id"],
       additionalProperties: false,
@@ -67,6 +297,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
       properties: {
         trace_id: {
           type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["trace_id"],
@@ -95,6 +330,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Only traces before this time (exclusive, ISO 8601)",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["session_id"],
       additionalProperties: false,
@@ -117,8 +357,32 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description:
             "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["trace_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_dashboards",
+    description:
+      "List the project's dashboards (id, name, description, default flag, creator, widget count, timestamps). To resolve a dashboard by name, list here and match its name — never guess a dashboard id.",
+    method: "get",
+    path: "/api/v1/public/dashboards",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
       additionalProperties: false,
     },
   },
@@ -146,6 +410,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only detectors created before this time (exclusive, ISO 8601)",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: [],
@@ -186,6 +455,29 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Filter to a single trace",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_projects",
+    description:
+      "List the projects the logged-in user can access, across workspaces (id, name, workspace). User-credential-only account discovery: use it to resolve the project_id a project-scoped request needs. Optionally filter by workspace_id.",
+    method: "get",
+    path: "/api/v1/public/projects",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace_id: {
+          type: "string",
+          description: "Restrict the result to projects in this workspace.",
+        },
       },
       required: [],
       additionalProperties: false,
@@ -221,6 +513,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Only sessions with traces before this time (exclusive, ISO 8601)",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: [],
       additionalProperties: false,
@@ -247,6 +544,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only consider spans starting before this timestamp",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["field"],
@@ -351,6 +653,78 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "environment",
                     title: "Environment",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["in"],
+                    type: "string",
+                  },
+                  value: {
+                    items: {
+                      maxLength: 1024,
+                      type: "string",
+                    },
+                    minItems: 1,
+                    type: "array",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
+                    const: "span_kind",
+                    title: "Span kind",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["in"],
+                    type: "string",
+                  },
+                  value: {
+                    items: {
+                      maxLength: 1024,
+                      type: "string",
+                    },
+                    minItems: 1,
+                    type: "array",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
+                    const: "status",
+                    title: "Status",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["in"],
+                    type: "string",
+                  },
+                  value: {
+                    items: {
+                      maxLength: 1024,
+                      type: "string",
+                    },
+                    minItems: 1,
+                    type: "array",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
+                    const: "name",
+                    title: "Span name",
                     type: "string",
                   },
                   op: {
@@ -484,7 +858,25 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description:
             "JSON array of typed filter predicates ({field, op, value}); the field catalog and per-field operators are defined in the schema",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_workspaces",
+    description:
+      "List the workspaces the logged-in user belongs to (id, name, role). User-credential-only account discovery: it needs no project_id and is not available to project-scoped API keys.",
+    method: "get",
+    path: "/api/v1/public/workspaces",
+    inputSchema: {
+      type: "object",
+      properties: {},
       required: [],
       additionalProperties: false,
     },
