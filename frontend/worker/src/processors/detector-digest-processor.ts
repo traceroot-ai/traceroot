@@ -20,10 +20,10 @@ import { generateDigestSummary } from "../notifications/digest-summary.js";
  * detector, and fan it out to every configured channel (Slack + email).
  *
  * The digest covers RCA-enabled detectors only — a deliberate v1 narrowing.
- * Per-detector window counts carry no per-trace co-trigger info, so an
- * RCA-disabled detector is dropped even when it co-triggered with an RCA-enabled
- * one on the same trace. We err toward fewer alerts; per-trace precision is a
- * follow-up.
+ * Its header reports distinct findings across that same detector set, because
+ * per-detector trigger counts cannot be summed when detectors co-trigger the
+ * same finding. RCA-disabled detectors are excluded from both the header and
+ * breakdown.
  */
 export async function flushDigest(job: DigestFlushJob): Promise<void> {
   const { projectId, windowStart, windowMs } = job;
@@ -52,30 +52,39 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
     (process.env.DIGEST_SUMMARY_ENABLED ?? "").trim().toLowerCase() === "false";
   const summaryAllowed =
     !summariesKilled && !(recipients.rcaBlocked && recipients.billingPlan === PlanType.FREE);
-  const summary = await readDetectorWindowSummary(projectId, start, end, {
-    includeSummaries: summaryAllowed,
+
+  // Resolve the digest's detector scope before querying ClickHouse. The ids go
+  // in a POST body (rather than the URL) so projects with many detectors do not
+  // run into request-line limits.
+  const detectors = await prisma.detector.findMany({
+    where: { projectId, enableRca: true },
+    select: { id: true, name: true, enableRca: true },
   });
+  const enabledDetectors = detectors.filter((detector) => detector.enableRca);
+  if (enabledDetectors.length === 0) {
+    console.log(`[Digest] skip project=${projectId} window=${window} reason=no-rca-detectors`);
+    return;
+  }
+  const enabledDetectorIds = enabledDetectors.map((detector) => detector.id);
+  const { data: summary, distinctFindingCount } = await readDetectorWindowSummary(
+    projectId,
+    start,
+    end,
+    {
+      includeSummaries: summaryAllowed,
+      detectorIds: enabledDetectorIds,
+    },
+  );
   const triggeredIds = Object.keys(summary).filter((id) => summary[id].finding_count > 0);
   if (triggeredIds.length === 0) {
     console.log(`[Digest] skip project=${projectId} window=${window} reason=no-findings`);
     return; // nothing triggered in the window
   }
 
-  // Per-detector name + RCA-enabled flag; drop RCA-disabled detectors.
-  const detectors = await prisma.detector.findMany({
-    where: { id: { in: triggeredIds } },
-    select: { id: true, name: true, enableRca: true },
-  });
-  const nameById = new Map(detectors.map((d) => [d.id, d.name]));
-  const rcaEnabled = new Set(detectors.filter((d) => d.enableRca).map((d) => d.id));
-  const detectorIds = triggeredIds.filter((id) => rcaEnabled.has(id));
-  if (detectorIds.length === 0) {
-    console.log(`[Digest] skip project=${projectId} window=${window} reason=only-rca-disabled`);
-    return; // only RCA-disabled detectors fired → no digest
-  }
-
-  const entries = buildEntries(detectorIds, nameById, summary);
-  const total = entries.reduce((sum, e) => sum + e.findingCount, 0);
+  const nameById = new Map(enabledDetectors.map((detector) => [detector.id, detector.name]));
+  const entries = buildEntries(triggeredIds, nameById, summary);
+  // Do not sum entry counts: one finding can be shared by several detector runs.
+  const total = distinctFindingCount;
 
   // Best-effort LLM paragraph. Never blocks the digest: any failure inside
   // generateDigestSummary resolves to null and the digest sends as before.
@@ -87,7 +96,7 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
         projectName: recipients.projectName,
         windowStart: start,
         windowEnd: end,
-        detectors: detectorIds.map((id) => ({
+        detectors: triggeredIds.map((id) => ({
           name: nameById.get(id) ?? id,
           findingCount: summary[id].finding_count,
           sampleSummaries: summary[id].sample_summaries ?? [],

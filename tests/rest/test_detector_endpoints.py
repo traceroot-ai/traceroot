@@ -452,11 +452,30 @@ class TestInternalAuth:
 
 
 class TestListDetectorWindowSummary:
-    def _fake_aggregate(self, rows: list[tuple]):
+    def _fake_aggregate(self, rows: list[tuple], distinct_finding_count: int | None = None):
         # Rows are (detector_id, run_count, finding_count, latest_trace_id).
+        if distinct_finding_count is None:
+            distinct_finding_count = sum(row[2] for row in rows)
         return _make_query_result(
-            rows=rows,
-            column_names=["detector_id", "run_count", "finding_count", "latest_trace_id"],
+            rows=[(0, *row, row[2]) for row in rows]
+            + [
+                (
+                    1,
+                    "",
+                    sum(row[1] for row in rows),
+                    sum(row[2] for row in rows),
+                    "",
+                    distinct_finding_count,
+                )
+            ],
+            column_names=[
+                "is_total",
+                "detector_id",
+                "run_count",
+                "finding_count",
+                "latest_trace_id",
+                "distinct_finding_count",
+            ],
         )
 
     def test_returns_per_detector_counts(self, client, mock_ch, secret):
@@ -474,6 +493,7 @@ class TestListDetectorWindowSummary:
         assert resp.status_code == 200
         body = resp.json()
         assert body == {
+            "distinct_finding_count": 7,
             "data": {
                 "d-a": {
                     "finding_count": 7,
@@ -487,8 +507,111 @@ class TestListDetectorWindowSummary:
                     "sample_trace_ids": [],
                     "sample_summaries": [],
                 },
-            }
+            },
         }
+
+    def test_uses_clickhouse_total_row_instead_of_summing_detector_rows(
+        self, client, mock_ch, secret
+    ):
+        """Response parsing preserves ClickHouse's cross-detector total.
+
+        This is deliberately a client-contract unit test: ClickHouse returns a
+        grouping-set total of one alongside two per-detector trigger rows, and
+        the endpoint must not recompute that total as two. Query-shape tests
+        below separately guard the aggregate expression and single-pass order.
+        """
+        mock_ch.query.side_effect = [
+            _make_query_result(
+                # Put the total first so parsing does not depend on row order.
+                rows=[
+                    (1, "", 2, 2, "trace-2", 1),
+                    (0, "d-a", 1, 1, "trace-1", 1),
+                    (0, "d-b", 1, 1, "trace-2", 1),
+                ],
+                column_names=[
+                    "is_total",
+                    "detector_id",
+                    "run_count",
+                    "finding_count",
+                    "latest_trace_id",
+                    "distinct_finding_count",
+                ],
+            ),
+        ]
+
+        resp = client.get(
+            "/api/v1/internal/detector-window-summary",
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["distinct_finding_count"] == 1
+        assert body["data"]["d-a"]["finding_count"] == 1
+        assert body["data"]["d-b"]["finding_count"] == 1
+        assert sum(row["finding_count"] for row in body["data"].values()) == 2
+        sql = mock_ch.query.call_args.args[0]
+        assert "uniqExactIf(latest_finding_id, latest_finding_id IS NOT NULL)" in sql
+        assert "GROUP BY GROUPING SETS ((detector_id), ())" in sql
+
+    def test_post_scopes_rollup_to_requested_detector_ids(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-enabled", 2, 1, "trace-1")], distinct_finding_count=1)
+        ]
+
+        resp = client.post(
+            "/api/v1/internal/detector-window-summary",
+            json={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "detector_ids": ["d-enabled"],
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["distinct_finding_count"] == 1
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "detector_id IN {detector_ids:Array(String)}" in sql
+        assert params["detector_ids"] == ["d-enabled"]
+
+    def test_post_empty_detector_scope_returns_zero_without_querying(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-window-summary",
+            json={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "detector_ids": [],
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {"data": {}, "distinct_finding_count": 0}
+        mock_ch.query.assert_not_called()
+
+    def test_rollup_uses_one_grouping_sets_pass_after_collapse_and_window(
+        self, client, mock_ch, secret
+    ):
+        mock_ch.query.side_effect = [self._fake_aggregate([])]
+
+        resp = client.get(
+            "/api/v1/internal/detector-window-summary",
+            params={"project_id": "p1", "start_after": "2026-04-20T00:00:00Z"},
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        assert sql.count("FROM windowed_runs") == 1
+        assert "GROUP BY GROUPING SETS ((detector_id), ())" in sql
+        assert sql.index("GROUP BY detector_id, run_id") < sql.index("ts >=")
+        assert sql.index("ts >=") < sql.index("GROUP BY GROUPING SETS")
 
     def test_empty_when_no_runs_in_window(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_aggregate([])]
@@ -501,7 +624,7 @@ class TestListDetectorWindowSummary:
             headers={"X-Internal-Secret": secret},
         )
         assert resp.status_code == 200
-        assert resp.json() == {"data": {}}
+        assert resp.json() == {"data": {}, "distinct_finding_count": 0}
 
     def test_passes_end_before_when_provided(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_aggregate([])]
@@ -632,6 +755,7 @@ class TestListDetectorWindowSummary:
             headers={"X-Internal-Secret": secret},
         )
         assert resp.json() == {
+            "distinct_finding_count": 0,
             "data": {
                 "d-a": {
                     "finding_count": 0,
@@ -639,7 +763,7 @@ class TestListDetectorWindowSummary:
                     "sample_trace_ids": [],
                     "sample_summaries": [],
                 }
-            }
+            },
         }
 
     # ── include_summaries (digest LLM-summary sample) ────────────────────────
@@ -702,6 +826,28 @@ class TestListDetectorWindowSummary:
         # Bounded read: a stalled query degrades to counts-only via the except
         # path rather than holding the caller open.
         assert second.kwargs.get("settings") == {"max_execution_time": 10}
+
+    def test_post_detector_scope_also_limits_summary_sampling(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-enabled", 10, 3, "t-a")], distinct_finding_count=3),
+            self._fake_summaries([("d-enabled", "kept sentence")]),
+        ]
+
+        resp = client.post(
+            "/api/v1/internal/detector-window-summary",
+            json={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "include_summaries": True,
+                "detector_ids": ["d-enabled"],
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert resp.status_code == 200
+        summaries_sql = mock_ch.query.call_args_list[1].args[0]
+        assert summaries_sql.count("detector_id IN {detector_ids:Array(String)}") == 2
+        assert mock_ch.query.call_args_list[1].kwargs["parameters"]["detector_ids"] == ["d-enabled"]
 
     def test_include_summaries_defaults_off(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 100, 7, "t-a")])]
