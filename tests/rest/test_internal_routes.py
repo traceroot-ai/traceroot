@@ -29,6 +29,10 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/internal/traces"),
     # Alerts (#1889): the worker asks REST to evaluate a rule's measure over a window.
     ("POST", "/api/v1/internal/alert-evaluate"),
+    # Dashboard mirror for the agent (be0f0f29): read-only listing and detail,
+    # mounted from routers/project_dashboards.py rather than routers/internal/.
+    ("GET", "/api/v1/internal/projects/{project_id}/dashboards"),
+    ("GET", "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}"),
 }
 
 
