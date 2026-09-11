@@ -18,9 +18,9 @@ function makeTools(client: ApiClient) {
 }
 
 describe("createRegistryWriteTools", () => {
-  it("exposes exactly the three project-scoped write tools — no structural creates", () => {
+  it("exposes exactly the four project-scoped write tools — no structural creates", () => {
     const names = makeTools(stubClient().client).map((t) => t.name);
-    expect(names).toEqual(["create_detector", "create_dashboard", "create_widget"]);
+    expect(names).toEqual(["create_detector", "create_dashboard", "create_widget", "create_alert"]);
   });
 
   it("keeps all six write tools in the registry — the agent trim must not leak into codegen", () => {
@@ -450,8 +450,261 @@ describe("createRegistryWriteTools", () => {
   });
 });
 
+describe("create_alert", () => {
+  const alertTool = () => makeTools(stubClient().client).find((t) => t.name === "create_alert")!;
+  const createdAlert = {
+    created: true,
+    alert: {
+      id: "al1",
+      name: "p95 latency",
+      view: "SPANS",
+      measure: "latency",
+      aggregation: "p95",
+      window: "10m",
+      thresholdOperator: ">",
+      threshold: 2000,
+      filters: [],
+      renotify: { mode: "OFF" },
+      noDataMode: "HOLD",
+    },
+  };
+
+  it("hides the ambient project_id and requires the rule fields the public schema requires", () => {
+    const tool = alertTool();
+    expect(tool.parameters.properties).not.toHaveProperty("project_id");
+    expect(tool.parameters.required).toEqual([
+      "label",
+      "name",
+      "view",
+      "measure",
+      "aggregation",
+      "window",
+      "threshold_operator",
+      "threshold",
+      "renotify",
+    ]);
+    expect(Object.keys(tool.parameters.properties).sort()).toEqual([
+      "aggregation",
+      "filters",
+      "label",
+      "measure",
+      "name",
+      "no_data_mode",
+      "renotify",
+      "threshold",
+      "threshold_operator",
+      "view",
+      "window",
+    ]);
+  });
+
+  it("tells the model the measure vocabulary and its units, since the registry text does not", () => {
+    const { description } = alertTool();
+    expect(description).toContain("latency in milliseconds");
+    expect(description).toContain("2 seconds of latency is 2000");
+    expect(description).toContain("aggregation uniq only");
+    expect(description).toMatch(/list the project's alerts first/);
+  });
+
+  it("POSTs the camelCase rule with renotify and filters reshaped, actor and provenance injected", async () => {
+    const { client, request } = stubClient(createdAlert);
+    const tool = makeTools(client).find((t) => t.name === "create_alert")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      name: "p95 latency",
+      view: "SPANS",
+      measure: "latency",
+      aggregation: "p95",
+      window: "10m",
+      threshold_operator: ">",
+      threshold: 2000,
+      filters: [
+        { field: "environment", op: "=", value: "production", key: null },
+        { field: "metadata", key: "tenant", op: "contains", value: "acme" },
+      ],
+      renotify: { mode: "EVERY", interval_minutes: 30 },
+      no_data_mode: "ZERO",
+    });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/alerts", {
+      body: {
+        actorUserId: "u1",
+        transport: "agent",
+        agentSessionId: "as1",
+        projectId: "p1",
+        name: "p95 latency",
+        view: "SPANS",
+        measure: "latency",
+        aggregation: "p95",
+        window: "10m",
+        thresholdOperator: ">",
+        threshold: 2000,
+        filters: [
+          { field: "environment", op: "=", value: "production" },
+          { field: "metadata", op: "contains", value: "acme", key: "tenant" },
+        ],
+        renotify: { mode: "EVERY", intervalMinutes: 30 },
+        noDataMode: "ZERO",
+      },
+      signal: undefined,
+    });
+    expect(result.content[0]!.text).toBe(
+      'Created alert "p95 latency" (id al1) — http://localhost:3000/projects/p1/alerts/al1',
+    );
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "alert",
+      resourceId: "al1",
+      name: "p95 latency",
+      created: true,
+      projectId: "p1",
+    });
+  });
+
+  it("links the created alert on the browser-reachable origin, not the internal one", async () => {
+    const previous = process.env.TRACEROOT_PUBLIC_UI_URL;
+    process.env.TRACEROOT_PUBLIC_UI_URL = "https://app.example.com";
+    try {
+      const { client } = stubClient(createdAlert);
+      const tool = makeTools(client).find((t) => t.name === "create_alert")!;
+      const result = await tool.execute("id", {
+        label: "x",
+        name: "p95 latency",
+        view: "SPANS",
+        measure: "latency",
+        aggregation: "p95",
+        window: "10m",
+        threshold_operator: ">",
+        threshold: 2000,
+        renotify: { mode: "OFF" },
+      });
+      expect(result.content[0]!.text).toContain("https://app.example.com/projects/p1/alerts/al1");
+    } finally {
+      if (previous === undefined) delete process.env.TRACEROOT_PUBLIC_UI_URL;
+      else process.env.TRACEROOT_PUBLIC_UI_URL = previous;
+    }
+  });
+
+  it("sends an empty filters list when the model omits filters — the write service requires the array", async () => {
+    const { client, request } = stubClient(createdAlert);
+    const tool = makeTools(client).find((t) => t.name === "create_alert")!;
+    await tool.execute("id", {
+      label: "x",
+      name: "p95 latency",
+      view: "SPANS",
+      measure: "latency",
+      aggregation: "p95",
+      window: "10m",
+      threshold_operator: ">",
+      threshold: 2000,
+      renotify: { mode: "OFF" },
+    });
+    const [, , options] = request.mock.calls[0] as unknown as [
+      string,
+      string,
+      { body: Record<string, unknown> },
+    ];
+    expect(options.body.filters).toEqual([]);
+    expect(options.body.renotify).toEqual({ mode: "OFF" });
+    expect(options.body).not.toHaveProperty("noDataMode");
+  });
+
+  it("passes a malformed renotify or filters value through for the service to refuse", async () => {
+    const { client, request } = stubClient(createdAlert);
+    const tool = makeTools(client).find((t) => t.name === "create_alert")!;
+    await tool.execute("id", {
+      label: "x",
+      name: "n",
+      view: "SPANS",
+      measure: "count",
+      aggregation: "count",
+      window: "1m",
+      threshold_operator: ">",
+      threshold: 1,
+      renotify: "off",
+      filters: "none",
+    });
+    const [, , options] = request.mock.calls[0] as unknown as [
+      string,
+      string,
+      { body: Record<string, unknown> },
+    ];
+    expect(options.body.renotify).toBe("off");
+    expect(options.body.filters).toBe("none");
+  });
+
+  describe("under pi's argument validation", () => {
+    const call = (overrides: Record<string, unknown>) => ({
+      id: "tc1",
+      name: "create_alert",
+      arguments: {
+        label: "add",
+        name: "p95 latency",
+        view: "SPANS",
+        measure: "latency",
+        aggregation: "p95",
+        window: "10m",
+        threshold_operator: ">",
+        threshold: 2000,
+        renotify: { mode: "OFF" },
+        ...overrides,
+      },
+    });
+
+    it("keeps the threshold numeric: a numeric string is coerced, a word is refused", () => {
+      // The service stores threshold as a decimal and compares it as a
+      // number; pi's validation coerces "2000" to 2000 before the tool runs
+      // and refuses anything that is not a number at all.
+      const tool = alertTool();
+      expect(() => validateToolArguments(tool, call({ threshold: 2000 }))).not.toThrow();
+      expect(() => validateToolArguments(tool, call({ threshold: 0.5 }))).not.toThrow();
+      expect(validateToolArguments(tool, call({ threshold: "2000" }))).toMatchObject({
+        threshold: 2000,
+      });
+      expect(() => validateToolArguments(tool, call({ threshold: "two" }))).toThrow(
+        /threshold: must be number/,
+      );
+    });
+
+    it("accepts renotify EVERY with an integer interval and rejects a non-integer or missing mode", () => {
+      const tool = alertTool();
+      expect(() =>
+        validateToolArguments(tool, call({ renotify: { mode: "EVERY", interval_minutes: 30 } })),
+      ).not.toThrow();
+      expect(() =>
+        validateToolArguments(tool, call({ renotify: { mode: "EVERY", interval_minutes: 1.5 } })),
+      ).toThrow();
+      expect(() =>
+        validateToolArguments(tool, call({ renotify: { interval_minutes: 30 } })),
+      ).toThrow();
+      expect(() => validateToolArguments(tool, call({ renotify: { mode: "HOURLY" } }))).toThrow();
+    });
+
+    it("rejects a window, operator or view outside the stable enums", () => {
+      const tool = alertTool();
+      expect(() => validateToolArguments(tool, call({ window: "15m" }))).toThrow();
+      expect(() => validateToolArguments(tool, call({ threshold_operator: "=>" }))).toThrow();
+      expect(() => validateToolArguments(tool, call({ view: "TRACES" }))).toThrow();
+    });
+
+    it("accepts string and numeric filter values", () => {
+      const tool = alertTool();
+      expect(() =>
+        validateToolArguments(
+          tool,
+          call({
+            filters: [
+              { field: "model_name", op: "=", value: "gpt-4o" },
+              { field: "metadata", key: "retries", op: "=", value: 3 },
+            ],
+          }),
+        ),
+      ).not.toThrow();
+    });
+  });
+});
+
 describe("createRegistryWriteTools construction", () => {
-  it("throws at construction when the registry lacks one of the three write entries", async () => {
+  it("throws at construction when the registry lacks one of the bound write entries", async () => {
     vi.resetModules();
     vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
       const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();

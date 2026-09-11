@@ -85,7 +85,7 @@ describe("createWritePolicyHook", () => {
   it("fails the agent-bound registry creates closed on a session-less hook (nothing to park on)", async () => {
     // The registry creates carry approvalClass "confirm"; without a session
     // channel there is no user to ask, so they block instead of parking.
-    for (const name of ["create_detector", "create_dashboard", "create_widget"]) {
+    for (const name of ["create_detector", "create_dashboard", "create_widget", "create_alert"]) {
       await expect(sessionlessHook(contextFor(name))).resolves.toEqual({
         block: true,
         reason: CONFIRMATION_UNAVAILABLE_REASON,
@@ -140,6 +140,32 @@ describe("createWritePolicyHook", () => {
 });
 
 describe("createWritePolicyHook — parked confirmations", () => {
+  it("parks create_alert on the shared registry's own policy, like the other creates", async () => {
+    // Built on the real registry, not CONFIRM_ENTRY: the test is that the
+    // generated policy for create_alert is confirm-class, so an alert proposal
+    // lands on a confirmation card instead of running or being blocked.
+    const decisions = new PendingDecisions();
+    const emitted: ConfirmationPendingEvent[] = [];
+    decisions.registerChannel("s1", {
+      userId: "u1",
+      emit: (event) => emitted.push(event),
+      keepalive: vi.fn(),
+    });
+    const hook = createWritePolicyHook(undefined, { sessionId: "s1", decisions });
+    const args = { name: "p95 latency", measure: "latency", threshold: 2000 };
+    const parked = settlement(hook(contextFor("create_alert", args)));
+    await tick();
+    expect(parked.settled()).toBe(false);
+    expect(emitted).toEqual([
+      expect.objectContaining({
+        type: "confirmation_pending",
+        toolName: "create_alert",
+        toolCallId: "call-create_alert",
+        args,
+      }),
+    ]);
+  });
+
   it("parks an attended confirm call: emits confirmation_pending and does not settle", async () => {
     const { decisions, emitted, hook } = attendedSetup();
     const parked = settlement(hook(contextFor("create_detector", { name: "latency" })));
