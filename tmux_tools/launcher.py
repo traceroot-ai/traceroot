@@ -67,7 +67,7 @@ def _run(
 
 # Keys that must hold a unique, unguessable value in every install. .env.example
 # ships them empty because a value committed here is a value every install shares.
-GENERATED_KEYS = ("INTERNAL_API_SECRET", "BETTER_AUTH_SECRET")
+GENERATED_KEYS = ("INTERNAL_API_SECRET", "INTERNAL_API_SECRET_AGENT", "BETTER_AUTH_SECRET")
 
 # Values this repository published at some point in .env.example or
 # docker-compose.prod.yml. Nobody chose them, so replacing them is safe; a value

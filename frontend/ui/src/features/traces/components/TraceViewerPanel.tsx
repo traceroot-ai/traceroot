@@ -21,6 +21,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
 import type { TraceDetail } from "@/types/api";
+import type { TraceSource } from "@/lib/api/traces";
 import { ApiError } from "@/lib/api/errors";
 import type { TraceSelection } from "../types";
 import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
@@ -105,10 +106,11 @@ interface TraceViewerPanelProps {
    */
   headerStatus?: ReactNode;
   /**
-   * Scope the trace fetch: "detector" opens a detector self-trace (excluded
-   * from normal reads), "user" excludes self-traces. Omit for no scoping.
+   * Scope the trace fetch: "detector" opens a detector self-trace, "agent"
+   * opens an agent (RCA/chat) trace (both excluded from normal reads), "user"
+   * excludes internal traces. Omit for no scoping.
    */
-  source?: "detector" | "user";
+  source?: TraceSource;
   /**
    * ISO timestamp of the detector run being viewed. Bounds how long a missing
    * self-trace still reads as "being recorded" — see
