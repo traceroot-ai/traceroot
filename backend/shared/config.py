@@ -7,8 +7,12 @@ Environment variables are loaded from .env by entrypoints (rest/main.py,
 worker/celery_app.py) before this module is first imported.
 """
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Values shipped as defaults in .env.example / docker-compose.prod.yml. They are
+# public, so they are not secrets and must never be accepted as one.
+_PUBLISHED_INTERNAL_SECRETS = frozenset({"dev-internal-secret", "internal-secret", "changeme"})
 
 
 class ClickHouseSettings(BaseSettings):
@@ -83,6 +87,19 @@ _PLAN_LIMITS_EXPORT: dict[str, str] = {
     "pro": "1000/minute",
     "enterprise": "1000/minute",
 }
+# Writes launch with the read numbers: control-plane writes are far rarer than
+# reads, so the read budget is a comfortable ceiling, and a separate bucket
+# means the tiers can tighten later without touching read quota.
+# NOTE: the write path stamps every account credential as "free" (see
+# ``_account_result_for_user`` in the public deps), so the "free" row is the
+# EFFECTIVE GLOBAL write limit for all tenants; the paid rows are unreachable
+# until per-request plan resolution lands. Tightening "free" tightens everyone.
+_PLAN_LIMITS_WRITE: dict[str, str] = {
+    "free": "60/minute",
+    "starter": "300/minute",
+    "pro": "1000/minute",
+    "enterprise": "1000/minute",
+}
 
 
 def normalize_plan(plan: str | None) -> str:
@@ -106,7 +123,8 @@ class RateLimitSettings(BaseSettings):
     """Operational rate-limit settings for the public REST API.
 
     Plan tiers are a product decision and live as code constants
-    (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ``, ``_PLAN_LIMITS_EXPORT`` above)
+    (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ``, ``_PLAN_LIMITS_EXPORT``,
+    ``_PLAN_LIMITS_WRITE`` above)
     — not env-overridable.
     The knobs here are the operational ones an SRE legitimately needs at runtime.
 
@@ -134,6 +152,7 @@ class RateLimitSettings(BaseSettings):
         table = {
             "ingest": _PLAN_LIMITS_INGEST,
             "export": _PLAN_LIMITS_EXPORT,
+            "write": _PLAN_LIMITS_WRITE,
         }.get(bucket, _PLAN_LIMITS_READ)
         return table[normalize_plan(plan)]
 
@@ -162,6 +181,19 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("TRACEROOT_PUBLIC_UI_URL", "NEXT_PUBLIC_APP_URL"),
     )
     internal_api_secret: str = ""
+
+    @field_validator("internal_api_secret")
+    @classmethod
+    def _ignore_published_placeholder(cls, value: str) -> str:
+        """Treat a placeholder this repository published as if it were unset.
+
+        .env.example and docker-compose.prod.yml both shipped working defaults
+        for this value, so any deployment that never overrode them shared a
+        secret with every other deployment. Both call sites already fail closed
+        on an empty secret, so mapping the published strings to "" turns a
+        silently-trusted value into a visible misconfiguration.
+        """
+        return "" if value.strip().lower() in _PUBLISHED_INTERNAL_SECRETS else value
 
     # Live SSE: how long a completed root span must stay quiet before the
     # stream emits trace_complete. Must exceed the SDK's flush interval

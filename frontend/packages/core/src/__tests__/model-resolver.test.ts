@@ -32,11 +32,38 @@ describe("resolvePiModel", () => {
     expect(m.provider).toBe("anthropic");
   });
 
-  it("uses openai-responses for system gpt-5.3-codex (per-model override)", () => {
-    const m = resolvePiModel("gpt-5.3-codex", null);
+  it("uses openai-responses for system OpenAI models", () => {
+    for (const id of ["gpt-5", "gpt-5.4", "gpt-5.3-codex"]) {
+      const m = resolvePiModel(id, null);
+      expect(m.api, id).toBe("openai-responses");
+      expect(m.provider).toBe("openai");
+      expect(m.id).toBe(id);
+    }
+  });
+
+  it("keeps the o-series on openai-completions (per-model catalog override)", () => {
+    for (const id of ["o3", "o4-mini"]) {
+      expect(resolvePiModel(id, null).api, `system ${id}`).toBe("openai-completions");
+      const cfg: ProviderModelConfig = {
+        adapter: "openai",
+        key: "sk-test",
+        baseUrl: null,
+        config: null,
+      };
+      expect(resolvePiModel(id, cfg).api, `byok ${id}`).toBe("openai-completions");
+    }
+  });
+
+  it("uses openai-responses for BYOK OpenAI with no override", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "openai",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+    const m = resolvePiModel("gpt-5.6-sol", cfg);
     expect(m.api).toBe("openai-responses");
     expect(m.provider).toBe("openai");
-    expect(m.id).toBe("gpt-5.3-codex");
   });
 
   it("uses openai-completions for BYOK DeepSeek with provider mapped to openai", () => {
@@ -76,27 +103,15 @@ describe("resolvePiModel", () => {
   });
 
   it("respects per-model modelProtocols override over adapter default", () => {
+    // The escape hatch for OpenAI-compatible proxies that only speak chat completions.
     const cfg: ProviderModelConfig = {
       adapter: "openai",
       key: "sk-test",
-      baseUrl: null,
-      config: { modelProtocols: { "gpt-5": "openai-responses" } },
+      baseUrl: "https://proxy.example.com/v1",
+      config: { modelProtocols: { "gpt-5": "openai-completions" } },
     };
     const m = resolvePiModel("gpt-5", cfg);
-    expect(m.api).toBe("openai-responses");
-  });
-
-  it("uses catalog apiProtocol for BYOK Codex when no modelProtocols override is set", () => {
-    // gpt-5.3-codex has apiProtocol: "openai-responses" in ADAPTER_MODELS.openai;
-    // resolver should pick that up before the openai adapter default ("openai-completions").
-    const cfg: ProviderModelConfig = {
-      adapter: "openai",
-      key: "sk-test",
-      baseUrl: null,
-      config: null,
-    };
-    const m = resolvePiModel("gpt-5.3-codex", cfg);
-    expect(m.api).toBe("openai-responses");
+    expect(m.api).toBe("openai-completions");
   });
 
   it("uses caller-supplied baseUrl over adapter default", () => {

@@ -37,7 +37,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from shared.enums import SpanKind, SpanStatus
+from shared.enums import EVALUATION_SPAN_KINDS, SpanKind, SpanStatus
 from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_TREE_ATTRIBUTES
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,29 @@ logger = logging.getLogger(__name__)
 # deliberately-empty spans get fabricated counts. Python only — the TypeScript scope
 # ("@traceroot-ai/claude-agent-sdk") reports real per-turn usage and is excluded.
 _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES = frozenset({"traceroot.claude-agent-sdk"})
+
+
+def _has_recorded_response(output: Any) -> bool:
+    """Whether a span's recorded output represents an actual produced response.
+
+    Takes the RAW attribute value, before `json.dumps`. That matters: an empty OTLP
+    arrayValue/kvlistValue arrives from `extract_attribute_value` as [] / {} and
+    serializes to the truthy strings "[]" / "{}" — but a model that literally
+    answered "[]" (an empty structured-output array is a real, billed response)
+    serializes to the same two characters. Only the pre-serialization type tells
+    the two apart, so matching serialized text against sentinels would withhold
+    billed cost from a genuine response. Used only to decide whether an ERRORED
+    span produced anything; see the estimation gate below.
+    """
+    if output is None:
+        return False
+    if isinstance(output, str):
+        return bool(output.strip())
+    if isinstance(output, (list, dict)):
+        return bool(output)
+    # Any other scalar the extractor can yield (int/float/bool) is a produced
+    # value — 0 and False included.
+    return True
 
 
 def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
@@ -502,11 +525,18 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         otel_kind: OTEL span kind (int or string like "SPAN_KIND_INTERNAL")
 
     Returns:
-        One of: "LLM", "SPAN", "AGENT", "TOOL"
+        One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER"
     """
-    # Check explicit type attribute (handle None values)
+    # Check explicit type attribute (handle None values). EVALUATION_SPAN_KINDS is
+    # included so the SDK's offline-evaluation spans are preserved rather than silently
+    # coerced to SPAN. Preserving SCORER in particular is load-bearing beyond
+    # classification: cost attribution walks the scorer subtree to keep judge cost out
+    # of the candidate's cost.
     explicit_type = str_attr(attrs.get("traceroot.span.type")).upper()
-    if explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL):
+    if (
+        explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL)
+        or explicit_type in EVALUATION_SPAN_KINDS
+    ):
         return explicit_type
 
     # Check OpenInference semantic conventions (handle None values)
@@ -606,6 +636,16 @@ def transform_otel_to_clickhouse(
     _trace_name_candidates: dict[str, tuple[int, str]] = {}
     trace_git_attrs: dict[str, dict[str, str | None]] = {}
 
+    # Trace-level fields collected from ANY span in the batch and applied post-loop.
+    # Both are attached to the shallow (eager) trace record as well as the root-upgraded
+    # one: OTel's BatchSpanProcessor exports a span when it ENDS, so children routinely
+    # export in an earlier batch than their parent and the root is usually the LAST span
+    # of a trace to arrive. Reading these only off the root would leave every trace
+    # unclassified until the root lands — and permanently unclassified if the process
+    # dies first, a state nothing reconciles.
+    _trace_is_evaluation: set[str] = set()  # any eval-kind span seen for this trace
+    _trace_environment: dict[str, str] = {}  # first non-null environment seen
+
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
 
@@ -653,8 +693,27 @@ def transform_otel_to_clickhouse(
                         # rather than the proto's own string field.
                         span_name = str_attr(tool_name)
 
-                # Build span record
+                # Build span record.
+                #
+                # `environment` is the user's deployment tag (TRACEROOT_ENVIRONMENT:
+                # production, staging, ...) and is passed through untouched. The
+                # "this is an offline-evaluation run" classification is a SEPARATE
+                # field, never folded into this one: `environment` is a user-namespace
+                # value and a user-namespace value must not double as an internal
+                # control flag. Overloading it would (a) misclassify a customer who
+                # legitimately names their environment "evaluation", hiding their real
+                # traces, and (b) silently fail to classify any eval run in a project
+                # that sets TRACEROOT_ENVIRONMENT — the common case in CI or an
+                # SDK-initialised app, since those spans already carry the attribute.
+                #
+                # The classification is derived from the span kind alone, which the
+                # SDK's eval engine sets and the user cannot influence.
                 environment = span_attrs.get("traceroot.environment")
+                is_evaluation = span_kind in EVALUATION_SPAN_KINDS
+                if is_evaluation:
+                    _trace_is_evaluation.add(trace_id)
+                if isinstance(environment, str):
+                    _trace_environment.setdefault(trace_id, environment)
                 span_record = {
                     "span_id": span_id,
                     "trace_id": trace_id,
@@ -668,6 +727,20 @@ def transform_otel_to_clickhouse(
                 }
                 if isinstance(environment, str):
                     span_record["environment"] = environment
+                if is_evaluation:
+                    span_record["is_evaluation"] = True
+
+                # Check span status for errors. Determined HERE, before anything reads
+                # it, because the token/cost section below gates text estimation on it
+                # — stamping the status further down (as this used to) left the
+                # estimation blind to failures and priced calls that never ran.
+                status = otel_span.get("status", {})
+                status_code = status.get("code", 0)
+                # Handle both int (0, 1, 2) and string ("STATUS_CODE_ERROR") formats
+                span_is_error = status_code == 2 or status_code == "STATUS_CODE_ERROR"
+                if span_is_error:
+                    span_record["status"] = SpanStatus.ERROR
+                    span_record["status_message"] = status.get("message")
 
                 # Extract git source fields for span
                 git_source_file = str_or_none(span_attrs.get("traceroot.git.source_file"))
@@ -720,6 +793,13 @@ def transform_otel_to_clickhouse(
                     span_record["output"] = (
                         json.dumps(span_output) if not isinstance(span_output, str) else span_output
                     )
+
+                # A failed span with no recorded output. Gates text token estimation
+                # below — see the rationale there for why recorded output, not error
+                # status alone, is the discriminator. Named for what it observes: the
+                # absence of output is a property of what the instrumentor recorded,
+                # and stands in for "nothing was produced".
+                errored_without_response = span_is_error and not _has_recorded_response(span_output)
 
                 # Model & token fields — extract API-provided counts whenever a model
                 # name is present, not just for LLM spans. Auto-instrumentors
@@ -788,6 +868,10 @@ def transform_otel_to_clickhouse(
                         span_attrs,
                         [
                             "llm.token_count.prompt_details.cache_write",
+                            # traceroot SDKs' Claude Agent SDK instrumentation
+                            # (python + ts) spells the same bucket with
+                            # Anthropic's "cache_creation" word:
+                            "llm.token_count.prompt_details.cache_creation",
                             "gen_ai.usage.cache_creation.input_tokens",
                             "gen_ai.usage.cache_creation_input_tokens",
                             "gen_ai.usage.details.cache_write_tokens",
@@ -799,9 +883,9 @@ def transform_otel_to_clickhouse(
                     )
                     # Optional Anthropic 1-hour cache-write portion (1h write = 2.0x
                     # input, versus 1.25x for the default 5-minute write). A SUBSET of
-                    # cache_write, priced at its own rate when present; absent for every
-                    # emitter today (the split is dropped at the instrumentation layer),
-                    # so this defaults to None -> 0 and leaves pricing unchanged.
+                    # cache_write, priced at its own rate when present; emitters that
+                    # don't distinguish TTLs simply omit it, and this defaults to
+                    # None -> 0, leaving pricing at the combined rate.
                     api_cache_write_1h_tokens = first_present_number(
                         span_attrs,
                         [
@@ -902,12 +986,12 @@ def transform_otel_to_clickhouse(
                         )
                         # Store a GROSS (cache-inclusive) input reconstructed from the
                         # disjoint buckets, so the input column always reconciles with
-                        # its cache breakdown. Net/exclusive emitters (e.g.
-                        # claude-agent-sdk) report only the non-cached tokens in
-                        # llm.token_count.prompt with cache as separate additive
-                        # buckets, so the reported input alone (e.g. 2) understates the
-                        # true total; summing the buckets recovers it. Gross emitters
-                        # are unchanged (cache is already a subset of the input).
+                        # its cache breakdown. Net/exclusive emitters report only the
+                        # non-cached tokens in llm.token_count.prompt with cache as
+                        # separate additive buckets, so the reported input alone
+                        # (e.g. 2) understates the true total; summing the buckets
+                        # recovers it. Gross emitters are unchanged (cache is already
+                        # a subset of the input).
                         gross_input = (
                             buckets.input_uncached + buckets.cache_read + buckets.cache_write
                         )
@@ -926,9 +1010,9 @@ def transform_otel_to_clickhouse(
                             ),
                         }
                         # Persist the 1-hour cache-write portion only when an emitter
-                        # actually reports it, so spans with no 1-hour portion (every
-                        # span today) keep an identical usage_details map. The read path
-                        # defaults the missing key to 0.
+                        # actually reports it, so spans with no 1-hour portion keep an
+                        # identical usage_details map. The read path defaults the
+                        # missing key to 0.
                         if buckets.cache_write_1h:
                             span_record["usage_details"]["cache_write_1h_tokens"] = (
                                 buckets.cache_write_1h
@@ -939,6 +1023,7 @@ def transform_otel_to_clickhouse(
                     elif (
                         not aggregate_wrapper
                         and span_kind == SpanKind.LLM
+                        and not errored_without_response
                         and not _scope_skips_text_token_estimation(scope_name)
                     ):
                         # Fall back to text-based estimation — only for LLM (completion)
@@ -952,6 +1037,32 @@ def transform_otel_to_clickhouse(
                         # text be estimated into fabricated counts.
                         # Scopes in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES leave even their
                         # LLM spans deliberately unset and are skipped as well.
+                        # Spans that errored WITHOUT producing a response are excluded
+                        # too: a rejected call (400, auth failure, provider reject)
+                        # burned nothing upstream, but the instrumentor still records
+                        # the model — it comes from the REQUEST — and the prompt, which
+                        # is exactly the shape this branch prices. Estimating it invents
+                        # an input-token cost for a call that never ran.
+                        # The gate is deliberately narrower than "span errored",
+                        # because the two error shapes are not alike. A rejected call
+                        # records no output: openinference's non-streaming wrappers call
+                        # a bare finish_tracing() on the error path, attaching no output
+                        # attributes. A stream that dies mid-response DOES record its
+                        # accumulated partial output (openinference _stream.py passes
+                        # _ResponseExtractor/_MessageExtractor into _finish_tracing even
+                        # on the error path) — and there the prompt was billed in full
+                        # and the partial output really was generated, so estimating is
+                        # far closer to the truth than zero. Recorded output is what
+                        # separates them.
+                        # Known limitation: a SELF-instrumented span that stores an
+                        # error message as its output (`except: set_output(str(e))`)
+                        # reads as a response and gets estimated. Distinguishing an
+                        # error payload from a model response would take heuristics
+                        # worse than the residual, so it is accepted: the span's own
+                        # instrumentation asserted there was output.
+                        # Only ESTIMATION is gated either way; reported usage above is
+                        # kept on error spans, since a provider that does report counts
+                        # on a failure is reporting real ones.
                         from worker.tokens import calculate_cost
 
                         usage = calculate_cost(
@@ -1010,14 +1121,6 @@ def transform_otel_to_clickhouse(
                     }
                     if extra_attrs:
                         span_record["metadata"] = json.dumps(extra_attrs)
-
-                # Check span status for errors
-                status = otel_span.get("status", {})
-                status_code = status.get("code", 0)
-                # Handle both int (0, 1, 2) and string ("STATUS_CODE_ERROR") formats
-                if status_code == 2 or status_code == "STATUS_CODE_ERROR":
-                    span_record["status"] = SpanStatus.ERROR
-                    span_record["status_message"] = status.get("message")
 
                 spans.append(span_record)
 
@@ -1151,6 +1254,23 @@ def transform_otel_to_clickhouse(
         if trace_id in traces:
             traces[trace_id]["name"] = best_name
 
+    # Classify the trace from ANY eval-kind span in the batch, not just the root, so a
+    # batch of {SCORER, TASK} whose EVALUATION root has not been exported yet still
+    # writes a classified trace row. The trace record is then never less classified than
+    # its own spans, and the flag only ever goes 0 -> 1.
+    for trace_id in _trace_is_evaluation:
+        if trace_id in traces:
+            traces[trace_id]["is_evaluation"] = True
+
+    # Same for the user's environment tag: the shallow record would otherwise carry no
+    # environment until the root arrives. The root-upgrade block above already set it
+    # authoritatively when the root IS in this batch, so only fill the gap here.
+    for trace_id, env in _trace_environment.items():
+        if trace_id in traces and not traces[trace_id].get("environment"):
+            traces[trace_id]["environment"] = env
+
+    # Update trace records with user_id/session_id collected from child spans
+    # (in case child spans with these attrs came after the root span was processed)
     # Update trace records with user_id/session_id collected from child spans (in
     # case child spans with these attrs came after the root span was processed).
     for trace_id, attrs in trace_attrs.items():

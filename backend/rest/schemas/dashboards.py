@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 DisplayType = Literal["line", "area", "bar", "pie", "number", "table", "histogram"]
-AggName = Literal["count", "sum", "avg", "min", "max", "p50", "p95", "p99"]
+AggName = Literal["count", "sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99", "uniq"]
 
 
 class _StrictModel(BaseModel):
@@ -29,7 +29,16 @@ class WidgetFilter(_StrictModel):
     op: Literal["=", "contains", ">", ">=", "<", "<="]
     # min_length mirrors the frontend schema: an empty value means the filter
     # was never completed and would silently match only empty-valued rows.
-    value: Annotated[str, StringConstraints(min_length=1)] | float
+    # allow_inf_nan=False: json.loads accepts bare NaN/Infinity tokens, but a
+    # stored non-finite float can never be re-encoded by a strict JSON encoder
+    # (the write proxy's httpx client included) — reject it at validation.
+    value: (
+        Annotated[str, StringConstraints(min_length=1)]
+        | Annotated[float, Field(allow_inf_nan=False)]
+    )
+    # The map key for a keyed field. Unconstrained here: whether a key is required,
+    # forbidden or over-length depends on the field, so the compiler raises those.
+    key: str | None = None
 
 
 class WidgetMetric(_StrictModel):
@@ -61,6 +70,11 @@ class WidgetQueryRequest(_StrictModel):
     spec: WidgetSpec
     start_time: datetime
     end_time: datetime
+    # Time-series bucket width, when the caller needs one specific grain rather than
+    # the range-derived one. Rejected (422) on displays that carry no time axis.
+    # 86_400 (one day) is the coarsest grain the range-derived path ever picks,
+    # so an explicit bucket may refine the automatic grain but never exceed it.
+    bucket_seconds: int | None = Field(default=None, ge=1, le=86_400)
 
 
 class WidgetQueryResponse(BaseModel):

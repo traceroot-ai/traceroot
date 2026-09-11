@@ -68,6 +68,7 @@ class ClickHouseClient:
                     now,  # ch_create_time
                     now,  # ch_update_time
                     t.get("environment"),
+                    1 if t.get("is_evaluation") else 0,
                 ]
             )
 
@@ -90,6 +91,7 @@ class ClickHouseClient:
                 "ch_create_time",
                 "ch_update_time",
                 "environment",
+                "is_evaluation",
             ],
         )
 
@@ -135,6 +137,7 @@ class ClickHouseClient:
                     now,  # ch_create_time
                     now,  # ch_update_time
                     s.get("environment"),
+                    1 if s.get("is_evaluation") else 0,
                 ]
             )
 
@@ -168,6 +171,7 @@ class ClickHouseClient:
                 "ch_create_time",
                 "ch_update_time",
                 "environment",
+                "is_evaluation",
             ],
         )
 

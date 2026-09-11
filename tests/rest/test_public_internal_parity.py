@@ -13,6 +13,23 @@ BINDINGS = {
     "/api/v1/public/traces": "/api/v1/projects/{project_id}/traces",
     "/api/v1/public/sessions": "/api/v1/projects/{project_id}/sessions",
     "/api/v1/public/sessions/{session_id}": "/api/v1/projects/{project_id}/sessions/{session_id}",
+    "/api/v1/public/detectors": "/api/v1/projects/{project_id}/detectors",
+    "/api/v1/public/detectors/findings": "/api/v1/projects/{project_id}/detectors/findings",
+    "/api/v1/public/detectors/findings/{finding_id}": (
+        "/api/v1/projects/{project_id}/detectors/findings/{finding_id}"
+    ),
+    "/api/v1/public/detectors/traces/{trace_id}/finding": (
+        "/api/v1/projects/{project_id}/detectors/traces/{trace_id}/finding"
+    ),
+    "/api/v1/public/detectors/{detector_id}": (
+        "/api/v1/projects/{project_id}/detectors/{detector_id}"
+    ),
+    # The dashboard mirror is service-to-service only, so it lives on the
+    # /internal prefix the ingress drops (unlike the pre-existing read twins).
+    "/api/v1/public/dashboards": "/api/v1/internal/projects/{project_id}/dashboards",
+    "/api/v1/public/dashboards/{dashboard_id}": (
+        "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}"
+    ),
 }
 
 

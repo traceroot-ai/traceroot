@@ -90,8 +90,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const projectIdMatch = pathname.match(/^\/projects\/([^/]+)/);
   const projectId = projectIdMatch?.[1];
 
-  // Don't show layout on auth pages
-  if (pathname.startsWith("/auth/")) {
+  // Don't show the app shell (sidebar, header, user menu) on standalone
+  // sign-in surfaces. The device consent page is reachable while signed out,
+  // so wrapping it in the authenticated shell would render a bogus "User"
+  // menu and workspace rail around it.
+  if (pathname.startsWith("/auth/") || pathname === "/device") {
     return <>{children}</>;
   }
 

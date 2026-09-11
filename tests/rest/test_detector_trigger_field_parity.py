@@ -86,6 +86,7 @@ _SPAN_ROW = (
     2,
     [{"tier": "gold"}],
     datetime(2026, 8, 1, 12, 0),
+    0,  # is_evaluation — a control column, not an offered trigger field
 )
 _TRACE_ROW = ("trace-1", {"tenant": "acme"})
 
@@ -135,8 +136,17 @@ def test_the_offered_fields_are_the_trace_list_fields_without_trace_id():
     known trace id is not a meaningful trigger for a detector that watches live
     traces. Order is compared too, because it is the field dropdown's order on
     both surfaces."""
-    trace_list = [(c.name, c.label) for c in FILTER_COLUMNS if c.name != "trace_id"]
+    # The registry says which of its columns are triggers: trace_id is not (a
+    # single known id is not a trigger for live traces), nor are the span
+    # columns the evaluator does not fetch.
+    trace_list = [(c.name, c.label) for c in FILTER_COLUMNS if c.detector_trigger]
     assert _parse_offered_fields() == trace_list
+    assert [c.name for c in FILTER_COLUMNS if not c.detector_trigger] == [
+        "trace_id",
+        "span_kind",
+        "status",
+        "name",
+    ]
     assert "trace_id" not in [field for field, _ in _parse_offered_fields()]
     # Guards the exclusion above against becoming vacuous if the trace list
     # itself ever drops the field.
@@ -161,6 +171,7 @@ def test_the_fetch_maps_each_column_onto_the_field_the_evaluator_reads(monkeypat
             "errors": 2,
             # Trace scope and span scope merged into one key space.
             "metadata": {"tenant": ["acme"], "tier": ["gold"]},
+            "is_evaluation": False,
         }
     }
 
@@ -187,7 +198,11 @@ def test_model_and_environment_are_fetched_as_span_membership_sets(monkeypatch):
     """Membership, not the root span's value: the trace list answers "some span
     carries this", so a detector on a mixed trace must answer the same."""
     spans_sql = _spans_query(_fetch(monkeypatch)[1])
-    membership = [c.name for c in FILTER_COLUMNS if c.level is FilterLevel.SPAN_MEMBERSHIP]
+    membership = [
+        c.name
+        for c in FILTER_COLUMNS
+        if c.level is FilterLevel.SPAN_MEMBERSHIP and c.detector_trigger
+    ]
     assert membership == ["model_name", "environment"]
     for name in membership:
         assert f"groupUniqArray({name})" in spans_sql

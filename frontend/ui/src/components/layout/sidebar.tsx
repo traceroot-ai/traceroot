@@ -13,8 +13,11 @@ import {
   Sun,
   Moon,
   Monitor,
+  MonitorSmartphone,
   Settings,
   UserRoundSearch,
+  Database,
+  FlaskConical,
 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -219,6 +222,68 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   </TooltipContent>
                 )}
               </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/alerts`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/alerts") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <DOMAIN_ICONS.alert className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Alerts"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Alerts
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/datasets`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.startsWith(`/projects/${projectId}/datasets`)
+                        ? "bg-muted"
+                        : "hover:bg-muted/50",
+                    )}
+                  >
+                    <Database className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Datasets"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Datasets
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/evaluations`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/evaluations") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <FlaskConical className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Evaluations"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Evaluations
+                  </TooltipContent>
+                )}
+              </Tooltip>
             </>
           ) : (
             // Default navigation (Workspaces)
@@ -415,6 +480,15 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     </button>
                   </PopoverContent>
                 </Popover>
+
+                {/* Active sessions — the revoke control for CLI/device logins */}
+                <Link
+                  href="/account/settings/sessions"
+                  className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                >
+                  <span>Active Sessions</span>
+                  <MonitorSmartphone className="h-4 w-4" />
+                </Link>
 
                 {/* Sign out */}
                 <button

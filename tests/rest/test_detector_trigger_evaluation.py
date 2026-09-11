@@ -236,6 +236,7 @@ def _span_row(trace_id: str, span_start, metadata_maps: list[dict]) -> list:
         2,
         metadata_maps,
         span_start,
+        0,  # is_evaluation — a control column, not an offered trigger field
     ]
 
 
@@ -268,6 +269,7 @@ def test_the_summary_names_every_field_a_trigger_can_be_built_on(monkeypatch):
             "duration_ms": 4500,
             "errors": 2,
             "metadata": {"tenant": ["acme"], "tier": ["gold"]},
+            "is_evaluation": False,
         }
     }
     assert ch.calls[1][1]["trace_ids"] == ["t1"]

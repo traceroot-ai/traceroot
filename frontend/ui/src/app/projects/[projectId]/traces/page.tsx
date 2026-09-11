@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { X, Inbox, AlertTriangle } from "lucide-react";
+import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
@@ -21,6 +21,15 @@ import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { LoadingState } from "@/components/ui/loading-state";
+import type { TraceSelection } from "@/features/traces";
+import { Button } from "@/components/ui/button";
+import {
+  SaveTestCaseDrawer,
+  TraceEvaluationChip,
+  SpanDatasetChip,
+} from "@/features/evaluations/components/trace-integration";
+import { useTraceTestCases } from "@/features/evaluations/hooks";
+import { formatContentPreview } from "@/features/traces/utils";
 import { TraceListTable } from "@/features/traces/components/TraceListTable";
 import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
 // Imported from the hook's own module, not the feature barrel: the page tests replace that
@@ -66,14 +75,28 @@ export default function TracesPage() {
   } = useListPageState({ retentionDays: retention.retentionDays });
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
+  // Warm the span→dataset chip data as soon as a trace is selected, so the
+  // "Dataset:" chip is ready before the user opens a span (no per-span latency).
+  useTraceTestCases(projectId, selectedTraceId ?? "");
+  // Save-as-test-case (offline eval): which span the drawer targets (undefined = root).
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveSpanId, setSaveSpanId] = useState<string | undefined>(undefined);
+  // Close the drawer (and drop its target span) whenever the selected trace changes —
+  // including closing the viewer entirely. Without this, the drawer reopens on the
+  // NEXT trace still targeting a span from the previous one (which won't resolve
+  // there), stuck with no way out but closing and reopening it.
+  useEffect(() => {
+    setSaveOpen(false);
+    setSaveSpanId(undefined);
+  }, [selectedTraceId]);
   // Persisted per-project so a live view survives reloads, navigation, and re-login.
   // Default false: a project the user never toggled behaves exactly as before.
   const [autoRefresh, setAutoRefresh] = useLocalStorage(
     `traceroot:traces:live:v1:${projectId}`,
     false,
   );
-
-  // Fetch traces with combined query options + user filter from URL
+  // Fetch traces with combined query options + user filter from URL.
+  // Evaluation traces are excluded from this default list.
   const { data, isLoading, error } = useTraces(
     projectId,
     {
@@ -317,6 +340,41 @@ export default function TracesPage() {
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
           initialFullscreen={startFullscreen}
+          // Offline eval: save any span (or the trace root) as a dataset test case.
+          spanHeaderAction={(selection: TraceSelection) => (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 gap-1.5 text-[12px]"
+              onClick={() => {
+                setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
+                setSaveOpen(true);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Add to datasets
+            </Button>
+          )}
+          // Offline eval: while the "Save as test case" drawer is open, clicking a
+          // different span in the tree retargets the drawer to that span.
+          onSelectionChange={(selection: TraceSelection) => {
+            if (saveOpen) {
+              setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
+            }
+          }}
+          // Offline eval: a trace-level chip when this trace came from a run, and
+          // a per-span "Dataset:" chip marking a span already saved as a test case.
+          spanExtraTags={(selection: TraceSelection) =>
+            selection.type === "trace" ? (
+              <TraceEvaluationChip projectId={projectId} traceId={selectedTraceId} />
+            ) : (
+              <SpanDatasetChip
+                projectId={projectId}
+                traceId={selectedTraceId}
+                spanId={selection.span.span_id}
+              />
+            )
+          }
           // Customer surface, so state the scope explicitly rather than inheriting it:
           // the reader already defaults to customer traffic, so this is defense in depth,
           // and it also pins the trace-detail cache key this panel shares with the live
@@ -325,6 +383,14 @@ export default function TracesPage() {
           source="user"
         />
       )}
+
+      <SaveTestCaseDrawer
+        projectId={projectId}
+        traceId={selectedTraceId}
+        spanId={saveSpanId}
+        open={saveOpen}
+        onOpenChange={setSaveOpen}
+      />
 
       <PricingDialog
         open={retention.showPricing}

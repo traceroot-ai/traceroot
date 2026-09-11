@@ -308,7 +308,7 @@ describe("runRcaSession", () => {
             data: { type: "message_end", message: { stopReason: "end_turn" } },
           },
           // The real producer's onDone handler writes this terminal frame
-          // (frontend/packages/agent/src/index.ts) after a successful run.
+          // (frontend/ee/agent/src/index.ts) after a successful run.
           { event: "done", data: {} },
         ]),
       );

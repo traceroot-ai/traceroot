@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import rest.openapi_public as openapi_public
 from rest.main import app
 from rest.openapi_public import PUBLIC_PREFIX, _apply_tool_curation, build_public_schema, render
 
@@ -163,6 +164,101 @@ def test_detectors_list_route_documents_error_responses():
     assert set(responses) >= {"200", "401", "500"}
 
 
+def test_detector_detail_route_documents_error_responses():
+    responses = _schema()["paths"]["/api/v1/public/detectors/{detector_id}"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "404", "500"}
+    assert responses["404"]["description"] == "Detector not found"
+    assert responses["500"]["description"] == "Failed to read detector"
+
+
+# --- Phase-4 evaluation reporting routes ------------------------------------
+
+
+def test_eval_reporting_routes_are_published():
+    """The three typed reporting endpoints appear as explicit POST operations."""
+    paths = _schema()["paths"]
+    assert "post" in paths["/api/v1/public/evaluation-runs"]
+    assert "post" in paths["/api/v1/public/evaluation-runs/{run_id}/results"]
+    assert "post" in paths["/api/v1/public/evaluation-runs/{run_id}/complete"]
+
+
+def test_eval_reporting_routes_document_request_and_response_schemas():
+    schema = _schema()
+    paths = schema["paths"]
+    components = schema["components"]["schemas"]
+    cases = {
+        "/api/v1/public/evaluation-runs": ("RegisterRunRequest", "RegisterRunResponse", "201"),
+        "/api/v1/public/evaluation-runs/{run_id}/results": (
+            "UpsertResultRequest",
+            "UpsertResultResponse",
+            "200",
+        ),
+        "/api/v1/public/evaluation-runs/{run_id}/complete": (
+            "CompleteRunRequest",
+            "CompleteRunResponse",
+            "200",
+        ),
+    }
+    for path, (req_model, resp_model, ok) in cases.items():
+        op = paths[path]["post"]
+        req_ref = op["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        assert req_ref.endswith(f"/{req_model}"), (path, req_ref)
+        resp_ref = op["responses"][ok]["content"]["application/json"]["schema"]["$ref"]
+        assert resp_ref.endswith(f"/{resp_model}"), (path, resp_ref)
+        assert req_model in components
+        assert resp_model in components
+    # Nested request models are pulled in transitively.
+    for nested in ("ScorerRef", "ScoreInput"):
+        assert nested in components
+
+
+def test_eval_reporting_routes_document_path_params():
+    paths = _schema()["paths"]
+    for path in (
+        "/api/v1/public/evaluation-runs/{run_id}/results",
+        "/api/v1/public/evaluation-runs/{run_id}/complete",
+    ):
+        params = paths[path]["post"].get("parameters", [])
+        run_id = next((p for p in params if p.get("name") == "run_id"), None)
+        assert run_id is not None, path
+        assert run_id["in"] == "path"
+        assert run_id["required"] is True
+    # The collection endpoint has no path parameter.
+    assert paths["/api/v1/public/evaluation-runs"]["post"].get("parameters", []) == []
+
+
+def test_eval_reporting_routes_document_error_and_auth_contract():
+    paths = _schema()["paths"]
+    for path in (
+        "/api/v1/public/evaluation-runs",
+        "/api/v1/public/evaluation-runs/{run_id}/results",
+        "/api/v1/public/evaluation-runs/{run_id}/complete",
+    ):
+        op = paths[path]["post"]
+        # Validation (422), domain 400/404, plus the shared auth 401/503.
+        assert set(op["responses"]) >= {"400", "404", "422", "401", "503"}
+        assert op["security"] == [{"BearerAuth": []}]
+        # Error bodies use the canonical {detail} envelope.
+        for code in ("400", "404"):
+            ref = op["responses"][code]["content"]["application/json"]["schema"]["$ref"]
+            assert ref.endswith("/ErrorResponse")
+
+
+def test_untyped_dataset_catch_alls_stay_hidden():
+    """Dataset + dataset-version catch-alls remain unpublished until a later phase."""
+    paths = _schema()["paths"]
+    assert not any(p.startswith("/api/v1/public/datasets") for p in paths), paths
+    assert not any(p.startswith("/api/v1/public/dataset-versions") for p in paths), paths
+    # The additive per-scorer scores / human-score run subpaths also stay hidden:
+    # only the three explicit reporting paths are published under evaluation-runs.
+    eval_paths = {p for p in paths if p.startswith("/api/v1/public/evaluation-runs")}
+    assert eval_paths == {
+        "/api/v1/public/evaluation-runs",
+        "/api/v1/public/evaluation-runs/{run_id}/results",
+        "/api/v1/public/evaluation-runs/{run_id}/complete",
+    }
+
+
 def test_session_read_routes_document_error_responses():
     paths = _schema()["paths"]
     assert set(paths["/api/v1/public/sessions"]["get"]["responses"]) >= {"200", "401", "500"}
@@ -171,13 +267,40 @@ def test_session_read_routes_document_error_responses():
     assert responses["404"]["description"] == "Session not found"
 
 
+def test_dashboard_read_routes_document_error_responses():
+    paths = _schema()["paths"]
+    assert set(paths["/api/v1/public/dashboards"]["get"]["responses"]) >= {"200", "401", "503"}
+    responses = paths["/api/v1/public/dashboards/{dashboard_id}"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "404", "503"}
+    assert responses["404"]["description"] == "Dashboard not found"
+
+
+def test_dashboard_read_tools_steer_name_resolution():
+    """Both dashboard read tools tell the model to resolve a dashboard by
+    listing and matching its name — never to guess an id."""
+    paths = _schema()["paths"]
+    list_tool = paths["/api/v1/public/dashboards"]["get"]["x-tool"]
+    get_tool = paths["/api/v1/public/dashboards/{dashboard_id}"]["get"]["x-tool"]
+    for tool in (list_tool, get_tool):
+        assert tool["enabled"]
+        assert "never guess" in tool["description"]
+    assert "match its name" in list_tool["description"]
+    assert "matching the name" in get_tool["description"]
+
+
 _METHODS = {"get", "post", "put", "patch", "delete"}
 
 EXPECTED_OPERATION_IDS = {
-    "/api/v1/public/detectors": {"get": "list_detectors"},
+    "/api/v1/public/projects": {"get": "list_projects", "post": "create_project"},
+    "/api/v1/public/workspaces": {"get": "list_workspaces", "post": "create_workspace"},
+    "/api/v1/public/dashboards": {"get": "list_dashboards", "post": "create_dashboard"},
+    "/api/v1/public/dashboards/{dashboard_id}": {"get": "get_dashboard"},
+    "/api/v1/public/widgets": {"post": "create_widget"},
+    "/api/v1/public/detectors": {"get": "list_detectors", "post": "create_detector"},
     "/api/v1/public/detectors/findings": {"get": "list_findings"},
     "/api/v1/public/detectors/findings/{finding_id}": {"get": "get_finding"},
     "/api/v1/public/detectors/traces/{trace_id}/finding": {"get": "get_finding_by_trace"},
+    "/api/v1/public/detectors/{detector_id}": {"get": "get_detector"},
     "/api/v1/public/sessions": {"get": "list_sessions"},
     "/api/v1/public/sessions/{session_id}": {"get": "get_session"},
     "/api/v1/public/traces": {"get": "list_traces", "post": "ingest_traces"},
@@ -185,6 +308,9 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/traces/{trace_id}": {"get": "get_trace"},
     "/api/v1/public/traces/{trace_id}/export": {"get": "export_trace"},
     "/api/v1/public/whoami": {"get": "whoami"},
+    "/api/v1/public/evaluation-runs": {"post": "register_run"},
+    "/api/v1/public/evaluation-runs/{run_id}/results": {"post": "upsert_result"},
+    "/api/v1/public/evaluation-runs/{run_id}/complete": {"post": "complete_run"},
 }
 
 
@@ -232,7 +358,12 @@ def test_x_tool_enabled_set_and_shape():
                 enabled[tool["name"]] = tool
             else:
                 disabled.add(op["operationId"])
-    assert disabled == {"ingest_traces"}
+    assert disabled == {
+        "ingest_traces",
+        "register_run",
+        "upsert_result",
+        "complete_run",
+    }
     assert set(enabled) == {
         "whoami",
         "list_traces",
@@ -242,12 +373,61 @@ def test_x_tool_enabled_set_and_shape():
         "list_sessions",
         "get_session",
         "list_detectors",
+        "get_detector",
         "list_findings",
         "get_finding",
         "get_finding_by_trace",
+        "list_dashboards",
+        "get_dashboard",
+        "list_workspaces",
+        "list_projects",
+        "create_workspace",
+        "create_project",
+        "create_detector",
+        "create_dashboard",
+        "create_widget",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
+
+
+# The project-scoped read ops depend on the dual-credential auth, which adds an
+# optional `project_id` query param (required under a user credential, absent-or-
+# matching under an API key). Ingestion and whoami stay key-only and must not.
+_PROJECT_ID_READ_OPS = [
+    "/api/v1/public/traces",
+    "/api/v1/public/traces/{trace_id}",
+    "/api/v1/public/traces/{trace_id}/export",
+    "/api/v1/public/traces/filter-values/{field}",
+    "/api/v1/public/sessions",
+    "/api/v1/public/sessions/{session_id}",
+    "/api/v1/public/detectors",
+    "/api/v1/public/detectors/findings",
+    "/api/v1/public/detectors/findings/{finding_id}",
+    "/api/v1/public/detectors/traces/{trace_id}/finding",
+    "/api/v1/public/dashboards",
+    "/api/v1/public/dashboards/{dashboard_id}",
+]
+
+
+def test_dual_credential_reads_expose_described_project_id_query_param():
+    paths = _schema()["paths"]
+    for p in _PROJECT_ID_READ_OPS:
+        params = paths[p]["get"].get("parameters", [])
+        matches = [q for q in params if q["name"] == "project_id" and q["in"] == "query"]
+        assert len(matches) == 1, p
+        assert matches[0].get("required") is not True, p
+        assert matches[0].get("description"), p
+
+
+def test_key_only_ops_have_no_project_id_param():
+    paths = _schema()["paths"]
+    # whoami stays on the key-only stamped auth (a later task handles account scope).
+    whoami_params = paths["/api/v1/public/whoami"]["get"].get("parameters", [])
+    assert not [q for q in whoami_params if q["name"] == "project_id"]
+    # ingestion is key-only and unchanged.
+    post_params = paths["/api/v1/public/traces"]["post"].get("parameters", [])
+    assert not [q for q in post_params if q["name"] == "project_id"]
 
 
 def _filters_param(schema):
@@ -290,6 +470,22 @@ def test_filters_param_is_json_content_with_registry_variants():
         else:
             assert v["required"] == ["field", "op", "value"]
             assert "key" not in v["properties"]
+
+
+def test_filters_param_properties_all_declare_a_type():
+    """Every predicate property carries an explicit ``type``.
+
+    ``const``/``enum`` alone are valid JSON Schema, but the registry feeds
+    model tool schemas and some providers reject properties without a type.
+    """
+    param = _filters_param(_schema())
+    variants = param["content"]["application/json"]["schema"]["items"]["anyOf"]
+    for v in variants:
+        field = v["properties"]["field"]["const"]
+        for name, prop in v["properties"].items():
+            assert prop.get("type"), f"{field}.{name} declares no type"
+        assert v["properties"]["field"]["type"] == "string"
+        assert v["properties"]["op"]["type"] == "string"
 
 
 def test_filters_param_value_types_match_field_kinds():
@@ -345,3 +541,149 @@ def test_stale_curation_entry_fails_build():
     fake = {"paths": {"/api/v1/public/whoami": {"get": {"operationId": "whoami"}}}}
     with pytest.raises(ValueError, match=r"stale _TOOL_CURATION.*list_traces"):
         _apply_tool_curation(fake)
+
+
+# --- Write-tool policy curation ----------------------------------------------
+
+_VALID_CREATE_POLICY = {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"}
+
+
+def test_enabled_write_entry_missing_policy_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "create_project",
+        {"name": "create_project", "description": "Create a project.", "enabled": True},
+    )
+    with pytest.raises(ValueError, match=r"create_project.*policy"):
+        build_public_schema(app)
+
+
+def test_enabled_write_entry_illegal_approval_class_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "create_project",
+        {
+            "name": "create_project",
+            "description": "Create a project.",
+            "enabled": True,
+            "policy": {**_VALID_CREATE_POLICY, "approvalClass": "auto"},
+        },
+    )
+    with pytest.raises(ValueError, match=r"create_project.*policy"):
+        build_public_schema(app)
+
+
+def test_enabled_write_entry_extra_policy_key_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "create_project",
+        {
+            "name": "create_project",
+            "description": "Create a project.",
+            "enabled": True,
+            "policy": {**_VALID_CREATE_POLICY, "rateLimit": "write"},
+        },
+    )
+    with pytest.raises(ValueError, match=r"create_project.*policy"):
+        build_public_schema(app)
+
+
+def test_get_entry_carrying_policy_fails_build(monkeypatch):
+    # The policy vocabulary is write-only: a read tool carrying one is a
+    # curation mistake, not a harmless extra.
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "whoami",
+        {
+            "name": "whoami",
+            "description": "Identify the credential.",
+            "enabled": True,
+            "policy": dict(_VALID_CREATE_POLICY),
+        },
+    )
+    with pytest.raises(ValueError, match=r"whoami.*policy"):
+        build_public_schema(app)
+
+
+# --- Agent-hidden write params ------------------------------------------------
+
+
+def test_create_project_curation_carries_agent_hidden_params():
+    # trace_ttl_days stays in the public API/CLI contract; the key tells the
+    # agent's tool factory to keep it out of the model-visible schema.
+    tool = _schema()["paths"]["/api/v1/public/projects"]["post"]["x-tool"]
+    assert tool["agentHiddenParams"] == ["trace_ttl_days"]
+
+
+def test_agent_hidden_params_stale_name_fails_build(monkeypatch):
+    # A hidden name that no longer exists in the request body is a curation
+    # mistake (e.g. after a field rename) and must fail the build.
+    entry = deepcopy(openapi_public._TOOL_CURATION["create_project"])
+    entry["agentHiddenParams"] = ["not_a_body_field"]
+    monkeypatch.setitem(openapi_public._TOOL_CURATION, "create_project", entry)
+    with pytest.raises(ValueError, match=r"create_project.*not_a_body_field"):
+        build_public_schema(app)
+
+
+def test_agent_hidden_params_on_get_entry_fails_build(monkeypatch):
+    entry = deepcopy(openapi_public._TOOL_CURATION["whoami"])
+    entry["agentHiddenParams"] = ["anything"]
+    monkeypatch.setitem(openapi_public._TOOL_CURATION, "whoami", entry)
+    with pytest.raises(ValueError, match=r"whoami.*agentHiddenParams"):
+        build_public_schema(app)
+
+
+def test_agent_hidden_params_on_disabled_entry_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "ingest_traces",
+        {"enabled": False, "agentHiddenParams": ["anything"]},
+    )
+    with pytest.raises(ValueError, match=r"ingest_traces.*agentHiddenParams"):
+        build_public_schema(app)
+
+
+@pytest.mark.parametrize("bad_value", [[], ["trace_ttl_days", 3], "trace_ttl_days"])
+def test_agent_hidden_params_must_be_nonempty_string_list(monkeypatch, bad_value):
+    entry = deepcopy(openapi_public._TOOL_CURATION["create_project"])
+    entry["agentHiddenParams"] = bad_value
+    monkeypatch.setitem(openapi_public._TOOL_CURATION, "create_project", entry)
+    with pytest.raises(ValueError, match=r"create_project.*agentHiddenParams"):
+        build_public_schema(app)
+
+
+# The five public creates, pinned to their exact write-tool policy. approvalClass
+# and minRole must match what the write service actually enforces; tenancy names
+# the scope the target resource lives in.
+_CREATE_TOOL_POLICIES = {
+    "create_workspace": (
+        "/api/v1/public/workspaces",
+        {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "account"},
+    ),
+    "create_project": (
+        "/api/v1/public/projects",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"},
+    ),
+    "create_detector": (
+        "/api/v1/public/detectors",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "create_dashboard": (
+        "/api/v1/public/dashboards",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "create_widget": (
+        "/api/v1/public/widgets",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    ),
+}
+
+
+@pytest.mark.parametrize("op_id", sorted(_CREATE_TOOL_POLICIES))
+def test_create_ops_are_enabled_tools_with_pinned_policy(op_id):
+    path, policy = _CREATE_TOOL_POLICIES[op_id]
+    tool = _schema()["paths"][path]["post"]["x-tool"]
+    assert tool["enabled"] is True
+    assert tool["name"] == op_id
+    assert tool["description"], f"{op_id} needs an agent-facing description"
+    assert tool["policy"] == policy
