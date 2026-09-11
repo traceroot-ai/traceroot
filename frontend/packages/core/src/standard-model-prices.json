@@ -1203,6 +1203,10 @@
       "input": 0.000002,
       "output": 0.000006,
       "cacheRead": 0.0000005,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-grok-4-20",
     "modelName": "grok-4.20",
     "matchPattern": "(?i)^(xai\\/)?grok-4\\.20(-[a-z0-9-]+)?$",
