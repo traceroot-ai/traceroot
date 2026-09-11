@@ -225,6 +225,12 @@ KIMI_MODEL_CASES = [
     ("kimi-k3-20260716", "kimi-k3"),
 ]
 
+KIMI_K26_MODEL_CASES = [
+    ("kimi-k2.6", "kimi-k2.6"),
+    ("moonshot/kimi-k2.6", "kimi-k2.6"),
+    ("kimi-k2.6-20260420", "kimi-k2.6"),
+]
+
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
 class TestGetModelPrice:
@@ -427,6 +433,40 @@ class TestKimiModelIds:
     def test_kimi_k3_calculates_cost(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             result = calculate_cost("kimi-k3", "Hello world", "Hi there")
+
+        assert result["input_tokens"] is not None
+        assert result["input_tokens"] > 0
+        assert result["output_tokens"] is not None
+        assert result["output_tokens"] > 0
+        assert result["cost"] is not None
+        assert result["cost"] > 0
+
+
+class TestKimiK26ModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", KIMI_K26_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    def test_kimi_k2_6_absolute_rates(self):
+        # The id-matching tests pass for any price table, so pin the published rates
+        # (USD per token, from Moonshot's direct-API price page on platform.kimi.ai).
+        entry = next((e for e in _standard_price_entries() if e["modelName"] == "kimi-k2.6"), None)
+        assert entry is not None, "kimi-k2.6 missing from standard-model-prices.json"
+        prices = entry["prices"]
+        assert prices["input"] == pytest.approx(0.00000095)
+        assert prices["output"] == pytest.approx(0.000004)
+        assert prices["cacheRead"] == pytest.approx(0.00000016)
+
+    def test_kimi_k2_6_calculates_cost(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            result = calculate_cost("kimi-k2.6", "Hello world", "Hi there")
 
         assert result["input_tokens"] is not None
         assert result["input_tokens"] > 0
