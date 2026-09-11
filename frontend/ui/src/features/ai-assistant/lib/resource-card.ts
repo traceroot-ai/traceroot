@@ -18,6 +18,7 @@
 
 import {
   ALERT_THRESHOLD_OPERATOR_LABELS,
+  ALERT_THRESHOLD_OPERATOR_PHRASES,
   describeAlertFilter,
   getMeasure,
   isAlertAggregation,
@@ -456,7 +457,7 @@ function alertChips(record: Record<string, unknown>): string[] {
   const mode = renotify === null ? null : str(renotify.mode);
   if (mode === "EVERY") {
     const minutes = renotify === null ? null : scalar(renotify.interval_minutes);
-    chips.push(minutes === null ? "renotify" : `renotify every ${minutes}m`);
+    chips.push(minutes === null ? "renotify" : `renotify every ${minutes} min`);
   } else if (mode === "OFF") {
     chips.push("renotify off");
   }
@@ -477,6 +478,40 @@ function alertRuleSummary(record: Record<string, unknown>): string | null {
   const label = getMeasure(rule.view, rule.measure)?.label.toLowerCase() ?? rule.measure;
   const subject = rule.aggregation === "count" ? "count" : `${rule.aggregation} ${label}`;
   return `${subject} ${ALERT_THRESHOLD_OPERATOR_LABELS[rule.operator]} ${thresholdWords(rule.measure, rule.threshold)} over ${rule.window}`;
+}
+
+/** How an aggregation reads before its measure in a sentence: "total cost", "p95 latency". */
+const AGGREGATION_WORDS: Record<string, string> = {
+  sum: "total",
+  avg: "average",
+  min: "minimum",
+  max: "maximum",
+  uniq: "distinct",
+};
+
+/** "10m" as words: "10 minutes"; "1h" as "1 hour". */
+function windowWords(window: string): string {
+  const parsed = /^(\d+)([mh])$/.exec(window);
+  if (parsed === null) return window;
+  const count = Number(parsed[1]);
+  const unit = parsed[2] === "m" ? "minute" : "hour";
+  return `${count} ${unit}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * The whole rule in one sentence for the definition panel — "p95 latency
+ * over 10 minutes is above 2,000 ms" — or null when the record does not
+ * carry a whole rule. The chips spell the parts; this is the reading.
+ */
+function alertRuleSentence(record: Record<string, unknown>): string | null {
+  const rule = alertRuleOf(record);
+  if (rule === null) return null;
+  const label = getMeasure(rule.view, rule.measure)?.label.toLowerCase() ?? rule.measure;
+  const subject =
+    rule.aggregation === "count"
+      ? "span count"
+      : `${AGGREGATION_WORDS[rule.aggregation] ?? rule.aggregation} ${label}`;
+  return `${subject} over ${windowWords(rule.window)} is ${ALERT_THRESHOLD_OPERATOR_PHRASES[rule.operator]} ${thresholdWords(rule.measure, rule.threshold)}`;
 }
 
 /**
@@ -796,14 +831,17 @@ export function resourceCardModel(
   // A reused dashboard draws no preview (see body above), so its card gets
   // what the pending card shows: the description the call carried, if any.
   // A renamed one was created, so it keeps its preview; the definition panel
-  // instead explains why its title is not the name the call asked for.
+  // instead explains why its title is not the name the call asked for. An
+  // alert's definition opens with its rule read as one sentence.
   const renamedFrom = str(details.renamedFrom, MAX_TITLE_CHARS);
   const description =
     renamedFrom !== null
       ? `Renamed from "${renamedFrom}": a ${resourceType} with that name already existed.`
       : resourceType === "dashboard" && details.created === false && args !== null
         ? str(args.description, MAX_DESCRIPTION_CHARS)
-        : null;
+        : resourceType === "alert" && args !== null
+          ? alertRuleSentence(args)
+          : null;
 
   return {
     resourceType,
@@ -942,7 +980,9 @@ export function pendingCardModel(
   const description =
     resourceType === "dashboard" && args !== null
       ? str(args.description, MAX_DESCRIPTION_CHARS)
-      : null;
+      : resourceType === "alert" && args !== null
+        ? alertRuleSentence(args)
+        : null;
 
   return {
     resourceType,
@@ -1133,9 +1173,9 @@ function alertListCardModel(
 
 /**
  * The facts the detail card lists under the chips: when the breach began,
- * when the rule last ran, whether and when the page went out (every alert
- * notifies through Slack), and who wrote the rule. Only what the record
- * says — a fact it does not carry is left out, not printed as unknown.
+ * when the rule last ran, whether and when the page went out, and who wrote
+ * the rule. Only what the record says — a fact it does not carry is left
+ * out, not printed as unknown.
  */
 function alertFacts(record: Record<string, unknown>): ReceiptRow[] {
   const rows: ReceiptRow[] = [];
@@ -1151,7 +1191,7 @@ function alertFacts(record: Record<string, unknown>): ReceiptRow[] {
     const at = str(record.last_notify_at);
     rows.push({
       label: "notified",
-      value: [notify.toLowerCase(), "Slack", ...(at === null ? [] : [formatDate(at)])].join(" · "),
+      value: at === null ? notify.toLowerCase() : `${notify.toLowerCase()} · ${formatDate(at)}`,
     });
   }
   const creator = str(record.creator);
@@ -1178,6 +1218,7 @@ function alertDetailCardModel(
   const meta: string[] = [RESOURCE_TYPE_LABELS.alert];
   if (body.kind === "alert" && body.chart !== null) meta.push(body.chart.range.label);
   const badge = alertBadgeOf(record);
+  const description = alertRuleSentence(record);
   return {
     resourceType: "alert",
     resourceId: id,
@@ -1185,6 +1226,7 @@ function alertDetailCardModel(
     title: str(record.name, MAX_TITLE_CHARS) ?? id,
     meta,
     href: alertPageHref(panelProjectId, record.id),
+    ...(description === null ? {} : { description }),
     ...(badge === null ? {} : { badge }),
     facts: alertFacts(record),
     // The read's answer is the definition; it opens with the card.

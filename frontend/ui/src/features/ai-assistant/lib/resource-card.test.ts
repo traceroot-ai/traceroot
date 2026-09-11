@@ -615,6 +615,7 @@ describe("alert cards", () => {
       title: "p95 latency over 2s",
       href: "/projects/p1/alerts/al1",
       meta: ["Alert", "Last 24 hours"],
+      description: "p95 latency over 10 minutes is above 2,000 ms",
       badge: {
         status: "ACTIVE",
         severity: "UNKNOWN",
@@ -660,11 +661,12 @@ describe("alert cards", () => {
       "metadata[tenant] contains acme",
       "model_name = gpt-4o",
       "+2 more",
-      "renotify every 60m",
+      "renotify every 60 min",
       "no data → HOLD",
     ]);
     // The chart carries only the filters that are really filters.
     expect((model?.body as { chart: { filters: unknown[] } }).chart.filters).toHaveLength(5);
+    expect(model?.description).toBe("total cost over 1 hour is at or above $40");
   });
 
   it("keeps the chips it can read when the rule as a whole cannot be charted", () => {
@@ -677,6 +679,8 @@ describe("alert cards", () => {
       chart: null,
     });
     expect(model?.meta).toEqual(["Alert"]);
+    // No whole rule, no sentence: the panel shows the chips it has.
+    expect(model).not.toHaveProperty("description");
   });
 
   it("charts nothing when the details never said which project the alert landed in", () => {
@@ -729,6 +733,7 @@ describe("alert cards", () => {
       title: "p95 latency over 2s",
       href: null,
       meta: ["Alert", "Last 24 hours"],
+      description: "p95 latency over 10 minutes is above 2,000 ms",
       body: {
         kind: "alert",
         chips: [
@@ -991,6 +996,7 @@ describe("readCardModel", () => {
         title: "Error rate spike",
         href: "/projects/p1/alerts/al-2",
         meta: ["Alert", "Last 24 hours"],
+        description: "span count over 5 minutes is at or above 25",
         badge: {
           status: "ACTIVE",
           severity: "ALERT",
@@ -1012,7 +1018,7 @@ describe("readCardModel", () => {
           },
           {
             label: "notified",
-            value: expect.stringMatching(/^delivered · Slack · \d{4}-\d\d-\d\d \d\d:\d\d:10$/),
+            value: expect.stringMatching(/^delivered · \d{4}-\d\d-\d\d \d\d:\d\d:10$/),
           },
           { label: "created by", value: expect.stringMatching(/^Kai · \d{4}-\d\d-\d\d$/) },
         ],
