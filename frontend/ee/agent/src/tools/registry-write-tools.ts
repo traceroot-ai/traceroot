@@ -75,6 +75,37 @@ export interface ResourceCreatedDetails {
   /** Only on older persisted rows from the retired create_project tool; the UI still reads it. */
   workspaceId?: string;
   dashboardId?: string;
+  /**
+   * A created alert's evaluation state as the write route returned it, so
+   * the receipt card can show the same badge the alerts page does. A fresh
+   * rule has never run: severity UNKNOWN with no evaluation yet.
+   */
+  alertState?: AlertState;
+}
+
+/** The fields the alerts feature's badge resolves a display state from. */
+export interface AlertState {
+  status: string;
+  severity: string;
+  lastEvaluatedAt: string | null;
+  lastError: string | null;
+  lastNotifyStatus: string | null;
+  lastNotifyError: string | null;
+}
+
+/** The state off a write route's alert row, or undefined when it carries none. */
+function alertStateOf(resource: Record<string, unknown>): AlertState | undefined {
+  const { status, severity } = resource;
+  if (typeof status !== "string" || typeof severity !== "string") return undefined;
+  const nullable = (value: unknown): string | null => (typeof value === "string" ? value : null);
+  return {
+    status,
+    severity,
+    lastEvaluatedAt: nullable(resource.lastEvaluatedAt),
+    lastError: nullable(resource.lastError),
+    lastNotifyStatus: nullable(resource.lastNotifyStatus),
+    lastNotifyError: nullable(resource.lastNotifyError),
+  };
 }
 
 /**
@@ -248,6 +279,10 @@ function buildWriteSuccess(
   // Widgets live under a dashboard; the route echoes which one.
   if (typeof resource?.dashboardId === "string") {
     details.dashboardId = resource.dashboardId;
+  }
+  if (spec.resourceKey === "alert" && resource !== undefined) {
+    const alertState = alertStateOf(resource);
+    if (alertState !== undefined) details.alertState = alertState;
   }
   // The dashboard route reports, beside the row, the name it had to rename
   // away from; the model must learn the real name before it refers to it.

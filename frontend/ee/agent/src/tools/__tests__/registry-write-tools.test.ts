@@ -466,6 +466,12 @@ describe("create_alert", () => {
       filters: [],
       renotify: { mode: "OFF" },
       noDataMode: "HOLD",
+      status: "ACTIVE",
+      severity: "UNKNOWN",
+      lastEvaluatedAt: null,
+      lastError: null,
+      lastNotifyStatus: null,
+      lastNotifyError: null,
     },
   };
 
@@ -557,7 +563,46 @@ describe("create_alert", () => {
       name: "p95 latency",
       created: true,
       projectId: "p1",
+      // The receipt's badge reads the state the row was created in: a rule
+      // that has never run, not an OK the scheduler has not yet earned.
+      alertState: {
+        status: "ACTIVE",
+        severity: "UNKNOWN",
+        lastEvaluatedAt: null,
+        lastError: null,
+        lastNotifyStatus: null,
+        lastNotifyError: null,
+      },
     });
+  });
+
+  it("carries no alert state when the route's row omits it, and none for the other creates", async () => {
+    const { client } = stubClient({ created: true, alert: { id: "al1", name: "n" } });
+    const tool = makeTools(client).find((t) => t.name === "create_alert")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      name: "n",
+      view: "SPANS",
+      measure: "count",
+      aggregation: "count",
+      window: "1m",
+      threshold_operator: ">",
+      threshold: 1,
+      renotify: { mode: "OFF" },
+    });
+    expect(result.details).not.toHaveProperty("alertState");
+
+    const detectorClient = stubClient({
+      created: true,
+      detector: { id: "d1", name: "latency", status: "ACTIVE", severity: "OK" },
+    }).client;
+    const detector = makeTools(detectorClient).find((t) => t.name === "create_detector")!;
+    const created = await detector.execute("id", {
+      label: "x",
+      name: "latency",
+      template: "failure",
+    });
+    expect(created.details).not.toHaveProperty("alertState");
   });
 
   it("links the created alert on the browser-reachable origin, not the internal one", async () => {

@@ -6,6 +6,7 @@ import {
   internalAuth,
   toPiAgentTool,
 } from "@traceroot-ai/tools";
+import { alertDetailCardDetails, alertListCardDetails } from "./alert-card-details.js";
 import {
   formatDashboardData,
   formatAlertDetail,
@@ -49,8 +50,14 @@ export function createRegistryReadTools(
   const bind = (
     name: string,
     formatResult: (data: unknown) => string,
-    defaults?: ReturnType<typeof windowDefaults>,
+    options: {
+      /** Values for params the model omits — the page window for the data reads. */
+      defaults?: ReturnType<typeof windowDefaults>;
+      /** Structured details the chat panel cards, beside the text the model reads. */
+      details?: (data: unknown) => unknown;
+    } = {},
   ) => {
+    const { defaults, details } = options;
     const entry = requireEntry(name);
     // The registry text says an omitted window means the site's default; in
     // the chat it means the window the user is looking at. Said on the tool
@@ -69,6 +76,7 @@ export function createRegistryReadTools(
       pathOverride: INTERNAL_BINDINGS[name],
       fixedArgs: { project_id: projectId },
       formatResult,
+      details,
       ...(defaults !== undefined && {
         defaults,
         description: entry.description.replace(
@@ -105,7 +113,7 @@ export function createRegistryReadTools(
     bind("get_finding_by_trace", formatFindingDetail),
     bind("list_dashboards", formatDashboardList),
     bind("get_dashboard", formatDashboardDetail),
-    bind("run_widget_query", formatWidgetQueryResult, pageWindow),
+    bind("run_widget_query", formatWidgetQueryResult, { defaults: pageWindow }),
     bind(
       "get_dashboard_data",
       (data) =>
@@ -114,9 +122,12 @@ export function createRegistryReadTools(
           // the service-to-service one.
           dashboardUrl: (id) => `${publicUiUrl()}/projects/${projectId}/dashboard/${id}`,
         }),
-      pageWindow,
+      { defaults: pageWindow },
     ),
-    bind("list_alerts", formatAlertList),
-    bind("get_alert", formatAlertDetail),
+    // The two alert reads are carded in the chat: a compact projection of
+    // the payload rides beside the text so the panel can draw rows and a
+    // badge without re-reading the model's prose.
+    bind("list_alerts", formatAlertList, { details: alertListCardDetails }),
+    bind("get_alert", formatAlertDetail, { details: alertDetailCardDetails }),
   ];
 }
