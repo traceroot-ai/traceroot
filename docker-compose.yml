@@ -163,8 +163,14 @@ services:
       - |
         set -e
         PW=$$(printf '%s' "$$SQL_GATEWAY_BOOTSTRAP_PASSWORD" | od -An -v -tx1 | tr -d '\n ' | sed 's/../%&/g')
-        exec goose -dir /migrations clickhouse \
-          "clickhouse://sql_gateway_bootstrap:$$PW@clickhouse:9000/$$CLICKHOUSE_DATABASE" up
+        # The DSN travels in the environment, never in argv. goose accepts the driver and
+        # connection string as GOOSE_DRIVER/GOOSE_DBSTRING, so the expanded password stays
+        # out of /proc/<pid>/cmdline, which is world-readable, unlike /proc/<pid>/environ.
+        # Exported here rather than in the compose `environment:` block, because that would
+        # put it back in `docker inspect` output.
+        export GOOSE_DRIVER=clickhouse
+        export GOOSE_DBSTRING="clickhouse://sql_gateway_bootstrap:$$PW@clickhouse:9000/$$CLICKHOUSE_DATABASE"
+        exec goose -dir /migrations up
     depends_on:
       clickhouse:
         condition: service_healthy
