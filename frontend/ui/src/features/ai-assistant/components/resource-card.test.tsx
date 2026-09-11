@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER } from "@/lib/date-filter";
 import { ResourceCard } from "./resource-card";
-import type { PreviewTile, ResourceCardModel, WidgetChart } from "../lib/resource-card";
+import type { AlertChart, PreviewTile, ResourceCardModel, WidgetChart } from "../lib/resource-card";
 
 // The preview is exercised for real in widget-chart-preview.test.tsx; here it
 // stands in for itself so these tests can assert what the card hands it.
@@ -15,6 +15,13 @@ vi.mock("./widget-chart-preview", () => ({
     rangeId,
   }: Omit<WidgetChart, "range"> & { widgetId: string; rangeId: string }) => (
     <div data-testid="preview">{`${projectId}/${widgetId}/${spec.display.type}/${rangeId}`}</div>
+  ),
+}));
+
+// And the alert chart, exercised for real in alert-chart-preview.test.tsx.
+vi.mock("./alert-chart-preview", () => ({
+  AlertChartPreview: ({ chart }: { chart: AlertChart }) => (
+    <div data-testid="alert-preview">{`${chart.projectId}/${chart.aggregation}(${chart.measure})/${chart.operator}${chart.threshold}/${chart.range.id}`}</div>
   ),
 }));
 
@@ -163,30 +170,84 @@ describe("ResourceCard definition panel", () => {
     expect(screen.getByText("RCA on")).toBeTruthy();
   });
 
-  it("keeps an alert's rule in view and reveals its filters and renotify chips", () => {
+  it("reveals an alert's rule chips and its facts, keeping the badge and chart out of the panel", () => {
     render(
       <ResourceCard
         model={model({
           resourceType: "alert",
-          title: "p95 latency",
-          meta: ["Alert"],
+          title: "p95 latency over 2s",
+          meta: ["Alert", "Last 24 hours"],
+          badge: {
+            status: "ACTIVE",
+            severity: "OK",
+            lastError: null,
+            lastEvaluatedAt: "2026-09-11T14:48:00Z",
+            lastNotifyStatus: null,
+            lastNotifyError: null,
+          },
+          facts: [{ label: "last evaluated", value: "2026-09-11 14:48:00" }],
           body: {
             kind: "alert",
-            rule: "p95 latency over 10 minutes is above 2,000 ms",
-            chips: ["environment = production", "renotify off"],
+            chips: ["view spans", "p95(latency)", "> 2,000 ms", "renotify off"],
+            chart: null,
           },
         })}
       />,
     );
-    expect(screen.getByText("p95 latency over 10 minutes is above 2,000 ms")).toBeTruthy();
+    // The alerts page's own badge sits in the footer whatever the panel does.
+    expect(screen.getByText("OK")).toBeTruthy();
     expect(screen.queryByText("renotify off")).toBeNull();
-    fireEvent.click(definitionToggle("p95 latency"));
-    expect(screen.getByText("environment = production")).toBeTruthy();
+    fireEvent.click(definitionToggle("p95 latency over 2s"));
+    expect(screen.getByText("p95(latency)")).toBeTruthy();
     expect(screen.getByText("renotify off")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /preview/i })).toBeNull();
+    expect(screen.getByText("last evaluated")).toBeTruthy();
+    expect(screen.getByText("2026-09-11 14:48:00")).toBeTruthy();
   });
 
-  it("stands an alert with no readable rule on its footer alone", () => {
+  it("opens the definition panel with the card when the model says so — a read's answer is its definition", () => {
+    render(
+      <ResourceCard
+        model={model({
+          resourceType: "alert",
+          title: "Error rate spike",
+          meta: ["Alert"],
+          definitionOpen: true,
+          facts: [{ label: "alerting since", value: "2026-09-11 14:35:00" }],
+          body: { kind: "alert", chips: ["≥ 25"], chart: null },
+        })}
+      />,
+    );
+    expect(screen.getByText("≥ 25")).toBeTruthy();
+    expect(screen.getByText("alerting since")).toBeTruthy();
+    expect(definitionToggle("Error rate spike").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("never badges a proposal: an alert that does not exist has no state", () => {
+    render(
+      <ResourceCard
+        proposed
+        model={model({
+          resourceType: "alert",
+          title: "p95 latency over 2s",
+          meta: ["Alert"],
+          badge: {
+            status: "ACTIVE",
+            severity: "OK",
+            lastError: null,
+            lastEvaluatedAt: null,
+            lastNotifyStatus: null,
+            lastNotifyError: null,
+          },
+          body: { kind: "alert", chips: [], chart: null },
+        })}
+      />,
+    );
+    expect(screen.queryByText("OK")).toBeNull();
+    expect(screen.queryByText("No Data")).toBeNull();
+    expect(screen.getByText("Proposed · Alert")).toBeTruthy();
+  });
+
+  it("stands an alert with no chart and no chips on its footer alone", () => {
     render(
       <ResourceCard
         model={model({
@@ -194,7 +255,7 @@ describe("ResourceCard definition panel", () => {
           title: "al1",
           meta: ["Alert"],
           href: "/projects/p1/alerts/al1",
-          body: { kind: "alert", rule: null, chips: [] },
+          body: { kind: "alert", chips: [], chart: null },
         })}
       />,
     );
@@ -308,6 +369,37 @@ describe("ResourceCard body", () => {
     expect(preview.textContent).toBe("p1/w1/line/7d");
     const title = screen.getByText("Tokens by model");
     expect(preview.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("draws an alert's chart as the body and lets the footer hide it", async () => {
+    const chart: AlertChart = {
+      view: "SPANS",
+      measure: "latency",
+      aggregation: "p95",
+      window: "10m",
+      operator: ">",
+      threshold: 2000,
+      filters: [],
+      projectId: "p1",
+      range: DATE_FILTER_OPTIONS.find((o) => o.id === "7d")!,
+    };
+    render(
+      <ResourceCard
+        model={model({
+          resourceType: "alert",
+          title: "p95 latency over 2s",
+          meta: ["Alert", "Last 7 days"],
+          body: { kind: "alert", chips: [], chart },
+        })}
+      />,
+    );
+    // The chart loads through next/dynamic, so it lands a tick later.
+    expect((await screen.findByTestId("alert-preview")).textContent).toBe(
+      "p1/p95(latency)/>2000/7d",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Hide preview" }));
+    expect(screen.queryByTestId("alert-preview")).toBeNull();
+    expect(screen.getByText("p95 latency over 2s")).toBeTruthy();
   });
 
   it("shows no preview for a widget with no chart to draw", () => {

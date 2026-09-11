@@ -127,6 +127,7 @@ export function useWidgetPreview(
   draft: unknown,
   range: TimeRange,
   bucketSeconds?: number,
+  refetchOptions: WidgetDataRefetchOptions = {},
 ) {
   const { user, sessionReady } = useTraceApiUser();
   const floored = quantizeRange(range);
@@ -151,5 +152,6 @@ export function useWidgetPreview(
     staleTime: 10_000,
     retry: false,
     placeholderData: keepPreviousData,
+    ...refetchOptions,
   });
 }

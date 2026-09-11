@@ -61,7 +61,7 @@ const DAY_MS = 86_400_000;
 
 // Mirrors MAX_EXPLICIT_BUCKETS in backend/rest/services/widget_query.py, which
 // rejects a range the rule's window divides into more points than this.
-const MAX_PREVIEW_BUCKETS = 500;
+export const MAX_PREVIEW_BUCKETS = 500;
 
 function rangeFor(
   option: DateFilterOption,
@@ -100,7 +100,12 @@ function PreviewMessage({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PreviewChart({
+/**
+ * The rule's chart: the measure as a series over the range, the threshold
+ * as a line with the breach side shaded. Exported for the assistant panel's
+ * alert cards, which draw the same chart in their own frame.
+ */
+export function AlertPreviewChart({
   data,
   thresholdValue,
   operator,
@@ -293,7 +298,7 @@ export function AlertPreview({
         ) : preview.error ? (
           <PreviewMessage>Preview failed to load.</PreviewMessage>
         ) : preview.data ? (
-          <PreviewChart
+          <AlertPreviewChart
             data={preview.data}
             thresholdValue={thresholdValue}
             operator={operator}

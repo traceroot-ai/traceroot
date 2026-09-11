@@ -22,11 +22,13 @@ import { PANEL_MAX_WIDTH } from "../constants";
 import {
   createdWidgetsByDashboard,
   pendingCardModel,
+  readCardModel,
   resourceCardModel,
   suppressedWidgetStepIds,
 } from "../lib/resource-card";
 import { ResourceCard } from "./resource-card";
 import { PendingResourceCard } from "./pending-resource-card";
+import { AlertListCard } from "./alert-list-card";
 
 // ---------------------------------------------------------------------------
 // Lightweight markdown normalization for streamed, partial content.
@@ -477,28 +479,36 @@ const ToolStepEntry = memo(function ToolStepEntry({
     () => (step.pending ? pendingCardModel(step, projectId, retentionDays) : null),
     [step, projectId, retentionDays],
   );
+  // A read whose result carries card details (the alert reads) becomes its
+  // card: rows for a list, the alert's own card for a detail.
+  const readCard = useMemo(
+    () => (pendingCard !== null ? null : readCardModel(step, projectId, retentionDays)),
+    [pendingCard, step, projectId, retentionDays],
+  );
   // A write that created something we can show becomes its card; every other
   // step — and every write we can't read a resource out of, or whose card
   // would duplicate a created dashboard's preview above it — keeps the
   // plain expandable tool line.
   const card = useMemo(
     () =>
-      pendingCard !== null || suppressed
+      pendingCard !== null || readCard !== null || suppressed
         ? null
         : resourceCardModel(step, widgetsByDashboard, retentionDays),
-    [pendingCard, suppressed, step, widgetsByDashboard, retentionDays],
+    [pendingCard, readCard, suppressed, step, widgetsByDashboard, retentionDays],
   );
+  const carded = card !== null || pendingCard !== null || readCard !== null;
   return (
     <AnimatedItem>
       <div className="flex justify-start">
         {/* Cards span the message column — the width text bubbles get — so
             every card shares one edge instead of each sizing to its content. */}
-        <div
-          className={cn("min-w-0", (card !== null || pendingCard !== null) && "w-full")}
-          style={{ maxWidth: bubbleMaxWidth }}
-        >
+        <div className={cn("min-w-0", carded && "w-full")} style={{ maxWidth: bubbleMaxWidth }}>
           {pendingCard ? (
             <PendingResourceCard model={pendingCard} />
+          ) : readCard?.kind === "alert_list" ? (
+            <AlertListCard model={readCard.model} />
+          ) : readCard?.kind === "alert" ? (
+            <ResourceCard model={readCard.model} />
           ) : card ? (
             <ResourceCard model={card} />
           ) : (
