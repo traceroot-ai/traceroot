@@ -172,14 +172,14 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
   });
 });
 
-// A returned row order that is not asked for is not a stable order. Both lookups
-// take the first pattern that matches, so ordering is part of the answer.
-describe("getModelPricing — catalogue order", () => {
-  // Both patterns match "claude-sonnet-4-6". The worker resolves it against rows
-  // ordered by model_name, where claude-sonnet-4 sorts first and wins; an
-  // unordered findMany can return either row first, so the two surfaces can price
-  // the same id differently, and the TypeScript answer can change after an UPDATE
-  // reshuffles rows. Same rates today, so nothing mis-bills until one is repriced.
+// The TypeScript mirror of TestResolutionIsOrderIndependent in
+// tests/worker/tokens/test_pricing.py — the same guarantee has to hold on both
+// paths or the two price the same id differently.
+describe("getModelPricing — most specific entry wins", () => {
+  // Both patterns match "claude-sonnet-4-6": the predecessor's optional version
+  // tail subsumes its successors. Taking the first match made the answer depend
+  // on row order, and the two runtimes did not agree on that order. Ranking by
+  // specificity removes the dependency instead of pinning the order.
   const OVERLAPPING = [
     {
       modelName: "claude-sonnet-4-6",
@@ -206,14 +206,23 @@ describe("getModelPricing — catalogue order", () => {
     );
   });
 
-  it("takes the first matching pattern, so the requested order decides the answer", async () => {
-    // Rows as the ordered query returns them: claude-sonnet-4 sorts first. The
-    // worker resolves this id to claude-sonnet-4 for the same reason, and it is
-    // first-match-wins on both sides that makes the ordering above load-bearing
-    // rather than cosmetic.
-    const ascending = [...OVERLAPPING].sort((a, b) => a.modelName.localeCompare(b.modelName));
-    const { getModelPricing: lookup } = await loadWithCatalogue(ascending);
+  // Both row orders, because either one alone proves nothing: the predecessor-first
+  // order is what the ordered query produces, and the successor-first order is what
+  // the catalogue file happens to hold, which is the order that hides the bug.
+  it.each([
+    ["successor first", OVERLAPPING],
+    ["predecessor first", [...OVERLAPPING].reverse()],
+  ])("resolves the successor to its own entry with rows %s", async (_label, rows) => {
+    const { getModelPricing: lookup } = await loadWithCatalogue(rows);
     const price = await lookup("anthropic/claude-sonnet-4-6");
+    expect(price?.input).toBe(0.000004);
+  });
+
+  it("still resolves the predecessor to itself", async () => {
+    // Ranking must not drag every id onto the longest pattern that happens to
+    // match it — the predecessor is the most specific entry for its own id.
+    const { getModelPricing: lookup } = await loadWithCatalogue(OVERLAPPING);
+    const price = await lookup("anthropic/claude-sonnet-4");
     expect(price?.input).toBe(0.000003);
   });
 });
