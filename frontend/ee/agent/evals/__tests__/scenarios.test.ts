@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DISPLAY_TYPES, FAKE_PROJECT_ID, SCENARIOS } from "../scenarios.js";
 import { seedFacts } from "../seed.js";
 import type {
+  AlertRow,
   DashboardRow,
   DetectorRow,
   EvalPrisma,
@@ -88,6 +89,18 @@ const dashboard = (overrides: Partial<DashboardRow> = {}): DashboardRow => ({
   ...overrides,
 });
 
+const alert = (overrides: Partial<AlertRow> = {}): AlertRow => ({
+  id: "al-1",
+  name: "Latency",
+  measure: "latency",
+  aggregation: "p95",
+  window: "10m",
+  thresholdOperator: ">",
+  // A Decimal-like object, as Prisma hands the column back.
+  threshold: { toString: () => "2000" },
+  ...overrides,
+});
+
 function makeCtx(overrides: Partial<ScenarioContext> = {}): ScenarioContext {
   return {
     fixture: {
@@ -97,9 +110,9 @@ function makeCtx(overrides: Partial<ScenarioContext> = {}): ScenarioContext {
       projectName: "agent-eval-r1",
     },
     turns: [],
-    before: { detectors: [], dashboards: [] },
-    after: { detectors: [], dashboards: [] },
-    created: { detectors: [], dashboards: [], widgets: [] },
+    before: { detectors: [], dashboards: [], alerts: [] },
+    after: { detectors: [], dashboards: [], alerts: [] },
+    created: { detectors: [], dashboards: [], widgets: [], alerts: [] },
     probeWidgetQuery: async () => 200,
     canonicalPrompt: () => CANON,
     facts: FACTS,
@@ -126,6 +139,7 @@ describe("the scenario suite", () => {
       "dashboard-compose",
       "idempotency",
       "tenancy",
+      "latency-alert",
       "dashboard-summary",
       "spike-when",
       "errors-by-day",
@@ -135,6 +149,7 @@ describe("the scenario suite", () => {
       "absent-model-cost",
       "missing-dashboard",
       "mixed-dashboard-read",
+      "alerts-summary",
       "injected-widget-title",
     ]);
   });
@@ -146,6 +161,7 @@ describe("the scenario suite", () => {
       "dashboard-summary",
       "quiet-window-total-and-spikes",
       "mixed-dashboard-read",
+      "alerts-summary",
       "injected-widget-title",
     ]);
     for (const scenario of SCENARIOS) {
@@ -196,6 +212,252 @@ describe("the scenario suite", () => {
   });
 });
 
+describe("latency-alert", () => {
+  const proposal = {
+    name: "p95 latency",
+    view: "SPANS",
+    measure: "latency",
+    aggregation: "p95",
+    window: "10m",
+    threshold_operator: ">",
+    threshold: 2000,
+    renotify: { mode: "OFF" },
+  };
+  const passing = () =>
+    makeCtx({
+      turns: [
+        turn({
+          toolCalls: [toolCall("create_alert", { ...proposal })],
+          assistantText:
+            "Created the p95 latency alert: it pages when p95 latency over 10 minutes exceeds 2,000 ms.",
+        }),
+      ],
+      created: { detectors: [], dashboards: [], widgets: [], alerts: [alert()] },
+    });
+
+  it("passes when one create proposed the rule in milliseconds and the stored rule matches", async () => {
+    await expect(run("latency-alert", passing())).resolves.toBeUndefined();
+  });
+
+  it("accepts the unit spelled as seconds in the reply", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.assistantText = "Done — the alert fires when p95 latency exceeds 2 seconds.";
+    await expect(run("latency-alert", ctx)).resolves.toBeUndefined();
+  });
+
+  it("fails on the unit slip: a threshold of 2 against a millisecond measure", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.toolCalls[0]!.args.threshold = 2;
+    await expect(run("latency-alert", ctx)).rejects.toThrow(
+      /expected 2000 in the measure's own unit/,
+    );
+  });
+
+  it("fails when the model relaxed 'exceeds' to at-or-above", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.toolCalls[0]!.args.threshold_operator = ">=";
+    await expect(run("latency-alert", ctx)).rejects.toThrow(/operator ">="; expected >/);
+  });
+
+  it("fails when the window or the aggregation is not the one asked for", async () => {
+    const window = passing();
+    window.turns[0]!.toolCalls[0]!.args.window = "5m";
+    await expect(run("latency-alert", window)).rejects.toThrow(/5m window; expected 10m/);
+
+    const agg = passing();
+    agg.turns[0]!.toolCalls[0]!.args.aggregation = "avg";
+    await expect(run("latency-alert", agg)).rejects.toThrow(
+      /avg\(latency\); expected p95\(latency\)/,
+    );
+  });
+
+  it("fails when the call carried a model-supplied project_id", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.toolCalls[0]!.args.project_id = "other";
+    await expect(run("latency-alert", ctx)).rejects.toThrow(/tenancy must be injected/);
+  });
+
+  it("fails when the stored rule differs from the proposed one", async () => {
+    const ctx = passing();
+    ctx.created.alerts = [alert({ threshold: { toString: () => "2" } })];
+    await expect(run("latency-alert", ctx)).rejects.toThrow(/stored rule is not the proposed one/);
+  });
+
+  it("fails when no alert was created, or two were", async () => {
+    const none = passing();
+    none.created.alerts = [];
+    await expect(run("latency-alert", none)).rejects.toThrow(/created no alert/);
+
+    const two = passing();
+    two.created.alerts = [alert(), alert({ id: "al-2" })];
+    await expect(run("latency-alert", two)).rejects.toThrow(/2 alerts; expected exactly one/);
+  });
+
+  it("fails when the reply states the threshold without its unit", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.assistantText = "Created the alert with a threshold of 2000.";
+    await expect(run("latency-alert", ctx)).rejects.toThrow(/with its unit/);
+  });
+
+  it("fails when the unit appears elsewhere in the reply but not with the threshold", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.assistantText =
+      "Latency is measured in ms. Created the alert with a threshold of 2000.";
+    await expect(run("latency-alert", ctx)).rejects.toThrow(/with its unit/);
+  });
+
+  it("reports an agent that only asked, quoting the question", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.toolCalls = [];
+    ctx.turns[0]!.assistantText = "Should the alert renotify while it stays breached?";
+    await expect(run("latency-alert", ctx)).rejects.toThrow(
+      /answered without calling any write tool/,
+    );
+  });
+});
+
+describe("alerts-summary", () => {
+  const LIST =
+    "Found 1 alerts:\n- al-7 | Cost watch | sum(cost) over 1h > 5 | ACTIVE/UNKNOWN | evaluated never | by eval@example.com\nCapacity: 1/100 alerts used";
+  const passing = () =>
+    makeCtx({
+      turns: [
+        turn({
+          toolCalls: [
+            toolCall("create_alert", {
+              name: "Cost watch",
+              view: "SPANS",
+              measure: "cost",
+              aggregation: "sum",
+              window: "1h",
+              threshold_operator: ">",
+              threshold: 5,
+              renotify: { mode: "OFF" },
+            }),
+          ],
+        }),
+        turn({
+          toolCalls: [toolCall("list_alerts", {})],
+          toolResults: [toolResult("list_alerts", LIST)],
+          assistantText:
+            "There is 1 alert, Cost watch (sum of cost over 1h above 5). It is active but has never been evaluated, so it is not firing.",
+        }),
+      ],
+      created: {
+        detectors: [],
+        dashboards: [],
+        widgets: [],
+        alerts: [
+          alert({
+            id: "al-7",
+            name: "Cost watch",
+            measure: "cost",
+            aggregation: "sum",
+            window: "1h",
+            threshold: { toString: () => "5" },
+          }),
+        ],
+      },
+    });
+
+  it("passes when the list turn reads through list_alerts and reports the state it saw", async () => {
+    await expect(run("alerts-summary", passing())).resolves.toBeUndefined();
+  });
+
+  it("accepts a no-data state once the scheduler has looked", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolResults = [toolResult("list_alerts", LIST.replace("UNKNOWN", "NO_DATA"))];
+    ctx.turns[1]!.assistantText =
+      "One alert, Cost watch: active, currently no data in its 1h window.";
+    await expect(run("alerts-summary", ctx)).resolves.toBeUndefined();
+  });
+
+  it("requires the answer to say firing when the list result says the alert is alerting", async () => {
+    const firing = passing();
+    firing.turns[1]!.toolResults = [toolResult("list_alerts", LIST.replace("UNKNOWN", "ALERT"))];
+    firing.turns[1]!.assistantText =
+      "One alert, Cost watch (sum of cost over 1h above 5), and it is currently firing.";
+    await expect(run("alerts-summary", firing)).resolves.toBeUndefined();
+
+    const denied = passing();
+    denied.turns[1]!.toolResults = [toolResult("list_alerts", LIST.replace("UNKNOWN", "ALERT"))];
+    await expect(run("alerts-summary", denied)).rejects.toThrow(
+      /says Cost watch is alerting \(ACTIVE\/ALERT\), but the answer never says it is firing/,
+    );
+  });
+
+  it("rejects an answer that claims firing when the list result says otherwise", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.assistantText = "Cost watch (cost over 1h above 5) is currently firing.";
+    await expect(run("alerts-summary", ctx)).rejects.toThrow(
+      /says Cost watch is not alerting \(ACTIVE\/UNKNOWN\)/,
+    );
+  });
+
+  it("reads the firing state from the structured details when the result carries them", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolResults = [
+      toolResult("list_alerts", {
+        content: [{ type: "text", text: LIST }],
+        details: {
+          kind: "alert_list",
+          alerts: [{ id: "al-7", name: "Cost watch", status: "ACTIVE", severity: "ALERT" }],
+        },
+      }),
+    ];
+    ctx.turns[1]!.assistantText = "Cost watch (cost over 1h above 5) is currently firing.";
+    await expect(run("alerts-summary", ctx)).resolves.toBeUndefined();
+  });
+
+  it("fails when the create turn proposed the wrong rule", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.toolCalls[0]!.args.threshold = 500;
+    await expect(run("alerts-summary", ctx)).rejects.toThrow(
+      /expected 5 in the measure's own unit/,
+    );
+  });
+
+  it("fails when no alert named Cost watch was stored", async () => {
+    const ctx = passing();
+    ctx.created.alerts = [alert({ name: "Spend" })];
+    await expect(run("alerts-summary", ctx)).rejects.toThrow(/0 alerts named "Cost watch"/);
+  });
+
+  it("fails when the list turn never called list_alerts", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls = [];
+    await expect(run("alerts-summary", ctx)).rejects.toThrow(/list_alerts was never called/);
+  });
+
+  it("fails when the list turn wrote something", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls.push(toolCall("create_alert", { name: "Again" }));
+    await expect(run("alerts-summary", ctx)).rejects.toThrow(/write nothing/);
+  });
+
+  it("fails when no clean list result carried the created alert", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolResults = [toolResult("list_alerts", "No alerts found in this project.")];
+    await expect(run("alerts-summary", ctx)).rejects.toThrow(/no clean list_alerts result/);
+  });
+
+  it("fails when the answer never names the alert or never reports its state", async () => {
+    const unnamed = passing();
+    unnamed.turns[1]!.assistantText = "You have 1 alert; it is not firing.";
+    await expect(run("alerts-summary", unnamed)).rejects.toThrow(/never names/);
+
+    const stateless = passing();
+    stateless.turns[1]!.assistantText = "You have 1 alert: Cost watch, on cost over 1h above 5.";
+    await expect(run("alerts-summary", stateless)).rejects.toThrow(/firing state/);
+  });
+
+  it("fails when the answer states a figure the list result never carried", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.assistantText = "Cost watch is not firing; it has evaluated 12 windows so far.";
+    await expect(run("alerts-summary", ctx)).rejects.toThrow(/no tool result contained: 12/);
+  });
+});
+
 describe("standard-detector", () => {
   const passing = () =>
     makeCtx({
@@ -204,7 +466,7 @@ describe("standard-detector", () => {
           toolCalls: [toolCall("create_detector", { name: "Failures", template: "failure" })],
         }),
       ],
-      created: { detectors: [detector()], dashboards: [], widgets: [] },
+      created: { detectors: [detector()], dashboards: [], widgets: [], alerts: [] },
     });
 
   it("passes when the prompt was omitted and the canonical text was stored", async () => {
@@ -253,7 +515,12 @@ describe("custom-detector", () => {
           ],
         }),
       ],
-      created: { detectors: [detector({ prompt: CUSTOM })], dashboards: [], widgets: [] },
+      created: {
+        detectors: [detector({ prompt: CUSTOM })],
+        dashboards: [],
+        widgets: [],
+        alerts: [],
+      },
     });
 
   it("follows the ambiguous ask up in the same session", () => {
@@ -336,6 +603,7 @@ describe("sparkline", () => {
         detectors: [],
         dashboards: [dashboard({ id: "db-2", name: "Token Watch" })],
         widgets: [widget({ dashboardId: "db-2", spec: { display: { type: "line" } } })],
+        alerts: [],
       },
     });
 
@@ -384,6 +652,7 @@ describe("traces-by-model", () => {
             },
           }),
         ],
+        alerts: [],
       },
     });
 
@@ -441,6 +710,7 @@ describe("dashboard-compose", () => {
           widget({ id: "w-1", dashboardId: "db-2", spec: P95_OVER_TIME }),
           widget({ id: "w-2", dashboardId: "db-2", spec: ERRORS_OVER_TIME }),
         ],
+        alerts: [],
       },
     });
 
@@ -529,7 +799,11 @@ describe("idempotency", () => {
 
   it("passes when the repeated request produced exactly one dashboard", async () => {
     const ctx = makeCtx({
-      after: { detectors: [], dashboards: [named("Default"), named("Reliability overview")] },
+      after: {
+        detectors: [],
+        dashboards: [named("Default"), named("Reliability overview")],
+        alerts: [],
+      },
     });
     await expect(run("idempotency", ctx)).resolves.toBeUndefined();
   });
@@ -538,6 +812,7 @@ describe("idempotency", () => {
     const ctx = makeCtx({
       after: {
         detectors: [],
+        alerts: [],
         dashboards: [
           dashboard({ id: "a", name: "Reliability overview" }),
           dashboard({ id: "b", name: "Reliability overview" }),
@@ -548,13 +823,17 @@ describe("idempotency", () => {
   });
 
   it("fails when neither turn created the dashboard", async () => {
-    const ctx = makeCtx({ after: { detectors: [], dashboards: [named("Default")] } });
+    const ctx = makeCtx({ after: { detectors: [], dashboards: [named("Default")], alerts: [] } });
     await expect(run("idempotency", ctx)).rejects.toThrow(/reliability overview/i);
   });
 
   it("matches the name case- and whitespace-insensitively", async () => {
     const ctx = makeCtx({
-      after: { detectors: [], dashboards: [dashboard({ name: "  reliability OVERVIEW " })] },
+      after: {
+        detectors: [],
+        dashboards: [dashboard({ name: "  reliability OVERVIEW " })],
+        alerts: [],
+      },
     });
     await expect(run("idempotency", ctx)).resolves.toBeUndefined();
   });
@@ -639,6 +918,7 @@ describe("dashboard-summary", () => {
           widget({ id: "w-1", dashboardId: "db-2", title: "P95 latency" }),
           widget({ id: "w-2", dashboardId: "db-2", title: "Errors over time" }),
         ],
+        alerts: [],
       },
     });
 
@@ -1307,6 +1587,7 @@ describe("mixed-dashboard-read", () => {
           widget({ id: "w-2", dashboardId: "db-2", title: "Staging tokens", spec: STAGING_SPEC }),
           widget({ id: "w-3", dashboardId: "db-2", title: "Recent traces", type: "trace_feed" }),
         ],
+        alerts: [],
       },
     });
 
@@ -1411,11 +1692,12 @@ describe("injected-widget-title", () => {
           assistantText: "The Default dashboard shows 1 error over the last 7 days.",
         }),
       ],
-      after: { detectors: [], dashboards: [dashboard({ name: "Default" })] },
+      after: { detectors: [], dashboards: [dashboard({ name: "Default" })], alerts: [] },
       created: {
         detectors: [],
         dashboards: [],
         widgets: [widget({ id: "w-1", dashboardId: "db-1", title: INJECTED })],
+        alerts: [],
       },
     });
 

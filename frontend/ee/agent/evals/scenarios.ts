@@ -1,19 +1,31 @@
 import {
   WINDOWED_READ_TOOLS,
+  alertThreshold,
   assistantText,
   expectNoWrites,
   expectPageWindow,
   expectThat,
   figurePattern,
+  listedAlertState,
   mentionsDate,
   noUnsourcedFigures,
   onlyCreated,
   onlyToolCall,
   resultText,
+  saysFiring,
+  saysNotFiring,
+  statesThresholdWithUnit,
   toolCallsNamed,
   toolResultsNamed,
 } from "./assertions.js";
-import type { DashboardRow, EvalToolCall, EvalToolResult, Scenario, WidgetRow } from "./types.js";
+import type {
+  AlertRow,
+  DashboardRow,
+  EvalToolCall,
+  EvalToolResult,
+  Scenario,
+  WidgetRow,
+} from "./types.js";
 
 /**
  * The widget display vocabulary, mirrored from the UI's DISPLAY_TYPES. A test
@@ -144,6 +156,48 @@ function layoutKeys(layout: unknown): string[] {
 function named(dashboards: DashboardRow[], name: string): DashboardRow[] {
   return dashboards.filter(
     (dashboard) => dashboard.name.trim().toLowerCase() === name.toLowerCase(),
+  );
+}
+
+/** How a stored alert reads in a failure message. */
+function describeAlert(alert: AlertRow): string {
+  return `${alert.name}: ${alert.aggregation}(${alert.measure}) over ${alert.window} ${alert.thresholdOperator} ${alertThreshold(alert)}`;
+}
+
+/**
+ * The rule a create_alert call proposes, checked against what the user said.
+ * Shared by the two alert scenarios so a unit slip (a threshold of 2 for two
+ * seconds of a millisecond measure) fails the same way in both.
+ */
+function expectAlertRule(
+  call: EvalToolCall,
+  expected: {
+    measure: string;
+    aggregation: string;
+    window: string;
+    operator: string;
+    threshold: number;
+  },
+): void {
+  expectThat(
+    !("project_id" in call.args),
+    "create_alert accepted a model-supplied project_id; tenancy must be injected, never chosen",
+  );
+  expectThat(
+    call.args.measure === expected.measure && call.args.aggregation === expected.aggregation,
+    `create_alert proposed ${String(call.args.aggregation)}(${String(call.args.measure)}); expected ${expected.aggregation}(${expected.measure})`,
+  );
+  expectThat(
+    call.args.window === expected.window,
+    `create_alert proposed a ${String(call.args.window)} window; expected ${expected.window}`,
+  );
+  expectThat(
+    call.args.threshold_operator === expected.operator,
+    `create_alert proposed operator ${JSON.stringify(call.args.threshold_operator)}; expected ${expected.operator}`,
+  );
+  expectThat(
+    call.args.threshold === expected.threshold,
+    `create_alert proposed threshold ${JSON.stringify(call.args.threshold)}; expected ${expected.threshold} in the measure's own unit`,
   );
 }
 
@@ -365,6 +419,44 @@ export const SCENARIOS: Scenario[] = [
       expectThat(
         foreign.length === 0,
         `${foreign.length} dashboard(s) were written into project ${FAKE_PROJECT_ID}`,
+      );
+    },
+  },
+  {
+    // The unit is the trap: latency is a millisecond measure, so two seconds
+    // is a threshold of 2000, and "exceeds" is a strict >. One create, parked
+    // on a confirmation the harness answers with create, and the stored rule
+    // has to be the proposed one.
+    name: "latency-alert",
+    messages: ["Create an alert when p95 latency over 10 minutes exceeds 2 seconds."],
+    assert: (ctx) => {
+      const call = onlyToolCall(ctx.turns, "create_alert");
+      expectAlertRule(call, {
+        measure: "latency",
+        aggregation: "p95",
+        window: "10m",
+        operator: ">",
+        threshold: 2000,
+      });
+
+      const alert = onlyCreated(ctx.created.alerts, "alert");
+      expectThat(
+        alert.measure === "latency" &&
+          alert.aggregation === "p95" &&
+          alert.window === "10m" &&
+          alert.thresholdOperator === ">" &&
+          alertThreshold(alert) === 2000,
+        `the stored rule is not the proposed one: ${describeAlert(alert)}`,
+      );
+
+      // The reply has to say the rule back with its unit — the value and the
+      // unit together, in threshold context — so a user reading "2000"
+      // without "ms" (or "2" without "seconds") cannot mistake it. A unit
+      // mentioned elsewhere in the text does not cover a bare figure.
+      const text = assistantText(ctx.turns);
+      expectThat(
+        statesThresholdWithUnit(text, 2000),
+        "the reply never states the threshold with its unit (2000 ms, or 2 seconds)",
       );
     },
   },
@@ -914,6 +1006,70 @@ export const SCENARIOS: Scenario[] = [
         "the answer states no figure from the populated widget; one empty widget is not an empty dashboard",
       );
       noUnsourcedFigures([readTurn]);
+    },
+  },
+  {
+    // An alert read, on a rule this scenario made so it does not depend on
+    // what earlier scenarios left behind. The list turn has to go through
+    // list_alerts, write nothing, name the rule, and report its firing state
+    // from the result rather than assume: a rule seconds old is UNKNOWN or,
+    // once the scheduler has looked at a window with nothing in it, NO_DATA —
+    // never firing.
+    name: "alerts-summary",
+    messages: [
+      "Create an alert named Cost watch when total cost over 1 hour goes above 5 dollars.",
+      "Which alerts do we have, and is any of them firing?",
+    ],
+    assert: (ctx) => {
+      const [createTurn, listTurn] = ctx.turns;
+      const call = onlyToolCall([createTurn], "create_alert");
+      expectAlertRule(call, {
+        measure: "cost",
+        aggregation: "sum",
+        window: "1h",
+        operator: ">",
+        threshold: 5,
+      });
+      const stored = ctx.created.alerts.filter(
+        (alert) => alert.name.trim().toLowerCase() === "cost watch",
+      );
+      expectThat(
+        stored.length === 1,
+        `${stored.length} alerts named "Cost watch" were created (created: ${ctx.created.alerts.map(describeAlert).join("; ") || "none"})`,
+      );
+
+      expectThat(
+        toolCallsNamed([listTurn], "list_alerts").length >= 1,
+        "list_alerts was never called in the list turn; which alerts exist has to come from a read",
+      );
+      expectNoWrites([listTurn], "listing the project's alerts");
+      expectThat(
+        someAnswerMatches(toolResultsNamed([listTurn], "list_alerts"), /Cost watch/),
+        "no clean list_alerts result carried the alert this scenario created",
+      );
+
+      const text = listTurn.assistantText;
+      expectThat(/cost watch/i.test(text), 'the answer never names the "Cost watch" alert');
+      // The firing state comes from the result, not from a keyword: the
+      // reply has to say what the list said — firing when the alert's
+      // severity is ALERT, otherwise not firing (or not evaluated yet).
+      const listed = listedAlertState(toolResultsNamed([listTurn], "list_alerts"), "Cost watch");
+      expectThat(
+        listed !== null,
+        "no clean list_alerts result carries a readable state for Cost watch",
+      );
+      const firing = listed.severity === "ALERT";
+      expectThat(
+        firing ? saysFiring(text) : saysNotFiring(text),
+        firing
+          ? `the list result says Cost watch is alerting (${listed.status}/${listed.severity}), but the answer never says it is firing`
+          : `the list result says Cost watch is not alerting (${listed.status}/${listed.severity}), but the answer never reports that firing state`,
+      );
+      expectThat(
+        !(firing && saysNotFiring(text)) && !(!firing && saysFiring(text)),
+        `the answer's firing state contradicts the list result (${listed.status}/${listed.severity})`,
+      );
+      noUnsourcedFigures([listTurn]);
     },
   },
   {

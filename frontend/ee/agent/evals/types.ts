@@ -92,10 +92,25 @@ export interface DashboardRow {
   widgets: WidgetRow[];
 }
 
+/**
+ * A stored threshold alert. `threshold` is a Prisma Decimal at runtime, which
+ * is neither a number nor a string; read it through `alertThreshold`.
+ */
+export interface AlertRow {
+  id: string;
+  name: string;
+  measure: string;
+  aggregation: string;
+  window: string;
+  thresholdOperator: string;
+  threshold: unknown;
+}
+
 /** A point-in-time read of everything the write tools can create in a project. */
 export interface ProjectRows {
   detectors: DetectorRow[];
   dashboards: DashboardRow[];
+  alerts: AlertRow[];
 }
 
 /** Rows that appeared between two `ProjectRows` reads. */
@@ -103,6 +118,7 @@ export interface CreatedRows {
   detectors: DetectorRow[];
   dashboards: DashboardRow[];
   widgets: WidgetRow[];
+  alerts: AlertRow[];
 }
 
 /**
@@ -128,6 +144,9 @@ export interface EvalPrisma {
   };
   detector: {
     findMany(args: unknown): Promise<DetectorRow[]>;
+  };
+  alert: {
+    findMany(args: unknown): Promise<AlertRow[]>;
   };
   auditLog: {
     deleteMany(args: unknown): Promise<unknown>;
