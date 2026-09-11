@@ -138,15 +138,20 @@ def test_dedup_is_by_logical_id_and_runs_before_the_row_filters(sql):
     Filtering before the dedup is the other half: it lets a row whose newest version
     left customer traffic stay visible through its stale `source = 'user'` version.
     """
-    assert "LIMIT 1 BY span_id" in sql
-    assert "LIMIT 1 BY trace_id" in sql
+    # A span id is unique within its trace, not across a project, so the spans view
+    # must dedup on both or it drops one of two traces that reuse a span id.
+    assert "LIMIT 1 BY trace_id, span_id" in sql
+    assert re.search(r"LIMIT 1 BY trace_id\s*\n", sql), "traces view dedups by trace_id"
     assert sql.count("ORDER BY ch_update_time DESC") == 2
     assert "FINAL" not in sql, "FINAL cannot dedup across the sort key here"
 
     # The filters live OUTSIDE the dedup subquery, so the dedup sees every version.
-    for view, id_col in (("spans_public_v1", "span_id"), ("traces_public_v1", "trace_id")):
+    for view, key in (
+        ("spans_public_v1", "LIMIT 1 BY trace_id, span_id"),
+        ("traces_public_v1", "LIMIT 1 BY trace_id"),
+    ):
         block = _view_block(sql, view)
-        dedup = block.index(f"LIMIT 1 BY {id_col}")
+        dedup = block.index(key)
         filt = block.index("WHERE source = 'user'")
         assert dedup < filt, f"{view} filters before it deduplicates"
 

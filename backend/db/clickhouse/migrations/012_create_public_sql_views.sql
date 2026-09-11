@@ -23,6 +23,13 @@
 -- explicit `ORDER BY ch_update_time DESC LIMIT 1 BY <id>` over the LOGICAL id, applied
 -- BEFORE the row filters. Three things that shape has to get right:
 --
+--   * The dedup key is the LOGICAL row, which for a span is (trace_id, span_id) and
+--     not span_id alone. A span id is unique within its trace, not across a project,
+--     so deduplicating on span_id alone would drop one of two traces that happen to
+--     reuse one. The physical sort key carries trace_id for the same reason, and the
+--     product's own multi-trace read path dedups by (project_id, trace_id, span_id).
+--     These views are already scoped to one project, so the project column is implied.
+--
 --   * FINAL is not sufficient. ReplacingMergeTree collapses only rows sharing the whole
 --     sort key, and `traces` is ordered by (project_id, toDate(trace_start_time),
 --     trace_id). A traces row copies its trace_start_time from one of the trace's spans,
@@ -108,7 +115,7 @@ FROM
     FROM spans
     WHERE project_id = {project_id:String}
     ORDER BY ch_update_time DESC
-    LIMIT 1 BY span_id
+    LIMIT 1 BY trace_id, span_id
 )
 WHERE source = 'user'
   AND trace_id NOT IN (
