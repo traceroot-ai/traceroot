@@ -22,13 +22,13 @@ import {
 } from "@/features/dashboards/hooks/use-widget-data";
 import {
   ChartTip,
-  SERIES_COLORS,
   bucketLabel,
   fmtAxisTick,
   isAdditiveAgg,
   seriesNameFormatter,
   pivotRows,
 } from "@/features/dashboards/components/renderers";
+import { SERIES_COLORS } from "@/features/dashboards/series-colors";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { makeRange } from "@/features/dashboards/range-presets";
 import { DEFAULT_DATE_FILTER, type DateFilterOption } from "@/lib/date-filter";
