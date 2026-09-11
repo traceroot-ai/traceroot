@@ -18,4 +18,6 @@ export const INTERNAL_BINDINGS: Readonly<Record<string, string>> = {
   // ingress) with secret-only auth — it has no user-header surface at all.
   list_dashboards: "/api/v1/internal/projects/{project_id}/dashboards",
   get_dashboard: "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}",
+  list_alerts: "/api/v1/internal/projects/{project_id}/alerts",
+  get_alert: "/api/v1/internal/projects/{project_id}/alerts/{alert_id}",
 };
