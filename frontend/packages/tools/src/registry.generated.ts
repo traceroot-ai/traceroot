@@ -223,6 +223,28 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_alert",
+    description:
+      "Fetch one alert's full rule by id: view, measure, aggregation, filters, window, threshold, renotify and no-data handling, plus its evaluation state. Resolve the alert id by listing the project's alerts and matching the name — never guess an id.",
+    method: "get",
+    path: "/api/v1/public/alerts/{alert_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        alert_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["alert_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_dashboard",
     description:
       "Fetch one dashboard with its widgets (id, title, type, query spec, creation time). Resolve the dashboard id by listing the project's dashboards and matching the name — never guess an id.",
@@ -364,6 +386,44 @@ export const REGISTRY: readonly RegistryEntry[] = [
         },
       },
       required: ["trace_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_alerts",
+    description:
+      "List the project's threshold alerts (id, name, rule summary, status, current severity, last evaluation and notification state, creator) with the project's alert capacity. Paginated; search_query matches the alert name. To resolve an alert by name, list here and match its name — never guess an alert id.",
+    method: "get",
+    path: "/api/v1/public/alerts",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Items per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        page: {
+          default: 0,
+          description: "0-based page index",
+          maximum: 10000,
+          minimum: 0,
+          type: "integer",
+        },
+        search_query: {
+          maxLength: 200,
+          type: "string",
+          description: "Case-insensitive substring match on the alert name",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
       additionalProperties: false,
     },
   },

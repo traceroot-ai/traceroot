@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Executor } from "../../executors/interface.js";
 import {
+  formatAlertDetail,
+  formatAlertList,
   formatDashboardDetail,
   formatDashboardList,
   formatDetectorDetail,
@@ -27,7 +29,7 @@ describe("createRegistryReadTools", () => {
     return impl;
   }
 
-  it("exposes exactly the ten internally-bound read tools", () => {
+  it("exposes exactly the twelve internally-bound read tools", () => {
     const names = createRegistryReadTools("p1", "u1").map((t) => t.name);
     expect(names).toEqual([
       "list_traces",
@@ -40,6 +42,8 @@ describe("createRegistryReadTools", () => {
       "get_finding_by_trace",
       "list_dashboards",
       "get_dashboard",
+      "list_alerts",
+      "get_alert",
     ]);
   });
 
@@ -276,6 +280,64 @@ describe("createRegistryReadTools", () => {
     expect(result.content[0]!.text).toContain("Cost over time");
   });
 
+  it("list_alerts hits the internal alerts route with paging and runs the formatter", async () => {
+    const impl = stubFetch({
+      data: [
+        {
+          id: "alr-1",
+          name: "p95 latency",
+          measure: "latency",
+          aggregation: "p95",
+          window: "10m",
+          threshold_operator: ">",
+          threshold: 2000,
+          status: "ACTIVE",
+          severity: "OK",
+          creator: "Ada Lovelace",
+        },
+      ],
+      meta: { page: 0, limit: 50, total: 1, capacity: { used: 1, max: 100 } },
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "list_alerts")!;
+    const result = await tool.execute("id", { label: "x", search_query: "latency", limit: 5 });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/alerts?limit=5&search_query=latency",
+    );
+    expect((init as RequestInit).headers).toMatchObject({
+      "X-Internal-Secret": "s3cret",
+      "x-user-id": "u1",
+    });
+    // Exact rendering is owned by the formatter tests; this proves dispatch + formatter wiring.
+    expect(result.content[0]!.text).toContain("Found 1 alerts");
+    expect(result.content[0]!.text).toContain("alr-1");
+  });
+
+  it("get_alert hits the internal alert route and renders the rule", async () => {
+    const impl = stubFetch({
+      id: "alr-1",
+      name: "p95 latency",
+      view: "SPANS",
+      measure: "latency",
+      aggregation: "p95",
+      filters: [],
+      window: "10m",
+      threshold_operator: ">",
+      threshold: 2000,
+      renotify: { mode: "OFF" },
+      no_data_mode: "HOLD",
+      status: "ACTIVE",
+      severity: "OK",
+      creator: "Ada Lovelace",
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_alert")!;
+    const result = await tool.execute("id", { label: "x", alert_id: "alr-1" });
+    const [url] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/internal/projects/p1/alerts/alr-1");
+    expect(result.content[0]!.text).toContain("Alert: alr-1");
+    expect(result.content[0]!.text).toContain("p95(latency) over 10m > 2000");
+  });
+
   it("returns HTTP failures as tool text instead of throwing", async () => {
     vi.stubGlobal(
       "fetch",
@@ -307,6 +369,8 @@ describe("createTools", () => {
       "get_finding_by_trace",
       "list_dashboards",
       "get_dashboard",
+      "list_alerts",
+      "get_alert",
       "download_traces",
       "download_session",
       "check_github_access",
@@ -450,6 +514,112 @@ describe("formatters", () => {
     });
     expect(text).toContain("Description: (none)");
     expect(text).toContain("Widgets: (none — add one with create_widget)");
+  });
+
+  it("formatAlertList renders rule lines, capacity, and the empty state", () => {
+    expect(formatAlertList({})).toBe("No alerts found in this project.");
+    // A search that matched nothing still reports how full the project is.
+    expect(formatAlertList({ data: [], meta: { capacity: { used: 3, max: 100 } } })).toBe(
+      "No alerts found in this project.\nCapacity: 3/100 alerts used",
+    );
+    expect(
+      formatAlertList({
+        data: [
+          {
+            id: "alr-1",
+            name: "p95 latency",
+            measure: "latency",
+            aggregation: "p95",
+            window: "10m",
+            threshold_operator: ">",
+            threshold: 2000,
+            status: "ACTIVE",
+            severity: "OK",
+            creator: "Ada Lovelace",
+            last_evaluated_at: "2026-09-11T20:10:00Z",
+            last_notify_status: "SENT",
+            last_notify_at: "2026-09-11T20:00:00Z",
+            last_error: null,
+          },
+          {
+            id: "alr-2",
+            name: "",
+            measure: "error_count",
+            aggregation: "sum",
+            window: "1h",
+            threshold_operator: ">=",
+            threshold: 5,
+            status: "PAUSED",
+            severity: "ALERT",
+            creator: null,
+            last_error: "e".repeat(250),
+          },
+        ],
+        meta: { total: 7, capacity: { used: 7, max: 100 } },
+      }),
+    ).toBe(
+      "Found 2 alerts (7 total, showing 2):\n" +
+        "- alr-1 | p95 latency | p95(latency) over 10m > 2000 | ACTIVE/OK | evaluated 2026-09-11T20:10:00Z | notify: SENT at 2026-09-11T20:00:00Z | by Ada Lovelace\n" +
+        `- alr-2 | (unnamed) | sum(error_count) over 1h >= 5 | PAUSED/ALERT | evaluated never | by unknown | last error: ${"e".repeat(200)}\n` +
+        "Capacity: 7/100 alerts used",
+    );
+  });
+
+  it("formatAlertDetail renders the rule, filters, state, and error lines", () => {
+    expect(
+      formatAlertDetail({
+        id: "alr-1",
+        name: "p95 latency",
+        view: "SPANS",
+        measure: "latency",
+        aggregation: "p95",
+        filters: [{ field: "model_name", op: "=", value: "gpt-5" }],
+        window: "10m",
+        threshold_operator: ">",
+        threshold: 2000,
+        renotify: { mode: "EVERY", interval_minutes: 60 },
+        no_data_mode: "HOLD",
+        status: "ACTIVE",
+        severity: "ALERT",
+        severity_changed_at: "2026-09-11T20:00:00Z",
+        alerted_at: "2026-09-11T20:00:00Z",
+        last_evaluated_at: "2026-09-11T20:10:00Z",
+        last_error: "query timed out",
+        last_error_at: "2026-09-11T19:00:00Z",
+        last_notify_status: "FAILED",
+        last_notify_error: "channel missing",
+        last_notify_at: "2026-09-11T20:00:00Z",
+        creator: "Ada Lovelace",
+        create_time: "2026-08-01T00:00:00Z",
+        update_time: "2026-08-02T00:00:00Z",
+      }),
+    ).toBe(
+      "Alert: alr-1 | p95 latency\n" +
+        "Rule: p95(latency) over 10m > 2000 on SPANS | no-data: HOLD | renotify: every 60 min\n" +
+        'Filters: [{"field":"model_name","op":"=","value":"gpt-5"}]\n' +
+        "State: ACTIVE | severity: ALERT (since 2026-09-11T20:00:00Z) | alerted 2026-09-11T20:00:00Z | last evaluated 2026-09-11T20:10:00Z\n" +
+        "Created by Ada Lovelace | created 2026-08-01T00:00:00Z | updated 2026-08-02T00:00:00Z\n" +
+        "Last error: query timed out (2026-09-11T19:00:00Z)\n" +
+        "Last notification: FAILED at 2026-09-11T20:00:00Z — channel missing",
+    );
+  });
+
+  it("formatAlertDetail states missing pieces explicitly", () => {
+    const text = formatAlertDetail({
+      id: "alr-2",
+      name: "",
+      filters: [],
+      renotify: { mode: "OFF" },
+      status: "PAUSED",
+      severity: "UNKNOWN",
+    });
+    expect(text).toContain("Alert: alr-2 | (unnamed)");
+    expect(text).toContain("renotify: off");
+    expect(text).toContain("Filters: (none)");
+    expect(text).toContain("alerted never | last evaluated never");
+    expect(text).toContain("Created by unknown");
+    expect(text).not.toContain("Last error");
+    expect(text).not.toContain("Last notification");
   });
 
   it("formatDetectorList renders rows and reports the empty state", () => {

@@ -22,12 +22,14 @@ describe("committed registry", () => {
       "create_widget",
       "create_workspace",
       "export_trace",
+      "get_alert",
       "get_dashboard",
       "get_detector",
       "get_finding",
       "get_finding_by_trace",
       "get_session",
       "get_trace",
+      "list_alerts",
       "list_dashboards",
       "list_detectors",
       "list_findings",
@@ -58,5 +60,28 @@ describe("committed registry", () => {
     expect(get.policy).toBeUndefined();
     expect(Object.keys(get.inputSchema.properties).sort()).toEqual(["dashboard_id", "project_id"]);
     expect(get.inputSchema.required).toEqual(["dashboard_id"]);
+  });
+
+  it("generates the alert reads as pure GET tools with the paging params", () => {
+    const list = REGISTRY.find((entry) => entry.name === "list_alerts")!;
+    expect(list.method).toBe("get");
+    expect(list.path).toBe("/api/v1/public/alerts");
+    expect(list.bodyParams).toBeUndefined();
+    expect(list.policy).toBeUndefined();
+    expect(Object.keys(list.inputSchema.properties).sort()).toEqual([
+      "limit",
+      "page",
+      "project_id",
+      "search_query",
+    ]);
+    expect(list.inputSchema.required).toEqual([]);
+
+    const get = REGISTRY.find((entry) => entry.name === "get_alert")!;
+    expect(get.method).toBe("get");
+    expect(get.path).toBe("/api/v1/public/alerts/{alert_id}");
+    expect(get.bodyParams).toBeUndefined();
+    expect(get.policy).toBeUndefined();
+    expect(Object.keys(get.inputSchema.properties).sort()).toEqual(["alert_id", "project_id"]);
+    expect(get.inputSchema.required).toEqual(["alert_id"]);
   });
 });

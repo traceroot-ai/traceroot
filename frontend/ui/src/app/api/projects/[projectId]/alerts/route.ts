@@ -8,6 +8,7 @@ import {
   firstIssueMessage,
   isAggregationValidForMeasure,
   isMeasureValidForView,
+  MAX_ALERTS_PER_PROJECT,
   toAlertFilters,
 } from "./schema";
 import { alertSelect, alertSummarySelect, serializeAlert, withCreators } from "./serialize";
@@ -19,9 +20,6 @@ const MAX_LIMIT = 200;
 // `skip` is a 32-bit int in Prisma: an unclamped page reaches it out of range
 // and 500s. At MAX_LIMIT this is still far more pages than a list can hold.
 const MAX_PAGE = 10_000;
-// ALERT_CLAIM_SCAN_LIMIT / 10, so ten projects stay visible to the scheduler's
-// round-robin. Bounds one tenant's share, not total load.
-const MAX_ALERTS_PER_PROJECT = 100;
 
 export async function GET(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params);
@@ -43,7 +41,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     prisma.alert.findMany({
       where,
       select: alertSummarySelect,
-      orderBy: { createTime: "asc" },
+      // The id breaks createTime ties so offset paging never skips or repeats a
+      // row across pages.
+      orderBy: [{ createTime: "asc" }, { id: "asc" }],
       skip: page * limit,
       take: limit,
     }),
