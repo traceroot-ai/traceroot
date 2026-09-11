@@ -82,20 +82,40 @@ def _load_cache() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _match_specificity(entry: dict) -> tuple[int, str]:
+    """Rank a regex match so the most specific entry wins rather than the first one seen.
+
+    Several patterns carry an optional version tail, so a predecessor subsumes its
+    successors: ``claude-sonnet-4``'s pattern also matches ``claude-sonnet-4-5`` and
+    ``claude-sonnet-4-6``. First-match-wins therefore depends on the order rows arrive
+    in, and the two runtimes do not agree on that. Python selects with ORDER BY
+    model_name while the TypeScript resolver reads whatever order the database hands
+    back, so the same id can price differently on the two paths, and the answer can
+    move after an UPDATE. Ranking removes the dependency instead of relying on order.
+
+    A longer model_name is the more specific entry. The name itself breaks ties so the
+    result is total and reproducible.
+    """
+    return (len(entry["model_name"]), entry["model_name"])
+
+
 def _match(cache: list[dict], model: str) -> dict[str, float] | None:
-    """Exact match on model_name, then regex fallback on match_pattern."""
+    """Exact match on model_name, then a ranked regex fallback on match_pattern."""
     for entry in cache:
         if entry["model_name"] == model:
             return entry["prices"]
 
+    best: tuple[tuple[int, str], dict[str, float]] | None = None
     for entry in cache:
         try:
             if re.search(entry["match_pattern"], model, re.IGNORECASE):
-                return entry["prices"]
+                rank = _match_specificity(entry)
+                if best is None or rank > best[0]:
+                    best = (rank, entry["prices"])
         except re.error:
             continue
 
-    return None
+    return best[1] if best else None
 
 
 def get_model_price(model: str) -> dict[str, float] | None:

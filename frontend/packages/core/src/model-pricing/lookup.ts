@@ -58,11 +58,10 @@ registerCacheClear(clearCache);
 async function loadCache(): Promise<CachedModel[]> {
   if (cache) return cache;
 
-  // Ordered by modelName to match the worker's `ORDER BY m.model_name` (pricing.py).
-  // Both lookups take the first pattern that matches, so wherever two patterns
-  // cover one id — `claude-sonnet-4` and `claude-sonnet-4-6` both match
-  // `claude-sonnet-4-6` — an unordered findMany can answer differently from the
-  // worker, and can change its own answer after an UPDATE reshuffles rows.
+  // Ordered by modelName to match the worker's `ORDER BY m.model_name` (pricing.py),
+  // so the two sides read the catalogue the same way. Ranking below is what makes the
+  // answer correct rather than merely consistent: both runtimes agreeing on the first
+  // pattern that matches would still pick `claude-sonnet-4` for `claude-sonnet-4-6`.
   const models = await prisma.standardModel.findMany({
     include: { prices: true },
     orderBy: { modelName: "asc" },
@@ -163,13 +162,28 @@ function matchPricing(models: CachedModel[], modelId: string): ModelPricing | nu
   const exact = models.find((m) => m.modelName === modelId);
   if (exact) return exact.prices;
 
-  // Regex fallback — catches provider-prefixed and Bedrock/Vertex-style aliases
-  // (e.g. "anthropic/claude-opus-5", "us.anthropic.claude-opus-5-v1:0").
+  // Regex fallback, catching provider-prefixed and Bedrock/Vertex-style aliases such as
+  // "anthropic/claude-opus-5" or "us.anthropic.claude-opus-5-v1:0".
+  //
+  // Most specific wins rather than first seen. Several patterns carry an optional
+  // version tail, so a predecessor subsumes its successors: claude-sonnet-4's pattern
+  // also matches claude-sonnet-4-5 and claude-sonnet-4-6. Taking the first match would
+  // make the answer depend on row order, and the two runtimes do not agree on that.
+  // A longer modelName is the more specific entry, with the name breaking ties.
+  // Mirrors _match_specificity in backend/worker/tokens/pricing.py.
+  let best: CachedModel | null = null;
   for (const m of models) {
-    if (m.matcher?.test(modelId)) return m.prices;
+    if (!m.matcher?.test(modelId)) continue;
+    if (
+      best === null ||
+      m.modelName.length > best.modelName.length ||
+      (m.modelName.length === best.modelName.length && m.modelName > best.modelName)
+    ) {
+      best = m;
+    }
   }
 
-  return null;
+  return best ? best.prices : null;
 }
 
 /**

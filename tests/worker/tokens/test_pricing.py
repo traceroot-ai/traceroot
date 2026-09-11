@@ -1005,3 +1005,81 @@ def test_anthropic_entries_have_2x_input_1h_cache_rate():
             continue
         assert "cacheWrite1h" in prices, f"{entry['modelName']} missing cacheWrite1h"
         assert prices["cacheWrite1h"] == pytest.approx(prices["input"] * 2), entry["modelName"]
+
+
+class TestResolutionIsOrderIndependent:
+    """The catalogue contains patterns that claim more than one entry's id.
+
+    ``claude-sonnet-4``'s pattern carries an optional version tail, so it also matches
+    ``claude-sonnet-4-5`` and ``claude-sonnet-4-6``. While resolution took the first
+    matching row, the answer depended on the order rows arrived in, and the two runtimes
+    disagree on that: the worker selects with ORDER BY model_name, while the TypeScript
+    resolver reads whatever order the database returns, which can move after an UPDATE.
+    Same rates today, so nothing misprices, but it breaks the day a successor is repriced.
+
+    These fixtures deliberately do not use the catalogue's file order. That order happens
+    to list the successor first, which hides the bug, so asserting against it would prove
+    nothing.
+    """
+
+    @staticmethod
+    def _by_name(cache: list[dict]) -> list[dict]:
+        """Row order as the worker's own query produces it: ORDER BY model_name."""
+        return sorted(cache, key=lambda entry: entry["model_name"])
+
+    @pytest.mark.parametrize(
+        "model_id,expected",
+        [
+            ("anthropic/claude-sonnet-4-6", "claude-sonnet-4-6"),
+            ("anthropic/claude-sonnet-4-5", "claude-sonnet-4-5"),
+            ("anthropic/claude-sonnet-4", "claude-sonnet-4"),
+        ],
+    )
+    def test_most_specific_entry_wins_under_the_production_row_order(
+        self, real_cache, model_id, expected
+    ):
+        ordered = self._by_name(real_cache)
+        with patch("worker.tokens.pricing._load_cache", lambda: ordered):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} must resolve"
+        assert price[MATCHED_MODEL_NAME] == expected
+
+    def test_prefixed_ids_resolve_the_same_under_any_row_order(self, real_cache):
+        """Only ids that reach the regex pass can expose this.
+
+        A bare catalogue id is answered by the exact-match pass before ranking runs, so
+        querying those would pass whatever the order.
+        """
+        import random
+
+        probes = [
+            "anthropic/claude-sonnet-4-6",
+            "anthropic/claude-sonnet-4-5",
+            "anthropic/claude-opus-4-8",
+            "anthropic/claude-sonnet-4",
+        ]
+
+        ordered = self._by_name(real_cache)
+        with patch("worker.tokens.pricing._load_cache", lambda: ordered):
+            baseline = {p: get_model_price(p)[MATCHED_MODEL_NAME] for p in probes}
+
+        rng = random.Random(0)
+        for _ in range(5):
+            shuffled = list(real_cache)
+            rng.shuffle(shuffled)
+            with patch("worker.tokens.pricing._load_cache", lambda c=shuffled: c):
+                for probe, expected in baseline.items():
+                    price = get_model_price(probe)
+                    assert price is not None, probe
+                    assert price[MATCHED_MODEL_NAME] == expected, (
+                        f"{probe} resolved to {price[MATCHED_MODEL_NAME]} under a different row order"
+                    )
+
+    def test_every_catalogue_id_resolves_to_itself(self, real_cache):
+        ordered = self._by_name(real_cache)
+        with patch("worker.tokens.pricing._load_cache", lambda: ordered):
+            for entry in real_cache:
+                price = get_model_price(entry["model_name"])
+                assert price is not None, f"{entry['model_name']} does not resolve"
+                assert price[MATCHED_MODEL_NAME] == entry["model_name"]
