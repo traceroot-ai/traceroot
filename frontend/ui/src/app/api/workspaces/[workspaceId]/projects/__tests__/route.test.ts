@@ -132,7 +132,6 @@ describe("Workspace projects create route", () => {
   };
 
   it("creates the project and seeds the Default dashboard in the same transaction", async () => {
-    mockFindFirst.mockResolvedValue(null);
     mockTxProjectCreate.mockImplementation(({ data }: any) =>
       Promise.resolve({ ...data, createTime: new Date() }),
     );
@@ -158,13 +157,15 @@ describe("Workspace projects create route", () => {
     );
   });
 
-  it("returns 409 on a duplicate name and creates nothing", async () => {
-    mockFindFirst.mockResolvedValue({ id: "p-existing" });
+  it("returns 409 on a duplicate name and seeds nothing", async () => {
+    // The live-name unique index is the only race-free duplicate check: the
+    // create itself fails, and the transaction rolls back before any seed.
+    mockTxProjectCreate.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
 
     const res = await post({ name: "Checkout" });
     expect(res.status).toBe(409);
-    expect(mockTransaction).not.toHaveBeenCalled();
-    expect(mockTxProjectCreate).not.toHaveBeenCalled();
     expect(mockTxDashboardCreate).not.toHaveBeenCalled();
   });
 });

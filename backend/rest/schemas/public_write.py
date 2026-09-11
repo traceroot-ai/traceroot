@@ -69,6 +69,25 @@ JsonPayloadDict = Annotated[dict, AfterValidator(_require_encodable_json)]
 JsonPayloadList = Annotated[list, AfterValidator(_require_encodable_json)]
 
 
+def _require_bounded_spec(spec: BaseModel) -> BaseModel:
+    """Hold a deep-validated spec to the same per-field byte cap as the loose JSON fields.
+
+    Typing the spec bounds its shape, not its size: a filter value is an
+    unbounded string, and the spec is persisted verbatim as JSONB.
+
+    Args:
+        spec (BaseModel): The validated spec model.
+
+    Returns:
+        BaseModel: ``spec`` unchanged when its JSON form is within the cap.
+
+    Raises:
+        ValueError: When the spec serializes past the per-field byte cap.
+    """
+    _require_encodable_json(spec.model_dump(mode="json", exclude_none=True))
+    return spec
+
+
 class CreateWorkspaceRequest(BaseModel):
     """Body for creating a workspace the caller will administer."""
 
@@ -227,7 +246,7 @@ class CreateWidgetRequest(BaseModel):
     dashboard_id: str
     title: str
     type: str
-    spec: WidgetSpec | TraceFeedSpec = Field(
+    spec: Annotated[WidgetSpec | TraceFeedSpec, AfterValidator(_require_bounded_spec)] = Field(
         description=(
             'The widget\'s content. For type "query": a chart spec '
             '(view/filters/metric/breakdown/display). For type "trace_feed": '

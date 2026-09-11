@@ -786,7 +786,11 @@ _OVERSIZED_BODIES = [
             "dashboard_id": "dash-1",
             "title": "Cost",
             "type": "query",
-            "spec": {"blob": _OVERSIZED_BLOB},
+            # The spec is typed, so the only way past the cap is a huge value.
+            "spec": {
+                **QUERY_SPEC,
+                "filters": [{"field": "model_name", "op": "=", "value": _OVERSIZED_BLOB}],
+            },
         },
     ),
     (
@@ -796,7 +800,7 @@ _OVERSIZED_BODIES = [
             "dashboard_id": "dash-1",
             "title": "Cost",
             "type": "query",
-            "spec": {},
+            "spec": QUERY_SPEC,
             "display_config": {"blob": _OVERSIZED_BLOB},
         },
     ),
@@ -860,7 +864,10 @@ def test_json_payload_field_at_the_cap_is_accepted():
             "dashboard_id": "dash-1",
             "title": "Cost",
             "type": "query",
-            "spec": {"blob": "x" * (32 * 1024 - 100)},
+            "spec": {
+                **QUERY_SPEC,
+                "filters": [{"field": "model_name", "op": "=", "value": "x" * (32 * 1024 - 200)}],
+            },
         },
         headers=USER_HEADER,
     )

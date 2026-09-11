@@ -136,10 +136,10 @@ describe("parseTraceFeedSpec", () => {
     const r = parseTraceFeedSpec({
       filters: [
         { field: "errors", op: "gt", value: 0 },
-        { field: "span_kind", op: "eq", value: "LLM" },
+        { field: "no_such_field", op: "eq", value: "LLM" },
       ],
     });
-    expect(r).toEqual({ ok: false, error: 'filters[1] names unknown field "span_kind"' });
+    expect(r).toEqual({ ok: false, error: 'filters[1] names unknown field "no_such_field"' });
   });
 
   it.each([0, TRACE_FEED_LIMIT_MAX + 1, 1.5, "10"])("rejects limit=%j", (limit) => {
