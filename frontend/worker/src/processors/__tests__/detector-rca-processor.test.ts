@@ -30,6 +30,9 @@ vi.mock("@traceroot/core", async (importOriginal) => {
 });
 
 afterEach(() => {
+  // vitest 4 returns the same spy when vi.spyOn is called on an already-spied method, so
+  // call history and implementations would leak between tests without this.
+  vi.restoreAllMocks();
   fetchProviderConfigMock.mockReset();
   resolvePiModelMock.mockReset();
   modelProviderFindMany.mockReset();
