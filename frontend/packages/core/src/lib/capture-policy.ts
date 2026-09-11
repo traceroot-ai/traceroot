@@ -116,13 +116,30 @@ function redactText(text: string): string {
       return redactSecrets(text);
     }
     if (parsed !== null && typeof parsed === "object") {
-      const redacted = redactStructured(parsed);
+      const redacted = safeRedactStructured(parsed);
+      if (redacted === REDACTED) return REDACTED;
       const before = JSON.stringify(parsed);
       const after = JSON.stringify(redacted);
       return after === before ? redactSecrets(text) : redactSecrets(after);
     }
   }
   return redactSecrets(text);
+}
+
+/**
+ * `redactStructured` for a value of unknown depth. The walk is recursive, and
+ * `JSON.parse` accepts nesting far deeper than the call stack allows (a
+ * 200,000-deep array parses fine), so a pathological result would throw a
+ * RangeError here before the byte budget ever cut it, and the whole tool
+ * step would fail to persist. Withholding the value is the safe failure: a
+ * document too deep to inspect for credentials is not one to keep.
+ */
+function safeRedactStructured(value: unknown): unknown {
+  try {
+    return redactStructured(value);
+  } catch {
+    return REDACTED;
+  }
 }
 
 /**
@@ -200,7 +217,7 @@ export function applyCapturePolicy(
       ? redactText(input.result)
       : toText(
           input.result !== null && typeof input.result === "object"
-            ? redactStructured(input.result)
+            ? safeRedactStructured(input.result)
             : input.result,
         );
   if (!OUTPUT_ALLOWLIST.has(input.toolName)) {
