@@ -1,4 +1,4 @@
-import { Daytona } from "@daytonaio/sdk";
+import { Daytona, DaytonaTimeoutError } from "@daytonaio/sdk";
 import type { Sandbox } from "@daytonaio/sdk";
 import type { Executor, ExecResult, ExecOptions } from "./interface.js";
 
@@ -11,6 +11,17 @@ const WORKSPACE_SETUP_TIMEOUT_SECONDS = 30;
  * ends (#2167). Slow-but-working mirrors have been seen at ~3 minutes.
  */
 const TOOL_INSTALL_TIMEOUT_SECONDS = 300;
+
+/**
+ * Whether an executeCommand rejection is the per-command deadline expiring.
+ * The SDK raises DaytonaTimeoutError for deadlines it enforces itself; a
+ * `timeout` exceeded inside the toolbox comes back as a generic DaytonaError
+ * whose message names the timeout. Anything else is a real failure.
+ */
+function isCommandTimeout(error: unknown): boolean {
+  if (error instanceof DaytonaTimeoutError) return true;
+  return error instanceof Error && /timed out|timeout/i.test(error.message);
+}
 
 export class DaytonaExecutor implements Executor {
   private daytona: Daytona | null = null;
@@ -55,6 +66,7 @@ export class DaytonaExecutor implements Executor {
     // boot on this image, so its in-process TLS can't be fixed by a later apt.
     // The install is best effort (note the `|| true`); a stalled mirror must
     // bound the turn, not hold it open, so a timeout is logged and init goes on.
+    // Any other rejection (sandbox gone, toolbox unreachable) is still fatal.
     try {
       await this.sandbox.process.executeCommand(
         "apt-get update -qq && apt-get install -y -qq ca-certificates git jq curl > /dev/null 2>&1 || true",
@@ -63,6 +75,7 @@ export class DaytonaExecutor implements Executor {
         TOOL_INSTALL_TIMEOUT_SECONDS,
       );
     } catch (error) {
+      if (!isCommandTimeout(error)) throw error;
       const message = error instanceof Error ? error.message : String(error);
       console.warn(
         `[DaytonaExecutor] Tool install did not finish within ${TOOL_INSTALL_TIMEOUT_SECONDS}s, continuing without it: ${message}`,

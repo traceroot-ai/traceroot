@@ -20,13 +20,19 @@ const mockDaytona = {
   create: vi.fn().mockResolvedValue(mockSandbox),
 };
 
-vi.mock("@daytonaio/sdk", () => ({
-  // A function (not an arrow) so vitest 4 can construct it with `new`.
-  Daytona: vi.fn(function Daytona() {
-    return mockDaytona;
-  }),
-}));
+vi.mock("@daytonaio/sdk", () => {
+  // Declared inside the factory: vi.mock is hoisted above top-level bindings.
+  class DaytonaTimeoutError extends Error {}
+  return {
+    // A function (not an arrow) so vitest 4 can construct it with `new`.
+    Daytona: vi.fn(function Daytona() {
+      return mockDaytona;
+    }),
+    DaytonaTimeoutError,
+  };
+});
 
+import { DaytonaTimeoutError } from "@daytonaio/sdk";
 import { DaytonaExecutor } from "../daytona.js";
 
 describe("DaytonaExecutor", () => {
@@ -102,6 +108,33 @@ describe("DaytonaExecutor", () => {
       expect(executor.isReady()).toBe(true);
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("Tool install did not finish within 300s"),
+      );
+      warn.mockRestore();
+    });
+
+    it("also treats the SDK's own DaytonaTimeoutError as a timeout", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
+        if (cmd.includes("apt-get")) throw new DaytonaTimeoutError("deadline exceeded");
+        return { exitCode: 0, result: "" };
+      });
+
+      await expect(executor.init()).resolves.toBeUndefined();
+      expect(executor.isReady()).toBe(true);
+      warn.mockRestore();
+    });
+
+    it("rethrows a non-timeout install failure instead of reporting a ready sandbox", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const failure = new Error("Sandbox not found");
+      mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
+        if (cmd.includes("apt-get")) throw failure;
+        return { exitCode: 0, result: "" };
+      });
+
+      await expect(executor.init()).rejects.toBe(failure);
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("Tool install did not finish within"),
       );
       warn.mockRestore();
     });
