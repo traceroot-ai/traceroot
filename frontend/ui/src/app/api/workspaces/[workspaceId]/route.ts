@@ -7,6 +7,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 
 const updateWorkspaceSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -93,13 +94,21 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
   const { name } = result.data;
 
-  const workspace = await prisma.workspace.update({
-    where: { id: workspaceId },
-    data: {
-      name,
-      updateTime: new Date(),
-    },
-  });
+  let workspace;
+  try {
+    workspace = await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: {
+        name,
+        updateTime: new Date(),
+      },
+    });
+  } catch (e) {
+    // The creator already has another workspace by this name
+    // (uq_workspace_created_by_name).
+    if (!isPrismaKnownError(e, "P2002")) throw e;
+    return errorResponse("A workspace with this name already exists", 409);
+  }
 
   return successResponse({
     id: workspace.id,
