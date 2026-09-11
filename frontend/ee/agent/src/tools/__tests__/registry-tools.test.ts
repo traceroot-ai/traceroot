@@ -71,7 +71,9 @@ describe("createRegistryReadTools", () => {
     const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard_data")!;
     await tool.execute("id", { label: "x", dashboard_id: "d1", range: "7d" });
     const [url] = impl.mock.calls[0]!;
-    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/dashboards/d1/data?range=7d");
+    expect(String(url)).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/dashboards/d1/data?range=7d",
+    );
   });
 
   it("puts the dashboard's page URL in a dashboard read, on the browser-reachable origin", async () => {
@@ -104,7 +106,7 @@ describe("createRegistryReadTools", () => {
       .find((t) => t.name === "get_dashboard_data")!
       .execute("id", { label: "x", dashboard_id: "d1" });
     expect(String(impl.mock.calls[0]![0])).toBe(
-      "http://fastapi.test/api/v1/projects/p1/dashboards/d1/data?range=30d",
+      "http://fastapi.test/api/v1/internal/projects/p1/dashboards/d1/data?range=30d",
     );
     await tools
       .find((t) => t.name === "run_widget_query")!
@@ -126,7 +128,7 @@ describe("createRegistryReadTools", () => {
       .execute("id", { label: "x", dashboard_id: "d1", range: "1h" });
     // Only the model's range: merging the page's bounds under it would be a request the server rejects.
     expect(String(impl.mock.calls[0]![0])).toBe(
-      "http://fastapi.test/api/v1/projects/p1/dashboards/d1/data?range=1h",
+      "http://fastapi.test/api/v1/internal/projects/p1/dashboards/d1/data?range=1h",
     );
   });
 
@@ -177,7 +179,7 @@ describe("createRegistryReadTools", () => {
     const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard_data")!;
     await tool.execute("id", { label: "x", dashboard_id: "d1" });
     expect(String(impl.mock.calls[0]![0])).toBe(
-      "http://fastapi.test/api/v1/projects/p1/dashboards/d1/data",
+      "http://fastapi.test/api/v1/internal/projects/p1/dashboards/d1/data",
     );
   });
 
