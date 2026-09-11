@@ -1179,10 +1179,7 @@
                         },
                         "key": {
                           "title": "Key",
-                          "type": [
-                            "string",
-                            "null"
-                          ]
+                          "type": "string"
                         },
                         "op": {
                           "enum": [
@@ -1342,10 +1339,7 @@
                         },
                         "key": {
                           "title": "Key",
-                          "type": [
-                            "string",
-                            "null"
-                          ]
+                          "type": "string"
                         },
                         "op": {
                           "enum": [

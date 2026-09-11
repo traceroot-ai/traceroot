@@ -308,6 +308,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           "status",
                           "model_name",
                           "environment",
+                          "is_root",
                           "duration_ms",
                           "cost",
                           "input_tokens",
@@ -315,6 +316,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           "cache_read_tokens",
                           "cache_write_tokens",
                           "total_tokens",
+                          "metadata",
                         ],
                         type: "string",
                       },
@@ -365,6 +367,8 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         "cache_read_tokens",
                         "cache_write_tokens",
                         "total_tokens",
+                        "tokens_per_second",
+                        "trace_id",
                         "count",
                       ],
                       type: "string",
@@ -424,6 +428,9 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         ],
                         type: "string",
                       },
+                      key: {
+                        type: "string",
+                      },
                       op: {
                         enum: ["=", "contains", ">", ">=", "<", "<="],
                         type: "string",
@@ -444,7 +451,19 @@ export const REGISTRY: readonly RegistryEntry[] = [
                     "The measure and aggregation function that define the widget's y-axis.",
                   properties: {
                     agg: {
-                      enum: ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"],
+                      enum: [
+                        "count",
+                        "sum",
+                        "avg",
+                        "min",
+                        "max",
+                        "p50",
+                        "p75",
+                        "p90",
+                        "p95",
+                        "p99",
+                        "uniq",
+                      ],
                       type: "string",
                     },
                     measure: {
