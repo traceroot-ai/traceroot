@@ -417,7 +417,7 @@ def test_jwt_without_sid_is_rejected(monkeypatch):
 
 # ── liveness gate coverage across every write route ─────────────────────
 
-# The four write routes beyond create_workspace, each with its minimal valid
+# The five write routes beyond create_workspace, each with its minimal valid
 # body and the internal write route it would reach if the gate failed open.
 _OTHER_WRITE_ROUTES = [
     (
@@ -446,6 +446,21 @@ _OTHER_WRITE_ROUTES = [
         },
         f"{BASE_URL}/api/internal/write/widgets",
     ),
+    (
+        "/api/v1/public/alerts",
+        {
+            "project_id": "proj-1",
+            "name": "P99 latency",
+            "view": "SPANS",
+            "measure": "latency",
+            "aggregation": "p99",
+            "window": "10m",
+            "threshold_operator": ">",
+            "threshold": 900,
+            "renotify": {"mode": "OFF"},
+        },
+        f"{BASE_URL}/api/internal/write/alerts",
+    ),
 ]
 
 
@@ -457,7 +472,7 @@ def test_jwt_write_with_revoked_session_is_401_on_every_write_route(
     """Every write route blocks a JWT whose minting session was revoked.
 
     The liveness dependency is wired per route, so create_workspace passing
-    proves nothing about the other four — without this, deleting ``_live``
+    proves nothing about the other five — without this, deleting ``_live``
     from any of them would let a revoked CLI session keep writing until its
     JWT expired, with CI green.
     """
@@ -498,6 +513,35 @@ _WRITE_ENVELOPES = {
         "created": True,
         "widget": {"id": "w1", "dashboardId": "dash-1", "title": "Cost", "type": "query"},
     },
+    f"{BASE_URL}/api/internal/write/alerts": {
+        "created": True,
+        "alert": {
+            "id": "alr-1",
+            "name": "P99 latency",
+            "view": "SPANS",
+            "measure": "latency",
+            "aggregation": "p99",
+            "window": "10m",
+            "thresholdOperator": ">",
+            "threshold": 900,
+            "status": "ACTIVE",
+            "severity": "UNKNOWN",
+            "severityChangedAt": None,
+            "alertedAt": None,
+            "lastEvaluatedAt": None,
+            "lastError": None,
+            "lastErrorAt": None,
+            "lastNotifyStatus": None,
+            "lastNotifyError": None,
+            "lastNotifyAt": None,
+            "createTime": "2026-08-01T00:00:00Z",
+            "updateTime": "2026-08-01T00:00:00Z",
+            "creator": "Ada",
+            "filters": [],
+            "renotify": {"mode": "OFF"},
+            "noDataMode": "HOLD",
+        },
+    },
 }
 
 _ALL_WRITE_ROUTES = [
@@ -533,7 +577,7 @@ def _enabled_memory_limiter(monkeypatch):
 def test_every_write_route_throttles_on_the_write_bucket(
     _enabled_memory_limiter, path, body, write_url
 ):
-    """Each of the five write routes 429s once the write bucket is exhausted.
+    """Each of the six write routes 429s once the write bucket is exhausted.
 
     The decorator is wired per route, so a unit test of ``key_write``'s key
     string proves nothing about the routes — without this, dropping the

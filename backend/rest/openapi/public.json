@@ -324,6 +324,29 @@
         "title": "AlertRenotify",
         "type": "object"
       },
+      "AlertRenotifyRequest": {
+        "description": "How often an alert re-notifies while it stays in the alerting state.",
+        "properties": {
+          "interval_minutes": {
+            "description": "Minutes between repeat notifications; required when mode is EVERY",
+            "title": "Interval Minutes",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "OFF",
+              "EVERY"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "AlertRenotifyRequest",
+        "type": "object"
+      },
       "AlertSummary": {
         "description": "The alert fields shared by the list and detail reads (Postgres ``alerts``).\n\n``threshold`` is stored as a decimal and served as a JSON number.\n``creator`` is the created-by user's display name (or email), resolved by\nthe internal route; it is None when the creating account was deleted.",
         "properties": {
@@ -621,6 +644,162 @@
           "status"
         ],
         "title": "CompleteRunResponse",
+        "type": "object"
+      },
+      "CreateAlertRequest": {
+        "description": "Body for creating a threshold alert in a project.",
+        "properties": {
+          "aggregation": {
+            "enum": [
+              "sum",
+              "avg",
+              "count",
+              "max",
+              "min",
+              "p50",
+              "p75",
+              "p90",
+              "p95",
+              "p99",
+              "uniq"
+            ],
+            "title": "Aggregation",
+            "type": "string"
+          },
+          "filters": {
+            "description": "Row predicates the measure is evaluated over",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "description": "A span field, e.g. model_name or metadata",
+                  "type": "string"
+                },
+                "key": {
+                  "description": "The map entry to compare; required for the metadata field",
+                  "type": "string"
+                },
+                "op": {
+                  "enum": [
+                    "=",
+                    "contains"
+                  ],
+                  "type": "string"
+                },
+                "value": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ],
+              "type": "object"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "measure": {
+            "description": "A measure of the view, e.g. latency, cost, count",
+            "title": "Measure",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "no_data_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "HOLD",
+                  "ZERO",
+                  "NOTIFY"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a window that measured nothing means; column default when omitted",
+            "title": "No Data Mode"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "renotify": {
+            "$ref": "#/components/schemas/AlertRenotifyRequest"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "threshold_operator": {
+            "enum": [
+              ">",
+              ">=",
+              "<",
+              "<=",
+              "=",
+              "!="
+            ],
+            "title": "Threshold Operator",
+            "type": "string"
+          },
+          "view": {
+            "const": "SPANS",
+            "title": "View",
+            "type": "string"
+          },
+          "window": {
+            "enum": [
+              "1m",
+              "5m",
+              "10m",
+              "30m",
+              "1h",
+              "2h"
+            ],
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "view",
+          "measure",
+          "aggregation",
+          "window",
+          "threshold_operator",
+          "threshold",
+          "renotify"
+        ],
+        "title": "CreateAlertRequest",
+        "type": "object"
+      },
+      "CreateAlertResponse": {
+        "description": "The created alert with its full rule (alert creation is strict, never idempotent).",
+        "properties": {
+          "alert": {
+            "$ref": "#/components/schemas/AlertDetail"
+          },
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "created",
+          "alert"
+        ],
+        "title": "CreateAlertResponse",
         "type": "object"
       },
       "CreateDashboardRequest": {
@@ -3784,6 +3963,121 @@
           "description": "List the project's threshold alerts (id, name, rule summary, status, current severity, last evaluation and notification state, creator) with the project's alert capacity. Paginated; search_query matches the alert name. To resolve an alert by name, list here and match its name \u2014 never guess an alert id.",
           "enabled": true,
           "name": "list_alerts"
+        }
+      },
+      "post": {
+        "description": "Create a threshold alert in a project the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Strict create \u2014 alerts have no unique name, so every\ncall inserts and ``created`` is always ``true`` on success.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateAlertRequest): The alert rule to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateAlertResponse: The created alert with its full rule.",
+        "operationId": "create_alert",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateAlertResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The project has reached its alert limit"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create an alert",
+        "tags": [
+          "Alerts (Public)"
+        ],
+        "x-tool": {
+          "description": "Create a threshold alert in a project: a measure of the spans view, aggregated over a window and compared to a threshold, with optional row filters and renotify/no-data settings. Strict create, never idempotent: alerts share names freely, so to avoid a duplicate list the project's alerts first and match the name.",
+          "enabled": true,
+          "name": "create_alert",
+          "policy": {
+            "approvalClass": "none",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
         }
       }
     },

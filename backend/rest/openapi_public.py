@@ -445,6 +445,18 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
         "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
     },
+    "create_alert": {
+        "name": "create_alert",
+        "description": (
+            "Create a threshold alert in a project: a measure of the spans view, "
+            "aggregated over a window and compared to a threshold, with optional "
+            "row filters and renotify/no-data settings. Strict create, never "
+            "idempotent: alerts share names freely, so to avoid a duplicate list "
+            "the project's alerts first and match the name."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    },
     "list_workspaces": {
         "name": "list_workspaces",
         "description": (

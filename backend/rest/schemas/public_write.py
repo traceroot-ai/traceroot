@@ -11,9 +11,12 @@ when an idempotent re-create returned the existing one.
 """
 
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel
+from pydantic import AfterValidator, BaseModel, Field, WithJsonSchema, model_validator
+from pydantic.json_schema import SkipJsonSchema
+
+from rest.schemas.public import AlertDetail, AlertFilterItem
 
 # Per-field byte ceiling for JSON payloads persisted verbatim into Postgres
 # JSONB (measured on the serialized form). The write rate bucket only limits
@@ -155,3 +158,125 @@ class CreateWidgetResponse(BaseModel):
     title: str
     type: str
     created: bool
+
+
+# Alert vocabulary mirrored from the frontend core package (ALERT_VIEWS,
+# ALERT_AGGREGATIONS, ALERT_WINDOWS, ALERT_THRESHOLD_OPERATORS,
+# ALERT_NO_DATA_MODES, AlertRenotify). Only these stable enums are pinned
+# here so the generated tool schema can offer them; measure-per-view and
+# filter evaluability stay with the write service, the single validator for
+# the UI and the API.
+AlertView = Literal["SPANS"]
+AlertAggregation = Literal[
+    "sum", "avg", "count", "max", "min", "p50", "p75", "p90", "p95", "p99", "uniq"
+]
+AlertWindow = Literal["1m", "5m", "10m", "30m", "1h", "2h"]
+AlertThresholdOperator = Literal[">", ">=", "<", "<=", "=", "!="]
+AlertNoDataMode = Literal["HOLD", "ZERO", "NOTIFY"]
+
+
+class AlertRenotifyRequest(BaseModel):
+    """How often an alert re-notifies while it stays in the alerting state."""
+
+    mode: Literal["OFF", "EVERY"]
+    # The None arm is skipped in the JSON schema: nested schemas are emitted
+    # as-is into the tool registry, and a typeless anyOf there breaks the
+    # model tool definitions. Optionality still shows through ``required``.
+    interval_minutes: int | SkipJsonSchema[None] = Field(
+        None, description="Minutes between repeat notifications; required when mode is EVERY"
+    )
+
+    @model_validator(mode="after")
+    def _interval_matches_mode(self) -> "AlertRenotifyRequest":
+        """Require a positive interval for EVERY and forbid one for OFF.
+
+        The write service's strict shape refuses the same contradictions; the
+        check runs here too so the caller gets a 422 naming the field before
+        the proxy call.
+
+        Returns:
+            AlertRenotifyRequest: The validated model.
+
+        Raises:
+            ValueError: When EVERY has no positive interval or OFF carries one.
+        """
+        if self.mode == "EVERY":
+            if self.interval_minutes is None or self.interval_minutes <= 0:
+                raise ValueError("interval_minutes must be a positive integer when mode is EVERY")
+        elif self.interval_minutes is not None:
+            raise ValueError("interval_minutes is not allowed when mode is OFF")
+        return self
+
+
+def _require_bounded_filters(filters: list[AlertFilterItem]) -> list[AlertFilterItem]:
+    """Bound the serialized size of a filter list like any other JSON payload.
+
+    Args:
+        filters (list[AlertFilterItem]): The parsed filter items.
+
+    Returns:
+        list[AlertFilterItem]: ``filters`` unchanged when within the byte cap.
+
+    Raises:
+        ValueError: When the items serialize past :data:`MAX_JSON_PAYLOAD_BYTES`.
+    """
+    _require_encodable_json([f.model_dump(exclude_none=True) for f in filters])
+    return filters
+
+
+# The item schema is written out rather than referenced: the tool registry
+# generator resolves a request-body $ref one level deep only, and an array
+# whose items point at a component would fail its build. Every property
+# declares a type (a list for the two-armed value) because some model
+# providers reject tool parameters that carry only an anyOf.
+_ALERT_FILTER_ITEM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "field": {"type": "string", "description": "A span field, e.g. model_name or metadata"},
+        "key": {
+            "type": "string",
+            "description": "The map entry to compare; required for the metadata field",
+        },
+        "op": {"type": "string", "enum": ["=", "contains"]},
+        "value": {"type": ["string", "number"]},
+    },
+    "required": ["field", "op", "value"],
+    "additionalProperties": False,
+}
+
+AlertFilters = Annotated[
+    list[AlertFilterItem],
+    AfterValidator(_require_bounded_filters),
+    WithJsonSchema(
+        {
+            "type": "array",
+            "items": _ALERT_FILTER_ITEM_SCHEMA,
+            "description": "Row predicates the measure is evaluated over",
+        }
+    ),
+]
+
+
+class CreateAlertRequest(BaseModel):
+    """Body for creating a threshold alert in a project."""
+
+    project_id: str
+    name: str
+    view: AlertView
+    measure: str = Field(description="A measure of the view, e.g. latency, cost, count")
+    aggregation: AlertAggregation
+    filters: AlertFilters = Field(default_factory=list)
+    window: AlertWindow
+    threshold_operator: AlertThresholdOperator
+    threshold: float = Field(allow_inf_nan=False)
+    renotify: AlertRenotifyRequest
+    no_data_mode: AlertNoDataMode | None = Field(
+        None, description="What a window that measured nothing means; column default when omitted"
+    )
+
+
+class CreateAlertResponse(BaseModel):
+    """The created alert with its full rule (alert creation is strict, never idempotent)."""
+
+    created: bool
+    alert: AlertDetail

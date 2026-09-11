@@ -33,6 +33,7 @@ from rest.routers.project_dashboards import router as project_dashboards_router
 from rest.routers.public.account_read import router as public_account_read_router
 from rest.routers.public.account_write import router as public_account_write_router
 from rest.routers.public.alerts_read import router as public_alerts_read_router
+from rest.routers.public.alerts_write import router as public_alerts_write_router
 from rest.routers.public.dashboards_read import router as public_dashboards_read_router
 from rest.routers.public.detectors_read import router as public_detectors_read_router
 from rest.routers.public.eval import router as public_eval_router
@@ -134,10 +135,11 @@ app.include_router(public_eval_router, prefix="/api/v1")
 app.include_router(public_account_read_router, prefix="/api/v1")
 
 # Public write API for user credentials: thin proxies to the Next.js internal
-# write routes (workspace/project account-scope, detector/dashboard/widget
-# project-scope in the body)
+# write routes (workspace/project account-scope, detector/dashboard/widget/
+# alert project-scope in the body)
 app.include_router(public_account_write_router, prefix="/api/v1")
 app.include_router(public_project_write_router, prefix="/api/v1")
+app.include_router(public_alerts_write_router, prefix="/api/v1")
 
 # Internal API for worker/service communication (protected by secret).
 # project_dashboards and project_alerts are the agent's read mirrors — they
