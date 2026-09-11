@@ -1,16 +1,13 @@
 import { NextRequest } from "next/server";
-import { Prisma } from "@prisma/client";
-import { canonicalizeAlertFilters, prisma, Role } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 import {
-  alertCreateSchema,
-  firstIssueMessage,
-  isAggregationValidForMeasure,
-  isMeasureValidForView,
-  MAX_ALERTS_PER_PROJECT,
-  toAlertFilters,
-} from "./schema";
+  ALERT_CAP_MESSAGE,
+  alertCreateData,
+  validateAlertCreate,
+} from "@/lib/write-services/alerts";
+import { MAX_ALERTS_PER_PROJECT } from "./schema";
 import { alertSelect, alertSummarySelect, serializeAlert, withCreators } from "./serialize";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
@@ -69,48 +66,22 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const parsed = await parseJsonObject(req);
   if (parsed.error) return parsed.error;
 
-  const result = alertCreateSchema.safeParse(parsed.body);
-  if (!result.success) return errorResponse(firstIssueMessage(result.error), 400);
-  const rule = result.data;
-
-  if (!isMeasureValidForView(rule.view, rule.measure)) {
-    return errorResponse("Invalid measure for view", 400);
-  }
-  const filters = canonicalizeAlertFilters(toAlertFilters(rule.filters));
-  if (!isAggregationValidForMeasure(rule.view, rule.measure, rule.aggregation, filters)) {
-    return errorResponse("Invalid aggregation for measure", 400);
-  }
+  // One validator for the cookie UI and the public API: the write service
+  // owns the zod shape and the cross-field checks, and hands back canonical
+  // filters.
+  const validated = validateAlertCreate(parsed.body);
+  if (!validated.ok) return errorResponse(validated.error, 400);
+  const { rule } = validated;
 
   // Advisory, not enforced: racing creates can both pass this count and leave a
   // project a slot or two over, which this cap tolerates.
   const existingCount = await prisma.alert.count({ where: { projectId } });
   if (existingCount >= MAX_ALERTS_PER_PROJECT) {
-    return errorResponse(
-      `This project has reached its limit of ${MAX_ALERTS_PER_PROJECT} alerts`,
-      409,
-    );
+    return errorResponse(ALERT_CAP_MESSAGE, 409);
   }
 
   const alert = await prisma.alert.create({
-    data: {
-      projectId,
-      name: rule.name,
-      view: rule.view,
-      measure: rule.measure,
-      aggregation: rule.aggregation,
-      filters: filters as unknown as Prisma.InputJsonValue,
-      window: rule.window,
-      thresholdOperator: rule.thresholdOperator,
-      threshold: rule.threshold,
-      renotify: rule.renotify as Prisma.InputJsonValue,
-      // Undefined leaves the column default, which is the reading a caller that
-      // said nothing about gaps expects.
-      noDataMode: rule.noDataMode,
-      createdBy: user.id,
-      // Due now, but no earlier: the scheduler orders on nextRunAt, so a new
-      // rule takes its place in line rather than the front of it.
-      nextRunAt: new Date(),
-    },
+    data: alertCreateData(rule, projectId, user.id),
     select: alertSelect,
   });
 
