@@ -280,6 +280,7 @@ export function AiAssistantPanel({
         <AgentTraceSheet
           projectId={projectId}
           traceId={openTrace?.traceId ?? null}
+          spanId={openTrace?.spanId}
           onClose={() => setOpenTrace(null)}
         />
       )}

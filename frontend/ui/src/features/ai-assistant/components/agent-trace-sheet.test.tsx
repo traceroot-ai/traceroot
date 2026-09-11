@@ -7,11 +7,12 @@ import { render, cleanup, screen } from "@testing-library/react";
 // claim, no nested assistant, no AI button) is covered on the real panel in
 // traces/components/__tests__/trace-viewer-agent-header.test.tsx.
 vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
-  TraceViewerPanel: (props: { source?: string; embedded?: boolean }) => (
+  TraceViewerPanel: (props: { source?: string; embedded?: boolean; initialSpanId?: string }) => (
     <div
       data-testid="trace-panel"
       data-source={props.source}
       data-embedded={String(!!props.embedded)}
+      data-initial-span={props.initialSpanId ?? ""}
     />
   ),
 }));
@@ -36,5 +37,13 @@ describe("AgentTraceSheet", () => {
     const panel = screen.getByTestId("trace-panel");
     expect(panel.getAttribute("data-embedded")).toBe("true");
     expect(panel.getAttribute("data-source")).toBe("agent");
+    expect(panel.getAttribute("data-initial-span")).toBe("");
+  });
+
+  it("hands a tool step's span to the viewer as its deep link", () => {
+    render(
+      <AgentTraceSheet projectId="p1" traceId={"a".repeat(32)} spanId="s2" onClose={() => {}} />,
+    );
+    expect(screen.getByTestId("trace-panel").getAttribute("data-initial-span")).toBe("s2");
   });
 });

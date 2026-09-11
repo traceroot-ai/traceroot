@@ -58,9 +58,28 @@ vi.mock("./ai-chat-context", () => ({
   }),
 }));
 
-vi.mock("./message-list", () => ({ MessageList: () => null }));
+// The list's "Open span" is the only caller that passes a span id; the stub
+// exposes that call so the test can drive it without rendering a tool step.
+vi.mock("./message-list", () => ({
+  MessageList: (props: { onOpenTrace?: (traceId: string, spanId?: string) => void }) => (
+    <button
+      type="button"
+      data-testid="open-span"
+      onClick={() => props.onOpenTrace?.("trace-1", "span-t1")}
+    />
+  ),
+}));
 vi.mock("./message-input", () => ({ MessageInput: () => null }));
 vi.mock("./session-history", () => ({ SessionHistory: () => null }));
+vi.mock("./agent-trace-sheet", () => ({
+  AgentTraceSheet: (props: { traceId: string | null; spanId?: string }) => (
+    <div
+      data-testid="trace-sheet"
+      data-trace-id={props.traceId ?? ""}
+      data-span-id={props.spanId ?? ""}
+    />
+  ),
+}));
 
 import { AiAssistantPanel } from "./ai-assistant-panel";
 
@@ -136,5 +155,17 @@ describe("AiAssistantPanel", () => {
 
     expect(screen.getByText("No LLM models available")).not.toBeNull();
     expect(screen.queryByText("greeting")).toBeNull();
+  });
+
+  it("opens the sheet on the step's trace and span when a tool step's 'Open span' is clicked", () => {
+    mocks.messages = [{ id: "m1", role: "user", content: "hi" }];
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    const sheet = screen.getByTestId("trace-sheet");
+    expect(sheet.getAttribute("data-trace-id")).toBe("");
+    fireEvent.click(screen.getByTestId("open-span"));
+    expect(sheet.getAttribute("data-trace-id")).toBe("trace-1");
+    expect(sheet.getAttribute("data-span-id")).toBe("span-t1");
   });
 });
