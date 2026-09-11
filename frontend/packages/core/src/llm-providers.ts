@@ -162,6 +162,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "gpt-5.6-terra", label: "gpt-5.6-terra" },
     { id: "gpt-5.6-luna", label: "gpt-5.6-luna" },
     { id: "gpt-5.6-cyber", label: "gpt-5.6-cyber" },
+    { id: "gpt-6-astra", label: "gpt-6-astra" },
     { id: "gpt-5.5", label: "gpt-5.5" },
     { id: "gpt-5.5-pro", label: "gpt-5.5-pro" },
     { id: "gpt-5.4", label: "gpt-5.4" },
