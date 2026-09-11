@@ -52,11 +52,18 @@ function humanizeName(name: string): string {
 
 /**
  * Adapt a registry entry to the pi agent tool shape: inject the required
- * model-supplied `label` param, hide fixedArgs from the model, and render
- * results and errors as text content.
+ * model-supplied `label` param, hide fixedArgs and the entry's
+ * agentHiddenParams from the model, and render results and errors as text
+ * content.
  */
 export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOptions): PiAgentTool {
   const { client, pathOverride, fixedArgs = {}, formatResult } = options;
+
+  // The registry keeps agentHiddenParams in inputSchema/bodyParams for full
+  // API/CLI parity and leaves the stripping to consumers — this adapter is the
+  // model-facing consumer, so it must neither show them nor accept them back.
+  const hidden = new Set(entry.agentHiddenParams ?? []);
+  const isHidden = (name: string) => name in fixedArgs || hidden.has(name);
 
   const properties: Record<string, ParamSchema> = {
     label: {
@@ -65,13 +72,13 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
     },
   };
   for (const [name, schema] of Object.entries(entry.inputSchema.properties)) {
-    if (name in fixedArgs) {
+    if (isHidden(name)) {
       continue;
     }
     // Generated entries are already clean; this also covers hand-authored ones.
     properties[name] = stripOversizedNumericBounds(schema);
   }
-  const required = ["label", ...entry.inputSchema.required.filter((name) => !(name in fixedArgs))];
+  const required = ["label", ...entry.inputSchema.required.filter((name) => !isHidden(name))];
 
   return {
     name: entry.name,
@@ -80,6 +87,11 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
     parameters: { type: "object", properties, required, additionalProperties: false },
     execute: async (_toolCallId, rawParams, signal): Promise<PiToolResult> => {
       const { label: _label, ...params } = (rawParams ?? {}) as Record<string, unknown>;
+      // Drop anything hidden that the model invented anyway — the schema says
+      // these fields do not exist, so a value for one is never the caller's.
+      for (const name of hidden) {
+        delete params[name];
+      }
       const args = { ...params, ...fixedArgs };
       try {
         const result = await dispatch(entry, args, client, { pathOverride, signal });

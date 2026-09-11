@@ -126,13 +126,16 @@ function redactText(text: string): string {
   return redactSecrets(text);
 }
 
+/** Deeper than any tool result worth keeping; far shallower than any runtime's stack. */
+const MAX_REDACT_DEPTH = 256;
+
 /**
- * `redactStructured` for a value of unknown depth. The walk is recursive, and
- * `JSON.parse` accepts nesting far deeper than the call stack allows (a
- * 200,000-deep array parses fine), so a pathological result would throw a
- * RangeError here before the byte budget ever cut it, and the whole tool
- * step would fail to persist. Withholding the value is the safe failure: a
- * document too deep to inspect for credentials is not one to keep.
+ * `redactStructured` for a value of unknown depth. The walk is recursive and
+ * `JSON.parse` accepts nesting far deeper than the call stack allows, so a
+ * pathological result would fail here before the byte budget ever cut it,
+ * and the whole tool step would fail to persist. Withholding the value is
+ * the safe failure: a document too deep to inspect for credentials is not
+ * one to keep.
  */
 function safeRedactStructured(value: unknown): unknown {
   try {
@@ -150,14 +153,21 @@ function safeRedactStructured(value: unknown): unknown {
  * key, and their assignment/colon forms deliberately require an `_`-separated
  * name, so camelCase keys need this walk. Same rule `capArgs` applies to args.
  */
-export function redactStructured(value: unknown): unknown {
+export function redactStructured(value: unknown, depth = 0): unknown {
+  // Bounded, not just guarded: the stack size that turns a deep document into
+  // a RangeError differs between runtimes, so the cut-off is a fixed depth
+  // and the failure is the same everywhere. `safeRedactStructured` turns it
+  // into a withheld value.
+  if (depth > MAX_REDACT_DEPTH) {
+    throw new RangeError(`structured value nested deeper than ${MAX_REDACT_DEPTH}`);
+  }
   if (typeof value === "string") return redactText(value);
-  if (Array.isArray(value)) return value.map(redactStructured);
+  if (Array.isArray(value)) return value.map((v) => redactStructured(v, depth + 1));
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([k, v]) => [
         k,
-        CREDENTIAL_KEY.test(k) ? REDACTED : redactStructured(v),
+        CREDENTIAL_KEY.test(k) ? REDACTED : redactStructured(v, depth + 1),
       ]),
     );
   }
