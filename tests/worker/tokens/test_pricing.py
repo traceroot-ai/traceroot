@@ -60,6 +60,25 @@ def real_cache() -> list[dict]:
     ]
 
 
+CODEX_MODEL_PRICES = [
+    ("gpt-5-codex", 0.00000125, 0.00001, 0.000000125),
+    ("gpt-5.1-codex", 0.00000125, 0.00001, 0.000000125),
+    ("gpt-5.1-codex-max", 0.00000125, 0.00001, 0.000000125),
+    ("gpt-5.1-codex-mini", 0.00000025, 0.000002, 0.000000025),
+    ("gpt-5.2-codex", 0.00000175, 0.000014, 0.000000175),
+    ("gpt-5.3-codex", 0.00000175, 0.000014, 0.000000175),
+]
+
+CODEX_MODEL_CASES = [
+    alias
+    for model_name, *_ in CODEX_MODEL_PRICES
+    for alias in (
+        (model_name, model_name),
+        (f"openai/{model_name}", model_name),
+        (f"{model_name}-2026-01-01", model_name),
+    )
+]
+
 OPENAI_MODEL_CASES = [
     ("gpt-5.6-sol", "gpt-5.6-sol"),
     ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
@@ -90,6 +109,7 @@ OPENAI_MODEL_CASES = [
     ("gpt-5.2-pro", "gpt-5.2-pro"),
     ("gpt-5.1", "gpt-5.1"),
     ("gpt-5", "gpt-5"),
+    *CODEX_MODEL_CASES,
     ("gpt-5-mini", "gpt-5-mini"),
     ("gpt-5-nano", "gpt-5-nano"),
     ("gpt-5-pro", "gpt-5-pro"),
@@ -143,6 +163,22 @@ GLM_MODEL_CASES = [
     ("glm-4.5-air", "glm-4.5-air"),
     ("zai/glm-4.5-air", "glm-4.5-air"),
     ("glm-4.5-flash", "glm-4.5-flash"),
+]
+
+XAI_MODEL_CASES = [
+    ("grok-4.20", "grok-4.20"),
+    ("xai/grok-4.20", "grok-4.20"),
+    ("grok-4.20-20260601", "grok-4.20"),
+    ("grok-4.20-0309-reasoning", "grok-4.20"),
+    ("grok-4.20-0309-non-reasoning", "grok-4.20"),
+    ("grok-4.20-multi-agent-0309", "grok-4.20"),
+    ("xai/grok-4.20-0309-reasoning", "grok-4.20"),
+    ("grok-4.20-non-reasoning-latest", "grok-4.20"),
+    ("grok-4.20-non-reasoning-gv2", "grok-4.20"),
+    ("grok-4.20-multi-agent-experimental-beta-0304", "grok-4.20"),
+    ("grok-4", "grok-4"),
+    ("xai/grok-4", "grok-4"),
+    ("grok-4-0709", "grok-4"),
 ]
 
 
@@ -223,6 +259,27 @@ class TestOpenAIModelIds:
         assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
         )
+
+    @pytest.mark.parametrize(
+        "model_id,input_price,output_price,cache_read_price", CODEX_MODEL_PRICES
+    )
+    def test_codex_prices_match_openai_api_pricing(
+        self, real_cache, model_id, input_price, output_price, cache_read_price
+    ):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None
+        assert price["input"] == input_price
+        assert price["output"] == output_price
+        assert price["cacheRead"] == cache_read_price
+        assert price["cacheWrite"] is None
+
+    def test_unpriced_codex_preview_does_not_inherit_another_model_price(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price("gpt-5.3-codex-spark")
+
+        assert price is None
 
     def test_latest_openai_model_calculates_cost(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
@@ -375,6 +432,54 @@ class TestGLMModelIds:
         assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
         )
+
+
+class TestXAIModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", XAI_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    def test_grok_4_fast_not_priced_as_grok_4(self, real_cache):
+        # grok-4-fast is a distinct, cheaper xAI model that shares the grok-4
+        # prefix. The grok-4 entry must not absorb it at grok-4's rates.
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert get_model_price("grok-4-fast") is None
+
+    @pytest.mark.parametrize(
+        "model_name,input_rate,output_rate,cache_read_rate",
+        [
+            # USD per token. grok-4 slugs retired on 2026-05-15 and xAI now bills
+            # them at grok-4.3 rates, which grok-4.20 shares.
+            ("grok-4.20", 0.00000125, 0.0000025, 0.0000002),
+            ("grok-4", 0.00000125, 0.0000025, 0.0000002),
+        ],
+    )
+    def test_xai_absolute_rates(self, model_name, input_rate, output_rate, cache_read_rate):
+        # The id-matching tests pass for any price table, so pin the published rates.
+        entry = next((e for e in _standard_price_entries() if e["modelName"] == model_name), None)
+        assert entry is not None, f"{model_name} missing from standard-model-prices.json"
+        prices = entry["prices"]
+        assert prices["input"] == pytest.approx(input_rate)
+        assert prices["output"] == pytest.approx(output_rate)
+        assert prices["cacheRead"] == pytest.approx(cache_read_rate)
+
+    def test_grok_4_calculates_cost(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            result = calculate_cost("grok-4", "Hello world", "Hi there")
+
+        assert result["input_tokens"] is not None
+        assert result["input_tokens"] > 0
+        assert result["output_tokens"] is not None
+        assert result["output_tokens"] > 0
+        assert result["cost"] is not None
+        assert result["cost"] > 0
 
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
