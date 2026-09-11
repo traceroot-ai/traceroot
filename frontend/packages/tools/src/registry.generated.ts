@@ -62,12 +62,10 @@ export const REGISTRY: readonly RegistryEntry[] = [
           properties: {
             interval_minutes: {
               description: "Minutes between repeat notifications; required when mode is EVERY",
-              title: "Interval Minutes",
               type: "integer",
             },
             mode: {
               enum: ["OFF", "EVERY"],
-              title: "Mode",
               type: "string",
             },
           },
@@ -303,6 +301,9 @@ export const REGISTRY: readonly RegistryEntry[] = [
                       field: {
                         type: "string",
                       },
+                      key: {
+                        type: "string",
+                      },
                       op: {
                         enum: ["=", "contains", ">", ">=", "<", "<="],
                         type: "string",
@@ -323,7 +324,19 @@ export const REGISTRY: readonly RegistryEntry[] = [
                     "The measure and aggregation function that define the widget's y-axis.",
                   properties: {
                     agg: {
-                      enum: ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"],
+                      enum: [
+                        "count",
+                        "sum",
+                        "avg",
+                        "min",
+                        "max",
+                        "p50",
+                        "p75",
+                        "p90",
+                        "p95",
+                        "p99",
+                        "uniq",
+                      ],
                       type: "string",
                     },
                     measure: {

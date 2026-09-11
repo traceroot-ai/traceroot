@@ -36,14 +36,15 @@ class WidgetFilter(_StrictModel):
     # this model feeds generated tool schemas (via the public widget-create
     # body), and some model providers reject properties without a `type`.
     value: Annotated[
-        Annotated[str, StringConstraints(min_length=1)] | Annotated[float, Field(allow_inf_nan=False)],
+        Annotated[str, StringConstraints(min_length=1)]
+        | Annotated[float, Field(allow_inf_nan=False)],
         WithJsonSchema({"type": ["string", "number"], "minLength": 1}),
     ]
     # The map key for a keyed field. Unconstrained here: whether a key is required,
     # forbidden or over-length depends on the field, so the compiler raises those.
     # Typed as an array for the same reason as value: an anyOf-only property
     # is rejected by some model providers' tool schemas.
-    key: Annotated[str | None, WithJsonSchema({"type": ["string", "null"]})] = None
+    key: Annotated[str | None, WithJsonSchema({"type": "string"})] = None
 
 
 class WidgetMetric(_StrictModel):

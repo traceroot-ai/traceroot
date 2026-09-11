@@ -442,7 +442,11 @@ _OTHER_WRITE_ROUTES = [
             "dashboard_id": "dash-1",
             "title": "Cost",
             "type": "query",
-            "spec": {},
+            "spec": {
+                "view": "traces",
+                "metric": {"measure": "count", "agg": "count"},
+                "display": {"type": "number"},
+            },
         },
         f"{BASE_URL}/api/internal/write/widgets",
     ),
