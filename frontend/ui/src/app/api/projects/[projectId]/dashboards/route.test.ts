@@ -290,6 +290,27 @@ describe("POST /dashboards — create a named dashboard", () => {
     expect(res.status).toBe(201);
   });
 
+  it("returns 409 when the name collides on the per-project unique index", async () => {
+    dashboardCreateMock.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError(
+        "Unique constraint failed on the fields: (`project_id`,`name`)",
+        { code: "P2002", clientVersion: "5.22.0" },
+      ),
+    );
+    const res = await POST(makePostRequest({ name: "Costs" }), makeParams());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "A dashboard with this name already exists",
+    );
+  });
+
+  it("propagates non-P2002 create failures", async () => {
+    dashboardCreateMock.mockRejectedValue(new Error("Database connection lost"));
+    await expect(POST(makePostRequest({ name: "Costs" }), makeParams())).rejects.toThrow(
+      "Database connection lost",
+    );
+  });
+
   it("returns 401 when unauthenticated", async () => {
     requireAuthMock.mockResolvedValue({
       error: { status: 401, json: async () => ({ error: "Unauthorized" }) },

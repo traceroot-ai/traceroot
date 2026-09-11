@@ -650,4 +650,20 @@ describe("mutation hardening", () => {
     const wdel = (await widgetDELETE(makeRequest(), makeWidgetParams())) as MockResponse;
     expect(wdel.status).toBe(404);
   });
+
+  it("maps a rename collision (Prisma P2002) to 409 instead of 500", async () => {
+    const { Prisma } = await import("@prisma/client");
+    const clash = new Prisma.PrismaClientKnownRequestError(
+      "Unique constraint failed on the fields: (`project_id`,`name`)",
+      { code: "P2002", clientVersion: "test" },
+    );
+
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    dashboardUpdateMock.mockRejectedValue(clash);
+    const patch = (await PATCH(makeRequest({ name: "Costs" }), makeParams())) as MockResponse;
+    expect(patch.status).toBe(409);
+    expect(((await patch.json()) as { error: string }).error).toBe(
+      "A dashboard with this name already exists",
+    );
+  });
 });
