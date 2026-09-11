@@ -74,6 +74,39 @@ describe("DaytonaExecutor", () => {
     });
   });
 
+  describe("init() timeouts (#2167)", () => {
+    it("bounds the workspace setup and the tool install", async () => {
+      await executor.init();
+
+      const calls = mockSandbox.process.executeCommand.mock.calls as [
+        string,
+        unknown,
+        unknown,
+        number,
+      ][];
+      const mkdir = calls.find(([cmd]) => cmd.includes("mkdir -p /workspace"));
+      const apt = calls.find(([cmd]) => cmd.includes("apt-get"));
+      expect(mkdir?.[3]).toBe(30);
+      expect(apt?.[3]).toBe(300);
+    });
+
+    it("finishes init when the tool install times out", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
+        if (cmd.includes("apt-get")) throw new Error("Command timed out after 300 seconds");
+        return { exitCode: 0, result: "" };
+      });
+
+      await expect(executor.init()).resolves.toBeUndefined();
+
+      expect(executor.isReady()).toBe(true);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("Tool install did not finish within 300s"),
+      );
+      warn.mockRestore();
+    });
+  });
+
   describe("exec()", () => {
     it("maps Daytona response to ExecResult", async () => {
       await executor.init();
