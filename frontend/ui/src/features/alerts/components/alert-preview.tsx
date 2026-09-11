@@ -21,7 +21,11 @@ import {
   type WidgetPreviewData,
 } from "@/features/dashboards/hooks/use-widget-data";
 import {
+  CHART_MARGIN,
   ChartTip,
+  Y_AXIS_TICK,
+  Y_AXIS_WIDTH,
+  Y_AXIS_WIDTH_WITH_UNIT,
   bucketLabel,
   fmtAxisTick,
   isAdditiveAgg,
@@ -145,7 +149,7 @@ function PreviewChart({
     // The axes inherit currentColor; the threshold elements override it below.
     <div className="h-full text-muted-foreground">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+        <LineChart data={rows} margin={CHART_MARGIN}>
           <CartesianGrid strokeOpacity={0.15} vertical={false} />
           <XAxis
             dataKey="bucket"
@@ -156,10 +160,11 @@ function PreviewChart({
                 : (v: unknown) => String(v).slice(5, 16).replace("T", " ")
             }
           />
-          {/* Widths mirror the dashboard renderers' tick gutters. */}
+          {/* The dashboard renderers' own chrome, so both surfaces plot a
+              result on the same geometry. */}
           <YAxis
-            tick={{ fontSize: 10 }}
-            width={unit ? 58 : 42}
+            tick={Y_AXIS_TICK}
+            width={unit ? Y_AXIS_WIDTH_WITH_UNIT : Y_AXIS_WIDTH}
             tickFormatter={(v: unknown) => fmtAxisTick(v, unit)}
           />
           <Tooltip

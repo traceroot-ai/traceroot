@@ -145,13 +145,18 @@ export const fmtValueWithUnit = (v: unknown, unit?: FieldUnit) => {
 // overflowing label clips its LEADING digits and reads as a wrong number.
 // Compact notation bounds the glyph count at any magnitude ("100000" →
 // "100K", "$1.2M"), so the gutter widths below hold for every tick.
-const Y_AXIS_WIDTH = 42;
-const Y_AXIS_WIDTH_WITH_UNIT = 58;
+export const Y_AXIS_WIDTH = 42;
+export const Y_AXIS_WIDTH_WITH_UNIT = 58;
 // Recharts wraps a tick label to the axis width by default, so "10,000 ms"
 // breaks into two lines in the unit gutter and the top one runs off the
 // chart. Labels are bounded by the compact formatter above, so give the
 // text a width no label reaches and let the gutter alone decide the fit.
-const Y_AXIS_TICK = { fontSize: 10, width: 160 };
+export const Y_AXIS_TICK = { fontSize: 10, width: 160 };
+// Top margin clears the topmost tick label, which is centred on the axis
+// line and would otherwise lose its upper half to the SVG edge. Exported
+// with the gutters so a chart drawn elsewhere (the alert preview) plots the
+// same result on the same geometry.
+export const CHART_MARGIN = { top: 8, right: 8, bottom: 0, left: 0 };
 export const fmtAxisTick = (v: unknown, unit?: FieldUnit) => {
   const text = fmtStatNumber(v);
   if (!unit || text === "—") return text;
@@ -370,9 +375,7 @@ function TimeSeries({
 
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
-      {/* Top margin clears the topmost tick label, which is centred on the
-          axis line and would otherwise lose its upper half to the SVG edge. */}
-      <Chart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+      <Chart data={data} margin={CHART_MARGIN}>
         <CartesianGrid strokeOpacity={0.15} vertical={false} />
         <XAxis dataKey="bucket" tick={{ fontSize: 10 }} tickFormatter={tickFormatter} />
         <YAxis
@@ -450,7 +453,7 @@ function Bars({
   const data = useColoredRows(result);
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
-      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+      <BarChart data={data} margin={CHART_MARGIN}>
         <CartesianGrid strokeOpacity={0.15} vertical={false} />
         <XAxis dataKey="name" tick={{ fontSize: 10 }} />
         <YAxis
@@ -592,7 +595,7 @@ function HistogramView({
   }));
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
-      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+      <BarChart data={data} margin={CHART_MARGIN}>
         <XAxis dataKey="name" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
         {/* The y-axis counts rows per bin (no unit), but large counts clip in
             the fixed gutter just like the other charts — compact them too. */}
