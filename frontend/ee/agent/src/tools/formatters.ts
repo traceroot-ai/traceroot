@@ -197,3 +197,44 @@ export function formatFindingDetail(data: unknown): string {
 
   return [...header, ...resultsSection, ...rcaSection].join("\n");
 }
+
+/** Render a dashboard list response as the catalog lines. */
+export function formatDashboardList(data: unknown): string {
+  const body = (data ?? {}) as { data?: unknown };
+  const dashboards = (body.data || []) as any[];
+
+  if (!Array.isArray(dashboards) || dashboards.length === 0) {
+    return "No dashboards found in this project.";
+  }
+
+  const lines = dashboards.map((d: any) => {
+    const marker = d.is_default ? " (default)" : "";
+    const description = d.description ? ` — ${truncate(String(d.description), 200)}` : "";
+    return `- ${d.id} | ${d.name || "(unnamed)"}${marker} | ${d.widget_count ?? 0} widgets | by ${d.creator ?? "unknown"}${description}`;
+  });
+
+  return `Found ${dashboards.length} dashboards:\n${lines.join("\n")}`;
+}
+
+/** Render a dashboard detail response as the overview plus per-widget spec lines. */
+export function formatDashboardDetail(data: unknown): string {
+  const d = (data ?? {}) as any;
+  const widgets: any[] = Array.isArray(d.widgets) ? d.widgets : [];
+
+  const header = [
+    `Dashboard: ${d.id} | ${d.name || "(unnamed)"}${d.is_default ? " (default)" : ""}`,
+    `Created by ${d.creator ?? "unknown"} | created ${d.create_time ?? "unknown"} | updated ${d.update_time ?? "unknown"}`,
+    `Description: ${d.description || "(none)"}`,
+  ].join("\n");
+
+  if (widgets.length === 0) {
+    return `${header}\n\nWidgets: (none — add one with create_widget)`;
+  }
+
+  const widgetLines = widgets.map((w: any, i: number) => {
+    const spec = w.spec != null ? truncate(JSON.stringify(w.spec), 500) : "(none)";
+    return `#${i + 1} ${w.id} | ${w.title || "(untitled)"} | type: ${w.type ?? "unknown"}\n   Spec: ${spec}`;
+  });
+
+  return `${header}\n\nWidgets (${widgets.length}):\n${widgetLines.join("\n")}`;
+}
