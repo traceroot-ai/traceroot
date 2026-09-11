@@ -236,9 +236,10 @@ describe("applyCapturePolicy", () => {
   it("withholds a result nested too deeply to walk instead of failing the step", () => {
     // JSON.parse accepts nesting far past what the recursive key walk can
     // handle; the walk used to throw a RangeError before the budget cut the
-    // text, and the tool step was never persisted. Both the string and the
-    // object forms now degrade to the redaction marker.
-    const depth = 200_000;
+    // text, and the tool step was never persisted. The walk now stops at a
+    // fixed depth (so the outcome does not depend on the runtime's stack
+    // size) and both the string and the object forms degrade to the marker.
+    const depth = 2_000;
     const text = "[".repeat(depth) + "]".repeat(depth);
     const asString = applyCapturePolicy(
       { toolName: "download_traces", args: {}, result: text },
