@@ -1,9 +1,9 @@
 """Response schemas for the public, API-key-authenticated API."""
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from rest.schemas.common import PaginationMeta
 from rest.schemas.traces import SpanResponse, TraceDetailResponse, TraceListItem
@@ -269,3 +269,108 @@ class PublicDashboardListResponse(BaseModel):
     """
 
     data: list[DashboardListItem]
+
+
+class AlertSummary(BaseModel):
+    """The alert fields shared by the list and detail reads (Postgres ``alerts``).
+
+    ``threshold`` is stored as a decimal and served as a JSON number.
+    ``creator`` is the created-by user's display name (or email), resolved by
+    the internal route; it is None when the creating account was deleted.
+    """
+
+    id: str
+    name: str
+    view: str
+    measure: str
+    aggregation: str
+    window: str
+    threshold_operator: str
+    threshold: float
+    status: str
+    severity: str
+    severity_changed_at: datetime | None
+    alerted_at: datetime | None
+    last_evaluated_at: datetime | None
+    last_error: str | None
+    last_error_at: datetime | None
+    last_notify_status: str | None
+    last_notify_error: str | None
+    last_notify_at: datetime | None
+    create_time: datetime
+    update_time: datetime
+    creator: str | None
+
+
+class AlertFilterItem(BaseModel):
+    """A row predicate an alert's measure is evaluated over.
+
+    Mirrors the alert filter vocabulary in the frontend core package: ``op``
+    is one of the two alert operators, and ``key`` names the map entry on a
+    keyed field (metadata).
+    """
+
+    field: str
+    key: str | None = None
+    op: Literal["=", "contains"]
+    # allow_inf_nan=False on the float arm only: a stored non-finite value can
+    # never be re-encoded by a strict JSON encoder, so it is malformed upstream.
+    value: str | Annotated[float, Field(allow_inf_nan=False)]
+
+
+class AlertRenotify(BaseModel):
+    """How often an alert re-notifies while it stays in the alerting state.
+
+    Kept a single-level object rather than a discriminated union: the tool
+    registry generator refuses nested schema references. The cross-field
+    rule is enforced by a validator instead, so a contradictory stored rule
+    fails the detail read closed rather than passing through half-typed.
+    """
+
+    mode: Literal["OFF", "EVERY"]
+    interval_minutes: int | None = None
+
+    @model_validator(mode="after")
+    def _interval_matches_mode(self) -> "AlertRenotify":
+        """Require a positive interval for EVERY and forbid one for OFF.
+
+        Returns:
+            AlertRenotify: The validated model.
+
+        Raises:
+            ValueError: When EVERY has no positive interval or OFF carries one.
+        """
+        if self.mode == "EVERY":
+            if self.interval_minutes is None or self.interval_minutes <= 0:
+                raise ValueError("interval_minutes must be a positive integer when mode is EVERY")
+        elif self.interval_minutes is not None:
+            raise ValueError("interval_minutes is not allowed when mode is OFF")
+        return self
+
+
+class AlertDetail(AlertSummary):
+    """One alert with its full rule: the summary plus filters and gap handling."""
+
+    filters: list[AlertFilterItem]
+    renotify: AlertRenotify
+    no_data_mode: str
+
+
+class AlertCapacity(BaseModel):
+    """How many alerts the project holds against its per-project cap."""
+
+    used: int
+    max: int
+
+
+class AlertListMeta(PaginationMeta):
+    """Pagination plus the project's alert capacity."""
+
+    capacity: AlertCapacity
+
+
+class PublicAlertListResponse(BaseModel):
+    """Paginated list of the project's alerts for the public API."""
+
+    data: list[AlertSummary]
+    meta: AlertListMeta
