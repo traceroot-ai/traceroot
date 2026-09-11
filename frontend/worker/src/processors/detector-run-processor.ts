@@ -218,11 +218,18 @@ async function runSingleDetector(params: {
   // degrades selfTraced to false.
   const run = await withSelfTrace(
     {
-      runId,
+      // The run id is already dashless 32-hex; the self-trace's trace_id is
+      // the run id verbatim.
+      traceId: runId.replaceAll("-", ""),
       projectId,
-      detectorId: detector.id,
-      detectorName: detector.name,
-      scannedTraceId: traceId,
+      // The trace record inherits this name, so both the trace node and the
+      // root row read "which detector's run" at a glance.
+      name: `detector-run: ${detector.name}`,
+      metadata: {
+        detectorId: detector.id,
+        detectorName: detector.name,
+        scannedTraceId: traceId,
+      },
     },
     () =>
       runDetectionForTrace({
