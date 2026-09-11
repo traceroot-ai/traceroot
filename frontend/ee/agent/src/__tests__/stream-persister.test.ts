@@ -73,6 +73,33 @@ function makePersister() {
 }
 
 describe("StreamPersister", () => {
+  it("stamps spanId on tool_step rows from the run's tool span map", async () => {
+    const calls: AppendCall[] = [];
+    const ids = new Map([["1", "abcdef0123456789"]]);
+    const p = new StreamPersister(
+      async (role, content, metadata) => {
+        calls.push({ role, content, metadata });
+      },
+      { toolSpanIds: () => ids },
+    );
+    p.onEvent(toolStart("1"));
+    p.onEvent(toolEnd("1"));
+    await p.finish();
+    expect(calls[0].metadata?.spanId).toBe("abcdef0123456789");
+  });
+
+  it("writes traceId and traceStatus on the final text segment", async () => {
+    const calls: AppendCall[] = [];
+    const p = new StreamPersister(async (role, content, metadata) => {
+      calls.push({ role, content, metadata });
+    });
+    p.onEvent(textDelta("done"));
+    await p.finish(USAGE, { traceId: "f".repeat(32), status: "available" });
+    const last = calls.at(-1)!;
+    expect(last.role).toBe("assistant");
+    expect(last.metadata).toMatchObject({ traceId: "f".repeat(32), traceStatus: "available" });
+  });
+
   it("persists a text-only run as a single assistant row carrying the usage", async () => {
     const { persister, calls } = makePersister();
     persister.onEvent(textDelta("Hello"));
@@ -150,6 +177,31 @@ describe("StreamPersister", () => {
     // no trailing text, but the run's usage must still land so it is billed
     expect(calls.map((c) => c.role)).toEqual(["assistant", "tool_step", "assistant"]);
     expect(calls[2]).toMatchObject({ content: "", tokenUsage: USAGE });
+  });
+
+  it("with tracing disabled (no trace argument), a tool-only turn writes exactly the rows PR #1961 wrote — no extra row", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1"));
+    persister.onEvent(toolEnd("t1"));
+    await persister.finish(USAGE, undefined);
+
+    // Same shape PR #1961 wrote: a usage-carrying assistant row plus the
+    // tool_step, and nothing more. A disabled-tracing outcome must never add
+    // a third row beyond what main writes today (Global Constraint).
+    expect(calls.map((c) => c.role)).toEqual(["tool_step", "assistant"]);
+    expect(calls[1]).toMatchObject({ content: "", tokenUsage: USAGE });
+    expect(calls[1].metadata).toBeUndefined();
+  });
+
+  it("with a trace outcome and no usage, a tool-only turn gains exactly one assistant row carrying the trace metadata", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1"));
+    persister.onEvent(toolEnd("t1"));
+    await persister.finish(undefined, { traceId: "f".repeat(32), status: "available" });
+
+    expect(calls.map((c) => c.role)).toEqual(["tool_step", "assistant"]);
+    expect(calls[1]).toMatchObject({ content: "" });
+    expect(calls[1].metadata).toEqual({ traceId: "f".repeat(32), traceStatus: "available" });
   });
 
   it("stores the cumulative session total in the final segment's metadata", async () => {
@@ -257,10 +309,11 @@ describe("StreamPersister", () => {
     expect(dl.result).toBe('{"spans":[]}');
   });
 
-  it("charges captured bytes to a shared budget when one is passed", async () => {
-    // The agent shares one accumulator between the SDK's span capture and the
-    // persisted rows so both stop capturing together; a budget of the
-    // persister's own would double the effective run cap.
+  it("charges captured bytes to an explicit budget when one is passed", async () => {
+    // The persister charges whatever accumulator it's given — index.ts hands
+    // it its OWN fresh one (deliberately not the span's currentCaptureState()
+    // — see capture-budget-independence.test.ts), but the option itself is
+    // just "charge this state", tested here directly.
     // Room for exactly the empty args object (2 bytes: `{}`) plus the six
     // result bytes, so the charge lands on the run cap.
     const state = { spentBytes: 262_144 - 8 };

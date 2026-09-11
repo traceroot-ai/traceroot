@@ -79,3 +79,29 @@ export async function finishFindingIfLatest(
     return count === 1;
   });
 }
+
+/**
+ * Flip the finding to `running` for this attempt, but only while no higher
+ * attempt exists. A superseded attempt (a stalled job redelivered after its
+ * retry was allocated) must not drag a finding the newer attempt already
+ * finished back to `running`.
+ *
+ * One conditional UPDATE, no row lock: unlike finishFindingIfLatest a lost
+ * race here is harmless — a retry allocated after the guard's snapshot writes
+ * its own `running` and then its own terminal state, both later than this.
+ *
+ * @returns whether the write applied — false means a newer attempt owns the finding.
+ */
+export async function markFindingRunningIfLatest(
+  db: Pick<PrismaClient, "detectorRca">,
+  params: { findingId: string; projectId: string; attempt: number },
+): Promise<boolean> {
+  const res = await db.detectorRca.updateMany({
+    where: {
+      findingId: params.findingId,
+      executions: { none: { attempt: { gt: params.attempt } } },
+    },
+    data: { status: "running", projectId: params.projectId },
+  });
+  return res.count === 1;
+}
