@@ -568,6 +568,169 @@ describe("resourceCardModel", () => {
   });
 });
 
+describe("alert cards", () => {
+  const RULE_ARGS = {
+    label: "adding the alert",
+    name: "p95 latency",
+    view: "SPANS",
+    measure: "latency",
+    aggregation: "p95",
+    window: "10m",
+    threshold_operator: ">",
+    threshold: 2000,
+    renotify: { mode: "OFF" },
+  };
+
+  function alertStep(args: Record<string, unknown> = {}): ToolCallStep {
+    return step({
+      toolName: "create_alert",
+      args: { ...RULE_ARGS, ...args },
+      details: created("alert", "al1", { projectId: "p1" }),
+    });
+  }
+
+  it("builds an alert receipt with the rule in words over its filter and renotify chips", () => {
+    expect(resourceCardModel(alertStep())).toEqual({
+      resourceType: "alert",
+      resourceId: "al1",
+      created: true,
+      title: "p95 latency",
+      href: "/projects/p1/alerts/al1",
+      meta: ["Alert"],
+      body: {
+        kind: "alert",
+        rule: "p95 latency over 10 minutes is above 2,000 ms",
+        chips: ["no filters", "renotify off"],
+      },
+    });
+  });
+
+  it("words each aggregation and unit the way the alerts feature does", () => {
+    const rule = (args: Record<string, unknown>) =>
+      (resourceCardModel(alertStep(args))?.body as { rule: string | null }).rule;
+    expect(rule({ measure: "cost", aggregation: "sum", window: "1h", threshold: 5 })).toBe(
+      "total cost over 1 hour is above 5 USD",
+    );
+    expect(
+      rule({
+        measure: "count",
+        aggregation: "count",
+        window: "1m",
+        threshold_operator: "<=",
+        threshold: 0,
+      }),
+    ).toBe("span count over 1 minute is at or below 0");
+    expect(
+      rule({
+        measure: "unique_user_ids",
+        aggregation: "uniq",
+        window: "2h",
+        threshold_operator: "<",
+        threshold: 10,
+      }),
+    ).toBe("distinct unique user ids over 2 hours is below 10");
+    expect(rule({ measure: "total_tokens", aggregation: "avg", threshold: 1500.5 })).toBe(
+      "average total tokens over 10 minutes is above 1,500.5",
+    );
+  });
+
+  it("keeps a measure, window or operator the catalog does not know, so a doomed rule still shows what was asked", () => {
+    const body = resourceCardModel(
+      alertStep({ measure: "wall_time", window: "45m", threshold_operator: "~" }),
+    )?.body as { rule: string | null };
+    expect(body.rule).toBe("p95 wall_time over 45m is ~ 2,000");
+  });
+
+  it("states no rule when a piece the rule cannot do without is missing or not a number", () => {
+    const rule = (args: Record<string, unknown>) =>
+      (resourceCardModel(alertStep(args))?.body as { rule: string | null }).rule;
+    expect(rule({ threshold: "2000" })).toBeNull();
+    expect(rule({ threshold: Number.NaN })).toBeNull();
+    expect(rule({ measure: undefined })).toBeNull();
+    expect(rule({ window: "" })).toBeNull();
+  });
+
+  it("chips each filter in the alerts feature's own wording, capped, with renotify and no-data", () => {
+    const model = resourceCardModel(
+      alertStep({
+        filters: [
+          { field: "environment", op: "=", value: "production" },
+          { field: "metadata", key: "tenant", op: "contains", value: "acme" },
+          { field: "model_name", op: "=", value: "gpt-4o" },
+          { field: "status", op: "=", value: "ERROR" },
+          { field: "is_root", op: "=", value: "true" },
+          "not a filter",
+        ],
+        renotify: { mode: "EVERY", interval_minutes: 30 },
+        no_data_mode: "ZERO",
+      }),
+    );
+    expect(model?.body).toEqual({
+      kind: "alert",
+      rule: "p95 latency over 10 minutes is above 2,000 ms",
+      chips: [
+        "environment = production",
+        "metadata[tenant] contains acme",
+        "model_name = gpt-4o",
+        "+2 more",
+        "renotify every 30 min",
+        "no data: zero",
+      ],
+    });
+  });
+
+  it("names a renotify whose interval is unreadable without inventing one", () => {
+    const model = resourceCardModel(alertStep({ renotify: { mode: "EVERY" } }));
+    expect((model?.body as { chips: string[] }).chips).toEqual(["no filters", "renotify"]);
+  });
+
+  it("still cards an alert whose arguments did not survive, with no rule and no chips", () => {
+    const model = resourceCardModel(
+      step({
+        toolName: "create_alert",
+        args: "lost",
+        details: created("alert", "al1", { projectId: "p1" }),
+      }),
+    );
+    expect(model?.body).toEqual({ kind: "alert", rule: null, chips: [] });
+    expect(model?.title).toBe("al1");
+  });
+
+  it("builds a pending alert card with the same body the receipt gets, and nothing to open", () => {
+    const pending: ToolCallStep = {
+      toolCallId: "tcp9",
+      toolName: "create_alert",
+      args: { ...RULE_ARGS, filters: [{ field: "environment", op: "=", value: "production" }] },
+      status: "running",
+      pending: { decisionId: "dec-1" },
+    };
+    expect(pendingCardModel(pending, "p1")).toEqual({
+      resourceType: "alert",
+      resourceId: "tcp9",
+      created: true,
+      title: "p95 latency",
+      href: null,
+      meta: ["Alert"],
+      body: {
+        kind: "alert",
+        rule: "p95 latency over 10 minutes is above 2,000 ms",
+        chips: ["environment = production", "renotify off"],
+      },
+    });
+    expect(pendingProposal(pending)).toEqual({ resourceType: "alert", title: "p95 latency" });
+  });
+
+  it("links the alert receipt to its detail page and refuses an unsafe id", () => {
+    expect(resourceCardModel(alertStep())?.href).toBe("/projects/p1/alerts/al1");
+    const unsafe = step({
+      toolName: "create_alert",
+      args: RULE_ARGS,
+      details: created("alert", "../admin", { projectId: "p1" }),
+    });
+    expect(resourceCardModel(unsafe)?.href).toBeNull();
+  });
+});
+
 describe("dashboard preview tiles", () => {
   function widget(
     id: string,

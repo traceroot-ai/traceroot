@@ -16,6 +16,15 @@
  * plain tool step rather than rendering half of one.
  */
 
+import {
+  ALERT_THRESHOLD_OPERATOR_PHRASES,
+  describeAlertFilter,
+  getMeasure,
+  isAlertThresholdOperator,
+  isAlertView,
+  isAlertWindow,
+  type AlertFilter,
+} from "@traceroot/core";
 import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
 import { triggerFieldDef, triggerOpLabel } from "@/features/detectors/trigger-fields";
 import { resolveSiteRange } from "@/features/dashboards/range-presets";
@@ -40,6 +49,7 @@ const RESOURCE_TYPE_LABELS = {
   project: "Project",
   workspace: "Workspace",
   detector: "Detector",
+  alert: "Alert",
 } as const;
 
 export type CardResourceType = keyof typeof RESOURCE_TYPE_LABELS;
@@ -105,13 +115,16 @@ export type DetectorPrompt =
  * created none, or when the dashboard was reused and its placements are
  * unknowable — the reused card shows its description instead). A detector's
  * body is its prompt — the thing the detector actually is — over its
- * settings chips.
+ * settings chips. An alert's body is its rule in words — measure,
+ * aggregation, window, operator and threshold — over chips for its filters,
+ * renotify and no-data handling.
  */
 export type ResourceCardBody =
   | { kind: "widget"; chips: string[]; chart: WidgetChart | null }
   | { kind: "dashboard"; tiles: PreviewTile[] }
   | { kind: "receipt"; rows: ReceiptRow[] }
-  | { kind: "detector"; chips: string[]; prompt: DetectorPrompt | null };
+  | { kind: "detector"; chips: string[]; prompt: DetectorPrompt | null }
+  | { kind: "alert"; rule: string | null; chips: string[] };
 
 export interface ResourceCardModel {
   resourceType: CardResourceType;
@@ -134,6 +147,8 @@ export interface ResourceCardModel {
 
 /** At most this many trigger conditions get their own chip; the rest are counted. */
 const MAX_TRIGGER_CHIPS = 3;
+/** At most this many alert filters get their own chip; the rest are counted. */
+const MAX_FILTER_CHIPS = 3;
 
 /**
  * Caps on what a card prints. The panel is narrow and a chip is one line, so a
@@ -273,6 +288,112 @@ function detectorChips(args: Record<string, unknown>): string[] {
   return chips;
 }
 
+/** How an aggregation reads before its measure: "p95 latency", "total cost". */
+const AGGREGATION_WORDS: Record<string, string> = {
+  sum: "total",
+  avg: "average",
+  min: "minimum",
+  max: "maximum",
+  uniq: "distinct",
+};
+
+/** The unit a measure's threshold is stated in, where the number alone would mislead. */
+const MEASURE_UNITS: Record<string, string> = { latency: " ms", cost: " USD" };
+
+/** "10m" as words: "10 minutes"; "1h" as "1 hour". */
+function windowWords(window: string): string {
+  const parsed = /^(\d+)([mh])$/.exec(window);
+  if (parsed === null) return window;
+  const count = Number(parsed[1]);
+  const unit = parsed[2] === "m" ? "minute" : "hour";
+  return `${count} ${unit}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * The rule an alert create proposes, in one sentence: "p95 latency over 10
+ * minutes is above 2,000 ms". Read entirely from the call's arguments, since
+ * that is what the user is asked to confirm; null when any piece the rule
+ * cannot do without is missing or unreadable — a card must not invent the
+ * half it cannot see. A measure the catalog does not know keeps its raw id,
+ * so a rule the service will refuse still shows what was asked.
+ */
+function alertRule(args: Record<string, unknown>): string | null {
+  const aggregation = str(args.aggregation);
+  const measure = str(args.measure);
+  const window = str(args.window);
+  const operator = str(args.threshold_operator);
+  const threshold = args.threshold;
+  if (
+    aggregation === null ||
+    measure === null ||
+    window === null ||
+    operator === null ||
+    typeof threshold !== "number" ||
+    !Number.isFinite(threshold)
+  ) {
+    return null;
+  }
+  const view = str(args.view);
+  const catalog = view !== null && isAlertView(view) ? getMeasure(view, measure) : undefined;
+  const measureWords = catalog === undefined ? measure : catalog.label.toLowerCase();
+  const subject =
+    aggregation === "count"
+      ? `${measureWords === "count" ? "span" : measureWords} count`
+      : `${AGGREGATION_WORDS[aggregation] ?? aggregation} ${measureWords}`;
+  const phrase = isAlertThresholdOperator(operator)
+    ? ALERT_THRESHOLD_OPERATOR_PHRASES[operator]
+    : operator;
+  const over = isAlertWindow(window) ? windowWords(window) : window;
+  const unit = MEASURE_UNITS[measure] ?? "";
+  return `${subject} over ${over} is ${phrase} ${threshold.toLocaleString("en-US")}${unit}`;
+}
+
+/**
+ * One alert filter as the alerts feature prints it ("environment = production",
+ * "metadata[tenant] contains acme"), or null when the row is not that shape.
+ */
+function filterChip(filter: unknown): string | null {
+  const parsed = plainObject(filter);
+  if (parsed === null) return null;
+  const field = str(parsed.field);
+  const op = str(parsed.op);
+  const value = scalar(parsed.value);
+  if (field === null || op === null || value === null) return null;
+  const key = str(parsed.key);
+  const shaped: AlertFilter = key === null ? { field, op, value } : { field, key, op, value };
+  return describeAlertFilter(shaped);
+}
+
+/**
+ * What the alert's rule sentence leaves out: the filters it evaluates over
+ * (each its own chip up to a cap, then counted, or "no filters" so the user
+ * can see the rule covers every span), whether a sustained breach keeps
+ * paging, and what a window with nothing in it means when the call said.
+ */
+function alertChips(args: Record<string, unknown>): string[] {
+  const chips: string[] = [];
+  const filters = Array.isArray(args.filters)
+    ? args.filters.map(filterChip).filter((chip): chip is string => chip !== null)
+    : [];
+  if (filters.length === 0) chips.push("no filters");
+  chips.push(...filters.slice(0, MAX_FILTER_CHIPS));
+  const hidden = filters.length - MAX_FILTER_CHIPS;
+  if (hidden > 0) chips.push(`+${hidden} more`);
+
+  const renotify = plainObject(args.renotify);
+  const mode = renotify === null ? null : str(renotify.mode);
+  if (mode === "EVERY") {
+    const minutes = renotify === null ? null : scalar(renotify.interval_minutes);
+    chips.push(minutes === null ? "renotify" : `renotify every ${minutes} min`);
+  } else if (mode === "OFF") {
+    chips.push("renotify off");
+  }
+
+  const noData = str(args.no_data_mode);
+  if (noData !== null) chips.push(`no data: ${noData.toLowerCase()}`);
+  return chips;
+}
+
 /**
  * A project or workspace has nothing to picture, so the card is a receipt of
  * where the one call put it: the workspace it landed in (a workspace itself
@@ -404,6 +525,10 @@ function resourceHref(resourceType: CardResourceType, details: ResourceCreatedDe
       const detectorId = pathSegment(details.resourceId);
       return detectorId === null ? null : `/projects/${projectId}/detectors/${detectorId}`;
     }
+    case "alert": {
+      const alertId = pathSegment(details.resourceId);
+      return alertId === null ? null : `/projects/${projectId}/alerts/${alertId}`;
+    }
     default:
       return null;
   }
@@ -439,6 +564,12 @@ function body(
         kind: "detector",
         chips: args === null ? [] : detectorChips(args),
         prompt: args === null ? null : detectorPrompt(args),
+      };
+    case "alert":
+      return {
+        kind: "alert",
+        rule: args === null ? null : alertRule(args),
+        chips: args === null ? [] : alertChips(args),
       };
     default:
       return { kind: "receipt", rows: receiptRows(details) };
@@ -532,7 +663,10 @@ export function resourceCardModel(
 }
 
 /** The resource types a proposal can park as a card in the chat. */
-export type PendingResourceType = Extract<CardResourceType, "widget" | "dashboard" | "detector">;
+export type PendingResourceType = Extract<
+  CardResourceType,
+  "widget" | "dashboard" | "detector" | "alert"
+>;
 
 /**
  * The confirm-class write tools and the resource each would create. Structural
@@ -543,6 +677,7 @@ const PENDING_TOOL_RESOURCE_TYPES: Readonly<Record<string, PendingResourceType>>
   create_widget: "widget",
   create_dashboard: "dashboard",
   create_detector: "detector",
+  create_alert: "alert",
 };
 
 /** A pending dashboard's description is prose, so it gets more room than a chip. */
@@ -578,7 +713,8 @@ export function pendingProposal(
  *   write would land in;
  * - a dashboard can only show its name and description — its widgets arrive
  *   as separate pending calls;
- * - a detector shows the same body its receipt will.
+ * - a detector shows the same body its receipt will;
+ * - an alert shows its rule in words, the thing the user is judging.
  * Null for a tool this panel has no card for; the caller keeps the plain tool
  * line, matching the receipt convention.
  */
@@ -623,6 +759,15 @@ export function pendingCardModel(
         kind: "detector",
         chips: args === null ? [] : detectorChips(args),
         prompt: args === null ? null : detectorPrompt(args),
+      };
+      break;
+    case "alert":
+      // The gate must show the rule the write would store, since the rule is
+      // the whole resource: nothing else about an alert is decided here.
+      body = {
+        kind: "alert",
+        rule: args === null ? null : alertRule(args),
+        chips: args === null ? [] : alertChips(args),
       };
       break;
   }

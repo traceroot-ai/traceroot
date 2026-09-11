@@ -163,6 +163,48 @@ describe("ResourceCard definition panel", () => {
     expect(screen.getByText("RCA on")).toBeTruthy();
   });
 
+  it("keeps an alert's rule in view and reveals its filters and renotify chips", () => {
+    render(
+      <ResourceCard
+        model={model({
+          resourceType: "alert",
+          title: "p95 latency",
+          meta: ["Alert"],
+          body: {
+            kind: "alert",
+            rule: "p95 latency over 10 minutes is above 2,000 ms",
+            chips: ["environment = production", "renotify off"],
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText("p95 latency over 10 minutes is above 2,000 ms")).toBeTruthy();
+    expect(screen.queryByText("renotify off")).toBeNull();
+    fireEvent.click(definitionToggle("p95 latency"));
+    expect(screen.getByText("environment = production")).toBeTruthy();
+    expect(screen.getByText("renotify off")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /preview/i })).toBeNull();
+  });
+
+  it("stands an alert with no readable rule on its footer alone", () => {
+    render(
+      <ResourceCard
+        model={model({
+          resourceType: "alert",
+          title: "al1",
+          meta: ["Alert"],
+          href: "/projects/p1/alerts/al1",
+          body: { kind: "alert", rule: null, chips: [] },
+        })}
+      />,
+    );
+    expect(screen.getByText("al1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "al1" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Open alert" }).getAttribute("href")).toBe(
+      "/projects/p1/alerts/al1",
+    );
+  });
+
   it("reveals the description a reused dashboard carries", () => {
     render(
       <ResourceCard

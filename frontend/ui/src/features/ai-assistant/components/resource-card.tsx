@@ -34,7 +34,7 @@ const WidgetChartPreview = dynamic(
  * otherwise be.
  *
  * The card IS the bubble: the resource itself — a widget's chart, a
- * dashboard scaled down, a detector's prompt — comes first, and one footer row
+ * dashboard scaled down, a detector's prompt, an alert's rule — comes first, and one footer row
  * names it. The footer's title opens a definition panel with what the card
  * would otherwise have to say up front (the spec chips, a description), so
  * the picture is never pushed down by its own caption. Nothing here decides
@@ -130,6 +130,14 @@ function cardBody(body: ResourceCardBody, resourceId: string): ReactNode | null 
       );
     case "detector":
       return body.prompt === null ? null : <DetectorPromptBlock prompt={body.prompt} />;
+    case "alert":
+      // The rule is what the alert IS, so it stays in view; the filters and
+      // the renotify setting wait in the definition panel.
+      return body.rule === null ? null : (
+        <p className="break-words text-[11px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]">
+          {body.rule}
+        </p>
+      );
     case "receipt":
       if (body.rows.length === 0) return null;
       return (
@@ -162,9 +170,11 @@ function hasPreview(body: ResourceCardBody): boolean {
   );
 }
 
-/** The chips a widget or detector is defined by; a receipt or dashboard has none. */
+/** The chips a widget, detector or alert is defined by; a receipt or dashboard has none. */
 function definitionChips(body: ResourceCardBody): string[] {
-  return body.kind === "widget" || body.kind === "detector" ? body.chips : [];
+  return body.kind === "widget" || body.kind === "detector" || body.kind === "alert"
+    ? body.chips
+    : [];
 }
 
 const iconActionClasses =
