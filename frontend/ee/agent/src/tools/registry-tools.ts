@@ -7,6 +7,8 @@ import {
   toPiAgentTool,
 } from "@traceroot-ai/tools";
 import {
+  formatAlertDetail,
+  formatAlertList,
   formatDashboardDetail,
   formatDashboardList,
   formatDetectorDetail,
@@ -54,5 +56,7 @@ export function createRegistryReadTools(projectId: string, userId: string): Agen
     bind("get_finding_by_trace", formatFindingDetail),
     bind("list_dashboards", formatDashboardList),
     bind("get_dashboard", formatDashboardDetail),
+    bind("list_alerts", formatAlertList),
+    bind("get_alert", formatAlertDetail),
   ];
 }

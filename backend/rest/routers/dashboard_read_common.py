@@ -6,118 +6,37 @@ auth source differs. Each router resolves auth, then delegates here, so the
 proxy and error-mapping semantics cannot drift between the two surfaces.
 
 The dashboard catalog lives in Postgres/Prisma, so both reads are delegated to
-the Next.js internal routes (secret-authed, keyed by the resolved project id).
-Client errors the internal route owns (400/403/404) pass through with the
-upstream ``error`` string as the public ``detail``; everything ambiguous — a
-network error, an upstream 401 (our own secret being rejected), an unexpected
-status, or a malformed body — fails closed as a controlled 503 (parity with
-the account-read and write-proxy siblings). Ids are never logged.
+the Next.js internal routes (secret-authed, keyed by the resolved project id)
+through the shared internal read proxy, which owns the passthrough (400/403/
+404) and fail-closed (503) rules. Ids are never logged.
 """
 
 import logging
 from typing import Any
 
-import httpx
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from pydantic import ValidationError
 
+from rest.routers.internal_read_proxy import post_internal_read, service_error
 from rest.schemas.public import (
     DashboardDetail,
     DashboardListItem,
     DashboardWidgetItem,
     PublicDashboardListResponse,
 )
-from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Generic per-status fallbacks for a passthrough status whose upstream body
-# carries no usable ``error`` string — the raw body is never surfaced.
-_PASSTHROUGH_FALLBACKS = {
-    status.HTTP_400_BAD_REQUEST: "Invalid request",
-    status.HTTP_403_FORBIDDEN: "Forbidden",
-    status.HTTP_404_NOT_FOUND: "Not found",
-}
+_SERVICE = "Dashboard"
 
 
 def _dashboard_service_error() -> HTTPException:
-    """Build the controlled 503 used whenever the dashboard service is ambiguous.
-
-    A shared fail-closed error so any upstream ambiguity — an unexpected
-    status, malformed JSON, or a body missing a required field — surfaces as a
-    503, never an uncaught 500 (parity with the account-read sibling).
+    """Build the controlled 503 for an ambiguous dashboard service response.
 
     Returns:
         HTTPException: A 503 with a generic ``Dashboard service error`` detail.
     """
-    return HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="Dashboard service error",
-    )
-
-
-async def _post_internal_read(path: str, payload: dict) -> dict:
-    """POST a read to an internal dashboard route and return its success body.
-
-    Args:
-        path (str): Internal route path (appended to the UI base URL), e.g.
-            ``"/api/internal/project-dashboards"``.
-        payload (dict): The camelCase JSON body to POST (resolved project /
-            dashboard ids; never logged).
-
-    Returns:
-        dict: The parsed 200 response body.
-
-    Raises:
-        HTTPException: 400/403/404 passed through from the internal route with
-            its own ``error`` string as ``detail``; 503 (fail closed) on a
-            network error, an upstream 401, any other unexpected status, or a
-            malformed body.
-    """
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                f"{settings.traceroot_ui_url}{path}",
-                json=payload,
-                headers={"X-Internal-Secret": settings.internal_api_secret},
-            )
-    except httpx.RequestError as e:
-        logger.error(f"Failed to reach the dashboard service: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Dashboard service unavailable",
-        ) from e
-
-    if response.status_code in _PASSTHROUGH_FALLBACKS:
-        fallback = _PASSTHROUGH_FALLBACKS[response.status_code]
-        try:
-            body = response.json()
-        except ValueError:
-            body = None
-        error = body.get("error") if isinstance(body, dict) else None
-        raise HTTPException(
-            status_code=response.status_code,
-            detail=error if isinstance(error, str) and error else fallback,
-        )
-
-    if response.status_code != 200:
-        # Includes 401: the internal secret is this service's own credential,
-        # so an upstream rejection of it is our misconfiguration — an outage
-        # from the caller's point of view, never their auth failing.
-        logger.error(f"Unexpected response from the dashboard service: {response.status_code}")
-        raise _dashboard_service_error()
-
-    try:
-        data = response.json()
-    except ValueError as e:
-        logger.error(f"Malformed JSON from the dashboard service: {e}")
-        raise _dashboard_service_error() from e
-
-    if not isinstance(data, dict):
-        logger.error("Dashboard service returned a non-object JSON body")
-        raise _dashboard_service_error()
-
-    return data
+    return service_error(_SERVICE)
 
 
 async def list_dashboards_page(project_id: str) -> PublicDashboardListResponse:
@@ -136,7 +55,9 @@ async def list_dashboards_page(project_id: str) -> PublicDashboardListResponse:
         HTTPException: 503 (fail closed) on any upstream ambiguity, including
             a listing item missing a required field.
     """
-    data = await _post_internal_read("/api/internal/project-dashboards", {"projectId": project_id})
+    data = await post_internal_read(
+        "/api/internal/project-dashboards", {"projectId": project_id}, service=_SERVICE
+    )
     dashboards = data.get("dashboards")
     if not isinstance(dashboards, list):
         logger.error("Dashboard service returned a malformed listing body")
@@ -180,9 +101,10 @@ async def get_dashboard_detail(project_id: str, dashboard_id: str) -> DashboardD
         HTTPException: 404 passed through when the dashboard is not in the
             project; 503 (fail closed) on any upstream ambiguity.
     """
-    data = await _post_internal_read(
+    data = await post_internal_read(
         "/api/internal/project-dashboard",
         {"projectId": project_id, "dashboardId": dashboard_id},
+        service=_SERVICE,
     )
     try:
         dashboard: Any = data["dashboard"]

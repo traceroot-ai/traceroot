@@ -30,6 +30,8 @@ BINDINGS = {
     "/api/v1/public/dashboards/{dashboard_id}": (
         "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}"
     ),
+    "/api/v1/public/alerts": "/api/v1/internal/projects/{project_id}/alerts",
+    "/api/v1/public/alerts/{alert_id}": "/api/v1/internal/projects/{project_id}/alerts/{alert_id}",
 }
 
 

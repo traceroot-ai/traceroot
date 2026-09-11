@@ -238,3 +238,73 @@ export function formatDashboardDetail(data: unknown): string {
 
   return `${header}\n\nWidgets (${widgets.length}):\n${widgetLines.join("\n")}`;
 }
+
+/** One-line rule summary shared by the alert list and detail renderings. */
+function describeAlertRule(a: any): string {
+  return `${a.aggregation ?? "?"}(${a.measure ?? "?"}) over ${a.window ?? "?"} ${a.threshold_operator ?? "?"} ${a.threshold ?? "?"}`;
+}
+
+/** Render an alert list response as one rule-and-state line per alert. */
+export function formatAlertList(data: unknown): string {
+  const body = (data ?? {}) as { data?: unknown; meta?: unknown };
+  const alerts = (body.data || []) as any[];
+  const meta = (body.meta || {}) as { total?: number; capacity?: { used?: number; max?: number } };
+
+  // Shown on the empty path too: a search that matched nothing still tells
+  // the model how full the project is before it creates anything.
+  const capacity =
+    meta.capacity?.used != null && meta.capacity?.max != null
+      ? `\nCapacity: ${meta.capacity.used}/${meta.capacity.max} alerts used`
+      : "";
+
+  if (!Array.isArray(alerts) || alerts.length === 0) {
+    return `No alerts found in this project.${capacity}`;
+  }
+
+  const lines = alerts.map((a: any) => {
+    const state = `${a.status ?? "unknown"}/${a.severity ?? "unknown"}`;
+    const notify = a.last_notify_status
+      ? ` | notify: ${a.last_notify_status} at ${a.last_notify_at ?? "unknown"}`
+      : "";
+    const error = a.last_error ? ` | last error: ${truncate(String(a.last_error), 200)}` : "";
+    return `- ${a.id} | ${a.name || "(unnamed)"} | ${describeAlertRule(a)} | ${state} | evaluated ${a.last_evaluated_at ?? "never"}${notify} | by ${a.creator ?? "unknown"}${error}`;
+  });
+
+  const totalInfo = meta.total ? ` (${meta.total} total, showing ${alerts.length})` : "";
+
+  return `Found ${alerts.length} alerts${totalInfo}:\n${lines.join("\n")}${capacity}`;
+}
+
+/** Render an alert detail response as the rule, its filters, and its state. */
+export function formatAlertDetail(data: unknown): string {
+  const a = (data ?? {}) as any;
+  const filters: any[] = Array.isArray(a.filters) ? a.filters : [];
+  const renotify =
+    a.renotify?.mode === "EVERY"
+      ? `every ${a.renotify.interval_minutes ?? "?"} min`
+      : a.renotify?.mode === "OFF"
+        ? "off"
+        : "unknown";
+
+  const lines = [
+    `Alert: ${a.id} | ${a.name || "(unnamed)"}`,
+    `Rule: ${describeAlertRule(a)} on ${a.view ?? "unknown"} | no-data: ${a.no_data_mode ?? "unknown"} | renotify: ${renotify}`,
+    `Filters: ${filters.length === 0 ? "(none)" : truncate(JSON.stringify(filters), 500)}`,
+    `State: ${a.status ?? "unknown"} | severity: ${a.severity ?? "unknown"} (since ${a.severity_changed_at ?? "unknown"}) | alerted ${a.alerted_at ?? "never"} | last evaluated ${a.last_evaluated_at ?? "never"}`,
+    `Created by ${a.creator ?? "unknown"} | created ${a.create_time ?? "unknown"} | updated ${a.update_time ?? "unknown"}`,
+  ];
+  if (a.last_error) {
+    lines.push(
+      `Last error: ${truncate(String(a.last_error), 500)} (${a.last_error_at ?? "unknown"})`,
+    );
+  }
+  if (a.last_notify_status) {
+    const notifyError = a.last_notify_error
+      ? ` — ${truncate(String(a.last_notify_error), 200)}`
+      : "";
+    lines.push(
+      `Last notification: ${a.last_notify_status} at ${a.last_notify_at ?? "unknown"}${notifyError}`,
+    );
+  }
+  return lines.join("\n");
+}
