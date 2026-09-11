@@ -12,7 +12,7 @@ it already uses for trace ingestion — no separate eval URL. This is the
 "two-hop" production path the SDK contract anticipated: SDK → this gateway →
 Next.js control plane.
 
-Auth is enforced here (``StampedAuth``, same as every public route) and the
+Auth is enforced here (``KeyStampedAuth``, same as every public route) and the
 Bearer key is forwarded so the Next.js handler re-validates authoritatively
 against Postgres.
 
@@ -51,7 +51,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.routers.public.deps import StampedAuth
+from rest.routers.public.deps import KeyStampedAuth
 from rest.schemas.eval import (
     CompleteRunRequest,
     CompleteRunResponse,
@@ -259,13 +259,13 @@ async def _forward(request: Request, subpath: str) -> Response:
 
 # --- Datasets (A1/A2 list+upsert, A3 patch, A4/A5 versions) -----------------
 # Dataset traffic is authoring/read traffic, so it shares the READ bucket; the run
-# reporting writes below use INGEST. Every route takes StampedAuth, which is what
+# reporting writes below use INGEST. Every route takes KeyStampedAuth, which is what
 # puts the workspace + plan on request.state for the limiter's key_func.
 @router.api_route("/datasets", methods=["GET", "POST"], include_in_schema=False)
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )
-async def datasets_root(request: Request, auth: StampedAuth) -> Response:
+async def datasets_root(request: Request, auth: KeyStampedAuth) -> Response:
     return await _forward(request, _upstream_path(request.method, "datasets"))
 
 
@@ -275,7 +275,7 @@ async def datasets_root(request: Request, auth: StampedAuth) -> Response:
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )
-async def datasets_sub(subpath: str, request: Request, auth: StampedAuth) -> Response:
+async def datasets_sub(subpath: str, request: Request, auth: KeyStampedAuth) -> Response:
     return await _forward(request, _upstream_path(request.method, "datasets", subpath))
 
 
@@ -284,7 +284,7 @@ async def datasets_sub(subpath: str, request: Request, auth: StampedAuth) -> Res
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )
-async def dataset_versions(subpath: str, request: Request, auth: StampedAuth) -> Response:
+async def dataset_versions(subpath: str, request: Request, auth: KeyStampedAuth) -> Response:
     return await _forward(request, _upstream_path(request.method, "dataset-versions", subpath))
 
 
@@ -322,7 +322,7 @@ _EVAL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     exempt_when=is_request_rate_limit_exempt,
 )
 async def register_run(
-    payload: RegisterRunRequest, request: Request, auth: StampedAuth
+    payload: RegisterRunRequest, request: Request, auth: KeyStampedAuth
 ) -> Response:
     """Register/start a run. Idempotent on ``client_run_id`` within an evaluation."""
     return await _forward(request, _upstream_path(request.method, "evaluation-runs"))
@@ -342,7 +342,7 @@ async def register_run(
     exempt_when=is_request_rate_limit_exempt,
 )
 async def upsert_result(
-    run_id: str, payload: UpsertResultRequest, request: Request, auth: StampedAuth
+    run_id: str, payload: UpsertResultRequest, request: Request, auth: KeyStampedAuth
 ) -> Response:
     """Upsert one test-case result (and its scores). Idempotent on (run, test case)."""
     subpath = _upstream_path(request.method, "evaluation-runs", run_id, "results")
@@ -363,7 +363,7 @@ async def upsert_result(
     exempt_when=is_request_rate_limit_exempt,
 )
 async def complete_run(
-    run_id: str, payload: CompleteRunRequest, request: Request, auth: StampedAuth
+    run_id: str, payload: CompleteRunRequest, request: Request, auth: KeyStampedAuth
 ) -> Response:
     """Complete/fail a run, reporting final completeness counts."""
     subpath = _upstream_path(request.method, "evaluation-runs", run_id, "complete")
@@ -380,5 +380,5 @@ async def complete_run(
     key_func=key_ingest,
     exempt_when=is_request_rate_limit_exempt,
 )
-async def evaluation_runs_sub(subpath: str, request: Request, auth: StampedAuth) -> Response:
+async def evaluation_runs_sub(subpath: str, request: Request, auth: KeyStampedAuth) -> Response:
     return await _forward(request, _upstream_path(request.method, "evaluation-runs", subpath))

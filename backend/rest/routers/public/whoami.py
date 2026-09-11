@@ -14,7 +14,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.routers.public.deps import StampedAuth
+from rest.routers.public.deps import KeyStampedAuth
 from rest.schemas.public import WhoamiResponse
 from shared.config import settings
 
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/public/whoami", tags=["Whoami (Public)"])
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )
-async def whoami(request: Request, response: Response, auth: StampedAuth) -> WhoamiResponse:
+async def whoami(request: Request, response: Response, auth: KeyStampedAuth) -> WhoamiResponse:
     """Return the identity the authenticated API key maps to."""
     # `host` reflects the request's Host header (the API host the client
     # reached). It is only echoed back, never used server-side — but it is
