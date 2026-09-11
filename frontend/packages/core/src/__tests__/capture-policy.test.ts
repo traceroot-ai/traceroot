@@ -233,6 +233,26 @@ describe("applyCapturePolicy", () => {
     expect(body).toContain('"plain":"kept"');
   });
 
+  it("withholds a result nested too deeply to walk instead of failing the step", () => {
+    // JSON.parse accepts nesting far past what the recursive key walk can
+    // handle; the walk used to throw a RangeError before the budget cut the
+    // text, and the tool step was never persisted. Both the string and the
+    // object forms now degrade to the redaction marker.
+    const depth = 200_000;
+    const text = "[".repeat(depth) + "]".repeat(depth);
+    const asString = applyCapturePolicy(
+      { toolName: "download_traces", args: {}, result: text },
+      { spentBytes: 0 },
+    );
+    expect(asString.result).toBe("[REDACTED]");
+    expect(asString.withheld).toBeNull();
+    const asObject = applyCapturePolicy(
+      { toolName: "download_traces", args: {}, result: JSON.parse(text) },
+      { spentBytes: 0 },
+    );
+    expect(asObject.result).toBe("[REDACTED]");
+  });
+
   it("redacts inside args too", () => {
     const r = applyCapturePolicy(
       {
