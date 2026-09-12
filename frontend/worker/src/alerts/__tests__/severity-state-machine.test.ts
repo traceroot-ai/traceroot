@@ -347,6 +347,39 @@ describe("the reading a rule takes of a gap", () => {
     });
   });
 
+  it("does not re-page a standing breach each time sparse data comes back, under NOTIFY", () => {
+    // A source that drops in and out under a breach the user was already paged
+    // for is the same breach throughout, so NOTIFY says what HOLD would: the
+    // repeat waits for renotify, and only the recovery is news.
+    const renotify = every(30);
+    const breached = minutesBefore(NOW, 5);
+    let current = state("ALERT", breached, breached);
+    const said: string[] = [];
+
+    for (const [minutes, severity] of [
+      [1, "NO_DATA"],
+      [2, "ALERT"],
+      [3, "NO_DATA"],
+      [4, "ALERT"],
+      [5, "OK"],
+    ] as const) {
+      const at = minutesAfter(NOW, minutes);
+      const { emit, nextState } = applyAlertStateMachine(current, severity, at, renotify, "NOTIFY");
+      if (emit) said.push(severity);
+      current = nextState;
+    }
+
+    // Without this the two reappearances page again, on a breach already paged.
+    expect(said).toEqual(["OK"]);
+    // The all-clear is the emission that closes the breach the gaps carried;
+    // nothing is outstanding after it, since only ALERT and NO_DATA hold a page.
+    expect(current).toEqual({
+      severity: "OK",
+      severityChangedAt: minutesAfter(NOW, 5),
+      alertedAt: minutesAfter(NOW, 5),
+    });
+  });
+
   it("repeats a standing gap on renotify's terms and not on every tick, under NOTIFY", () => {
     const paged = state("NO_DATA", T0, minutesBefore(NOW, 20));
 

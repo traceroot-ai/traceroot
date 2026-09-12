@@ -139,10 +139,19 @@ function shouldEmit(
     }
     // Any reading at all ends the silence, but only a gap somebody was paged
     // for has an all-clear to give: one that never settled ends as quietly as
-    // it began, or the flapping just changes which message it flaps with. A
-    // breach on the far side is news either way.
+    // it began, or the flapping just changes which message it flaps with.
     if (previous.severity === "NO_DATA") {
-      return severity === "ALERT" || hasOutstandingPage(previous);
+      // The gap itself was paged, so its end is news whichever reading ends it.
+      if (pagedThisStretch(previous)) return true;
+      // A breach page carried across the gap is still the same breach: it clears
+      // on OK and otherwise repeats only on renotify's terms, exactly as it would
+      // have under HOLD. Announcing every reappearance re-pages a rule the user
+      // was already paged for each time sparse data comes and goes.
+      if (hasOutstandingPage(previous)) {
+        return severity === "OK" || shouldRenotify(previous, now, renotify);
+      }
+      // Nothing outstanding and nothing said about the gap: only a fresh breach speaks.
+      return severity === "ALERT";
     }
   }
   // Under every other reading a gap judges nothing, so it says nothing.

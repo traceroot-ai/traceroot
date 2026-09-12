@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
+import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
   requireAuth,
@@ -39,7 +40,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const { user } = authResult;
 
   const { projectId, detectorId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
 
   const existing = await prisma.detector.findFirst({
@@ -144,23 +145,34 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
   }
 
-  const detector = await prisma.detector.update({
-    where: { id: detectorId },
-    data: {
-      ...detectorData,
-      ...(triggerConditions !== undefined
-        ? {
-            trigger: {
-              upsert: {
-                create: { conditions: triggerConditions as object },
-                update: { conditions: triggerConditions as object },
+  let detector;
+  try {
+    detector = await prisma.detector.update({
+      where: { id: detectorId },
+      data: {
+        ...detectorData,
+        ...(triggerConditions !== undefined
+          ? {
+              trigger: {
+                upsert: {
+                  create: { conditions: triggerConditions as object },
+                  update: { conditions: triggerConditions as object },
+                },
               },
-            },
-          }
-        : {}),
-    },
-    include: { trigger: true },
-  });
+            }
+          : {}),
+      },
+      include: { trigger: true },
+    });
+  } catch (e) {
+    // Only a rename can hit uq_detector_project_name. The trigger upsert can
+    // raise its own P2002 (racing a concurrent first insert on the trigger's
+    // detector-id key) even when this PATCH carries a name, so discriminate by
+    // the violated constraint: Prisma reports it as the index name or as the
+    // (projectId, name) fields, and only the name index mentions "name".
+    if (!isPrismaKnownError(e, "P2002") || !prismaErrorTarget(e).includes("name")) throw e;
+    return errorResponse("A detector with this name already exists", 409);
+  }
 
   return successResponse({ detector });
 }
@@ -172,7 +184,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   const { user } = authResult;
 
   const { projectId, detectorId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
 
   const existing = await prisma.detector.findFirst({
