@@ -150,6 +150,19 @@ export interface ScanUsage {
   inferenceProvider: string | null;
 }
 
+/**
+ * Whether the run actually reached a model.
+ *
+ * A detector that fails before the call — no API key, an unknown model, a BYOK
+ * detector with no provider — returns an error result with its inference fields
+ * left at zero. One that fails after the call returns the tokens it spent.
+ */
+function consumedInference(usage: ScanUsage): boolean {
+  return (
+    usage.inferenceInputTokens > 0 || usage.inferenceOutputTokens > 0 || usage.inferenceCost > 0
+  );
+}
+
 async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
   if (
     usage.inferenceCost > 0 ||
@@ -293,14 +306,24 @@ async function runSingleDetector(params: {
         `[Detector] Eval failed for detector ${detector.name} (${detector.id}) on trace ${traceId}: ${result.error}`,
       );
     }
-    // Not triggered — write run immediately (no finding_id)
+    // Not triggered — write run immediately (no finding_id).
+    //
+    // An eval that failed after the model answered is still a scan: the tokens
+    // were spent and their cost is metered. Only a run that never reached a
+    // model is not one. errorResult carries the inference it accumulated, so
+    // the two are told apart by that rather than by the failure itself, and the
+    // status keeps them distinguishable for anything counting scans.
     await writeDetectorRun({
       runId,
       detectorId: detector.id,
       projectId,
       traceId,
       findingId: null,
-      status: result.error ? "failed" : "completed",
+      status: !result.error
+        ? "completed"
+        : consumedInference(usage)
+          ? "failed_after_inference"
+          : "failed",
       selfTraced,
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
     return { triggered: null, usage };
