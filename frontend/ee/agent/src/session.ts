@@ -8,6 +8,20 @@ import type { UserMessage, Message } from "@earendil-works/pi-ai";
 // Ours: PostgreSQL AISession/AIMessage <-> Agent messages
 // ============================================================
 
+/**
+ * Which meter a persisted message belongs to.
+ *
+ * "rca" is the automatic root-cause turn a detector finding triggers; "chat" is
+ * anything a person typed. The distinction is per turn, not per session: an RCA
+ * session is a system session, but a user asking a follow-up inside the Alert
+ * panel is still a chat turn and is metered as an AI run.
+ *
+ * The column also carries "detector", which the detector worker writes
+ * directly; the agent service never produces those rows, so that value is not
+ * part of this union.
+ */
+export type MessageKind = "chat" | "rca";
+
 export interface TokenUsageData {
   model: string;
   provider: string;
@@ -57,24 +71,27 @@ export class SessionManager {
    * Like Mom's sessionManager.appendMessage() — persists to DB.
    *
    * `workspaceId` and `kind` are required on every AIMessage row (see schema).
-   * We derive both from the parent AISession: `kind = "chat"` for user sessions
-   * (userId set), `kind = "rca"` for system sessions (userId null). This
-   * mirrors the existing convention in createSession.
+   * `workspaceId` still comes from the parent AISession, but `kind` is supplied
+   * by the caller, which is the only place that knows whether this particular
+   * turn was automatic or user-initiated. Deriving it from the session instead
+   * mis-meters every follow-up a person types inside an RCA session: the
+   * session is a system session, so the turn was billed as auto-RCA and never
+   * counted against the AI-run quota.
    */
   async appendMessage(
     role: string,
     content: string,
+    kind: MessageKind,
     metadata?: Record<string, unknown>,
     tokenUsage?: TokenUsageData,
   ): Promise<void> {
     const session = await prisma.aISession.findUnique({
       where: { id: this.sessionId },
-      select: { workspaceId: true, userId: true },
+      select: { workspaceId: true },
     });
     if (!session) {
       throw new Error(`AISession not found: ${this.sessionId}`);
     }
-    const kind = session.userId === null ? "rca" : "chat";
 
     await prisma.aIMessage.create({
       data: {
