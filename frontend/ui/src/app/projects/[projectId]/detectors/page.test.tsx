@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, within } from "@testing-library/react";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 
 const mocks = vi.hoisted(() => ({ push: vi.fn(), useDetectorList: vi.fn() }));
@@ -86,6 +86,7 @@ const defaultDetectorList = {
   },
   isLoading: false,
   error: null,
+  refetch: vi.fn(),
 };
 
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
@@ -183,11 +184,56 @@ describe("DetectorsPage", () => {
       data: { data: [], meta: { total: 0 } },
       isLoading: false,
       error: null,
+      refetch: vi.fn(),
     });
 
     render(<DetectorsPage />);
 
     const heading = screen.getByText("No detectors yet");
     expect(heading.parentElement?.querySelector("svg")).toBeTruthy();
+  });
+
+  it("shows the error state with a red headline and a retry that refetches", () => {
+    const refetch = vi.fn();
+    mocks.useDetectorList.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new Error("boom"),
+      refetch,
+    });
+
+    render(<DetectorsPage />);
+
+    expect(screen.getByText("Error loading detectors").className).toContain("text-destructive");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(refetch).toHaveBeenCalled();
+  });
+
+  it("keeps the loaded rows when a background refetch fails", () => {
+    mocks.useDetectorList.mockReturnValue({
+      ...defaultDetectorList,
+      error: new Error("boom"),
+    });
+
+    render(<DetectorsPage />);
+
+    expect(screen.getByText("My Detector")).toBeTruthy();
+    expect(screen.queryByText("Error loading detectors")).toBeNull();
+  });
+
+  it("marks the open detector's row as selected", () => {
+    render(<DetectorsPage />);
+
+    const rowFor = (name: string) => screen.getByText(name).closest("tr") as HTMLTableRowElement;
+    expect(rowFor("My Detector").dataset.selected).toBeUndefined();
+
+    // The row click navigates; the panel that drives the highlight opens from
+    // the row's actions menu.
+    fireEvent.click(within(rowFor("My Detector")).getByRole("button"));
+    fireEvent.click(screen.getByText("Edit"));
+
+    expect(rowFor("My Detector").dataset.selected).toBe("true");
+    expect(rowFor("My Detector").className).toContain("bg-muted");
+    expect(rowFor("Pinned Detector").dataset.selected).toBeUndefined();
   });
 });
