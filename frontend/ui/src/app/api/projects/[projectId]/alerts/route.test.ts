@@ -387,7 +387,13 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]/pause", () => {
     expect((await pause("PAUSED")).status).toBe(200);
     expect(store.get("alert-1")?.status).toBe("PAUSED");
     expect(store.get("alert-1")?.severity).toBe("ALERT");
-    expect(alertUpdateMany.mock.calls[0][0].where).toEqual({ id: "alert-1", projectId: "proj-1" });
+    // A rule can only be paused from ACTIVE, or from PAUSED as a repeat: PARKED
+    // is the evaluator's verdict and is not a client's to relabel.
+    expect(alertUpdateMany.mock.calls[0][0].where).toEqual({
+      id: "alert-1",
+      projectId: "proj-1",
+      status: { in: ["ACTIVE", "PAUSED"] },
+    });
   });
 
   it("resumes as a cold start, because the paused gap was never evaluated", async () => {
@@ -443,6 +449,23 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]/pause", () => {
     expect((await pause("ACTIVE", "missing")).status).toBe(404);
     expect((await pause("ACTIVE", "other-1")).status).toBe(404);
     expect(store.get("other-1")?.severity).toBe("ALERT");
+  });
+
+  it("refuses to pause a parked rule, keeping PARKED the evaluator's verdict", async () => {
+    // Pausing it would relabel the evaluator's verdict as a stop the owner chose
+    // and hide the reason the rule gives for not running. Resuming is the only
+    // way out, and the next tick re-parks it if the settings are still unreadable.
+    store.set("alert-1", alertRow({ status: "PARKED" }));
+
+    expect((await pause("PAUSED")).status).toBe(409);
+    expect(store.get("alert-1")?.status).toBe("PARKED");
+  });
+
+  it("keeps a repeated pause a no-op rather than a 404", async () => {
+    store.set("alert-1", alertRow({ status: "PAUSED" }));
+
+    expect((await pause("PAUSED")).status).toBe(200);
+    expect(store.get("alert-1")?.status).toBe("PAUSED");
   });
 
   it("rejects a status outside the settable pair, PARKED included", async () => {

@@ -1,29 +1,24 @@
-import { prisma, type AlertSeverity, type AlertStatus } from "@traceroot/core";
-import { mapWithConcurrency } from "./concurrency.js";
+import {
+  ALERT_WINDOWS,
+  Prisma,
+  prisma,
+  type AlertSeverity,
+  type AlertStatus,
+} from "@traceroot/core";
 import { logError, logInfo } from "./log.js";
 import { parseAlertRule, type AlertRowLike, type AlertRule } from "./rule.js";
 import type { AlertRuntimeState } from "./severity-state-machine.js";
-import type { AlertTick } from "./tick.js";
+import { alertNextRunAt, type AlertTick } from "./tick.js";
 
 const ACTIVE: AlertStatus = "ACTIVE";
 const PARKED: AlertStatus = "PARKED";
 
 /**
- * Per tick. The scan below deals its cap across projects depth-first, so a
- * project's backlog can only ever take its share of a slice, never the whole
- * one; leftovers lead the next tick.
+ * Per tick. The claim deals its cap across projects depth-first, so a project's
+ * backlog can only ever take its share of a slice, never the whole one; leftovers
+ * lead the next tick.
  */
 export const ALERT_CLAIM_LIMIT = 500;
-
-/** Headroom over the budget so the budget is shared among projects, not filled by the first. */
-export const ALERT_CLAIM_SCAN_LIMIT = ALERT_CLAIM_LIMIT * 2;
-
-/**
- * The CAS is per row and cannot be batched, so the whole limit at once queues behind
- * the Prisma pool shared with the detector consumers and surfaces as a `P2024` that
- * loses the tick's batch. Ten matches the detector run processor's queue concurrency.
- */
-export const ALERT_CLAIM_CONCURRENCY = 10;
 
 export interface ClaimedAlert {
   readonly rule: AlertRule;
@@ -31,142 +26,190 @@ export interface ClaimedAlert {
   readonly claimStamp: Date;
 }
 
-interface DueAlertRow extends AlertRowLike {
-  readonly lastClaimedAt: Date | null;
-}
-
 /** Says what the owner can do about it: nothing else on the row will. */
 const UNEVALUABLE_RULE_ERROR =
   "this rule's saved settings cannot be evaluated by the running build, so it will not fire; " +
   "open it and save it again to correct them";
 
-async function claimRow(row: DueAlertRow, tick: AlertTick): Promise<ClaimedAlert | null> {
-  let count: number;
-  try {
-    ({ count } = await prisma.alert.updateMany({
-      where: { id: row.id, lastClaimedAt: row.lastClaimedAt },
-      data: { lastClaimedAt: tick.now, nextRunAt: tick.nextRunAt },
-    }));
-  } catch (error) {
-    // One row's write failing must cost that row only, not the batch.
-    logError(`claim write failed alert=${row.id} project=${row.projectId}`, error);
-    return null;
-  }
-  if (count !== 1) return null;
-
-  // Claim before parse: an unevaluable row still needs `nextRunAt` advanced, or it stays due.
-  const rule = parseAlertRule(row);
-  if (rule === null) {
-    logError(`unevaluable rule parked alert=${row.id} project=${row.projectId}`);
-    // No later tick can read what this one could not, so the row is parked
-    // rather than re-read and discarded every minute. The reason travels with
-    // it: parked without one is a rule that stopped for no stated cause.
-    try {
-      const parked = await parkAlertRule({
-        alertId: row.id,
-        claimStamp: tick.now,
-        error: { message: UNEVALUABLE_RULE_ERROR, at: new Date() },
-      });
-      if (!parked) logInfo(`stale claim discarded alert=${row.id} project=${row.projectId}`);
-    } catch (error) {
-      // A park that does not land must not read as a silent success: `nextRunAt`
-      // is already advanced, so without this the row stays ACTIVE with no
-      // recorded reason and is retried, and discarded, every minute with nothing
-      // to show for it. Falls back to the plain failure record, same as the
-      // evaluator's own park path does.
-      logError(`park failed alert=${row.id} project=${row.projectId}`, error);
-      try {
-        const recorded = await recordAlertEvaluationFailure({
-          alertId: row.id,
-          claimStamp: tick.now,
-          error: { message: UNEVALUABLE_RULE_ERROR, at: new Date() },
-        });
-        if (!recorded) logInfo(`stale claim discarded alert=${row.id} project=${row.projectId}`);
-      } catch (recordError) {
-        logError(`error record failed alert=${row.id} project=${row.projectId}`, recordError);
-      }
-    }
-    return null;
-  }
-  return { rule, claimStamp: tick.now };
+/**
+ * These columns are `timestamp without time zone` holding UTC, so binding the
+ * instant as text and casting reads it back as that same wall clock whatever the
+ * session's `TimeZone` is set to.
+ */
+function utc(instant: Date): Prisma.Sql {
+  return Prisma.sql`${instant.toISOString()}::timestamp`;
 }
 
-/** Relies on `Map` keeping the scan's oldest-due-first order, so the longest waiter leads. */
-function shareBudgetAcrossProjects<T extends { readonly projectId: string }>(
-  rows: readonly T[],
-  budget: number,
-): T[] {
-  const byProject = new Map<string, T[]>();
-  for (const row of rows) {
-    const queued = byProject.get(row.projectId);
-    if (queued === undefined) byProject.set(row.projectId, [row]);
-    else queued.push(row);
-  }
+/** Anything `ALERT_WINDOWS` does not hold; they all take the same fallback cadence. */
+const UNREADABLE_WINDOW = "";
 
-  const queues = [...byProject.values()];
-  const selected: T[] = [];
-  for (let depth = 0; selected.length < budget; depth += 1) {
-    let dealt = false;
-    for (const queue of queues) {
-      if (depth >= queue.length) continue;
-      selected.push(queue[depth] as T);
-      dealt = true;
-      if (selected.length >= budget) break;
-    }
-    if (!dealt) break;
-  }
-  return selected;
+/**
+ * The re-arm per window token, as whole instants rather than arithmetic in SQL.
+ * `tick.boundary` is fixed for the tick and the token set is small, so the cadence
+ * stays defined once in `alertNextRunAt` and the statement only picks between its
+ * answers. `ELSE` is the unreadable-window fallback, which keeps the tick's cadence.
+ */
+function nextRunAtCase(tick: AlertTick): Prisma.Sql {
+  const branches = Object.keys(ALERT_WINDOWS).map(
+    (window) => Prisma.sql`WHEN ${window} THEN ${utc(alertNextRunAt(tick, window))}`,
+  );
+  return Prisma.sql`CASE "window" ${Prisma.join(branches, " ")} ELSE ${utc(
+    alertNextRunAt(tick, UNREADABLE_WINDOW),
+  )} END`;
 }
 
 /**
- * The scan is fair by construction. Rows are numbered per project in due order
- * and the cap is taken depth-first across projects, so one project's backlog can
- * occupy at most its share of the slice; a single globally-ordered read let a
+ * Select, claim and read back the batch in one statement, because the claim is one
+ * write per due rule and a full tick is 500 of them: as a scan, a `findMany` and a
+ * CAS per row that was 500 round-trips a minute against the pool the detector
+ * consumers share.
+ *
+ * The selection is fair by construction. `due` numbers every due rule per project,
+ * and `picked` takes the cap depth-first across projects, so one project's backlog
+ * can occupy at most its share of the slice; a single globally-ordered read let a
  * project with a large due set push every other project's rules past the cap.
  *
  * Within a project, never-claimed rules (`nextRunAt` null, "due immediately")
  * sort after rules that were actually due: a burst of new rules waits its turn
- * instead of preempting the schedule. Postgres sorts NULL first under plain ASC,
- * which is what made the preemption cheap to trigger.
+ * instead of preempting the schedule.
  *
- * The conditional update in `claimRow` is the mutex: only the claim whose
- * `lastClaimedAt` still holds wins.
+ * `FOR UPDATE SKIP LOCKED` replaces the per-row CAS on `lastClaimedAt` as the mutex,
+ * and it has to sit in its own scan because a locking clause cannot share a query
+ * level with a window function. `MATERIALIZED` so the lock is taken once, over the
+ * chosen set, rather than folded back into the `UPDATE`.
+ *
+ * `locked` repeats the `due` predicate rather than trusting `picked`'s membership:
+ * `picked` was read from a snapshot taken at the *start* of this statement, and
+ * SKIP LOCKED alone only excludes a row a concurrent tick is still holding, not one
+ * a concurrent tick already claimed and committed before this statement reached its
+ * own lock. Postgres re-evaluates a `FOR UPDATE` query's own WHERE clause against the
+ * row's latest committed version before granting the lock (`READ COMMITTED`'s
+ * `EvalPlanQual`) — so restating the predicate here, on the exact scan doing the
+ * locking, is what makes a row an intervening commit already re-armed drop out,
+ * rather than being claimed a second time on top of it. Losing that race costs a
+ * tick fewer than the budget, same as losing the old CAS did.
+ *
+ * `"window"` and `"view"` are quoted because both are reserved words.
  */
-export async function claimDueAlerts(tick: AlertTick): Promise<ClaimedAlert[]> {
-  const scanned = await prisma.$queryRaw<{ id: string }[]>`
-    SELECT id FROM (
-      SELECT a.id, a.next_run_at, a.create_time,
-             row_number() OVER (
-               PARTITION BY a.project_id
-               ORDER BY a.next_run_at ASC NULLS LAST, a.create_time ASC
-             ) AS depth
+function claimStatement(tick: AlertTick): Prisma.Sql {
+  return Prisma.sql`
+    WITH due AS (
+      SELECT
+        a.id,
+        a.next_run_at,
+        a.create_time,
+        row_number() OVER (
+          PARTITION BY a.project_id
+          ORDER BY a.next_run_at ASC NULLS LAST, a.create_time ASC
+        ) AS depth
       FROM alerts a
-      JOIN projects p ON p.id = a.project_id
+      -- Deletion is soft, so no cascade fires: without this a deleted project keeps paging.
+      JOIN projects p ON p.id = a.project_id AND p.delete_time IS NULL
       WHERE a.status = ${ACTIVE}
-        AND (a.next_run_at IS NULL OR a.next_run_at <= ${tick.now})
-        AND p.delete_time IS NULL
-    ) scan
-    ORDER BY depth ASC, next_run_at ASC NULLS LAST, create_time ASC
-    LIMIT ${ALERT_CLAIM_SCAN_LIMIT}
+        AND (a.next_run_at IS NULL OR a.next_run_at <= ${utc(tick.now)})
+    ),
+    picked AS (
+      SELECT id FROM due
+      ORDER BY depth ASC, next_run_at ASC NULLS LAST, create_time ASC
+      LIMIT ${ALERT_CLAIM_LIMIT}
+    ),
+    locked AS MATERIALIZED (
+      SELECT id FROM alerts
+      WHERE id IN (SELECT id FROM picked)
+        AND status = ${ACTIVE}
+        AND (next_run_at IS NULL OR next_run_at <= ${utc(tick.now)})
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE alerts SET
+      last_claimed_at = ${utc(tick.now)},
+      next_run_at = ${nextRunAtCase(tick)}
+    WHERE id IN (SELECT id FROM locked)
+    RETURNING
+      id,
+      project_id AS "projectId",
+      name,
+      "view",
+      measure,
+      aggregation,
+      filters,
+      "window",
+      threshold_operator AS "thresholdOperator",
+      threshold,
+      renotify,
+      no_data_mode AS "noDataMode",
+      severity,
+      severity_changed_at AS "severityChangedAt",
+      alerted_at AS "alertedAt"
   `;
-  if (scanned.length === 0) return [];
+}
 
-  // The rows are re-read through the client for their typed shape; the scan's
-  // order is the schedule, and `findMany` does not keep it.
-  const ids = scanned.map((row) => row.id);
-  const rows = await prisma.alert.findMany({ where: { id: { in: ids } } });
-  const position = new Map(ids.map((id, index) => [id, index]));
-  const due = [...rows].sort(
-    (a, b) => (position.get(a.id) ?? ids.length) - (position.get(b.id) ?? ids.length),
-  );
+/**
+ * The reason alone, for when the park itself could not be written. One write for
+ * the whole set, under the same CAS: every unevaluable row carries the same reason
+ * under the same claim stamp, so there is nothing per-row to say.
+ */
+async function recordUnevaluable(ids: readonly string[], tick: AlertTick): Promise<void> {
+  try {
+    const { count } = await prisma.alert.updateMany({
+      where: { id: { in: [...ids] }, status: ACTIVE, lastClaimedAt: tick.now },
+      data: { lastError: UNEVALUABLE_RULE_ERROR, lastErrorAt: new Date() },
+    });
+    if (count !== ids.length) logInfo(`stale claims discarded count=${ids.length - count}`);
+  } catch (error) {
+    // The batch's good claims must not be lost to a failed bookkeeping write.
+    logError(`error record failed alerts=${ids.length}`, error);
+  }
+}
 
-  const settled = await mapWithConcurrency(
-    shareBudgetAcrossProjects(due, ALERT_CLAIM_LIMIT),
-    ALERT_CLAIM_CONCURRENCY,
-    (row) => claimRow(row, tick),
-  );
+/**
+ * Stops the whole unevaluable set, for the failure no retry can clear: the stored
+ * spec itself is one this build cannot read. No later tick can read what this one
+ * could not, so the rows are parked rather than re-read and discarded every cadence.
+ * The reason travels with the park: parked without one is a rule that stopped for no
+ * stated cause.
+ *
+ * One write for the set, under the same CAS as the plain failure record, so a rule a
+ * later tick re-claimed, or one the owner paused mid-evaluation, is not this tick's
+ * to park. `nextRunAt` is left where the claim put it, so an edit that re-arms the
+ * rule finds it due.
+ */
+async function parkUnevaluable(ids: readonly string[], tick: AlertTick): Promise<void> {
+  try {
+    const { count } = await prisma.alert.updateMany({
+      where: { id: { in: [...ids] }, status: ACTIVE, lastClaimedAt: tick.now },
+      data: { status: PARKED, lastError: UNEVALUABLE_RULE_ERROR, lastErrorAt: new Date() },
+    });
+    if (count !== ids.length) logInfo(`stale claims discarded count=${ids.length - count}`);
+  } catch (error) {
+    // A park that does not land must not read as a silent success: `nextRunAt` is
+    // already advanced, so without this the rows stay ACTIVE with no recorded reason
+    // and are retried, and discarded, every cadence with nothing to show for it.
+    // Falls back to the reason alone, same as the evaluator's own park path does.
+    logError(`park failed alerts=${ids.length}`, error);
+    await recordUnevaluable(ids, tick);
+  }
+}
 
-  return settled.filter((claim): claim is ClaimedAlert => claim !== null);
+export async function claimDueAlerts(tick: AlertTick): Promise<ClaimedAlert[]> {
+  const claimed = await prisma.$queryRaw<AlertRowLike[]>(claimStatement(tick));
+
+  // Claim before parse: an unevaluable row still needs `nextRunAt` advanced, or it
+  // stays due. The statement above advances it off the raw `window` column for that
+  // reason — the claim lands before anything has read the rule.
+  const claims: ClaimedAlert[] = [];
+  const unevaluable: string[] = [];
+  for (const row of claimed) {
+    const rule = parseAlertRule(row);
+    if (rule === null) {
+      logError(`unevaluable rule parked alert=${row.id} project=${row.projectId}`);
+      unevaluable.push(row.id);
+    } else {
+      claims.push({ rule, claimStamp: tick.now });
+    }
+  }
+  if (unevaluable.length > 0) await parkUnevaluable(unevaluable, tick);
+
+  return claims;
 }
 
 export interface AlertCompletion {

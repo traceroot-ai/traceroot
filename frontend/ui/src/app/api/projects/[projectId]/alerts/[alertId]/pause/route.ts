@@ -35,12 +35,29 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         })
       : { count: 0 };
 
+  // Only a running rule can be stopped, and a resume reaches here only when the
+  // rule was already running. PARKED is the evaluator's verdict about the stored
+  // rule, so a client must not be able to relabel it as a pause the owner chose:
+  // it is reachable through evaluation, and leaves only through a resume. The
+  // target status is allowed as a source too, so repeating a pause stays a no-op
+  // rather than a 404.
   if (resumed.count === 0) {
+    const settable = status === "ACTIVE" ? [status] : ["ACTIVE", status];
     const { count } = await prisma.alert.updateMany({
-      where: { id: alertId, projectId },
+      where: { id: alertId, projectId, status: { in: settable } },
       data: { status },
     });
-    if (count === 0) return errorResponse("Alert not found", 404);
+    if (count === 0) {
+      const existing = await prisma.alert.findFirst({
+        where: { id: alertId, projectId },
+        select: { status: true },
+      });
+      if (!existing) return errorResponse("Alert not found", 404);
+      return errorResponse(
+        "This alert was parked by the evaluator; resume it to run it again.",
+        409,
+      );
+    }
   }
 
   const alert = await prisma.alert.findFirst({
