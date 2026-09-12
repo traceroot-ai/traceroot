@@ -1,0 +1,129 @@
+---
+title: Amazon Bedrock
+description: Auto-instrument Amazon Bedrock Converse API calls
+---
+
+Automatically capture all Amazon Bedrock Converse API calls, including tool use and
+streaming responses. TraceRoot supports both Python and TypeScript SDKs.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.BEDROCK])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as bedrockRuntime from '@aws-sdk/client-bedrock-runtime';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { bedrock: bedrockRuntime },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import boto3
+
+    client = boto3.client(
+        "bedrock-runtime",
+        region_name=os.environ["AWS_REGION"]
+    )
+
+    # This call is automatically traced
+    response = client.converse(
+        modelId="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        messages=[
+            {
+                "role": "user",
+                "content": "What is the capital of France?"
+            }
+        ]
+    )
+
+    print(response["output"]["message"]["content"][0]["text"])
+    ```
+
+    **Note:** AWS credentials are sourced from the standard AWS credential chain
+    (environment variables, IAM role, or AWS config file) — no explicit API key
+    required.
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import {
+      BedrockRuntimeClient,
+      ConverseCommand,
+    } from '@aws-sdk/client-bedrock-runtime';
+
+    const client = new BedrockRuntimeClient({
+      region: process.env.AWS_REGION,
+    });
+
+    // This call is automatically traced
+    const response = await client.send(
+      new ConverseCommand({
+        modelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'What is the capital of France?',
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    console.log(response.output?.message?.content?.[0]?.text);
+    ```
+
+    **Note:** AWS credentials are sourced from the standard AWS credential chain
+    — no explicit API key required.
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Model | The Bedrock model ID (e.g. `anthropic.claude-3-5-sonnet-20241022-v2:0`) |
+| Messages | Input messages array |
+| Response | Completion content |
+| Tool use | Function calls emitted by the model |
+| Tokens | Input and output token counts |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Request duration |
+
+
+## Run the example
+
+Clone the repo and run a complete agent end-to-end.
+
+<Card
+  title="TypeScript"
+  icon="js"
+  href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/bedrock"
+>
+  Run the TypeScript example
+</Card>
+
+## BYOK (Bring Your Own Keys)
+
+Amazon Bedrock is also available as a BYOK model provider. See
+[BYOK setup](/ai-agent/byok) for details on using Bedrock with custom inference
+endpoints.

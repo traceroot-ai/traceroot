@@ -1,0 +1,113 @@
+---
+title: Azure OpenAI
+description: Trace Azure OpenAI calls through the OpenAI integration
+---
+
+Azure OpenAI is automatically traced through TraceRoot's OpenAI integration. No
+dedicated Azure instrumentor or enum is needed — the underlying OpenAI
+instrumentation detects Azure endpoints and correctly attributes spans to the
+Azure provider.
+
+## Why This Works
+
+The OpenAI SDK's `AzureOpenAI` client subclasses the standard `OpenAI` client, so
+all requests flow through the same instrumentation hooks. TraceRoot's OpenAI
+instrumentor inspects the request host and, when it detects an Azure endpoint
+(`*.openai.azure.com`), automatically tags the span with the Azure provider. Spans
+are therefore correctly attributed to Azure, not OpenAI.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: OpenAI },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    from openai import AzureOpenAI
+
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = AzureOpenAI(
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        api_version="2024-10-21",
+    )
+
+    # This call is automatically traced and attributed to Azure
+    # NOTE: Use the deployment name as the model parameter, not the model version
+    response = client.chat.completions.create(
+        model="my-gpt-4o-deployment",  # This is the deployment name, not 'gpt-4o'
+        messages=[
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { AzureOpenAI } from 'openai';
+
+    const client = new AzureOpenAI({
+      apiKey: process.env.AZURE_OPENAI_API_KEY,
+      endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+      apiVersion: '2024-10-21',
+    });
+
+    // This call is automatically traced and attributed to Azure
+    // NOTE: Use the deployment name as the model parameter
+    const response = await client.chat.completions.create({
+      model: 'my-gpt-4o-deployment', // This is the deployment name, not 'gpt-4o'
+      messages: [
+        { role: 'user', content: 'What is the capital of France?' },
+      ],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Model | The Azure deployment name |
+| Messages | Input messages array |
+| Response | Completion content |
+| Tool calls | Function calls emitted by the model |
+| Tokens | Input and output tokens |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Request duration |
+
+## BYOK (Bring Your Own Keys)
+
+Azure OpenAI is also available as a BYOK model provider. See [BYOK
+setup](/ai-agent/byok) for details on configuring custom base URLs and
+authentication for Azure deployments.
