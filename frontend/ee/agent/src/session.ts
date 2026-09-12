@@ -17,6 +17,16 @@ export interface TokenUsageData {
   cost: number;
 }
 
+/**
+ * Decide the billing `kind` for a message from the *request* that carries
+ * it, not from the session it lands in. A request with an authenticated
+ * `x-user-id` is a human-initiated turn (chat); one without it is the
+ * worker's automatic RCA prompt (rca). See appendMessage below.
+ */
+export function resolveMessageKind(userId: string): "chat" | "rca" {
+  return userId ? "chat" : "rca";
+}
+
 export class SessionManager {
   constructor(private sessionId: string) {}
 
@@ -57,13 +67,15 @@ export class SessionManager {
    * Like Mom's sessionManager.appendMessage() — persists to DB.
    *
    * `workspaceId` and `kind` are required on every AIMessage row (see schema).
-   * We derive both from the parent AISession: `kind = "chat"` for user sessions
-   * (userId set), `kind = "rca"` for system sessions (userId null). This
-   * mirrors the existing convention in createSession.
+   * `workspaceId` comes from the parent AISession. `kind` is decided by the
+   * caller (see resolveMessageKind) from the request that triggered this
+   * turn — NOT from the session's ownership, since a human follow-up can
+   * land in a system-owned RCA session and must still bill as "chat".
    */
   async appendMessage(
     role: string,
     content: string,
+    kind: "chat" | "rca",
     metadata?: Record<string, unknown>,
     tokenUsage?: TokenUsageData,
   ): Promise<void> {
@@ -74,7 +86,6 @@ export class SessionManager {
     if (!session) {
       throw new Error(`AISession not found: ${this.sessionId}`);
     }
-    const kind = session.userId === null ? "rca" : "chat";
 
     await prisma.aIMessage.create({
       data: {
