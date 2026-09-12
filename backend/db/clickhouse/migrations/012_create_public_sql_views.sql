@@ -56,6 +56,22 @@
 -- they sit in the inner scan beside `project_id` so the sort-key prefix can prune on them.
 -- Callers that have no time predicate pass open bounds.
 --
+-- The bound is half-open: `>= start_time` and `< end_time`, matching the exclusive
+-- `end_before` the read services document. The caller MUST emit the identical bound,
+-- not a wider or narrower one. Wider is not safe either, because the deduplication
+-- happens inside: a row at the boundary would enter the dedup set, win it as the
+-- newest version, and then be removed by the caller's own filter, hiding an older
+-- version that was genuinely in the window.
+--
+-- Pruning is uneven between the two tables, and the sort keys are why. `traces` is
+-- ordered by (project_id, toDate(trace_start_time), trace_id), so the bound prunes on
+-- the key prefix. `spans` is ordered by (project_id, trace_id, span_start_time,
+-- span_id), where time is third, and the time-ordered projection that would fix that
+-- does not carry `metadata_map`, `source` or `is_evaluation`, so selecting them falls
+-- back to the base table. Spans therefore prune by partition rather than by granule.
+-- Extending the projection is a physical-schema change with its own migration cost and
+-- is deliberately not bundled here.
+--
 -- Two consequences, both deliberate:
 --
 --   * The bound applies to the OUTER scan only. The evaluation sub-selects below stay
@@ -129,7 +145,7 @@ FROM
     FROM spans
     WHERE project_id = {project_id:String}
       AND span_start_time >= {start_time:DateTime64(3)}
-      AND span_start_time <= {end_time:DateTime64(3)}
+      AND span_start_time <  {end_time:DateTime64(3)}
     ORDER BY ch_update_time DESC
     LIMIT 1 BY trace_id, span_id
 )
@@ -160,7 +176,7 @@ FROM
     FROM traces
     WHERE project_id = {project_id:String}
       AND trace_start_time >= {start_time:DateTime64(3)}
-      AND trace_start_time <= {end_time:DateTime64(3)}
+      AND trace_start_time <  {end_time:DateTime64(3)}
     ORDER BY ch_update_time DESC
     LIMIT 1 BY trace_id
 )

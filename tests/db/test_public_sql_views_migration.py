@@ -204,10 +204,48 @@ def test_views_take_a_time_range_on_their_own_time_column(sql):
     ):
         block = _view_block(sql, view)
         assert f"{column} >= {{start_time:DateTime64(3)}}" in block, view
-        assert f"{column} <= {{end_time:DateTime64(3)}}" in block, view
+        assert f"{column} <  {{end_time:DateTime64(3)}}" in block, view
         bound = block.index("start_time:DateTime64(3)")
         dedup = block.index("LIMIT 1 BY")
         assert bound < dedup, f"{view} applies the bound after deduplicating"
+
+
+def test_time_range_is_half_open(sql):
+    """`>= start_time` and `< end_time`, matching the exclusive `end_before` upper bound.
+
+    The caller has to emit the identical bound. A wider one is not safe either: a row on
+    the boundary would enter the deduplication, win it as the newest version, and then be
+    removed by the caller's own filter, hiding an older version that was in the window.
+    """
+    for column in ("span_start_time", "trace_start_time"):
+        assert f"{column} >= {{start_time:DateTime64(3)}}" in sql, column
+        assert f"{column} <  {{end_time:DateTime64(3)}}" in sql, column
+        assert f"{column} <= {{end_time:DateTime64(3)}}" not in sql, (
+            f"{column} uses an inclusive upper bound; the read services treat it as exclusive"
+        )
+
+
+def test_every_direct_view_caller_passes_the_bounds(sql):
+    """A declared parameter the caller omits is a hard error, not an unbounded query.
+
+    Adding these placeholders breaks every existing direct call with
+    `Code: 456 ... Substitution 'start_time' is not set`, so the checked-in probes have
+    to pass explicit open bounds.
+    """
+    root = MIGRATION.parents[4]
+    scripts = root / "scripts"
+    assert scripts.is_dir(), f"expected {scripts} to exist; this check scans nothing otherwise"
+    offenders = []
+    for path in scripts.rglob("*.sh"):
+        for num, line in enumerate(path.read_text().splitlines(), 1):
+            # Match the call shape, not the view name: one probe builds the name from a
+            # shell variable, and keying on `_public_v1(` missed it entirely.
+            if "(project_id=" in line.replace(" ", "") and "start_time" not in line:
+                offenders.append(f"{path.name}:{num}")
+    assert not offenders, (
+        "these call the views without the required bounds and would fail with Code 456: "
+        + ", ".join(offenders)
+    )
 
 
 def test_evaluation_subselects_are_never_time_bounded(sql):

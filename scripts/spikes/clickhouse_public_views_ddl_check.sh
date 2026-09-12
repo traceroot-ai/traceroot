@@ -47,6 +47,9 @@ ch --query "DROP USER IF EXISTS sql_gateway_writer" || true
 ch --query "DROP SETTINGS PROFILE IF EXISTS pubviews_ro_profile" || true
 ch --query "CREATE DATABASE pubviews"
 
+# The views take a half-open time range. These probes pass open bounds so they keep
+# testing isolation and curation rather than pruning; omitting a declared parameter is
+# a hard error (Code 456), not an unbounded query.
 # metadata_map is declared MATERIALIZED here because it is MATERIALIZED in production
 # (migration 009). That is not cosmetic: `SELECT *` omits materialized columns, so a
 # view that reads metadata_map through a `SELECT *` subquery fails at query time with
@@ -90,13 +93,13 @@ ch --query "GRANT SELECT ON pubviews.traces_public_v1 TO pubviews_ro"
 ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name) VALUES ('tA','proj_A',toDateTime64('2026-01-01 00:00:00',3),'a'), ('tB','proj_B',now64(3),'b')"
 
 echo "== RO reads the view (expect sA + duration_ms=2000) =="
-RO_VIEW="$(ch_ro --query "SELECT span_id, duration_ms FROM pubviews.spans_public_v1(project_id='proj_A') ORDER BY span_id")"
+RO_VIEW="$(ch_ro --query "SELECT span_id, duration_ms FROM pubviews.spans_public_v1(project_id='proj_A', start_time=toDateTime64('1970-01-01 00:00:00',3), end_time=toDateTime64('2099-01-01 00:00:00',3)) ORDER BY span_id")"
 printf '%s\n' "$RO_VIEW"
 [ "$RO_VIEW" = $'sA\t2000' ] || { echo "FAIL: unexpected RO view result"; exit 1; }
 echo "PASS: RO can read the view"
 
 echo "== RO reads the traces view too (both views, not just spans) =="
-RO_TRACES="$(ch_ro --query "SELECT trace_id FROM pubviews.traces_public_v1(project_id='proj_A')")"
+RO_TRACES="$(ch_ro --query "SELECT trace_id FROM pubviews.traces_public_v1(project_id='proj_A', start_time=toDateTime64('1970-01-01 00:00:00',3), end_time=toDateTime64('2099-01-01 00:00:00',3))")"
 printf '%s\n' "$RO_TRACES"
 [ "$RO_TRACES" = "tA" ] || { echo "FAIL: unexpected RO traces view result: $RO_TRACES"; exit 1; }
 echo "PASS: RO can read traces_public_v1"
@@ -118,7 +121,7 @@ printf '%s' "$DENY_OUT" | grep -qE "ACCESS_DENIED|Code: 497" \
 echo "PASS: RO denied on physical spans table (ACCESS_DENIED)"
 
 echo "== RO isolation: a foreign project_id returns that project's rows (the DB has no backstop) =="
-RO_FOREIGN="$(ch_ro --query "SELECT span_id FROM pubviews.spans_public_v1(project_id='proj_B')")"
+RO_FOREIGN="$(ch_ro --query "SELECT span_id FROM pubviews.spans_public_v1(project_id='proj_B', start_time=toDateTime64('1970-01-01 00:00:00',3), end_time=toDateTime64('2099-01-01 00:00:00',3))")"
 printf '%s\n' "$RO_FOREIGN"
 [ "$RO_FOREIGN" = "sB" ] || { echo "FAIL: expected proj_B row 'sB'"; exit 1; }
 echo "PASS: DB returns whatever project_id is supplied -> the gateway MUST bind the authenticated project_id"
@@ -129,7 +132,7 @@ echo "== row curation: internal traffic and evaluation traces are excluded =="
 ch --query "INSERT INTO pubviews.spans (span_id,trace_id,project_id,span_start_time,span_end_time,name,span_kind,source,is_evaluation) VALUES ('sInt','tInt','proj_A',now64(3),now64(3),'internal','LLM','detector',0), ('sEvalT','tEvalT','proj_A',now64(3),now64(3),'eval-trace','LLM','user',0), ('sEvalS','tEvalS','proj_A',now64(3),now64(3),'eval-span','LLM','user',1)"
 ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name,source,is_evaluation,ch_update_time) VALUES ('tEvalT','proj_A',now64(3),'eval-trace','user',1,toDateTime64('2026-01-01 00:00:00',3))"
 
-CURATED="$(ch_ro --query "SELECT span_id FROM pubviews.spans_public_v1(project_id='proj_A') ORDER BY span_id")"
+CURATED="$(ch_ro --query "SELECT span_id FROM pubviews.spans_public_v1(project_id='proj_A', start_time=toDateTime64('1970-01-01 00:00:00',3), end_time=toDateTime64('2099-01-01 00:00:00',3)) ORDER BY span_id")"
 printf '%s\n' "$CURATED"
 [ "$CURATED" = "sA" ] || { echo "FAIL: expected only sA, got: $CURATED"; exit 1; }
 echo "PASS: source != 'user' excluded, and evaluation traces excluded whether flagged on the trace or only on a span"
@@ -152,7 +155,7 @@ ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,na
 ch --query "INSERT INTO pubviews.spans (span_id,trace_id,project_id,span_start_time,span_end_time,name,span_kind,source,is_evaluation,ch_update_time) VALUES ('sChild','tEvalM','proj_A',toDateTime64('2026-01-01 00:00:02',3),toDateTime64('2026-01-01 00:00:03',3),'child','LLM','user',0,toDateTime64('2026-06-01 00:00:00',3))"
 ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name,source,is_evaluation,ch_update_time) VALUES ('tEvalM','proj_A',toDateTime64('2026-01-01 00:00:00',3),'eval-trace','user',0,toDateTime64('2026-06-01 00:00:00',3))"
 
-PRE="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') WHERE trace_id = 'tEvalM'")"
+PRE="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A', start_time=toDateTime64('1970-01-01 00:00:00',3), end_time=toDateTime64('2099-01-01 00:00:00',3)) WHERE trace_id = 'tEvalM'")"
 [ "$PRE" = "0" ] || { echo "FAIL: evaluation trace visible before any merge"; exit 1; }
 
 ch --query "OPTIMIZE TABLE pubviews.traces FINAL"
@@ -166,13 +169,13 @@ echo "  after merge: flagged traces rows=$TRACE_FLAGGED  flagged spans rows=$SPA
 # either one leaks. Checking only one is how the earlier version of this check passed
 # while asserting nothing about traces_public_v1.
 for V in spans_public_v1 traces_public_v1; do
-  POST="$(ch_ro --query "SELECT count() FROM pubviews.$V(project_id='proj_A') WHERE trace_id = 'tEvalM'")"
+  POST="$(ch_ro --query "SELECT count() FROM pubviews.$V(project_id='proj_A', start_time=toDateTime64('1970-01-01 00:00:00',3), end_time=toDateTime64('2099-01-01 00:00:00',3)) WHERE trace_id = 'tEvalM'")"
   [ "$POST" = "0" ] || { echo "FAIL: evaluation trace visible through $V after the merge"; exit 1; }
 done
 echo "PASS: the flagged span survives compaction and keeps the trace excluded from both curated views"
 
 echo "== readonly profile: a readonly=1 user cannot override a CONST cap =="
-if SET_OUT="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') SETTINGS max_execution_time = 60" 2>&1)"; then
+if SET_OUT="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A', start_time=toDateTime64('1970-01-01 00:00:00',3), end_time=toDateTime64('2099-01-01 00:00:00',3)) SETTINGS max_execution_time = 60" 2>&1)"; then
   echo "FAIL: RO user was allowed to override max_execution_time"; exit 1
 fi
 printf '%s' "$SET_OUT" | grep -qE "READONLY|Cannot modify|Code: 164|Setting .* should not be changed" \
