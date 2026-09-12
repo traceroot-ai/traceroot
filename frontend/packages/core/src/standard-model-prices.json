@@ -1206,7 +1206,7 @@
       "cacheWrite": null
     }
   },
- {
+  {
     "id": "tr-grok-4-6",
     "modelName": "grok-4.6",
     "matchPattern": "(?i)^(xai\\/)?grok-4\\.6(-[\\d-]+)?$",
