@@ -1,14 +1,17 @@
 import { Queue, Worker, type Job } from "bullmq";
 import {
   prisma,
-  SYSTEM_MODELS,
   PlanType,
   ModelSource,
   ALERT_WINDOWS,
   DEFAULT_ALERT_WINDOW,
   isAlertWindow,
 } from "@traceroot/core";
-import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
+import {
+  fetchProviderConfig,
+  isSystemModelId,
+  resolvePiModel,
+} from "@traceroot/core/model-resolver";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
 import {
@@ -36,16 +39,22 @@ function getDigestQueue(): Queue<DigestFlushJob> {
 // Uses the same pattern as sandbox-eval.ts: reads the provider from saved
 // config (BYOK) or the shared system-model resolver — no fragile prefix
 // matching or adapter guessing.
-// Returns null when the model is unset or unknown (caller should omit fields).
+//
+// An unset model may return null because no specific model was requested.
+//
+// An unknown stored model must throw. Returning null for an unknown model
+// incorrectly tells the caller that no model was selected. The caller then
+// omits model/provider/source from the Agent Service request, which makes the
+// Agent Service silently choose its default model.
 export async function resolveProjectModel(
   rcaModel: string | null | undefined,
   rcaProvider: string | null | undefined,
   rcaSource: string | null | undefined,
   workspaceId: string,
 ): Promise<{ model: string; providerName: string; source: ModelSource } | null> {
+  // null/undefined means the project genuinely has no saved model choice.
   if (!rcaModel) return null;
 
-  // 1. BYOK: read provider from saved config (same pattern as sandbox-eval.ts L126-136)
   if (rcaSource === "byok" && rcaProvider) {
     const providerConfig = await fetchProviderConfig(workspaceId, rcaProvider);
     if (!providerConfig) {
@@ -61,25 +70,21 @@ export async function resolveProjectModel(
     return { model: model.id, providerName: rcaProvider, source: ModelSource.BYOK };
   }
 
-  // 2. System model: validate against catalog, then use shared resolver
-  for (const group of SYSTEM_MODELS) {
-    if (group.models.some((m) => m.id === rcaModel)) {
-      const model = resolvePiModel(rcaModel, null);
-      return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
-    }
+  if (isSystemModelId(rcaModel)) {
+    const model = resolvePiModel(rcaModel, null);
+    return {
+      model: model.id,
+      providerName: model.provider,
+      source: ModelSource.SYSTEM,
+    };
   }
 
-  // 3. Legacy BYOK fallback for pre-existing configs
   const legacy = await resolveLegacyByok(rcaModel, workspaceId);
   if (legacy) return legacy;
 
-  console.warn(`[detector-rca] Unknown rca_model "${rcaModel}", falling back to default`);
-  return null;
+  throw new Error(`RCA model "${rcaModel}" is not a known system model`);
 }
 
-// 3. Legacy BYOK fallback: projects that saved a BYOK model before
-//    rcaSource and rcaProvider fields existed have both set to NULL.
-//    Try to resolve the model from the workspace's enabled providers.
 async function resolveLegacyByok(
   rcaModel: string,
   workspaceId: string,
