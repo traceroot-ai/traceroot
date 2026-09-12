@@ -1148,10 +1148,40 @@ class TestUsageBillsEveryStoredRow:
         assert resp.status_code == 200
         runs_sql = mock_ch.query.call_args_list[2].args[0]
         assert "'failed_after_inference'" in runs_sql
-        # The bare 'failed' rows are the ones that must stay out. Asserting the
-        # predicate shape rather than its text keeps this honest if the SQL is
-        # reformatted: 'failed' appears inside 'failed_after_inference'.
-        assert "status IN ('completed', 'failed_after_inference')" in runs_sql
+        # Bare 'failed' rows written after the cutover must stay out. Note that
+        # 'failed' also appears inside 'failed_after_inference', so the arm has
+        # to be matched by its shape rather than by the word alone.
+        assert "status = 'failed' AND timestamp < {status_cutover:String}" in runs_sql
+        assert mock_ch.query.call_args_list[2].kwargs["parameters"]["status_cutover"]
+
+    def test_runs_predating_the_distinction_are_counted_as_they_were(self, client, mock_ch, secret):
+        """A 'failed' row older than the cutover could be either kind of failure.
+
+        The worker only began writing 'failed_after_inference' at this release, so
+        rows written before it conflate a run that reached a model with one that
+        did not. Dropping them all would restate a billing period already part
+        charged, and would hand back exactly the gap this branch is closing, so
+        they keep counting the way they did before the filter existed.
+
+        Backfilling is not an option: aIMessage records the inference but carries
+        no run or trace id to join back on, and counting those rows instead would
+        double-count a retry that detector_runs dedups by run_id.
+        """
+        mock_ch.query.side_effect = [
+            _make_query_result([(3,)], ["total"]),
+            _make_query_result([(9,)], ["total"]),
+            _make_query_result([(2,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        call = mock_ch.query.call_args_list[2]
+        assert "status = 'failed' AND timestamp < {status_cutover:String}" in call.args[0]
+        # Passed as a parameter, not interpolated, like every other bound value here.
+        assert "status_cutover" in call.kwargs["parameters"]
 
     def test_usage_total_counts_rows_from_every_source(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [_make_query_result([(12,)], ["total"])]

@@ -1,5 +1,6 @@
 """Usage metering reads for billing."""
 
+import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
@@ -10,6 +11,17 @@ from rest.routers.internal.auth import verify_internal_secret
 from rest.sql_utils import to_utc_naive
 
 router = APIRouter()
+
+# When the worker began distinguishing a detector run that reached a model from
+# one that did not. A 'failed' row older than this predates that distinction and
+# could be either, so it is counted as it was before the distinction existed
+# rather than dropped, which would restate a period already part-billed.
+#
+# Transitional. Once no billing window reaches back this far, both this and the
+# 'failed' arm of the detector_runs predicate can go. Override it with
+# DETECTOR_STATUS_CUTOVER if the worker rolls out at a different time from this
+# service.
+DETECTOR_STATUS_CUTOVER = os.getenv("DETECTOR_STATUS_CUTOVER", "2026-09-12 00:00:00")
 
 
 class UsageTotalResponse(BaseModel):
@@ -148,6 +160,14 @@ async def get_usage_details(
     # repeating it. The worker distinguishes the two when it writes the row:
     # 'failed' never reached a model, 'failed_after_inference' did.
     #
+    # Rows written before the worker learned that spelling cannot be told apart,
+    # so they are counted the way they were before this filter existed. That
+    # keeps the change from retroactively reducing a period already part-billed,
+    # and it expires on its own once no queried window reaches back this far.
+    # Backfilling instead is not available: aIMessage records the inference but
+    # carries no run or trace id to join back on, and deriving the count from
+    # those rows would double-count a retry that detector_runs dedups by run_id.
+    #
     # Filtering rows rather than the merged state is safe here: a retry reuses
     # the deterministic run_id, so an attempt that failed and then succeeded
     # contributes one counted row and uniqExact counts it once.
@@ -158,12 +178,16 @@ async def get_usage_details(
         WHERE project_id IN {project_ids:Array(String)}
           AND timestamp >= {start:String}
           AND timestamp < {end:String}
-          AND status IN ('completed', 'failed_after_inference')
+          AND (
+            status IN ('completed', 'failed_after_inference')
+            OR (status = 'failed' AND timestamp < {status_cutover:String})
+          )
         """,
         parameters={
             "project_ids": project_id_list,
             "start": start_str,
             "end": end_str,
+            "status_cutover": DETECTOR_STATUS_CUTOVER,
         },
     )
     detector_runs = (
