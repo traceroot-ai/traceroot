@@ -60,16 +60,19 @@ export function useListPageState(
     defaultLimit?: number;
     defaultDateFilterId?: string;
     retentionDays?: number | null;
+    syncStorage?: boolean;
   } = {},
 ): UseListPageStateReturn {
-  const { defaultLimit = 50, defaultDateFilterId, retentionDays } = options;
+  const { defaultLimit = 50, defaultDateFilterId, retentionDays, syncStorage = true } = options;
 
   // URL-synced pagination hook - persists page/limit in URL
   const pagination = useUrlPagination(defaultLimit);
 
-  // URL-synced date filter hook - resets page on change
+  // URL-synced date filter hook. setDateFilter resets page_index inside its own URL
+  // write, so it takes the state-only page reset (a second URL write would clobber the
+  // just-set filter from stale params).
   const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
-    useUrlDateFilter(pagination.resetPage, defaultDateFilterId, retentionDays);
+    useUrlDateFilter(pagination.resetPageState, defaultDateFilterId, retentionDays, syncStorage);
 
   // Search hook - resets page on change
   const { keyword, setKeyword, searchQuery } = useKeywordSearch(pagination.resetPage);

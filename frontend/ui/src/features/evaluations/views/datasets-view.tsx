@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
-import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
+import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
@@ -28,23 +29,29 @@ export function DatasetsView({ projectId }: { projectId: string }) {
     page,
     limit,
     goToPage,
-    updateLimit,
-    keyword,
-    updateKeyword,
-    queryOptions,
-    resetPageState,
-  } = useListPageState({ defaultLimit: 50 });
+    setLimit: updateLimit,
+    resetPage,
+    clampToTotal,
+  } = useUrlPagination(50);
+  const { keyword, setKeyword: updateKeyword, searchQuery } = useKeywordSearch(resetPage);
   const [newOpen, setNewOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DatasetRow | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<DatasetRow | null>(null);
 
-  const { data, isLoading, error, refetch } = useDatasets(projectId, {
-    search_query: queryOptions.search_query,
+  const { data, isLoading, error, refetch, isPlaceholderData } = useDatasets(projectId, {
+    search_query: searchQuery,
     page,
     limit,
   });
   const datasets = React.useMemo(() => data?.data ?? [], [data]);
   const meta = data?.meta;
+  const total = meta?.total ?? datasets.length;
+
+  React.useEffect(() => {
+    if (isPlaceholderData) return;
+    clampToTotal(total);
+  }, [clampToTotal, total, isPlaceholderData]);
+
   const del = useDeleteDataset(projectId);
 
   // Evaluations-per-dataset comes from the lineage list (one row per evaluation
@@ -65,7 +72,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
       onSuccess: () => {
         toast({ title: `Deleted ${dataset.name}`, tone: "success" });
         setDeleteTarget(null);
-        resetPageState();
+        resetPage();
       },
       onError: (e) => toast({ title: "Could not delete", description: String(e), tone: "warning" }),
     });

@@ -192,6 +192,7 @@ function RunsTab({ projectId }: { projectId: string }) {
   } = useListPageState({
     defaultLimit: 50,
     defaultDateFilterId: "14d",
+    syncStorage: false,
   });
 
   const { data, isLoading, error, isPlaceholderData } = useEvaluationRuns(projectId, {
@@ -203,9 +204,8 @@ function RunsTab({ projectId }: { projectId: string }) {
   });
   const runs = React.useMemo(() => data?.data ?? [], [data]);
   const meta = data?.meta;
-  // Keyed off the immediate `keyword`, not the debounced `searchQuery`, so the
-  // empty-state copy doesn't flicker for the 300ms before the debounce catches up.
-  const filtered = !!keyword;
+  // Considered filtered if keyword is entered or a non-default date range is active
+  const filtered = !!keyword || dateFilter.id !== "14d" || !!customStartDate || !!customEndDate;
   const total = meta?.total ?? runs.length;
 
   // Deleting the last page's rows (or a deep link past the end) leaves `page` beyond

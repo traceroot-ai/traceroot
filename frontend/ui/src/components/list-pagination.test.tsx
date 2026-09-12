@@ -116,4 +116,17 @@ describe("ListPagination", () => {
     fireEvent.mouseEnter(screen.getByRole("button", { name: /next page/i }));
     expect(onPrefetchPage).not.toHaveBeenCalled();
   });
+
+  it("renders the Showing X–Y of N readout", () => {
+    render(
+      <ListPagination
+        page={2}
+        limit={50}
+        total={124}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Showing 101–124 of 124")).toBeDefined();
+  });
 });
