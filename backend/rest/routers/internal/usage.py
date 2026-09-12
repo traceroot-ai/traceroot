@@ -135,14 +135,22 @@ async def get_usage_details(
     # uniqExact on run_id dedups pre-merge duplicates in the ReplacingMergeTree —
     # same pattern as the traces / spans queries above.
     #
-    # status is filtered because detector_runs records a row per attempt, and a
-    # failed attempt is not a scan: a missing provider key or a spans-download
-    # error writes a run that never reached a model. Left uncounted, a run of
-    # those burns a Free workspace's 100-scan cap without any inference, and on
-    # paid plans it inflates the scansRun denominator that apportions hosted-LLM
-    # overage. Filtering rows rather than the merged state is safe here: a retry
-    # reuses the deterministic run_id, so an attempt that failed and then
-    # succeeded contributes one completed row and uniqExact counts it once.
+    # status is filtered because detector_runs records a row per attempt, and an
+    # attempt that never reached a model is not a scan: a missing provider key or
+    # a spans-download error writes such a run. Left uncounted, a run of those
+    # burns a Free workspace's 100-scan cap without any inference, and on paid
+    # plans it inflates the scansRun denominator that apportions hosted-LLM
+    # overage.
+    #
+    # Failure alone is the wrong test, though. An eval that fails after the model
+    # answered has spent its tokens, and their cost is metered, so it is a scan
+    # and must be counted or the cap and the overage split can both be evaded by
+    # repeating it. The worker distinguishes the two when it writes the row:
+    # 'failed' never reached a model, 'failed_after_inference' did.
+    #
+    # Filtering rows rather than the merged state is safe here: a retry reuses
+    # the deterministic run_id, so an attempt that failed and then succeeded
+    # contributes one counted row and uniqExact counts it once.
     detector_runs_result = ch.query(
         """
         SELECT uniqExact(run_id) as total
@@ -150,7 +158,7 @@ async def get_usage_details(
         WHERE project_id IN {project_ids:Array(String)}
           AND timestamp >= {start:String}
           AND timestamp < {end:String}
-          AND status = 'completed'
+          AND status IN ('completed', 'failed_after_inference')
         """,
         parameters={
             "project_ids": project_id_list,

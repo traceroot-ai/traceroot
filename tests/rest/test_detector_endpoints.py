@@ -1097,8 +1097,8 @@ class TestUsageBillsEveryStoredRow:
         # paid for the inference, so the BYOK/system split must stay invisible here.
         assert "source" not in runs_sql
 
-    def test_detector_runs_are_metered_only_when_the_scan_completed(self, client, mock_ch, secret):
-        """A failed attempt is not a scan.
+    def test_detector_runs_are_metered_only_when_a_model_was_reached(self, client, mock_ch, secret):
+        """An attempt that never reached a model is not a scan.
 
         detector_runs holds a row per attempt, and the worker writes status='failed'
         for runs that never reached a model — a missing provider key, or a
@@ -1118,11 +1118,40 @@ class TestUsageBillsEveryStoredRow:
         )
         assert resp.status_code == 200
         runs_sql = mock_ch.query.call_args_list[2].args[0]
-        assert "status = 'completed'" in runs_sql
+        assert "'completed'" in runs_sql
+        assert "'failed_after_inference'" in runs_sql
         # The traces / spans meters are storage, not inference — a status predicate
         # there would silently stop billing stored rows.
         assert "status" not in mock_ch.query.call_args_list[0].args[0]
         assert "status" not in mock_ch.query.call_args_list[1].args[0]
+
+    def test_a_run_that_failed_after_inference_is_still_metered(self, client, mock_ch, secret):
+        """Failure alone is the wrong test for whether a scan happened.
+
+        The worker writes 'failed' only when no model was reached; an eval that
+        failed after the model answered is written as 'failed_after_inference',
+        because the tokens were spent and their cost is metered. Excluding those
+        would leave a repeatable way to spend hosted inference without moving
+        scansRun, which both evades the Free plan cap and shrinks the denominator
+        that apportions paid overage.
+        """
+        mock_ch.query.side_effect = [
+            _make_query_result([(3,)], ["total"]),
+            _make_query_result([(9,)], ["total"]),
+            _make_query_result([(2,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        runs_sql = mock_ch.query.call_args_list[2].args[0]
+        assert "'failed_after_inference'" in runs_sql
+        # The bare 'failed' rows are the ones that must stay out. Asserting the
+        # predicate shape rather than its text keeps this honest if the SQL is
+        # reformatted: 'failed' appears inside 'failed_after_inference'.
+        assert "status IN ('completed', 'failed_after_inference')" in runs_sql
 
     def test_usage_total_counts_rows_from_every_source(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [_make_query_result([(12,)], ["total"])]
