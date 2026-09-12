@@ -6,8 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import tiktoken
 
 from worker.tokens.pricing import calculate_cost, get_model_price
+from worker.tokens.types import GATEWAY_PREFIXES, is_claude_model, strip_gateway_prefixes
+from worker.tokens.usage import count_tokens
 
 MATCHED_MODEL_NAME = "__matched_model_name"
 
@@ -379,6 +382,215 @@ class TestGpt6AstraPublishedPrices:
         assert entry["prices"]["output"] == pytest.approx(5e-05)  # $50 / 1M tokens
         assert entry["prices"]["cacheRead"] == pytest.approx(1e-06)  # $1 / 1M tokens
         assert entry["prices"]["cacheWrite"] == pytest.approx(1.25e-05)  # $12.50 / 1M tokens
+
+
+class TestGatewayPrefixes:
+    """Gateway/router-prefixed ids must price like the bare model.
+
+    Every catalogue pattern hand-encodes the prefixes it tolerates, so coverage
+    drifted between siblings and no entry accepted the router prefixes real
+    deployments emit. The failure was silent: get_model_price returned None, cost
+    was left unset, and it read as "cost isn't rendering" rather than a miss.
+    """
+
+    @pytest.mark.parametrize(
+        "model_id,expected_name",
+        [
+            # No entry accepts vertex_ai/ — gemini patterns allow google/ | models/.
+            ("vertex_ai/gemini-2.5-pro", "gemini-2.5-pro"),
+            ("vertexai/gemini-2.5-pro", "gemini-2.5-pro"),
+            # gpt-5.4 allowed only openai/, though its gpt-5.6-* siblings allow azure/.
+            ("azure/gpt-5.4", "gpt-5.4"),
+            ("azure_ai/gpt-5.4", "gpt-5.4"),
+            # Chained router prefixes were not handled at all.
+            ("openrouter/anthropic/claude-opus-4-8", "claude-opus-4-8"),
+            ("litellm/openai/gpt-5", "gpt-5"),
+            ("portkey/openai/gpt-4o", "gpt-4o"),
+            # A gateway in front of a Bedrock-shaped id still resolves.
+            ("bedrock/us.anthropic.claude-opus-4-8", "claude-opus-4-8"),
+            # A gateway's own alternate spelling of itself. Each of these had a
+            # sibling in the set already, so the id read as unpriced while the
+            # spelling beside it worked.
+            ("gemini/gemini-2.5-pro", "gemini-2.5-pro"),
+            ("litellm_proxy/openai/gpt-5", "gpt-5"),
+            ("bedrock_converse/us.anthropic.claude-opus-4-8", "claude-opus-4-8"),
+            # A router's vendor slug need not match LiteLLM's spelling of the same
+            # vendor. These resolved only for the vendors where the two happen to
+            # coincide, so the gap was invisible behind the ones that passed.
+            ("openrouter/z-ai/glm-4.6", "glm-4.6"),
+            ("openrouter/moonshotai/kimi-k3", "kimi-k3"),
+        ],
+    )
+    def test_prefixed_id_resolves_to_the_bare_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should price like {expected_name}, got None"
+        assert price[MATCHED_MODEL_NAME] == expected_name
+
+    @pytest.mark.parametrize(
+        "model_id,expected_name",
+        [
+            ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
+            ("anthropic/claude-opus-4-8", "claude-opus-4-8"),
+            ("google/gemini-2.5-pro", "gemini-2.5-pro"),
+            ("us.anthropic.claude-opus-4-8-v1:0", "claude-opus-4-8"),
+        ],
+    )
+    def test_ids_that_already_resolved_are_unchanged(self, real_cache, model_id, expected_name):
+        """The normalization pass runs only after a direct match fails, so it can
+        add a price but never redirect one that already resolved."""
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None
+        assert price[MATCHED_MODEL_NAME] == expected_name
+
+    @pytest.mark.parametrize(
+        "litellm_spelling,router_spelling",
+        [
+            ("zai", "z-ai"),
+            ("moonshot", "moonshotai"),
+            ("xai", "x-ai"),
+            ("mistral", "mistralai"),
+        ],
+    )
+    def test_both_spellings_of_a_vendor_are_carried(self, litellm_spelling, router_spelling):
+        """A vendor reached through two routers is written two ways.
+
+        Carrying only the LiteLLM spelling leaves the OpenRouter form unpriced, and
+        the reverse leaves the direct form unpriced. Neither failure is visible from
+        a test that only exercises a vendor whose two spellings coincide, so the
+        pairing is asserted directly. Only two of these four have a catalogue entry
+        to resolve against today; all four are one model launch away from mattering.
+        """
+        assert litellm_spelling in GATEWAY_PREFIXES
+        assert router_spelling in GATEWAY_PREFIXES
+
+    def test_unknown_model_behind_a_gateway_is_still_unpriced(self, real_cache):
+        """Stripping must not manufacture a match — an unknown SKU stays None so
+        cost is left unset rather than silently recorded as $0."""
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert get_model_price("openrouter/acme/not-a-real-model") is None
+
+    @pytest.mark.parametrize(
+        "model_id",
+        ["ft:gpt-4o:acme/custom", "my-org/gpt-5", "gpt-5"],
+    )
+    def test_non_gateway_segments_are_left_alone(self, model_id):
+        """Only known gateway segments are stripped, so an id whose first segment
+        is part of the real model name is untouched."""
+        assert strip_gateway_prefixes(model_id) == model_id
+
+    def test_stripping_is_bounded(self):
+        """A pathological id terminates instead of walking every segment."""
+        assert strip_gateway_prefixes("openai/" * 50 + "gpt-5") == "openai/" * 47 + "gpt-5"
+
+
+class TestGatewayPrefixedTokenEstimation:
+    """A prefixed id has to mean the same model to the token estimator as it does
+    to the price lookup.
+
+    is_claude_model was a bare startswith("claude"), so a gateway-prefixed Claude
+    id fell through to tiktoken's cl100k_base — a materially different estimate,
+    now attached to a cost that resolves.
+    """
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            "claude-opus-4-8",
+            "anthropic/claude-opus-4-8",
+            "openrouter/anthropic/claude-opus-4-8",
+            "vertex_ai/claude-opus-4-8",
+        ],
+    )
+    def test_prefixed_claude_ids_use_the_claude_estimator(self, model_id):
+        assert is_claude_model(model_id) is True
+        # 4 chars/token, versus whatever cl100k_base would have produced.
+        assert count_tokens("a" * 400, model_id) == 100
+
+    @pytest.mark.parametrize("model_id", ["gpt-4o", "azure/gpt-4o", "my-org/claude-ish"])
+    def test_non_claude_ids_are_unaffected(self, model_id):
+        assert is_claude_model(model_id) is False
+
+    def test_prefixed_openai_ids_reach_their_tiktoken_encoding(self):
+        """The prefix is not part of the name tiktoken knows, so "azure/gpt-4o"
+        silently missed its encoding and fell back to cl100k_base.
+
+        The text is chosen so the two encodings genuinely disagree (o200k_base
+        gives 50, cl100k_base 54) — on "hello world" they agree, and the
+        assertion would hold whether or not the prefix was stripped.
+        """
+        text = "hello world " * 20 + "ünïcödé tokens 12345 🎉"
+        assert count_tokens(text, "gpt-4o") != len(
+            tiktoken.get_encoding("cl100k_base").encode(text)
+        )
+        assert count_tokens(text, "azure/gpt-4o") == count_tokens(text, "gpt-4o")
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            # Bedrock qualifies the family name with dots, so it is not the leading
+            # segment and a bare startswith misses it. The gateway-prefixed forms
+            # are the ones the price fallback newly resolves.
+            "bedrock/us.anthropic.claude-opus-4-8",
+            "bedrock/anthropic.claude-opus-4-8",
+            "amazon_bedrock/eu.anthropic.claude-opus-4-8",
+            # This shape already priced without a gateway in front of it, and was
+            # already being estimated with the wrong tokenizer.
+            "us.anthropic.claude-opus-4-8-v1:0",
+        ],
+    )
+    def test_bedrock_shaped_claude_ids_use_the_claude_estimator(self, model_id):
+        assert is_claude_model(model_id) is True
+        assert count_tokens("a" * 400, model_id) == 100
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            "bedrock/amazon.nova-pro-v1:0",
+            "us.meta.llama3-70b",
+            "my-org/claude-ish",
+            "my-org.claude-proxy",
+            "acme.claude-router",
+        ],
+    )
+    def test_dotted_non_claude_ids_stay_non_claude(self, model_id):
+        """A dotted segment starting with ``claude`` is somebody else's routing name
+        unless it is qualified by ``anthropic``, which is what the catalogue's Bedrock
+        patterns require. Classifying those as Claude would send an id pricing does not
+        recognise to the Claude token estimator."""
+        assert is_claude_model(model_id) is False
+
+    @pytest.mark.parametrize(
+        "prefixed_id",
+        [
+            "azure/claude-opus-4-8",
+            "openrouter/anthropic/claude-opus-4-8",
+            "bedrock/us.anthropic.claude-opus-4-8",
+        ],
+    )
+    def test_prefixed_claude_costs_the_same_as_the_bare_id(self, real_cache, prefixed_id):
+        """End to end, the two readers have to agree before a cost is trustworthy.
+
+        The price fallback alone is what makes this reachable: it turns a prefixed
+        Claude id from unpriced into priced, so a cost now gets recorded where none
+        was before. If the estimator still read the prefix it would reach for
+        tiktoken, and that cost would be recorded off a wrong token count -- worse
+        than the missing cost it replaced.
+
+        The plain slash form and the Bedrock dot-qualified form reach the estimator
+        through different branches, so each is pinned rather than assumed from the
+        other.
+        """
+        text = "a" * 400
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            prefixed = calculate_cost(prefixed_id, text, text)
+            bare = calculate_cost("claude-opus-4-8", text, text)
+
+        assert bare["cost"] is not None, "bare id must price, or this proves nothing"
+        assert prefixed == bare
 
 
 class TestGeminiModelIds:
@@ -987,3 +1199,81 @@ def test_anthropic_entries_have_2x_input_1h_cache_rate():
             continue
         assert "cacheWrite1h" in prices, f"{entry['modelName']} missing cacheWrite1h"
         assert prices["cacheWrite1h"] == pytest.approx(prices["input"] * 2), entry["modelName"]
+
+
+class TestResolutionIsOrderIndependent:
+    """The catalogue contains patterns that claim more than one entry's id.
+
+    ``claude-sonnet-4``'s pattern carries an optional version tail, so it also matches
+    ``claude-sonnet-4-5`` and ``claude-sonnet-4-6``. While resolution took the first
+    matching row, the answer depended on the order rows arrived in, and the two runtimes
+    disagree on that: the worker selects with ORDER BY model_name, while the TypeScript
+    resolver reads whatever order the database returns, which can move after an UPDATE.
+    Same rates today, so nothing misprices, but it breaks the day a successor is repriced.
+
+    These fixtures deliberately do not use the catalogue's file order. That order happens
+    to list the successor first, which hides the bug, so asserting against it would prove
+    nothing.
+    """
+
+    @staticmethod
+    def _by_name(cache: list[dict]) -> list[dict]:
+        """Row order as the worker's own query produces it: ORDER BY model_name."""
+        return sorted(cache, key=lambda entry: entry["model_name"])
+
+    @pytest.mark.parametrize(
+        "model_id,expected",
+        [
+            ("anthropic/claude-sonnet-4-6", "claude-sonnet-4-6"),
+            ("anthropic/claude-sonnet-4-5", "claude-sonnet-4-5"),
+            ("anthropic/claude-sonnet-4", "claude-sonnet-4"),
+        ],
+    )
+    def test_most_specific_entry_wins_under_the_production_row_order(
+        self, real_cache, model_id, expected
+    ):
+        ordered = self._by_name(real_cache)
+        with patch("worker.tokens.pricing._load_cache", lambda: ordered):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} must resolve"
+        assert price[MATCHED_MODEL_NAME] == expected
+
+    def test_prefixed_ids_resolve_the_same_under_any_row_order(self, real_cache):
+        """Only ids that reach the regex pass can expose this.
+
+        A bare catalogue id is answered by the exact-match pass before ranking runs, so
+        querying those would pass whatever the order.
+        """
+        import random
+
+        probes = [
+            "anthropic/claude-sonnet-4-6",
+            "anthropic/claude-sonnet-4-5",
+            "anthropic/claude-opus-4-8",
+            "anthropic/claude-sonnet-4",
+        ]
+
+        ordered = self._by_name(real_cache)
+        with patch("worker.tokens.pricing._load_cache", lambda: ordered):
+            baseline = {p: get_model_price(p)[MATCHED_MODEL_NAME] for p in probes}
+
+        rng = random.Random(0)
+        for _ in range(5):
+            shuffled = list(real_cache)
+            rng.shuffle(shuffled)
+            with patch("worker.tokens.pricing._load_cache", lambda c=shuffled: c):
+                for probe, expected in baseline.items():
+                    price = get_model_price(probe)
+                    assert price is not None, probe
+                    assert price[MATCHED_MODEL_NAME] == expected, (
+                        f"{probe} resolved to {price[MATCHED_MODEL_NAME]} under a different row order"
+                    )
+
+    def test_every_catalogue_id_resolves_to_itself(self, real_cache):
+        ordered = self._by_name(real_cache)
+        with patch("worker.tokens.pricing._load_cache", lambda: ordered):
+            for entry in real_cache:
+                price = get_model_price(entry["model_name"])
+                assert price is not None, f"{entry['model_name']} does not resolve"
+                assert price[MATCHED_MODEL_NAME] == entry["model_name"]
