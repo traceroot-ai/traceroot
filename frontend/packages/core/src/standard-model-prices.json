@@ -217,6 +217,18 @@
     }
   },
   {
+    "id": "tr-gpt-6-astra",
+    "modelName": "gpt-6-astra",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6-astra)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00005,
+      "cacheRead": 0.000001,
+      "cacheWrite": 0.0000125
+    }
+  },
+  {
     "id": "tr-gpt-5-5",
     "modelName": "gpt-5.5",
     "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.5)(-[\\d-]+)?$",
@@ -1194,7 +1206,7 @@
       "cacheWrite": null
     }
   },
-  {
+ {
     "id": "tr-grok-4-6",
     "modelName": "grok-4.6",
     "matchPattern": "(?i)^(xai\\/)?grok-4\\.6(-[\\d-]+)?$",
@@ -1203,6 +1215,18 @@
       "input": 0.000002,
       "output": 0.000006,
       "cacheRead": 0.0000005,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-kimi-k2-6",
+    "modelName": "kimi-k2.6",
+    "matchPattern": "(?i)^(moonshot\\/)?kimi-k2\\.6(-[\\d-]+)?$",
+    "provider": "moonshot",
+    "prices": {
+      "input": 0.00000095,
+      "output": 0.000004,
+      "cacheRead": 0.00000016,
       "cacheWrite": null
     }
   },
