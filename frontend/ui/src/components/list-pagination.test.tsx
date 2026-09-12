@@ -129,4 +129,75 @@ describe("ListPagination", () => {
     );
     expect(screen.getByText("Showing 101–124 of 124")).toBeDefined();
   });
+
+  it("navigates using first, prev, next, and last page buttons", () => {
+    const onPageChange = vi.fn();
+    const { container } = render(
+      <ListPagination
+        page={2}
+        limit={50}
+        total={500} // 10 pages: 0-9
+        onPageChange={onPageChange}
+        onLimitChange={vi.fn()}
+      />,
+    );
+
+    // Prev button
+    fireEvent.click(screen.getByRole("button", { name: /previous page/i }));
+    expect(onPageChange).toHaveBeenCalledWith(1);
+
+    // Next button
+    fireEvent.click(screen.getByRole("button", { name: /next page/i }));
+    expect(onPageChange).toHaveBeenCalledWith(3);
+
+    // First and last buttons (the small icon buttons without aria-label)
+    const buttons = container.querySelectorAll("button");
+    // Button order in the button group: [First, Prev, Next, Last]
+    // The first one in the group (disabled when page 0):
+    const navButtons = Array.from(buttons).filter(
+      (b) => b.classList.contains("h-7") && b.classList.contains("w-7"),
+    );
+    // navButtons: [first, prev, next, last]
+    fireEvent.click(navButtons[0]);
+    expect(onPageChange).toHaveBeenCalledWith(0);
+
+    fireEvent.click(navButtons[3]);
+    expect(onPageChange).toHaveBeenCalledWith(9);
+  });
+
+  it("allows selecting a limit from the items-per-page popover", () => {
+    const onLimitChange = vi.fn();
+    render(
+      <ListPagination
+        page={0}
+        limit={50}
+        total={500}
+        onPageChange={vi.fn()}
+        onLimitChange={onLimitChange}
+      />,
+    );
+
+    // Click limit button to open popover
+    fireEvent.click(screen.getByRole("button", { name: "50" }));
+    // Click option "100"
+    fireEvent.click(screen.getByRole("button", { name: "100" }));
+    expect(onLimitChange).toHaveBeenCalledWith(100);
+  });
+
+  it("blurs input on Enter key", () => {
+    render(
+      <ListPagination
+        page={0}
+        limit={50}
+        total={500}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    const blurSpy = vi.spyOn(input, "blur");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(blurSpy).toHaveBeenCalled();
+  });
 });
