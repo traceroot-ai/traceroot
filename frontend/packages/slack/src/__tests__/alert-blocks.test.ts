@@ -272,7 +272,8 @@ describe("buildAlertBlocks", () => {
     // the fallback carries the clause too, for clients that render no blocks
     expect(filtered.text).toContain("Where `span_kind = LLM` and");
 
-    const url = links.match(/<([^|]+)\|View traces>/)![1];
+    expect(links).toContain("View traces (some filters not applied)");
+    const url = links.match(/<([^|]+)\|View traces \(some filters not applied\)>/)![1];
     const filtersParam = new URL(url).searchParams.get("filters");
     expect(JSON.parse(filtersParam!)).toEqual([
       { field: "span_kind", op: "in", value: ["LLM"] },
