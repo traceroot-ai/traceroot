@@ -190,6 +190,44 @@ def test_inner_select_provides_every_projected_column(sql):
             )
 
 
+def test_views_take_a_time_range_on_their_own_time_column(sql):
+    """The caller's window has to reach the view body or it cannot prune.
+
+    LIMIT BY blocks predicate pushdown and a parameterized view cannot see the
+    caller's WHERE, so without bounds of its own the view reads the whole project
+    history whatever window was asked for. The bound sits beside project_id in the
+    inner scan, where the sort-key prefix can use it.
+    """
+    for view, column in (
+        ("spans_public_v1", "span_start_time"),
+        ("traces_public_v1", "trace_start_time"),
+    ):
+        block = _view_block(sql, view)
+        assert f"{column} >= {{start_time:DateTime64(3)}}" in block, view
+        assert f"{column} <= {{end_time:DateTime64(3)}}" in block, view
+        bound = block.index("start_time:DateTime64(3)")
+        dedup = block.index("LIMIT 1 BY")
+        assert bound < dedup, f"{view} applies the bound after deduplicating"
+
+
+def test_evaluation_subselects_are_never_time_bounded(sql):
+    """Bounding the exclusion sub-selects puts evaluation rows in the public view.
+
+    The exclusion tests trace membership over every version. A trace whose flagged
+    span falls outside the caller's window would stop being found, so its in-window
+    spans would stop being excluded. Reproduced: with the bound copied into the
+    sub-selects, a span whose sibling was flagged eight months earlier is returned.
+    """
+    for view in ("spans_public_v1", "traces_public_v1"):
+        block = _view_block(sql, view)
+        exclusion = block[block.index("trace_id NOT IN (") :]
+        for bound in ("start_time", "end_time"):
+            assert bound not in exclusion, (
+                f"{view} bounds its evaluation sub-select by {bound}, which lets an "
+                "evaluation trace flagged outside the window through"
+            )
+
+
 def test_duration_ms_is_computed(text):
     assert "dateDiff('millisecond', span_start_time, span_end_time) AS duration_ms" in text
 

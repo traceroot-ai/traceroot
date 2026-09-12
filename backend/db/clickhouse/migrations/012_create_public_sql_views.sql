@@ -50,10 +50,24 @@
 --     at query time: ClickHouse defers body validation for parameterized views, so the
 --     view is created cleanly and then errors on every read with UNKNOWN_IDENTIFIER.
 --
--- Cost note: LIMIT BY blocks predicate pushdown, so the caller's time range is applied
--- after the project's rows have been read and sorted. That is the price of deduplicating
--- by an id that is not a sort-key prefix. The fix is to parameterize the views on a time
--- range so the bound reaches the view body, which is a larger change than this migration.
+-- Time range: LIMIT BY blocks predicate pushdown, and a parameterized view cannot see the
+-- caller's WHERE, so without a bound of its own the view reads the project's whole history
+-- whatever window the caller asked for. `start_time` / `end_time` carry that window in, and
+-- they sit in the inner scan beside `project_id` so the sort-key prefix can prune on them.
+-- Callers that have no time predicate pass open bounds.
+--
+-- Two consequences, both deliberate:
+--
+--   * The bound applies to the OUTER scan only. The evaluation sub-selects below stay
+--     unbounded: they test trace membership over every version, and a trace whose flagged
+--     span falls outside the caller's window would otherwise stop being excluded, which
+--     puts evaluation rows into the public view.
+--
+--   * Deduplicating inside a window ranks only the rows already in it, so a row whose
+--     newest version has moved outside the window surfaces its older in-window version.
+--     That matches the rest of the product: both deduplicating read paths in
+--     rest.services.trace_reader place the caller's filters in the inner WHERE, before
+--     LIMIT 1 BY, so the same row behaves this way in the UI.
 --
 -- Curated projection excludes project_id, ch_create_time, ch_update_time, and the
 -- input/output blobs. `metadata` is the queryable one-level `metadata_map`, renamed; the
@@ -114,6 +128,8 @@ FROM
         git_source_file, git_source_line, git_source_function, source
     FROM spans
     WHERE project_id = {project_id:String}
+      AND span_start_time >= {start_time:DateTime64(3)}
+      AND span_start_time <= {end_time:DateTime64(3)}
     ORDER BY ch_update_time DESC
     LIMIT 1 BY trace_id, span_id
 )
@@ -143,6 +159,8 @@ FROM
         environment, metadata_map, source
     FROM traces
     WHERE project_id = {project_id:String}
+      AND trace_start_time >= {start_time:DateTime64(3)}
+      AND trace_start_time <= {end_time:DateTime64(3)}
     ORDER BY ch_update_time DESC
     LIMIT 1 BY trace_id
 )
