@@ -1,0 +1,132 @@
+"""Tests for the read-only ClickHouse client + settings forwarding."""
+
+import logging
+from unittest.mock import MagicMock
+
+import pytest
+
+import db.clickhouse.client as ch_client_mod
+from db.clickhouse.client import ClickHouseClient
+
+
+class TestQueryForwarding:
+    def test_query_forwards_parameters_and_settings(self):
+        internal = MagicMock()
+        client = ClickHouseClient(internal)
+        client.query("SELECT 1", parameters={"p": "x"}, settings={"max_execution_time": 5})
+        internal.query.assert_called_once_with(
+            "SELECT 1", parameters={"p": "x"}, settings={"max_execution_time": 5}
+        )
+
+    def test_default_settings_cannot_be_relaxed_by_the_caller(self):
+        """Defaults are caps, so a caller must not be able to raise or disable one.
+
+        ClickHouse reads 0 as unlimited for these, so a caller override that wins would
+        turn the self-host fallback's only limit into no limit at all.
+        """
+        internal = MagicMock()
+        client = ClickHouseClient(internal, {"max_execution_time": 30, "max_result_rows": 100})
+        client.query("SELECT 1", settings={"max_execution_time": 0, "max_threads": 4})
+        sent = internal.query.call_args.kwargs["settings"]
+        assert sent["max_execution_time"] == 30, "caller must not raise a cap"
+        assert sent["max_result_rows"] == 100
+        # A setting the caps do not cover still passes through.
+        assert sent["max_threads"] == 4
+
+    def test_query_defaults_pass_none(self):
+        internal = MagicMock()
+        client = ClickHouseClient(internal)
+        client.query("SELECT 1")
+        internal.query.assert_called_once_with("SELECT 1", parameters=None, settings=None)
+
+
+@pytest.fixture(autouse=True)
+def _reset_singletons(monkeypatch):
+    monkeypatch.setattr(ch_client_mod, "_client", None)
+    monkeypatch.setattr(ch_client_mod, "_ro_client", None)
+
+
+class TestReadonlyClient:
+    def test_uses_ro_credentials_when_configured(self, monkeypatch):
+        ch = ch_client_mod.settings.clickhouse
+        monkeypatch.setattr(ch, "ro_user", "sql_gateway_ro", raising=False)
+        monkeypatch.setattr(ch, "ro_password", "ro_pass", raising=False)
+
+        captured: dict = {}
+
+        def fake_get_client(**kwargs):
+            captured.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(ch_client_mod.clickhouse_connect, "get_client", fake_get_client)
+
+        client = ch_client_mod.get_readonly_clickhouse_client()
+        assert isinstance(client, ClickHouseClient)
+        assert captured["username"] == "sql_gateway_ro"
+        assert captured["password"] == "ro_pass"
+        # the RO client must not auto-generate a sticky session (shared pooled reads)
+        assert captured["autogenerate_session_id"] is False
+
+    def test_ro_user_path_sends_no_per_query_settings(self, monkeypatch):
+        """The read-only user runs under ``readonly = 1``.
+
+        That setting makes the server REJECT any per-query settings override with
+        Code 164, including a more restrictive one, so its caps must come from the
+        CONST settings profile instead. The self-host fallback attaches caps to its
+        handle; this asserts that treatment never reaches the real RO client, where
+        it would fail every single query rather than tighten anything.
+        """
+        ch = ch_client_mod.settings.clickhouse
+        monkeypatch.setattr(ch, "ro_user", "sql_gateway_ro", raising=False)
+        monkeypatch.setattr(ch, "ro_password", "ro_pass", raising=False)
+        internal = MagicMock()
+        monkeypatch.setattr(ch_client_mod.clickhouse_connect, "get_client", lambda **kw: internal)
+
+        client = ch_client_mod.get_readonly_clickhouse_client()
+        client.query("SELECT 1")
+
+        internal.query.assert_called_once_with("SELECT 1", parameters=None, settings=None)
+
+    def test_readonly_from_settings_raises_without_ro_user(self, monkeypatch):
+        # the public factory must not silently build a privileged client
+        ch = ch_client_mod.settings.clickhouse
+        monkeypatch.setattr(ch, "ro_user", None, raising=False)
+        with pytest.raises(RuntimeError, match="CLICKHOUSE_RO_USER"):
+            ClickHouseClient.readonly_from_settings()
+
+    def test_fatal_in_cloud_when_ro_user_missing(self, monkeypatch):
+        ch = ch_client_mod.settings.clickhouse
+        monkeypatch.setattr(ch, "ro_user", None, raising=False)
+        # cloud mode = billing enabled (ENABLE_BILLING not "false")
+        monkeypatch.delenv("ENABLE_BILLING", raising=False)
+        with pytest.raises(RuntimeError, match="CLICKHOUSE_RO_USER"):
+            ch_client_mod.get_readonly_clickhouse_client()
+
+    def test_fallback_to_default_with_warning_in_self_host(self, monkeypatch, caplog):
+        ch = ch_client_mod.settings.clickhouse
+        monkeypatch.setattr(ch, "ro_user", None, raising=False)
+        monkeypatch.setenv("ENABLE_BILLING", "false")  # self-host
+
+        sentinel = MagicMock(name="default-client")
+        monkeypatch.setattr(ch_client_mod, "get_clickhouse_client", lambda: sentinel)
+
+        with caplog.at_level(logging.WARNING):
+            client = ch_client_mod.get_readonly_clickhouse_client()
+
+        # The fallback must not hand back the bare privileged client. Without the
+        # read-only user there is no CONST settings profile, so the caps have to ride
+        # on the handle or user SQL runs with no limits at all.
+        assert client is sentinel.with_default_settings.return_value
+        caps = sentinel.with_default_settings.call_args.args[0]
+        assert set(caps) == {
+            "max_execution_time",
+            "max_result_rows",
+            "max_result_bytes",
+            "max_memory_usage",
+        }, f"self-host fallback must carry every resource cap, got {sorted(caps)}"
+        assert all(isinstance(v, int) and v > 0 for v in caps.values())
+
+        assert any(
+            "CLICKHOUSE_RO_USER" in r.message and r.levelno == logging.WARNING
+            for r in caplog.records
+        ), "self-host fallback must log a loud warning mentioning CLICKHOUSE_RO_USER"

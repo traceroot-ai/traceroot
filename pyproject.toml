@@ -51,6 +51,9 @@ dev = [
     "respx>=0.20",
     "ruff>=0.15.0",
     "mypy>=1.0",
+    # Parsing the mounted ClickHouse config in tests. defusedxml rather than the stdlib
+    # because the native xml modules are XXE-prone and the scanners reject them.
+    "defusedxml>=0.7",
 ]
 
 [build-system]
