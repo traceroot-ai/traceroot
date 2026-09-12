@@ -216,6 +216,43 @@ describe("Edit dataset panel", () => {
     expect(patch?.body).toEqual({ name: "Billing routing v2", description: "Routing tickets" });
   });
 
+  it("normalizing whitespace in a stored name enables Save and PATCHes the trimmed value", async () => {
+    global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      const s = String(url);
+      requests.push({ url: s, method, body: init?.body ? JSON.parse(init.body as string) : null });
+      if (s.includes("/evaluations")) {
+        return { ok: true, status: 200, json: async () => ({ data: [] }) };
+      }
+      if (s.includes("/datasets")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ ...DATASET, name: "Billing routing " }],
+            meta: { page: 0, limit: 50, total: 1 },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    }) as unknown as typeof fetch;
+
+    mount();
+    await rowAction("Edit");
+    const save = await screen.findByRole("button", { name: "Save" });
+    const name = (await screen.findByLabelText("Name")) as HTMLInputElement;
+    expect(name.value).toBe("Billing routing ");
+
+    // Trimming the editor side enables Save because it normalizes stored whitespace.
+    fireEvent.change(name, { target: { value: "Billing routing" } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(save);
+    expect(await screen.findByText("Dataset saved")).toBeDefined();
+    const patch = requests.find((r) => r.method === "PATCH");
+    expect(patch?.body).toEqual({ name: "Billing routing", description: "Routing tickets" });
+  });
+
   it("surfaces a save failure and closes on Cancel", async () => {
     writesFail = true;
     mount();

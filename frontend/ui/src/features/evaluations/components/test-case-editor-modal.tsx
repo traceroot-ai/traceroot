@@ -5,7 +5,8 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { EditableValueBlock } from "@/features/offline-eval/components";
-import { canonicalJson } from "@/lib/eval/canonical";
+import { canonicalJson, LoneSurrogateError } from "@/lib/eval/canonical";
+import { encodeEditedText } from "@/lib/eval/json-value";
 import { useSaveTestCase, useUpdateTestCase } from "../hooks";
 
 /**
@@ -69,10 +70,14 @@ export function TestCaseEditorModal({
   const save = useSaveTestCase(projectId, datasetId);
   const update = useUpdateTestCase(projectId, datasetId);
   const isEdit = mode.kind === "edit";
+  const seedMetadataText = React.useMemo(
+    () => (isEdit ? metadataToText(mode.metadata) : ""),
+    [isEdit, mode],
+  );
 
   const [input, setInput] = React.useState(isEdit ? mode.input : "");
   const [expected, setExpected] = React.useState(isEdit ? (mode.expected ?? "") : "");
-  const [metadata, setMetadata] = React.useState(isEdit ? metadataToText(mode.metadata) : "");
+  const [metadata, setMetadata] = React.useState(seedMetadataText);
 
   // Close on Escape (capture phase, so a nested popover can pre-empt it).
   React.useEffect(() => {
@@ -88,7 +93,12 @@ export function TestCaseEditorModal({
 
   // Metadata must be empty or a JSON object that canonicalizes; surfaced so a value with
   // no persisted form blocks Save rather than being silently dropped.
+  // When editing, if metadata was not modified by the user (matches seed), we do not
+  // validate it: a stored row written by an SDK with an unpaired surrogate is valid JSONB
+  // in Postgres, and must not permanently lock out edits to Input or Expected.
   const metadataError = React.useMemo(() => {
+    if (isEdit && metadata === seedMetadataText) return null;
+
     const trimmed = metadata.trim();
     if (trimmed === "") return null;
     let parsed: unknown;
@@ -108,30 +118,30 @@ export function TestCaseEditorModal({
     // would otherwise read as "no change" and leave Save dead with nothing said.
     try {
       canonicalJson(parsed);
-    } catch {
-      return "Metadata contains invalid Unicode (an unpaired surrogate).";
+    } catch (err) {
+      if (err instanceof LoneSurrogateError) {
+        return "Metadata contains invalid Unicode (an unpaired surrogate).";
+      }
+      throw err;
     }
     return null;
-  }, [metadata]);
+  }, [isEdit, metadata, seedMetadataText]);
 
   const pending = save.isPending || update.isPending;
-  // In edit mode, keep Save disabled until a field actually changes (a create is always savable).
-  // Each field is compared the way it is PERSISTED, so an edit that would really change the row
-  // can never be gated away as a no-op: `input` is stored verbatim AND its exact bytes are the
-  // case's content-addressed id (`stableCaseId` hashes `canonicalJson(input)`, which does not
-  // trim), so a whitespace-only input edit is a real change and compares raw; `expected` is
-  // stored as `expected.trim() || null` so it compares trimmed, and `metadata` is stored
-  // PARSED so it compares canonically (see `metadataSignature`) rather than as raw text.
-  // Trimming `input` on the way in is not an option either: that id derivation is byte-parity
-  // with the TS/Python SDKs, so a trimming UI would give `" hi "` a different `tc_` id than the
-  // same input authored through an SDK, and a re-publish would duplicate the case, not upsert it.
+  // In edit mode, keep Save disabled until a field actually changes. In create mode,
+  // require non-empty input before enabling Save (+ Row -> Save with empty fields is blocked).
+  // Each field is compared the way it is PERSISTED: `input` is persisted via `encodeEditedText`
+  // so pure reformatting of structured input is a no-op; `expected` is stored as
+  // `expected.trim() || null` so we trim editor side only; and `metadata` is stored parsed
+  // so it compares canonically (see `metadataSignature`).
   const hasChanges =
-    mode.kind !== "edit" ||
-    input !== mode.input ||
-    expected.trim() !== (mode.expected ?? "").trim() ||
-    // Both sides go through the seeded TEXT, so a case stored as `{}` (which `metadataToText`
-    // renders blank) matches an untouched blank field instead of reading as an edit.
-    metadataSignature(metadata) !== metadataSignature(metadataToText(mode.metadata));
+    mode.kind === "create"
+      ? input.trim().length > 0
+      : encodeEditedText(mode.input, input) !== encodeEditedText(mode.input, mode.input) ||
+        expected.trim() !== (mode.expected ?? "") ||
+        // Both sides go through the seeded TEXT, so a case stored as `{}` (which `metadataToText`
+        // renders blank) matches an untouched blank field instead of reading as an edit.
+        metadataSignature(metadata) !== metadataSignature(seedMetadataText);
   const canSave = !metadataError && !pending && hasChanges;
 
   const handleSave = () => {

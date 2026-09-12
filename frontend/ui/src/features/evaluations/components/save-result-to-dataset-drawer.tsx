@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/drawer";
 import { useToast } from "@/components/ui/toast";
 import { EditableValueBlock } from "@/features/offline-eval/components";
+import { encodeEditedText } from "@/lib/eval/json-value";
 import { useDatasets } from "../hooks";
 
 /** Read-only fields never edit, so onChange is a no-op. */
@@ -186,7 +187,7 @@ export function SaveResultToDatasetDrawer({
   const hasChanges =
     action === "update_existing_case"
       ? (meta.picksDataset && targetDatasetId !== sourceDatasetId) ||
-        input !== result.input ||
+        encodeEditedText(result.input, input) !== encodeEditedText(result.input, result.input) ||
         (useCandidateAsExpected
           ? (result.candidateOutput ?? "") !== (result.expectedOutput ?? "")
           : expected !== (result.expectedOutput ?? ""))

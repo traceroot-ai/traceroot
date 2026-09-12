@@ -152,8 +152,7 @@ export function DatasetEditPanel({
   }, [dataset]);
 
   const hasChanges =
-    state.name.trim() !== dataset.name.trim() ||
-    state.description.trim() !== (dataset.description ?? "").trim();
+    state.name.trim() !== dataset.name || state.description.trim() !== (dataset.description ?? "");
   const canSave = state.name.trim() !== "" && hasChanges;
 
   const handleSave = () => {

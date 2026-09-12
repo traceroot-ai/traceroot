@@ -336,8 +336,14 @@ describe("Dataset detail — filtering and adding rows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Row" }));
     // Opens the editor rather than inserting a blank row.
     expect(await screen.findByText("New Row")).toBeDefined();
+    // Create mode is gated until an input is typed.
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
     fireEvent.change(screen.getByLabelText("Input"), { target: { value: "a new question" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(save.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(save);
     expect(await screen.findByText("Row added")).toBeDefined();
     const post = requests.find((r) => r.method === "POST" && r.url.includes("/test-cases"));
     expect(post?.body).toMatchObject({ input: "a new question", expected: null, metadata: null });
@@ -378,6 +384,42 @@ describe("Dataset detail — filtering and adding rows", () => {
     expect(await screen.findByText(/Row saved/)).toBeDefined();
     const patch = requests.find((r) => r.method === "PATCH");
     expect((patch?.body as { input: string }).input.endsWith(" ")).toBe(true);
+  });
+
+  it("reformatting structured Input is not a change, but editing a value is", async () => {
+    const structuredCase = testCase({
+      id: "row-struct",
+      testCaseId: "tc_struct",
+      input: '{\n  "query": "hello"\n}',
+      metadata: null,
+    });
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        const s = String(url);
+        if (s.includes("/evaluations/runs")) {
+          return { data: [], meta: { page: 0, limit: 50, total: 0 } };
+        }
+        return { ...detail(null), testCases: [structuredCase] };
+      },
+    })) as unknown as typeof fetch;
+    mountDetail();
+    await screen.findByText(/hello/);
+    fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
+    fireEvent.click(await screen.findByText("Edit"));
+    expect(await screen.findByText("Edit Row")).toBeDefined();
+    const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // Reformatting structured input does not enable Save.
+    fireEvent.change(input, { target: { value: '{"query": "hello"}' } });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // Editing a value in structured input enables Save.
+    fireEvent.change(input, { target: { value: '{"query": "world"}' } });
+    expect(save.hasAttribute("disabled")).toBe(false);
   });
 
   it("reformatting Metadata is not a change, but editing a value is", async () => {
@@ -436,8 +478,18 @@ describe("Dataset detail — filtering and adding rows", () => {
     expect(await screen.findByText("Edit Row")).toBeDefined();
     const metadata = screen.getByLabelText("Metadata") as HTMLTextAreaElement;
     expect(metadata.value).toContain("\\ud800");
-    expect(await screen.findByText(/invalid Unicode/i)).toBeDefined();
 
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+    // Seeded metadata with an unpaired surrogate is not reported immediately and does
+    // not lock out Input/Expected edits.
+    expect(screen.queryByText(/invalid Unicode/i)).toBeNull();
+
+    const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "edited question" } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+
+    // But editing metadata to another unpaired surrogate reports the error and blocks Save.
     fireEvent.change(metadata, { target: { value: '{"note":"\\udbff"}' } });
     // Still unsavable — but because the value is rejected, and the user is told so.
     expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
