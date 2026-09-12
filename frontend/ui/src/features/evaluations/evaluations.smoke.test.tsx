@@ -11,10 +11,11 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
 
+const searchParams = new URLSearchParams();
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1", datasetId: "ds1", runId: "run1" }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => searchParams,
   usePathname: () => "/projects/p1/evaluations",
 }));
 // ProjectBreadcrumb pulls layout/workspace context we don't mount here.
@@ -304,6 +305,12 @@ describe("real Datasets + Evaluations views render server data", () => {
     mount(<EvaluationsView projectId="p1" />);
     expect(await screen.findByText(/No evaluation runs yet/)).toBeDefined();
     expect(screen.queryByRole("button", { name: /Run evaluation/ })).toBeNull();
+  });
+
+  it("Evaluations list renders standard ListPagination when runs are present", async () => {
+    mount(<EvaluationsView projectId="p1" />);
+    expect(await screen.findByText("Items per page")).toBeDefined();
+    expect(screen.getByText("of 1")).toBeDefined();
   });
 
   it("run-centric table shows both runs by run number + candidate version", async () => {

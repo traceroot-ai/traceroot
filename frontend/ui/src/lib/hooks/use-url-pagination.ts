@@ -14,10 +14,22 @@ interface UseUrlPaginationReturn {
   setLimit: (limit: number) => void;
   resetPage: () => void;
   resetPageState: () => void;
+  clampToTotal: (total: number) => void;
 }
 
 const DEFAULT_PAGE = 0;
 const DEFAULT_LIMIT = 50;
+// The list routes cap `limit` server-side (`Math.min(Math.max(raw, 1), 200)`) and echo
+// the capped value back in `meta`, so a larger `page_limit` is silently not honoured.
+// Holding one client-side would request a page size that never arrives and, worse, make
+// `clampToTotal` divide `total` by it — sending pages that are valid under the size the
+// server actually serves back to an earlier page.
+const MAX_LIMIT = 200;
+
+/** Normalize a requested page size to what the API will actually serve. */
+function clampLimit(limit: number): number {
+  return Math.min(limit, MAX_LIMIT);
+}
 
 // Reject NaN, Infinity, and out-of-range values so a hand-edited URL like
 // `?page_limit=0` or `?page_index=-2` falls back to defaults instead of
@@ -34,7 +46,7 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
   const pathname = usePathname();
 
   const initialPage = parseUrlInt(searchParams.get("page_index"), DEFAULT_PAGE, 0);
-  const initialLimit = parseUrlInt(searchParams.get("page_limit"), defaultLimit, 1);
+  const initialLimit = clampLimit(parseUrlInt(searchParams.get("page_limit"), defaultLimit, 1));
 
   const [page, setPageState] = useState(initialPage);
   const [limit, setLimitState] = useState(initialLimit);
@@ -51,7 +63,7 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
     }
 
     setPageState(parseUrlInt(searchParams.get("page_index"), DEFAULT_PAGE, 0));
-    setLimitState(parseUrlInt(searchParams.get("page_limit"), defaultLimit, 1));
+    setLimitState(clampLimit(parseUrlInt(searchParams.get("page_limit"), defaultLimit, 1)));
   }, [searchParams, defaultLimit]);
 
   // Update URL with current pagination state
@@ -88,7 +100,8 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
   );
 
   const setLimit = useCallback(
-    (newLimit: number) => {
+    (requestedLimit: number) => {
+      const newLimit = clampLimit(requestedLimit);
       setLimitState(newLimit);
       setPageState(DEFAULT_PAGE); // Reset to first page when changing limit
       updateUrl(DEFAULT_PAGE, newLimit);
@@ -111,6 +124,21 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
   // second write here can't clobber it from a stale searchParams closure.
   const resetPageState = useCallback(() => setPageState(DEFAULT_PAGE), []);
 
+  // Pull the page back inside a result set that has shrunk. Deleting the rows on the
+  // last page — or deep-linking `?page_index=` past the end — otherwise leaves the
+  // page pointing past the data: an empty table that reads as "nothing here" for a
+  // list that still has earlier pages. Call it from the consumer once `total` is
+  // known; a total of 0 is left alone (an empty list has no page to clamp to, and
+  // it's also what an in-flight or errored query reports).
+  const clampToTotal = useCallback(
+    (total: number) => {
+      if (!Number.isFinite(total) || total <= 0) return;
+      const lastPage = Math.max(0, Math.ceil(total / limit) - 1);
+      if (page > lastPage) goToPage(lastPage);
+    },
+    [page, limit, goToPage],
+  );
+
   return {
     page,
     limit,
@@ -118,5 +146,6 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
     setLimit,
     resetPage,
     resetPageState,
+    clampToTotal,
   };
 }
