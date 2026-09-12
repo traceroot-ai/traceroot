@@ -1207,6 +1207,18 @@
     }
   },
   {
+    "id": "tr-grok-4-6",
+    "modelName": "grok-4.6",
+    "matchPattern": "(?i)^(xai\\/)?grok-4\\.6(-[\\d-]+)?$",
+    "provider": "xai",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.000006,
+      "cacheRead": 0.0000005,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-kimi-k2-6",
     "modelName": "kimi-k2.6",
     "matchPattern": "(?i)^(moonshot\\/)?kimi-k2\\.6(-[\\d-]+)?$",
