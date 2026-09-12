@@ -36,11 +36,25 @@ export interface AlertEvaluationSpec {
   readonly filters: readonly AlertFilter[];
 }
 
+/**
+ * What kind of failure `error` reports. "spec" is the backend's verdict that the
+ * stored rule is not expressible at all, which no retry changes; "query" is a run
+ * that failed and may succeed next minute. Mirrors ALERT_ERROR_KIND_* in
+ * backend/rest/schemas/alerts.py.
+ */
+export const ALERT_ERROR_KINDS = ["spec", "query"] as const;
+export type AlertErrorKind = (typeof ALERT_ERROR_KINDS)[number];
+
 export interface AlertEvaluationResult {
   readonly alert_id: string;
   readonly value: number | null;
   readonly row_count: number;
   readonly error: string | null;
+  /**
+   * Null when the run succeeded, and also when it failed on a backend too old to
+   * say which kind it was: an unclassified failure is retried, never parked.
+   */
+  readonly errorKind: AlertErrorKind | null;
 }
 
 export interface AlertEvaluationRequest {
@@ -73,13 +87,23 @@ export function isSendableAlertSpec(spec: AlertEvaluationSpec): boolean {
   );
 }
 
+function parseErrorKind(value: unknown): AlertErrorKind | null {
+  return typeof value === "string" && (ALERT_ERROR_KINDS as readonly string[]).includes(value)
+    ? (value as AlertErrorKind)
+    : null;
+}
+
 function parseResult(entry: unknown): AlertEvaluationResult | null {
   if (!isRecord(entry) || typeof entry.alert_id !== "string") return null;
+  const error = typeof entry.error === "string" && entry.error.length > 0 ? entry.error : null;
   return {
     alert_id: entry.alert_id,
     value: typeof entry.value === "number" && Number.isFinite(entry.value) ? entry.value : null,
     row_count: typeof entry.row_count === "number" ? entry.row_count : 0,
-    error: typeof entry.error === "string" && entry.error.length > 0 ? entry.error : null,
+    error,
+    // Tied to `error`: a kind on a result that measured something would be a
+    // classification of nothing, and parking reads this field alone.
+    errorKind: error === null ? null : parseErrorKind(entry.error_kind),
   };
 }
 

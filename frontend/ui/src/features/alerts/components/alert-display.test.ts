@@ -45,7 +45,7 @@ describe("resolveAlertDisplayState", () => {
     expect(stateOf({ severity: "UNKNOWN", lastEvaluatedAt: undefined }).label).toBe("No Data");
   });
 
-  it("ranks Paused over Failing, and Failing over a rule that has never run", () => {
+  it("ranks Parked over Paused, Paused over Failing, and Failing over a rule that has never run", () => {
     const failedFirstRun = {
       severity: "ALERT" as const,
       lastError: "ClickHouse read timeout",
@@ -58,6 +58,36 @@ describe("resolveAlertDisplayState", () => {
     const paused = stateOf({ ...failedFirstRun, status: "PAUSED" });
     expect(paused.label).toBe("Paused");
     expect(paused.isPaused).toBe(true);
+    expect(paused.isStopped).toBe(true);
+
+    const parked = stateOf({ ...failedFirstRun, status: "PARKED" });
+    expect(parked.label).toBe("Parked");
+    expect(parked.isStopped).toBe(true);
+    // Not paused: nobody chose this, and the action that clears it is different.
+    expect(parked.isPaused).toBe(false);
+  });
+
+  it("states the reason once, trusting it to already say what restarts the rule", () => {
+    // Every real parking path bakes "edit and save" into the stored reason
+    // itself (claim.ts's UNEVALUABLE_RULE_ERROR, scheduler.ts's
+    // PARKED_RULE_SUFFIX), so the badge must not repeat it — that reads as the
+    // same sentence twice in one popover.
+    const parked = stateOf({
+      status: "PARKED",
+      lastError: "measure: unknown; open it and save it again to correct them",
+    });
+
+    expect(parked.detail).toBe(
+      "Stopped: measure: unknown; open it and save it again to correct them.",
+    );
+    // The sentence this status exists to stop telling.
+    expect(parked.detail).not.toContain("retry");
+
+    // A row parked with no reason at all is the one case with nothing of its
+    // own to say, so only here does the badge supply the fix itself.
+    const bare = stateOf({ status: "PARKED", lastError: null });
+    expect(bare.detail).toContain("cannot be evaluated");
+    expect(bare.detail).toContain("Edit and save");
   });
 
   it("shows Failing on a rule whose last run errored, even while it still holds a green OK", () => {
@@ -123,6 +153,7 @@ describe("resolveAlertDisplayState", () => {
       label: "OK",
       tone: "ok",
       isPaused: false,
+      isStopped: false,
     });
   });
 });

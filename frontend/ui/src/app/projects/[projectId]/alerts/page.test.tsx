@@ -220,6 +220,16 @@ describe("AlertsPage", () => {
     expect(mocks.statusMutate).toHaveBeenCalledWith({ alertId: "alert-1", status: "ACTIVE" });
   });
 
+  it("asks for ACTIVE on a parked alert, rather than pausing a rule already stopped", () => {
+    mocks.useAlertList.mockReturnValue(listOf([{ ...alertRow, status: "PARKED" }]));
+
+    render(<AlertsPage />);
+    openRowMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+
+    expect(mocks.statusMutate).toHaveBeenCalledWith({ alertId: "alert-1", status: "ACTIVE" });
+  });
+
   it("opens the delete confirmation dialog instead of deleting on click", () => {
     render(<AlertsPage />);
 

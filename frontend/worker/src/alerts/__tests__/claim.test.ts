@@ -18,6 +18,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
 const {
   claimDueAlerts,
   completeAlertEvaluation,
+  parkAlertRule,
   recordAlertEvaluationFailure,
   recordAlertNotifyOutcome,
   revertAlertEmissionState,
@@ -203,8 +204,8 @@ describe("claimDueAlerts — taking ownership", () => {
     expect(await claimDueAlerts(TICK)).toEqual([]);
   });
 
-  it("leaves the reason on the rows it will never be able to evaluate", async () => {
-    // `nextRunAt` still advances, so without this such a row is re-read and
+  it("parks the rows it will never be able to evaluate, with the reason on them", async () => {
+    // `nextRunAt` still advances, so without the park such a row is re-read and
     // re-written every cadence while the owner reads a severity that is frozen,
     // an empty error column, and no sign the rule will never fire again.
     queryRaw.mockResolvedValue([row({ window: "24h" }), row({ id: "alert-2", window: "24h" })]);
@@ -216,20 +217,50 @@ describe("claimDueAlerts — taking ownership", () => {
     // stamp, so there is nothing per-row left to say.
     expect(updateMany).toHaveBeenCalledTimes(1);
     const [args] = updateMany.mock.calls[0] as [{ where: unknown; data: Record<string, unknown> }];
+    // The same CAS as the plain failure record: a rule a later tick re-claimed, or
+    // one the owner paused mid-evaluation, is not this tick's to park.
     expect(args.where).toEqual({
       id: { in: ["alert-1", "alert-2"] },
       status: "ACTIVE",
       lastClaimedAt: TICK.now,
     });
+    expect(args.data.status).toBe("PARKED");
     expect(args.data.lastError).toContain("cannot be evaluated");
     expect(args.data.lastErrorAt).toBeInstanceOf(Date);
   });
 
-  it("keeps an unwritable reason to itself rather than losing the rest of the batch", async () => {
+  it("keeps an unwritable park to itself rather than losing the rest of the batch", async () => {
     queryRaw.mockResolvedValue([row({ window: "24h" }), row({ id: "alert-2" })]);
     updateMany.mockRejectedValue(new Error("pool timeout"));
 
     expect((await claimDueAlerts(TICK)).map((claim) => claim.rule.id)).toEqual(["alert-2"]);
+  });
+
+  it("falls back to recording the failure when the park write itself throws", async () => {
+    // Otherwise the row stays ACTIVE with `nextRunAt` already advanced and no
+    // recorded reason at all: a silent, indefinite retry with nothing to show
+    // the owner. The evaluator's own park path (parkRule in scheduler.ts) has
+    // the same fallback.
+    queryRaw.mockResolvedValue([row({ window: "24h" })]);
+    updateMany.mockImplementation(async (args) => {
+      const data = args.data as Record<string, unknown>;
+      if (data.status === "PARKED") throw new Error("pool timeout");
+      return { count: 1 };
+    });
+
+    expect(await claimDueAlerts(TICK)).toEqual([]);
+
+    const fallback = updateMany.mock.calls.at(-1)?.[0] as {
+      where: unknown;
+      data: Record<string, unknown>;
+    };
+    expect(fallback.where).toEqual({
+      id: { in: ["alert-1"] },
+      status: "ACTIVE",
+      lastClaimedAt: TICK.now,
+    });
+    expect(fallback.data.status).toBeUndefined();
+    expect(fallback.data.lastError).toContain("cannot be evaluated");
   });
 });
 
@@ -328,6 +359,53 @@ describe("recordAlertEvaluationFailure", () => {
         alertId: "alert-1",
         claimStamp: NOW,
         error: { message: "boom", at: failedAt },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("parkAlertRule", () => {
+  const parkedAt = new Date("2026-08-12T10:37:09.000Z");
+
+  it("stops the rule under the same CAS the failure record uses", async () => {
+    // ACTIVE and the claim stamp together: a rule the owner paused, or one a
+    // later tick re-claimed, is not this tick's to park.
+    await parkAlertRule({
+      alertId: "alert-1",
+      claimStamp: NOW,
+      error: { message: "measure: Unknown alert measure 'clicks'", at: parkedAt },
+    });
+
+    expect(updateMany.mock.calls[0][0]).toEqual({
+      where: { id: "alert-1", status: "ACTIVE", lastClaimedAt: NOW },
+      data: {
+        status: "PARKED",
+        lastError: "measure: Unknown alert measure 'clicks'",
+        lastErrorAt: parkedAt,
+      },
+    });
+  });
+
+  it("truncates the reason to the cell it is read in", async () => {
+    await parkAlertRule({
+      alertId: "alert-1",
+      claimStamp: NOW,
+      error: { message: "x".repeat(900), at: parkedAt },
+    });
+
+    const { data } = updateMany.mock.calls[0][0] as { data: Record<string, string> };
+    expect(data.lastError).toHaveLength(500);
+    expect(data.lastError).toMatch(/\.\.\.$/);
+  });
+
+  it("reports false when the CAS matched no row", async () => {
+    updateMany.mockResolvedValue({ count: 0 });
+
+    expect(
+      await parkAlertRule({
+        alertId: "alert-1",
+        claimStamp: NOW,
+        error: { message: "boom", at: parkedAt },
       }),
     ).toBe(false);
   });

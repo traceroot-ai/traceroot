@@ -11,6 +11,7 @@ import type { AlertRuntimeState } from "./severity-state-machine.js";
 import { alertNextRunAt, type AlertTick } from "./tick.js";
 
 const ACTIVE: AlertStatus = "ACTIVE";
+const PARKED: AlertStatus = "PARKED";
 
 /**
  * Per tick. The claim deals its cap across projects depth-first, so a project's
@@ -143,13 +144,9 @@ function claimStatement(tick: AlertTick): Prisma.Sql {
 }
 
 /**
- * One write for the whole set: every unevaluable row carries the same reason under
- * the same claim stamp, so there is nothing per-row to say. Under the completion's
- * CAS, so a rule a later tick re-claimed keeps that tick's result.
- *
- * There is no parked status, so these rows are re-read and discarded every cadence.
- * Leaving the reason on them is the only sign the owner gets that the severity they
- * are reading is frozen and no run will ever move it.
+ * The reason alone, for when the park itself could not be written. One write for
+ * the whole set, under the same CAS: every unevaluable row carries the same reason
+ * under the same claim stamp, so there is nothing per-row to say.
  */
 async function recordUnevaluable(ids: readonly string[], tick: AlertTick): Promise<void> {
   try {
@@ -164,6 +161,35 @@ async function recordUnevaluable(ids: readonly string[], tick: AlertTick): Promi
   }
 }
 
+/**
+ * Stops the whole unevaluable set, for the failure no retry can clear: the stored
+ * spec itself is one this build cannot read. No later tick can read what this one
+ * could not, so the rows are parked rather than re-read and discarded every cadence.
+ * The reason travels with the park: parked without one is a rule that stopped for no
+ * stated cause.
+ *
+ * One write for the set, under the same CAS as the plain failure record, so a rule a
+ * later tick re-claimed, or one the owner paused mid-evaluation, is not this tick's
+ * to park. `nextRunAt` is left where the claim put it, so an edit that re-arms the
+ * rule finds it due.
+ */
+async function parkUnevaluable(ids: readonly string[], tick: AlertTick): Promise<void> {
+  try {
+    const { count } = await prisma.alert.updateMany({
+      where: { id: { in: [...ids] }, status: ACTIVE, lastClaimedAt: tick.now },
+      data: { status: PARKED, lastError: UNEVALUABLE_RULE_ERROR, lastErrorAt: new Date() },
+    });
+    if (count !== ids.length) logInfo(`stale claims discarded count=${ids.length - count}`);
+  } catch (error) {
+    // A park that does not land must not read as a silent success: `nextRunAt` is
+    // already advanced, so without this the rows stay ACTIVE with no recorded reason
+    // and are retried, and discarded, every cadence with nothing to show for it.
+    // Falls back to the reason alone, same as the evaluator's own park path does.
+    logError(`park failed alerts=${ids.length}`, error);
+    await recordUnevaluable(ids, tick);
+  }
+}
+
 export async function claimDueAlerts(tick: AlertTick): Promise<ClaimedAlert[]> {
   const claimed = await prisma.$queryRaw<AlertRowLike[]>(claimStatement(tick));
 
@@ -175,13 +201,13 @@ export async function claimDueAlerts(tick: AlertTick): Promise<ClaimedAlert[]> {
   for (const row of claimed) {
     const rule = parseAlertRule(row);
     if (rule === null) {
-      logError(`unevaluable rule discarded alert=${row.id} project=${row.projectId}`);
+      logError(`unevaluable rule parked alert=${row.id} project=${row.projectId}`);
       unevaluable.push(row.id);
     } else {
       claims.push({ rule, claimStamp: tick.now });
     }
   }
-  if (unevaluable.length > 0) await recordUnevaluable(unevaluable, tick);
+  if (unevaluable.length > 0) await parkUnevaluable(unevaluable, tick);
 
   return claims;
 }
@@ -277,6 +303,25 @@ export async function recordAlertEvaluationFailure(failure: AlertFailureRecord):
   const { count } = await prisma.alert.updateMany({
     where: { id: failure.alertId, status: ACTIVE, lastClaimedAt: failure.claimStamp },
     data: { lastError: truncate(failure.error.message), lastErrorAt: failure.error.at },
+  });
+  return count === 1;
+}
+
+/**
+ * Records the failure and stops the rule, for the failures no retry can clear:
+ * the stored spec itself is one this build cannot evaluate. Same CAS as the
+ * plain failure record — a rule a later tick re-claimed, or one the owner
+ * paused mid-evaluation, is not this tick's to park — and `nextRunAt` is left
+ * where the claim put it, so an edit that re-arms the rule finds it due.
+ */
+export async function parkAlertRule(failure: AlertFailureRecord): Promise<boolean> {
+  const { count } = await prisma.alert.updateMany({
+    where: { id: failure.alertId, status: ACTIVE, lastClaimedAt: failure.claimStamp },
+    data: {
+      status: PARKED,
+      lastError: truncate(failure.error.message),
+      lastErrorAt: failure.error.at,
+    },
   });
   return count === 1;
 }
