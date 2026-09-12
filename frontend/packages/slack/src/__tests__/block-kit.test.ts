@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDigestAlertBlocks } from "../block-kit.ts";
+import { buildDigestAlertBlocks, escapeMrkdwn, truncate, truncateEscaped } from "../block-kit.ts";
 
 const digestBase = {
   projectId: "proj_1",
@@ -100,6 +100,30 @@ describe("buildDigestAlertBlocks", () => {
     expect(text).toContain("date_filter=custom&start=");
   });
 
+  it("never splits the escaped detector name's entity, even in a pathologically long name", () => {
+    // a name built entirely of "&" expands well past DETECTOR_NAME_CAP once
+    // escaped, so a naive whole-row truncate would land inside one of its
+    // "&amp;" entities — the name needs its own cap, applied before the row
+    // mixes it with the row's raw URL text.
+    const blocks = buildDigestAlertBlocks({
+      ...digestBase,
+      total: 1,
+      entries: [
+        {
+          detectorId: "d1",
+          detectorName: "&".repeat(2500),
+          findingCount: 1,
+          latestTraceId: "a1b2c3d4",
+        },
+      ],
+    }) as any[];
+    const row = blocks[2].text.text as string; // header, divider, detector row
+    expect(row.includes("…")).toBe(true);
+    expect(row).not.toMatch(/&[a-z]*…/);
+    // the row's own URL separators are untouched by the name's cap
+    expect(row).toContain("date_filter=custom&start=");
+  });
+
   it("caps detector lines at the Slack 50-block limit and notes the overflow", () => {
     const entries = Array.from({ length: 50 }, (_, i) => ({
       detectorId: `d${i}`,
@@ -191,5 +215,54 @@ describe("buildDigestAlertBlocks", () => {
     );
     expect(text).toContain("Latency");
     expect(text).not.toContain("latest:");
+  });
+
+  it("keeps a real trailing ampersand in a truncated raw header, not just an escaped one", () => {
+    // the header is built from a raw (unescaped) project name, so a cut that
+    // lands right after a genuine "&word" in it must leave that text alone —
+    // it is not a split escapeMrkdwn entity, and stripping it would delete
+    // real content the project actually named itself.
+    const blocks = buildDigestAlertBlocks({
+      ...digestBase,
+      projectName: "checkout" + "&svc".repeat(33),
+    }) as any[];
+    const header = blocks[0];
+    expect(header.text.text).toHaveLength(150);
+    expect(header.text.text.endsWith("&sv…")).toBe(true);
+  });
+});
+
+describe("truncate", () => {
+  it("leaves text under the limit untouched", () => {
+    expect(truncate("hello", 10)).toBe("hello");
+  });
+
+  it("cuts and marks plain text with an ellipsis", () => {
+    expect(truncate("x".repeat(10), 5)).toBe("xxxx…");
+  });
+
+  it("does not touch a raw ampersand — it is not an escape entity here", () => {
+    // truncate is for raw text (URLs, plain_text fields, …): a trailing "&x"
+    // is ordinary content, e.g. a URL's own "&start=" separator, not a
+    // truncated "&amp;". Stripping it would delete real text for no reason —
+    // that cleanup belongs to truncateEscaped, only safe after escapeMrkdwn.
+    expect(truncate("date_filter=custom&start=2026", 25)).toBe("date_filter=custom&start…");
+  });
+});
+
+describe("truncateEscaped", () => {
+  it("leaves text under the limit untouched", () => {
+    expect(truncateEscaped("hello", 10)).toBe("hello");
+  });
+
+  it("drops a trailing partial escape entity instead of splitting it", () => {
+    // escaped "&" becomes "&amp;" (5 chars): a cut at max=4 over "a&" lands
+    // the boundary inside it, at "a&a" — the fix drops the dangling "&a".
+    const escaped = escapeMrkdwn("a&");
+    expect(escaped).toBe("a&amp;");
+    expect(truncateEscaped(escaped, 4)).toBe("a…");
+
+    // a cut that lands exactly after a complete entity leaves it whole
+    expect(truncateEscaped(escapeMrkdwn("a&") + "bcdef", 7)).toBe("a&amp;…");
   });
 });

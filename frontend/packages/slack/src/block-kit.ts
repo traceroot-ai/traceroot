@@ -13,6 +13,20 @@ export function truncate(text: string, max = SECTION_LIMIT): string {
   return text.slice(0, max - 1) + "…";
 }
 
+/**
+ * `truncate`, but for text that has already been through `escapeMrkdwn`: strips
+ * a trailing partial escape entity from the cut string so a cap-hitting text
+ * never ends "…&am…". Only safe on escaped text — `escapeMrkdwn` never leaves a
+ * bare "&" behind, so any "&" this pattern can still match there is the start of
+ * one of its three entities, cut short. On raw text a trailing "&" is just
+ * text (a URL's own "&start=" separator, "Ben & co", …), and this would delete
+ * it instead of fixing anything — callers with raw text want plain `truncate`.
+ */
+export function truncateEscaped(text: string, max = SECTION_LIMIT): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1).replace(/&[a-z]*$/, "") + "…";
+}
+
 export interface DigestEntry {
   detectorId: string;
   detectorName: string;
@@ -56,6 +70,12 @@ export function formatWindowRange(start: Date, end: Date): string {
 // (one fewer when a summary section is rendered).
 const MAX_DIGEST_LINES = 46;
 
+// Leaves comfortable headroom under SECTION_LIMIT for the fixed URL and count
+// text around a detector name in its row, so the row's own truncate() below
+// is a last-resort net over raw text — not the thing actually shaping a
+// pathologically long name.
+const DETECTOR_NAME_CAP = 2000;
+
 // Deep-link to a detector's findings page, scoped to the digest window. Shared by
 // the Slack and email digests so the URL contract lives in one place.
 // date_filter=custom is REQUIRED — the detector page's useUrlDateFilter only
@@ -86,13 +106,6 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
   const noun = total === 1 ? "finding" : "findings";
   const headerText = truncate(`${total} ${noun} in ${projectName}`, 150);
 
-  // Cap after escaping; strip a trailing partial escape entity from the cut
-  // string so a cap-hitting summary never ends "…&am…".
-  const capSummary = (s: string) =>
-    s.length > DIGEST_SUMMARY_RENDER_CAP
-      ? s.slice(0, DIGEST_SUMMARY_RENDER_CAP - 1).replace(/&[a-z]*$/, "") + "…"
-      : s;
-
   const summaryText = summary?.trim();
   const summaryBlocks = summaryText
     ? [
@@ -100,7 +113,7 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: capSummary(escapeMrkdwn(summaryText)),
+            text: truncateEscaped(escapeMrkdwn(summaryText), DIGEST_SUMMARY_RENDER_CAP),
           },
         },
       ]
@@ -127,8 +140,12 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
     const shortTrace = e.latestTraceId.slice(0, 8);
     // Escape the detector name (user-controlled); URLs are built from encoded
     // params, so escaping them would mangle the query-string separators and
-    // break the Slack <url|text> link syntax.
-    const name = escapeMrkdwn(e.detectorName);
+    // break the Slack <url|text> link syntax. The row mixes that escaped name
+    // with raw URLs, so it needs its own entity-aware cap before it goes into
+    // the row: a cap over the whole row could just as easily split the name's
+    // own entity (truncate) or strip a raw URL "&" (truncateEscaped) — capping
+    // the name here keeps each kind of cut in its own lane.
+    const name = truncateEscaped(escapeMrkdwn(e.detectorName), DETECTOR_NAME_CAP);
     const text =
       `*<${findingsUrl}|${name}>* — ${e.findingCount} ${e.findingCount === 1 ? "finding" : "findings"}` +
       (e.latestTraceId
