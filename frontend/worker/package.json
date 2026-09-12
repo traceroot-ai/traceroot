@@ -30,18 +30,17 @@
     "@traceroot/slack": "workspace:*",
     "bullmq": "^5.73.3",
     "ioredis": "^5.10.1",
-    "node-cron": "^3.0.0",
-    "nodemailer": "^9.0.1",
+    "node-cron": "^4.6.0",
+    "nodemailer": "^9.1.1",
     "stripe": "14.25.0"
   },
   "devDependencies": {
     "@opentelemetry/sdk-trace-node": "^2.10.0",
     "@types/node": "^22.0.0",
-    "@types/node-cron": "^3.0.0",
     "@types/nodemailer": "^6.4.14",
-    "@vitest/coverage-v8": "^3.2.6",
+    "@vitest/coverage-v8": "^4.1.11",
     "tsx": "^4.21.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.11"
   }
 }
