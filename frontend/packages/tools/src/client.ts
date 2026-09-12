@@ -1,3 +1,5 @@
+import type { ToolMethod } from "./types.js";
+
 /** Error raised for non-2xx API responses, carrying the backend's detail message. */
 export class ApiError extends Error {
   readonly status: number;
@@ -41,30 +43,43 @@ export class ApiClient {
   }
 
   async request(
-    method: "get",
+    method: ToolMethod,
     path: string,
-    query: Record<string, string>,
-    signal?: AbortSignal,
+    opts: { params?: Record<string, string>; body?: unknown; signal?: AbortSignal } = {},
   ): Promise<unknown> {
     const url = new URL(this.options.baseUrl.replace(/\/$/, "") + path);
-    for (const [name, value] of Object.entries(query)) {
+    for (const [name, value] of Object.entries(opts.params ?? {})) {
       url.searchParams.set(name, value);
     }
 
     const signals: AbortSignal[] = [];
-    if (signal !== undefined) {
-      signals.push(signal);
+    if (opts.signal !== undefined) {
+      signals.push(opts.signal);
     }
     if (this.options.timeoutMs !== undefined) {
       signals.push(AbortSignal.timeout(this.options.timeoutMs));
     }
 
-    const fetchImpl = this.options.fetchImpl ?? fetch;
-    const response = await fetchImpl(url.toString(), {
+    const init: RequestInit = {
       method: method.toUpperCase(),
       headers: this.options.headers,
       signal: signals.length > 0 ? AbortSignal.any(signals) : undefined,
-    });
+    };
+    if (opts.body !== undefined) {
+      // Header names are case-insensitive but plain-object keys are not, so a
+      // caller-supplied "Content-Type" would survive alongside ours and fetch
+      // would join the two values. Drop any spelling of it first.
+      const headers = Object.fromEntries(
+        Object.entries(this.options.headers).filter(
+          ([name]) => name.toLowerCase() !== "content-type",
+        ),
+      );
+      init.headers = { ...headers, "content-type": "application/json" };
+      init.body = JSON.stringify(opts.body);
+    }
+
+    const fetchImpl = this.options.fetchImpl ?? fetch;
+    const response = await fetchImpl(url.toString(), init);
 
     if (!response.ok) {
       const body = await response.text();

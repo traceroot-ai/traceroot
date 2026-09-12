@@ -35,6 +35,53 @@ const listTracesEntry: RegistryEntry = {
 };
 
 describe("toPiAgentTool", () => {
+  const createProjectEntry: RegistryEntry = {
+    name: "create_project",
+    description: "Create a project.",
+    method: "post",
+    path: "/api/v1/public/projects",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace_id: { type: "string" },
+        name: { type: "string" },
+        trace_ttl_days: { type: "integer" },
+      },
+      required: ["workspace_id", "name", "trace_ttl_days"],
+      additionalProperties: false,
+    },
+    bodyParams: ["workspace_id", "name", "trace_ttl_days"],
+    agentHiddenParams: ["trace_ttl_days"],
+    policy: { approvalClass: "none", minRole: "MEMBER", tenancy: "workspace" },
+  };
+
+  it("hides agentHiddenParams from the model's schema", () => {
+    const client = new ApiClient({
+      baseUrl: "http://x",
+      headers: {},
+      fetchImpl: fakeFetch(200, {}),
+    });
+    const tool = toPiAgentTool(createProjectEntry, { client });
+    expect(Object.keys(tool.parameters.properties)).not.toContain("trace_ttl_days");
+    expect(tool.parameters.properties).toHaveProperty("name");
+    expect(tool.parameters.required).not.toContain("trace_ttl_days");
+    expect(tool.parameters.required).toContain("workspace_id");
+  });
+
+  it("drops an agentHiddenParam the model supplied anyway", async () => {
+    const fetchImpl = fakeFetch(200, { id: "p1" });
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });
+    const tool = toPiAgentTool(createProjectEntry, { client });
+    await tool.execute("call-1", {
+      label: "make it",
+      workspace_id: "w1",
+      name: "P1",
+      trace_ttl_days: 365,
+    });
+    const [, init] = fetchImpl.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ workspace_id: "w1", name: "P1" });
+  });
+
   it("injects a required label param and strips it before dispatch", async () => {
     const fetchImpl = fakeFetch(200, { data: [] });
     const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });
@@ -135,6 +182,8 @@ describe("INTERNAL_BINDINGS", () => {
       list_findings: "/api/v1/projects/{project_id}/detectors/findings",
       get_finding: "/api/v1/projects/{project_id}/detectors/findings/{finding_id}",
       get_finding_by_trace: "/api/v1/projects/{project_id}/detectors/traces/{trace_id}/finding",
+      list_dashboards: "/api/v1/internal/projects/{project_id}/dashboards",
+      get_dashboard: "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}",
     });
   });
 });
