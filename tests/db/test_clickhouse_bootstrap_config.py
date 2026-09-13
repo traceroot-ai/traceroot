@@ -71,6 +71,20 @@ def test_application_services_do_not_use_the_bootstrap_identity(path):
             assert name in allowed, f"{name} must not run as the bootstrap identity"
 
 
+def test_rest_receives_the_readonly_identity():
+    """Provisioning the account is not the same as the API being able to use it.
+
+    `clickhouse-init` creates `sql_gateway_ro`, but the API authenticates as whoever
+    `CLICKHOUSE_RO_USER` names. Without the pair on the `rest` service, setting them in
+    `.env` reaches nothing, and a billing-enabled deployment raises instead of serving
+    gateway queries.
+    """
+    prod = next(p for p in _COMPOSE if p.name == "docker-compose.prod.yml")
+    rest_env = yaml.safe_load(prod.read_text())["services"]["rest"]["environment"]
+    for key in ("CLICKHOUSE_RO_USER", "CLICKHOUSE_RO_PASSWORD"):
+        assert key in rest_env, f"rest cannot authenticate as the gateway reader without {key}"
+
+
 def _service_entrypoint_text(compose_path: Path, service: str) -> str:
     """The entrypoint as one string, whether compose spells it as a scalar or a list."""
     spec = yaml.safe_load(compose_path.read_text())["services"][service]["entrypoint"]

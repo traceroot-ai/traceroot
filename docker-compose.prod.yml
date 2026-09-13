@@ -285,6 +285,12 @@ services:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
+      # The SQL gateway's read-only identity. clickhouse-init provisions the account;
+      # these are what let the API authenticate as it. Without them the read-only
+      # client has no user, so a billing-enabled deployment raises rather than serving
+      # gateway queries, no matter how the values are set in .env.
+      CLICKHOUSE_RO_USER: ${CLICKHOUSE_RO_USER:-}
+      CLICKHOUSE_RO_PASSWORD: ${CLICKHOUSE_RO_PASSWORD:-}
       REDIS_URL: redis://redis:6379/0
       REDIS_RESULT_URL: redis://redis:6379/1
       S3_ENDPOINT_URL: http://minio:9000
