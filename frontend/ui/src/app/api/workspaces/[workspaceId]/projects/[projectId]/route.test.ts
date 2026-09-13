@@ -93,3 +93,40 @@ describe("project PATCH alert_window", () => {
     expect((await res.json()).alert_window).toBe("30m");
   });
 });
+
+describe("project PATCH rename collisions", () => {
+  beforeEach(() => {
+    findFirst.mockReset().mockResolvedValue({ id: "p1", name: "Proj" });
+    update.mockReset();
+  });
+
+  /** A duck-typed Prisma unique-violation naming the violated constraint. */
+  const p2002 = (target: unknown) =>
+    Object.assign(new Error("Unique constraint failed"), { code: "P2002", meta: { target } });
+
+  it("maps a rename collision (Prisma P2002 on the name index) to 409 instead of 500", async () => {
+    update.mockRejectedValue(p2002("uq_project_workspace_live_name"));
+    const res = await patch({ name: "Taken" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("A project with this name already exists");
+  });
+
+  it("rethrows an alertConfig-upsert P2002 even when the PATCH also carries a name", async () => {
+    update.mockRejectedValue(p2002(["projectId"]));
+    await expect(
+      patch({ name: "Checkout", alert_emails: ["a@example.com"] }),
+    ).rejects.toMatchObject({ code: "P2002" });
+  });
+
+  it("propagates non-P2002 update failures", async () => {
+    update.mockRejectedValue(new Error("connection lost"));
+    await expect(patch({ name: "Renamed" })).rejects.toThrow("connection lost");
+  });
+
+  it("rethrows a P2002 that names no constraint at all", async () => {
+    update.mockRejectedValue(p2002(undefined));
+    await expect(patch({ alert_emails: ["a@example.com"] })).rejects.toMatchObject({
+      code: "P2002",
+    });
+  });
+});

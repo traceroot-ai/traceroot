@@ -67,6 +67,11 @@ model WorkspaceMember {
 model Workspace {
   id                    String            @id @db.VarChar
   name                  String            @db.VarChar
+  // Who created the workspace — the indexable half of the write paths'
+  // workspace idempotency key (creator + name). Nullable: legacy rows with no
+  // ADMIN member to backfill from stay NULL and never collide (unique indexes
+  // treat NULLs as distinct). Bare user id, no FK — mirrors Dashboard.createdBy.
+  createdBy             String?           @map("created_by") @db.VarChar
   createTime            DateTime          @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime            DateTime          @default(now()) @map("update_time") @db.Timestamp(6)
   invites               Invite[]
@@ -100,6 +105,9 @@ model Workspace {
   slackIntegration    SlackIntegration?
   usageNotifications  WorkspaceUsageNotification[]
 
+  // Backs the idempotent create: two concurrent create_workspace calls by the
+  // same user with the same name cannot both insert.
+  @@unique([createdBy, name], map: "uq_workspace_created_by_name")
   @@index([billingCustomerId])
   @@index([billingSubscriptionId])
   @@map("workspaces")
@@ -166,10 +174,16 @@ model Project {
   alertConfig  DetectorAlertConfig?
   detectorRcas DetectorRca[]
   dashboards   Dashboard[]
+  alerts       Alert[]
   datasets     Dataset[]
   evaluations  Evaluation[]
   workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  // A partial unique index uq_project_workspace_live_name on
+  // (workspace_id, name) WHERE delete_time IS NULL backs the idempotent
+  // create. Partial indexes can't be expressed here, so it lives in the
+  // migration as raw SQL; soft-deleted rows keep their names without
+  // blocking the name's reuse.
   @@index([workspaceId], map: "ix_project_workspace_id")
   @@map("projects")
 }
@@ -425,6 +439,9 @@ model Detector {
   project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   trigger DetectorTrigger?
 
+  // Backs the idempotent create; detectors have no soft delete, so the
+  // unique is unconditional.
+  @@unique([projectId, name], map: "uq_detector_project_name")
   @@index([projectId], map: "ix_detector_project_id")
   @@map("detectors")
 }
@@ -433,10 +450,9 @@ model DetectorTrigger {
   id         String   @id @default(cuid()) @db.VarChar
   detectorId String   @unique @map("detector_id") @db.VarChar
   conditions Json     @db.JsonB
-  // [{field: "environment", op: "=", value: "prod"}, {field: "total_tokens", op: ">", value: 1000},
-  //  {field: "metadata", key: "tenant", op: "contains", value: "acme"}]
-  // Fields/ops are whitelisted by features/detectors/trigger-fields.ts (UI + API routes)
-  // and evaluated by backend/worker/detector_tasks.py.
+  // [{field: "environment", op: "=", value: "prod"}] — `environment` with =/!= is the
+  // only condition evaluated today (editor: features/detectors/components/trigger-editor.tsx,
+  // evaluator: backend/worker/detector_tasks.py). Empty list matches every completed trace.
 
   detector Detector @relation(fields: [detectorId], references: [id], onDelete: Cascade)
 
@@ -769,8 +785,69 @@ model Dashboard {
   widgets Widget[]
   project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  // Backs the idempotent create; dashboards have no soft delete, so the
+  // unique is unconditional.
+  @@unique([projectId, name], map: "uq_dashboard_project_name")
   @@index([projectId], map: "ix_dashboard_project_id")
   @@map("dashboards")
+}
+
+// Threshold alert rule plus its evaluation state. Anything the scheduler's SQL
+// compares or orders on is a typed column; `filters` and `renotify` are only
+// ever deserialized by the application.
+model Alert {
+  id                String    @id @default(cuid()) @db.VarChar
+  projectId         String    @map("project_id") @db.VarChar
+  name              String    @db.VarChar
+  view              String    @db.VarChar
+  measure           String    @db.VarChar
+  aggregation       String    @db.VarChar
+  // Canonicalized on write (see `canonicalizeAlertFilters`).
+  filters           Json      @db.JsonB
+  // The window token ("10m"), not milliseconds — ALERT_WINDOWS is the
+  // allowlist, matching DetectorAlertConfig.alertWindow.
+  window            String    @db.VarChar
+  thresholdOperator String    @map("threshold_operator") @db.VarChar
+  threshold         Decimal   @db.Decimal(65, 30)
+  renotify          Json      @db.JsonB
+  // What a window with nothing in it means for this rule (ALERT_NO_DATA_MODES).
+  // Defaulted in the database, so a rule written before the column existed keeps
+  // reading a gap the way it always did.
+  noDataMode        String    @default("HOLD") @map("no_data_mode") @db.VarChar
+  status            String    @default("ACTIVE") @db.VarChar
+  severity          String    @default("UNKNOWN") @db.VarChar
+  // Two clocks, deliberately separate: renotify measures from `alertedAt`,
+  // first-notification delay from `severityChangedAt`. Collapsing them into one
+  // "last touched" silently resets the renotify interval every evaluation.
+  severityChangedAt DateTime? @map("severity_changed_at") @db.Timestamp(6)
+  alertedAt         DateTime? @map("alerted_at") @db.Timestamp(6)
+  // Only a successful run advances this, so it stays readable as "last good
+  // evaluation" while `lastError` says why nothing has landed since.
+  lastEvaluatedAt   DateTime? @map("last_evaluated_at") @db.Timestamp(6)
+  // Why the last run or its delivery failed. Null means the last run succeeded:
+  // a completion always writes both columns, so an error cannot outlive it.
+  lastError         String?   @map("last_error") @db.VarChar
+  lastErrorAt       DateTime? @map("last_error_at") @db.Timestamp(6)
+  // The last delivery attempt, which outlives `lastError`: a page dropped by the
+  // delivery worker is still a page nobody received, long after the next
+  // successful run has cleared the error.
+  lastNotifyStatus  String?   @map("last_notify_status") @db.VarChar
+  lastNotifyError   String?   @map("last_notify_error") @db.VarChar
+  lastNotifyAt      DateTime? @map("last_notify_at") @db.Timestamp(6)
+  // Null `nextRunAt` means due immediately; `lastClaimedAt` is the CAS token a
+  // completing tick writes back against.
+  nextRunAt         DateTime? @map("next_run_at") @db.Timestamp(6)
+  lastClaimedAt     DateTime? @map("last_claimed_at") @db.Timestamp(6)
+  createdBy         String    @map("created_by") @db.VarChar
+  createTime        DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime        DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId], map: "ix_alert_project_id")
+  // Column order matches the claim query: equality on status, range on nextRunAt.
+  @@index([status, nextRunAt], map: "ix_alert_status_next_run_at")
+  @@map("alerts")
 }
 
 model Widget {
@@ -787,4 +864,35 @@ model Widget {
 
   @@index([dashboardId], map: "ix_widget_dashboard_id")
   @@map("widgets")
+}
+
+// The audit trail for non-interactive writes: one append-only row per write
+// that changes account state — who (actorUserId), what (operation, resource,
+// summary), where (workspace/project), and HOW: `transport` distinguishes a
+// public-API call from an in-app agent action (with its session id), because
+// "who" alone stops identifying intent once machines write on a user's behalf.
+// This table is new with the public write paths — before them, every write was
+// a human in the UI on their own cookie session, so attribution was structural
+// (the actor WAS the session, the result was on screen). Once the CLI, agent,
+// and API can create resources with no human watching, provenance has to be
+// answerable from storage. UI writes join the trail (transport "ui") when the
+// cookie routes migrate onto the shared write services.
+// No relations on purpose: audit rows must survive resource deletion (an FK
+// cascade would erase history).
+model AuditLog {
+  id             String   @id @default(cuid()) @db.VarChar
+  actorUserId    String   @map("actor_user_id") @db.VarChar
+  operation      String   @db.VarChar // e.g. "create_detector"
+  resourceType   String   @map("resource_type") @db.VarChar
+  resourceId     String   @map("resource_id") @db.VarChar
+  workspaceId    String?  @map("workspace_id") @db.VarChar
+  projectId      String?  @map("project_id") @db.VarChar
+  summary        Json     @db.JsonB // payload summary, never secrets
+  transport      String   @db.VarChar // "public-api" | "agent"
+  agentSessionId String?  @map("agent_session_id") @db.VarChar
+  createTime     DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+
+  @@index([workspaceId], map: "ix_audit_workspace_id")
+  @@index([actorUserId], map: "ix_audit_actor_user_id")
+  @@map("audit_logs")
 }

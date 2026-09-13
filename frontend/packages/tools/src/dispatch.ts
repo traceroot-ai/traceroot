@@ -26,8 +26,10 @@ export interface DispatchOptions {
 
 /**
  * Call a registry entry through the given client: fill the path template from
- * args, route the entry's remaining schema params to the query string (scalars
- * stringified, objects and arrays JSON-serialized), ignore unknown args.
+ * args, route the entry's body params into the JSON request body (values kept
+ * as-is; the client serializes the whole body once), route the remaining
+ * schema params to the query string (scalars stringified, objects and arrays
+ * JSON-serialized), ignore unknown args.
  */
 export async function dispatch(
   entry: RegistryEntry,
@@ -38,10 +40,11 @@ export async function dispatch(
   const template = options.pathOverride ?? entry.path;
   const path = fillPath(template, args);
   const pathParams = new Set([...template.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1]));
+  const bodyParams = new Set(entry.bodyParams ?? []);
 
   const query: Record<string, string> = {};
   for (const name of Object.keys(entry.inputSchema.properties)) {
-    if (pathParams.has(name)) {
+    if (pathParams.has(name) || bodyParams.has(name)) {
       continue;
     }
     const value = args[name];
@@ -51,5 +54,20 @@ export async function dispatch(
     query[name] = typeof value === "object" ? JSON.stringify(value) : String(value);
   }
 
-  return client.request(entry.method, path, query, options.signal);
+  if (bodyParams.size === 0) {
+    return client.request(entry.method, path, { params: query, signal: options.signal });
+  }
+
+  // An entry that declares body params always sends a JSON body (possibly
+  // empty) so the endpoint's content type doesn't vary with the arguments.
+  const body: Record<string, unknown> = {};
+  for (const name of bodyParams) {
+    const value = args[name];
+    if (value === undefined || value === null) {
+      continue;
+    }
+    body[name] = value;
+  }
+
+  return client.request(entry.method, path, { params: query, body, signal: options.signal });
 }

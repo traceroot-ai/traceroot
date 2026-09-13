@@ -1,0 +1,76 @@
+name: Publish @traceroot-ai/tools
+
+# The tool registry is generated from the public OpenAPI schema and consumed by
+# traceroot-cli as a published dependency, so it needs its own release cadence
+# separate from the product releases this repo already tags as vX.Y.Z.
+#
+# Trigger with a tools-v prefixed tag, e.g. tools-v0.2.0:
+#   gh release create tools-v0.2.0 --generate-notes
+on:
+  release:
+    types: [published]
+  # Re-run a publish after a workflow fix without recreating the release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish, e.g. tools-v0.2.0"
+        required: true
+
+jobs:
+  publish:
+    # Product releases (vX.Y.Z) must not publish this package.
+    if: >-
+      startsWith(github.event.release.tag_name, 'tools-v') ||
+      startsWith(inputs.tag, 'tools-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # npm trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # Trusted publishing needs npm >= 11.5.1. Pinned to the 11 line rather
+      # than @latest: npm 12 requires Node ^22.22.2 and broke a publish here
+      # the day it shipped.
+      - name: Update npm
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Verify release tag matches package version
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          PKG_VERSION=$(node -p "require('./frontend/packages/tools/package.json').version")
+          TAG_VERSION="${TAG#tools-v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::tag ($TAG_VERSION) does not match package.json ($PKG_VERSION)"
+            exit 1
+          fi
+          echo "version $PKG_VERSION matches tag $TAG"
+
+      - name: Build
+        run: cd frontend/packages/tools && pnpm build
+
+      - name: Test
+        run: cd frontend/packages/tools && pnpm test
+
+      # No token: npm verifies over OIDC that this run came from this repo and
+      # workflow. Published with npm rather than pnpm because pnpm's publish
+      # does not perform the OIDC exchange; safe because this package declares
+      # no dependencies at all.
+      - name: Publish
+        run: npm publish --provenance --access public
+        working-directory: frontend/packages/tools
