@@ -175,7 +175,26 @@ BLOCKED_PREFIXES: tuple[str, ...] = ("dictget", "joinget")
 # walked and validated like any other. Without this, EXISTS was rejected while
 # the equivalent `NOT IN (SELECT …)` passed -- an arbitrary difference, and the
 # same class of surprise as uniq() normalising to APPROX_DISTINCT.
-_SKIP_FUNC_TYPES = (exp.Cast, exp.TryCast, exp.Extract, exp.Lambda, exp.Case, exp.Exists)
+#
+# exp.And and exp.Or are the severe case of the same thing. sqlglot models the
+# boolean connectors as Func subclasses, so before they were skipped the gate
+# refused EVERY query containing `AND` or `OR` anywhere: a two-condition WHERE,
+# a multi-condition JOIN … ON, a bounded range. `NOT` was unaffected, because
+# exp.Not is not a Func, which is why the hole stayed invisible. ClickHouse also
+# accepts `and(a, b)` as a call and sqlglot parses it to the same node, so
+# skipping the type admits the call form too. That is deliberate and harmless:
+# boolean logic reads nothing, reaches nothing, and is already reachable as an
+# operator in any query the allowlist lets through.
+_SKIP_FUNC_TYPES = (
+    exp.Cast,
+    exp.TryCast,
+    exp.Extract,
+    exp.Lambda,
+    exp.Case,
+    exp.Exists,
+    exp.And,
+    exp.Or,
+)
 
 # Internal view names that must never be referenced directly.
 _INTERNAL_VIEWS: frozenset[str] = frozenset({"spans_public_v1", "traces_public_v1"})
