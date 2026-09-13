@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from rest.schemas.common import PaginationMeta
 from rest.schemas.traces import SpanResponse, TraceDetailResponse, TraceListItem
@@ -269,3 +269,65 @@ class PublicDashboardListResponse(BaseModel):
     """
 
     data: list[DashboardListItem]
+
+
+class SqlRequest(BaseModel):
+    """A public SQL query. The project is never part of this body.
+
+    ``extra="forbid"`` is the point rather than tidiness: scope is resolved from
+    the credential, so a body carrying ``project_id`` or a ``scope_*`` key is a
+    caller trying to choose a tenant. Forbidding unknown keys turns that into a
+    422 instead of a silently ignored field.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    query: str = Field(min_length=1, description="A single read-only SELECT over the public schema")
+    parameters: dict[str, Any] | None = Field(
+        default=None,
+        description="Values for {name:Type} placeholders in the query",
+    )
+    max_rows: int | None = Field(
+        default=None,
+        ge=1,
+        le=1_000_000,
+        description="Rows to return, clamped down to the server ceiling",
+    )
+
+
+class SqlColumn(BaseModel):
+    """One column of a result, named and typed as ClickHouse reported it."""
+
+    name: str
+    type: str
+
+
+class SqlResponse(BaseModel):
+    """A completed query, already trimmed to what the caller may receive."""
+
+    columns: list[SqlColumn]
+    rows: list[list[Any]]
+    row_count: int
+    truncated: bool = Field(description="True when more rows matched than were returned")
+    elapsed_ms: int
+    statistics: dict[str, Any] = Field(default_factory=dict)
+
+
+class SqlSchemaColumn(BaseModel):
+    """A curated column a caller may select."""
+
+    name: str
+    type: str
+
+
+class SqlSchemaTable(BaseModel):
+    """A logical table the gateway exposes."""
+
+    name: str
+    columns: list[SqlSchemaColumn]
+
+
+class SqlSchemaResponse(BaseModel):
+    """The curated analytical schema, which is all a caller can query."""
+
+    tables: list[SqlSchemaTable]

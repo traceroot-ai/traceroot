@@ -122,6 +122,18 @@ _PLAN_LIMITS_WRITE: dict[str, str] = {
 }
 
 
+# Public SQL is deliberately the tightest bucket. A single query can scan a
+# project's history, so the budget is counted in queries per minute rather than
+# requests per minute, and the free tier is sized for interactive use rather
+# than for a script in a loop.
+_PLAN_LIMITS_SQL: dict[str, str] = {
+    "free": "20/minute",
+    "starter": "60/minute",
+    "pro": "120/minute",
+    "enterprise": "120/minute",
+}
+
+
 def normalize_plan(plan: str | None) -> str:
     """Normalize a billing-plan string to a known plan, defaulting to ``free``.
 
@@ -144,7 +156,7 @@ class RateLimitSettings(BaseSettings):
 
     Plan tiers are a product decision and live as code constants
     (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ``, ``_PLAN_LIMITS_EXPORT``,
-    ``_PLAN_LIMITS_WRITE`` above)
+    ``_PLAN_LIMITS_WRITE``, ``_PLAN_LIMITS_SQL`` above)
     — not env-overridable.
     The knobs here are the operational ones an SRE legitimately needs at runtime.
 
@@ -173,6 +185,7 @@ class RateLimitSettings(BaseSettings):
             "ingest": _PLAN_LIMITS_INGEST,
             "export": _PLAN_LIMITS_EXPORT,
             "write": _PLAN_LIMITS_WRITE,
+            "sql": _PLAN_LIMITS_SQL,
         }.get(bucket, _PLAN_LIMITS_READ)
         return table[normalize_plan(plan)]
 

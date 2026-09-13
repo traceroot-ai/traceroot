@@ -36,6 +36,7 @@ from rest.routers.public.detectors_read import router as public_detectors_read_r
 from rest.routers.public.eval import router as public_eval_router
 from rest.routers.public.project_write import router as public_project_write_router
 from rest.routers.public.sessions_read import router as public_sessions_read_router
+from rest.routers.public.sql import router as public_sql_router
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.public.traces_read import router as public_traces_read_router
 from rest.routers.public.whoami import router as public_whoami_router
@@ -120,6 +121,7 @@ app.include_router(public_traces_router, prefix="/api/v1")
 app.include_router(public_whoami_router, prefix="/api/v1")
 app.include_router(public_traces_read_router, prefix="/api/v1")
 app.include_router(public_sessions_read_router, prefix="/api/v1")
+app.include_router(public_sql_router, prefix="/api/v1")
 app.include_router(public_detectors_read_router, prefix="/api/v1")
 app.include_router(public_dashboards_read_router, prefix="/api/v1")
 
