@@ -117,16 +117,17 @@ services:
   # One-shot, idempotent: provisions the SQL-gateway DB users before migrations.
   # sql_gateway_writer is the DEFINER of migration 012's views, so it MUST exist
   # before migrate-clickhouse runs. Runs against the live server (works on existing
-  # data volumes). Both accounts are created with sha256_hash from the required
-  # SQL_GATEWAY_WRITER_PASSWORD / CLICKHOUSE_RO_PASSWORD; neither is passwordless,
-  # because the writer can read the raw spans and traces tables.
+  # data volumes). Both accounts use sha256_hash and neither is ever passwordless,
+  # because the writer can read the raw spans and traces tables. The bootstrap password
+  # stays required: migrate-clickhouse authenticates as that account.
   clickhouse-init:
-    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-24.3}
+    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-25.2}
     depends_on:
       clickhouse:
         condition: service_healthy
     volumes:
       - ./backend/db/clickhouse/bootstrap/sql_gateway_users.sql:/bootstrap/sql_gateway_users.sql:ro
+      - ./backend/db/clickhouse/bootstrap/sql_gateway_readonly.sql:/bootstrap/sql_gateway_readonly.sql:ro
     # Credentials arrive as environment rather than command arguments, so they stay
     # out of the container's command line and out of `ps`. They are still readable
     # via `docker inspect` and the container config -- that is inherent to compose
@@ -138,23 +139,38 @@ services:
       # runs as deliberately does not have.
       CLICKHOUSE_USER: sql_gateway_bootstrap
       CLICKHOUSE_PASSWORD: "${SQL_GATEWAY_BOOTSTRAP_PASSWORD:?required - the only account permitted to create database users}"
-      # Self-host production: no defaults. The writer reads the physical tables.
-      SQL_GATEWAY_WRITER_PASSWORD: "${SQL_GATEWAY_WRITER_PASSWORD:?required - this account can read the raw spans and traces tables}"
+      # Neither is required when compose reads this file, because both are gateway
+      # accounts and a stack that never uses the gateway must still start. The writer
+      # has to exist regardless, since migration 012 names it as the views' DEFINER, so
+      # an unset password is generated below and never stored: nothing logs in as it.
+      # The read-only account is the one the API authenticates as, so it is provisioned
+      # only when its password is set, and the API refuses or falls back when it is not.
+      SQL_GATEWAY_WRITER_PASSWORD: "${SQL_GATEWAY_WRITER_PASSWORD:-}"
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
-      CLICKHOUSE_RO_PASSWORD: "${CLICKHOUSE_RO_PASSWORD:?required - this account serves the public SQL endpoint}"
+      CLICKHOUSE_RO_PASSWORD: "${CLICKHOUSE_RO_PASSWORD:-}"
     entrypoint: >
       /bin/sh -c "
       set -e;
       case \"$$CLICKHOUSE_DATABASE\" in ''|[0-9]*|*[!A-Za-z0-9_]*)
       echo 'FATAL: CLICKHOUSE_DATABASE must be an unquoted ClickHouse identifier matching [A-Za-z_][A-Za-z0-9_]*' >&2;
       exit 1;; esac;
+      if [ -z \"$$SQL_GATEWAY_WRITER_PASSWORD\" ]; then
+      SQL_GATEWAY_WRITER_PASSWORD=$$(od -An -v -N32 -tx1 /dev/urandom | tr -d ' \n');
+      fi;
       W=$$(printf '%s' \"$$SQL_GATEWAY_WRITER_PASSWORD\" | sha256sum | cut -d' ' -f1);
-      R=$$(printf '%s' \"$$CLICKHOUSE_RO_PASSWORD\" | sha256sum | cut -d' ' -f1);
-      sed -e \"s/__WRITER_HASH__/$$W/g\" -e \"s/__RO_HASH__/$$R/g\"
-      -e \"s/__DB__/$$CLICKHOUSE_DATABASE/g\"
+      sed -e \"s/__WRITER_HASH__/$$W/g\" -e \"s/__DB__/$$CLICKHOUSE_DATABASE/g\"
       /bootstrap/sql_gateway_users.sql > /tmp/sql_gateway_users.sql;
       clickhouse-client --host clickhouse --port 9000 --user \"$$CLICKHOUSE_USER\"
-      --queries-file /tmp/sql_gateway_users.sql
+      --queries-file /tmp/sql_gateway_users.sql;
+      if [ -z \"$$CLICKHOUSE_RO_PASSWORD\" ]; then
+      echo 'clickhouse-init: CLICKHOUSE_RO_PASSWORD is unset, so the SQL gateway read-only account was not provisioned';
+      else
+      R=$$(printf '%s' \"$$CLICKHOUSE_RO_PASSWORD\" | sha256sum | cut -d' ' -f1);
+      sed -e \"s/__RO_HASH__/$$R/g\" -e \"s/__DB__/$$CLICKHOUSE_DATABASE/g\"
+      /bootstrap/sql_gateway_readonly.sql > /tmp/sql_gateway_readonly.sql;
+      clickhouse-client --host clickhouse --port 9000 --user \"$$CLICKHOUSE_USER\"
+      --queries-file /tmp/sql_gateway_readonly.sql;
+      fi
       "
     restart: "no"
 

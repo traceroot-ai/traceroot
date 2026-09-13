@@ -54,17 +54,18 @@ services:
       start_period: 1s
 
   # One-shot, idempotent: provisions the SQL-gateway DB users. sql_gateway_writer
-  # is the DEFINER of the views created by migration 006, so it MUST exist before
+  # is the DEFINER of the views created by migration 012, so it MUST exist before
   # migrate-clickhouse runs. Uses clickhouse-client against the live server (not the
   # first-boot-only /docker-entrypoint-initdb.d), so it also provisions existing
   # data volumes. See backend/db/clickhouse/bootstrap/sql_gateway_users.sql.
   clickhouse-init:
-    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-24.3}
+    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-25.2}
     depends_on:
       clickhouse:
         condition: service_healthy
     volumes:
       - ./backend/db/clickhouse/bootstrap/sql_gateway_users.sql:/bootstrap/sql_gateway_users.sql:ro
+      - ./backend/db/clickhouse/bootstrap/sql_gateway_readonly.sql:/bootstrap/sql_gateway_readonly.sql:ro
     # Credentials arrive as environment rather than command arguments, so they stay
     # out of the container's command line and out of `ps`. They are still readable
     # via `docker inspect` and the container config -- that is inherent to compose
@@ -86,13 +87,23 @@ services:
       case \"$$CLICKHOUSE_DATABASE\" in ''|[0-9]*|*[!A-Za-z0-9_]*)
       echo 'FATAL: CLICKHOUSE_DATABASE must be an unquoted ClickHouse identifier matching [A-Za-z_][A-Za-z0-9_]*' >&2;
       exit 1;; esac;
+      if [ -z \"$$SQL_GATEWAY_WRITER_PASSWORD\" ]; then
+      SQL_GATEWAY_WRITER_PASSWORD=$$(od -An -v -N32 -tx1 /dev/urandom | tr -d ' \n');
+      fi;
       W=$$(printf '%s' \"$$SQL_GATEWAY_WRITER_PASSWORD\" | sha256sum | cut -d' ' -f1);
-      R=$$(printf '%s' \"$$CLICKHOUSE_RO_PASSWORD\" | sha256sum | cut -d' ' -f1);
-      sed -e \"s/__WRITER_HASH__/$$W/g\" -e \"s/__RO_HASH__/$$R/g\"
-      -e \"s/__DB__/$$CLICKHOUSE_DATABASE/g\"
+      sed -e \"s/__WRITER_HASH__/$$W/g\" -e \"s/__DB__/$$CLICKHOUSE_DATABASE/g\"
       /bootstrap/sql_gateway_users.sql > /tmp/sql_gateway_users.sql;
       clickhouse-client --host clickhouse --port 9000 --user \"$$CLICKHOUSE_USER\"
-      --queries-file /tmp/sql_gateway_users.sql
+      --queries-file /tmp/sql_gateway_users.sql;
+      if [ -z \"$$CLICKHOUSE_RO_PASSWORD\" ]; then
+      echo 'clickhouse-init: CLICKHOUSE_RO_PASSWORD is unset, so the SQL gateway read-only account was not provisioned';
+      else
+      R=$$(printf '%s' \"$$CLICKHOUSE_RO_PASSWORD\" | sha256sum | cut -d' ' -f1);
+      sed -e \"s/__RO_HASH__/$$R/g\" -e \"s/__DB__/$$CLICKHOUSE_DATABASE/g\"
+      /bootstrap/sql_gateway_readonly.sql > /tmp/sql_gateway_readonly.sql;
+      clickhouse-client --host clickhouse --port 9000 --user \"$$CLICKHOUSE_USER\"
+      --queries-file /tmp/sql_gateway_readonly.sql;
+      fi
       "
     restart: "no"
 

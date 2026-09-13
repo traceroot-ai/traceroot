@@ -1,4 +1,4 @@
--- SQL Gateway user provisioning — compose/dev bootstrap.
+-- SQL Gateway writer provisioning, for compose.
 --
 -- Idempotent. The `clickhouse-init` compose service pipes this through
 -- clickhouse-client BEFORE `migrate-clickhouse` runs, because migration 012
@@ -16,8 +16,14 @@
 -- in ClickHouse's query_log. The writer holds SELECT on the PHYSICAL tables, so it
 -- must never be passwordless: an account with no password there would expose every
 -- project's raw rows, including the blobs the curated views deliberately omit.
--- The dev stack supplies a known weak default; the self-host production stack
--- refuses to start without real values.
+-- When SQL_GATEWAY_WRITER_PASSWORD is unset, clickhouse-init generates a random one and
+-- never stores it. Nothing authenticates as the writer, which exists only because the
+-- views name it as their DEFINER, so the value is write-only by construction and the
+-- account is still never passwordless.
+--
+-- The read-only gateway account is in sql_gateway_readonly.sql, provisioned only when
+-- CLICKHOUSE_RO_PASSWORD is set. The writer cannot be made optional the same way:
+-- migration 012 needs it whether or not anyone uses the gateway.
 --
 -- The database is substituted as `__DB__` by clickhouse-init from CLICKHOUSE_DATABASE,
 -- the same value migrate-clickhouse targets. Hardcoding `default` here meant the grants
@@ -28,21 +34,3 @@ CREATE USER IF NOT EXISTS sql_gateway_writer IDENTIFIED WITH sha256_hash BY '__W
 ALTER USER sql_gateway_writer IDENTIFIED WITH sha256_hash BY '__WRITER_HASH__';
 GRANT SELECT ON __DB__.spans  TO sql_gateway_writer;
 GRANT SELECT ON __DB__.traces TO sql_gateway_writer;
-
--- 2) Read-only caps as CONST (immutable; a readonly=1 user cannot change them).
-CREATE SETTINGS PROFILE IF NOT EXISTS sql_readonly_profile SETTINGS
-    readonly = 1,
-    max_execution_time = 30 CONST,
-    max_result_rows = 100000 CONST,
-    max_result_bytes = 536870912 CONST,
-    max_memory_usage = 4294967296 CONST;
-
--- 3) Read-only gateway user: reads the curated views ONLY (never the physical tables).
-CREATE USER IF NOT EXISTS sql_gateway_ro
-    IDENTIFIED WITH sha256_hash BY '__RO_HASH__'
-    SETTINGS PROFILE 'sql_readonly_profile';
-ALTER USER sql_gateway_ro
-    IDENTIFIED WITH sha256_hash BY '__RO_HASH__'
-    SETTINGS PROFILE 'sql_readonly_profile';
-GRANT SELECT ON __DB__.spans_public_v1  TO sql_gateway_ro;
-GRANT SELECT ON __DB__.traces_public_v1 TO sql_gateway_ro;
