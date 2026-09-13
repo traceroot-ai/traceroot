@@ -589,3 +589,31 @@ def test_connectors_do_not_open_the_function_gate() -> None:
     ):
         with pytest.raises(SqlValidationError):
             validate(sql)
+
+
+# ---------------------------------------------------------------------------
+# Time functions a caller needs to express a window the rewriter can extract.
+# ---------------------------------------------------------------------------
+WINDOW_FUNCTION_CASES = [
+    pytest.param("SELECT count() FROM spans WHERE span_start_time >= now64(3)", id="now64"),
+    pytest.param(
+        "SELECT count() FROM spans WHERE span_start_time >= toDateTime64('2026-09-01', 3)",
+        id="todatetime64",
+    ),
+    pytest.param(
+        "SELECT count() FROM spans WHERE span_start_time >= addDays(now(), -1)", id="adddays"
+    ),
+    pytest.param(
+        "SELECT count() FROM spans WHERE span_start_time >= subtractDays(now(), 1)",
+        id="subtractdays",
+    ),
+    pytest.param(
+        "SELECT count() FROM spans WHERE span_start_time >= toStartOfDay(now())",
+        id="tostartofday",
+    ),
+]
+
+
+@pytest.mark.parametrize("sql", WINDOW_FUNCTION_CASES)
+def test_window_functions_are_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
