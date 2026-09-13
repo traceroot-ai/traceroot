@@ -49,7 +49,9 @@ dependency, and no runtime side effects.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 
 
 @dataclass(frozen=True)
@@ -113,13 +115,22 @@ _TRACES = PublicTable(
 )
 
 #: Curated logical tables exposed by the SQL Gateway, keyed by logical name.
-PUBLIC_TABLES: dict[str, PublicTable] = {_SPANS.name: _SPANS, _TRACES.name: _TRACES}
+#: Read-only at runtime: the tables and columns are frozen dataclasses, so the
+#: mappings that hold them are wrapped too. Otherwise the contract is one
+#: assignment away from being edited in place by any importer, and the modules
+#: that derive from it (the validator's table allowlist, the rewriter's view
+#: names) would follow the edit without anything failing.
+PUBLIC_TABLES: Mapping[str, PublicTable] = MappingProxyType(
+    {_SPANS.name: _SPANS, _TRACES.name: _TRACES}
+)
 
 #: Logical table -> curated, project-scoped ClickHouse view it rewrites to.
-TABLE_VIEW_MAP: dict[str, str] = {
-    "spans": "spans_public_v1",
-    "traces": "traces_public_v1",
-}
+TABLE_VIEW_MAP: Mapping[str, str] = MappingProxyType(
+    {
+        "spans": "spans_public_v1",
+        "traces": "traces_public_v1",
+    }
+)
 
 #: Per-row predicates the curated views MUST apply to the physical tables, in
 #: addition to the bound project scope.

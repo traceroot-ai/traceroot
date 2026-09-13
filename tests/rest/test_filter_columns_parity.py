@@ -7,13 +7,14 @@ snapshot stays in sync with the curated-column contract it mirrors.
 """
 
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import FrozenInstanceError
 
 import pytest
 
 from rest.services.filters import columns as reg
 
-MEMBERSHIP_FIELDS = {"model_name", "environment"}
+MEMBERSHIP_FIELDS = {"model_name", "environment", "span_kind", "status", "name"}
 # Keyed map: its own tier, because the predicate carries a map key as well as a value and
 # lowers to a shape no membership field lowers to. One parameterized field over a Map
 # column, never one registry row per key.
@@ -182,7 +183,10 @@ except ImportError:
 def test_registry_columns_exist_in_gateway_public_tables():
     """Every filter column must be a real curated column once the Gateway merges."""
     tables = gateway_schema.PUBLIC_TABLES
-    iterable = tables.values() if isinstance(tables, dict) else tables
+    # Mapping, not dict: the Gateway exports a read-only MappingProxyType, which is
+    # a Mapping but not a dict, and an isinstance(dict) check would silently fall
+    # through to iterating keys and compare an empty column set against everything.
+    iterable = tables.values() if isinstance(tables, Mapping) else tables
     gateway_cols = {getattr(c, "name", c) for tbl in iterable for c in getattr(tbl, "columns", [])}
     missing = {c.name for c in reg.FILTER_COLUMNS} - gateway_cols - _DERIVED_FIELDS
     assert not missing, f"registry columns absent from Gateway curated schema: {missing}"

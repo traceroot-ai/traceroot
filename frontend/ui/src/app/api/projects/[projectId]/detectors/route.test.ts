@@ -4,6 +4,7 @@ vi.mock("next/server", () => ({ NextRequest: class {} }));
 
 const detectorCreateMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
+  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
   prisma: {
     detector: {
       create: (...args: unknown[]) => detectorCreateMock(...args),
@@ -26,6 +27,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   }),
 }));
 
+import { Role } from "@traceroot/core";
 import { POST } from "./route";
 
 function makeRequest(body: unknown) {
@@ -48,6 +50,49 @@ beforeEach(() => {
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
   requireProjectAccessMock.mockResolvedValue({});
   detectorCreateMock.mockResolvedValue({ id: "det-1" });
+});
+
+describe("POST .../detectors — role gating", () => {
+  it("returns 403 for a VIEWER-role member and never creates", async () => {
+    requireProjectAccessMock.mockResolvedValue({
+      error: { status: 403, json: async () => ({ error: "Requires MEMBER role or higher" }) },
+    });
+
+    const res = await POST(makeRequest(validBody()), makeParams());
+
+    expect(requireProjectAccessMock).toHaveBeenCalledWith("user-1", "proj-1", Role.MEMBER);
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toBe("Requires MEMBER role or higher");
+    expect(detectorCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("lets a MEMBER-role member create a detector", async () => {
+    const res = await POST(makeRequest(validBody()), makeParams());
+
+    expect(requireProjectAccessMock).toHaveBeenCalledWith("user-1", "proj-1", Role.MEMBER);
+    expect(res.status).toBe(201);
+    expect(detectorCreateMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("POST .../detectors — name conflicts", () => {
+  it("returns 409 when the name collides on the per-project unique index", async () => {
+    detectorCreateMock.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+    const res = await POST(makeRequest(validBody()), makeParams());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "A detector with this name already exists",
+    );
+  });
+
+  it("propagates non-P2002 create failures", async () => {
+    detectorCreateMock.mockRejectedValue(new Error("Database connection lost"));
+    await expect(POST(makeRequest(validBody()), makeParams())).rejects.toThrow(
+      "Database connection lost",
+    );
+  });
 });
 
 describe("POST .../detectors — sampleRate default", () => {

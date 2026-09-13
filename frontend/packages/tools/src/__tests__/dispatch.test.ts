@@ -131,6 +131,125 @@ describe("dispatch", () => {
   });
 });
 
+describe("dispatch body routing", () => {
+  function makeWriteEntry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
+    return {
+      name: "create_detector",
+      description: "Create a detector.",
+      method: "post",
+      path: "/api/v1/public/projects/{project_id}/detectors",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project_id: { type: "string" },
+          dry_run: { type: "boolean" },
+          name: { type: "string" },
+          template: { type: "object" },
+        },
+        required: ["project_id", "name"],
+        additionalProperties: false,
+      },
+      bodyParams: ["name", "template"],
+      policy: { approvalClass: "approval", minRole: "MEMBER", tenancy: "project" },
+      ...overrides,
+    };
+  }
+
+  it("routes bodyParams into the JSON body and keeps them out of the query string", async () => {
+    const fetchImpl = fakeFetch(200, { data: {} });
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });
+    const requestSpy = vi.spyOn(client, "request");
+    await dispatch(
+      makeWriteEntry(),
+      { project_id: "p1", dry_run: true, name: "latency", template: { kind: "llm" } },
+      client,
+    );
+    const [method, path, opts] = requestSpy.mock.calls[0]!;
+    expect(method).toBe("post");
+    expect(path).toBe("/api/v1/public/projects/p1/detectors");
+    expect(opts!.body).toEqual({ name: "latency", template: { kind: "llm" } });
+    expect(opts!.params).toEqual({ dry_run: "true" });
+    const [url] = fetchImpl.mock.calls[0]!;
+    const parsed = new URL(String(url));
+    expect(parsed.searchParams.has("name")).toBe(false);
+    expect(parsed.searchParams.has("template")).toBe(false);
+  });
+
+  it("omits body params absent from args instead of sending undefined values", async () => {
+    const fetchImpl = fakeFetch(200, { data: {} });
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });
+    const requestSpy = vi.spyOn(client, "request");
+    await dispatch(makeWriteEntry(), { project_id: "p1", name: "latency" }, client);
+    const [, , opts] = requestSpy.mock.calls[0]!;
+    expect(opts!.body).toStrictEqual({ name: "latency" });
+    expect("template" in (opts!.body as Record<string, unknown>)).toBe(false);
+  });
+
+  it("keeps GET dispatch byte-identical: same params, no body key", async () => {
+    const fetchImpl = fakeFetch(200, { data: {} });
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });
+    const requestSpy = vi.spyOn(client, "request");
+    await dispatch(makeEntry(), { trace_id: "t1", fields: "full" }, client);
+    const [method, path, opts] = requestSpy.mock.calls[0]!;
+    expect(method).toBe("get");
+    expect(path).toBe("/api/v1/public/traces/t1");
+    expect(opts).toStrictEqual({ params: { fields: "full" }, signal: undefined });
+    expect("body" in opts!).toBe(false);
+  });
+
+  it("sends no body for a post entry without body params", async () => {
+    const fetchImpl = fakeFetch(200, { data: {} });
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });
+    const requestSpy = vi.spyOn(client, "request");
+    await dispatch(
+      makeWriteEntry({
+        bodyParams: [],
+        inputSchema: {
+          type: "object",
+          properties: { project_id: { type: "string" }, dry_run: { type: "boolean" } },
+          required: ["project_id"],
+          additionalProperties: false,
+        },
+      }),
+      { project_id: "p1", dry_run: false },
+      client,
+    );
+    const [, , opts] = requestSpy.mock.calls[0]!;
+    expect("body" in opts!).toBe(false);
+    expect(opts!.params).toEqual({ dry_run: "false" });
+  });
+
+  it("passes object and array body values through unstringified", async () => {
+    const fetchImpl = fakeFetch(200, { data: {} });
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });
+    const requestSpy = vi.spyOn(client, "request");
+    const template = { kind: "llm", thresholds: [0.5, 0.9] };
+    const rules = [{ field: "model_name", op: "eq", value: "gpt" }];
+    await dispatch(
+      makeWriteEntry({
+        bodyParams: ["name", "template", "rules"],
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_id: { type: "string" },
+            name: { type: "string" },
+            template: { type: "object" },
+            rules: { type: "array" },
+          },
+          required: ["project_id", "name"],
+          additionalProperties: false,
+        },
+      }),
+      { project_id: "p1", name: "latency", template, rules },
+      client,
+    );
+    const [, , opts] = requestSpy.mock.calls[0]!;
+    const body = opts!.body as Record<string, unknown>;
+    expect(body.template).toBe(template);
+    expect(body.rules).toBe(rules);
+  });
+});
+
 describe("ApiClient", () => {
   it("sends the configured headers", async () => {
     const fetchImpl = fakeFetch(200, {});

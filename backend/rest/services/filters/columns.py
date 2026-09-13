@@ -109,6 +109,11 @@ class FilterColumn:
     enum_values: tuple[str, ...] = ()
     aggregate_expr: str | None = None
     source_columns: tuple[str, ...] = ()
+    # Whether detectors may name the field in a trigger condition. Detectors
+    # evaluate a trace summary the worker assembles from a fixed set of span
+    # columns (backend/worker/detector_tasks.py), so a field the trace list
+    # can filter on is only a trigger once the evaluator fetches it too.
+    detector_trigger: bool = True
 
     @property
     def is_integer(self) -> bool:
@@ -144,6 +149,9 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         type=FilterType.TEXT,
         operators=(FilterOperator.EQ, FilterOperator.CONTAINS),
         value_source=ValueSource.FREE_TEXT,
+        # Detectors evaluate live traces as they complete: pinning one known
+        # trace id is not a meaningful trigger.
+        detector_trigger=False,
     ),
     # Membership tier — "trace has ≥1 span where …" (span semi-join).
     FilterColumn(
@@ -163,6 +171,41 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         type=FilterType.CATEGORICAL,
         operators=(FilterOperator.IN,),
         value_source=ValueSource.DISTINCT_QUERY,
+    ),
+    # The span-level dimensions an alert rule can filter on, so an alert's
+    # notification link can narrow the list the same way. Membership semantics
+    # here ("has a span where ...") are looser than the alert's span-grain
+    # predicate by design: this is the drill-down, not the evaluation. Not
+    # detector triggers: the detector evaluator does not fetch these columns.
+    FilterColumn(
+        name="span_kind",
+        label="Span kind",
+        ch_type="String",
+        level=FilterLevel.SPAN_MEMBERSHIP,
+        type=FilterType.CATEGORICAL,
+        operators=(FilterOperator.IN,),
+        value_source=ValueSource.DISTINCT_QUERY,
+        detector_trigger=False,
+    ),
+    FilterColumn(
+        name="status",
+        label="Status",
+        ch_type="String",
+        level=FilterLevel.SPAN_MEMBERSHIP,
+        type=FilterType.CATEGORICAL,
+        operators=(FilterOperator.IN,),
+        value_source=ValueSource.DISTINCT_QUERY,
+        detector_trigger=False,
+    ),
+    FilterColumn(
+        name="name",
+        label="Span name",
+        ch_type="String",
+        level=FilterLevel.SPAN_MEMBERSHIP,
+        type=FilterType.CATEGORICAL,
+        operators=(FilterOperator.IN,),
+        value_source=ValueSource.DISTINCT_QUERY,
+        detector_trigger=False,
     ),
     # Aggregate tier — time-bounded GROUP BY trace_id HAVING <agg> <op> <value>.
     FilterColumn(

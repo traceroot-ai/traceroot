@@ -341,6 +341,16 @@ services:
       # Per-attempt wall-clock timeout (ms) for the LLM-as-judge eval call so a
       # hung or unreachable provider can't pin a worker slot indefinitely.
       DETECTOR_EVAL_TIMEOUT_MS: ${DETECTOR_EVAL_TIMEOUT_MS:-60000}
+      # --- Alerts config ---
+      # The threshold-alert scheduler shares this worker. On unless set;
+      # "false"/"0"/"no"/"off" turn it off, as does a value it cannot read,
+      # which is logged as a warning. The scheduler re-reads it every tick, but
+      # the value itself comes from this environment, so changing it takes
+      # recreating the container: switching alerting off mid-incident is a
+      # redeploy of this one service, and it briefly takes the detector run, RCA
+      # and digest consumers with it. Notifications already queued still deliver
+      # on their own retry budget afterwards.
+      ALERTS_SCHEDULER_ENABLED: ${ALERTS_SCHEDULER_ENABLED:-true}
     depends_on:
       migrate:
         condition: service_completed_successfully
