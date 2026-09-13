@@ -607,8 +607,11 @@ class TestTimeRange:
             "SELECT count() FROM spans WHERE span_start_time >= '2026-09-01'", PID
         )
         call = _view_call(rendered, "spans_public_v1")
-        assert call.count("=") >= 3
-        assert "project_id" in call and "start_time" in call and "end_time" in call
+        assert "project_id = {scope_project_id: String}" in call
+        assert "start_time = toTimeZone(toDateTime64('2026-09-01', 3), timezone())" in call
+        assert (
+            "end_time = toTimeZone(toDateTime64('2299-12-31 23:59:59.999', 3), timezone())" in call
+        )
 
     def test_a_bound_naming_another_column_is_refused(self) -> None:
         # A view argument must be a constant. Rendering `t.trace_start_time` into
