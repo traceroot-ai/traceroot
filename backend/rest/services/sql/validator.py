@@ -116,6 +116,16 @@ ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "row_number",  # ClickHouse row_number() -> exp.RowNumber
         "rank",
         "dense_rank",
+        # --- Time functions a caller needs to express a window. The curated
+        # views take a time range, and the rewriter reads it out of the caller's
+        # WHERE, so a window the allowlist refuses is a window that cannot prune.
+        # `now` and `toStartOf*` were already here; these complete the set at
+        # millisecond precision and for relative offsets. All four are
+        # Anonymous with their names preserved through sqlglot.
+        "now64",  # ClickHouse now64(3)
+        "todatetime64",  # ClickHouse toDateTime64()
+        "adddays",  # ClickHouse addDays()
+        "subtractdays",  # ClickHouse subtractDays()
         # --- Map access for the curated `metadata` column. Keying it
         # (metadata['k']) needs no function, but a caller who does not know the
         # keys has no way to look: these three are how a Map is inspected, and
