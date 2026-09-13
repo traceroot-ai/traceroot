@@ -16,8 +16,7 @@
 -- applies the migration. An admin/deploy user may run this migration as long as
 -- it has permission to create a view with this definer. The views use CREATE OR
 -- REPLACE (not IF NOT EXISTS) so re-applying reliably (re)sets this definer even if
--- a view already exists from a prior version. See the runbook:
--- backend/db/clickhouse/SQL_GATEWAY_RUNBOOK.md
+-- a view already exists from a prior version.
 --
 -- Dedup: spans/traces are ReplacingMergeTree(ch_update_time), and the dedup here is an
 -- explicit `ORDER BY ch_update_time DESC LIMIT 1 BY <id>` over the LOGICAL id, applied
