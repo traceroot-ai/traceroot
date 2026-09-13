@@ -34,18 +34,67 @@ services:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-default}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}  # CHANGEME
+      # Read by sql_gateway_bootstrap_user.xml via from_env, so the password for the
+      # only access-management account is never written into a mounted config file.
+      SQL_GATEWAY_BOOTSTRAP_PASSWORD: ${SQL_GATEWAY_BOOTSTRAP_PASSWORD:-dev-sql-gateway-bootstrap}
     ports:
       - 127.0.0.1:8123:8123
       - 127.0.0.1:9000:9000
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
+      # Defines sql_gateway_bootstrap, the only account holding access management.
+      # Kept off the application account, which rest/worker/billing/detector all use.
+      - ./backend/db/clickhouse/bootstrap/sql_gateway_bootstrap_user.xml:/etc/clickhouse-server/users.d/zz-sql-gateway-bootstrap.xml:ro
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 1s
+
+  # One-shot, idempotent: provisions the SQL-gateway DB users. sql_gateway_writer
+  # is the DEFINER of the views created by migration 006, so it MUST exist before
+  # migrate-clickhouse runs. Uses clickhouse-client against the live server (not the
+  # first-boot-only /docker-entrypoint-initdb.d), so it also provisions existing
+  # data volumes. See backend/db/clickhouse/bootstrap/sql_gateway_users.sql.
+  clickhouse-init:
+    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-24.3}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./backend/db/clickhouse/bootstrap/sql_gateway_users.sql:/bootstrap/sql_gateway_users.sql:ro
+    # Credentials arrive as environment rather than command arguments, so they stay
+    # out of the container's command line and out of `ps`. They are still readable
+    # via `docker inspect` and the container config -- that is inherent to compose
+    # environment, and anyone with daemon access is already root-equivalent here.
+    # The $$ below are escaped for the shell rather than substituted by Compose.
+    environment:
+      # Provisioning runs as the bootstrap identity, not the application account:
+      # CREATE USER and SET DEFINER need access management, which the account the app
+      # runs as deliberately does not have.
+      CLICKHOUSE_USER: sql_gateway_bootstrap
+      CLICKHOUSE_PASSWORD: ${SQL_GATEWAY_BOOTSTRAP_PASSWORD:-dev-sql-gateway-bootstrap}
+      # Dev stack: weak known defaults, matching this stack's other credentials.
+      SQL_GATEWAY_WRITER_PASSWORD: ${SQL_GATEWAY_WRITER_PASSWORD:-dev-sql-gateway-writer}
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
+      CLICKHOUSE_RO_PASSWORD: ${CLICKHOUSE_RO_PASSWORD:-dev-sql-gateway-ro}
+    entrypoint: >
+      /bin/sh -c "
+      set -e;
+      case \"$$CLICKHOUSE_DATABASE\" in ''|[0-9]*|*[!A-Za-z0-9_]*)
+      echo 'FATAL: CLICKHOUSE_DATABASE must be an unquoted ClickHouse identifier matching [A-Za-z_][A-Za-z0-9_]*' >&2;
+      exit 1;; esac;
+      W=$$(printf '%s' \"$$SQL_GATEWAY_WRITER_PASSWORD\" | sha256sum | cut -d' ' -f1);
+      R=$$(printf '%s' \"$$CLICKHOUSE_RO_PASSWORD\" | sha256sum | cut -d' ' -f1);
+      sed -e \"s/__WRITER_HASH__/$$W/g\" -e \"s/__RO_HASH__/$$R/g\"
+      -e \"s/__DB__/$$CLICKHOUSE_DATABASE/g\"
+      /bootstrap/sql_gateway_users.sql > /tmp/sql_gateway_users.sql;
+      clickhouse-client --host clickhouse --port 9000 --user \"$$CLICKHOUSE_USER\"
+      --queries-file /tmp/sql_gateway_users.sql
+      "
+    restart: "no"
 
   minio:
     image: docker.io/minio/minio:latest
@@ -96,16 +145,37 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.migrate-clickhouse
+    # The DSN is built inside the container rather than passed as an argument, for two
+    # reasons each caught in review:
+    #   - a password in `command:`/`entrypoint:` is visible in the container's argv and
+    #     in `docker inspect`, which is the exposure moving clickhouse-init's
+    #     credentials into the environment had already removed;
+    #   - a password containing a URL-reserved character breaks DSN parsing outright
+    #     ("invalid port" after host). Percent-encoding every byte is valid userinfo
+    #     and survives any character; verified against goose with a password of
+    #     p/a#s?w&o=rd.
+    environment:
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
+      SQL_GATEWAY_BOOTSTRAP_PASSWORD: ${SQL_GATEWAY_BOOTSTRAP_PASSWORD:-dev-sql-gateway-bootstrap}
     entrypoint:
-      - goose
-      - -dir
-      - /migrations
-      - clickhouse
-      - clickhouse://${CLICKHOUSE_USER:-clickhouse}:${CLICKHOUSE_PASSWORD:-clickhouse}@clickhouse:9000/${CLICKHOUSE_DATABASE:-default}
-    command: ["up"]
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        PW=$$(printf '%s' "$$SQL_GATEWAY_BOOTSTRAP_PASSWORD" | od -An -v -tx1 | tr -d '\n ' | sed 's/../%&/g')
+        # The DSN travels in the environment, never in argv. goose accepts the driver and
+        # connection string as GOOSE_DRIVER/GOOSE_DBSTRING, so the expanded password stays
+        # out of /proc/<pid>/cmdline, which is world-readable, unlike /proc/<pid>/environ.
+        # Exported here rather than in the compose `environment:` block, because that would
+        # put it back in `docker inspect` output.
+        export GOOSE_DRIVER=clickhouse
+        export GOOSE_DBSTRING="clickhouse://sql_gateway_bootstrap:$$PW@clickhouse:9000/$$CLICKHOUSE_DATABASE"
+        exec goose -dir /migrations up
     depends_on:
       clickhouse:
         condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
     restart: "no"
 
 volumes:
