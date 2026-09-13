@@ -166,8 +166,8 @@ export function DatasetsView({ projectId }: { projectId: string }) {
 
       {meta && meta.total > 0 && (
         <ListPagination
-          page={meta.page}
-          limit={meta.limit}
+          page={page}
+          limit={limit}
           total={meta.total}
           onPageChange={goToPage}
           onLimitChange={setLimit}
