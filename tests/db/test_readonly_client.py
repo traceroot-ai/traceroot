@@ -102,6 +102,30 @@ class TestReadonlyClient:
         with pytest.raises(RuntimeError, match="CLICKHOUSE_RO_USER"):
             ch_client_mod.get_readonly_clickhouse_client()
 
+    # Compose defaults the user name and provisions the account only when a password is
+    # set, so a user with no password names an account that does not exist.
+    def test_fatal_in_cloud_when_ro_password_missing(self, monkeypatch):
+        ch = ch_client_mod.settings.clickhouse
+        monkeypatch.setattr(ch, "ro_user", "sql_gateway_ro", raising=False)
+        monkeypatch.setattr(ch, "ro_password", "", raising=False)
+        monkeypatch.delenv("ENABLE_BILLING", raising=False)
+        built = MagicMock()
+        monkeypatch.setattr(ch_client_mod.ClickHouseClient, "_build", built)
+        with pytest.raises(RuntimeError, match="CLICKHOUSE_RO_PASSWORD"):
+            ch_client_mod.get_readonly_clickhouse_client()
+        built.assert_not_called()
+
+    def test_self_host_falls_back_when_ro_password_missing(self, monkeypatch):
+        ch = ch_client_mod.settings.clickhouse
+        monkeypatch.setattr(ch, "ro_user", "sql_gateway_ro", raising=False)
+        monkeypatch.setattr(ch, "ro_password", None, raising=False)
+        monkeypatch.setenv("ENABLE_BILLING", "false")
+        sentinel = MagicMock(name="default-client")
+        monkeypatch.setattr(ch_client_mod, "get_clickhouse_client", lambda: sentinel)
+        assert ch_client_mod.get_readonly_clickhouse_client() is (
+            sentinel.with_default_settings.return_value
+        )
+
     def test_fallback_to_default_with_warning_in_self_host(self, monkeypatch, caplog):
         ch = ch_client_mod.settings.clickhouse
         monkeypatch.setattr(ch, "ro_user", None, raising=False)
