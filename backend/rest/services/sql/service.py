@@ -96,6 +96,35 @@ _CLIENT_ERRORS: dict[int, str] = {
 
 _UNEXPECTED = "Query execution failed."
 
+#: Parameter names the caller may not supply. ``scope_project_id`` is the scope
+#: bind, and the prefix reserves room for the bounds the rewriter may add later.
+#: Layer 1 refuses these inside the SQL; this refuses them in the payload, so
+#: neither half depends on the other having done it.
+_RESERVED_PARAM_PREFIX = "scope_"
+
+#: A parameter name is sent to the server as ``param_<name>`` in the request, so
+#: a name carrying a separator could add a request field of its own rather than a
+#: value. Restricting names to identifiers removes the question instead of
+#: relying on the driver to encode them.
+_PARAM_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _scrubbed(parameters: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the caller's parameters, refusing reserved and malformed names."""
+    if not parameters:
+        return {}
+    for name in parameters:
+        if not isinstance(name, str) or not _PARAM_NAME_RE.match(name):
+            raise SqlExecutionError(
+                "Query parameter names must be plain identifiers.", is_client_error=True
+            )
+        lowered = name.lower()
+        if lowered == "project_id" or lowered.startswith(_RESERVED_PARAM_PREFIX):
+            raise SqlExecutionError(
+                "Query parameters may not use a reserved name.", is_client_error=True
+            )
+    return dict(parameters)
+
 
 def classify_ch_error(raw: str) -> tuple[str, bool]:
     """Map a raw ClickHouse error to a safe message and a blame assignment.
@@ -145,7 +174,14 @@ class SqlQueryService:
         # it. A caller asking for fewer rows than the ceiling gets what it asked.
         return min(max_rows, self._ceiling)
 
-    def run(self, query: str, project_id: str, *, max_rows: int | None = None) -> SqlResult:
+    def run(
+        self,
+        query: str,
+        project_id: str,
+        *,
+        parameters: dict[str, Any] | None = None,
+        max_rows: int | None = None,
+    ) -> SqlResult:
         """Validate, scope, execute and shape one query.
 
         Raises ``SqlValidationError`` before touching the database if the query
@@ -153,9 +189,15 @@ class SqlQueryService:
         database refuses or fails it.
         """
         effective_max = self._effective_max(max_rows)
+        caller_params = _scrubbed(parameters)
 
         # Layers 1 to 3. Raises SqlValidationError, which the caller maps to 400.
         scoped_sql, bind_params = scope_and_render(query, project_id)
+
+        # The scope bind goes on last and wins outright. The scrub above already
+        # refuses these names, so the ordering is the second of two independent
+        # reasons a caller cannot displace the tenant scope.
+        merged_params = {**caller_params, **bind_params}
 
         wrapped = f"SELECT * FROM (\n{scoped_sql}\n) LIMIT {effective_max + 1}"
 
@@ -164,7 +206,7 @@ class SqlQueryService:
         try:
             # No settings argument. See the module docstring: readonly = 1
             # refuses every per-query override, stricter ones included.
-            result = client.query(wrapped, parameters=bind_params)
+            result = client.query(wrapped, parameters=merged_params)
         except ClickHouseError as exc:
             message, is_client_error = classify_ch_error(str(exc))
             # The raw text may name the curated views, so it is logged and never

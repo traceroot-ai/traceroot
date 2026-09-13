@@ -216,3 +216,57 @@ class TestResultShape:
         client = FakeClient(rows=[["s1"]])
         result = _service(client).run("SELECT span_id FROM spans", PID)
         assert result.elapsed_ms >= 0
+
+
+# ---------------------------------------------------------------------------
+# Caller-supplied parameters
+# ---------------------------------------------------------------------------
+class TestCallerParameters:
+    def test_a_caller_parameter_is_bound_not_interpolated(self) -> None:
+        client = FakeClient(rows=[["s1"]])
+        _service(client).run(
+            "SELECT span_id FROM spans WHERE span_id = {want:String}",
+            PID,
+            parameters={"want": "s1"},
+        )
+        assert client.last["parameters"]["want"] == "s1"
+        assert "s1" not in client.last["query"]
+
+    def test_the_scope_bind_wins_over_a_caller_parameter(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The scrub refuses this name outright, so reaching the merge at all means
+        # standing in for a scrub that let it through. That is the point: the
+        # ordering is a second, independent reason the tenant scope cannot move.
+        from rest.services.sql import service as service_module
+
+        monkeypatch.setattr(
+            service_module, "_scrubbed", lambda _params: {"scope_project_id": "somebody_else"}
+        )
+        client = FakeClient(rows=[["s1"]])
+        _service(client).run("SELECT span_id FROM spans", PID)
+        assert client.last["parameters"]["scope_project_id"] == PID
+
+    @pytest.mark.parametrize(
+        "name", ["project_id", "PROJECT_ID", "scope_project_id", "scope_anything", "SCOPE_x"]
+    )
+    def test_a_reserved_parameter_name_is_refused_before_execution(self, name: str) -> None:
+        client = FakeClient(rows=[["s1"]])
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run("SELECT span_id FROM spans", PID, parameters={name: "x"})
+        assert exc_info.value.is_client_error
+        assert not client.calls
+
+    @pytest.mark.parametrize("name", ["with space", "x&max_execution_time", "1leading", "", "a-b"])
+    def test_a_malformed_parameter_name_is_refused(self, name: str) -> None:
+        # The name is sent as `param_<name>` in the request, so a separator in it
+        # would add a request field rather than a value.
+        client = FakeClient(rows=[["s1"]])
+        with pytest.raises(SqlExecutionError):
+            _service(client).run("SELECT span_id FROM spans", PID, parameters={name: "x"})
+        assert not client.calls
+
+    def test_no_parameters_still_sends_only_the_scope_bind(self) -> None:
+        client = FakeClient(rows=[["s1"]])
+        _service(client).run("SELECT span_id FROM spans", PID)
+        assert client.last["parameters"] == {"scope_project_id": PID}
