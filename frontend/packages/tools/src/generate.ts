@@ -1,5 +1,5 @@
 import { stripOversizedNumericBounds } from "./sanitize.js";
-import type { InputSchema, ParamSchema, RegistryEntry } from "./types.js";
+import type { InputSchema, ParamSchema, RegistryEntry, ToolPolicy } from "./types.js";
 
 interface OpenApiParameter {
   name: string;
@@ -14,15 +14,22 @@ interface ToolCuration {
   enabled?: boolean;
   name?: string;
   description?: string;
+  policy?: unknown;
+  agentHiddenParams?: readonly string[];
 }
 
 interface OpenApiOperation {
   parameters?: OpenApiParameter[];
+  requestBody?: {
+    required?: boolean;
+    content?: Record<string, { schema?: Record<string, unknown> }>;
+  };
   "x-tool"?: ToolCuration;
 }
 
 export interface OpenApiDocument {
   paths: Record<string, Record<string, OpenApiOperation>>;
+  components?: { schemas?: Record<string, Record<string, unknown>> };
 }
 
 /**
@@ -84,9 +91,126 @@ function buildInputSchema(op: OpenApiOperation): InputSchema {
 }
 
 /**
+ * Resolve a `#/components/schemas/...` $ref against the document, one level.
+ * Non-ref schemas pass through untouched; a ref that cannot be resolved is a
+ * schema bug and throws rather than silently emitting an empty input schema.
+ */
+function resolveSchemaRef(
+  schema: Record<string, unknown>,
+  doc: OpenApiDocument,
+  path: string,
+): Record<string, unknown> {
+  const ref = schema.$ref;
+  if (typeof ref !== "string") {
+    return schema;
+  }
+  const prefix = "#/components/schemas/";
+  const resolved = ref.startsWith(prefix)
+    ? doc.components?.schemas?.[ref.slice(prefix.length)]
+    : undefined;
+  if (resolved === undefined) {
+    throw new Error(`Enabled tool on POST ${path}: unresolvable requestBody $ref ${ref}`);
+  }
+  return resolved;
+}
+
+/** True when a `$ref` key survives anywhere in an emitted schema fragment. */
+function containsRef(node: unknown): boolean {
+  if (Array.isArray(node)) {
+    return node.some(containsRef);
+  }
+  if (node === null || typeof node !== "object") {
+    return false;
+  }
+  const record = node as Record<string, unknown>;
+  return "$ref" in record || Object.values(record).some(containsRef);
+}
+
+/**
+ * Merge a POST operation's JSON request-body properties into its input schema
+ * (flattened like plain params) and append the body's required names. Returns
+ * the body-derived property names, sorted, for arg-to-body routing.
+ */
+function mergeBodySchema(
+  op: OpenApiOperation,
+  doc: OpenApiDocument,
+  path: string,
+  input: InputSchema,
+): string[] {
+  const bodySchema = op.requestBody?.content?.["application/json"]?.schema;
+  if (bodySchema === undefined) {
+    return [];
+  }
+  const resolved = resolveSchemaRef(bodySchema, doc, path);
+  // A resolved body schema without top-level properties is a shape the
+  // generator does not understand (a union body, a $ref alias, an allOf
+  // wrapper): emitting empty bodyParams would ship a write tool that POSTs no
+  // body at all. Fail closed like every other unexpected body shape.
+  if (
+    resolved.properties === undefined ||
+    resolved.properties === null ||
+    typeof resolved.properties !== "object" ||
+    Array.isArray(resolved.properties)
+  ) {
+    throw new Error(
+      `Enabled tool on POST ${path}: request-body schema has no top-level properties — ` +
+        "extend the generator before enabling this operation",
+    );
+  }
+  const properties = resolved.properties as Record<string, Record<string, unknown>>;
+  for (const [name, propSchema] of Object.entries(properties)) {
+    const flattened = stripOversizedNumericBounds(
+      flattenParamSchema(resolveSchemaRef(propSchema, doc, path)),
+    );
+    // Refs are only resolved one level deep, so a nested $ref (e.g. inside
+    // `items`) would ship a dangling pointer to the model. Fail closed until
+    // the generator learns to resolve the shape an operation actually needs.
+    if (containsRef(flattened)) {
+      throw new Error(
+        `Enabled tool on POST ${path}: body property "${name}" contains an unresolved $ref — extend the generator before enabling this operation`,
+      );
+    }
+    input.properties[name] = flattened;
+  }
+  if (Array.isArray(resolved.required)) {
+    input.required.push(...(resolved.required as string[]));
+  }
+  return Object.keys(properties).sort();
+}
+
+const POLICY_VALUES: Record<keyof ToolPolicy, readonly string[]> = {
+  approvalClass: ["none", "approval"],
+  minRole: ["VIEWER", "MEMBER", "ADMIN"],
+  tenancy: ["account", "workspace", "project"],
+};
+
+/**
+ * Require a complete, exact x-tool policy on a write operation: the three
+ * policy keys with legal values and nothing else, so both codegen sides stay
+ * honest about what a write tool is allowed to do.
+ */
+function validatePolicy(policy: unknown, path: string): ToolPolicy {
+  const keys = Object.keys(POLICY_VALUES) as (keyof ToolPolicy)[];
+  const candidate = policy as Record<string, unknown> | null;
+  const valid =
+    typeof candidate === "object" &&
+    candidate !== null &&
+    !Array.isArray(candidate) &&
+    Object.keys(candidate).length === keys.length &&
+    keys.every((key) => POLICY_VALUES[key].includes(candidate[key] as string));
+  if (!valid) {
+    throw new Error(
+      `Enabled write tool on POST ${path}: x-tool policy {approvalClass, minRole, tenancy} is required and must be complete`,
+    );
+  }
+  return { ...(candidate as unknown as ToolPolicy) };
+}
+
+/**
  * Generate the tool registry from the public OpenAPI document: one entry per
- * operation whose x-tool curation is enabled, sorted by tool name. Only GET
- * operations are supported — write support must be a deliberate extension.
+ * operation whose x-tool curation is enabled, sorted by tool name. GET and
+ * POST operations are supported; every enabled POST must carry a complete
+ * x-tool policy so no write tool ships without explicit guardrails.
  */
 export function generateRegistry(doc: OpenApiDocument): RegistryEntry[] {
   const entries: RegistryEntry[] = [];
@@ -96,20 +220,54 @@ export function generateRegistry(doc: OpenApiDocument): RegistryEntry[] {
       if (tool?.enabled !== true) {
         continue;
       }
-      if (method !== "get") {
+      if (method !== "get" && method !== "post") {
         throw new Error(
-          `Enabled tool on ${method.toUpperCase()} ${path}: only GET operations are supported`,
+          `Enabled tool on ${method.toUpperCase()} ${path}: only GET and POST operations are supported`,
         );
       }
       if (tool.name === undefined || tool.description === undefined) {
-        throw new Error(`Enabled tool on GET ${path} is missing an x-tool name or description`);
+        throw new Error(
+          `Enabled tool on ${method.toUpperCase()} ${path} is missing an x-tool name or description`,
+        );
+      }
+      const inputSchema = buildInputSchema(op);
+      if (method === "get") {
+        // The policy vocabulary is write-only. The schema build rejects a GET
+        // that carries one, so reject it here too rather than silently
+        // dropping it and letting the two generators disagree.
+        if (tool.policy !== undefined) {
+          throw new Error(`Enabled read tool on GET ${path}: x-tool policy is write-only`);
+        }
+        entries.push({
+          name: tool.name,
+          description: tool.description,
+          method: "get",
+          path,
+          inputSchema,
+        });
+        continue;
+      }
+      const policy = validatePolicy(tool.policy, path);
+      const bodyParams = mergeBodySchema(op, doc, path, inputSchema);
+      // Copied verbatim: hidden fields stay in inputSchema/bodyParams (full
+      // API/CLI parity) — stripping them from the model is the consumer's job.
+      const agentHiddenParams = tool.agentHiddenParams;
+      for (const field of agentHiddenParams ?? []) {
+        if (!bodyParams.includes(field)) {
+          throw new Error(
+            `Enabled write tool on POST ${path}: agentHiddenParams field "${field}" is not a request-body property`,
+          );
+        }
       }
       entries.push({
         name: tool.name,
         description: tool.description,
-        method: "get",
+        method: "post",
         path,
-        inputSchema: buildInputSchema(op),
+        inputSchema,
+        bodyParams,
+        ...(agentHiddenParams !== undefined && { agentHiddenParams }),
+        policy,
       });
     }
   }

@@ -67,7 +67,8 @@ async def get_widget_field_values(
 
     Raises:
         HTTPException: 404 for an unknown view or field, 400 for a field that is
-            not an enumerable string dimension (numeric measures, ``count``).
+            not an enumerable string dimension (numeric measures, ``count``,
+            ``trace_id``, keyed maps).
     """
     view_def = REGISTRY.get(view)
     if view_def is None:
@@ -81,7 +82,10 @@ async def get_widget_field_values(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown field '{field}' for view '{view}'",
         )
-    if field_def.type != "string":
+    # Enumerable, not merely typed "string": type alone admits `trace_id`, whose
+    # enumeration is a GROUP BY over the highest-cardinality column in `spans` for a
+    # dropdown nothing would open. Keyed fields are refused rather than scanned.
+    if field_def.type != "string" or not field_def.filter_ops or field_def.requires_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Field '{field}' does not support distinct-value listing",
@@ -93,8 +97,9 @@ async def get_widget_field_values(
     start_time, end_time = clamp_retention_window(_access.billing_plan, start_time, end_time)
 
     service = get_trace_discovery_service()
-    # String dims declare their expr as the bare physical column name on the
-    # view's source table, so it feeds the distinct scan directly.
+    # String dims declare their expr over the view's source table columns, so it
+    # feeds the distinct scan directly. An expr naming a base-relation alias
+    # instead would not resolve here, which is why the registry writes them so.
     if view == "spans":
         values = service.get_distinct_span_values(
             project_id=project_id,
@@ -150,6 +155,7 @@ async def query_widget_data(
             project_id=project_id,
             start_time=start_time,
             end_time=end_time,
+            bucket_seconds=body.bucket_seconds,
         )
     except WidgetSpecError as e:
         raise HTTPException(
