@@ -489,6 +489,41 @@ describe("chart legend", () => {
     expect(legend.textContent).toContain("150");
     expect(legend.textContent).not.toContain("Total");
   });
+
+  it("uniq series legend averages buckets and shows no Total: distinct counts don't sum", () => {
+    const multi = makeResult(
+      ["bucket", "model_name", "value"],
+      [
+        ["2026-06-01T00:00:00", "gpt", 10],
+        ["2026-06-01T01:00:00", "gpt", 30],
+        ["2026-06-01T00:00:00", "claude", 4],
+      ],
+    );
+    render(<QueryWidgetRenderer display="line" result={multi} agg="uniq" />);
+    const rows = screen.getAllByRole("listitem").map((r) => r.textContent ?? "");
+    // No Total row, and per-series values are bucket averages, not sums:
+    // gpt (10+30)/2 = 20, claude's empty bucket is a real 0 so (4+0)/2 = 2.
+    expect(rows.some((r) => r.includes("Total"))).toBe(false);
+    expect(rows.find((r) => r.includes("gpt"))).toContain("20");
+    expect(rows.find((r) => r.includes("claude"))).not.toContain("4");
+  });
+
+  it("uniq categorical legend keeps exact per-category values but no Total", () => {
+    const result = makeResult(
+      ["service", "value"],
+      [
+        ["api", 10],
+        ["worker", 7],
+      ],
+    );
+    render(<QueryWidgetRenderer display="pie" result={result} agg="uniq" />);
+    const legend = screen.getByRole("list", { name: "Chart legend" });
+    expect(within(legend).getByText("10")).toBeTruthy();
+    expect(within(legend).getByText("7")).toBeTruthy();
+    // 17 would double-count anything present in both categories.
+    expect(legend.textContent).not.toContain("Total");
+    expect(legend.textContent).not.toContain("17");
+  });
   it("labels a single-series breakdown timeseries via the legend", () => {
     // With one breakdown group the chart is a bare line — the legend is the
     // only place the group's name (e.g. which model) can appear.

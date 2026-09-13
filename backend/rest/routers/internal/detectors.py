@@ -1,33 +1,26 @@
-"""Internal API endpoints for worker/service communication.
+"""Detector endpoints: run/finding writes, run listings, and digest windows.
 
-These endpoints are protected by X-Internal-Secret header and not exposed publicly.
+Every read is secret-gated and scoped by project id.
 """
 
-import gzip
-import hmac
 import logging
-import re
-import zlib
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-from google.protobuf.message import DecodeError
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
 from db.clickhouse.client import ClickHouseClient, get_clickhouse_client
-from rest.routers.public.traces import decode_otlp_protobuf
+from rest.routers.internal.auth import verify_internal_secret
 from rest.schemas.detectors import (
     DetectorWindowSummaryResponse,
     RunListResponse,
 )
 from rest.sql_utils import escape_ilike, to_utc_naive
-from shared.config import settings
-from worker.detector_transform import UnattributableSpanError, transform_detector_traces
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/internal", tags=["internal"])
+router = APIRouter()
 
 # Caps for the digest LLM-summary sample (see the window-summary endpoint).
 # Enforced in ClickHouse so a finding storm never materializes unbounded rows.
@@ -80,180 +73,6 @@ def _detector_summary_expr(finding_id_col: str) -> str:
         "  ''"
         ")"
     )
-
-
-def verify_internal_secret(
-    x_internal_secret: Annotated[str | None, Header()] = None,
-) -> None:
-    """Verify the internal API secret.
-
-    Fails closed: a missing or empty server-side secret rejects all requests
-    rather than silently allowing them. (Previous behavior treated an empty
-    secret as "dev mode allow-all", which left the new detector write
-    endpoints open to anonymous writes whenever the env var was unset.)
-    """
-    if not settings.internal_api_secret:
-        raise HTTPException(
-            status_code=503,
-            detail="INTERNAL_API_SECRET not configured on server",
-        )
-    if not x_internal_secret or not hmac.compare_digest(
-        x_internal_secret, settings.internal_api_secret
-    ):
-        raise HTTPException(status_code=403, detail="Invalid internal secret")
-
-
-# =============================================================================
-# Usage Endpoints (for billing metering)
-# =============================================================================
-
-
-class UsageTotalResponse(BaseModel):
-    total_events: int
-
-
-class UsageDetailsResponse(BaseModel):
-    traces: int
-    spans: int
-    detector_runs: int = 0
-
-
-@router.get(
-    "/usage/total",
-    response_model=UsageTotalResponse,
-    dependencies=[Depends(verify_internal_secret)],
-)
-async def get_usage_total(
-    project_ids: str = Query(..., description="Comma-separated list of project IDs"),
-    start: datetime = Query(..., description="Start of interval (ISO format)"),
-    end: datetime = Query(..., description="End of interval (ISO format)"),
-) -> UsageTotalResponse:
-    """Get total usage for specific projects in a time interval."""
-    project_id_list = [p.strip() for p in project_ids.split(",") if p.strip()]
-
-    if not project_id_list:
-        return UsageTotalResponse(total_events=0)
-
-    ch = get_clickhouse_client()
-
-    # Format datetime without timezone for ClickHouse
-    start_str = start.strftime("%Y-%m-%d %H:%M:%S")
-    end_str = end.strftime("%Y-%m-%d %H:%M:%S")
-
-    # ReplacingMergeTree dedup via uniqExact — same trace/span id can have
-    # multiple pre-merge rows in ClickHouse.
-    result = ch.query(
-        """
-        SELECT (
-            (SELECT uniqExact(trace_id) FROM traces
-             WHERE project_id IN {project_ids:Array(String)}
-               AND ch_create_time >= {start:String}
-               AND ch_create_time < {end:String})
-          + (SELECT uniqExact(span_id) FROM spans
-             WHERE project_id IN {project_ids:Array(String)}
-               AND ch_create_time >= {start:String}
-               AND ch_create_time < {end:String})
-        ) as total
-        """,
-        parameters={
-            "project_ids": project_id_list,
-            "start": start_str,
-            "end": end_str,
-        },
-    )
-
-    total = int(result.result_rows[0][0]) if result.result_rows else 0
-    return UsageTotalResponse(total_events=total)
-
-
-@router.get(
-    "/usage/details",
-    response_model=UsageDetailsResponse,
-    dependencies=[Depends(verify_internal_secret)],
-)
-async def get_usage_details(
-    project_ids: str = Query(..., description="Comma-separated list of project IDs"),
-    start: datetime = Query(..., description="Start of interval (ISO format)"),
-    end: datetime = Query(..., description="End of interval (ISO format)"),
-) -> UsageDetailsResponse:
-    """Get detailed usage (traces and spans separately) for specific projects."""
-    project_id_list = [p.strip() for p in project_ids.split(",") if p.strip()]
-
-    if not project_id_list:
-        return UsageDetailsResponse(traces=0, spans=0, detector_runs=0)
-
-    ch = get_clickhouse_client()
-
-    # Format datetime without timezone for ClickHouse
-    start_str = start.strftime("%Y-%m-%d %H:%M:%S")
-    end_str = end.strftime("%Y-%m-%d %H:%M:%S")
-
-    # Query traces count — uniqExact dedups across pre-merge ReplacingMergeTree
-    # rows (a single trace can have multiple rows until background merge runs,
-    # e.g. on status update). uniqExact is faster than count(DISTINCT trace_id)
-    # in ClickHouse and produces identical results.
-    traces_result = ch.query(
-        """
-        SELECT uniqExact(trace_id) as total
-        FROM traces
-        WHERE project_id IN {project_ids:Array(String)}
-          AND ch_create_time >= {start:String}
-          AND ch_create_time < {end:String}
-        """,
-        parameters={
-            "project_ids": project_id_list,
-            "start": start_str,
-            "end": end_str,
-        },
-    )
-
-    # Query spans count — same uniqExact pattern for ReplacingMergeTree dedup
-    spans_result = ch.query(
-        """
-        SELECT uniqExact(span_id) as total
-        FROM spans
-        WHERE project_id IN {project_ids:Array(String)}
-          AND ch_create_time >= {start:String}
-          AND ch_create_time < {end:String}
-        """,
-        parameters={
-            "project_ids": project_id_list,
-            "start": start_str,
-            "end": end_str,
-        },
-    )
-
-    traces = int(traces_result.result_rows[0][0]) if traces_result.result_rows else 0
-    spans = int(spans_result.result_rows[0][0]) if spans_result.result_rows else 0
-
-    # Detector runs: count every scan attempt recorded by the detector worker
-    # (BYOK + system source both count toward Free-plan hard cap).
-    # uniqExact on run_id dedups pre-merge duplicates in the ReplacingMergeTree —
-    # same pattern as the traces / spans queries above.
-    detector_runs_result = ch.query(
-        """
-        SELECT uniqExact(run_id) as total
-        FROM detector_runs
-        WHERE project_id IN {project_ids:Array(String)}
-          AND timestamp >= {start:String}
-          AND timestamp < {end:String}
-        """,
-        parameters={
-            "project_ids": project_id_list,
-            "start": start_str,
-            "end": end_str,
-        },
-    )
-    detector_runs = (
-        int(detector_runs_result.result_rows[0][0]) if detector_runs_result.result_rows else 0
-    )
-
-    return UsageDetailsResponse(traces=traces, spans=spans, detector_runs=detector_runs)
-
-
-# =============================================================================
-# Detector Endpoints (for worker/TypeScript service writes and reads)
-# =============================================================================
 
 
 class DetectorRunPayload(BaseModel):
@@ -917,113 +736,3 @@ async def list_detector_window_summary(
                 data[detector_id]["sample_summaries"] = summaries
 
     return {"data": data}
-
-
-# =============================================================================
-# Internal OTLP trace ingest (detector self-traces)
-# =============================================================================
-
-_TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
-_SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
-
-
-@router.post("/traces", dependencies=[Depends(verify_internal_secret)])
-async def ingest_internal_traces(
-    request: Request,
-    project_id: str | None = Query(
-        default=None, description="Fallback project for spans without a per-span attribute"
-    ),
-    x_project_id: Annotated[str | None, Header()] = None,
-) -> dict:
-    """Ingest detector self-traces (OTLP protobuf) directly into ClickHouse.
-
-    Trusted, internal-only counterpart of the public OTLP ingest: the worker
-    posts here with the shared secret, spans run through the detector-only
-    multi-project wrapper (which calls the same transform as customer traffic,
-    once per project group), and the rows are inserted in-process — no S3 hop and
-    no detection enqueue, so a detector can never scan its own emission. Spans are inserted before the trace row
-    so a partial failure cannot leave a trace row that points at missing
-    spans. Every record is force-stamped source='detector' regardless of
-    payload content.
-
-    Project attribution is per-span and primary: the worker serves every
-    project off one queue, so each span carries its own
-    ``traceroot.project_id`` attribute. The request-level project id (header
-    or query) is only a fallback for spans without the attribute.
-
-    Args:
-        request (Request): Raw request; body is OTLP protobuf, optionally
-            gzip-compressed (Content-Encoding: gzip).
-        project_id (str | None): Fallback project for spans without a
-            per-span attribute, as a query parameter; trusted because the
-            route is secret-gated.
-        x_project_id (str | None): Same, as the X-Project-Id header. The
-            header wins when both are given. Optional — a batch whose every
-            span carries the per-span attribute needs neither.
-
-    Returns:
-        dict: ``{"ok": True}`` on success.
-
-    Raises:
-        HTTPException: 400 on an empty body, an undecodable payload, a span
-            with neither a per-span project attribute nor a request-level
-            fallback, a trace id that is not exactly 32 lowercase hex chars,
-            or a span/parent id that is present but not exactly 16.
-    """
-    fallback_project_id = x_project_id or project_id
-
-    body = await request.body()
-    if not body:
-        raise HTTPException(status_code=400, detail="Empty request body")
-
-    if "gzip" in request.headers.get("content-encoding", "").lower():
-        try:
-            body = gzip.decompress(body)
-        except (OSError, EOFError, zlib.error) as e:
-            # The only caller is our own worker tracer, so this means a bug
-            # on our side — leave a breadcrumb (never the payload).
-            logger.warning("Internal trace ingest: invalid gzip body: %s", e)
-            raise HTTPException(status_code=400, detail="Invalid gzip body") from None
-
-    try:
-        otel_data = decode_otlp_protobuf(body)
-    except DecodeError as e:
-        logger.warning("Internal trace ingest: invalid OTLP protobuf: %s", e)
-        raise HTTPException(status_code=400, detail="Invalid OTLP protobuf") from None
-
-    try:
-        traces, spans = transform_detector_traces(
-            otel_data, fallback_project_id=fallback_project_id
-        )
-    except UnattributableSpanError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from None
-
-    # Defense in depth: client-forced ids are only accepted in internal mode,
-    # and even there they must look like real trace ids (dashless run_id).
-    trace_ids = {t["trace_id"] for t in traces} | {s["trace_id"] for s in spans}
-    for trace_id in trace_ids:
-        if not _TRACE_ID_RE.match(trace_id):
-            raise HTTPException(status_code=400, detail="trace_id must be 32 hex chars")
-    for span in spans:
-        if not _SPAN_ID_RE.match(span["span_id"]):
-            raise HTTPException(status_code=400, detail="span_id must be 16 hex chars")
-        parent_span_id = span.get("parent_span_id")
-        # None is a root span, and every self-trace has exactly one — the
-        # parent id is only constrained when present.
-        if parent_span_id is not None and not _SPAN_ID_RE.match(parent_span_id):
-            raise HTTPException(
-                status_code=400, detail="parent_span_id must be 16 hex chars when present"
-            )
-
-    # This route only ever carries detector self-traces, so the marker is a property
-    # of the route, not of the payload: stamp it rather than trusting what was sent.
-    # This is the ONLY place a non-'user' source is written — the transform never sets
-    # one — so a payload that omits or misstates the attribute still lands classified
-    # correctly, and no tenant-supplied value can reach the column.
-    for record in (*traces, *spans):
-        record["source"] = "detector"
-
-    ch = get_clickhouse_client()
-    ch.insert_spans_batch(spans)
-    ch.insert_traces_batch(traces)
-    return {"ok": True}

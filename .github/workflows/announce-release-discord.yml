@@ -35,6 +35,11 @@ concurrency:
 
 jobs:
   announce:
+    # tools-v* tags publish @traceroot-ai/tools, which is a package bump rather
+    # than a product release. Announcing those would misrepresent them.
+    if: >-
+      !startsWith(github.event.release.tag_name, 'tools-v') &&
+      !startsWith(inputs.tag, 'tools-v')
     runs-on: ubuntu-latest
     steps:
       - name: Post release notes to Discord
