@@ -519,8 +519,10 @@ def _view_call(rendered: str, view: str) -> str:
 class TestTimeRange:
     def test_open_bounds_when_the_query_has_no_time_predicate(self) -> None:
         call = _view_call(scope_and_render("SELECT count() FROM spans", PID)[0], "spans_public_v1")
-        assert "toDateTime64('1970-01-01 00:00:00', 3)" in call
-        assert "toDateTime64('2099-01-01 00:00:00', 3)" in call
+        # Sentinels sit outside the storable range, so an unbounded query still
+        # sees a row with a bogus far-future or pre-epoch clock.
+        assert "'1900-01-01 00:00:00.000'" in call
+        assert "'2299-12-31 23:59:59.999'" in call
 
     def test_half_open_predicate_is_passed_through_exactly(self) -> None:
         rendered, _ = scope_and_render(
@@ -529,8 +531,9 @@ class TestTimeRange:
             PID,
         )
         call = _view_call(rendered, "spans_public_v1")
-        assert "start_time = '2026-09-01'" in call
-        assert "end_time = '2026-09-02'" in call
+        # Each bound is normalised to an instant in the server's timezone.
+        assert "start_time = toTimeZone(toDateTime64('2026-09-01', 3), timezone())" in call
+        assert "end_time = toTimeZone(toDateTime64('2026-09-02', 3), timezone())" in call
 
     def test_relative_window_is_inlined_rather_than_bound(self) -> None:
         # A bound parameter carries a value; now() has none until the server runs
@@ -538,7 +541,7 @@ class TestTimeRange:
         rendered, binds = scope_and_render(
             "SELECT count() FROM spans WHERE span_start_time >= now() - INTERVAL 1 HOUR", PID
         )
-        assert "start_time = now()" in _view_call(rendered, "spans_public_v1")
+        assert "NOW()" in _view_call(rendered, "spans_public_v1").upper()
         assert set(binds) == {"scope_project_id"}
 
     def test_strict_inequality_leaves_that_side_open(self) -> None:
@@ -550,7 +553,7 @@ class TestTimeRange:
             ],
             "spans_public_v1",
         )
-        assert "start_time = toDateTime64('1970-01-01 00:00:00', 3)" in call
+        assert "'1900-01-01 00:00:00.000'" in call
 
     def test_each_table_is_bounded_on_its_own_time_column(self) -> None:
         rendered, _ = scope_and_render(
@@ -558,8 +561,8 @@ class TestTimeRange:
             " WHERE s.span_start_time >= '2026-09-01' AND t.trace_start_time >= '2026-08-01'",
             PID,
         )
-        assert "start_time = '2026-09-01'" in _view_call(rendered, "spans_public_v1")
-        assert "start_time = '2026-08-01'" in _view_call(rendered, "traces_public_v1")
+        assert "'2026-09-01'" in _view_call(rendered, "spans_public_v1")
+        assert "'2026-08-01'" in _view_call(rendered, "traces_public_v1")
 
     def test_a_nested_predicate_does_not_widen_the_outer_window(self) -> None:
         # The failure mode this guards: a global walk lets the subquery's 1999
@@ -569,8 +572,9 @@ class TestTimeRange:
             " AND trace_id IN (SELECT trace_id FROM traces WHERE trace_start_time >= '1999-01-01')",
             PID,
         )
-        assert "start_time = '2026-09-01'" in _view_call(rendered, "spans_public_v1")
-        assert "start_time = '1999-01-01'" in _view_call(rendered, "traces_public_v1")
+        assert "'2026-09-01'" in _view_call(rendered, "spans_public_v1")
+        assert "'1999-01-01'" in _view_call(rendered, "traces_public_v1")
+        assert "'1999-01-01'" not in _view_call(rendered, "spans_public_v1")
 
     def test_an_ambiguous_unqualified_column_yields_open_bounds(self) -> None:
         # Two public tables in one scope and a bare column: guessing which table
@@ -580,9 +584,7 @@ class TestTimeRange:
             " WHERE span_start_time >= '2026-09-01'",
             PID,
         )
-        assert "start_time = toDateTime64('1970-01-01 00:00:00', 3)" in _view_call(
-            rendered, "spans_public_v1"
-        )
+        assert "'1900-01-01 00:00:00.000'" in _view_call(rendered, "spans_public_v1")
 
     def test_two_bounds_on_one_side_intersect(self) -> None:
         # The caller asked for both, so the effective bound is the later one. It
@@ -607,3 +609,51 @@ class TestTimeRange:
         call = _view_call(rendered, "spans_public_v1")
         assert call.count("=") >= 3
         assert "project_id" in call and "start_time" in call and "end_time" in call
+
+    def test_a_bound_naming_another_column_is_refused(self) -> None:
+        # A view argument must be a constant. Rendering `t.trace_start_time` into
+        # the call fails at execution with Code 456 or Code 47, so that side stays
+        # open and the query runs.
+        rendered, _ = scope_and_render(
+            "SELECT s.span_id FROM spans AS s JOIN traces AS t ON s.trace_id = t.trace_id"
+            " WHERE s.span_start_time >= t.trace_start_time",
+            PID,
+        )
+        call = _view_call(rendered, "spans_public_v1")
+        assert "trace_start_time" not in call
+        assert "'1900-01-01 00:00:00.000'" in call
+
+    def test_a_self_join_bound_on_the_other_side_is_refused(self) -> None:
+        # Both references rewrite, and neither view call carries the other side's
+        # column, which would fail with Code 47 on an unknown identifier.
+        rendered, _ = scope_and_render(
+            "SELECT c.span_id FROM spans AS c JOIN spans AS p ON c.parent_span_id = p.span_id"
+            " WHERE c.span_start_time >= p.span_start_time",
+            PID,
+        )
+        assert rendered.count("spans_public_v1") == 2
+        head = rendered.partition(" WHERE ")[0]
+        assert "p.span_start_time" not in head
+        assert head.count("'1900-01-01 00:00:00.000'") == 2
+
+    def test_a_scalar_subquery_bound_is_refused_rather_than_smuggled(self) -> None:
+        # The bound is copied into the view call, and a copy spliced in during the
+        # transform is never itself visited, so a `spans` inside it would survive
+        # un-rewritten and Layer 3 would refuse the whole query.
+        rendered, _ = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time >="
+            " (SELECT max(span_start_time) - INTERVAL 1 DAY FROM spans)",
+            PID,
+        )
+        assert "'1900-01-01 00:00:00.000'" in _view_call(rendered, "spans_public_v1")
+
+    def test_bounds_of_mixed_kinds_combine(self) -> None:
+        # Raw, these raise Code 386: no supertype for DateTime and String.
+        rendered, _ = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time >= now() - INTERVAL 30 DAY"
+            " AND span_start_time >= '2026-09-01'",
+            PID,
+        )
+        call = _view_call(rendered, "spans_public_v1")
+        assert "GREATEST(" in call.upper()
+        assert call.upper().count("TOTIMEZONE(") >= 2

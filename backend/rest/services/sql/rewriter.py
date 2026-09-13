@@ -84,17 +84,68 @@ _VIEW_NAMES: frozenset[str] = frozenset(v.lower() for v in TABLE_VIEW_MAP.values
 _TIME_COLUMN: dict[str, str] = {"spans": "span_start_time", "traces": "trace_start_time"}
 
 #: Passed when the caller's query carries no bound we can express exactly. These
-#: reproduce the unbounded behaviour the views had before they took a time range.
-_OPEN_START = "1970-01-01 00:00:00"
-_OPEN_END = "2099-01-01 00:00:00"
+#: must sit outside the STORABLE range, not merely outside the plausible one: a
+#: row at 1969 or 2150 is storable, and a sentinel inside the domain would hide
+#: it from every unbounded query, which the views answered before they took a
+#: range. ``2300-01-01`` is not usable as the ceiling because ``toDateTime64``
+#: turns it into ``2299-12-31 00:00:00.000`` and would cut off that final day.
+_OPEN_START = "1900-01-01 00:00:00.000"
+_OPEN_END = "2299-12-31 23:59:59.999"
 
 
-def _datetime64(value: str) -> exp.Expression:
-    """``toDateTime64('<value>', 3)``, matching the views' DateTime64(3) params."""
+def _as_bound(value: exp.Expression) -> exp.Expression:
+    """Normalise *value* into an instant the view reads the way the caller meant.
+
+    Rendered as ``toTimeZone(toDateTime64(<value>, 3), timezone())``.
+
+    Two reasons, both silent corruption without it. ClickHouse substitutes a view
+    argument by rendering the value as text in the value's own timezone and
+    parsing that text back in the server's, so a bound written as
+    ``toDateTime('2026-09-01 09:00:00', 'Asia/Tokyo')`` reaches the view as
+    09:00 UTC rather than the 00:00 UTC the caller meant. Verified on 25.2: the
+    caller's own predicate matches 3 rows, the verbatim bound matches 1, this
+    form matches 3. A positive offset drops rows from the start of the window and
+    widens the end, and widening is the dedup hazard described above.
+
+    It also gives ``greatest`` and ``least`` a common type. Raw bounds of mixed
+    kinds raise ``Code: 386`` (no supertype for DateTime and String), and two raw
+    strings compare as text, so ``greatest('2026-09-01T00:00:00', '2026-09-01
+    12:00:00')`` returns the T form, which is the earlier instant, and the window
+    silently widens.
+    """
     return exp.Anonymous(
-        this="toDateTime64",
-        expressions=[exp.Literal.string(value), exp.Literal.number(3)],
+        this="toTimeZone",
+        expressions=[
+            exp.Anonymous(this="toDateTime64", expressions=[value.copy(), exp.Literal.number(3)]),
+            exp.Anonymous(this="timezone", expressions=[]),
+        ],
     )
+
+
+def _open(value: str) -> exp.Expression:
+    """The sentinel for a side the caller did not usefully constrain."""
+    return _as_bound(exp.Literal.string(value))
+
+
+def _is_constant_bound(node: exp.Expression) -> bool:
+    """True if *node* can legally be a view argument.
+
+    A parameterised view takes constants. A bound reaching for a column or a
+    subquery is refused here and leaves that side open, covering two failures
+    that look different and share a cause:
+
+    * ``WHERE s.span_start_time >= t.trace_start_time`` rendered a view argument
+      naming another table's column, which fails with ``Code: 456`` because the
+      substitution has no value, or ``Code: 47`` for an unknown identifier.
+    * ``WHERE span_start_time >= (SELECT max(span_start_time) … FROM spans)``
+      carried a whole subquery into the view call. That copy is spliced in during
+      the transform and is never itself visited, so the ``spans`` inside it stays
+      un-rewritten and Layer 3 correctly refuses the result.
+
+    A scalar ``WITH`` alias is a column node too, so it loses pruning here. That
+    is the conservative side of the trade.
+    """
+    return not any(isinstance(n, (exp.Column, exp.Select, exp.Subquery)) for n in node.walk())
 
 
 def _is_time_column(node: exp.Expression, column: str, aliases: set[str], qualified: bool) -> bool:
@@ -156,6 +207,10 @@ def _extract_time_bounds(
     starts: list[exp.Expression] = []
     ends: list[exp.Expression] = []
 
+    def keep(side: list[exp.Expression], value: exp.Expression) -> None:
+        if _is_constant_bound(value):
+            side.append(_as_bound(value))
+
     def visit(node: exp.Expression) -> None:
         if isinstance(node, exp.And):
             visit(node.this)
@@ -166,18 +221,18 @@ def _extract_time_bounds(
             return
         # col >= X, or the mirrored X <= col
         if isinstance(node, exp.GTE) and _is_time_column(node.this, column, aliases, qualified):
-            starts.append(node.expression)
+            keep(starts, node.expression)
         elif isinstance(node, exp.LTE) and _is_time_column(
             node.expression, column, aliases, qualified
         ):
-            starts.append(node.this)
+            keep(starts, node.this)
         # col < X, or the mirrored X > col
         elif isinstance(node, exp.LT) and _is_time_column(node.this, column, aliases, qualified):
-            ends.append(node.expression)
+            keep(ends, node.expression)
         elif isinstance(node, exp.GT) and _is_time_column(
             node.expression, column, aliases, qualified
         ):
-            ends.append(node.this)
+            keep(ends, node.this)
 
     visit(where)
     return _narrowest(starts, "greatest"), _narrowest(ends, "least")
@@ -218,8 +273,8 @@ def _bounds_by_table(tree: exp.Expression) -> dict[int, tuple[exp.Expression, ex
                 aliases.add(source.alias.lower())
             start, end = _extract_time_bounds(where, column, aliases, qualified)
             bounds[id(source)] = (
-                start.copy() if start is not None else _datetime64(_OPEN_START),
-                end.copy() if end is not None else _datetime64(_OPEN_END),
+                start.copy() if start is not None else _open(_OPEN_START),
+                end.copy() if end is not None else _open(_OPEN_END),
             )
 
     return bounds
@@ -313,7 +368,7 @@ def _rewrite_table(
         alias_node = original_alias.copy()
     else:
         alias_node = exp.TableAlias(this=exp.Identifier(this=table_name, quoted=False))
-    start, end = (bounds or {}).get(id(node), (_datetime64(_OPEN_START), _datetime64(_OPEN_END)))
+    start, end = (bounds or {}).get(id(node), (_open(_OPEN_START), _open(_OPEN_END)))
     return _build_view_table(view_name, alias_node, param_value, start, end)
 
 
