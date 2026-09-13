@@ -554,3 +554,38 @@ def test_reserved_name_is_refused_as_an_alias_on_a_cte_reference() -> None:
 
 def test_ordinary_alias_on_a_cte_reference_still_passes() -> None:
     assert isinstance(validate("WITH c AS (SELECT 1 AS x) SELECT x FROM c AS ok"), exp.Query)
+
+
+# ---------------------------------------------------------------------------
+# Boolean connectors. sqlglot models AND and OR as Func subclasses, so the
+# function gate refused every query that contained one until they were skipped.
+# ---------------------------------------------------------------------------
+CONNECTOR_CASES = [
+    pytest.param("SELECT span_id FROM spans WHERE status = 'OK' AND span_kind = 'llm'", id="and"),
+    pytest.param("SELECT span_id FROM spans WHERE status = 'OK' OR span_kind = 'llm'", id="or"),
+    pytest.param(
+        "SELECT span_id FROM spans WHERE cost > 1 AND cost < 5 AND status = 'OK'",
+        id="three-conjuncts",
+    ),
+    pytest.param(
+        "SELECT s.span_id FROM spans AS s"
+        " JOIN traces AS t ON s.trace_id = t.trace_id AND t.name = 'x'",
+        id="join-on-and",
+    ),
+    pytest.param("SELECT span_id FROM spans WHERE NOT status = 'OK'", id="not"),
+]
+
+
+@pytest.mark.parametrize("sql", CONNECTOR_CASES)
+def test_boolean_connectors_are_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
+
+
+def test_connectors_do_not_open_the_function_gate() -> None:
+    # Skipping the connector types must not smuggle their operands past the gate.
+    for sql in (
+        "SELECT span_id FROM spans WHERE status = 'OK' AND sleep(5) = 1",
+        "SELECT span_id FROM spans WHERE currentUser() = 'x' OR status = 'OK'",
+    ):
+        with pytest.raises(SqlValidationError):
+            validate(sql)
