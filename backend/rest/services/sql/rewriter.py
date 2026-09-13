@@ -45,6 +45,7 @@ from __future__ import annotations
 import re
 
 import sqlglot.expressions as exp
+from sqlglot.optimizer.scope import build_scope
 
 from rest.services.sql.errors import SqlValidationError
 from rest.services.sql.schema import TABLE_VIEW_MAP
@@ -77,6 +78,152 @@ PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9_:.\-]+$")
 #: the blocked-function re-scan.
 _VIEW_NAMES: frozenset[str] = frozenset(v.lower() for v in TABLE_VIEW_MAP.values())
 
+#: The column each curated view bounds its scan on. The views declare
+#: ``start_time`` inclusive and ``end_time`` exclusive, applied INSIDE the dedup
+#: subquery, so the bounds we pass decide which rows reach the dedup at all.
+_TIME_COLUMN: dict[str, str] = {"spans": "span_start_time", "traces": "trace_start_time"}
+
+#: Passed when the caller's query carries no bound we can express exactly. These
+#: reproduce the unbounded behaviour the views had before they took a time range.
+_OPEN_START = "1970-01-01 00:00:00"
+_OPEN_END = "2099-01-01 00:00:00"
+
+
+def _datetime64(value: str) -> exp.Expression:
+    """``toDateTime64('<value>', 3)``, matching the views' DateTime64(3) params."""
+    return exp.Anonymous(
+        this="toDateTime64",
+        expressions=[exp.Literal.string(value), exp.Literal.number(3)],
+    )
+
+
+def _is_time_column(node: exp.Expression, column: str, aliases: set[str], qualified: bool) -> bool:
+    """True if *node* is the bounding column for the table being rewritten.
+
+    *qualified* is set when the scope selects from more than one public table, in
+    which case a bare column reference is ambiguous and is refused rather than
+    guessed at. Guessing wrong here would bound one view by the other's predicate.
+    """
+    if not isinstance(node, exp.Column) or node.name.lower() != column:
+        return False
+    table = node.table.lower()
+    if table:
+        return table in aliases
+    return not qualified
+
+
+def _narrowest(bounds: list[exp.Expression], func: str) -> exp.Expression | None:
+    """Combine several bounds on the same side into the one the caller implies.
+
+    Two predicates on the same side intersect, so the effective bound is the
+    greatest lower bound or the least upper bound. These cannot be compared here,
+    because a bound may be an expression such as ``now() - INTERVAL 1 HOUR`` that
+    only has a value at execution time, so the comparison is handed to the server.
+    """
+    if not bounds:
+        return None
+    if len(bounds) == 1:
+        return bounds[0]
+    return exp.Anonymous(this=func, expressions=[b.copy() for b in bounds])
+
+
+def _extract_time_bounds(
+    where: exp.Expression | None, column: str, aliases: set[str], qualified: bool
+) -> tuple[exp.Expression | None, exp.Expression | None]:
+    """Read the caller's time window out of one scope's WHERE clause.
+
+    Only top-level ``AND`` conjuncts are read. A predicate under ``OR``, or one
+    wrapping the column in a function, tells us nothing we can hand to the view
+    without widening the window, and widening is not safe: a row admitted on a
+    widened boundary enters the view's dedup, can win it as the newest version,
+    and is then dropped by the caller's own filter, hiding an older version that
+    was genuinely inside the window. Such predicates yield no bound, which leaves
+    that side open and reproduces today's behaviour exactly.
+
+    Only ``>=`` and ``<`` map onto the view's parameters. ``>`` and ``<=`` would
+    need the next representable instant to stay exact, which means parsing a
+    caller-supplied datetime literal in every format ClickHouse accepts, so they
+    are read as no bound rather than as an approximate one.
+
+    The bound expression is passed through verbatim rather than bound as a
+    parameter. A parameter carries a value, and the most common window in this
+    product is relative (``now() - INTERVAL 1 HOUR``), which has no value until
+    the server evaluates it. The expression has already passed Layer 1.
+    """
+    if where is None:
+        return None, None
+
+    starts: list[exp.Expression] = []
+    ends: list[exp.Expression] = []
+
+    def visit(node: exp.Expression) -> None:
+        if isinstance(node, exp.And):
+            visit(node.this)
+            visit(node.expression)
+            return
+        if isinstance(node, exp.Paren):
+            visit(node.this)
+            return
+        # col >= X, or the mirrored X <= col
+        if isinstance(node, exp.GTE) and _is_time_column(node.this, column, aliases, qualified):
+            starts.append(node.expression)
+        elif isinstance(node, exp.LTE) and _is_time_column(
+            node.expression, column, aliases, qualified
+        ):
+            starts.append(node.this)
+        # col < X, or the mirrored X > col
+        elif isinstance(node, exp.LT) and _is_time_column(node.this, column, aliases, qualified):
+            ends.append(node.expression)
+        elif isinstance(node, exp.GT) and _is_time_column(
+            node.expression, column, aliases, qualified
+        ):
+            ends.append(node.this)
+
+    visit(where)
+    return _narrowest(starts, "greatest"), _narrowest(ends, "least")
+
+
+def _bounds_by_table(tree: exp.Expression) -> dict[int, tuple[exp.Expression, exp.Expression]]:
+    """Map each public table node to the window of the scope that owns it.
+
+    Extraction is per scope, never a query-wide walk. A global walk lets a
+    subquery's predicate bound the outer view call: in
+    ``WHERE t >= '2024-01-01' AND id IN (SELECT id FROM traces WHERE t >= '1999-01-01')``
+    the outer call would be bounded at 1999, which is still tenant-scoped but
+    defeats the pruning the bounds exist to provide.
+    """
+    bounds: dict[int, tuple[exp.Expression, exp.Expression]] = {}
+    root = build_scope(tree)
+    if root is None:
+        return bounds
+
+    for scope in root.traverse():
+        select = scope.expression
+        where_arg = select.args.get("where") if isinstance(select, exp.Expression) else None
+        where = where_arg.this if isinstance(where_arg, exp.Where) else None
+
+        public = [
+            (name, source)
+            for name, source in scope.sources.items()
+            if isinstance(source, exp.Table)
+            and isinstance(source.this, exp.Identifier)
+            and source.name.lower() in TABLE_VIEW_MAP
+        ]
+        qualified = len(public) > 1
+
+        for name, source in public:
+            column = _TIME_COLUMN[source.name.lower()]
+            aliases = {name.lower(), source.name.lower()}
+            if source.alias:
+                aliases.add(source.alias.lower())
+            start, end = _extract_time_bounds(where, column, aliases, qualified)
+            bounds[id(source)] = (
+                start.copy() if start is not None else _datetime64(_OPEN_START),
+                end.copy() if end is not None else _datetime64(_OPEN_END),
+            )
+
+    return bounds
+
 
 def _make_placeholder() -> exp.Placeholder:
     """Build the ``{scope_project_id:String}`` ClickHouse bound-parameter node.
@@ -91,9 +238,13 @@ def _make_placeholder() -> exp.Placeholder:
 
 
 def _build_view_table(
-    view_name: str, alias: exp.TableAlias, param_value: exp.Expression
+    view_name: str,
+    alias: exp.TableAlias,
+    param_value: exp.Expression,
+    start: exp.Expression,
+    end: exp.Expression,
 ) -> exp.Table:
-    """Build ``view_name(project_id = param_value) AS alias``.
+    """Build ``view_name(project_id = …, start_time = …, end_time = …) AS alias``.
 
     The resulting ``Table`` node has ``this=Anonymous(this=view_name, ...)``
     (not ``Identifier``), so Layer-3 verification can distinguish injected
@@ -110,7 +261,15 @@ def _build_view_table(
                 exp.EQ(
                     this=exp.Column(this=exp.Identifier(this="project_id", quoted=False)),
                     expression=param_value.copy(),
-                )
+                ),
+                exp.EQ(
+                    this=exp.Column(this=exp.Identifier(this="start_time", quoted=False)),
+                    expression=start.copy(),
+                ),
+                exp.EQ(
+                    this=exp.Column(this=exp.Identifier(this="end_time", quoted=False)),
+                    expression=end.copy(),
+                ),
             ],
         ),
         alias=alias,
@@ -121,6 +280,7 @@ def _rewrite_table(
     node: exp.Table,
     cte_aliases: set[str],
     param_value: exp.Expression,
+    bounds: dict[int, tuple[exp.Expression, exp.Expression]] | None = None,
 ) -> exp.Expression:
     """Rewrite a single whitelisted physical ``exp.Table`` to its curated view.
 
@@ -153,7 +313,8 @@ def _rewrite_table(
         alias_node = original_alias.copy()
     else:
         alias_node = exp.TableAlias(this=exp.Identifier(this=table_name, quoted=False))
-    return _build_view_table(view_name, alias_node, param_value)
+    start, end = (bounds or {}).get(id(node), (_datetime64(_OPEN_START), _datetime64(_OPEN_END)))
+    return _build_view_table(view_name, alias_node, param_value, start, end)
 
 
 # ---------------------------------------------------------------------------
@@ -277,13 +438,22 @@ def scope_and_render(sql: str, project_id: str) -> tuple[str, dict[str, str]]:
         param_value = exp.Literal.string(project_id)
         bind_map = {}
 
+    # Step 4b — read each table reference's window out of its own scope.
+    # Computed before the transform, and keyed on node identity, which is why the
+    # transform below runs with copy=False: the tree was already copied at step 2,
+    # and a second copy would hand the callback nodes these keys do not match.
+    bounds = _bounds_by_table(tree)
+
     # Step 5 — Layer-2 rewrite.
     # The lambda looks up ``_rewrite_table`` in module globals on every call,
     # so ``monkeypatch.setattr(rewriter, '_rewrite_table', noop)`` takes effect.
     rewritten = tree.transform(
         lambda node: (
-            _rewrite_table(node, cte_aliases, param_value) if isinstance(node, exp.Table) else node
-        )
+            _rewrite_table(node, cte_aliases, param_value, bounds)
+            if isinstance(node, exp.Table)
+            else node
+        ),
+        copy=False,
     )
 
     # Step 6 — Layer-3 post-rewrite verification (AST-based, fail closed).

@@ -273,7 +273,12 @@ class TestLayer3FailClosed:
         """If _rewrite_table is patched to a no-op, post-rewrite verification
         must detect the surviving un-rewritten table and raise SqlValidationError."""
 
-        def _noop(node: exp.Table, cte_aliases: set, param_value: exp.Expression) -> exp.Expression:
+        def _noop(
+            node: exp.Table,
+            cte_aliases: set,
+            param_value: exp.Expression,
+            bounds: dict | None = None,
+        ) -> exp.Expression:
             return node  # deliberately skip the rewrite
 
         monkeypatch.setattr(rewriter_mod, "_rewrite_table", _noop)
@@ -281,7 +286,12 @@ class TestLayer3FailClosed:
             scope_and_render("SELECT count() FROM spans", PID)
 
     def test_skipped_rewrite_on_traces_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def _noop(node: exp.Table, cte_aliases: set, param_value: exp.Expression) -> exp.Expression:
+        def _noop(
+            node: exp.Table,
+            cte_aliases: set,
+            param_value: exp.Expression,
+            bounds: dict | None = None,
+        ) -> exp.Expression:
             return node
 
         monkeypatch.setattr(rewriter_mod, "_rewrite_table", _noop)
@@ -456,8 +466,8 @@ def test_layer3_rejects_an_injected_view_it_does_not_recognise(
 
     real_build = rewriter_module._build_view_table
 
-    def _wrong_view(view_name: str, alias_node, param_value):  # type: ignore[no-untyped-def]
-        return real_build("somewhere_else_v1", alias_node, param_value)
+    def _wrong_view(view_name, alias_node, param_value, start, end):  # type: ignore[no-untyped-def]
+        return real_build("somewhere_else_v1", alias_node, param_value, start, end)
 
     monkeypatch.setattr(rewriter_module, "_build_view_table", _wrong_view)
 
@@ -481,3 +491,119 @@ def test_layer3_rejects_a_blocked_function_in_the_rewritten_tree() -> None:
     with pytest.raises(SqlValidationError) as exc_info:
         rewriter_module._verify_rewritten_ast(tree, set())
     assert "blocked function" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Time range. The curated views declare start_time (inclusive) and end_time
+# (exclusive) and apply them inside the dedup subquery, so the window the
+# rewriter passes decides which rows reach the dedup at all.
+# ---------------------------------------------------------------------------
+def _view_call(rendered: str, view: str) -> str:
+    """Return the whole ``view(...)`` call, balancing parentheses.
+
+    A bound can itself be a call such as ``toDateTime64('…', 3)``, so a lazy
+    match to the first ``)`` truncates mid-argument.
+    """
+    start = rendered.index(view)
+    depth = 0
+    for i in range(start, len(rendered)):
+        if rendered[i] == "(":
+            depth += 1
+        elif rendered[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return rendered[start : i + 1]
+    raise AssertionError(f"{view} call not closed in {rendered}")
+
+
+class TestTimeRange:
+    def test_open_bounds_when_the_query_has_no_time_predicate(self) -> None:
+        call = _view_call(scope_and_render("SELECT count() FROM spans", PID)[0], "spans_public_v1")
+        assert "toDateTime64('1970-01-01 00:00:00', 3)" in call
+        assert "toDateTime64('2099-01-01 00:00:00', 3)" in call
+
+    def test_half_open_predicate_is_passed_through_exactly(self) -> None:
+        rendered, _ = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time >= '2026-09-01'"
+            " AND span_start_time < '2026-09-02'",
+            PID,
+        )
+        call = _view_call(rendered, "spans_public_v1")
+        assert "start_time = '2026-09-01'" in call
+        assert "end_time = '2026-09-02'" in call
+
+    def test_relative_window_is_inlined_rather_than_bound(self) -> None:
+        # A bound parameter carries a value; now() has none until the server runs
+        # it, and this is the most common window shape in the product.
+        rendered, binds = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time >= now() - INTERVAL 1 HOUR", PID
+        )
+        assert "start_time = now()" in _view_call(rendered, "spans_public_v1")
+        assert set(binds) == {"scope_project_id"}
+
+    def test_strict_inequality_leaves_that_side_open(self) -> None:
+        # `>` cannot be expressed against an inclusive start without the next
+        # representable instant, so it yields no bound rather than a wider one.
+        call = _view_call(
+            scope_and_render("SELECT count() FROM spans WHERE span_start_time > '2026-09-01'", PID)[
+                0
+            ],
+            "spans_public_v1",
+        )
+        assert "start_time = toDateTime64('1970-01-01 00:00:00', 3)" in call
+
+    def test_each_table_is_bounded_on_its_own_time_column(self) -> None:
+        rendered, _ = scope_and_render(
+            "SELECT s.span_id FROM spans AS s JOIN traces AS t ON s.trace_id = t.trace_id"
+            " WHERE s.span_start_time >= '2026-09-01' AND t.trace_start_time >= '2026-08-01'",
+            PID,
+        )
+        assert "start_time = '2026-09-01'" in _view_call(rendered, "spans_public_v1")
+        assert "start_time = '2026-08-01'" in _view_call(rendered, "traces_public_v1")
+
+    def test_a_nested_predicate_does_not_widen_the_outer_window(self) -> None:
+        # The failure mode this guards: a global walk lets the subquery's 1999
+        # bound reach the outer call and defeat the pruning the bounds exist for.
+        rendered, _ = scope_and_render(
+            "SELECT span_id FROM spans WHERE span_start_time >= '2026-09-01'"
+            " AND trace_id IN (SELECT trace_id FROM traces WHERE trace_start_time >= '1999-01-01')",
+            PID,
+        )
+        assert "start_time = '2026-09-01'" in _view_call(rendered, "spans_public_v1")
+        assert "start_time = '1999-01-01'" in _view_call(rendered, "traces_public_v1")
+
+    def test_an_ambiguous_unqualified_column_yields_open_bounds(self) -> None:
+        # Two public tables in one scope and a bare column: guessing which table
+        # it bounds would bound one view by the other's predicate.
+        rendered, _ = scope_and_render(
+            "SELECT s.span_id FROM spans AS s JOIN traces AS t ON s.trace_id = t.trace_id"
+            " WHERE span_start_time >= '2026-09-01'",
+            PID,
+        )
+        assert "start_time = toDateTime64('1970-01-01 00:00:00', 3)" in _view_call(
+            rendered, "spans_public_v1"
+        )
+
+    def test_two_bounds_on_one_side_intersect(self) -> None:
+        # The caller asked for both, so the effective bound is the later one. It
+        # cannot be computed here when either side is an expression, so the
+        # comparison goes to the server.
+        call = _view_call(
+            scope_and_render(
+                "SELECT count() FROM spans WHERE span_start_time >= '2026-09-01'"
+                " AND span_start_time >= '2026-09-05'",
+                PID,
+            )[0],
+            "spans_public_v1",
+        )
+        assert "GREATEST(" in call.upper()
+
+    def test_layer3_accepts_the_widened_view_call(self) -> None:
+        # Verification keys on the view name, so the extra arguments pass through.
+        # Pinned because a stricter check would reject every bounded call.
+        rendered, _ = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time >= '2026-09-01'", PID
+        )
+        call = _view_call(rendered, "spans_public_v1")
+        assert call.count("=") >= 3
+        assert "project_id" in call and "start_time" in call and "end_time" in call
