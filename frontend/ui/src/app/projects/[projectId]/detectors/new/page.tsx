@@ -66,7 +66,7 @@ export default function NewDetectorPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const template = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate)!;
     const input: CreateDetectorInput = {
@@ -81,8 +81,11 @@ export default function NewDetectorPage() {
       detectionProvider: modelSelection.provider || undefined,
       detectionSource: modelSelection.source === "byok" ? "byok" : "system",
     };
-    await createMutation.mutateAsync(input);
-    router.push(`/projects/${projectId}/detectors`);
+    createMutation.mutate(input, {
+      onSuccess: () => {
+        router.push(`/projects/${projectId}/detectors`);
+      },
+    });
   };
 
   const selectedTemplateDef = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate);
@@ -235,6 +238,10 @@ export default function NewDetectorPage() {
                 </span>
               </div>
             </div>
+
+            {createMutation.isError && (
+              <p className="text-[12px] text-destructive">{createMutation.error.message}</p>
+            )}
 
             {/* Footer */}
             <div className="flex items-center justify-end gap-2 pt-1">

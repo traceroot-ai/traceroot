@@ -26,8 +26,19 @@ export async function fetchNextApi<T>(endpoint: string, options: RequestInit = {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: "Unknown error" }));
-    throw new ApiError(response.status, error.error || `API error: ${response.status}`);
+    const body = await response.json().catch(() => null);
+
+    const error =
+      body && typeof body === "object" && "error" in body
+        ? (body as { error?: unknown }).error
+        : undefined;
+
+    const detail =
+      body && typeof body === "object" && "detail" in body
+        ? (body as { detail?: unknown }).detail
+        : undefined;
+
+    throw new ApiError(response.status, error ?? detail ?? `API error: ${response.status}`);
   }
 
   if (response.status === 204) {
