@@ -84,6 +84,26 @@ def test_rest_receives_the_readonly_identity():
     for key in ("CLICKHOUSE_RO_USER", "CLICKHOUSE_RO_PASSWORD"):
         assert key in rest_env, f"rest cannot authenticate as the gateway reader without {key}"
 
+    # The account name is fixed by the bootstrap script, so the default has to match it.
+    # An empty default reads as unset, which silently disables the read-only client.
+    created = (_BOOTSTRAP / "sql_gateway_users.sql").read_text()
+    name = re.search(r"CREATE USER IF NOT EXISTS (sql_gateway_ro)\b", created)
+    assert name, "could not find the read-only account in the bootstrap script"
+
+    # Compare the parsed default for equality, not containment. A longer name that merely
+    # embeds the right one, `not_sql_gateway_ro_extra`, is a different account and is
+    # exactly the substitution this exists to catch.
+    template = rest_env["CLICKHOUSE_RO_USER"]
+    default = re.fullmatch(r"\$\{CLICKHOUSE_RO_USER:-([^}]*)\}", template)
+    assert default, (
+        f"rest sets CLICKHOUSE_RO_USER to {template!r}; expected a "
+        "${CLICKHOUSE_RO_USER:-<account>} form so the default can be checked"
+    )
+    assert default.group(1) == name.group(1), (
+        f"rest defaults CLICKHOUSE_RO_USER to {default.group(1)!r}, but the bootstrap script "
+        f"creates {name.group(1)!r}"
+    )
+
 
 def _service_entrypoint_text(compose_path: Path, service: str) -> str:
     """The entrypoint as one string, whether compose spells it as a scalar or a list."""
