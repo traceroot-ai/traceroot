@@ -185,7 +185,10 @@
             "group": "Model Providers",
             "pages": [
               "integrations/anthropic",
+              "integrations/azure-openai",
+              "integrations/bedrock",
               "integrations/gemini",
+              "integrations/groq",
               "integrations/mistral",
               "integrations/openai",
               "integrations/openrouter"
