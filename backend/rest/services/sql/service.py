@@ -1,0 +1,208 @@
+"""Execution for the SQL Gateway: run a validated, scoped query and shape it.
+
+This is the seam between the layers that decide what a query is allowed to be
+and the database that answers it. It validates and scopes through
+``scope_and_render``, caps the rows the caller can receive, executes as the
+read-only account, and turns whatever ClickHouse says into either a result or an
+error that reveals nothing about the query's rewritten form.
+
+Two constraints here are not obvious and were both learned the expensive way.
+
+**The service sends no per-query settings.** Under ``readonly = 1`` the
+read-only account returns ``Code: 164`` for *any* settings override, including
+one stricter than the profile it already has. Execution-time, result-row,
+result-byte and memory caps therefore live on the account's settings profile in
+a hardened deployment, and on the client handle in the self-host fallback where
+no read-only account exists. Sending them from here breaks every query.
+
+**The row cap is a wrapper, not a clause the caller can influence.** The cap is
+applied as ``SELECT * FROM (<rewritten>) LIMIT n+1`` around the whole rewritten
+query. An inner ``LIMIT`` the caller wrote still applies to the inner query, and
+the outer one still decides how many rows leave this process, so the effective
+count is ``min(caller's limit, cap)``. The extra row is the truncation sentinel:
+if it comes back, more rows existed than the caller may have.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import time
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from clickhouse_connect.driver.exceptions import ClickHouseError
+
+from rest.services.sql.errors import SqlExecutionError
+from rest.services.sql.rewriter import scope_and_render
+from shared.config import settings
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle only matters for type checkers
+    from db.clickhouse.client import ClickHouseClient
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SqlColumn:
+    """One column of a result, named and typed as ClickHouse reported it."""
+
+    name: str
+    type: str
+
+
+@dataclass(frozen=True)
+class SqlResult:
+    """A completed query, already trimmed to what the caller may receive."""
+
+    columns: list[SqlColumn]
+    rows: list[list[Any]]
+    row_count: int
+    truncated: bool
+    elapsed_ms: int
+    statistics: dict[str, Any] = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Error classification
+# ---------------------------------------------------------------------------
+
+#: ClickHouse puts its numeric error code at the head of the message, as in
+#: ``Code: 241. DB::Exception: Memory limit (total) exceeded ...``.
+_CODE_RE = re.compile(r"\bCode:\s*(\d+)")
+
+#: Codes the caller can act on, each mapped to a sentence that describes the
+#: problem without quoting anything about the query.
+#:
+#: Keyed on the code rather than on words in the message, because the codes are
+#: a stable interface and the prose is not. The important half of this design is
+#: the default: a code that is not here is opaque by construction, so a future
+#: ClickHouse release cannot introduce a message that leaks a view name simply
+#: because nobody had seen it yet. A substring scrub gets that backwards.
+_CLIENT_ERRORS: dict[int, str] = {
+    159: "Query exceeded the maximum execution time.",
+    160: "Query was estimated to take longer than the maximum execution time.",
+    241: "Query exceeded the maximum memory allowed.",
+    396: "Query result exceeded the maximum size allowed.",
+    158: "Query result exceeded the maximum number of rows allowed.",
+    43: "Query uses an argument of the wrong type for that function.",
+    53: "Query compares or combines values of incompatible types.",
+    47: "Query references a column that does not exist in the public schema.",
+    60: "Query references a table that does not exist in the public schema.",
+    62: "Query could not be parsed by the database.",
+    386: "Query combines values that have no common type.",
+    456: "Query uses a parameter that was not supplied.",
+}
+
+_UNEXPECTED = "Query execution failed."
+
+
+def classify_ch_error(raw: str) -> tuple[str, bool]:
+    """Map a raw ClickHouse error to a safe message and a blame assignment.
+
+    Returns ``(message, is_client_error)``. Anything unrecognised is reported as
+    a generic failure the caller cannot act on, which is the behaviour that
+    makes new and unknown codes safe without anyone revisiting this table.
+    """
+    match = _CODE_RE.search(raw or "")
+    if match:
+        code = int(match.group(1))
+        if code in _CLIENT_ERRORS:
+            return _CLIENT_ERRORS[code], True
+    return _UNEXPECTED, False
+
+
+class SqlQueryService:
+    """Runs public SQL for one project and returns rows the caller may see."""
+
+    def __init__(
+        self,
+        client: ClickHouseClient | None = None,
+        *,
+        max_rows_ceiling: int | None = None,
+    ) -> None:
+        self._client = client
+        self._ceiling = max_rows_ceiling or settings.clickhouse.sql_max_result_rows
+
+    def _resolve_client(self) -> ClickHouseClient:
+        if self._client is not None:
+            return self._client
+        # Imported here so constructing the service never reaches for a database
+        # connection, which keeps the unit tests free of one.
+        from db.clickhouse.client import get_readonly_clickhouse_client
+
+        self._client = get_readonly_clickhouse_client()
+        return self._client
+
+    def _effective_max(self, max_rows: int | None) -> int:
+        if max_rows is None:
+            return self._ceiling
+        if not isinstance(max_rows, int) or isinstance(max_rows, bool) or max_rows < 1:
+            raise SqlExecutionError(
+                "max_rows must be a positive whole number.", is_client_error=True
+            )
+        # The ceiling is the server's, so asking for more than it does not raise
+        # it. A caller asking for fewer rows than the ceiling gets what it asked.
+        return min(max_rows, self._ceiling)
+
+    def run(self, query: str, project_id: str, *, max_rows: int | None = None) -> SqlResult:
+        """Validate, scope, execute and shape one query.
+
+        Raises ``SqlValidationError`` before touching the database if the query
+        violates the read-only contract, and ``SqlExecutionError`` if the
+        database refuses or fails it.
+        """
+        effective_max = self._effective_max(max_rows)
+
+        # Layers 1 to 3. Raises SqlValidationError, which the caller maps to 400.
+        scoped_sql, bind_params = scope_and_render(query, project_id)
+
+        wrapped = f"SELECT * FROM (\n{scoped_sql}\n) LIMIT {effective_max + 1}"
+
+        client = self._resolve_client()
+        started = time.perf_counter()
+        try:
+            # No settings argument. See the module docstring: readonly = 1
+            # refuses every per-query override, stricter ones included.
+            result = client.query(wrapped, parameters=bind_params)
+        except ClickHouseError as exc:
+            message, is_client_error = classify_ch_error(str(exc))
+            # The raw text may name the curated views, so it is logged and never
+            # returned. Nothing derived from it reaches the caller except the
+            # sentence chosen above.
+            logger.warning("public sql execution failed", exc_info=exc)
+            raise SqlExecutionError(message, is_client_error=is_client_error) from exc
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+
+        rows = [list(row) for row in result.result_rows]
+        truncated = len(rows) > effective_max
+        if truncated:
+            del rows[effective_max:]
+
+        columns = [
+            SqlColumn(name=name, type=str(ch_type))
+            for name, ch_type in zip(result.column_names, result.column_types, strict=False)
+        ]
+
+        return SqlResult(
+            columns=columns,
+            rows=rows,
+            row_count=len(rows),
+            truncated=truncated,
+            elapsed_ms=elapsed_ms,
+            statistics=_statistics(result),
+        )
+
+
+def _statistics(result: Any) -> dict[str, Any]:
+    """Best-effort read counters, which the driver does not always populate."""
+    summary = getattr(result, "summary", None) or {}
+    stats: dict[str, Any] = {}
+    for key, out in (("read_rows", "rows_read"), ("read_bytes", "bytes_read")):
+        value = summary.get(key)
+        if value is not None:
+            try:
+                stats[out] = int(value)
+            except (TypeError, ValueError):
+                continue
+    return stats
