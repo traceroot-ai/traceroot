@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { isRecordGone, parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 import { DASHBOARD_DESCRIPTION_MAX, DASHBOARD_NAME_MAX } from "@/features/dashboards/types";
 
@@ -97,6 +98,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   } catch (e) {
     // Deleted concurrently between the scoped findFirst and this write.
     if (isRecordGone(e)) return errorResponse("Dashboard not found", 404);
+    // Rename collided with another dashboard's name (uq_dashboard_project_name).
+    if (isPrismaKnownError(e, "P2002")) {
+      return errorResponse("A dashboard with this name already exists", 409);
+    }
     throw e;
   }
 }

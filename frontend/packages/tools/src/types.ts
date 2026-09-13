@@ -16,6 +16,16 @@ export interface InputSchema {
   additionalProperties: false;
 }
 
+export type ToolMethod = "get" | "post";
+
+/** Guardrails a write tool carries; surfaces enforce them before dispatching. */
+export interface ToolPolicy {
+  approvalClass: "none" | "approval";
+  /** Minimum workspace role; "VIEWER" means no role floor (account-tenancy ops have no membership to gate). */
+  minRole: "VIEWER" | "MEMBER" | "ADMIN";
+  tenancy: "account" | "workspace" | "project";
+}
+
 /**
  * One tool in the shared registry. Inert data — where and how to call the API —
  * generated from the public OpenAPI schema's x-tool curation. Logic lives in
@@ -24,8 +34,16 @@ export interface InputSchema {
 export interface RegistryEntry {
   name: string;
   description: string;
-  method: "get";
+  method: ToolMethod;
   /** Public path template, e.g. "/api/v1/public/traces/{trace_id}". */
   path: string;
   inputSchema: InputSchema;
+  /** Args routed to the JSON request body (write ops only). */
+  bodyParams?: readonly string[];
+  /** Body fields kept in the API/CLI contract but that the agent's tool
+   * factory must neither show to the model nor accept from it. The entry's
+   * inputSchema/bodyParams stay complete; filtering is the consumer's job. */
+  agentHiddenParams?: readonly string[];
+  /** Required on every non-GET entry; validated at generation time. */
+  policy?: ToolPolicy;
 }
