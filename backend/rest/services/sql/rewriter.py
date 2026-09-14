@@ -78,6 +78,11 @@ PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9_:.\-]+$")
 #: the blocked-function re-scan.
 _VIEW_NAMES: frozenset[str] = frozenset(v.lower() for v in TABLE_VIEW_MAP.values())
 
+#: The arguments every injected view call carries, each exactly once. Layer 3
+#: refuses a call with any other set: a missing bound fails at execution with
+#: Code 456, and an extra or repeated argument means the rewrite went wrong.
+_VIEW_ARGUMENTS: frozenset[str] = frozenset({"project_id", "start_time", "end_time"})
+
 #: The column each curated view bounds its scan on. The views declare
 #: ``start_time`` inclusive and ``end_time`` exclusive, applied INSIDE the dedup
 #: subquery, so the bounds we pass decide which rows reach the dedup at all.
@@ -377,7 +382,109 @@ def _rewrite_table(
 # ---------------------------------------------------------------------------
 
 
-def _verify_rewritten_ast(tree: exp.Expression, cte_aliases: set[str]) -> None:
+def _call_name(node: exp.Expression) -> str | None:
+    """The lowercased name of a call the rewriter built, or None for anything else."""
+    if isinstance(node, exp.Anonymous) and isinstance(node.this, str):
+        return node.this.lower()
+    return None
+
+
+def _is_reserved_placeholder(node: exp.Expression) -> bool:
+    """True for a bound parameter in the namespace reserved for tenant scoping.
+
+    The same rule as the validator's, applied again because Layer 3 does not
+    assume Layer 1 saw this tree.
+    """
+    if not isinstance(node, exp.Placeholder):
+        return False
+    var = node.this
+    name = (var.name if isinstance(var, exp.Expression) else str(var or "")).lower()
+    return name == "project_id" or name.startswith("scope_")
+
+
+def _is_normalised_bound(node: exp.Expression) -> bool:
+    """True if *node* is ``toTimeZone(toDateTime64(<value>, 3), timezone())``.
+
+    The value inside is checked independently of ``_is_constant_bound``, so a
+    defect in extraction cannot also blind verification: it must reference no
+    column, subquery or table, and no reserved parameter. A caller's own
+    ``{name:Type}`` parameter is allowed, since it is a value.
+    """
+    if _call_name(node) != "totimezone" or len(node.expressions) != 2:
+        return False
+    inner, zone = node.expressions
+    if _call_name(zone) != "timezone" or zone.expressions:
+        return False
+    if _call_name(inner) != "todatetime64" or len(inner.expressions) != 2:
+        return False
+    value, precision = inner.expressions
+    if not (isinstance(precision, exp.Literal) and precision.is_number and precision.this == "3"):
+        return False
+    return not any(
+        isinstance(n, (exp.Column, exp.Select, exp.Subquery, exp.Table))
+        or _is_reserved_placeholder(n)
+        for n in value.walk()
+    )
+
+
+def _is_verified_bound(node: exp.Expression, combiner: str) -> bool:
+    """True if *node* is one normalised bound, or several joined by *combiner*.
+
+    The combiner is side-specific: several lower bounds intersect with
+    ``greatest`` and several upper bounds with ``least``. The opposite function
+    would widen the window, which the rewriter never does on purpose.
+    """
+    if _is_normalised_bound(node):
+        return True
+    return (
+        _call_name(node) == combiner
+        and len(node.expressions) >= 2
+        and all(_is_normalised_bound(bound) for bound in node.expressions)
+    )
+
+
+def _verify_view_call(call: exp.Anonymous, param_value: exp.Expression) -> exp.Expression:
+    """Check one injected view call's arguments, returning its tenant argument.
+
+    Raises ``SqlValidationError`` unless the call carries exactly ``project_id``,
+    ``start_time`` and ``end_time``, the tenant argument is the scope value this
+    render bound, and both time bounds are in the normalised shape.
+    """
+    arguments: dict[str, exp.Expression] = {}
+    for argument in call.expressions:
+        name = (
+            argument.this.name.lower()
+            if isinstance(argument, exp.EQ)
+            and isinstance(argument.this, exp.Column)
+            and not argument.this.table
+            else None
+        )
+        if name not in _VIEW_ARGUMENTS or name in arguments:
+            raise SqlValidationError(
+                "Post-rewrite verification failed: a view call has unexpected arguments"
+            )
+        arguments[name] = argument.expression
+    if arguments.keys() != _VIEW_ARGUMENTS:
+        raise SqlValidationError(
+            "Post-rewrite verification failed: a view call is missing an argument"
+        )
+    if arguments["project_id"] != param_value:
+        raise SqlValidationError(
+            "Post-rewrite verification failed: a view call is not scoped to the bound project"
+        )
+    if not (
+        _is_verified_bound(arguments["start_time"], "greatest")
+        and _is_verified_bound(arguments["end_time"], "least")
+    ):
+        raise SqlValidationError(
+            "Post-rewrite verification failed: a view call carries an unverified time bound"
+        )
+    return arguments["project_id"]
+
+
+def _verify_rewritten_ast(
+    tree: exp.Expression, cte_aliases: set[str], param_value: exp.Expression
+) -> None:
     """Walk the rewritten AST and raise ``SqlValidationError`` if any security
     invariant is violated (fail-closed policy).
 
@@ -393,8 +500,30 @@ def _verify_rewritten_ast(tree: exp.Expression, cte_aliases: set[str]) -> None:
        validator's public ``is_blocked_function`` helper.  The injected
        ``*_public_v1`` view-call ``Anonymous`` nodes are not blocked (their
        names are not in the blocklist), so they need no special exemption.
+    4. Every injected view call carries exactly its three arguments, its tenant
+       argument is *param_value*, and its time bounds are normalised constants.
+    5. A reserved parameter appears nowhere except as a view call's tenant
+       argument, so nothing else in the query can read or displace the scope.
     """
+    # --- Invariant 4: view call arguments ------------------------------------
+    # Collected in a pass of its own, so invariant 5 below knows every tenant
+    # argument before it meets a placeholder, whatever order the walk takes.
+    tenant_arguments: set[int] = set()
     for node in tree.walk():
+        if (
+            isinstance(node, exp.Table)
+            and isinstance(node.this, exp.Anonymous)
+            and _call_name(node.this) in _VIEW_NAMES
+        ):
+            tenant_arguments.add(id(_verify_view_call(node.this, param_value)))
+
+    for node in tree.walk():
+        # --- Invariant 5: reserved parameters only as tenant arguments ---------
+        if _is_reserved_placeholder(node) and id(node) not in tenant_arguments:
+            raise SqlValidationError(
+                "Post-rewrite verification failed: a reserved parameter is used outside the scope"
+            )
+
         # --- Invariant 1 & 2: Table node shape checks -------------------------
         if isinstance(node, exp.Table):
             if isinstance(node.this, exp.Identifier):
@@ -512,7 +641,7 @@ def scope_and_render(sql: str, project_id: str) -> tuple[str, dict[str, str]]:
     )
 
     # Step 6 — Layer-3 post-rewrite verification (AST-based, fail closed).
-    _verify_rewritten_ast(rewritten, cte_aliases)
+    _verify_rewritten_ast(rewritten, cte_aliases, param_value)
 
     # Step 7 — render.
     return rewritten.sql(dialect="clickhouse"), bind_map
