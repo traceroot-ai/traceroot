@@ -176,6 +176,14 @@ def test_gateway_passwords_do_not_stop_the_stack_from_loading():
         for key in ("SQL_GATEWAY_WRITER_PASSWORD", "CLICKHOUSE_RO_PASSWORD"):
             if key in env:
                 assert ":?" not in str(env[key]), f"{name} requires {key} at config load"
+    # Not just "not required": the default has to be empty, because an empty value is what
+    # makes clickhouse-init generate the writer password and skip the read-only account. A
+    # fixed default would give the writer, which reads the raw tables, a known password.
+    init_env = services["clickhouse-init"]["environment"]
+    for key in ("SQL_GATEWAY_WRITER_PASSWORD", "CLICKHOUSE_RO_PASSWORD"):
+        assert re.fullmatch(rf"\$\{{{key}:-\}}", str(init_env[key])), (
+            f"clickhouse-init must default {key} to empty, got {init_env[key]!r}"
+        )
     for name in ("clickhouse", "migrate-clickhouse"):
         env = services[name]["environment"]
         assert ":?" in str(env["SQL_GATEWAY_BOOTSTRAP_PASSWORD"]), (
