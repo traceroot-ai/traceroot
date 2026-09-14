@@ -18,6 +18,7 @@ from rest.services.sql.service import (
     SqlQueryService,
     classify_ch_error,
 )
+from shared.config import settings
 
 PID = "acme_corp:proj.123-abc"
 
@@ -101,6 +102,16 @@ class TestRowCap:
         client = FakeClient(rows=[["s1"]])
         _service(client, ceiling=100).run("SELECT span_id FROM spans", PID, max_rows=10_000)
         assert client.last["query"].rstrip().endswith("LIMIT 101")
+
+    def test_the_default_ceiling_leaves_room_for_the_sentinel_under_the_server_cap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The server answers Code 396 once a result passes its row cap, so the
+        # fetched LIMIT, sentinel included, must not exceed it.
+        monkeypatch.setattr(settings.clickhouse, "sql_max_result_rows", 50)
+        client = FakeClient(rows=[["s1"]])
+        SqlQueryService(client).run("SELECT span_id FROM spans", PID, max_rows=10_000)
+        assert client.last["query"].rstrip().endswith("LIMIT 50")
 
     @pytest.mark.parametrize("bad", [0, -1, True, 2.5, "10"])
     def test_a_nonsense_max_rows_is_refused_before_execution(self, bad: Any) -> None:
