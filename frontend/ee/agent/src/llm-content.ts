@@ -32,7 +32,9 @@ function textOf(content: unknown): string {
 function toolCallsOf(content: unknown): Array<{ id?: string; name?: string; arguments?: unknown }> {
   if (!Array.isArray(content)) return [];
   return content
-    .filter((p): p is Part => typeof p === "object" && p !== null && (p as Part).type === "toolCall")
+    .filter(
+      (p): p is Part => typeof p === "object" && p !== null && (p as Part).type === "toolCall",
+    )
     .map((p) => ({ id: p.id, name: p.name, arguments: p.arguments }));
 }
 
