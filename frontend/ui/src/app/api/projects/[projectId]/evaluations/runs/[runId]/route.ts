@@ -1,11 +1,12 @@
 import { NextRequest } from "next/server";
-import { prisma, Role } from "@traceroot/core";
+import { prisma, PlanType, Role } from "@traceroot/core";
 import {
   requireAuth,
   requireProjectAccess,
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isOutsideRetention } from "@/lib/server/retention";
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
 import { countResultStatuses } from "@/lib/eval/result-status-counts";
@@ -54,6 +55,30 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     },
   });
   if (!run) return errorResponse("Evaluation run not found", 404);
+
+  // Retention gate — the by-id half. A list has a window to pull forward, so it clamps
+  // silently; a by-id read has none, so it refuses. That is the split the telemetry
+  // surfaces already make between clamp_retention_window and enforce_retention_by_time
+  // (backend/rest/retention.py), and `isOutsideRetention` is the second of those for the
+  // Node routes. Plan resolution matches the detector proxies: an unreadable or absent
+  // workspace fails closed to the most restrictive plan.
+  //
+  // This also gates the comparison page, which has no route of its own — it fetches each
+  // selected run through here, so an out-of-window run cannot be smuggled in as a
+  // comparison column either.
+  //
+  // Placed after the 404 so a run that does not exist stays a 404 (and skips the plan
+  // lookup), and before the baseline/dataset/aggregate reads so a refusal does no work.
+  // A run's embedded baseline is not separately gated: it is reachable only as the diff
+  // columns of an in-window run, which is how a run's baseline is surfaced elsewhere too.
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: accessResult.project.workspaceId },
+    select: { billingPlan: true },
+  });
+  const billingPlan = workspace?.billingPlan || PlanType.FREE;
+  if (isOutsideRetention(billingPlan, run.startedAt)) {
+    return errorResponse("Data outside retention window", 403);
+  }
 
   // The baseline's raw results + scores (no per-row N+1), capped the same way.
   const baselineRun = run.baselineRunId
