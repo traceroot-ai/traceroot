@@ -89,6 +89,15 @@ describe("agent.ts instrumentation wiring", () => {
     expect((out.result as string).length).toBeLessThan(200_000);
   });
 
+  it("stamps a withheld result as the reader-facing note the chat step shows, not the policy's verdict", () => {
+    const out = config.captureToolIo("bash", { command: "ls" }, "a listing of 26 bytes.....");
+    expect(out.result).toBe(
+      "Output not stored after the run (26 bytes returned). Shell, file and git output can " +
+        "include your source code and secrets, so it is shown while the run streams but not " +
+        "kept afterwards. Trace and session downloads are kept.",
+    );
+  });
+
   it("charges the run's SPAN budget — independent of the row budget the persister keeps for itself", async () => {
     // See capture-budget-independence.test.ts for the cross-sink assertion:
     // this only pins that the callback charges currentCaptureState() (the
