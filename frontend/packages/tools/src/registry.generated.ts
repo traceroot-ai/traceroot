@@ -4,6 +4,125 @@ import type { RegistryEntry } from "./types.js";
 
 export const REGISTRY: readonly RegistryEntry[] = [
   {
+    name: "create_alert",
+    description:
+      "Create a threshold alert in a project: a measure of the spans view, aggregated over a window and compared to a threshold, with optional row filters and renotify/no-data settings. Strict create, never idempotent: alerts share names freely, so to avoid a duplicate list the project's alerts first and match the name.",
+    method: "post",
+    path: "/api/v1/public/alerts",
+    inputSchema: {
+      type: "object",
+      properties: {
+        aggregation: {
+          enum: ["sum", "avg", "count", "max", "min", "p50", "p75", "p90", "p95", "p99", "uniq"],
+          type: "string",
+        },
+        filters: {
+          description: "Row predicates the measure is evaluated over",
+          items: {
+            additionalProperties: false,
+            properties: {
+              field: {
+                description: "A span field, e.g. model_name or metadata",
+                type: "string",
+              },
+              key: {
+                description: "The map entry to compare; required for the metadata field",
+                type: "string",
+              },
+              op: {
+                enum: ["=", "contains"],
+                type: "string",
+              },
+              value: {
+                type: ["string", "number"],
+              },
+            },
+            required: ["field", "op", "value"],
+            type: "object",
+          },
+          type: "array",
+        },
+        measure: {
+          description: "A measure of the view, e.g. latency, cost, count",
+          type: "string",
+        },
+        name: {
+          type: "string",
+        },
+        no_data_mode: {
+          enum: ["HOLD", "ZERO", "NOTIFY"],
+          type: "string",
+          description: "What a window that measured nothing means; column default when omitted",
+        },
+        project_id: {
+          type: "string",
+        },
+        renotify: {
+          description: "How often an alert re-notifies while it stays in the alerting state.",
+          properties: {
+            interval_minutes: {
+              description: "Minutes between repeat notifications; required when mode is EVERY",
+              title: "Interval Minutes",
+              type: "integer",
+            },
+            mode: {
+              enum: ["OFF", "EVERY"],
+              title: "Mode",
+              type: "string",
+            },
+          },
+          required: ["mode"],
+          type: "object",
+        },
+        threshold: {
+          type: "number",
+        },
+        threshold_operator: {
+          enum: [">", ">=", "<", "<=", "=", "!="],
+          type: "string",
+        },
+        view: {
+          const: "SPANS",
+          type: "string",
+        },
+        window: {
+          enum: ["1m", "5m", "10m", "30m", "1h", "2h"],
+          type: "string",
+        },
+      },
+      required: [
+        "project_id",
+        "name",
+        "view",
+        "measure",
+        "aggregation",
+        "window",
+        "threshold_operator",
+        "threshold",
+        "renotify",
+      ],
+      additionalProperties: false,
+    },
+    bodyParams: [
+      "aggregation",
+      "filters",
+      "measure",
+      "name",
+      "no_data_mode",
+      "project_id",
+      "renotify",
+      "threshold",
+      "threshold_operator",
+      "view",
+      "window",
+    ],
+    policy: {
+      approvalClass: "none",
+      minRole: "MEMBER",
+      tenancy: "project",
+    },
+  },
+  {
     name: "create_dashboard",
     description:
       "Create a dashboard in a project (idempotent on the dashboard name within the project); add charts to it with create_widget.",
@@ -223,6 +342,28 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_alert",
+    description:
+      "Fetch one alert's full rule by id: view, measure, aggregation, filters, window, threshold, renotify and no-data handling, plus its evaluation state. Resolve the alert id by listing the project's alerts and matching the name — never guess an id.",
+    method: "get",
+    path: "/api/v1/public/alerts/{alert_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        alert_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["alert_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_dashboard",
     description:
       "Fetch one dashboard with its widgets (id, title, type, query spec, creation time). Resolve the dashboard id by listing the project's dashboards and matching the name — never guess an id.",
@@ -364,6 +505,44 @@ export const REGISTRY: readonly RegistryEntry[] = [
         },
       },
       required: ["trace_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_alerts",
+    description:
+      "List the project's threshold alerts (id, name, rule summary, status, current severity, last evaluation and notification state, creator) with the project's alert capacity. Paginated; search_query matches the alert name. To resolve an alert by name, list here and match its name — never guess an alert id.",
+    method: "get",
+    path: "/api/v1/public/alerts",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Items per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        page: {
+          default: 0,
+          description: "0-based page index",
+          maximum: 10000,
+          minimum: 0,
+          type: "integer",
+        },
+        search_query: {
+          maxLength: 200,
+          type: "string",
+          description: "Case-insensitive substring match on the alert name",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
       additionalProperties: false,
     },
   },

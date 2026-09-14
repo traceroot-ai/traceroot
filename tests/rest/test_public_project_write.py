@@ -1,4 +1,4 @@
-"""Integration tests for the project-scoped public writes (detector/dashboard/widget).
+"""Integration tests for the project-scoped public writes (detector/dashboard/widget/alert).
 
 Same harness as the account-write tests: the REAL account-scope dependency plus
 the write-path liveness dependency, internal routes mocked with ``respx``. The
@@ -23,6 +23,7 @@ BASE_URL = "http://localhost:3000"
 DETECTOR_WRITE_URL = f"{BASE_URL}/api/internal/write/detectors"
 DASHBOARD_WRITE_URL = f"{BASE_URL}/api/internal/write/dashboards"
 WIDGET_WRITE_URL = f"{BASE_URL}/api/internal/write/widgets"
+ALERT_WRITE_URL = f"{BASE_URL}/api/internal/write/alerts"
 
 USER_HEADER = {"Authorization": "Bearer user-session-token"}
 KEY_HEADER = {"Authorization": "Bearer tr-some-key"}
@@ -39,6 +40,45 @@ DETECTOR_ROW = {
 }
 DASHBOARD_ROW = {"id": "dash-new", "name": "Spend", "projectId": "proj-1"}
 WIDGET_ROW = {"id": "wid-new", "dashboardId": "dash-1", "title": "Cost", "type": "query"}
+ALERT_ROW = {
+    "id": "alr-new",
+    "name": "P99 latency",
+    "view": "SPANS",
+    "measure": "latency",
+    "aggregation": "p99",
+    "window": "10m",
+    "thresholdOperator": ">",
+    "threshold": 900,
+    "status": "ACTIVE",
+    "severity": "UNKNOWN",
+    "severityChangedAt": None,
+    "alertedAt": None,
+    "lastEvaluatedAt": None,
+    "lastError": None,
+    "lastErrorAt": None,
+    "lastNotifyStatus": None,
+    "lastNotifyError": None,
+    "lastNotifyAt": None,
+    "createTime": "2026-08-01T00:00:00Z",
+    "updateTime": "2026-08-01T00:00:00Z",
+    "creator": "Ada",
+    "filters": [{"field": "model_name", "op": "=", "value": "gpt-5"}],
+    "renotify": {"mode": "EVERY", "intervalMinutes": 60},
+    "noDataMode": "ZERO",
+}
+ALERT_BODY = {
+    "project_id": "proj-1",
+    "name": "P99 latency",
+    "view": "SPANS",
+    "measure": "latency",
+    "aggregation": "p99",
+    "filters": [{"field": "model_name", "op": "=", "value": "gpt-5"}],
+    "window": "10m",
+    "threshold_operator": ">",
+    "threshold": 900,
+    "renotify": {"mode": "EVERY", "interval_minutes": 60},
+    "no_data_mode": "ZERO",
+}
 
 
 def _mock_account_auth():
@@ -384,6 +424,194 @@ def test_create_widget_forwards_upstream_400_message():
     assert resp.json() == {"detail": "title is required"}
 
 
+# ── alert ───────────────────────────────────────────────────────────────
+
+
+@respx.mock
+def test_create_alert_translates_the_rule_and_returns_the_full_record():
+    """The alert create translates every field to camelCase (renotify included)
+    and answers with the same detail shape ``get_alert`` serves."""
+    _mock_account_auth()
+    write = _mock_write(ALERT_WRITE_URL, {"created": True, "alert": ALERT_ROW})
+
+    resp = _client().post("/api/v1/public/alerts", json=ALERT_BODY, headers=USER_HEADER)
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "created": True,
+        "alert": {
+            "id": "alr-new",
+            "name": "P99 latency",
+            "view": "SPANS",
+            "measure": "latency",
+            "aggregation": "p99",
+            "window": "10m",
+            "threshold_operator": ">",
+            "threshold": 900.0,
+            "status": "ACTIVE",
+            "severity": "UNKNOWN",
+            "severity_changed_at": None,
+            "alerted_at": None,
+            "last_evaluated_at": None,
+            "last_error": None,
+            "last_error_at": None,
+            "last_notify_status": None,
+            "last_notify_error": None,
+            "last_notify_at": None,
+            "create_time": "2026-08-01T00:00:00Z",
+            "update_time": "2026-08-01T00:00:00Z",
+            "creator": "Ada",
+            "filters": [{"field": "model_name", "key": None, "op": "=", "value": "gpt-5"}],
+            "renotify": {"mode": "EVERY", "interval_minutes": 60},
+            "no_data_mode": "ZERO",
+        },
+    }
+    assert json.loads(write.calls.last.request.content) == {
+        "actorUserId": "u1",
+        "projectId": "proj-1",
+        "name": "P99 latency",
+        "view": "SPANS",
+        "measure": "latency",
+        "aggregation": "p99",
+        "filters": [{"field": "model_name", "op": "=", "value": "gpt-5"}],
+        "window": "10m",
+        "thresholdOperator": ">",
+        "threshold": 900.0,
+        "renotify": {"mode": "EVERY", "intervalMinutes": 60},
+        "noDataMode": "ZERO",
+        "transport": "public-api",
+    }
+
+
+@respx.mock
+def test_create_alert_omits_absent_optionals():
+    """No no-data mode and an OFF renotify travel without their optional keys,
+    so the write service sees absent (column default / strict OFF) rather than
+    null."""
+    _mock_account_auth()
+    write = _mock_write(ALERT_WRITE_URL, {"created": True, "alert": ALERT_ROW})
+    body = {k: v for k, v in ALERT_BODY.items() if k not in ("no_data_mode", "filters", "renotify")}
+    body["renotify"] = {"mode": "OFF"}
+
+    resp = _client().post("/api/v1/public/alerts", json=body, headers=USER_HEADER)
+
+    assert resp.status_code == 200
+    sent = json.loads(write.calls.last.request.content)
+    assert "noDataMode" not in sent
+    assert sent["renotify"] == {"mode": "OFF"}
+    # Filters default to an empty list rather than being left out: the write
+    # service's shape requires the array.
+    assert sent["filters"] == []
+
+
+@respx.mock
+def test_create_alert_sends_a_key_only_on_a_keyed_filter():
+    """An unkeyed filter travels without ``key`` (the write service's strict
+    shape refuses a null one); a keyed filter carries its key through."""
+    _mock_account_auth()
+    write = _mock_write(ALERT_WRITE_URL, {"created": True, "alert": ALERT_ROW})
+    body = {
+        **ALERT_BODY,
+        "filters": [
+            {"field": "metadata", "key": "tenant", "op": "=", "value": "acme"},
+            {"field": "status", "op": "=", "value": 200},
+        ],
+    }
+
+    resp = _client().post("/api/v1/public/alerts", json=body, headers=USER_HEADER)
+
+    assert resp.status_code == 200
+    assert json.loads(write.calls.last.request.content)["filters"] == [
+        {"field": "metadata", "key": "tenant", "op": "=", "value": "acme"},
+        {"field": "status", "op": "=", "value": 200.0},
+    ]
+
+
+@respx.mock
+def test_create_alert_rejects_api_key_with_403():
+    """An API key is project-scoped but writes require a user credential —
+    refused before any lookup."""
+    write = _mock_write(ALERT_WRITE_URL, {"created": True, "alert": ALERT_ROW})
+
+    resp = _client().post("/api/v1/public/alerts", json=ALERT_BODY, headers=KEY_HEADER)
+
+    assert resp.status_code == 403
+    assert write.call_count == 0
+
+
+@respx.mock
+def test_create_alert_forwards_the_cap_409_message():
+    """The per-project cap is the write service's 409 and its message must
+    reach the caller as-is — the proxy's generic name-conflict fallback would
+    be wrong here."""
+    _mock_account_auth()
+    _mock_write(
+        ALERT_WRITE_URL,
+        {"error": "This project has reached its limit of 100 alerts"},
+        status_code=409,
+    )
+
+    resp = _client().post("/api/v1/public/alerts", json=ALERT_BODY, headers=USER_HEADER)
+
+    assert resp.status_code == 409
+    assert resp.json() == {"detail": "This project has reached its limit of 100 alerts"}
+
+
+@respx.mock
+def test_create_alert_forwards_upstream_400_message():
+    """Deep validation (measure per view, filter evaluability) lives in the
+    write service; its message is the public detail."""
+    _mock_account_auth()
+    _mock_write(ALERT_WRITE_URL, {"error": "Invalid aggregation for measure"}, status_code=400)
+
+    resp = _client().post("/api/v1/public/alerts", json=ALERT_BODY, headers=USER_HEADER)
+
+    assert resp.status_code == 400
+    assert resp.json() == {"detail": "Invalid aggregation for measure"}
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"view": "TRACES"},
+        {"aggregation": "median"},
+        {"window": "3m"},
+        {"threshold_operator": "~"},
+        {"renotify": {"mode": "SOMETIMES"}},
+        {"renotify": {"mode": "EVERY"}},
+        {"renotify": {"mode": "EVERY", "interval_minutes": 0}},
+        {"renotify": {"mode": "OFF", "interval_minutes": 5}},
+        {"no_data_mode": "SILENT"},
+        {"threshold": "high"},
+        {"filters": [{"field": "model_name", "op": "in", "value": "gpt-5"}]},
+        {"filters": [{"field": "model_name", "op": "="}]},
+    ],
+)
+def test_create_alert_rejects_values_outside_the_stable_vocabulary_with_422(override):
+    """The enums pinned in the request model are rejected before the proxy."""
+    _mock_account_auth()
+    write = _mock_write(ALERT_WRITE_URL, {"created": True, "alert": ALERT_ROW})
+
+    resp = _client().post(
+        "/api/v1/public/alerts", json={**ALERT_BODY, **override}, headers=USER_HEADER
+    )
+
+    assert resp.status_code == 422
+    assert write.call_count == 0
+
+
+@respx.mock
+def test_create_alert_malformed_upstream_body_is_503():
+    _mock_account_auth()
+    _mock_write(ALERT_WRITE_URL, {"created": True, "alert": {"id": "alr-new"}})
+
+    resp = _client().post("/api/v1/public/alerts", json=ALERT_BODY, headers=USER_HEADER)
+
+    assert resp.status_code == 503
+    assert resp.json() == {"detail": "Write service error"}
+
+
 # ── non-finite floats (NaN / Infinity) ──────────────────────────────────
 
 _JSON_HEADERS = {**USER_HEADER, "Content-Type": "application/json"}
@@ -409,6 +637,19 @@ _NON_FINITE_BODIES = [
         '{"project_id": "proj-1", "name": "D", "template": "custom",'
         ' "prompt": "p", "trigger_conditions": [{"value": NaN}]}',
     ),
+    (
+        "/api/v1/public/alerts",
+        '{"project_id": "proj-1", "name": "A", "view": "SPANS", "measure": "latency",'
+        ' "aggregation": "p99", "window": "10m", "threshold_operator": ">",'
+        ' "threshold": NaN, "renotify": {"mode": "OFF"}}',
+    ),
+    (
+        "/api/v1/public/alerts",
+        '{"project_id": "proj-1", "name": "A", "view": "SPANS", "measure": "latency",'
+        ' "aggregation": "p99", "window": "10m", "threshold_operator": ">",'
+        ' "threshold": 1, "renotify": {"mode": "OFF"},'
+        ' "filters": [{"field": "name", "op": "=", "value": Infinity}]}',
+    ),
 ]
 
 
@@ -425,6 +666,7 @@ def test_non_finite_floats_are_a_422_not_a_500(path, body):
     _mock_account_auth()
     _mock_write(DETECTOR_WRITE_URL, {"created": True, "detector": DETECTOR_ROW})
     _mock_write(WIDGET_WRITE_URL, {"created": True, "widget": WIDGET_ROW})
+    _mock_write(ALERT_WRITE_URL, {"created": True, "alert": ALERT_ROW})
 
     resp = _client().post(path, content=body, headers=_JSON_HEADERS)
 
@@ -478,6 +720,10 @@ _OVERSIZED_BODIES = [
             "trigger_conditions": [{"blob": _OVERSIZED_BLOB}],
         },
     ),
+    (
+        "/api/v1/public/alerts",
+        {**ALERT_BODY, "filters": [{"field": "name", "op": "=", "value": _OVERSIZED_BLOB}]},
+    ),
 ]
 
 
@@ -493,6 +739,7 @@ def test_oversized_json_payload_fields_are_a_422(path, body):
     _mock_account_auth()
     _mock_write(DETECTOR_WRITE_URL, {"created": True, "detector": DETECTOR_ROW})
     _mock_write(WIDGET_WRITE_URL, {"created": True, "widget": WIDGET_ROW})
+    _mock_write(ALERT_WRITE_URL, {"created": True, "alert": ALERT_ROW})
 
     resp = _client().post(path, json=body, headers=USER_HEADER)
 

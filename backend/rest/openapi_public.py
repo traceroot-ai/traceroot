@@ -139,6 +139,12 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
     if dashboard_get_op is not None:
         dashboard_get_op["responses"].setdefault("404", _error_response("Dashboard not found"))
 
+    # Alert read error contract (matches the route code): the proxy passes the
+    # internal route's 404 through; ambiguity fails closed as the shared 503.
+    alert_get_op = schema["paths"].get("/api/v1/public/alerts/{alert_id}", {}).get("get")
+    if alert_get_op is not None:
+        alert_get_op["responses"].setdefault("404", _error_response("Alert not found"))
+
     # Session read error contract (matches the route code).
     sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
     if sessions_list_op is not None:
@@ -363,6 +369,27 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         ),
         "enabled": True,
     },
+    "list_alerts": {
+        "name": "list_alerts",
+        "description": (
+            "List the project's threshold alerts (id, name, rule summary, status, "
+            "current severity, last evaluation and notification state, creator) "
+            "with the project's alert capacity. Paginated; search_query matches "
+            "the alert name. To resolve an alert by name, list here and match "
+            "its name — never guess an alert id."
+        ),
+        "enabled": True,
+    },
+    "get_alert": {
+        "name": "get_alert",
+        "description": (
+            "Fetch one alert's full rule by id: view, measure, aggregation, "
+            "filters, window, threshold, renotify and no-data handling, plus its "
+            "evaluation state. Resolve the alert id by listing the project's "
+            "alerts and matching the name — never guess an id."
+        ),
+        "enabled": True,
+    },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
@@ -414,6 +441,18 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "description": (
             "Add a widget (title, type, query spec) to an existing dashboard. "
             "Strict create: every call adds a new widget."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "create_alert": {
+        "name": "create_alert",
+        "description": (
+            "Create a threshold alert in a project: a measure of the spans view, "
+            "aggregated over a window and compared to a threshold, with optional "
+            "row filters and renotify/no-data settings. Strict create, never "
+            "idempotent: alerts share names freely, so to avoid a duplicate list "
+            "the project's alerts first and match the name."
         ),
         "enabled": True,
         "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
