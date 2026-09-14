@@ -18,6 +18,7 @@ COPY frontend/packages/github/package.json ./packages/github/package.json
 COPY frontend/packages/slack/package.json ./packages/slack/package.json
 
 # Install all dependencies
+COPY frontend/vendor ./vendor
 RUN pnpm install --frozen-lockfile
 
 # --- Builder stage ---

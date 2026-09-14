@@ -7,8 +7,15 @@ import {
   ALERT_WINDOWS,
   DEFAULT_ALERT_WINDOW,
   isAlertWindow,
+  type TraceStatus,
 } from "@traceroot/core";
+import {
+  allocateExecution,
+  finishFindingIfLatest,
+  markFindingRunningIfLatest,
+} from "@traceroot/core/rca-executions";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
+import { publicErrorMessage } from "@traceroot/core/public-error";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
 import {
@@ -120,7 +127,11 @@ export async function runRcaSession(params: {
   rcaModel?: string | null;
   rcaProvider?: string | null;
   rcaSource?: string | null;
-}): Promise<{ result: string; sessionId: string }> {
+  // Execution identity, allocated by processRcaJob BEFORE this call.
+  executionId: string;
+  attempt: number;
+  executionTraceId: string;
+}): Promise<{ result: string; sessionId: string; traceStatus: TraceStatus }> {
   const sessionRes = await fetch(
     `${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions`,
     {
@@ -132,6 +143,7 @@ export async function runRcaSession(params: {
       },
       body: JSON.stringify({
         title: `[RCA] ${params.findings.map((f) => f.detectorName).join(", ")} — ${params.traceId.slice(0, 8)}`,
+        executionId: params.executionId,
       }),
     },
   );
@@ -153,6 +165,16 @@ export async function runRcaSession(params: {
       sessionId: session.id,
     },
     update: { sessionId: session.id },
+  });
+  // Also stamp it onto this attempt's own execution row, and do so on this
+  // same success path a failure takes: the RCA route treats an execution row
+  // as authoritative over the legacy DetectorRca.sessionId once one exists
+  // (rca/route.ts), so a failed run that only updated the legacy column would
+  // leave that row's sessionId null and its chat unreachable even though the
+  // session was created and holds the prompt/partial output.
+  await prisma.detectorRcaExecution.update({
+    where: { id: params.executionId },
+    data: { sessionId: session.id },
   });
 
   const findingsList = params.findings
@@ -195,7 +217,22 @@ Output your findings in this format:
     model?: string;
     providerName?: string;
     source?: ModelSource;
-  } = { message: prompt, traceId: params.traceId };
+    agentTrace: { traceId: string; kind: "rca"; metadata: Record<string, unknown> };
+  } = {
+    message: prompt,
+    traceId: params.traceId,
+    agentTrace: {
+      traceId: params.executionTraceId,
+      kind: "rca",
+      metadata: {
+        finding_id: params.findingId,
+        execution_id: params.executionId,
+        attempt: params.attempt,
+        scanned_trace_id: params.traceId,
+        detectors: params.findings.map((f) => f.detectorName),
+      },
+    },
+  };
   if (resolved) {
     msgBody.model = resolved.model;
     msgBody.providerName = resolved.providerName;
@@ -224,6 +261,11 @@ Output your findings in this format:
   let rcaResult = "";
   let agentErrorMessage: string | undefined;
   let currentEventName: string | undefined;
+  // Set by the agent's `trace` frame, which it writes after persisting the
+  // run. Unset once output arrived means the stream broke before that frame
+  // (persist failure, proxy truncation): the trace may or may not have
+  // exported, so it is recorded as `failed` — never as `disabled`.
+  let traceStatus: TraceStatus | undefined;
   const reader = msgRes.body!.getReader();
   const decoder = new TextDecoder();
   let remainder = "";
@@ -251,6 +293,19 @@ Output your findings in this format:
             agentErrorMessage = parsed?.message || raw || "unknown agent error";
           } catch {
             agentErrorMessage = raw || "unknown agent error";
+          }
+        } else if (currentEventName === "trace") {
+          try {
+            const parsed = JSON.parse(raw);
+            if (
+              parsed?.status === "available" ||
+              parsed?.status === "failed" ||
+              parsed?.status === "disabled"
+            ) {
+              traceStatus = parsed.status;
+            }
+          } catch {
+            // malformed trace frame — treated as no frame at all
           }
         } else {
           try {
@@ -286,11 +341,22 @@ Output your findings in this format:
     throw new Error("RCA agent produced no output");
   }
 
-  return { result: rcaResult, sessionId: session.id };
+  return { result: rcaResult, sessionId: session.id, traceStatus: traceStatus ?? "failed" };
 }
 
 export async function processRcaJob(job: Job<DetectorRcaJob>) {
   const { findingId, projectId, traceId, workspaceId, findings, findingTimestamp } = job.data;
+
+  // The finding row must exist before allocation, on every path — including
+  // quota-skipped below, which now allocates an execution too (executions
+  // reference this row and allocation locks it). detector-run-processor's
+  // seed is best-effort. Status is not touched here: only the latest attempt
+  // (through the guarded helpers below) may write it.
+  await prisma.detectorRca.upsert({
+    where: { findingId },
+    create: { findingId, projectId, status: "pending" },
+    update: { projectId },
+  });
 
   // Free-plan RCA cap enforcement — read the cached `rcaBlocked` flag
   // set by the hourly billing job (same pattern as `detectorBlocked` in
@@ -301,19 +367,23 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
     select: { billingPlan: true, rcaBlocked: true },
   });
   if (ws?.rcaBlocked && (ws.billingPlan as PlanType) === PlanType.FREE) {
-    // detector-run-processor pre-seeds a DetectorRca row with
-    // status="pending" before enqueuing; mark it terminal so the UI
-    // doesn't show a permanently-stuck "in progress" RCA.
-    await prisma.detectorRca
-      .update({
-        where: { findingId },
-        data: {
-          status: "failed",
-          result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
-          completedAt: new Date(),
-        },
-      })
-      .catch(() => {}); // best-effort; row may not exist if pre-seed failed
+    // A quota-skipped run is still a run: allocate its execution like any
+    // other attempt and mark it disabled (no agent run happened), then finish
+    // the finding ONLY through the latest-attempt-guarded helper. Writing the
+    // shared finding row directly here (as before) bypassed that guard — a
+    // delayed/stalled quota check redelivered after a newer attempt already
+    // completed could overwrite that attempt's result with "Skipped...".
+    const execution = await allocateExecution(prisma, { findingId, projectId });
+    await prisma.detectorRcaExecution.update({
+      where: { id: execution.executionId },
+      data: { traceStatus: "disabled", finishedAt: new Date() },
+    });
+    await finishFindingIfLatest(prisma, {
+      findingId,
+      attempt: execution.attempt,
+      status: "failed",
+      result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
+    });
     console.log(
       `[RCA] Workspace ${workspaceId} is rca-blocked (Free plan cap exceeded); ` +
         `skipping RCA for finding ${findingId}`,
@@ -321,11 +391,26 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
     return;
   }
 
-  await prisma.detectorRca.upsert({
-    where: { findingId },
-    create: { findingId, projectId, status: "running" },
-    update: { projectId, status: "running" },
-  });
+  // Fix attempt + trace id BEFORE the agent runs. A crash between export and the
+  // status write must not let the retry reuse this trace id: the retry allocates
+  // attempt+1 (Decision 1 in the spec).
+  const execution = await allocateExecution(prisma, { findingId, projectId });
+
+  // Every write to the shared finding row from here on is gated on this attempt
+  // still being the highest: a stalled job redelivered after its retry was
+  // allocated must not flip the finding back to running, nor overwrite the
+  // retry's outcome. Its own execution row is always written.
+  if (
+    !(await markFindingRunningIfLatest(prisma, {
+      findingId,
+      projectId,
+      attempt: execution.attempt,
+    }))
+  ) {
+    console.log(
+      `[RCA] finding ${findingId}: attempt ${execution.attempt} is superseded; not marking running`,
+    );
+  }
 
   // Project alert aggregation window. Hoisted because `scheduleDigestFlush`
   // closes over it but `project` is fetched later in the try below. Defaults to
@@ -385,7 +470,11 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
     });
     const hasGitHub = ghCount > 0;
 
-    const { result: rcaResult } = await runRcaSession({
+    const {
+      result: rcaResult,
+      sessionId,
+      traceStatus,
+    } = await runRcaSession({
       findingId,
       projectId,
       workspaceId,
@@ -395,26 +484,57 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
       rcaModel: project?.rcaModel,
       rcaProvider: project?.rcaProvider,
       rcaSource: project?.rcaSource,
+      executionId: execution.executionId,
+      attempt: execution.attempt,
+      executionTraceId: execution.traceId,
     });
 
-    await prisma.detectorRca.update({
-      where: { findingId },
-      data: {
-        status: "done",
-        result: rcaResult,
-        completedAt: new Date(),
-      },
+    // The execution row first (this attempt's own history — nothing else writes
+    // it), then the finding, which only the latest attempt may write.
+    await prisma.detectorRcaExecution.update({
+      where: { id: execution.executionId },
+      data: { traceStatus, sessionId, finishedAt: new Date() },
     });
+    const applied = await finishFindingIfLatest(prisma, {
+      findingId,
+      attempt: execution.attempt,
+      status: "done",
+      result: rcaResult,
+    });
+    if (!applied) {
+      // Execution rows don't store `result` — only the shared finding row
+      // does, and a newer attempt already owns it. This attempt's answer is
+      // discarded; its session transcript (AISession/AIMessage, linked via
+      // this execution's sessionId) is what remains of it.
+      console.log(
+        `[RCA] finding ${findingId}: attempt ${execution.attempt} finished but a newer attempt owns the finding; its result is discarded, its session transcript remains`,
+      );
+    }
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    await prisma.detectorRca
+    // The raw error can carry provider/database internals (connection
+    // strings, stack frames) — log it in full server-side, but persist only
+    // a sanitised first line: `result` is returned to project users by the
+    // RCA route.
+    console.error(`[RCA] finding ${findingId}: run failed:`, e);
+    const message = publicErrorMessage(e);
+    await prisma.detectorRcaExecution
       .update({
-        where: { findingId },
-        data: {
-          status: "failed",
-          result: `RCA failed: ${message}`,
-          completedAt: new Date(),
-        },
+        where: { id: execution.executionId },
+        data: { traceStatus: "failed", finishedAt: new Date() },
+      })
+      .catch(() => {}); // best-effort
+    await finishFindingIfLatest(prisma, {
+      findingId,
+      attempt: execution.attempt,
+      status: "failed",
+      result: `RCA failed: ${message}`,
+    })
+      .then((applied) => {
+        if (!applied) {
+          console.log(
+            `[RCA] finding ${findingId}: attempt ${execution.attempt} failed but a newer attempt owns the finding; not marking it failed`,
+          );
+        }
       })
       .catch(() => {}); // best-effort
 

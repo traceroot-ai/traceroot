@@ -4,9 +4,13 @@ import {
   type AgentTool,
   type AgentMessage,
 } from "@earendil-works/pi-agent-core";
+import * as piAgentCore from "@earendil-works/pi-agent-core";
 import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import type { Message } from "@earendil-works/pi-ai";
 import { ADAPTER_TO_PI_AI, BEDROCK_USE_DEFAULT_CREDENTIALS, ModelSource } from "@traceroot/core";
+import { applyCapturePolicy } from "@traceroot/core/capture-policy";
+import { withheldOutputText } from "@traceroot/core/capture-note";
+import { instrumentPiAgentCore } from "@traceroot-ai/traceroot";
 import {
   resolvePiModel,
   fetchProviderConfig,
@@ -15,6 +19,41 @@ import {
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
 import { SessionManager } from "./session.js";
+import { captureLlmContent } from "./llm-content.js";
+import { recordToolSpan, currentCaptureState } from "./self-trace.js";
+
+// Process-global, idempotent: patches Agent.prototype once. Spans only land inside an
+// active withAgentTrace() context; outside one the instrumentation opens roots that
+// the SDK drops as unattributed (no project id), so this is safe to install unconditionally.
+//
+// captureContent is a function, not `true`: the boolean form stamps the raw
+// prompt and assistant text on the child LLM spans, bypassing the redaction and
+// cap the root span's I/O (self-trace.ts) and the persisted tool I/O (capture
+// policy) go through — a secret withheld from a tool span would reappear
+// verbatim once the model quoted it. captureLlmContent renders each model
+// call's input and output through the same policy first (llm-content.ts).
+instrumentPiAgentCore(piAgentCore, {
+  captureContent: captureLlmContent,
+  captureToolIo: (toolName, args, result) => {
+    // Charge the run's SPAN budget (currentCaptureState() — one accumulator
+    // for the whole run, shared across this callback's open/close calls so
+    // the per-run cap holds across tool calls, not just within one). This is
+    // deliberately independent of the StreamPersister's row budget: the same
+    // tool event is captured once for the span and once for the persisted
+    // row, and each sink is bounded by perRunBytes on its own rather than
+    // splitting one shared budget between them. Undefined outside a run (SDK
+    // used standalone).
+    const c = applyCapturePolicy(
+      { toolName, args, result },
+      currentCaptureState() ?? { spentBytes: 0 },
+    );
+    // A withheld result is described in the reader's terms (what is missing
+    // and why), the same wording the persisted chat step shows — never the
+    // policy's bare verdict, which reads as an error in the trace viewer.
+    return { args: c.args, result: c.result ?? withheldOutputText(c) };
+  },
+  onToolSpan: recordToolSpan,
+});
 
 /**
  * Resolve an API key for a pi-ai provider — workspace BYOK first, env var fallback.

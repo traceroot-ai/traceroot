@@ -97,7 +97,7 @@ importers:
         version: 0.148.0(ws@8.21.3)
       '@earendil-works/pi-agent-core':
         specifier: 0.74.0
-        version: 0.74.0(@opentelemetry/api@1.9.0)(ws@8.21.3)(zod@4.5.4)
+        version: 0.74.0(@opentelemetry/api@1.9.1)(ws@8.21.3)(zod@4.5.4)
       '@earendil-works/pi-ai':
         specifier: 0.80.3
         version: 0.80.3(ws@8.21.3)(zod@4.5.4)
@@ -107,6 +107,9 @@ importers:
       '@traceroot-ai/tools':
         specifier: workspace:*
         version: link:../../packages/tools
+      '@traceroot-ai/traceroot':
+        specifier: file:../../vendor/traceroot-ai-traceroot-0.4.0.tgz
+        version: file:vendor/traceroot-ai-traceroot-0.4.0.tgz(@anthropic-ai/sdk@0.91.1(zod@4.5.4))(@aws-sdk/client-bedrock-runtime@3.1048.0)(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.222.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.11.0(@opentelemetry/api@1.9.1))(openai@6.26.0(ws@8.21.3)(zod@4.5.4))(ws@8.21.3))(openai@6.26.0(ws@8.21.3)(zod@4.5.4))
       '@traceroot/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -134,7 +137,7 @@ importers:
         version: 6.0.0(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.11
-        version: 4.1.11(@opentelemetry/api@1.9.0)(@types/node@22.19.15)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.2.2(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.19.15)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.2.2(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0))
 
   packages/core:
     dependencies:
@@ -2713,6 +2716,22 @@ packages:
       openai:
         optional: true
 
+  '@traceroot-ai/traceroot@file:vendor/traceroot-ai-traceroot-0.4.0.tgz':
+    resolution: {integrity: sha512-jHlWG2YQ4aVLQwpdg+ouFeXJtGOUK/XwnTbCMbhWJMjWwC9WJH2ZKXkx4t56gxf2IWHTmN7ApSp6yIViTl8tUQ==, tarball: file:vendor/traceroot-ai-traceroot-0.4.0.tgz}
+    version: 0.4.0
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@anthropic-ai/sdk': '>=0.20.0'
+      '@openai/agents': '>=0.0.1'
+      openai: '>=6.0.0'
+    peerDependenciesMeta:
+      '@anthropic-ai/sdk':
+        optional: true
+      '@openai/agents':
+        optional: true
+      openai:
+        optional: true
+
   '@types/aria-query@5.0.4':
     resolution: {integrity: sha512-rfT93uj5s0PRL7EzccGMs3brplhcrghnDoV26NqKhCAS1hVo+WdNsPvE/yb6ilfr5hi2MEk6d5EWJTKdxg8jVw==}
 
@@ -3231,9 +3250,6 @@ packages:
 
   cjs-module-lexer@1.4.3:
     resolution: {integrity: sha512-9z8TZaGM1pfswYeXrUpzPrkx8UnWYdhJclsiYMm6x/w5+nN+8Tf/LnAgfLGQCm59qAOxU8WwHEq2vNwF6i4j+Q==}
-
-  cjs-module-lexer@2.2.0:
-    resolution: {integrity: sha512-4bHTS2YuzUvtoLjdy+98ykbNB5jS0+07EvFNXerqZQJ89F7DI6ET7OQo/HJuW6K0aVsKA9hj9/RVb2kQVOrPDQ==}
 
   cjs-module-lexer@2.2.1:
     resolution: {integrity: sha512-Ca8swihM+/4yKecYHY52kgJd300hi2lADU/a1RxNTRe+RJ9jvqQlESpbz9DnG9mowez8qwXHB8qYdIUw9e+F5Q==}
@@ -3768,10 +3784,6 @@ packages:
 
   has-tostringtag@1.0.2:
     resolution: {integrity: sha512-NqADB8VjPFLM2V0VvHUewwwsw0ZWBaIdgo+ieHtK3hasLz4qeCRjYcqfB6AQrBggRKppKF8L52/VqdVsO47Dlw==}
-    engines: {node: '>= 0.4'}
-
-  hasown@2.0.2:
-    resolution: {integrity: sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ==}
     engines: {node: '>= 0.4'}
 
   hasown@2.0.4:
@@ -5658,6 +5670,12 @@ snapshots:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/semantic-conventions': 1.41.1
 
+  '@arizeai/openinference-genai@0.2.0(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)':
+    dependencies:
+      '@arizeai/openinference-semantic-conventions': 2.5.0
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/semantic-conventions': 1.43.0
+
   '@arizeai/openinference-instrumentation-anthropic@0.1.16':
     dependencies:
       '@arizeai/openinference-core': 2.4.0
@@ -5716,6 +5734,16 @@ snapshots:
     dependencies:
       '@arizeai/openinference-core': 2.3.0
       '@arizeai/openinference-genai': 0.2.0(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.41.1)
+      '@arizeai/openinference-semantic-conventions': 2.5.0
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 1.30.1(@opentelemetry/api@1.9.1)
+    transitivePeerDependencies:
+      - '@opentelemetry/semantic-conventions'
+
+  '@arizeai/openinference-vercel@2.8.1(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)':
+    dependencies:
+      '@arizeai/openinference-core': 2.3.0
+      '@arizeai/openinference-genai': 0.2.0(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)
       '@arizeai/openinference-semantic-conventions': 2.5.0
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/core': 1.30.1(@opentelemetry/api@1.9.1)
@@ -6449,9 +6477,9 @@ snapshots:
       - debug
       - supports-color
 
-  '@earendil-works/pi-agent-core@0.74.0(@opentelemetry/api@1.9.0)(ws@8.21.3)(zod@4.5.4)':
+  '@earendil-works/pi-agent-core@0.74.0(@opentelemetry/api@1.9.1)(ws@8.21.3)(zod@4.5.4)':
     dependencies:
-      '@earendil-works/pi-ai': 0.74.0(@opentelemetry/api@1.9.0)(ws@8.21.3)(zod@4.5.4)
+      '@earendil-works/pi-ai': 0.74.0(@opentelemetry/api@1.9.1)(ws@8.21.3)(zod@4.5.4)
       typebox: 1.1.38
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
@@ -6462,12 +6490,12 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-ai@0.74.0(@opentelemetry/api@1.9.0)(ws@8.21.3)(zod@4.5.4)':
+  '@earendil-works/pi-ai@0.74.0(@opentelemetry/api@1.9.1)(ws@8.21.3)(zod@4.5.4)':
     dependencies:
       '@anthropic-ai/sdk': 0.91.1(zod@4.5.4)
       '@aws-sdk/client-bedrock-runtime': 3.1048.0
       '@google/genai': 1.52.0
-      '@mistralai/mistralai': 2.2.6(@opentelemetry/api@1.9.0)
+      '@mistralai/mistralai': 2.2.6(@opentelemetry/api@1.9.1)
       chalk: 5.6.2
       openai: 6.26.0(ws@8.21.3)(zod@4.5.4)
       partial-json: 0.1.7
@@ -6884,6 +6912,18 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@4.4.3)
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@mistralai/mistralai@2.2.6(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/semantic-conventions': 1.43.0
+      ws: 8.21.0
+      zod: 4.4.3
+      zod-to-json-schema: 3.25.2(zod@4.4.3)
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -8365,6 +8405,32 @@ snapshots:
       - '@langchain/core'
       - supports-color
 
+  '@traceroot-ai/traceroot@file:vendor/traceroot-ai-traceroot-0.4.0.tgz(@anthropic-ai/sdk@0.91.1(zod@4.5.4))(@aws-sdk/client-bedrock-runtime@3.1048.0)(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.222.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.11.0(@opentelemetry/api@1.9.1))(openai@6.26.0(ws@8.21.3)(zod@4.5.4))(ws@8.21.3))(openai@6.26.0(ws@8.21.3)(zod@4.5.4))':
+    dependencies:
+      '@arizeai/openinference-core': 2.4.0
+      '@arizeai/openinference-instrumentation-anthropic': 0.1.16
+      '@arizeai/openinference-instrumentation-bedrock': 0.4.18(@aws-sdk/client-bedrock-runtime@3.1048.0)
+      '@arizeai/openinference-instrumentation-claude-agent-sdk': 0.2.9
+      '@arizeai/openinference-instrumentation-langchain': 4.0.14(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.222.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.11.0(@opentelemetry/api@1.9.1))(openai@6.26.0(ws@8.21.3)(zod@4.5.4))(ws@8.21.3))
+      '@arizeai/openinference-instrumentation-openai': 4.1.5
+      '@arizeai/openinference-semantic-conventions': 2.5.0
+      '@arizeai/openinference-vercel': 2.8.1(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 1.30.1(@opentelemetry/api@1.9.1)
+      '@opentelemetry/exporter-trace-otlp-proto': 0.57.2(@opentelemetry/api@1.9.1)
+      '@opentelemetry/instrumentation': 0.46.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 1.30.1(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-base': 1.30.1(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-node': 1.30.1(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions': 1.43.0
+    optionalDependencies:
+      '@anthropic-ai/sdk': 0.91.1(zod@4.5.4)
+      openai: 6.26.0(ws@8.21.3)(zod@4.5.4)
+    transitivePeerDependencies:
+      - '@aws-sdk/client-bedrock-runtime'
+      - '@langchain/core'
+      - supports-color
+
   '@types/aria-query@5.0.4': {}
 
   '@types/bcryptjs@3.0.0':
@@ -8547,7 +8613,7 @@ snapshots:
       '@typescript-eslint/visitor-keys': 8.57.0
       debug: 4.4.3
       minimatch: 10.2.4
-      semver: 7.7.4
+      semver: 7.8.5
       tinyglobby: 0.2.17
       ts-api-utils: 2.4.0(typescript@5.9.3)
       typescript: 5.9.3
@@ -8584,7 +8650,7 @@ snapshots:
       obug: 2.1.1
       std-env: 4.2.0
       tinyrainbow: 3.1.1
-      vitest: 4.1.11(@opentelemetry/api@1.9.0)(@types/node@22.19.15)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.2.2(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0))
+      vitest: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.19.15)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.2.2(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0))
 
   '@vitest/expect@4.1.11':
     dependencies:
@@ -8906,8 +8972,6 @@ snapshots:
   chownr@3.0.0: {}
 
   cjs-module-lexer@1.4.3: {}
-
-  cjs-module-lexer@2.2.0: {}
 
   cjs-module-lexer@2.2.1: {}
 
@@ -9439,10 +9503,6 @@ snapshots:
     dependencies:
       has-symbols: 1.1.0
 
-  hasown@2.0.2:
-    dependencies:
-      function-bind: 1.1.2
-
   hasown@2.0.4:
     dependencies:
       function-bind: 1.1.2
@@ -9540,7 +9600,7 @@ snapshots:
     dependencies:
       acorn: 8.16.0
       acorn-import-attributes: 1.9.5(acorn@8.16.0)
-      cjs-module-lexer: 2.2.0
+      cjs-module-lexer: 2.2.1
       module-details-from-path: 1.0.4
 
   import-in-the-middle@3.4.0:
@@ -9586,7 +9646,7 @@ snapshots:
 
   is-core-module@2.16.1:
     dependencies:
-      hasown: 2.0.2
+      hasown: 2.0.4
 
   is-decimal@2.0.1: {}
 
@@ -11370,36 +11430,6 @@ snapshots:
       jiti: 2.6.1
       tsx: 4.21.0
       yaml: 2.9.0
-
-  vitest@4.1.11(@opentelemetry/api@1.9.0)(@types/node@22.19.15)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.2.2(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0)):
-    dependencies:
-      '@vitest/expect': 4.1.11
-      '@vitest/mocker': 4.1.11(vite@8.2.2(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@vitest/pretty-format': 4.1.11
-      '@vitest/runner': 4.1.11
-      '@vitest/snapshot': 4.1.11
-      '@vitest/spy': 4.1.11
-      '@vitest/utils': 4.1.11
-      es-module-lexer: 2.3.2
-      expect-type: 1.3.0
-      magic-string: 0.30.21
-      obug: 2.1.1
-      pathe: 2.0.3
-      picomatch: 4.0.7
-      std-env: 4.2.0
-      tinybench: 2.9.0
-      tinyexec: 1.0.4
-      tinyglobby: 0.2.17
-      tinyrainbow: 3.1.1
-      vite: 8.2.2(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0)
-      why-is-node-running: 2.3.0
-    optionalDependencies:
-      '@opentelemetry/api': 1.9.0
-      '@types/node': 22.19.15
-      '@vitest/coverage-v8': 4.1.11(vitest@4.1.11)
-      jsdom: 29.1.1(@noble/hashes@2.2.0)
-    transitivePeerDependencies:
-      - msw
 
   vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.19.15)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.2.2(@types/node@22.19.15)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
