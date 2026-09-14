@@ -257,7 +257,9 @@ class TestCallerParameters:
         assert exc_info.value.is_client_error
         assert not client.calls
 
-    @pytest.mark.parametrize("name", ["with space", "x&max_execution_time", "1leading", "", "a-b"])
+    @pytest.mark.parametrize(
+        "name", ["with space", "x&max_execution_time", "1leading", "", "a-b", "abc\n", "abc\r\n"]
+    )
     def test_a_malformed_parameter_name_is_refused(self, name: str) -> None:
         # The name is sent as `param_<name>` in the request, so a separator in it
         # would add a request field rather than a value.
