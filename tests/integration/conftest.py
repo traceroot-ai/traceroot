@@ -47,7 +47,14 @@ HOST = os.environ.get("SQL_GATEWAY_IT_CLICKHOUSE_HOST", "")
 PORT = int(os.environ.get("SQL_GATEWAY_IT_CLICKHOUSE_PORT", "8123"))
 ADMIN_USER = os.environ.get("SQL_GATEWAY_IT_CLICKHOUSE_USER", "default")
 ADMIN_PASSWORD = os.environ.get("SQL_GATEWAY_IT_CLICKHOUSE_PASSWORD", "")
-REQUIRED = bool(os.environ.get("SQL_GATEWAY_IT_REQUIRED"))
+# Read as a boolean, not as "any non-empty string": REQUIRED=0 or false has to mean off.
+REQUIRED = os.environ.get("SQL_GATEWAY_IT_REQUIRED", "").strip().lower() not in {
+    "",
+    "0",
+    "false",
+    "no",
+    "off",
+}
 
 PROJECT_A = "proj_a"
 PROJECT_B = "proj_b"
