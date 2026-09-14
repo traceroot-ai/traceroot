@@ -366,3 +366,82 @@ class TestReviewFindings:
         # The CLI generates its client from this spec.
         responses = app.openapi()["paths"]["/api/v1/public/sql"]["post"]["responses"]
         assert {"400", "401", "429", "500"} <= set(responses)
+
+
+# ---------------------------------------------------------------------------
+# Concurrency: a dedicated, bounded lane for queries
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def gate(monkeypatch: pytest.MonkeyPatch) -> sql_router._QueryGate:
+    fresh = sql_router._QueryGate(total=4, per_project=2)
+    monkeypatch.setattr(sql_router, "_gate", fresh)
+    return fresh
+
+
+def _post(client: TestClient):
+    return client.post(
+        "/api/v1/public/sql", json={"query": "SELECT 1 FROM spans"}, headers=AUTH_HEADER
+    )
+
+
+class TestQueryGate:
+    def test_a_project_at_its_share_is_refused_while_others_still_run(
+        self, gate: sql_router._QueryGate, stub: StubService, client: TestClient
+    ) -> None:
+        gate.in_flight[CALLER_PROJECT] = gate.per_project
+        resp = _post(client)
+        assert resp.status_code == 429
+        assert resp.headers["Retry-After"] == "1"
+        assert not stub.calls
+
+        app.dependency_overrides[authenticate_public_caller] = lambda: make_auth("proj-B")
+        assert _post(client).status_code == 200
+
+    def test_a_full_process_refuses_every_project(
+        self, gate: sql_router._QueryGate, stub: StubService, client: TestClient
+    ) -> None:
+        gate.in_flight.update({"proj-X": 2, "proj-Y": 2})
+        assert _post(client).status_code == 429
+        assert not stub.calls
+
+    @pytest.mark.parametrize(
+        "raises",
+        [
+            None,
+            SqlValidationError("nope"),
+            SqlExecutionError("bad column", is_client_error=True),
+            SqlExecutionError("boom", is_client_error=False),
+            RuntimeError("unexpected"),
+        ],
+    )
+    def test_the_slot_is_released_however_the_query_ends(
+        self,
+        raises: Exception | None,
+        gate: sql_router._QueryGate,
+        stub: StubService,
+        client: TestClient,
+    ) -> None:
+        stub.raises = raises
+        _post(client)
+        assert stub.calls
+        assert not gate.in_flight
+
+    def test_queries_do_not_draw_on_the_shared_worker_pool(
+        self, gate: sql_router._QueryGate, stub: StubService, client: TestClient
+    ) -> None:
+        import anyio.from_thread
+        import anyio.to_thread
+
+        seen: dict[str, int] = {}
+        original_run = stub.run
+
+        def recording_run(*args, **kwargs):
+            seen["shared"] = anyio.from_thread.run_sync(
+                lambda: anyio.to_thread.current_default_thread_limiter().borrowed_tokens
+            )
+            seen["gate"] = anyio.from_thread.run_sync(lambda: gate.limiter.borrowed_tokens)
+            return original_run(*args, **kwargs)
+
+        stub.run = recording_run
+        assert _post(client).status_code == 200
+        assert seen == {"shared": 0, "gate": 1}

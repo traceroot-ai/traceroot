@@ -13,10 +13,12 @@ should not rest on any single one of them holding.
 """
 
 import logging
+from collections import Counter
+from functools import partial
 from typing import Any
 
+import anyio
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from starlette.concurrency import run_in_threadpool
 
 from rest.rate_limit import (
     BUCKET_SQL,
@@ -49,6 +51,52 @@ router = APIRouter(prefix="/public/sql", tags=["SQL (Public)"])
 #: could otherwise become visible.
 _GENERIC_FAILURE = "Query execution failed."
 
+#: Returned when there is no free slot for another query right now.
+_BUSY = "Too many queries are running. Retry shortly."
+
+#: How many queries one process runs at once, and how many of those one project
+#: may hold. Both are per process, so the fleet-wide figure scales with workers.
+_MAX_CONCURRENT_QUERIES = 16
+_MAX_CONCURRENT_QUERIES_PER_PROJECT = 4
+
+
+class _QueryGate:
+    """Admits a query only while this process and its project both have room.
+
+    Queries run on their own worker threads rather than the pool every other
+    synchronous handler and dependency shares. A query can hold its thread for
+    the full execution cap, so a burst the rate limit allows would otherwise
+    starve requests that have nothing to do with SQL. Excess is refused rather
+    than queued, and the per-project share stops one tenant holding every slot.
+
+    Claiming and releasing both happen on the event loop with no await between
+    the check and the update, so the counts cannot race.
+    """
+
+    def __init__(self, total: int, per_project: int) -> None:
+        self.total = total
+        self.per_project = per_project
+        self.in_flight: Counter[str] = Counter()
+        # Sized to the gate, so it never makes a query wait. Its job is to keep
+        # these threads out of the shared pool's accounting.
+        self.limiter = anyio.CapacityLimiter(total)
+
+    def try_claim(self, project_id: str) -> bool:
+        if self.in_flight.total() >= self.total:
+            return False
+        if self.in_flight[project_id] >= self.per_project:
+            return False
+        self.in_flight[project_id] += 1
+        return True
+
+    def release(self, project_id: str) -> None:
+        self.in_flight[project_id] -= 1
+        if self.in_flight[project_id] <= 0:
+            del self.in_flight[project_id]
+
+
+_gate = _QueryGate(_MAX_CONCURRENT_QUERIES, _MAX_CONCURRENT_QUERIES_PER_PROJECT)
+
 #: Declared so the published contract matches what the route actually returns.
 #: The CLI generates its client from this spec, so an undocumented 400 or 500 is
 #: an error shape a generated client has no type for.
@@ -59,7 +107,10 @@ _SQL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
         "server allows",
     },
     401: {"model": ErrorResponse, "description": "Authentication failed"},
-    429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
+    429: {
+        "model": ErrorResponse,
+        "description": "Rate limit exceeded, or too many queries are already running",
+    },
     500: {"model": ErrorResponse, "description": "Query execution failed"},
 }
 
@@ -88,24 +139,32 @@ async def run_sql(
 
     Raises:
         HTTPException: 400 when the query breaks the read-only contract or asks
-            for more than the server allows, 500 when execution fails for a
-            reason the caller cannot act on.
+            for more than the server allows, 429 when no query slot is free,
+            500 when execution fails for a reason the caller cannot act on.
     """
-    service = SqlQueryService()
+    if not _gate.try_claim(auth.project_id):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=_BUSY,
+            headers={"Retry-After": "1"},
+        )
     try:
+        service = SqlQueryService()
         # Offloaded to a worker thread. The ClickHouse driver is synchronous, and a
         # blocking call made directly inside an async handler runs on the event loop
         # itself: one query held for the full execution cap would stall every other
         # request this worker is serving, including requests that have nothing to do
-        # with SQL. Other public read routes call a synchronous reader the same way
-        # and share that exposure; a caller-authored query that can run for tens of
-        # seconds is the case where it stops being theoretical.
-        result = await run_in_threadpool(
-            service.run,
-            body.query,
-            auth.project_id,
-            parameters=body.parameters,
-            max_rows=body.max_rows,
+        # with SQL. The thread comes from the gate's own lane rather than the pool
+        # shared with other handlers, for the reason given on _QueryGate.
+        result = await anyio.to_thread.run_sync(
+            partial(
+                service.run,
+                body.query,
+                auth.project_id,
+                parameters=body.parameters,
+                max_rows=body.max_rows,
+            ),
+            limiter=_gate.limiter,
         )
     except SqlValidationError as exc:
         # Validation messages are written to be safe to return: they never echo
@@ -124,6 +183,8 @@ async def run_sql(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_GENERIC_FAILURE
         ) from exc
+    finally:
+        _gate.release(auth.project_id)
 
     return SqlResponse(
         columns=[SqlColumn(name=c.name, type=c.type) for c in result.columns],

@@ -5353,7 +5353,7 @@
     },
     "/api/v1/public/sql": {
       "post": {
-        "description": "Run one read-only SQL query scoped to the caller's project.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context. Its ``project_id``\n        is the only project this query can ever see.\n    body (SqlRequest): The query, optional parameter values, and an optional\n        row cap that the service clamps down to the server ceiling.\n\nReturns:\n    SqlResponse: Columns, rows, and whether more rows matched than were\n        returned.\n\nRaises:\n    HTTPException: 400 when the query breaks the read-only contract or asks\n        for more than the server allows, 500 when execution fails for a\n        reason the caller cannot act on.",
+        "description": "Run one read-only SQL query scoped to the caller's project.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context. Its ``project_id``\n        is the only project this query can ever see.\n    body (SqlRequest): The query, optional parameter values, and an optional\n        row cap that the service clamps down to the server ceiling.\n\nReturns:\n    SqlResponse: Columns, rows, and whether more rows matched than were\n        returned.\n\nRaises:\n    HTTPException: 400 when the query breaks the read-only contract or asks\n        for more than the server allows, 429 when no query slot is free,\n        500 when execution fails for a reason the caller cannot act on.",
         "operationId": "run_sql",
         "parameters": [
           {
@@ -5434,7 +5434,7 @@
                 }
               }
             },
-            "description": "Rate limit exceeded"
+            "description": "Rate limit exceeded, or too many queries are already running"
           },
           "500": {
             "content": {
