@@ -321,6 +321,47 @@ function formatToolName(name: string): string {
   return name.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
+/**
+ * What a reloaded step says about tool output the capture policy did not keep.
+ * The live stream shows every result in full; after a reload the persisted row
+ * carries the policy's verdict, so the note explains what is missing and why in
+ * the reader's terms (the reason rides on the tooltip) rather than leaving a
+ * bubble with no output and no explanation.
+ */
+function describeCapture(step: {
+  withheld?: "not-allowlisted" | "budget" | null;
+  truncated?: boolean;
+  outputBytes?: number | null;
+}): { text: string; why: string } | null {
+  const returned =
+    step.outputBytes != null ? ` (${step.outputBytes.toLocaleString()} bytes returned)` : "";
+  if (step.withheld === "not-allowlisted") {
+    return {
+      text: `Output not stored after the run${returned}`,
+      why:
+        "Shell, file and git output can include your source code and secrets, so it is shown " +
+        "while the run streams but not kept afterwards. Trace and session downloads are kept.",
+    };
+  }
+  if (step.withheld === "budget") {
+    return {
+      text: `Output not stored: this run reached its limit for stored tool output${returned}`,
+      why:
+        "Each run keeps a bounded amount of tool output; once that is used up, later steps " +
+        "record only how much they returned.",
+    };
+  }
+  if (step.truncated) {
+    return {
+      text: `Output stored up to the per-step limit${returned}`,
+      why:
+        "Long results are kept only up to a fixed size per step. The full result was shown " +
+        "while the run streamed.",
+    };
+  }
+  return null;
+}
+
 function ToolStepItem({
   step,
   isActive,
@@ -345,15 +386,7 @@ function ToolStepItem({
 
   const argsStr = JSON.stringify(step.args, null, 2);
   const resultStr = step.result != null ? JSON.stringify(step.result, null, 2) : null;
-  // A reloaded step carries the capture policy's verdict; the live stream
-  // showed everything, so say what is missing rather than render a bubble
-  // with no output and no explanation.
-  const sizeNote = step.outputBytes != null ? ` · ${step.outputBytes.toLocaleString()} bytes` : "";
-  const captureNote = step.withheld
-    ? `[output withheld: ${step.withheld}${sizeNote}]`
-    : step.truncated
-      ? `[captured I/O truncated${sizeNote ? `${sizeNote} of output` : ""}]`
-      : null;
+  const captureNote = describeCapture(step);
 
   return (
     <div className="text-[11px]">
@@ -408,7 +441,11 @@ function ToolStepItem({
                 </pre>
               </div>
             )}
-            {captureNote && <p className="italic text-muted-foreground/50">{captureNote}</p>}
+            {captureNote && (
+              <p className="italic text-muted-foreground/50" title={captureNote.why}>
+                {captureNote.text}
+              </p>
+            )}
             {step.spanId && onOpenSpan && (
               <button
                 type="button"

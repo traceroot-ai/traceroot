@@ -128,8 +128,22 @@ describe("MessageList reloaded tool-step capture notes", () => {
       />,
     );
     openSteps();
-    expect(screen.getByText("[output withheld: not-allowlisted · 44 bytes]")).toBeTruthy();
+    const note = screen.getByText("Output not stored after the run (44 bytes returned)");
+    expect(note.getAttribute("title")).toMatch(/source code and secrets/);
     expect(screen.queryByText("Result")).toBeNull();
+  });
+
+  it("explains a result dropped for the run's storage limit", () => {
+    render(
+      <MessageList
+        messages={[user("u1"), persistedStep({ withheld: "budget", outputBytes: 9001 })]}
+      />,
+    );
+    openSteps();
+    const note = screen.getByText(
+      "Output not stored: this run reached its limit for stored tool output (9,001 bytes returned)",
+    );
+    expect(note.getAttribute("title")).toMatch(/bounded amount/);
   });
 
   it("marks a truncated capture next to what was kept", () => {
@@ -143,7 +157,8 @@ describe("MessageList reloaded tool-step capture notes", () => {
     );
     openSteps();
     expect(screen.getByText("Result")).toBeTruthy();
-    expect(screen.getByText("[captured I/O truncated · 90,000 bytes of output]")).toBeTruthy();
+    const note = screen.getByText("Output stored up to the per-step limit (90,000 bytes returned)");
+    expect(note.getAttribute("title")).toMatch(/fixed size per step/);
   });
 
   it("adds no note to a live step, which shows its result in full", () => {
