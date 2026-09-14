@@ -71,103 +71,111 @@ export function ListPagination({
     onPrefetchPage(target);
   };
 
+  const from = total > 0 ? page * safeLimit + 1 : 0;
+  const to = Math.min((page + 1) * safeLimit, total);
+
   return (
-    <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-2 border-t border-border bg-background px-4 py-2.5">
-      <div className="flex items-center gap-2">
-        <span className="text-[12px] text-muted-foreground">Items per page</span>
-        <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 min-w-[60px] justify-between px-2 text-[12px]"
-            >
-              <span>{limit}</span>
-              <ChevronDown className="ml-1 h-3 w-3 text-muted-foreground" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent side="top" align="start" className="w-[80px] p-1">
-            {itemsPerPageOptions.map((value) => (
-              <button
-                key={value}
-                className={cn(
-                  "w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors",
-                  limit === value ? "bg-muted" : "hover:bg-muted/50",
-                )}
-                onClick={() => {
-                  onLimitChange(value);
-                  setItemsPerPageOpen(false);
-                }}
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-border bg-background px-4 py-2.5">
+      <div className="text-[12px] text-muted-foreground">
+        Showing {from}–{to} of {total}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-muted-foreground">Items per page</span>
+          <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 min-w-[60px] justify-between px-2 text-[12px]"
               >
-                {value}
-              </button>
-            ))}
-          </PopoverContent>
-        </Popover>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="text-[12px] text-muted-foreground">Page</span>
-        <input
-          type="number"
-          min={1}
-          max={totalPages}
-          value={pageState}
-          onChange={(e) => setPageState(e.target.value)}
-          onBlur={handlePageInputChange}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.currentTarget.blur();
-            }
-          }}
-          className="h-7 w-12 rounded border border-border bg-background px-2 py-1 text-center text-[12px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-        />
-        <span className="text-[12px] text-muted-foreground">of {totalPages}</span>
-      </div>
-      <div className="flex items-center gap-0.5">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onPageChange(0)}
-          disabled={page === 0}
-          className="h-7 w-7 p-0"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          <ChevronLeft className="-ml-2 h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          aria-label="Previous page"
-          onClick={() => onPageChange(Math.max(0, page - 1))}
-          onMouseEnter={() => prefetchPage(page - 1)}
-          onFocus={() => prefetchPage(page - 1)}
-          disabled={page === 0}
-          className="h-7 w-7 p-0"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          aria-label="Next page"
-          onClick={() => onPageChange(page + 1)}
-          onMouseEnter={() => prefetchPage(page + 1)}
-          onFocus={() => prefetchPage(page + 1)}
-          disabled={page >= totalPages - 1}
-          className="h-7 w-7 p-0"
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onPageChange(totalPages - 1)}
-          disabled={page >= totalPages - 1}
-          className="h-7 w-7 p-0"
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-          <ChevronRight className="-ml-2 h-3.5 w-3.5" />
-        </Button>
+                <span>{limit}</span>
+                <ChevronDown className="ml-1 h-3 w-3 text-muted-foreground" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent side="top" align="start" className="w-[80px] p-1">
+              {itemsPerPageOptions.map((value) => (
+                <button
+                  key={value}
+                  className={cn(
+                    "w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors",
+                    limit === value ? "bg-muted" : "hover:bg-muted/50",
+                  )}
+                  onClick={() => {
+                    onLimitChange(value);
+                    setItemsPerPageOpen(false);
+                  }}
+                >
+                  {value}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-muted-foreground">Page</span>
+          <input
+            type="number"
+            min={1}
+            max={totalPages}
+            value={pageState}
+            onChange={(e) => setPageState(e.target.value)}
+            onBlur={handlePageInputChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.currentTarget.blur();
+              }
+            }}
+            className="h-7 w-12 rounded border border-border bg-background px-2 py-1 text-center text-[12px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+          <span className="text-[12px] text-muted-foreground">of {totalPages}</span>
+        </div>
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onPageChange(0)}
+            disabled={page === 0}
+            className="h-7 w-7 p-0"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+            <ChevronLeft className="-ml-2 h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="Previous page"
+            onClick={() => onPageChange(Math.max(0, page - 1))}
+            onMouseEnter={() => prefetchPage(page - 1)}
+            onFocus={() => prefetchPage(page - 1)}
+            disabled={page === 0}
+            className="h-7 w-7 p-0"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="Next page"
+            onClick={() => onPageChange(page + 1)}
+            onMouseEnter={() => prefetchPage(page + 1)}
+            onFocus={() => prefetchPage(page + 1)}
+            disabled={page >= totalPages - 1}
+            className="h-7 w-7 p-0"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onPageChange(totalPages - 1)}
+            disabled={page >= totalPages - 1}
+            className="h-7 w-7 p-0"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="-ml-2 h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
     </div>
   );

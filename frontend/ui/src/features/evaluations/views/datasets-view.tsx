@@ -25,22 +25,33 @@ export function DatasetsView({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
 
-  const { page, limit, goToPage, setLimit, resetPage } = useUrlPagination(50);
-  // Reset to page 0 whenever the (debounced) search changes, so a match on page 0 isn't
-  // hidden behind a stale page carried over from before the search — matching the
-  // traces list. `searchQuery` is the debounced value the API should use.
-  const { keyword, setKeyword, searchQuery } = useKeywordSearch(resetPage);
+  const {
+    page,
+    limit,
+    goToPage,
+    setLimit: updateLimit,
+    resetPage,
+    clampToTotal,
+  } = useUrlPagination(50);
+  const { keyword, setKeyword: updateKeyword, searchQuery } = useKeywordSearch(resetPage);
   const [newOpen, setNewOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DatasetRow | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<DatasetRow | null>(null);
 
-  const { data, isLoading, error, refetch } = useDatasets(projectId, {
+  const { data, isLoading, error, refetch, isPlaceholderData } = useDatasets(projectId, {
     search_query: searchQuery,
     page,
     limit,
   });
   const datasets = React.useMemo(() => data?.data ?? [], [data]);
   const meta = data?.meta;
+  const total = meta?.total ?? datasets.length;
+
+  React.useEffect(() => {
+    if (isPlaceholderData) return;
+    clampToTotal(total);
+  }, [clampToTotal, total, isPlaceholderData]);
+
   const del = useDeleteDataset(projectId);
 
   // Evaluations-per-dataset comes from the lineage list (one row per evaluation
@@ -61,6 +72,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
       onSuccess: () => {
         toast({ title: `Deleted ${dataset.name}`, tone: "success" });
         setDeleteTarget(null);
+        resetPage();
       },
       onError: (e) => toast({ title: "Could not delete", description: String(e), tone: "warning" }),
     });
@@ -83,7 +95,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
           falsely read as an applied constraint. */}
       <SearchFilterBar
         searchValue={keyword}
-        onSearchChange={setKeyword}
+        onSearchChange={updateKeyword}
         searchPlaceholder="Search..."
       >
         <span className="flex-1" aria-hidden />
@@ -166,11 +178,11 @@ export function DatasetsView({ projectId }: { projectId: string }) {
 
       {meta && meta.total > 0 && (
         <ListPagination
-          page={meta.page}
-          limit={meta.limit}
+          page={page}
+          limit={limit}
           total={meta.total}
           onPageChange={goToPage}
-          onLimitChange={setLimit}
+          onLimitChange={updateLimit}
         />
       )}
 
