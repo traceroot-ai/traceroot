@@ -5396,16 +5396,21 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The query breaks the read-only contract, or asked for more than the server allows"
+          },
           "401": {
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "detail": {
-                      "type": "string"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
@@ -5420,6 +5425,26 @@
               }
             },
             "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Query execution failed"
           },
           "503": {
             "content": {
@@ -5497,12 +5522,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "detail": {
-                      "type": "string"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
@@ -5517,6 +5537,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
           },
           "503": {
             "content": {

@@ -280,3 +280,89 @@ class TestAuthAndRateLimiting:
         # And strictly tighter than the read budget for the same plan.
         read = settings.rate_limit.limit_for("read", plan)
         assert int(expected.split("/")[0]) < int(read.split("/")[0])
+
+
+# ---------------------------------------------------------------------------
+# Findings from review: the third refusal end to end, strict row cap, no blocking
+# ---------------------------------------------------------------------------
+class RecordingClient:
+    """A fake database client, so the real service runs behind the real router."""
+
+    def __init__(self) -> None:
+        self.calls: list[Any] = []
+
+    def query(self, query, parameters=None, settings=None):  # pragma: no cover - must not run
+        self.calls.append(parameters)
+        raise AssertionError("the database must not be reached")
+
+
+@pytest.fixture()
+def real_service_client():
+    """TestClient wired to the real SqlQueryService over a fake database client."""
+    from rest.services.sql.service import SqlQueryService as RealService
+
+    fake_db = RecordingClient()
+    app.dependency_overrides[authenticate_public_caller] = lambda: make_auth()
+    original = sql_router.SqlQueryService
+    sql_router.SqlQueryService = lambda *a, **kw: RealService(fake_db, max_rows_ceiling=100)
+    yield TestClient(app), fake_db
+    sql_router.SqlQueryService = original
+    app.dependency_overrides.clear()
+
+
+class TestReviewFindings:
+    @pytest.mark.parametrize("name", ["project_id", "scope_project_id", "SCOPE_anything"])
+    def test_a_reserved_parameter_name_is_refused_through_http(
+        self, name: str, real_service_client
+    ) -> None:
+        # The third of the three refusals, exercised end to end rather than with the
+        # service stubbed out: the body model admits `parameters`, so only the
+        # service stands between this payload and the scope bind.
+        client, fake_db = real_service_client
+        resp = client.post(
+            "/api/v1/public/sql",
+            json={"query": "SELECT span_id FROM spans", "parameters": {name: "other"}},
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 400
+        assert "reserved name" in resp.json()["detail"]
+        assert not fake_db.calls
+
+    @pytest.mark.parametrize("value", [True, False, 1.0, "5"])
+    def test_a_non_integer_row_cap_is_refused(
+        self, value: Any, stub: StubService, client: TestClient
+    ) -> None:
+        # Lax coercion would turn `true` into 1 and run the query.
+        resp = client.post(
+            "/api/v1/public/sql",
+            json={"query": "SELECT 1 FROM spans", "max_rows": value},
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 422
+        assert not stub.calls
+
+    def test_the_query_runs_off_the_event_loop(self, stub: StubService, client: TestClient) -> None:
+        # A blocking driver call made inside an async handler stalls every request
+        # on the worker. "Not the main thread" is not enough to prove otherwise:
+        # TestClient already runs the handler on an asyncio portal thread, so a
+        # direct call passes that check too. The worker pool's thread name is the
+        # distinguishing signal.
+        import threading
+
+        seen: dict[str, Any] = {}
+        original_run = stub.run
+
+        def recording_run(*args, **kwargs):
+            seen["thread"] = threading.current_thread()
+            return original_run(*args, **kwargs)
+
+        stub.run = recording_run
+        client.post(
+            "/api/v1/public/sql", json={"query": "SELECT 1 FROM spans"}, headers=AUTH_HEADER
+        )
+        assert seen["thread"].name.startswith("AnyIO worker thread"), seen["thread"].name
+
+    def test_the_error_responses_are_documented(self) -> None:
+        # The CLI generates its client from this spec.
+        responses = app.openapi()["paths"]["/api/v1/public/sql"]["post"]["responses"]
+        assert {"400", "401", "429", "500"} <= set(responses)

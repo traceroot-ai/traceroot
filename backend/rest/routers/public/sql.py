@@ -13,8 +13,10 @@ should not rest on any single one of them holding.
 """
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
+from starlette.concurrency import run_in_threadpool
 
 from rest.rate_limit import (
     BUCKET_SQL,
@@ -24,6 +26,7 @@ from rest.rate_limit import (
     resolve_limit,
 )
 from rest.routers.public.deps import DualStampedAuth
+from rest.schemas.eval import ErrorResponse
 from rest.schemas.public import (
     SqlColumn,
     SqlRequest,
@@ -46,8 +49,22 @@ router = APIRouter(prefix="/public/sql", tags=["SQL (Public)"])
 #: could otherwise become visible.
 _GENERIC_FAILURE = "Query execution failed."
 
+#: Declared so the published contract matches what the route actually returns.
+#: The CLI generates its client from this spec, so an undocumented 400 or 500 is
+#: an error shape a generated client has no type for.
+_SQL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {
+        "model": ErrorResponse,
+        "description": "The query breaks the read-only contract, or asked for more than the "
+        "server allows",
+    },
+    401: {"model": ErrorResponse, "description": "Authentication failed"},
+    429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
+    500: {"model": ErrorResponse, "description": "Query execution failed"},
+}
 
-@router.post("", response_model=SqlResponse, operation_id="run_sql")
+
+@router.post("", response_model=SqlResponse, operation_id="run_sql", responses=_SQL_ERROR_RESPONSES)
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_SQL, key_func=key_sql, exempt_when=is_request_rate_limit_exempt
 )
@@ -76,7 +93,15 @@ async def run_sql(
     """
     service = SqlQueryService()
     try:
-        result = service.run(
+        # Offloaded to a worker thread. The ClickHouse driver is synchronous, and a
+        # blocking call made directly inside an async handler runs on the event loop
+        # itself: one query held for the full execution cap would stall every other
+        # request this worker is serving, including requests that have nothing to do
+        # with SQL. Other public read routes call a synchronous reader the same way
+        # and share that exposure; a caller-authored query that can run for tens of
+        # seconds is the case where it stops being theoretical.
+        result = await run_in_threadpool(
+            service.run,
             body.query,
             auth.project_id,
             parameters=body.parameters,
@@ -110,7 +135,15 @@ async def run_sql(
     )
 
 
-@router.get("/schema", response_model=SqlSchemaResponse, operation_id="get_sql_schema")
+@router.get(
+    "/schema",
+    response_model=SqlSchemaResponse,
+    operation_id="get_sql_schema",
+    responses={
+        401: {"model": ErrorResponse, "description": "Authentication failed"},
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
+    },
+)
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_SQL, key_func=key_sql, exempt_when=is_request_rate_limit_exempt
 )

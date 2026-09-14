@@ -291,6 +291,9 @@ class SqlRequest(BaseModel):
         default=None,
         ge=1,
         le=1_000_000,
+        # Strict, because lax mode coerces JSON `true` to 1, `1.0` to 1 and "5" to
+        # 5, so a nonsense cap would execute a query instead of being refused.
+        strict=True,
         description="Rows to return, clamped down to the server ceiling",
     )
 
