@@ -93,7 +93,7 @@ export function resultText(result: EvalToolResult): string {
  * measured in ms" two sentences before a bare "2000") does not count.
  */
 export function statesThresholdWithUnit(text: string, thresholdMs: number): boolean {
-  const ms = `${figurePattern(thresholdMs).source}\\s*(?:ms|milliseconds?)\\b`;
+  const ms = `\\b${figurePattern(thresholdMs).source}\\s*(?:ms|milliseconds?)\\b`;
   const seconds =
     thresholdMs % 1000 === 0 ? `\\b${thresholdMs / 1000}\\s*(?:s|secs?|seconds?)\\b` : null;
   const valueWithUnit = seconds === null ? `(?:${ms})` : `(?:${ms}|${seconds})`;

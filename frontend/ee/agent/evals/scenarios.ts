@@ -1058,7 +1058,8 @@ export const SCENARIOS: Scenario[] = [
         listed !== null,
         "no clean list_alerts result carries a readable state for Cost watch",
       );
-      const firing = listed.severity === "ALERT";
+      // A paused or parked alert keeps its last severity; only an active one is firing.
+      const firing = listed.status === "ACTIVE" && listed.severity === "ALERT";
       expectThat(
         firing ? saysFiring(text) : saysNotFiring(text),
         firing
