@@ -38,7 +38,7 @@ RULES:
 
 function detectorSection(d: DigestSummaryDetectorInput): string {
   const sampled = d.sampleSummaries.length;
-  const noun = d.findingCount === 1 ? "finding" : "findings";
+  const noun = d.findingCount === 1 ? "trigger" : "triggers";
   if (sampled === 0) {
     // Starved out of the sample budget (or empty payloads): keep the detector
     // visible with an explicit disclosure instead of silently dropping it.
@@ -46,7 +46,7 @@ function detectorSection(d: DigestSummaryDetectorInput): string {
   }
   const coverage =
     d.findingCount > sampled
-      ? ` (summaries below are the latest ${sampled} of ${d.findingCount} findings)`
+      ? ` (summaries below are the latest ${sampled} of ${d.findingCount} triggers)`
       : "";
   const lines = d.sampleSummaries.map((s) => `- ${s}`).join("\n");
   return `DETECTOR: ${d.name} — ${d.findingCount} ${noun}${coverage}\n${lines}`;
@@ -55,7 +55,7 @@ function detectorSection(d: DigestSummaryDetectorInput): string {
 export function buildDigestSummaryPrompt(
   input: DigestSummaryInput,
 ): { systemPrompt: string; userText: string } | null {
-  // Only bail when NO detector has sentences; detectors with findings but no
+  // Only bail when NO detector has sentences; detectors with triggers but no
   // sampled sentences stay in with a "(no sample available)" line.
   if (!input.detectors.some((d) => d.sampleSummaries.length > 0)) return null;
 

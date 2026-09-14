@@ -57,7 +57,7 @@ describe("buildDigestSummaryPrompt", () => {
     );
     expect(p).not.toBeNull();
     expect(p!.userText).toContain("Failure Detector");
-    expect(p!.userText).toContain("2 findings");
+    expect(p!.userText).toContain("2 triggers");
     expect(p!.userText).toContain("- a");
     expect(p!.userText).toContain("- b");
   });
@@ -75,21 +75,21 @@ describe("buildDigestSummaryPrompt", () => {
         { name: "Starved", findingCount: 5, sampleSummaries: [] },
       ]),
     );
-    expect(p!.userText).toContain("DETECTOR: Starved — 5 findings (no sample available)");
+    expect(p!.userText).toContain("DETECTOR: Starved — 5 triggers (no sample available)");
   });
 
   it("discloses sampling when findingCount exceeds the sample", () => {
     const p = buildDigestSummaryPrompt(
       input([{ name: "D", findingCount: 3412, sampleSummaries: ["x", "y"] }]),
     );
-    expect(p!.userText).toContain("latest 2 of 3412 findings");
+    expect(p!.userText).toContain("latest 2 of 3412 triggers");
   });
 
   it("drops whole detectors (largest kept first) to stay under the char budget", () => {
     const bigSentence = "s".repeat(300);
     const detectors = Array.from({ length: 80 }, (_, i) => ({
       name: `detector-${i}`,
-      findingCount: 80 - i, // detector-0 has the most findings
+      findingCount: 80 - i, // detector-0 has the most triggers
       sampleSummaries: Array.from({ length: 10 }, () => bigSentence),
     }));
     const p = buildDigestSummaryPrompt(input(detectors));
