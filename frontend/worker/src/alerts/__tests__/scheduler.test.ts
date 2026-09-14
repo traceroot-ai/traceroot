@@ -307,8 +307,12 @@ describe("runAlertTick — the page a transition produces", () => {
   });
 
   it("reads an empty window the way each rule asked for it", async () => {
+    const gapSince = new Date("2026-08-12T10:20:00.000Z");
     claimDueAlerts.mockResolvedValue([
-      claimWith("silent-1", { noDataMode: "NOTIFY" }),
+      claimWith("silent-1", {
+        noDataMode: "NOTIFY",
+        state: { severity: "NO_DATA", severityChangedAt: gapSince, alertedAt: null },
+      }),
       claimWith("floor-1", { noDataMode: "ZERO", thresholdOperator: "<", threshold: 1 }),
     ]);
     evaluateAlerts.mockResolvedValue([
@@ -328,6 +332,22 @@ describe("runAlertTick — the page a transition produces", () => {
       ["silent-1", "NO_DATA", null],
       ["floor-1", "ALERT", null],
     ]);
+  });
+
+  it("holds a NOTIFY rule's first empty window rather than paging it", async () => {
+    claimDueAlerts.mockResolvedValue([claimWith("quiet-2", { noDataMode: "NOTIFY" })]);
+    evaluateAlerts.mockResolvedValue([
+      { alert_id: "quiet-2", value: null, row_count: 0, error: null },
+    ]);
+
+    await runAlertTick(NOW);
+
+    expect(completeAlertEvaluation.mock.calls[0][0].state).toEqual({
+      severity: "NO_DATA",
+      severityChangedAt: BOUNDARY,
+      alertedAt: null,
+    });
+    expect(enqueueAlertNotification).not.toHaveBeenCalled();
   });
 
   it("writes back against the state it decided from, not the claim token alone", async () => {
