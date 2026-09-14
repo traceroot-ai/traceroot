@@ -227,7 +227,9 @@ class SqlQueryService:
             del rows[effective_max:]
 
         columns = [
-            SqlColumn(name=name, type=str(ch_type))
+            # The driver reports types as objects whose str() is a Python repr with a
+            # memory address. The ClickHouse type name is the contract.
+            SqlColumn(name=name, type=ch_type.name)
             for name, ch_type in zip(result.column_names, result.column_types, strict=False)
         ]
 

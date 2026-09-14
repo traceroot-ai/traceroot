@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from clickhouse_connect.datatypes.registry import get_from_name
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
 from rest.services.sql.errors import SqlExecutionError, SqlValidationError
@@ -27,7 +28,8 @@ class FakeResult:
     def __init__(self, rows: list[list[Any]], columns: list[str] | None = None) -> None:
         self.result_rows = rows
         self.column_names = columns or ["span_id"]
-        self.column_types = ["String"] * len(self.column_names)
+        # Real driver type objects, as clickhouse-connect returns them.
+        self.column_types = [get_from_name("String")] * len(self.column_names)
         self.summary = {"read_rows": "42", "read_bytes": "4096"}
 
 
@@ -217,6 +219,25 @@ class TestResultShape:
         result = _service(client).run("SELECT span_id FROM spans", PID)
         assert [c.name for c in result.columns] == ["span_id"]
         assert [c.type for c in result.columns] == ["String"]
+
+    @pytest.mark.parametrize(
+        "type_name", ["UInt64", "Nullable(String)", "Map(LowCardinality(String), String)"]
+    )
+    def test_a_column_type_is_its_clickhouse_name_not_the_driver_object(
+        self, type_name: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # str() of a driver type is a Python repr carrying a memory address.
+        client = FakeClient(rows=[["s1"]])
+        real_query = client.query
+
+        def query_with_type(*args: Any, **kwargs: Any) -> FakeResult:
+            result = real_query(*args, **kwargs)
+            result.column_types = [get_from_name(type_name)]
+            return result
+
+        monkeypatch.setattr(client, "query", query_with_type)
+        result = _service(client).run("SELECT span_id FROM spans", PID)
+        assert [c.type for c in result.columns] == [type_name]
 
     def test_statistics_are_read_when_the_driver_supplies_them(self) -> None:
         client = FakeClient(rows=[["s1"]])
