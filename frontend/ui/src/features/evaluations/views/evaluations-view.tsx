@@ -166,6 +166,8 @@ function RunTableRow({
   );
 }
 
+const DEFAULT_RUNS_DATE_FILTER_ID = "14d";
+
 function RunsTab({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -191,7 +193,7 @@ function RunsTab({ projectId }: { projectId: string }) {
     queryOptions,
   } = useListPageState({
     defaultLimit: 50,
-    defaultDateFilterId: "14d",
+    defaultDateFilterId: DEFAULT_RUNS_DATE_FILTER_ID,
     syncStorage: false,
   });
 
@@ -205,7 +207,11 @@ function RunsTab({ projectId }: { projectId: string }) {
   const runs = React.useMemo(() => data?.data ?? [], [data]);
   const meta = data?.meta;
   // Considered filtered if keyword is entered or a non-default date range is active
-  const filtered = !!keyword || dateFilter.id !== "14d" || !!customStartDate || !!customEndDate;
+  const filtered =
+    !!keyword ||
+    dateFilter.id !== DEFAULT_RUNS_DATE_FILTER_ID ||
+    !!customStartDate ||
+    !!customEndDate;
   const total = meta?.total ?? runs.length;
 
   // Deleting the last page's rows (or a deep link past the end) leaves `page` beyond

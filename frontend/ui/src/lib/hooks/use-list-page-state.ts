@@ -5,7 +5,7 @@
  * URL params: page_index, page_limit, date_filter, start, end
  * Use this for pages that need shared filter state (traces, users, sessions, detector page).
  */
-import { useMemo } from "react";
+import { useMemo, useRef, useCallback } from "react";
 import { useUrlPagination } from "./use-url-pagination";
 import { useUrlDateFilter } from "./use-url-date-filter";
 import { useKeywordSearch } from "./use-keyword-search";
@@ -68,11 +68,48 @@ export function useListPageState(
   // URL-synced pagination hook - persists page/limit in URL
   const pagination = useUrlPagination(defaultLimit);
 
-  // URL-synced date filter hook. setDateFilter resets page_index inside its own URL
-  // write, so it takes the state-only page reset (a second URL write would clobber the
-  // just-set filter from stale params).
+  const isSettingFilter = useRef(false);
+
+  // setDateFilter/setCustomRange reset page_index inside their own atomic URL write,
+  // so they need only a state reset to avoid a racing second router.replace.
+  // When a stored date filter is restored or retention clamps the effective range,
+  // no atomic URL write occurred, so we call pagination.resetPage to clear page_index
+  // from the URL as well.
+  const handleDateFilterChange = useCallback(() => {
+    if (isSettingFilter.current) {
+      pagination.resetPageState();
+    } else {
+      pagination.resetPage();
+    }
+  }, [pagination]);
+
+  // URL-synced date filter hook
   const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
-    useUrlDateFilter(pagination.resetPageState, defaultDateFilterId, retentionDays, syncStorage);
+    useUrlDateFilter(handleDateFilterChange, defaultDateFilterId, retentionDays, syncStorage);
+
+  const updateDateFilter = useCallback(
+    (option: Parameters<typeof setDateFilter>[0]) => {
+      isSettingFilter.current = true;
+      try {
+        setDateFilter(option);
+      } finally {
+        isSettingFilter.current = false;
+      }
+    },
+    [setDateFilter],
+  );
+
+  const updateCustomRange = useCallback(
+    (start: Date, end: Date) => {
+      isSettingFilter.current = true;
+      try {
+        setCustomRange(start, end);
+      } finally {
+        isSettingFilter.current = false;
+      }
+    },
+    [setCustomRange],
+  );
 
   // Search hook - resets page on change
   const { keyword, setKeyword, searchQuery } = useKeywordSearch(pagination.resetPage);
@@ -114,8 +151,8 @@ export function useListPageState(
     dateFilter,
     customStartDate,
     customEndDate,
-    updateDateFilter: setDateFilter,
-    updateCustomRange: setCustomRange,
+    updateDateFilter,
+    updateCustomRange,
     // Search
     keyword,
     updateKeyword: setKeyword,
