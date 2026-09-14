@@ -48,9 +48,12 @@ describe("captureLlmContent", () => {
       content: "Let me check.",
       tool_calls: [{ id: "tc1", name: "bash", arguments: { command: "cat /workspace/notes" } }],
     });
-    // bash is not allow-listed: the marker the tool span carries, never the text.
+    // bash is not allow-listed: the note the tool span carries, never the text.
     expect(rendered[3]).toMatchObject({ role: "tool", tool: "bash", tool_call_id: "tc1" });
-    expect(String(rendered[3].content)).toMatch(/^\[withheld: not-allowlisted; \d+ bytes\]$/);
+    expect(String(rendered[3].content)).toMatch(
+      /^Output not stored after the run \(\d+ bytes returned\)\. Shell, file and git output/,
+    );
+    expect(String(rendered[3].content)).not.toContain("[withheld");
     expect(out).not.toContain("hunter2");
     // download_traces is allow-listed: kept, but redacted.
     expect(rendered[4]).toMatchObject({ role: "tool", tool: "download_traces" });

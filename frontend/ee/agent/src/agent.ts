@@ -9,6 +9,7 @@ import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import type { Message } from "@earendil-works/pi-ai";
 import { ADAPTER_TO_PI_AI, BEDROCK_USE_DEFAULT_CREDENTIALS, ModelSource } from "@traceroot/core";
 import { applyCapturePolicy } from "@traceroot/core/capture-policy";
+import { withheldOutputText } from "@traceroot/core/capture-note";
 import { instrumentPiAgentCore } from "@traceroot-ai/traceroot";
 import {
   resolvePiModel,
@@ -46,10 +47,10 @@ instrumentPiAgentCore(piAgentCore, {
       { toolName, args, result },
       currentCaptureState() ?? { spentBytes: 0 },
     );
-    return {
-      args: c.args,
-      result: c.result ?? `[withheld: ${c.withheld ?? "policy"}; ${c.outputBytes} bytes]`,
-    };
+    // A withheld result is described in the reader's terms (what is missing
+    // and why), the same wording the persisted chat step shows — never the
+    // policy's bare verdict, which reads as an error in the trace viewer.
+    return { args: c.args, result: c.result ?? withheldOutputText(c) };
   },
   onToolSpan: recordToolSpan,
 });

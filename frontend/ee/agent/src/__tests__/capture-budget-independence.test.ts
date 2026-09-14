@@ -127,7 +127,9 @@ describe("span sink and row sink capture budgets are independent", () => {
     await persister.finish();
 
     // The span sink is out of budget: its close call reports the result withheld.
-    expect(String(spanClose!.result)).toContain("[withheld:");
+    expect(String(spanClose!.result)).toMatch(
+      /^Output not stored: this run reached its limit for stored tool output/,
+    );
 
     // The row sink, with its own fresh budget, captured the same result in
     // full — proof the two sinks don't share one accumulator. Under the old
