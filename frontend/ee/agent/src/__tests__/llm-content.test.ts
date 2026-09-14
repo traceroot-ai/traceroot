@@ -20,7 +20,12 @@ const downloadResult = {
   role: "toolResult",
   toolCallId: "tc2",
   toolName: "download_traces",
-  content: [{ type: "text", text: '{"spans":[{"name":"x","api_key":"sk-live-abcdefghijklmnopqrstuvwxyz"}]}' }],
+  content: [
+    {
+      type: "text",
+      text: '{"spans":[{"name":"x","api_key":"sk-live-abcdefghijklmnopqrstuvwxyz"}]}',
+    },
+  ],
   isError: false,
 };
 
@@ -61,9 +66,15 @@ describe("captureLlmContent", () => {
       }),
     ).toBe("Use ORDERS.get(id).");
     const withCall = captureLlmContent("llm_output", { message: assistantWithCall })!;
-    expect(JSON.parse(withCall)).toMatchObject({ role: "assistant", tool_calls: [{ name: "bash" }] });
+    expect(JSON.parse(withCall)).toMatchObject({
+      role: "assistant",
+      tool_calls: [{ name: "bash" }],
+    });
     const leaky = captureLlmContent("llm_output", {
-      message: { role: "assistant", content: [{ type: "text", text: "token=ghp_abcdefghijklmnopqrstuvwxyz0123456789" }] },
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "token=ghp_abcdefghijklmnopqrstuvwxyz0123456789" }],
+      },
     })!;
     expect(leaky).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789");
   });
