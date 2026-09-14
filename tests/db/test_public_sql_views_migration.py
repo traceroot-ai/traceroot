@@ -193,7 +193,9 @@ def test_inner_select_provides_every_projected_column(sql):
 # The range a ClickHouse Date can hold. Bounds outside it wrap during primary-key analysis
 # on `toDate(trace_start_time)` and prune parts that match, so both views clamp to it.
 DATE_MIN = "toDateTime64('1970-01-01 00:00:00.000', 3)"
-DATE_MAX = "toDateTime64('2149-06-06 00:00:00.000', 3)"
+# The last millisecond of the last representable day. The next midnight is out of range too,
+# and clamping to the day's start would drop that whole day.
+DATE_MAX = "toDateTime64('2149-06-06 23:59:59.999', 3)"
 
 
 def test_time_bounds_are_clamped_to_what_a_date_key_can_hold(sql):
