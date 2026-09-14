@@ -167,6 +167,50 @@ describe("ADAPTER_MODELS", () => {
   });
 });
 
+describe("ADAPTER_MODELS entries resolve to a catalogue price", () => {
+  // A model offered in the BYOK picker with no matching price entry records
+  // every span at $0 cost, silently — spend becomes invisible in per-trace
+  // and usage reporting (#2175). This is the invariant that stops it
+  // recurring: a model cannot be added to a dropdown while unpriced.
+  //
+  // Mirrors the exact-match-then-regex-fallback lookup in
+  // model-pricing/lookup.ts (not imported directly — that path is
+  // Prisma-backed and async; this is a pure, static catalogue check).
+  const PRICES_JSON = new URL("../standard-model-prices.json", import.meta.url);
+  const INLINE_IGNORECASE_PREFIX = /^\(\?i\)/;
+
+  interface CatalogueEntry {
+    modelName: string;
+    matchPattern: string;
+  }
+  const catalogue: CatalogueEntry[] = JSON.parse(readFileSync(PRICES_JSON, "utf8"));
+
+  function resolvesToPrice(modelId: string): boolean {
+    if (catalogue.some((entry) => entry.modelName === modelId)) return true;
+    return catalogue.some((entry) => {
+      try {
+        return new RegExp(entry.matchPattern.replace(INLINE_IGNORECASE_PREFIX, ""), "i").test(
+          modelId,
+        );
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  it("every ADAPTER_MODELS id resolves to a price in standard-model-prices.json", () => {
+    for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
+      if (!models) continue;
+      for (const model of models) {
+        expect(
+          resolvesToPrice(model.id),
+          `adapter "${adapter}", model "${model.id}" has no catalogue price entry`,
+        ).toBe(true);
+      }
+    }
+  });
+});
+
 describe("docs stay in sync with SYSTEM_MODELS", () => {
   // The BYOK docs table is a hand-maintained copy of SYSTEM_MODELS. Without this
   // check, adding a model here silently leaves the docs stale (see #1431).

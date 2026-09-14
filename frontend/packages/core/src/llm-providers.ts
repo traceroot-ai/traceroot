@@ -202,16 +202,18 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "deepseek-v4-flash", label: "deepseek-v4-flash" },
     { id: "deepseek-chat", label: "deepseek-chat" },
   ],
-  xai: [
-    { id: "grok-4.5", label: "grok-4.5" },
-    { id: "grok-4.20", label: "grok-4.20" },
-    { id: "grok-4", label: "grok-4" },
-  ],
+  // grok-4 removed (#2175): retired by xAI. grok-4.5 removed too: it has
+  // never had a catalogue price entry, and xAI prices it by prompt length
+  // (a different rate above 200k tokens) — this catalogue has no
+  // tiered-rate concept, so adding a single flat rate would be wrong for
+  // large prompts. Flagged in the PR for a maintainer call on whether to
+  // add it back and how to handle the tiered rate.
+  xai: [{ id: "grok-4.20", label: "grok-4.20" }],
+  // kimi-k2.5 and kimi-k2-thinking removed (#2175): both retired by
+  // Moonshot and neither ever had a catalogue price entry.
   moonshot: [
     { id: "kimi-k3", label: "kimi-k3" },
     { id: "kimi-k2.6", label: "kimi-k2.6" },
-    { id: "kimi-k2.5", label: "kimi-k2.5" },
-    { id: "kimi-k2-thinking", label: "kimi-k2-thinking" },
   ],
   zai: [
     { id: "glm-5.2", label: "glm-5.2" },
