@@ -56,4 +56,6 @@ export * from "./types/index.ts";
 // captureToolIo) at `@traceroot/core/capture-policy`. We do NOT re-export them
 // here — pulling pi-ai into the main barrel would bundle Node-only code
 // (`node:fs`, etc.) into the Next.js client. Server-side consumers (agent,
-// detector worker) import explicitly from the subpath.
+// detector worker) import explicitly from the subpath. The reader-facing
+// wording for output the policy withheld is dependency-free and lives at
+// `@traceroot/core/capture-note` (shared by the agent's spans and the UI).
