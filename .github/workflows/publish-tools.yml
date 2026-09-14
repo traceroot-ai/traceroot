@@ -16,6 +16,9 @@ on:
         description: "Existing release tag to publish, e.g. tools-v0.2.0"
         required: true
 
+permissions:
+  contents: read
+
 jobs:
   publish:
     # Product releases (vX.Y.Z) must not publish this package.
@@ -27,11 +30,34 @@ jobs:
       contents: read
       id-token: write   # npm trusted publishing
     steps:
+      # actions/checkout resolves a bare ref as refs/heads/<ref> before
+      # refs/tags/<ref>, so a branch named tools-v9.9.9 would shadow the tag.
+      # Require an actual release, then check out its tag explicitly.
+      - name: Verify the tag is a published release
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            tools-v*) ;;
+            *) echo "::error::tag must start with tools-v, got '$TAG'"; exit 1 ;;
+          esac
+          IS_DRAFT=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+          if [ "$IS_DRAFT" != "false" ]; then
+            echo "::error::$TAG is not a published release"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          ref: refs/tags/${{ github.event.release.tag_name || inputs.tag }}
 
+      # Pin the pnpm version: this repo has no root package.json for
+      # action-setup to infer from. Matches build-test.yml.
       - uses: pnpm/action-setup@v4
+        with:
+          version: 10
 
       - uses: actions/setup-node@v4
         with:
