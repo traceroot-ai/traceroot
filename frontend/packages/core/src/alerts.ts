@@ -39,13 +39,33 @@ export function isAlertNoDataMode(value: string): value is AlertNoDataMode {
   return (ALERT_NO_DATA_MODES as readonly string[]).includes(value);
 }
 
-export const ALERT_STATUSES = ["ACTIVE", "PAUSED"] as const;
+/**
+ * PARKED is terminal and the evaluator's alone: it means the stored rule cannot
+ * be evaluated by the running build at all, so retrying it every minute only
+ * burns a claim and leaves the owner reading a severity no run will ever move.
+ * It leaves the claim query the same way PAUSED does, and an edit re-arms it.
+ */
+export const ALERT_STATUSES = ["ACTIVE", "PAUSED", "PARKED"] as const;
 export type AlertStatus = (typeof ALERT_STATUSES)[number];
 export const DEFAULT_ALERT_STATUS: AlertStatus = "ACTIVE";
 
 export function isAlertStatus(value: string): value is AlertStatus {
   return (ALERT_STATUSES as readonly string[]).includes(value);
 }
+
+/**
+ * What a client may ask for. Parking is a verdict about the stored rule, not a
+ * preference, so it is reached by failing evaluation and left by fixing the rule.
+ */
+export const SETTABLE_ALERT_STATUSES = ["ACTIVE", "PAUSED"] as const;
+export type SettableAlertStatus = (typeof SETTABLE_ALERT_STATUSES)[number];
+
+export function isSettableAlertStatus(value: string): value is SettableAlertStatus {
+  return (SETTABLE_ALERT_STATUSES as readonly string[]).includes(value);
+}
+
+/** Statuses the scheduler does not claim, and that a resume cold-starts from. */
+export const STOPPED_ALERT_STATUSES: readonly AlertStatus[] = ["PAUSED", "PARKED"];
 
 export const ALERT_THRESHOLD_OPERATORS = [">", ">=", "<", "<=", "=", "!="] as const;
 export type AlertThresholdOperator = (typeof ALERT_THRESHOLD_OPERATORS)[number];

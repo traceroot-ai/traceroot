@@ -1,9 +1,12 @@
 import {
   DEFAULT_ALERT_NO_DATA_MODE,
+  DEFAULT_ALERT_WINDOW,
+  windowToMs,
   type AlertNoDataMode,
   type AlertRenotify,
   type AlertSeverity,
   type AlertThresholdOperator,
+  type AlertWindow,
 } from "@traceroot/core";
 
 export interface AlertRuntimeState {
@@ -18,6 +21,13 @@ export interface AlertTransition {
 }
 
 const MINUTE_MS = 60_000;
+
+/**
+ * The longest a gap is allowed to stand unannounced under NOTIFY. Without it a
+ * wide rule inherits its own window as the wait, and two hours of not knowing
+ * the data stopped is worse than the flapping the debounce is here to stop.
+ */
+export const ALERT_NO_DATA_DEBOUNCE_CAP_MS = 10 * MINUTE_MS;
 
 export function compareToThreshold(
   value: number,
@@ -76,22 +86,73 @@ function hasOutstandingPage(previous: AlertRuntimeState): boolean {
   );
 }
 
+/**
+ * How long a gap must stand before NOTIFY pages it, read off the rule's own
+ * window because that is the span it judges over: a 1m rule reads empty on any
+ * quiet minute, where a 2h rule reading empty has already watched two hours of
+ * silence. Capped by `ALERT_NO_DATA_DEBOUNCE_CAP_MS`.
+ */
+function noDataDebounceMs(window: AlertWindow): number {
+  return Math.min(windowToMs(window), ALERT_NO_DATA_DEBOUNCE_CAP_MS);
+}
+
+/**
+ * Whether the page that stands was raised for the stretch the rule is in now
+ * rather than carried in from the severity before it. `severityChangedAt` opens
+ * the stretch and every emission stamps `alertedAt`, so an `alertedAt` older
+ * than the change belongs to a breach the rule has since left. A rule that has
+ * never held a severity long enough to have a change has nothing carried in.
+ */
+function pagedThisStretch(previous: AlertRuntimeState): boolean {
+  if (previous.alertedAt === null) return false;
+  if (previous.severityChangedAt === null) return true;
+  return previous.alertedAt.getTime() >= previous.severityChangedAt.getTime();
+}
+
+/** A gap that has outlasted its rule's debounce, and so is an incident. */
+function gapIsSettled(previous: AlertRuntimeState, now: Date, window: AlertWindow): boolean {
+  // No entry clock means no way to time the gap; announcing it beats sitting on
+  // it forever, which is what a debounce measured from nothing would do.
+  if (previous.severityChangedAt === null) return true;
+  return now.getTime() - previous.severityChangedAt.getTime() >= noDataDebounceMs(window);
+}
+
 function shouldEmit(
   previous: AlertRuntimeState,
   severity: AlertSeverity,
   now: Date,
   renotify: AlertRenotify,
   noDataMode: AlertNoDataMode,
+  window: AlertWindow,
 ): boolean {
   // UNKNOWN is never an evaluated outcome, under any reading of a gap.
   if (severity === "UNKNOWN") return false;
   if (noDataMode === "NOTIFY") {
-    // The silence is the incident: entering it pages once and then on
-    // renotify's terms, and any reading at all on the far side ends it.
+    // The silence is the incident, but only once it has stood long enough to be
+    // one. On a low-traffic project a single empty window is ordinary, so entry
+    // is silent, the page waits for the gap to settle, and it then repeats on
+    // renotify's terms.
     if (severity === "NO_DATA") {
-      return previous.severity !== "NO_DATA" || shouldRenotify(previous, now, renotify);
+      if (previous.severity !== "NO_DATA") return false;
+      if (pagedThisStretch(previous)) return shouldRenotify(previous, now, renotify);
+      return gapIsSettled(previous, now, window);
     }
-    if (previous.severity === "NO_DATA") return true;
+    // Any reading at all ends the silence, but only a gap somebody was paged
+    // for has an all-clear to give: one that never settled ends as quietly as
+    // it began, or the flapping just changes which message it flaps with.
+    if (previous.severity === "NO_DATA") {
+      // The gap itself was paged, so its end is news whichever reading ends it.
+      if (pagedThisStretch(previous)) return true;
+      // A breach page carried across the gap is still the same breach: it clears
+      // on OK and otherwise repeats only on renotify's terms, exactly as it would
+      // have under HOLD. Announcing every reappearance re-pages a rule the user
+      // was already paged for each time sparse data comes and goes.
+      if (hasOutstandingPage(previous)) {
+        return severity === "OK" || shouldRenotify(previous, now, renotify);
+      }
+      // Nothing outstanding and nothing said about the gap: only a fresh breach speaks.
+      return severity === "ALERT";
+    }
   }
   // Under every other reading a gap judges nothing, so it says nothing.
   if (severity === "NO_DATA") return false;
@@ -126,8 +187,9 @@ export function applyAlertStateMachine(
   now: Date,
   renotify: AlertRenotify,
   noDataMode: AlertNoDataMode = DEFAULT_ALERT_NO_DATA_MODE,
+  window: AlertWindow = DEFAULT_ALERT_WINDOW,
 ): AlertTransition {
-  const emit = shouldEmit(previous, severity, now, renotify, noDataMode);
+  const emit = shouldEmit(previous, severity, now, renotify, noDataMode, window);
   return {
     emit,
     nextState: {
