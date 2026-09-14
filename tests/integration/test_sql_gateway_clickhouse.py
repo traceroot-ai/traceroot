@@ -26,6 +26,7 @@ from rest.services.sql.schema import PUBLIC_TABLES, TABLE_VIEW_MAP
 
 from .conftest import (
     DATABASE,
+    EVAL_PARTITION,
     PROFILE_MAX_RESULT_ROWS,
     PROJECT_A,
     PROJECT_B,
@@ -360,9 +361,14 @@ def test_evaluation_trace_stays_hidden_after_a_merge(gateway):
         return "sem-eval" in traces, {"sem-eval-scorer", "sem-eval-child"} & spans
 
     assert visible() == (False, set())
+    versions = gateway.admin.query(
+        "SELECT count() FROM traces WHERE trace_id = 'sem-eval'"
+    ).result_rows
+    assert versions == [(2,)], "both trace versions must exist before this test merges them"
 
-    gateway.admin.command("OPTIMIZE TABLE traces FINAL")
-    gateway.admin.command("OPTIMIZE TABLE spans FINAL")
+    # Only this case's partition, so no other test's seeded versions are merged away.
+    gateway.admin.command(f"OPTIMIZE TABLE traces PARTITION {EVAL_PARTITION} FINAL")
+    gateway.admin.command(f"OPTIMIZE TABLE spans PARTITION {EVAL_PARTITION} FINAL")
     flags = gateway.admin.query(
         "SELECT groupArray(is_evaluation) FROM traces WHERE trace_id = 'sem-eval'"
     ).result_rows

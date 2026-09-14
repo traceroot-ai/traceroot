@@ -70,6 +70,12 @@ T0 = datetime(2026, 9, 1, 10, 0, 0, tzinfo=UTC)
 V1 = datetime(2026, 9, 10, 0, 0, 0, tzinfo=UTC)
 V2 = datetime(2026, 9, 11, 0, 0, 0, tzinfo=UTC)
 
+# The merge case lives alone in its own month, and the test merges only that partition.
+# A table-wide OPTIMIZE would also collapse the versions other semantic tests seed, so a
+# test reading them after it would pass on a physically different table than it set up.
+EVAL_T0 = datetime(2026, 6, 15, 10, 0, 0, tzinfo=UTC)
+EVAL_PARTITION = int(EVAL_T0.strftime("%Y%m"))
+
 
 def pytest_configure(config):
     config.addinivalue_line(
@@ -232,18 +238,18 @@ def _seed(admin: Client) -> Seeded:
 
     # An evaluation trace whose trace row is later rewritten unflagged on the same day, so a
     # merge physically deletes the flagged version. The scorer span keeps the flag.
-    _insert(admin, "traces", [_trace(sem, "sem-eval", T0, is_evaluation=1, updated=V1)])
-    _insert(admin, "traces", [_trace(sem, "sem-eval", T0, is_evaluation=0, updated=V2)])
+    _insert(admin, "traces", [_trace(sem, "sem-eval", EVAL_T0, is_evaluation=1, updated=V1)])
+    _insert(admin, "traces", [_trace(sem, "sem-eval", EVAL_T0, is_evaluation=0, updated=V2)])
     _insert(
         admin,
         "spans",
         [
-            _span(sem, "sem-eval-scorer", "sem-eval", T0, kind="EVALUATOR", is_evaluation=1),
+            _span(sem, "sem-eval-scorer", "sem-eval", EVAL_T0, kind="EVALUATOR", is_evaluation=1),
             _span(
                 sem,
                 "sem-eval-child",
                 "sem-eval",
-                T0 + timedelta(seconds=1),
+                EVAL_T0 + timedelta(seconds=1),
                 parent="sem-eval-scorer",
             ),
         ],
