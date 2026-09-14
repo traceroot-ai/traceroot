@@ -48,6 +48,10 @@ function matches(row: AlertRowStub, where: Where): boolean {
   if (typeof where.id === "string" && row.id !== where.id) return false;
   if (typeof where.projectId === "string" && row.projectId !== where.projectId) return false;
   if (typeof where.status === "string" && row.status !== where.status) return false;
+  // The worker's writes are a CAS on the claim token it stamped, so a race test
+  // is only honest if a voided claim actually stops matching.
+  const claim = where.lastClaimedAt;
+  if (claim instanceof Date && row.lastClaimedAt?.getTime() !== claim.getTime()) return false;
   // The resume matches on a set of stopped statuses, not one spelling.
   const status = where.status as { in?: string[] } | undefined;
   if (Array.isArray(status?.in) && !status.in.includes(row.status)) return false;
@@ -280,6 +284,35 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
 
       expect(row?.status).toBe("PARKED");
       expect(row?.name).toBe("Renamed");
+    });
+
+    it("voids a claim still in flight, so a delayed park cannot re-park a renotify repair", async () => {
+      // claim -> PATCH -> delayed park. A tick claimed the row while it was ACTIVE
+      // and is still on its way to parking it; the owner's renotify fix lands
+      // first. The re-arm CAS misses (not PARKED yet) and the fallback applies.
+      const claimStamp = new Date("2026-08-12T10:30:00.000Z");
+      store.set("alert-1", alertRow({ status: "ACTIVE", lastClaimedAt: claimStamp }));
+
+      expect((await patch({ renotify: { mode: "OFF" } })).status).toBe(200);
+
+      // The worker's park, arriving after the PATCH returned, under the CAS
+      // `parkAlertRule` writes with.
+      const parked = await alertUpdateMany({
+        where: { id: "alert-1", status: "ACTIVE", lastClaimedAt: claimStamp },
+        data: { status: "PARKED" },
+      });
+
+      expect(parked.count).toBe(0);
+      const row = store.get("alert-1");
+      expect(row?.status).toBe("ACTIVE");
+      expect(row?.renotify).toEqual({ mode: "OFF" });
+      expect(row?.lastClaimedAt).toBeNull();
+      // The voided evaluation is redone on the next tick instead of waiting.
+      expect(row?.nextRunAt?.getTime()).toBeGreaterThan(baseAlertRow.nextRunAt!.getTime());
+      // Renotify is not the evaluated rule: the severity it stood at is kept,
+      // or a firing rule would page again from a cold start.
+      expect(row?.severity).toBe("ALERT");
+      expect(row?.alertedAt).toEqual(baseAlertRow.alertedAt);
     });
 
     it("re-arms on the current status, not the one read before a concurrent tick parked it", async () => {

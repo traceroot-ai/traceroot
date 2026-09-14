@@ -133,7 +133,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   // it whenever the re-arm CAS above did not apply: the row was not actually
   // PARKED at that check, so this edit's ordinary fields still have to land.
   if (count !== 1) {
-    ({ count } = await prisma.alert.updateMany({ where: { id: alertId, projectId }, data }));
+    // An edit that would re-arm a parked rule also has to void the claim a tick
+    // may still hold on the row, in this same write. A rule rewrite already does
+    // through `alertStateReset`; a renotify-only edit does not reset state, so
+    // without this a park still in flight from that claim matches the old
+    // `lastClaimedAt` after this returns and parks the rule this edit repaired.
+    // `nextRunAt` moves with it, because the voided claim's evaluation will not
+    // write back and the next tick should redo it rather than wait the cadence.
+    const fallback = reArmsParked ? { ...data, lastClaimedAt: null, nextRunAt: new Date() } : data;
+    ({ count } = await prisma.alert.updateMany({
+      where: { id: alertId, projectId },
+      data: fallback,
+    }));
     // A tick can still park the rule in the gap between the check above and
     // this write landing (the fallback has no status guard, so it would
     // otherwise commit the fix and leave the row parked). One retry closes
