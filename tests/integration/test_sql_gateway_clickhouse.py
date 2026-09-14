@@ -32,6 +32,8 @@ from .conftest import (
     PROJECT_B,
     PROJECT_CAP,
     PROJECT_SEM,
+    PROJECTS_WIDE,
+    WIDE_TRACES_PER_PROJECT,
     Gateway,
     Seeded,
 )
@@ -375,6 +377,24 @@ def test_evaluation_trace_stays_hidden_after_a_merge(gateway):
     assert flags == [([0],)], "the merge should have deleted the flagged trace version"
 
     assert visible() == (False, set()), "the flagged span must keep the trace excluded"
+
+
+def test_unbounded_traces_query_reads_every_row_of_a_wide_project(gateway):
+    """A query with no time filter gets the open bounds, and on `traces` those used to be
+    outside the range a Date can hold. The sort key is `toDate(trace_start_time)`, so the
+    primary-key analysis wrapped the lower bound to 2079 and pruned every granule it could
+    date: this project returned about a third of its rows. Seeded wide on purpose, since a
+    single small granule cannot be pruned and hides the defect."""
+    project = PROJECTS_WIDE[1]
+    physical = gateway.admin.query(
+        f"SELECT count() FROM traces WHERE project_id = '{project}'"
+    ).result_rows
+    assert physical == [(WIDE_TRACES_PER_PROJECT,)]
+    for sql in (
+        "SELECT count() FROM traces",
+        "SELECT count() FROM traces WHERE trace_start_time >= '1960-01-01'",
+    ):
+        assert _rows(gateway, sql, project) == [(WIDE_TRACES_PER_PROJECT,)], sql
 
 
 def test_half_open_window_includes_its_start_and_excludes_its_end(gateway):

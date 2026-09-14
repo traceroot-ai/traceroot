@@ -60,6 +60,11 @@ PROJECT_A = "proj_a"
 PROJECT_B = "proj_b"
 PROJECT_SEM = "proj_sem"
 PROJECT_CAP = "proj_cap"
+# Neighbours in one large insert, so the middle project spans granules whose date ranges are
+# known on both sides. That is the layout primary-key pruning can act on, which a handful of
+# rows in one granule never is.
+PROJECTS_WIDE = ("wide_a", "wide_b", "wide_c")
+WIDE_TRACES_PER_PROJECT = 20_000
 
 # The read-only profile caps result rows at this, CONST, in the bootstrap SQL.
 PROFILE_MAX_RESULT_ROWS = 100_000
@@ -261,6 +266,16 @@ def _seed(admin: Client) -> Seeded:
         f"SELECT concat('cap-s', toString(number)), 'cap-t0', '{PROJECT_CAP}', "
         f"toDateTime64('2026-09-02 00:00:00', 3), 'n', 'CHAIN', map() "
         f"FROM numbers({PROFILE_MAX_RESULT_ROWS + 50})"
+    )
+    # Wide traces: three projects in one insert, twenty seconds apart, all in March 2026 so no
+    # other case shares their partition. One insert of this size already spans several
+    # granules, so nothing needs merging.
+    admin.command(
+        "INSERT INTO traces (trace_id, project_id, trace_start_time, name) "
+        f"SELECT concat('wide-t', toString(number)), "
+        f"['{PROJECTS_WIDE[0]}', '{PROJECTS_WIDE[1]}', '{PROJECTS_WIDE[2]}'][number % 3 + 1], "
+        "toDateTime64('2026-03-01 00:00:00', 3) + toIntervalSecond(number * 20), 'n' "
+        f"FROM numbers({WIDE_TRACES_PER_PROJECT * len(PROJECTS_WIDE)})"
     )
     return Seeded(spans=spans, traces=traces)
 
