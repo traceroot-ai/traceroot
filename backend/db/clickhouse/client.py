@@ -322,8 +322,8 @@ def get_readonly_clickhouse_client() -> ClickHouseClient:
     logger.warning(
         "SQL gateway FALLBACK: CLICKHOUSE_RO_USER / CLICKHOUSE_RO_PASSWORD are not both set; "
         "using the default (privileged) "
-        "ClickHouse client. This is acceptable for local/dev/self-host only — cloud deployments "
-        "MUST set CLICKHOUSE_RO_USER."
+        "ClickHouse client. This is acceptable for local/dev/self-host only; cloud deployments "
+        "MUST set both CLICKHOUSE_RO_USER and CLICKHOUSE_RO_PASSWORD."
     )
     # The caps normally come from the read-only user's CONST settings profile. Without
     # that user there is no profile, so without this the fallback runs user SQL with no
