@@ -27,6 +27,7 @@ describe("committed registry", () => {
       "get_finding",
       "get_finding_by_trace",
       "get_session",
+      "get_sql_schema",
       "get_trace",
       "list_dashboards",
       "list_detectors",
@@ -36,6 +37,7 @@ describe("committed registry", () => {
       "list_trace_filter_values",
       "list_traces",
       "list_workspaces",
+      "run_sql",
       "whoami",
     ]);
   });
