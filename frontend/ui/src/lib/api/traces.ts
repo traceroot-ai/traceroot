@@ -44,12 +44,15 @@ export async function tracesExist(
   return fetchTraceApi<{ exists: boolean }>(`/projects/${projectId}/traces/exists`, {}, user);
 }
 
+/** Opt-in read scopes for internal telemetry; omit for customer traffic. */
+export type TraceSource = "detector" | "agent" | "user";
+
 export async function getTrace(
   projectId: string,
   traceId: string,
   _apiKey: string,
   user?: TraceApiUser,
-  source?: "detector" | "user",
+  source?: TraceSource,
 ): Promise<TraceDetail> {
   const query = source ? `?source=${source}` : "";
   return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}${query}`, {}, user);
