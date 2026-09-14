@@ -190,6 +190,31 @@ def test_inner_select_provides_every_projected_column(sql):
             )
 
 
+# The range a ClickHouse Date can hold. Bounds outside it wrap during primary-key analysis
+# on `toDate(trace_start_time)` and prune parts that match, so both views clamp to it.
+DATE_MIN = "toDateTime64('1970-01-01 00:00:00.000', 3)"
+DATE_MAX = "toDateTime64('2149-06-06 00:00:00.000', 3)"
+
+
+def test_time_bounds_are_clamped_to_what_a_date_key_can_hold(sql):
+    """An open bound is 1900-01-01, which is outside the Date range. On `traces`, whose
+    sort key is `toDate(trace_start_time)`, ClickHouse converted it with wraparound to
+    2079-06-07 and pruned every part it could date, so an unbounded query returned 11,968
+    of a project's 40,000 rows. Clamping in the view protects every caller, including a
+    user who writes a bound before 1970."""
+    for view, column in (
+        ("spans_public_v1", "span_start_time"),
+        ("traces_public_v1", "trace_start_time"),
+    ):
+        block = _view_block(sql, view)
+        assert f"greatest({{start_time:DateTime64(3)}}, {DATE_MIN})" in block, (
+            f"{view} passes the lower bound to {column} unclamped"
+        )
+        assert f"least({{end_time:DateTime64(3)}}, {DATE_MAX})" in block, (
+            f"{view} passes the upper bound to {column} unclamped"
+        )
+
+
 def test_views_take_a_time_range_on_their_own_time_column(sql):
     """The caller's window has to reach the view body or it cannot prune.
 
@@ -203,8 +228,8 @@ def test_views_take_a_time_range_on_their_own_time_column(sql):
         ("traces_public_v1", "trace_start_time"),
     ):
         block = _view_block(sql, view)
-        assert f"{column} >= {{start_time:DateTime64(3)}}" in block, view
-        assert f"{column} <  {{end_time:DateTime64(3)}}" in block, view
+        assert f"{column} >= greatest({{start_time:DateTime64(3)}}, {DATE_MIN})" in block, view
+        assert f"{column} <  least({{end_time:DateTime64(3)}}, {DATE_MAX})" in block, view
         bound = block.index("start_time:DateTime64(3)")
         dedup = block.index("LIMIT 1 BY")
         assert bound < dedup, f"{view} applies the bound after deduplicating"
@@ -218,9 +243,9 @@ def test_time_range_is_half_open(sql):
     removed by the caller's own filter, hiding an older version that was in the window.
     """
     for column in ("span_start_time", "trace_start_time"):
-        assert f"{column} >= {{start_time:DateTime64(3)}}" in sql, column
-        assert f"{column} <  {{end_time:DateTime64(3)}}" in sql, column
-        assert f"{column} <= {{end_time:DateTime64(3)}}" not in sql, (
+        assert f"{column} >= greatest({{start_time:DateTime64(3)}}, {DATE_MIN})" in sql, column
+        assert f"{column} <  least({{end_time:DateTime64(3)}}, {DATE_MAX})" in sql, column
+        assert f"{column} <= least({{end_time:DateTime64(3)}}" not in sql, (
             f"{column} uses an inclusive upper bound; the read services treat it as exclusive"
         )
 

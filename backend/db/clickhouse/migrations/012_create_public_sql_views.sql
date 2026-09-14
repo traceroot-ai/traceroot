@@ -62,6 +62,16 @@
 -- newest version, and then be removed by the caller's own filter, hiding an older
 -- version that was genuinely in the window.
 --
+-- Both bounds are clamped to 1970-01-01 .. 2149-06-06, the range a Date can hold.
+-- `traces` keys on toDate(trace_start_time), and when a bound falls outside that range
+-- ClickHouse's primary-key analysis converts it with wraparound: a start of 1900-01-01
+-- becomes 2079-06-07, so every part or granule whose dates are known to be earlier is
+-- pruned, and the query silently returns a fraction of the project (measured: 11,968 of
+-- 40,000 rows). Open bounds are exactly such values, and so is any caller bound before
+-- 1970. Clamping costs nothing reachable: ingest cannot write a start before 1970, and one
+-- after 2149 is a broken clock. `spans` does not key on toDate today but is clamped the
+-- same way, so a join over both views sees one window.
+--
 -- Pruning is uneven between the two tables, and the sort keys are why. `traces` is
 -- ordered by (project_id, toDate(trace_start_time), trace_id), so the bound prunes on
 -- the key prefix. `spans` is ordered by (project_id, trace_id, span_start_time,
@@ -143,8 +153,8 @@ FROM
         git_source_file, git_source_line, git_source_function, source
     FROM spans
     WHERE project_id = {project_id:String}
-      AND span_start_time >= {start_time:DateTime64(3)}
-      AND span_start_time <  {end_time:DateTime64(3)}
+      AND span_start_time >= greatest({start_time:DateTime64(3)}, toDateTime64('1970-01-01 00:00:00.000', 3))
+      AND span_start_time <  least({end_time:DateTime64(3)}, toDateTime64('2149-06-06 00:00:00.000', 3))
     ORDER BY ch_update_time DESC
     LIMIT 1 BY trace_id, span_id
 )
@@ -174,8 +184,8 @@ FROM
         environment, metadata_map, source
     FROM traces
     WHERE project_id = {project_id:String}
-      AND trace_start_time >= {start_time:DateTime64(3)}
-      AND trace_start_time <  {end_time:DateTime64(3)}
+      AND trace_start_time >= greatest({start_time:DateTime64(3)}, toDateTime64('1970-01-01 00:00:00.000', 3))
+      AND trace_start_time <  least({end_time:DateTime64(3)}, toDateTime64('2149-06-06 00:00:00.000', 3))
     ORDER BY ch_update_time DESC
     LIMIT 1 BY trace_id
 )
