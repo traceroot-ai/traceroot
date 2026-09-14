@@ -105,7 +105,9 @@ _RESERVED_PARAM_PREFIX = "scope_"
 #: A parameter name is sent to the server as ``param_<name>`` in the request, so
 #: a name carrying a separator could add a request field of its own rather than a
 #: value. Restricting names to identifiers removes the question instead of
-#: relying on the driver to encode them.
+#: relying on the driver to encode them. Checked with ``fullmatch``: under
+#: ``match`` a ``$`` anchor also matches just before a trailing newline, so
+#: ``"abc\n"`` would pass as an identifier.
 _PARAM_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -114,7 +116,7 @@ def _scrubbed(parameters: dict[str, Any] | None) -> dict[str, Any]:
     if not parameters:
         return {}
     for name in parameters:
-        if not isinstance(name, str) or not _PARAM_NAME_RE.match(name):
+        if not isinstance(name, str) or not _PARAM_NAME_RE.fullmatch(name):
             raise SqlExecutionError(
                 "Query parameter names must be plain identifiers.", is_client_error=True
             )
