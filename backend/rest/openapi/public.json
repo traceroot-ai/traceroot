@@ -5404,7 +5404,7 @@
                 }
               }
             },
-            "description": "The query breaks the read-only contract, or asked for more than the server allows"
+            "description": "The query breaks the read-only contract, asked for more than the server allows, or the credential names no project"
           },
           "401": {
             "content": {
@@ -5416,15 +5416,25 @@
             },
             "description": "Authentication failed"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The credential cannot access this project"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "429": {
             "content": {
@@ -5518,6 +5528,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The credential names no project"
+          },
           "401": {
             "content": {
               "application/json": {
@@ -5528,15 +5548,25 @@
             },
             "description": "Authentication failed"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The credential cannot access this project"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "429": {
             "content": {

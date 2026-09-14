@@ -365,7 +365,22 @@ class TestReviewFindings:
     def test_the_error_responses_are_documented(self) -> None:
         # The CLI generates its client from this spec.
         responses = app.openapi()["paths"]["/api/v1/public/sql"]["post"]["responses"]
-        assert {"400", "401", "429", "500"} <= set(responses)
+        assert {"400", "401", "403", "422", "429", "500"} <= set(responses)
+
+    def test_the_schema_errors_are_documented(self) -> None:
+        responses = app.openapi()["paths"]["/api/v1/public/sql/schema"]["get"]["responses"]
+        assert {"400", "401", "403", "422", "429"} <= set(responses)
+
+    @pytest.mark.parametrize(
+        ("path", "method"), [("/api/v1/public/sql", "post"), ("/api/v1/public/sql/schema", "get")]
+    )
+    def test_validation_errors_are_documented_as_the_string_envelope(
+        self, path: str, method: str
+    ) -> None:
+        # Public routes answer 422 with {"detail": "<string>"}, not FastAPI's list.
+        schema = app.openapi()["paths"][path][method]["responses"]["422"]
+        ref = schema["content"]["application/json"]["schema"]["$ref"]
+        assert ref.endswith("/ErrorResponse")
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +391,17 @@ def gate(monkeypatch: pytest.MonkeyPatch) -> sql_router._QueryGate:
     fresh = sql_router._QueryGate(total=4, per_project=2)
     monkeypatch.setattr(sql_router, "_gate", fresh)
     return fresh
+
+
+def test_the_gate_builds_no_limiter_until_a_query_needs_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Module import constructs the gate, so it must not need an event loop.
+    def refuse(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("limiter built at construction")
+
+    monkeypatch.setattr(sql_router.anyio, "CapacityLimiter", refuse)
+    sql_router._QueryGate(total=4, per_project=2)
 
 
 def _post(client: TestClient):

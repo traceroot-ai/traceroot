@@ -77,9 +77,20 @@ class _QueryGate:
         self.total = total
         self.per_project = per_project
         self.in_flight: Counter[str] = Counter()
-        # Sized to the gate, so it never makes a query wait. Its job is to keep
-        # these threads out of the shared pool's accounting.
-        self.limiter = anyio.CapacityLimiter(total)
+        self._limiter: anyio.CapacityLimiter | None = None
+
+    @property
+    def limiter(self) -> anyio.CapacityLimiter:
+        """The thread limiter queries run under, created on first use.
+
+        Sized to the gate, so it never makes a query wait. Its job is to keep these
+        threads out of the shared pool's accounting. Built lazily from a request
+        rather than at import, so constructing the gate never depends on whether
+        the installed AnyIO can create a limiter outside a running event loop.
+        """
+        if self._limiter is None:
+            self._limiter = anyio.CapacityLimiter(self.total)
+        return self._limiter
 
     def try_claim(self, project_id: str) -> bool:
         if self.in_flight.total() >= self.total:
@@ -97,21 +108,37 @@ class _QueryGate:
 
 _gate = _QueryGate(_MAX_CONCURRENT_QUERIES, _MAX_CONCURRENT_QUERIES_PER_PROJECT)
 
-#: Declared so the published contract matches what the route actually returns.
-#: The CLI generates its client from this spec, so an undocumented 400 or 500 is
-#: an error shape a generated client has no type for.
+#: Errors both operations share. Declared so the published contract matches what
+#: the routes actually return: the CLI generates its client from this spec, so an
+#: undocumented status is an error shape a generated client has no type for. The
+#: auth dependency supplies 400 (a user credential with no project), 401 and 403,
+#: and the shared post-processing in openapi_public adds its 503.
+_SHARED_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    401: {"model": ErrorResponse, "description": "Authentication failed"},
+    403: {"model": ErrorResponse, "description": "The credential cannot access this project"},
+    # FastAPI documents 422 as a list of error objects, but `main.py` rewrites it
+    # into the same {"detail": "<string>"} envelope for every public route.
+    422: {"model": ErrorResponse, "description": "Validation error"},
+}
+
 _SQL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **_SHARED_ERROR_RESPONSES,
     400: {
         "model": ErrorResponse,
-        "description": "The query breaks the read-only contract, or asked for more than the "
-        "server allows",
+        "description": "The query breaks the read-only contract, asked for more than the "
+        "server allows, or the credential names no project",
     },
-    401: {"model": ErrorResponse, "description": "Authentication failed"},
     429: {
         "model": ErrorResponse,
         "description": "Rate limit exceeded, or too many queries are already running",
     },
     500: {"model": ErrorResponse, "description": "Query execution failed"},
+}
+
+_SCHEMA_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **_SHARED_ERROR_RESPONSES,
+    400: {"model": ErrorResponse, "description": "The credential names no project"},
+    429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
 }
 
 
@@ -200,10 +227,7 @@ async def run_sql(
     "/schema",
     response_model=SqlSchemaResponse,
     operation_id="get_sql_schema",
-    responses={
-        401: {"model": ErrorResponse, "description": "Authentication failed"},
-        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
-    },
+    responses=_SCHEMA_ERROR_RESPONSES,
 )
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_SQL, key_func=key_sql, exempt_when=is_request_rate_limit_exempt
