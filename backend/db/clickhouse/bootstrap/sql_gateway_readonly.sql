@@ -3,7 +3,7 @@
 -- Run by clickhouse-init after sql_gateway_users.sql, and only when CLICKHOUSE_RO_PASSWORD
 -- is set. This is the account the API authenticates as to run customer SQL, so unlike the
 -- writer it needs a real password and is not generated: an unset password means the
--- gateway is not in use, and the account is simply not created. The API treats a
+-- gateway is not in use, so the account is not created and an existing one is dropped. The API treats a
 -- read-only user with no password as unconfigured, so it does not try to log in as one.
 --
 -- `__RO_HASH__` and `__DB__` are substituted by clickhouse-init exactly as in

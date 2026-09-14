@@ -145,6 +145,8 @@ services:
       # an unset password is generated below and never stored: nothing logs in as it.
       # The read-only account is the one the API authenticates as, so it is provisioned
       # only when its password is set, and the API refuses or falls back when it is not.
+      # Unsetting the password disables the gateway, so an account left from an earlier
+      # run is dropped rather than left reachable with a password nobody manages anymore.
       SQL_GATEWAY_WRITER_PASSWORD: "${SQL_GATEWAY_WRITER_PASSWORD:-}"
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
       CLICKHOUSE_RO_PASSWORD: "${CLICKHOUSE_RO_PASSWORD:-}"
@@ -163,7 +165,9 @@ services:
       clickhouse-client --host clickhouse --port 9000 --user \"$$CLICKHOUSE_USER\"
       --queries-file /tmp/sql_gateway_users.sql;
       if [ -z \"$$CLICKHOUSE_RO_PASSWORD\" ]; then
-      echo 'clickhouse-init: CLICKHOUSE_RO_PASSWORD is unset, so the SQL gateway read-only account was not provisioned';
+      clickhouse-client --host clickhouse --port 9000 --user \"$$CLICKHOUSE_USER\"
+      --query 'DROP USER IF EXISTS sql_gateway_ro';
+      echo 'clickhouse-init: CLICKHOUSE_RO_PASSWORD is unset, so the SQL gateway read-only account is not provisioned and any existing one was dropped';
       else
       R=$$(printf '%s' \"$$CLICKHOUSE_RO_PASSWORD\" | sha256sum | cut -d' ' -f1);
       sed -e \"s/__RO_HASH__/$$R/g\" -e \"s/__DB__/$$CLICKHOUSE_DATABASE/g\"

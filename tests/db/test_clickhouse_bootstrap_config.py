@@ -217,7 +217,11 @@ def _run_init(compose_path: Path, tmp_path: Path, writer: str, readonly: str) ->
     stub = bin_dir / "clickhouse-client"
     stub.write_text(
         "#!/bin/sh\n"
-        'while [ $# -gt 0 ]; do [ "$1" = --queries-file ] && cp "$2" "$CALLS/$(basename "$2")"; shift; done\n'
+        "while [ $# -gt 0 ]; do\n"
+        '  [ "$1" = --queries-file ] && cp "$2" "$CALLS/$(basename "$2")"\n'
+        '  [ "$1" = --query ] && printf "%s\\n" "$2" >> "$CALLS/queries.log"\n'
+        "  shift\n"
+        "done\n"
     )
     stub.chmod(0o755)
     if shutil.which("sha256sum") is None and shutil.which("shasum"):
@@ -273,8 +277,13 @@ def test_readonly_account_is_provisioned_only_with_its_password(compose_path, tm
     off = _run_init(compose_path, tmp_path / "off", writer="w", readonly="")
     assert "sql_gateway_readonly.sql" not in off, "the read-only account was provisioned"
     assert "not provisioned" in off["stdout"]
+    # Disabling must not leave an account from an earlier run reachable with its old password.
+    assert "DROP USER IF EXISTS sql_gateway_ro" in off.get("queries.log", ""), (
+        "an existing read-only account is left in place when the gateway is disabled"
+    )
 
     on = _run_init(compose_path, tmp_path / "on", writer="w", readonly="r0-pass")
+    assert "DROP USER" not in on.get("queries.log", ""), "an enabled gateway dropped its account"
     assert (
         _hash(on["sql_gateway_readonly.sql"], "sql_gateway_ro")
         == hashlib.sha256(b"r0-pass").hexdigest()

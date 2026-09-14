@@ -96,7 +96,9 @@ services:
       clickhouse-client --host clickhouse --port 9000 --user \"$$CLICKHOUSE_USER\"
       --queries-file /tmp/sql_gateway_users.sql;
       if [ -z \"$$CLICKHOUSE_RO_PASSWORD\" ]; then
-      echo 'clickhouse-init: CLICKHOUSE_RO_PASSWORD is unset, so the SQL gateway read-only account was not provisioned';
+      clickhouse-client --host clickhouse --port 9000 --user \"$$CLICKHOUSE_USER\"
+      --query 'DROP USER IF EXISTS sql_gateway_ro';
+      echo 'clickhouse-init: CLICKHOUSE_RO_PASSWORD is unset, so the SQL gateway read-only account is not provisioned and any existing one was dropped';
       else
       R=$$(printf '%s' \"$$CLICKHOUSE_RO_PASSWORD\" | sha256sum | cut -d' ' -f1);
       sed -e \"s/__RO_HASH__/$$R/g\" -e \"s/__DB__/$$CLICKHOUSE_DATABASE/g\"
