@@ -153,7 +153,10 @@ class SqlQueryService:
         max_rows_ceiling: int | None = None,
     ) -> None:
         self._client = client
-        self._ceiling = max_rows_ceiling or settings.clickhouse.sql_max_result_rows
+        # One below the server's row cap, because the sentinel row is fetched on
+        # top of the ceiling. At the cap itself the sentinel trips Code 396 and a
+        # large query fails instead of coming back truncated.
+        self._ceiling = max_rows_ceiling or max(settings.clickhouse.sql_max_result_rows - 1, 1)
 
     def _resolve_client(self) -> ClickHouseClient:
         if self._client is not None:
