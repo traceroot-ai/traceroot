@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Imports the REAL agent.ts (every other agent test mocks it away) to pin how
-// the SDK's pi-agent-core instrumentation is wired: content capture off, tool
-// I/O through the capture policy on the run's shared budget, tool span ids
-// reported into the run scope.
+// the SDK's pi-agent-core instrumentation is wired: content capture through
+// llm-content.ts (never the raw boolean form), tool I/O through the capture
+// policy on the run's shared budget, tool span ids reported into the run scope.
 const instrumentPiAgentCore = vi.fn();
 vi.mock("@traceroot-ai/traceroot", () => ({
   TraceRoot: {
@@ -30,7 +30,7 @@ vi.mock("@traceroot/core/model-resolver", () => ({
 vi.mock("../session.js", () => ({ SessionManager: class {} }));
 
 type Config = {
-  captureContent: boolean;
+  captureContent: (kind: string, value: Record<string, unknown>) => string | undefined;
   captureToolIo: (
     toolName: string,
     args: unknown,
@@ -64,12 +64,12 @@ const meta = {
 };
 
 describe("agent.ts instrumentation wiring", () => {
-  it("installs the pi-agent-core instrumentation once, with content capture off", async () => {
+  it("installs the pi-agent-core instrumentation once, with content capture through the policy", async () => {
     const piAgentCore = await import("@earendil-works/pi-agent-core");
     expect(instrumentPiAgentCore).toHaveBeenCalledTimes(1);
     expect(instrumentPiAgentCore.mock.calls[0]![0]).toBe(piAgentCore);
     expect(config).toMatchObject({
-      captureContent: false,
+      captureContent: expect.any(Function),
       captureToolIo: expect.any(Function),
       onToolSpan: expect.any(Function),
     });
