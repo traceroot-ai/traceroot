@@ -18,6 +18,10 @@
       "types": "./src/lib/capture-policy.ts",
       "default": "./src/lib/capture-policy.ts"
     },
+    "./capture-note": {
+      "types": "./src/lib/capture-note.ts",
+      "default": "./src/lib/capture-note.ts"
+    },
     "./public-error": {
       "types": "./src/lib/public-error.ts",
       "default": "./src/lib/public-error.ts"

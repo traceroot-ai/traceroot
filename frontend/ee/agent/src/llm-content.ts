@@ -5,6 +5,7 @@
 // I/O and the persisted tool I/O already go through.
 import type { ContentCaptureKind, ContentCaptureValue } from "@traceroot-ai/traceroot";
 import { applyCapturePolicy, redactSecrets } from "@traceroot/core/capture-policy";
+import { withheldOutputText } from "@traceroot/core/capture-note";
 
 /** Per-span bound on a model call's rendered input or output (spec B8): same as the root's. */
 export const LLM_IO_CAP = 16_384;
@@ -41,8 +42,8 @@ function toolCallsOf(content: unknown): Array<{ id?: string; name?: string; argu
 /**
  * A tool result as the model saw it, under the tool allowlist: an allow-listed
  * tool's text is kept (redacted, capped per step), anything else becomes the
- * same withheld marker the tool span and the persisted step carry, so what the
- * policy hid at the tool boundary stays hidden when the model was fed it.
+ * same reader-facing note the tool span and the persisted step carry, so what
+ * the policy hid at the tool boundary stays hidden when the model was fed it.
  * A fresh budget per part: LLM spans are bounded per span (LLM_IO_CAP), not
  * charged to the run's tool budget (decided 2026-09-14).
  */
@@ -57,7 +58,7 @@ function renderToolResult(message: Message): Record<string, unknown> {
     tool: toolName,
     tool_call_id: message.toolCallId,
     ...(message.isError ? { is_error: true } : {}),
-    content: c.result ?? `[withheld: ${c.withheld ?? "policy"}; ${c.outputBytes} bytes]`,
+    content: c.result ?? withheldOutputText(c),
   };
 }
 
