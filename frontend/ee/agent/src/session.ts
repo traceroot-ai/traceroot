@@ -1,6 +1,6 @@
-import { prisma } from "@traceroot/core";
+import { prisma, type TurnKind } from "@traceroot/core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { UserMessage, Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage, UserMessage, Message } from "@earendil-works/pi-ai";
 
 // ============================================================
 // SessionManager — follows Mom's SessionManager pattern
@@ -15,7 +15,25 @@ export interface TokenUsageData {
   inputTokens: number;
   outputTokens: number;
   cost: number;
+  // Cumulative session tokens as reported by the stream; persisted in the
+  // final segment's metadata (no dedicated column), not aggregated for billing.
+  totalTokens?: number;
 }
+
+export interface TurnAttribution {
+  turnKind: TurnKind;
+  executionId?: string | null;
+  initiatorUserId?: string | null;
+}
+
+/** `kind` is kept one release for old readers; derived from turnKind at write time. */
+const LEGACY_KIND: Record<TurnKind, string> = {
+  rca_execution: "rca",
+  rca_followup: "rca",
+  chat: "chat",
+  detector: "detector",
+  digest: "digest-summary",
+};
 
 export class SessionManager {
   constructor(private sessionId: string) {}
@@ -25,10 +43,11 @@ export class SessionManager {
    * Like Mom's sessionManager.buildSessionContext() — loads persisted
    * messages from DB and converts them to AgentMessage format.
    *
-   * We only restore user messages from DB. Assistant messages are not
-   * restored because they require full LLM metadata (api, provider, model,
-   * usage, stopReason). The agent will see user messages as context and
-   * generate fresh responses.
+   * User turns are restored verbatim. Assistant turns are restored as plain
+   * text messages with synthesized LLM metadata (zero usage, "stop") — enough
+   * for the model to see what it previously said, which it cannot infer.
+   * tool_step rows are UI-only and skipped: replaying stale tool results is
+   * worse than letting the agent re-invoke the tool when it needs the data.
    */
   async buildContext(): Promise<AgentMessage[]> {
     const session = await prisma.aISession.findUnique({
@@ -40,16 +59,42 @@ export class SessionManager {
       return [];
     }
 
-    // Only restore user messages — assistant messages lack required LLM metadata
-    return session.messages
-      .filter((m) => m.role === "user")
-      .map(
-        (m): UserMessage => ({
-          role: "user",
-          content: [{ type: "text", text: m.content }],
-          timestamp: m.createTime.getTime(),
-        }),
-      );
+    const zeroUsage: AssistantMessage["usage"] = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    };
+
+    return (
+      session.messages
+        // Content-less assistant rows are usage carriers for runs that ended at
+        // a tool boundary — there is no text to restore, so skip them. This
+        // also drops thinking-only segments (empty content, thinking in
+        // metadata), which the UI renders but model context never restored.
+        .filter((m) => m.role === "user" || (m.role === "assistant" && m.content !== ""))
+        .map(
+          (m): Message =>
+            m.role === "user"
+              ? ({
+                  role: "user",
+                  content: [{ type: "text", text: m.content }],
+                  timestamp: m.createTime.getTime(),
+                } satisfies UserMessage)
+              : ({
+                  role: "assistant",
+                  content: [{ type: "text", text: m.content }],
+                  api: "restored",
+                  provider: m.provider ?? "unknown",
+                  model: m.model ?? "unknown",
+                  usage: zeroUsage,
+                  stopReason: "stop",
+                  timestamp: m.createTime.getTime(),
+                } satisfies AssistantMessage),
+        )
+    );
   }
 
   /**
@@ -57,30 +102,36 @@ export class SessionManager {
    * Like Mom's sessionManager.appendMessage() — persists to DB.
    *
    * `workspaceId` and `kind` are required on every AIMessage row (see schema).
-   * We derive both from the parent AISession: `kind = "chat"` for user sessions
-   * (userId set), `kind = "rca"` for system sessions (userId null). This
-   * mirrors the existing convention in createSession.
+   * `kind` is derived from the turn's attribution (see LEGACY_KIND) and kept
+   * one release for old readers. The attribution is decided once per turn by
+   * the route and passed to every row the turn produces — there is no
+   * fallback here, so a row can never be attributed differently from the turn
+   * it belongs to. Returns the created row so callers (e.g. the turn-trace
+   * wrapper) can key off its id.
    */
   async appendMessage(
     role: string,
     content: string,
+    attribution: TurnAttribution,
     metadata?: Record<string, unknown>,
     tokenUsage?: TokenUsageData,
-  ): Promise<void> {
+  ): Promise<Awaited<ReturnType<typeof prisma.aIMessage.create>>> {
     const session = await prisma.aISession.findUnique({
       where: { id: this.sessionId },
-      select: { workspaceId: true, userId: true },
+      select: { workspaceId: true },
     });
     if (!session) {
       throw new Error(`AISession not found: ${this.sessionId}`);
     }
-    const kind = session.userId === null ? "rca" : "chat";
 
-    await prisma.aIMessage.create({
+    return prisma.aIMessage.create({
       data: {
         sessionId: this.sessionId,
         workspaceId: session.workspaceId,
-        kind,
+        kind: LEGACY_KIND[attribution.turnKind],
+        turnKind: attribution.turnKind,
+        executionId: attribution.executionId ?? null,
+        initiatorUserId: attribution.initiatorUserId ?? null,
         role,
         content,
         metadata: metadata as any,
@@ -106,6 +157,7 @@ export async function createSession(params: {
   workspaceId: string;
   userId?: string; // optional — null for system/RCA sessions
   title?: string;
+  executionId?: string; // the execution that opened this system session
 }) {
   return prisma.aISession.create({
     data: {
@@ -113,6 +165,7 @@ export async function createSession(params: {
       workspaceId: params.workspaceId,
       userId: params.userId ?? null,
       title: params.title,
+      executionId: params.executionId ?? null,
     },
   });
 }
@@ -177,4 +230,26 @@ export async function updateSessionTitle(id: string, title: string) {
     where: { id },
     data: { title },
   });
+}
+
+/**
+ * Whether `executionId` names an execution in this project.
+ *
+ * A session's executionId becomes the attribution on every message in it, so an
+ * id from another project would attribute this project's turns to that one.
+ * The caller is trusted to reach the route, not to name an execution.
+ */
+export async function executionBelongsToProject(
+  // Structural, so a test can pass a stub. Deliberately loose on the argument
+  // and return types: Prisma's generated signature is far more specific than
+  // this call needs, and naming it here would couple the guard to the client.
+  db: { detectorRcaExecution: { findFirst: (args: never) => Promise<unknown> } },
+  executionId: string,
+  projectId: string,
+): Promise<boolean> {
+  const found = await db.detectorRcaExecution.findFirst({
+    where: { id: executionId, projectId },
+    select: { id: true },
+  } as never);
+  return found != null;
 }
