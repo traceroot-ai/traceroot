@@ -13,6 +13,8 @@ export interface UsageStats {
   spans: number;
   tokens: number;
   updatedAt: string;
+  /** Same rows as traces/spans, split by writer. Absent on workspaces not yet re-metered. */
+  bySource?: Record<"user" | "detector" | "agent", { traces: number; spans: number }>;
   ai?: AIUsageData;
   rca?: RcaUsageData;
   detector?: DetectorUsageData;
