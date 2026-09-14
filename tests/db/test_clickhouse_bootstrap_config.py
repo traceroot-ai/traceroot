@@ -201,10 +201,10 @@ def _run_init(compose_path: Path, tmp_path: Path, writer: str, readonly: str) ->
         d.mkdir(parents=True)
     for container_path in mounted:
         shutil.copy(_BOOTSTRAP / Path(container_path).name, bootstrap)
-    # Anchored on the preceding whitespace: the temporary directory itself usually lives
-    # under /tmp, so a plain replace would rewrite the paths it had just substituted.
-    script = re.sub(r"(?<=\s)/bootstrap/", f"{bootstrap}/", argv[2])
-    script = re.sub(r"(?<=\s)/tmp/", f"{work}/", script)
+    # One pass over the original text. The temporary directory usually lives under /tmp
+    # itself, so a second substitution would rewrite the paths the first had just inserted.
+    targets = {"bootstrap": bootstrap, "tmp": work}
+    script = re.sub(r"(?<=\s)/(bootstrap|tmp)/", lambda m: f"{targets[m.group(1)]}/", argv[2])
 
     stub = bin_dir / "clickhouse-client"
     stub.write_text(
