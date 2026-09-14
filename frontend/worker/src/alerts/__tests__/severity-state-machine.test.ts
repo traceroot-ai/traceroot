@@ -6,6 +6,7 @@ import type {
   AlertThresholdOperator,
 } from "@traceroot/core";
 import {
+  ALERT_NO_DATA_DEBOUNCE_CAP_MS,
   applyAlertStateMachine,
   compareToThreshold,
   deriveAlertSeverity,
@@ -34,6 +35,9 @@ function state(
 
 const minutesBefore = (from: Date, minutes: number): Date =>
   new Date(from.getTime() - minutes * 60_000);
+
+const minutesAfter = (from: Date, minutes: number): Date =>
+  new Date(from.getTime() + minutes * 60_000);
 
 describe("applyAlertStateMachine — what a rule announces", () => {
   it("emits only for a never-evaluated rule that comes up ALERT", () => {
@@ -263,17 +267,116 @@ describe("the reading a rule takes of a gap", () => {
     }
   });
 
-  it("pages on the silence and again on its end under NOTIFY", () => {
-    const gap = applyAlertStateMachine(state("OK", T0, null), "NO_DATA", NOW, OFF, "NOTIFY");
-    expect(gap).toEqual({
-      emit: true,
-      nextState: { severity: "NO_DATA", severityChangedAt: NOW, alertedAt: NOW },
+  it("pages the silence that settles, and again on its end, under NOTIFY", () => {
+    // Entry is silent: on a low-traffic project one empty window is ordinary,
+    // and `severityChangedAt` is the clock the debounce is measured from.
+    const entry = applyAlertStateMachine(state("OK", T0, null), "NO_DATA", NOW, OFF, "NOTIFY");
+    expect(entry).toEqual({
+      emit: false,
+      nextState: { severity: "NO_DATA", severityChangedAt: NOW, alertedAt: null },
     });
 
-    const later = new Date(NOW.getTime() + 60 * 60_000);
-    expect(applyAlertStateMachine(gap.nextState, "OK", later, OFF, "NOTIFY")).toEqual({
+    // Still inside the 10m window's debounce, and still holding its entry clock.
+    const halfway = minutesAfter(NOW, 5);
+    expect(applyAlertStateMachine(entry.nextState, "NO_DATA", halfway, OFF, "NOTIFY")).toEqual({
+      emit: false,
+      nextState: { severity: "NO_DATA", severityChangedAt: NOW, alertedAt: null },
+    });
+
+    const settled = minutesAfter(NOW, 10);
+    const paged = applyAlertStateMachine(entry.nextState, "NO_DATA", settled, OFF, "NOTIFY");
+    expect(paged).toEqual({
+      emit: true,
+      nextState: { severity: "NO_DATA", severityChangedAt: NOW, alertedAt: settled },
+    });
+
+    const later = minutesAfter(settled, 60);
+    expect(applyAlertStateMachine(paged.nextState, "OK", later, OFF, "NOTIFY")).toEqual({
       emit: true,
       nextState: { severity: "OK", severityChangedAt: later, alertedAt: later },
+    });
+  });
+
+  it("lets a gap that never settled end as quietly as it began, under NOTIFY", () => {
+    const entry = applyAlertStateMachine(state("OK", T0, null), "NO_DATA", NOW, OFF, "NOTIFY");
+    expect(entry.emit).toBe(false);
+
+    const back = minutesAfter(NOW, 5);
+    expect(applyAlertStateMachine(entry.nextState, "OK", back, OFF, "NOTIFY")).toEqual({
+      emit: false,
+      nextState: { severity: "OK", severityChangedAt: back, alertedAt: null },
+    });
+  });
+
+  it("times the debounce by the rule's own window, capped, under NOTIFY", () => {
+    const standing = state("NO_DATA", T0, null);
+    const oneMinuteIn = minutesAfter(T0, 1);
+
+    expect(applyAlertStateMachine(standing, "NO_DATA", oneMinuteIn, OFF, "NOTIFY", "1m").emit).toBe(
+      true,
+    );
+    expect(
+      applyAlertStateMachine(standing, "NO_DATA", oneMinuteIn, OFF, "NOTIFY", "10m").emit,
+    ).toBe(false);
+
+    const atCap = new Date(T0.getTime() + ALERT_NO_DATA_DEBOUNCE_CAP_MS);
+    expect(applyAlertStateMachine(standing, "NO_DATA", atCap, OFF, "NOTIFY", "2h").emit).toBe(true);
+  });
+
+  it("clears a page it carried into a gap however the gap ends, under NOTIFY", () => {
+    const breached = minutesBefore(NOW, 40);
+    const entry = applyAlertStateMachine(
+      state("ALERT", breached, breached),
+      "NO_DATA",
+      NOW,
+      OFF,
+      "NOTIFY",
+    );
+    expect(entry).toEqual({
+      emit: false,
+      nextState: { severity: "NO_DATA", severityChangedAt: NOW, alertedAt: breached },
+    });
+
+    const back = minutesAfter(NOW, 5);
+    expect(applyAlertStateMachine(entry.nextState, "OK", back, OFF, "NOTIFY").emit).toBe(true);
+
+    const settled = minutesAfter(NOW, 10);
+    expect(applyAlertStateMachine(entry.nextState, "NO_DATA", settled, OFF, "NOTIFY")).toEqual({
+      emit: true,
+      nextState: { severity: "NO_DATA", severityChangedAt: NOW, alertedAt: settled },
+    });
+  });
+
+  it("does not re-page a standing breach each time sparse data comes back, under NOTIFY", () => {
+    // A source that drops in and out under a breach the user was already paged
+    // for is the same breach throughout, so NOTIFY says what HOLD would: the
+    // repeat waits for renotify, and only the recovery is news.
+    const renotify = every(30);
+    const breached = minutesBefore(NOW, 5);
+    let current = state("ALERT", breached, breached);
+    const said: string[] = [];
+
+    for (const [minutes, severity] of [
+      [1, "NO_DATA"],
+      [2, "ALERT"],
+      [3, "NO_DATA"],
+      [4, "ALERT"],
+      [5, "OK"],
+    ] as const) {
+      const at = minutesAfter(NOW, minutes);
+      const { emit, nextState } = applyAlertStateMachine(current, severity, at, renotify, "NOTIFY");
+      if (emit) said.push(severity);
+      current = nextState;
+    }
+
+    // Without this the two reappearances page again, on a breach already paged.
+    expect(said).toEqual(["OK"]);
+    // The all-clear is the emission that closes the breach the gaps carried;
+    // nothing is outstanding after it, since only ALERT and NO_DATA hold a page.
+    expect(current).toEqual({
+      severity: "OK",
+      severityChangedAt: minutesAfter(NOW, 5),
+      alertedAt: minutesAfter(NOW, 5),
     });
   });
 

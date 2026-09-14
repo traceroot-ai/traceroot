@@ -181,6 +181,7 @@ async function settleClaim(
     tick.boundary,
     rule.renotify,
     rule.noDataMode,
+    rule.window,
   );
 
   const written = await completeAlertEvaluation({
