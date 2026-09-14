@@ -18,18 +18,21 @@ import {
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
 import { SessionManager } from "./session.js";
+import { captureLlmContent } from "./llm-content.js";
 import { recordToolSpan, currentCaptureState } from "./self-trace.js";
 
 // Process-global, idempotent: patches Agent.prototype once. Spans only land inside an
 // active withAgentTrace() context; outside one the instrumentation opens roots that
 // the SDK drops as unattributed (no project id), so this is safe to install unconditionally.
 //
-// captureContent stays off: it would stamp the raw prompt and assistant text on the
-// child LLM spans, bypassing the redaction and cap the root span's I/O (self-trace.ts)
-// and the persisted tool I/O (capture policy) go through — a secret withheld from a
-// tool span would reappear verbatim once the model quoted it.
+// captureContent is a function, not `true`: the boolean form stamps the raw
+// prompt and assistant text on the child LLM spans, bypassing the redaction and
+// cap the root span's I/O (self-trace.ts) and the persisted tool I/O (capture
+// policy) go through — a secret withheld from a tool span would reappear
+// verbatim once the model quoted it. captureLlmContent renders each model
+// call's input and output through the same policy first (llm-content.ts).
 instrumentPiAgentCore(piAgentCore, {
-  captureContent: false,
+  captureContent: captureLlmContent,
   captureToolIo: (toolName, args, result) => {
     // Charge the run's SPAN budget (currentCaptureState() — one accumulator
     // for the whole run, shared across this callback's open/close calls so
