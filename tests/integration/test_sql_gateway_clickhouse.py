@@ -284,7 +284,9 @@ REJECTED = [
     ("FINAL", "SELECT span_id FROM spans FINAL"),
     ("SETTINGS", "SELECT span_id FROM spans SETTINGS max_result_rows = 1000000"),
     ("FORMAT", "SELECT span_id FROM spans FORMAT JSON"),
-    ("user placeholder", "SELECT span_id FROM spans WHERE trace_id = {t:String}"),
+    # Caller placeholders such as {t:String} are deliberately not listed: whether one is
+    # refused depends on whether the query service binds caller parameters, so this list
+    # keeps only the placeholders that stay refused either way.
     (
         "reserved placeholder",
         "SELECT span_id FROM spans WHERE trace_id = {scope_project_id:String}",
