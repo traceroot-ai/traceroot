@@ -70,7 +70,10 @@
 -- 40,000 rows). Open bounds are exactly such values, and so is any caller bound before
 -- 1970. The upper clamp is the last millisecond of 2149-06-06, not the next midnight: that
 -- midnight is itself outside the range and wraps to 1970, and a clamp at the day's start
--- would drop the whole final day. Clamping costs nothing reachable: ingest cannot write a
+-- would drop the whole final day. The upper bound is written as `<= end_time - 1 ms`,
+-- which is exactly `< end_time` for a DateTime64(3) value, so a real window stays half
+-- open, while an open bound reaches the clamp itself and keeps that final millisecond.
+-- Clamping costs nothing reachable: ingest cannot write a
 -- start before 1970, and one after 2149 is a broken clock. `spans` does not key on toDate
 -- today but is clamped the same way, so a join over both views sees one window.
 --
@@ -156,7 +159,7 @@ FROM
     FROM spans
     WHERE project_id = {project_id:String}
       AND span_start_time >= greatest({start_time:DateTime64(3)}, toDateTime64('1970-01-01 00:00:00.000', 3))
-      AND span_start_time <  least({end_time:DateTime64(3)}, toDateTime64('2149-06-06 23:59:59.999', 3))
+      AND span_start_time <= least({end_time:DateTime64(3)} - toIntervalMillisecond(1), toDateTime64('2149-06-06 23:59:59.999', 3))
     ORDER BY ch_update_time DESC
     LIMIT 1 BY trace_id, span_id
 )
@@ -187,7 +190,7 @@ FROM
     FROM traces
     WHERE project_id = {project_id:String}
       AND trace_start_time >= greatest({start_time:DateTime64(3)}, toDateTime64('1970-01-01 00:00:00.000', 3))
-      AND trace_start_time <  least({end_time:DateTime64(3)}, toDateTime64('2149-06-06 23:59:59.999', 3))
+      AND trace_start_time <= least({end_time:DateTime64(3)} - toIntervalMillisecond(1), toDateTime64('2149-06-06 23:59:59.999', 3))
     ORDER BY ch_update_time DESC
     LIMIT 1 BY trace_id
 )

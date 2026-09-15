@@ -212,9 +212,9 @@ def test_time_bounds_are_clamped_to_what_a_date_key_can_hold(sql):
         assert f"greatest({{start_time:DateTime64(3)}}, {DATE_MIN})" in block, (
             f"{view} passes the lower bound to {column} unclamped"
         )
-        assert f"least({{end_time:DateTime64(3)}}, {DATE_MAX})" in block, (
-            f"{view} passes the upper bound to {column} unclamped"
-        )
+        assert (
+            f"least({{end_time:DateTime64(3)}} - toIntervalMillisecond(1), {DATE_MAX})" in block
+        ), f"{view} passes the upper bound to {column} unclamped"
 
 
 def test_views_take_a_time_range_on_their_own_time_column(sql):
@@ -231,7 +231,10 @@ def test_views_take_a_time_range_on_their_own_time_column(sql):
     ):
         block = _view_block(sql, view)
         assert f"{column} >= greatest({{start_time:DateTime64(3)}}, {DATE_MIN})" in block, view
-        assert f"{column} <  least({{end_time:DateTime64(3)}}, {DATE_MAX})" in block, view
+        assert (
+            f"{column} <= least({{end_time:DateTime64(3)}} - toIntervalMillisecond(1), {DATE_MAX})"
+            in block
+        ), view
         bound = block.index("start_time:DateTime64(3)")
         dedup = block.index("LIMIT 1 BY")
         assert bound < dedup, f"{view} applies the bound after deduplicating"
@@ -240,14 +243,21 @@ def test_views_take_a_time_range_on_their_own_time_column(sql):
 def test_time_range_is_half_open(sql):
     """`>= start_time` and `< end_time`, matching the exclusive `end_before` upper bound.
 
+    The upper side is written `<= end_time - 1 ms`, which is exactly `< end_time` for a
+    DateTime64(3) value. The rewrite exists for the open bound: it lets the clamp itself
+    be reached, so a row at the last representable millisecond is not dropped.
+
     The caller has to emit the identical bound. A wider one is not safe either: a row on
     the boundary would enter the deduplication, win it as the newest version, and then be
     removed by the caller's own filter, hiding an older version that was in the window.
     """
     for column in ("span_start_time", "trace_start_time"):
         assert f"{column} >= greatest({{start_time:DateTime64(3)}}, {DATE_MIN})" in sql, column
-        assert f"{column} <  least({{end_time:DateTime64(3)}}, {DATE_MAX})" in sql, column
-        assert f"{column} <= least({{end_time:DateTime64(3)}}" not in sql, (
+        assert (
+            f"{column} <= least({{end_time:DateTime64(3)}} - toIntervalMillisecond(1), {DATE_MAX})"
+            in sql
+        ), column
+        assert f"{column} <= least({{end_time:DateTime64(3)}}," not in sql, (
             f"{column} uses an inclusive upper bound; the read services treat it as exclusive"
         )
 
