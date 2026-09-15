@@ -108,8 +108,17 @@ _CLIENT_ERRORS: dict[int, str] = {
 #: Code 456 has two causes that need opposite answers. A placeholder in the
 #: caller's own query with no supplied value is the caller's to fix. A view
 #: argument the rewriter did not supply is a rewriter and view signature skew,
-#: which must surface as a server error. Told apart by ``_missing_parameters``.
+#: which must surface as a server error. Told apart by the name ClickHouse
+#: reports, so a query that omits its own parameter cannot mask a skew.
 _UNKNOWN_QUERY_PARAMETER = 456
+
+#: ClickHouse names the missing substitution in the message, as in
+#: ``Substitution `min_ms` is not set``. Read only to compare against the caller's
+#: own placeholders, never to build the message returned. If the wording ever
+#: changes, the match fails and the failure stays a server error, which is the
+#: safe direction: a deployment defect keeps alerting, and the only cost is a
+#: caller seeing a generic message for their own missing parameter.
+_MISSING_SUBSTITUTION_RE = re.compile(r"[Ss]ubstitution\s+[`'\"]?([A-Za-z_][A-Za-z0-9_]*)")
 _MISSING_PARAMETER = "Query uses a parameter that was not supplied."
 
 _UNEXPECTED = "Query execution failed."
@@ -164,24 +173,39 @@ def _error_code(raw: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _missing_parameters(query: str, supplied: dict[str, Any]) -> bool:
-    """True if the caller's query names a placeholder the caller did not supply.
+def _caller_parameter_missing(raw: str, query: str, supplied: dict[str, Any]) -> bool:
+    """True if the substitution ClickHouse names is the caller's own and unsupplied.
 
-    Parsed only on the failure path that needs it, so a successful query pays
-    nothing. The query already passed Layer 1, so it parses; if it somehow does
-    not, the answer is False and the failure stays a server error.
+    Matching the reported name, rather than asking whether any caller parameter is
+    missing, is what keeps a caller who omits their own parameter from masking a
+    view argument the rewriter failed to supply. Everything here runs only on the
+    failure path, so a successful query pays nothing.
+    """
+    match = _MISSING_SUBSTITUTION_RE.search(raw or "")
+    if match is None:
+        return False
+    name = match.group(1)
+    if name in supplied:
+        return False
+    return name in _placeholder_names(query)
+
+
+def _placeholder_names(query: str) -> set[str]:
+    """The ``{name:Type}`` placeholders the caller wrote.
+
+    The query already passed Layer 1, so it parses; if it somehow does not, the
+    set is empty and the failure stays a server error.
     """
     try:
         tree = sqlglot.parse_one(query, dialect="clickhouse")
     except SqlglotError:
-        return False
-    names = {
+        return set()
+    return {
         placeholder.this.name
         if isinstance(placeholder.this, exp.Expression)
         else str(placeholder.this)
         for placeholder in tree.find_all(exp.Placeholder)
     }
-    return bool(names - supplied.keys())
 
 
 class SqlQueryService:
@@ -255,8 +279,8 @@ class SqlQueryService:
             result = client.query(wrapped, parameters=merged_params)
         except ClickHouseError as exc:
             message, is_client_error = classify_ch_error(str(exc))
-            if _error_code(str(exc)) == _UNKNOWN_QUERY_PARAMETER and _missing_parameters(
-                query, caller_params
+            if _error_code(str(exc)) == _UNKNOWN_QUERY_PARAMETER and _caller_parameter_missing(
+                str(exc), query, caller_params
             ):
                 message, is_client_error = _MISSING_PARAMETER, True
             # The raw text may name the curated views, so it is logged and never

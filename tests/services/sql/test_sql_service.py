@@ -208,6 +208,42 @@ class TestErrorClassification:
         assert exc_info.value.is_client_error
         assert str(exc_info.value) == "Query uses a parameter that was not supplied."
 
+    def test_a_missing_view_argument_stays_a_server_error_even_with_a_missing_caller_one(
+        self,
+    ) -> None:
+        # The caller omitted their own parameter too, so "is any caller parameter
+        # missing" would have blamed them and hidden the rewriter and view skew.
+        client = FakeClient(raises=ClickHouseError("Code: 456. Substitution `end_time` is not set"))
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run(
+                "SELECT span_id FROM spans WHERE duration_ms > {min_ms:Int64}", PID
+            )
+        assert exc_info.value.is_client_error is False
+        assert str(exc_info.value) == "Query execution failed."
+
+    @pytest.mark.parametrize(
+        ("raw", "parameters"),
+        [
+            # A name the caller did supply: not evidence the caller is at fault.
+            ("Code: 456. DB::Exception: Substitution `min_ms` is not set", {"min_ms": 5}),
+            # Wording this code cannot read, with the caller's own parameter also
+            # missing: unreadable is not the same as absent, so it must not be
+            # read as one, or a skew hides behind the caller's omission.
+            ("Code: 456. DB::Exception: a wording nobody has seen", None),
+        ],
+    )
+    def test_456_falls_back_to_a_server_error_when_the_name_does_not_match(
+        self, raw: str, parameters: dict[str, Any] | None
+    ) -> None:
+        client = FakeClient(raises=ClickHouseError(raw))
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run(
+                "SELECT span_id FROM spans WHERE duration_ms > {min_ms:Int64}",
+                PID,
+                parameters=parameters,
+            )
+        assert exc_info.value.is_client_error is False
+
     def test_456_with_every_caller_parameter_supplied_is_a_server_error(self) -> None:
         # The caller supplied everything their query names, so the missing
         # substitution is a view argument: the rewriter and the view disagree.
