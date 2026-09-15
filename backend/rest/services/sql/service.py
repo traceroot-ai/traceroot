@@ -31,7 +31,10 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import sqlglot
+import sqlglot.expressions as exp
 from clickhouse_connect.driver.exceptions import ClickHouseError
+from sqlglot.errors import SqlglotError
 
 from rest.services.sql.errors import SqlExecutionError
 from rest.services.sql.rewriter import scope_and_render
@@ -88,11 +91,26 @@ _CLIENT_ERRORS: dict[int, str] = {
     43: "Query uses an argument of the wrong type for that function.",
     53: "Query compares or combines values of incompatible types.",
     47: "Query references a column that does not exist in the public schema.",
-    60: "Query references a table that does not exist in the public schema.",
-    62: "Query could not be parsed by the database.",
     386: "Query combines values that have no common type.",
-    456: "Query uses a parameter that was not supplied.",
 }
+
+# Deliberately absent, so they surface as server errors and alert:
+#
+# * 60, unknown table. Layer 1 refuses every table outside the curated schema, so
+#   a table ClickHouse cannot find means the curated views are missing.
+# * 62, syntax error. Layer 1 refuses anything sqlglot cannot parse, and what
+#   runs is rendered from the AST, so a syntax error means the rendered SQL
+#   diverged from what ClickHouse accepts.
+#
+# Blaming the caller for either would send them to debug a query that was fine,
+# while a deployment defect reached production without a single 5xx.
+
+#: Code 456 has two causes that need opposite answers. A placeholder in the
+#: caller's own query with no supplied value is the caller's to fix. A view
+#: argument the rewriter did not supply is a rewriter and view signature skew,
+#: which must surface as a server error. Told apart by ``_missing_parameters``.
+_UNKNOWN_QUERY_PARAMETER = 456
+_MISSING_PARAMETER = "Query uses a parameter that was not supplied."
 
 _UNEXPECTED = "Query execution failed."
 
@@ -135,12 +153,35 @@ def classify_ch_error(raw: str) -> tuple[str, bool]:
     a generic failure the caller cannot act on, which is the behaviour that
     makes new and unknown codes safe without anyone revisiting this table.
     """
-    match = _CODE_RE.search(raw or "")
-    if match:
-        code = int(match.group(1))
-        if code in _CLIENT_ERRORS:
-            return _CLIENT_ERRORS[code], True
+    code = _error_code(raw)
+    if code in _CLIENT_ERRORS:
+        return _CLIENT_ERRORS[code], True
     return _UNEXPECTED, False
+
+
+def _error_code(raw: str) -> int | None:
+    match = _CODE_RE.search(raw or "")
+    return int(match.group(1)) if match else None
+
+
+def _missing_parameters(query: str, supplied: dict[str, Any]) -> bool:
+    """True if the caller's query names a placeholder the caller did not supply.
+
+    Parsed only on the failure path that needs it, so a successful query pays
+    nothing. The query already passed Layer 1, so it parses; if it somehow does
+    not, the answer is False and the failure stays a server error.
+    """
+    try:
+        tree = sqlglot.parse_one(query, dialect="clickhouse")
+    except SqlglotError:
+        return False
+    names = {
+        placeholder.this.name
+        if isinstance(placeholder.this, exp.Expression)
+        else str(placeholder.this)
+        for placeholder in tree.find_all(exp.Placeholder)
+    }
+    return bool(names - supplied.keys())
 
 
 class SqlQueryService:
@@ -214,6 +255,10 @@ class SqlQueryService:
             result = client.query(wrapped, parameters=merged_params)
         except ClickHouseError as exc:
             message, is_client_error = classify_ch_error(str(exc))
+            if _error_code(str(exc)) == _UNKNOWN_QUERY_PARAMETER and _missing_parameters(
+                query, caller_params
+            ):
+                message, is_client_error = _MISSING_PARAMETER, True
             # The raw text may name the curated views, so it is logged and never
             # returned. Nothing derived from it reaches the caller except the
             # sentence chosen above.

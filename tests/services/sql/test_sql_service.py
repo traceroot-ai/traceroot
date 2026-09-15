@@ -173,8 +173,7 @@ class TestErrorClassification:
             (159, "execution time"),
             (241, "memory"),
             (396, "maximum size"),
-            (62, "could not be parsed"),
-            (456, "parameter"),
+            (47, "column"),
         ],
     )
     def test_known_codes_become_the_caller_s_problem(
@@ -190,6 +189,45 @@ class TestErrorClassification:
         message, is_client_error = classify_ch_error("Code: 9999. DB::Exception: something new")
         assert is_client_error is False
         assert message == "Query execution failed."
+
+    @pytest.mark.parametrize("code", [60, 62, 456])
+    def test_codes_a_caller_cannot_reach_are_server_errors(self, code: int) -> None:
+        # Layer 1 refuses unknown tables and unparseable SQL, and the rewriter
+        # supplies every view argument, so each of these means a deployment or
+        # rewriter defect. Reported as the caller's fault, none of them would alert.
+        message, is_client_error = classify_ch_error(f"Code: {code}. DB::Exception: raw detail")
+        assert is_client_error is False
+        assert message == "Query execution failed."
+
+    def test_an_unsupplied_caller_parameter_is_the_caller_s_problem(self) -> None:
+        client = FakeClient(raises=ClickHouseError("Code: 456. Substitution `min_ms` is not set"))
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run(
+                "SELECT span_id FROM spans WHERE duration_ms > {min_ms:Int64}", PID
+            )
+        assert exc_info.value.is_client_error
+        assert str(exc_info.value) == "Query uses a parameter that was not supplied."
+
+    def test_456_with_every_caller_parameter_supplied_is_a_server_error(self) -> None:
+        # The caller supplied everything their query names, so the missing
+        # substitution is a view argument: the rewriter and the view disagree.
+        client = FakeClient(raises=ClickHouseError("Code: 456. Substitution `end_time` is not set"))
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run(
+                "SELECT span_id FROM spans WHERE duration_ms > {min_ms:Int64}",
+                PID,
+                parameters={"min_ms": 5},
+            )
+        assert exc_info.value.is_client_error is False
+        assert str(exc_info.value) == "Query execution failed."
+
+    def test_456_on_a_query_without_placeholders_is_a_server_error(self) -> None:
+        client = FakeClient(
+            raises=ClickHouseError("Code: 456. Substitution `start_time` is not set")
+        )
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run("SELECT span_id FROM spans", PID)
+        assert exc_info.value.is_client_error is False
 
     def test_a_message_with_no_code_is_opaque(self) -> None:
         message, is_client_error = classify_ch_error("connection reset by peer")
