@@ -185,6 +185,42 @@ class TestScopeIsServerSide:
         assert not stub.calls
         assert post(SQL_MAX_PARAMETERS).status_code == 200
 
+    def test_an_oversized_parameter_payload_is_refused(
+        self, stub: StubService, client: TestClient
+    ) -> None:
+        # One key is enough to carry a payload nothing else bounds.
+        from rest.schemas.public import SQL_PARAMETERS_MAX_CHARS
+
+        big = client.post(
+            "/api/v1/public/sql",
+            json={
+                "query": "SELECT 1 FROM spans",
+                "parameters": {"p": "x" * SQL_PARAMETERS_MAX_CHARS},
+            },
+            headers=AUTH_HEADER,
+        )
+        assert big.status_code == 422
+        assert not stub.calls
+
+        nested = client.post(
+            "/api/v1/public/sql",
+            json={
+                "query": "SELECT 1 FROM spans",
+                "parameters": {"p": [["y" * 512] * 8] * 8},
+            },
+            headers=AUTH_HEADER,
+        )
+        assert nested.status_code == 422
+        assert not stub.calls
+
+        ok = client.post(
+            "/api/v1/public/sql",
+            json={"query": "SELECT 1 FROM spans", "parameters": {"ids": ["a", "b"], "n": 5}},
+            headers=AUTH_HEADER,
+        )
+        assert ok.status_code == 200
+        assert stub.calls[-1]["parameters"] == {"ids": ["a", "b"], "n": 5}
+
     @pytest.mark.parametrize("max_rows", [0, -5, 2_000_000])
     def test_an_out_of_range_row_cap_is_refused(
         self, max_rows: int, stub: StubService, client: TestClient

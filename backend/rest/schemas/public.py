@@ -1,9 +1,10 @@
 """Response schemas for the public, API-key-authenticated API."""
 
+import json
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from rest.schemas.common import PaginationMeta
 from rest.schemas.traces import SpanResponse, TraceDetailResponse, TraceListItem
@@ -280,6 +281,12 @@ SQL_QUERY_MAX_CHARS = 65_536
 #: Most parameters one query may bind.
 SQL_MAX_PARAMETERS = 100
 
+#: Longest the whole parameter payload may be once serialised. A count alone
+#: bounds nothing: one key can carry a 100 MB string or a deeply nested
+#: structure, and every byte is held in this process and sent to ClickHouse.
+#: Values stay untyped so a query can still bind an array or a map.
+SQL_PARAMETERS_MAX_CHARS = 16_384
+
 
 class SqlRequest(BaseModel):
     """A public SQL query. The project is never part of this body.
@@ -302,6 +309,20 @@ class SqlRequest(BaseModel):
         max_length=SQL_MAX_PARAMETERS,
         description="Values for {name:Type} placeholders in the query",
     )
+
+    @field_validator("parameters")
+    @classmethod
+    def _bounded_payload(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Refuse a parameter payload too large to be a set of query values."""
+        if value is None:
+            return value
+        encoded = json.dumps(value, default=str, separators=(",", ":"))
+        if len(encoded) > SQL_PARAMETERS_MAX_CHARS:
+            raise ValueError(
+                f"parameters must serialise to at most {SQL_PARAMETERS_MAX_CHARS} characters"
+            )
+        return value
+
     max_rows: int | None = Field(
         default=None,
         ge=1,
