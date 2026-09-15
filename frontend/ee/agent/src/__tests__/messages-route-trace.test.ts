@@ -193,7 +193,8 @@ describe("POST .../messages — enabled", () => {
     };
     const { sse, traceArg, observeOpts } = await post({ message: "analyse", agentTrace }, {});
     expect(executionFindUnique).not.toHaveBeenCalled();
-    expect(observeOpts).toMatchObject({ traceId: "c".repeat(32), name: "rca: det1" });
+    // The root is named after the agent that ran; the detectors stay in metadata.
+    expect(observeOpts).toMatchObject({ traceId: "c".repeat(32), name: "pi-mono" });
     expect(observeOpts.metadata).toEqual({
       kind: "rca",
       finding_id: "f1",
