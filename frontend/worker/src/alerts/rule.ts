@@ -34,6 +34,19 @@ export interface AlertRowLike {
   readonly severity: string;
   readonly severityChangedAt: Date | null;
   readonly alertedAt: Date | null;
+  readonly lastNotifyStatus: string | null;
+  readonly lastNotifyError: string | null;
+  readonly lastNotifyAt: Date | null;
+  /** The workspace Slack integration's `updateTime`; the claim reads it only for a failed page. */
+  readonly slackUpdatedAt: Date | null;
+}
+
+/** The last delivery attempt, and when Slack's settings last moved, for a retry to judge. */
+export interface AlertLastDelivery {
+  readonly status: string | null;
+  readonly error: string | null;
+  readonly at: Date | null;
+  readonly slackUpdatedAt: Date | null;
 }
 
 export interface AlertRule {
@@ -50,6 +63,7 @@ export interface AlertRule {
   readonly renotify: AlertRenotify;
   readonly noDataMode: AlertNoDataMode;
   readonly state: AlertRuntimeState;
+  readonly lastDelivery: AlertLastDelivery;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -152,5 +166,11 @@ export function parseAlertRule(row: AlertRowLike): AlertRule | null {
     // default is the reading that decides the least.
     noDataMode: isAlertNoDataMode(row.noDataMode) ? row.noDataMode : DEFAULT_ALERT_NO_DATA_MODE,
     state: parseState(row),
+    lastDelivery: {
+      status: row.lastNotifyStatus,
+      error: row.lastNotifyError,
+      at: row.lastNotifyAt,
+      slackUpdatedAt: row.slackUpdatedAt,
+    },
   };
 }
