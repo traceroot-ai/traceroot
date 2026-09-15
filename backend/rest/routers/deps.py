@@ -48,9 +48,12 @@ async def get_project_access(
     Auth modes:
     - x-user-id: User's unique ID (from session) — normal user-initiated requests.
     - X-Internal-Secret: Shared secret — for trusted server-to-server calls
-      (e.g. the agent service running a system-initiated RCA session that has no
-      associated user). Bypasses the Next.js per-user access check; the agent
-      service is itself trusted to scope access correctly.
+      (the agent service, the workers). Trusted traffic is never rate limited.
+      What it may see depends on who it acts for: with an x-user-id (a chat
+      session the user drives) the user's membership and plan are resolved
+      exactly as for a direct request, so retention gating follows the plan;
+      without one (a system-initiated RCA session) there is no user to resolve
+      and the caller gets enterprise-equivalent access.
 
     Raises 401 if neither auth mode succeeds, 403 if no access, 404 if project
     not found.
@@ -59,22 +62,28 @@ async def get_project_access(
     # (defense-in-depth against any stale ContextVar value).
     clear_request_rate_limit_exempt()
 
-    # System bypass: agent service / worker calling on behalf of the system.
+    # Trusted internal traffic (agent service, workers): constant-time secret check.
     # Constant-time compare to avoid leaking the secret via response timing.
     if (
         x_internal_secret
         and settings.internal_api_secret
         and hmac.compare_digest(x_internal_secret, settings.internal_api_secret)
     ):
-        # Trusted internal traffic is not rate limited (system-controlled volume)
-        # and exempt from retention gating (enterprise-equivalent access).
+        # Trusted internal traffic is not rate limited (system-controlled volume).
         mark_request_rate_limit_exempt()
-        return ProjectAccessInfo(
-            project_id=project_id,
-            user_id=x_user_id or "system",
-            role=MemberRole.ADMIN,
-            billing_plan="enterprise",
-        )
+        if not x_user_id:
+            # A system session has no user whose plan could bound the read:
+            # enterprise-equivalent access, as the RCA pipeline has always had.
+            return ProjectAccessInfo(
+                project_id=project_id,
+                user_id="system",
+                role=MemberRole.ADMIN,
+                billing_plan="enterprise",
+            )
+        # Acting for a user: the trusted caller may skip the rate limiter, but
+        # not the user's plan — an agent read must not reach past the retention
+        # the same user is held to on the page.
+        return await _resolve_user_access(project_id, x_user_id)
 
     if not x_user_id:
         raise HTTPException(
@@ -82,12 +91,31 @@ async def get_project_access(
             detail="Missing x-user-id header",
         )
 
+    return await _resolve_user_access(project_id, x_user_id)
+
+
+async def _resolve_user_access(project_id: str, user_id: str) -> ProjectAccessInfo:
+    """Resolve a user's membership, workspace and plan for a project via the Next.js internal API.
+
+    Args:
+        project_id: The project the request targets.
+        user_id: The user the request acts for.
+
+    Returns:
+        The access record, with the workspace and plan the rate limiter and
+        retention gate key on.
+
+    Raises:
+        HTTPException: 401 when the auth service rejects the call, 403/404 when
+            the user has no access or the project is unknown, 503 when the auth
+            service is unreachable or answers without a usable workspace.
+    """
     # Validate access via Next.js internal API
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 f"{settings.traceroot_ui_url}/api/internal/validate-project-access",
-                json={"userId": x_user_id, "projectId": project_id},
+                json={"userId": user_id, "projectId": project_id},
                 headers={"X-Internal-Secret": settings.internal_api_secret},
             )
     except httpx.RequestError as e:
@@ -133,7 +161,7 @@ async def get_project_access(
 
     return ProjectAccessInfo(
         project_id=project_id,
-        user_id=x_user_id,
+        user_id=user_id,
         role=data.get("role", MemberRole.VIEWER),
         workspace_id=workspace_id,
         billing_plan=data.get("billingPlan", "free"),
