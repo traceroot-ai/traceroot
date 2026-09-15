@@ -9,6 +9,7 @@ import {
   type ClaimedAlert,
 } from "./claim.js";
 import { mapWithConcurrency } from "./concurrency.js";
+import { isAwaitingSlackRetry } from "./delivery.js";
 import { revertAlertEmission } from "./emission.js";
 import {
   evaluateAlerts,
@@ -175,7 +176,7 @@ async function settleClaim(
     rule.threshold,
     rule.noDataMode,
   );
-  const transition = applyAlertStateMachine(
+  const decided = applyAlertStateMachine(
     rule.state,
     severity,
     tick.boundary,
@@ -183,6 +184,12 @@ async function settleClaim(
     rule.noDataMode,
     rule.window,
   );
+  // The standing page never reached anyone and Slack is set up now: send it, as the
+  // emission it always should have been, so it is stamped and compensated like one.
+  const isSlackRetry = !decided.emit && isAwaitingSlackRetry(rule, severity);
+  const transition = isSlackRetry
+    ? { emit: true, nextState: { ...decided.nextState, alertedAt: tick.boundary } }
+    : decided;
 
   const written = await completeAlertEvaluation({
     alertId: rule.id,
@@ -200,6 +207,9 @@ async function settleClaim(
   }
 
   if (!transition.emit) return;
+  if (isSlackRetry) {
+    logInfo(`re-paging after slack was configured alert=${rule.id} project=${rule.projectId}`);
+  }
 
   // Write-then-enqueue, deliberately: the reverse order pages first and records
   // second, so a crash between them repeats a page the operator already saw.

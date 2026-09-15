@@ -21,6 +21,7 @@ import {
   type AlertNotifyOutcome,
   type AlertNotifyStatus,
 } from "../alerts/claim.js";
+import { SLACK_CONFIGURATION_FAILURES } from "../alerts/delivery.js";
 import { revertAlertEmission } from "../alerts/emission.js";
 import { logError, logInfo } from "../alerts/log.js";
 
@@ -286,12 +287,11 @@ async function compensateNonDelivery(payload: AlertNotificationJob, reason: stri
  * lasts, and never a page. A rule saved without Slack connected reaches this on its
  * first breach. So it is recorded the way `alert-paused` is: the outcome lands on
  * the row, the severity stays where the evaluation put it, and the owner reads a
- * rule in ALERT whose notification says which setting to go and fix.
+ * rule in ALERT whose notification says which setting to go and fix. Fixing it is
+ * then enough: the scheduler re-pages once the Slack settings change (`isAwaitingSlackRetry`).
  */
 const PERMANENT_DELIVERY_FAILURES = new Set([
-  "no-channel",
-  "no-bot-token",
-  "bot-token-undecryptable",
+  ...SLACK_CONFIGURATION_FAILURES,
   "permanent-slack-error",
 ]);
 

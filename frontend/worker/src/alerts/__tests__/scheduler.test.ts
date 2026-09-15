@@ -74,6 +74,7 @@ const claimWith = (id: string, overrides: Partial<AlertRule> = {}): ClaimedAlert
     renotify: { mode: "OFF" },
     noDataMode: "HOLD",
     state: { severity: "OK", severityChangedAt: null, alertedAt: null },
+    lastDelivery: { status: null, error: null, at: null, slackUpdatedAt: null },
     ...overrides,
   },
   claimStamp: NOW,
@@ -434,6 +435,142 @@ describe("runAlertTick — the page a transition produces", () => {
 
     expect(completeAlertEvaluation).toHaveBeenCalledTimes(2);
     expect(enqueueAlertNotification.mock.calls.map(([p]) => p.alertId)).toEqual(["held"]);
+  });
+});
+
+describe("runAlertTick — a page that failed before Slack was set up", () => {
+  const ALERTED_AT = new Date("2026-08-12T10:20:00.000Z");
+  const FAILED_AT = new Date("2026-08-12T10:20:05.000Z");
+  const CONNECTED_AT = new Date("2026-08-12T10:30:00.000Z");
+
+  const undelivered = (
+    id: string,
+    lastDelivery: Partial<AlertRule["lastDelivery"]> = {},
+    state: Partial<AlertRule["state"]> = {},
+  ): ClaimedAlert =>
+    claimWith(id, {
+      state: { severity: "ALERT", severityChangedAt: ALERTED_AT, alertedAt: ALERTED_AT, ...state },
+      lastDelivery: {
+        status: "FAILED",
+        error: "no-channel",
+        at: FAILED_AT,
+        slackUpdatedAt: CONNECTED_AT,
+        ...lastDelivery,
+      },
+    });
+
+  it("re-pages the standing breach once Slack's settings change after the failure", async () => {
+    claimDueAlerts.mockResolvedValue([undelivered("hot-1")]);
+    evaluateAlerts.mockResolvedValue([breachResult("hot-1", 250)]);
+
+    await runAlertTick(NOW);
+
+    // Stamped as a fresh emission, so the next tick's retry check no longer matches
+    // and a delivery that gives up can roll back to exactly this state.
+    const [completion] = completeAlertEvaluation.mock.calls[0];
+    expect(completion.previousAlertedAt).toBe(ALERTED_AT);
+    expect(completion.state).toEqual({
+      severity: "ALERT",
+      severityChangedAt: ALERTED_AT,
+      alertedAt: BOUNDARY,
+    });
+
+    expect(enqueueAlertNotification).toHaveBeenCalledTimes(1);
+    const [payload] = enqueueAlertNotification.mock.calls[0];
+    expect(payload.severity).toBe("ALERT");
+    expect(payload.value).toBe(250);
+    expect(payload.emission).toEqual({
+      evaluatedAt: BOUNDARY.getTime(),
+      priorSeverity: "ALERT",
+      priorSeverityChangedAt: ALERTED_AT.getTime(),
+      priorAlertedAt: ALERTED_AT.getTime(),
+    });
+  });
+
+  it("retries every Slack configuration failure", async () => {
+    claimDueAlerts.mockResolvedValue([
+      undelivered("a", { error: "no-bot-token" }),
+      undelivered("b", { error: "bot-token-undecryptable" }),
+    ]);
+    evaluateAlerts.mockResolvedValue([breachResult("a"), breachResult("b")]);
+
+    await runAlertTick(NOW);
+
+    expect(enqueueAlertNotification.mock.calls.map(([p]) => p.alertId)).toEqual(["a", "b"]);
+  });
+
+  it("stays quiet until Slack's settings actually change", async () => {
+    // Retrying into the same wall every tick is the loop the permanent record exists to end.
+    claimDueAlerts.mockResolvedValue([
+      undelivered("not-connected", { slackUpdatedAt: null }),
+      undelivered("connected-before", { slackUpdatedAt: new Date("2026-08-12T10:00:00.000Z") }),
+      undelivered("already-retried", { at: CONNECTED_AT }),
+    ]);
+    evaluateAlerts.mockResolvedValue([
+      breachResult("not-connected"),
+      breachResult("connected-before"),
+      breachResult("already-retried"),
+    ]);
+
+    await runAlertTick(NOW);
+
+    expect(completeAlertEvaluation).toHaveBeenCalledTimes(3);
+    expect(enqueueAlertNotification).not.toHaveBeenCalled();
+  });
+
+  it("leaves a failure Slack's settings cannot clear, or one that was not a failure, alone", async () => {
+    claimDueAlerts.mockResolvedValue([
+      undelivered("rejected", { error: "permanent-slack-error" }),
+      undelivered("entitlement", { error: "no-entitlement plan=free" }),
+      undelivered("compensated", { status: "COMPENSATED" }),
+      undelivered("delivered", { status: "DELIVERED", error: null }),
+    ]);
+    evaluateAlerts.mockImplementation(async (request) =>
+      request.alerts.map((spec) => breachResult(spec.alert_id)),
+    );
+
+    await runAlertTick(NOW);
+
+    expect(enqueueAlertNotification).not.toHaveBeenCalled();
+  });
+
+  it("does not replay a failure about an emission the rule has since replaced or left", async () => {
+    claimDueAlerts.mockResolvedValue([
+      // The failure predates the emission standing now.
+      undelivered("older-failure", { at: new Date("2026-08-12T10:10:00.000Z") }),
+      // The failed page was an ALERT, and this evaluation no longer reads one.
+      undelivered("in-a-gap"),
+    ]);
+    evaluateAlerts.mockResolvedValue([
+      breachResult("older-failure"),
+      { alert_id: "in-a-gap", value: null, row_count: 0, error: null, errorKind: null },
+    ]);
+
+    await runAlertTick(NOW);
+
+    expect(enqueueAlertNotification).not.toHaveBeenCalled();
+  });
+
+  it("lets a real transition speak for itself rather than replaying the failed page", async () => {
+    // The breach ended: the recovery is the news, and it carries the ALERT it came from.
+    claimDueAlerts.mockResolvedValue([undelivered("cooled-1")]);
+    evaluateAlerts.mockResolvedValue([okResult("cooled-1")]);
+
+    await runAlertTick(NOW);
+
+    expect(enqueueAlertNotification).toHaveBeenCalledTimes(1);
+    const [payload] = enqueueAlertNotification.mock.calls[0];
+    expect([payload.previousSeverity, payload.severity]).toEqual(["ALERT", "OK"]);
+  });
+
+  it("does not page when the retry's write-back loses its CAS", async () => {
+    completeAlertEvaluation.mockResolvedValue(false);
+    claimDueAlerts.mockResolvedValue([undelivered("hot-1")]);
+    evaluateAlerts.mockResolvedValue([breachResult("hot-1")]);
+
+    await runAlertTick(NOW);
+
+    expect(enqueueAlertNotification).not.toHaveBeenCalled();
   });
 });
 
