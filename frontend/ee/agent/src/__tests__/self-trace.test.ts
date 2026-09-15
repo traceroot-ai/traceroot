@@ -413,8 +413,8 @@ describe("withAgentTrace flush", () => {
   });
 });
 
-describe("RCA_ROOT_SPAN_NAME", () => {
-  it("names the root after the agent that ran, not after the detectors", () => {
-    expect(mod.RCA_ROOT_SPAN_NAME).toBe("pi-mono");
+describe("ROOT_SPAN_NAME", () => {
+  it("names every root after the agent that ran, not after the kind or the detectors", () => {
+    expect(mod.ROOT_SPAN_NAME).toBe("pi-mono");
   });
 });

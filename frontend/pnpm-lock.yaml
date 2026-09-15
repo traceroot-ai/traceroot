@@ -2717,7 +2717,7 @@ packages:
         optional: true
 
   '@traceroot-ai/traceroot@file:vendor/traceroot-ai-traceroot-0.4.0.tgz':
-    resolution: {integrity: sha512-jHlWG2YQ4aVLQwpdg+ouFeXJtGOUK/XwnTbCMbhWJMjWwC9WJH2ZKXkx4t56gxf2IWHTmN7ApSp6yIViTl8tUQ==, tarball: file:vendor/traceroot-ai-traceroot-0.4.0.tgz}
+    resolution: {integrity: sha512-9cAfbdsEcw0643bq33P5IexApox/OCNwkAwj9O8BGR7opMsA3APxXSKGNMRhvuncfG0oOm5Mn6xwy6cUjF0Neg==, tarball: file:vendor/traceroot-ai-traceroot-0.4.0.tgz}
     version: 0.4.0
     engines: {node: '>=20'}
     peerDependencies:
