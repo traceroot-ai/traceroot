@@ -6,6 +6,7 @@
  * ever fails the run.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import { exportAgentSpan } from "./sandbox-spans.js";
 import { createHash } from "node:crypto";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { TraceRoot, observe } from "@traceroot-ai/traceroot";
@@ -138,6 +139,9 @@ function initOnce(): boolean {
     TraceRoot.initialize({
       baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
       internalExport: { path: "/api/v1/internal/traces", headers: { "X-Internal-Secret": secret } },
+      // The sandbox client's own HTTP-call spans carry no input or output and
+      // shadow the tool spans that do; see sandbox-spans.ts.
+      exportSpan: exportAgentSpan,
     });
     // initialize() not throwing is not the same as tracing being on: the SDK
     // no-ops when it is disabled, and it declines to register when another OTel
