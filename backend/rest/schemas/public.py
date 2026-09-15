@@ -271,6 +271,16 @@ class PublicDashboardListResponse(BaseModel):
     data: list[DashboardListItem]
 
 
+#: Longest query accepted, in characters. Parsing, validating and rewriting run in
+#: this process before any ClickHouse cap applies, and their cost grows with the
+#: query: about 0.4 s and 18 MB at 55 KB, 1.8 s at 140 KB. 64 KiB is far past any
+#: query a person or an agent writes.
+SQL_QUERY_MAX_CHARS = 65_536
+
+#: Most parameters one query may bind.
+SQL_MAX_PARAMETERS = 100
+
+
 class SqlRequest(BaseModel):
     """A public SQL query. The project is never part of this body.
 
@@ -282,9 +292,14 @@ class SqlRequest(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    query: str = Field(min_length=1, description="A single read-only SELECT over the public schema")
+    query: str = Field(
+        min_length=1,
+        max_length=SQL_QUERY_MAX_CHARS,
+        description="A single read-only SELECT over the public schema",
+    )
     parameters: dict[str, Any] | None = Field(
         default=None,
+        max_length=SQL_MAX_PARAMETERS,
         description="Values for {name:Type} placeholders in the query",
     )
     max_rows: int | None = Field(

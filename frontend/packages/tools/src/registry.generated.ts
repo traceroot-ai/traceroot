@@ -922,11 +922,13 @@ export const REGISTRY: readonly RegistryEntry[] = [
         },
         parameters: {
           additionalProperties: true,
+          maxProperties: 100,
           type: "object",
           description: "Values for {name:Type} placeholders in the query",
         },
         query: {
           description: "A single read-only SELECT over the public schema",
+          maxLength: 65536,
           minLength: 1,
           type: "string",
         },

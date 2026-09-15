@@ -148,6 +148,43 @@ class TestScopeIsServerSide:
         assert resp.status_code == 422
         assert not stub.calls
 
+    def test_a_query_past_the_length_cap_is_refused_before_the_service(
+        self, stub: StubService, client: TestClient
+    ) -> None:
+        # Parsing runs before any database cap, and its cost grows with the query.
+        from rest.schemas.public import SQL_QUERY_MAX_CHARS
+
+        base = "SELECT 1 FROM spans WHERE name = '"
+        at_cap = base + "x" * (SQL_QUERY_MAX_CHARS - len(base) - 1) + "'"
+        assert len(at_cap) == SQL_QUERY_MAX_CHARS
+
+        too_long = client.post(
+            "/api/v1/public/sql", json={"query": at_cap + " "}, headers=AUTH_HEADER
+        )
+        assert too_long.status_code == 422
+        assert not stub.calls
+
+        accepted = client.post("/api/v1/public/sql", json={"query": at_cap}, headers=AUTH_HEADER)
+        assert accepted.status_code == 200
+        assert stub.calls
+
+    def test_more_parameters_than_the_cap_are_refused(
+        self, stub: StubService, client: TestClient
+    ) -> None:
+        from rest.schemas.public import SQL_MAX_PARAMETERS
+
+        def post(count: int):
+            params = {f"p{i}": i for i in range(count)}
+            return client.post(
+                "/api/v1/public/sql",
+                json={"query": "SELECT 1 FROM spans", "parameters": params},
+                headers=AUTH_HEADER,
+            )
+
+        assert post(SQL_MAX_PARAMETERS + 1).status_code == 422
+        assert not stub.calls
+        assert post(SQL_MAX_PARAMETERS).status_code == 200
+
     @pytest.mark.parametrize("max_rows", [0, -5, 2_000_000])
     def test_an_out_of_range_row_cap_is_refused(
         self, max_rows: int, stub: StubService, client: TestClient

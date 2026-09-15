@@ -2850,6 +2850,7 @@
             "anyOf": [
               {
                 "additionalProperties": true,
+                "maxProperties": 100,
                 "type": "object"
               },
               {
@@ -2861,6 +2862,7 @@
           },
           "query": {
             "description": "A single read-only SELECT over the public schema",
+            "maxLength": 65536,
             "minLength": 1,
             "title": "Query",
             "type": "string"
