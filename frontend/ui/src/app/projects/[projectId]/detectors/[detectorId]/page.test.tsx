@@ -113,7 +113,7 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
   }: {
     traceId: string;
     autoOpenRca?: boolean;
-    source?: "detector" | "user";
+    source?: "detector" | "agent" | "user";
     runTimestamp?: string;
     onClose: () => void;
     onNavigate: (d: "up" | "down") => void;

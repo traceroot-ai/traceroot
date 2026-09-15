@@ -70,7 +70,7 @@ import { TraceViewerPanel } from "./TraceViewerPanel";
 function renderPanel(
   props: {
     initialFullscreen?: boolean;
-    source?: "detector" | "user";
+    source?: "detector" | "agent" | "user";
     runTimestamp?: string;
   } = {},
 ) {
