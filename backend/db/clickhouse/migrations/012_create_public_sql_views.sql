@@ -73,9 +73,13 @@
 -- would drop the whole final day. The upper bound is written as `<= end_time - 1 ms`,
 -- which is exactly `< end_time` for a DateTime64(3) value, so a real window stays half
 -- open, while an open bound reaches the clamp itself and keeps that final millisecond.
--- Clamping costs nothing reachable: ingest cannot write a
--- start before 1970, and one after 2149 is a broken clock. `spans` does not key on toDate
--- today but is clamped the same way, so a join over both views sees one window.
+-- The clamp is a deliberate trade against unvalidated client clocks, not a claim that
+-- such rows cannot exist. Ingest does not range-check span timestamps (nanos_to_datetime
+-- accepts any integer), so a start before 1970 or after 2149 can be stored; those rows
+-- stay in storage but are unreachable through these views. On `traces` that trade is
+-- what makes every unbounded query correct. `spans` does not key on toDate today, so
+-- there the clamp only costs such rows; it is kept so a join over both views sees one
+-- window, and so a date key added to spans later cannot bring the defect back.
 --
 -- Pruning is uneven between the two tables, and the sort keys are why. `traces` is
 -- ordered by (project_id, toDate(trace_start_time), trace_id), so the bound prunes on
