@@ -145,7 +145,7 @@ describe("POST .../messages — enabled", () => {
 
   it("stamps finish() and the trace SSE frame with the id observe was forced to", async () => {
     const { sse, traceArg, observeOpts } = await post({ message: "hi" });
-    expect(observeOpts).toMatchObject({ projectId: "p1", name: "chat" });
+    expect(observeOpts).toMatchObject({ projectId: "p1", name: "pi-mono" });
     const traceId = observeOpts.traceId as string;
     expect(traceId).toMatch(/^[0-9a-f]{32}$/);
     expect(traceArg).toEqual({ traceId, status: "available" });
@@ -162,7 +162,7 @@ describe("POST .../messages — enabled", () => {
       where: { id: "exec-1" },
       select: { traceId: true, findingId: true },
     });
-    expect(observeOpts).toMatchObject({ name: "followup" });
+    expect(observeOpts).toMatchObject({ name: "pi-mono" });
     expect(observeOpts.metadata).toEqual({
       kind: "followup",
       session_id: "s1",
@@ -193,7 +193,7 @@ describe("POST .../messages — enabled", () => {
     };
     const { sse, traceArg, observeOpts } = await post({ message: "analyse", agentTrace }, {});
     expect(executionFindUnique).not.toHaveBeenCalled();
-    // The root is named after the agent that ran; the detectors stay in metadata.
+    // Every root is named after the agent that ran; the kind and the detectors stay in metadata.
     expect(observeOpts).toMatchObject({ traceId: "c".repeat(32), name: "pi-mono" });
     expect(observeOpts.metadata).toEqual({
       kind: "rca",
@@ -213,6 +213,8 @@ describe("POST .../messages — enabled", () => {
       agentTrace: { traceId: "c".repeat(32), kind: "rca", metadata: {} },
     });
     expect(observeOpts.traceId).not.toBe("c".repeat(32));
-    expect(observeOpts.name).toBe("chat");
+    // The kind is what tells a chat from an RCA now that every root is named alike.
+    expect(observeOpts.metadata).toMatchObject({ kind: "chat" });
+    expect(observeOpts.metadata).not.toHaveProperty("finding_id");
   });
 });
