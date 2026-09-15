@@ -41,6 +41,21 @@ describe("getSystemPrompt", () => {
     expect(prompt).not.toContain("Detectors page");
   });
 
+  it("describes the alert tools, separates an alert from a detector, and names the unit trap", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("### Alerts: list_alerts, get_alert and create_alert");
+    expect(prompt).toContain("get_alert with an alert_id");
+    expect(prompt).toContain(
+      "a detector judges individual traces with a prompt, an alert watches a number",
+    );
+    expect(prompt).toContain("propose\ncreate_alert (it asks the user to confirm)");
+    expect(prompt).toContain("latency is milliseconds, so 2 seconds is a threshold of 2000");
+    expect(prompt).toContain("never idempotent");
+    // The confirmation paragraph names the alert create beside the others.
+    expect(prompt).toContain("create_detector, create_alert, and other writes");
+    expect(prompt).toContain("use list_alerts, then get_alert");
+  });
+
   it("tells the agent telemetry is live so counts get re-queried, not recalled", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
     expect(prompt).toContain("Telemetry is live");

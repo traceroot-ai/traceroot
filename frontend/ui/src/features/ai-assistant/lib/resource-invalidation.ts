@@ -46,6 +46,10 @@ export function invalidationKeysForResult(result: unknown): QueryKey[] {
       // Coarse on purpose: the detector list, counts, and by-id queries all
       // hang off this prefix, matching what the feature's own mutations do.
       return [["detectors"]];
+    case "alert":
+      // The alerts feature keys its list, capacity and detail queries under
+      // one prefix and its own create invalidates exactly that.
+      return [["alerts"]];
     case "project": {
       const keys: QueryKey[] = [["workspaces"]];
       if (workspaceId !== undefined) {

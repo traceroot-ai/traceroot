@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
 import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER } from "@/lib/date-filter";
 import { dateFilterStorageKey } from "@/lib/date-filter-storage";
@@ -6,10 +6,11 @@ import {
   createdWidgetsByDashboard,
   pendingCardModel,
   pendingProposal,
+  readCardModel,
   resourceCardModel,
   suppressedWidgetStepIds,
 } from "./resource-card";
-import type { PreviewTile } from "./resource-card";
+import type { PreviewTile, ResourceCardModel } from "./resource-card";
 import type { AIMessage, ToolCallStep } from "../types";
 
 function step(overrides: {
@@ -564,6 +565,516 @@ describe("resourceCardModel", () => {
         args: {},
         status: "running",
       }),
+    ).toBeNull();
+  });
+});
+
+describe("alert cards", () => {
+  const RULE_ARGS = {
+    label: "adding the alert",
+    name: "p95 latency over 2s",
+    view: "SPANS",
+    measure: "latency",
+    aggregation: "p95",
+    window: "10m",
+    threshold_operator: ">",
+    threshold: 2000,
+    renotify: { mode: "OFF" },
+  };
+  const RULE = {
+    view: "SPANS",
+    measure: "latency",
+    aggregation: "p95",
+    window: "10m",
+    operator: ">",
+    threshold: 2000,
+    filters: [],
+  };
+  const FRESH_STATE = {
+    status: "ACTIVE",
+    severity: "UNKNOWN",
+    lastEvaluatedAt: null,
+    lastError: null,
+    lastNotifyStatus: null,
+    lastNotifyError: null,
+  };
+
+  function alertStep(args: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
+    return step({
+      toolName: "create_alert",
+      args: { ...RULE_ARGS, ...args },
+      details: created("alert", "al1", { projectId: "p1", alertState: FRESH_STATE, ...extra }),
+    });
+  }
+
+  it("builds an alert receipt: the rule's chart over the site window, its chips, and its badge", () => {
+    expect(resourceCardModel(alertStep())).toEqual({
+      resourceType: "alert",
+      resourceId: "al1",
+      created: true,
+      title: "p95 latency over 2s",
+      href: "/projects/p1/alerts/al1",
+      meta: ["Alert", "Last 24 hours"],
+      description: "p95 latency over 10 minutes is above 2,000 ms",
+      badge: {
+        status: "ACTIVE",
+        severity: "UNKNOWN",
+        lastEvaluatedAt: null,
+        lastError: null,
+        lastNotifyStatus: null,
+        lastNotifyError: null,
+      },
+      body: {
+        kind: "alert",
+        chips: ["view spans", "p95(latency)", "over 10m", "> 2,000 ms", "renotify off"],
+        chart: { ...RULE, projectId: "p1", range: DEFAULT_DATE_FILTER },
+      },
+    });
+  });
+
+  it("chips every part of the rule in order, with the unit, the filters, renotify and no-data", () => {
+    const model = resourceCardModel(
+      alertStep({
+        measure: "cost",
+        aggregation: "sum",
+        window: "1h",
+        threshold_operator: ">=",
+        threshold: 40,
+        filters: [
+          { field: "environment", op: "=", value: "production" },
+          { field: "metadata", key: "tenant", op: "contains", value: "acme" },
+          { field: "model_name", op: "=", value: "gpt-4o" },
+          { field: "status", op: "=", value: "ERROR" },
+          { field: "is_root", op: "=", value: "true" },
+          "not a filter",
+        ],
+        renotify: { mode: "EVERY", interval_minutes: 60 },
+        no_data_mode: "HOLD",
+      }),
+    );
+    expect((model?.body as { chips: string[] }).chips).toEqual([
+      "view spans",
+      "sum(cost)",
+      "over 1h",
+      "≥ $40",
+      "environment = production",
+      "metadata[tenant] contains acme",
+      "model_name = gpt-4o",
+      "+2 more",
+      "renotify every 60 min",
+      "no data → HOLD",
+    ]);
+    // The chart carries only the filters that are really filters.
+    expect((model?.body as { chart: { filters: unknown[] } }).chart.filters).toHaveLength(5);
+    expect(model?.description).toBe("total cost over 1 hour is at or above $40");
+  });
+
+  it("keeps the chips it can read when the rule as a whole cannot be charted", () => {
+    const model = resourceCardModel(
+      alertStep({ window: "45m", threshold: "2000", renotify: { mode: "EVERY" } }),
+    );
+    expect(model?.body).toEqual({
+      kind: "alert",
+      chips: ["view spans", "p95(latency)", "over 45m", "renotify"],
+      chart: null,
+    });
+    expect(model?.meta).toEqual(["Alert"]);
+    // No whole rule, no sentence: the panel shows the chips it has.
+    expect(model).not.toHaveProperty("description");
+  });
+
+  it("charts nothing when the details never said which project the alert landed in", () => {
+    const model = resourceCardModel(
+      step({ toolName: "create_alert", args: RULE_ARGS, details: created("alert", "al1") }),
+    );
+    expect((model?.body as { chart: unknown }).chart).toBeNull();
+    expect(model?.href).toBeNull();
+  });
+
+  it("carries no badge when the details carry no readable state", () => {
+    const none = resourceCardModel(
+      step({
+        toolName: "create_alert",
+        args: RULE_ARGS,
+        details: created("alert", "al1", { projectId: "p1" }),
+      }),
+    );
+    expect(none).not.toHaveProperty("badge");
+    const junk = resourceCardModel(
+      alertStep({}, { alertState: { status: "ON", severity: "RED" } }),
+    );
+    expect(junk).not.toHaveProperty("badge");
+  });
+
+  it("still cards an alert whose arguments did not survive, with no chart and no chips", () => {
+    const model = resourceCardModel(
+      step({
+        toolName: "create_alert",
+        args: "lost",
+        details: created("alert", "al1", { projectId: "p1" }),
+      }),
+    );
+    expect(model?.body).toEqual({ kind: "alert", chips: [], chart: null });
+    expect(model?.title).toBe("al1");
+  });
+
+  it("builds a pending alert card aimed at the panel's project, with nothing to open and no badge", () => {
+    const pending: ToolCallStep = {
+      toolCallId: "tcp9",
+      toolName: "create_alert",
+      args: { ...RULE_ARGS, filters: [{ field: "environment", op: "=", value: "production" }] },
+      status: "running",
+      pending: { decisionId: "dec-1" },
+    };
+    expect(pendingCardModel(pending, "p1")).toEqual({
+      resourceType: "alert",
+      resourceId: "tcp9",
+      created: true,
+      title: "p95 latency over 2s",
+      href: null,
+      meta: ["Alert", "Last 24 hours"],
+      description: "p95 latency over 10 minutes is above 2,000 ms",
+      body: {
+        kind: "alert",
+        chips: [
+          "view spans",
+          "p95(latency)",
+          "over 10m",
+          "> 2,000 ms",
+          "environment = production",
+          "renotify off",
+        ],
+        chart: {
+          ...RULE,
+          filters: [{ field: "environment", op: "=", value: "production" }],
+          projectId: "p1",
+          range: DEFAULT_DATE_FILTER,
+        },
+      },
+    });
+    expect(pendingCardModel(pending, undefined)?.body).toMatchObject({ chart: null });
+    expect(pendingProposal(pending)).toEqual({
+      resourceType: "alert",
+      title: "p95 latency over 2s",
+    });
+  });
+
+  it("links the alert receipt to its detail page and refuses an unsafe id", () => {
+    expect(resourceCardModel(alertStep())?.href).toBe("/projects/p1/alerts/al1");
+    const unsafe = step({
+      toolName: "create_alert",
+      args: RULE_ARGS,
+      details: created("alert", "../admin", { projectId: "p1" }),
+    });
+    expect(resourceCardModel(unsafe)?.href).toBeNull();
+  });
+});
+
+describe("readCardModel", () => {
+  const NOW = new Date("2026-09-11T14:50:00Z");
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const row = (overrides: Record<string, unknown> = {}) => ({
+    id: "al-1",
+    name: "p95 latency over 2s",
+    view: "SPANS",
+    measure: "latency",
+    aggregation: "p95",
+    window: "10m",
+    threshold_operator: ">",
+    threshold: 2000,
+    status: "ACTIVE",
+    severity: "OK",
+    alerted_at: null,
+    last_evaluated_at: "2026-09-11T14:48:00Z",
+    last_error: null,
+    last_notify_status: null,
+    last_notify_error: null,
+    last_notify_at: null,
+    ...overrides,
+  });
+
+  function readStep(toolName: string, details: unknown, overrides: Partial<ToolCallStep> = {}) {
+    return {
+      toolCallId: "tcr1",
+      toolName,
+      args: {},
+      result: { content: [{ type: "text", text: "Found alerts" }], details },
+      isError: false,
+      status: "done",
+      ...overrides,
+    } as ToolCallStep;
+  }
+
+  const listDetails = (alerts: unknown[], extra: Record<string, unknown> = {}) => ({
+    kind: "alert_list",
+    alerts,
+    total: alerts.length,
+    capacity: { used: alerts.length, max: 100 },
+    ...extra,
+  });
+
+  it("cards a list_alerts read: one row per alert with its rule, state, badge and link", () => {
+    const model = readCardModel(
+      readStep(
+        "list_alerts",
+        listDetails([
+          row(),
+          row({
+            id: "al-2",
+            name: "Error rate spike",
+            measure: "count",
+            aggregation: "count",
+            window: "5m",
+            threshold_operator: ">=",
+            threshold: 25,
+            severity: "ALERT",
+            alerted_at: "2026-09-11T14:37:00Z",
+            last_notify_status: "DELIVERED",
+          }),
+          row({
+            id: "al-3",
+            name: "Daily spend",
+            measure: "cost",
+            aggregation: "sum",
+            window: "1h",
+            threshold: 40,
+            status: "PAUSED",
+          }),
+        ]),
+      ),
+      "p1",
+    );
+    expect(model).toEqual({
+      kind: "alert_list",
+      model: {
+        total: 3,
+        capacity: { used: 3, max: 100 },
+        href: "/projects/p1/alerts",
+        rows: [
+          {
+            id: "al-1",
+            name: "p95 latency over 2s",
+            summary: "p95 latency > 2,000 ms over 10m",
+            state: "evaluated 2 minutes ago",
+            badge: {
+              status: "ACTIVE",
+              severity: "OK",
+              lastError: null,
+              lastEvaluatedAt: "2026-09-11T14:48:00Z",
+              lastNotifyStatus: null,
+              lastNotifyError: null,
+            },
+            href: "/projects/p1/alerts/al-1",
+          },
+          expect.objectContaining({
+            id: "al-2",
+            summary: "count ≥ 25 over 5m",
+            state: "alerted 13 minutes ago · notified",
+            badge: expect.objectContaining({ severity: "ALERT", lastNotifyStatus: "DELIVERED" }),
+          }),
+          expect.objectContaining({
+            id: "al-3",
+            summary: "sum cost > $40 over 1h",
+            state: "paused",
+            badge: expect.objectContaining({ status: "PAUSED" }),
+          }),
+        ],
+      },
+    });
+  });
+
+  it("says a parked rule stopped evaluating, ahead of its breach and its last run", () => {
+    const model = readCardModel(
+      readStep(
+        "list_alerts",
+        listDetails([
+          row({
+            status: "PARKED",
+            severity: "ALERT",
+            alerted_at: "2026-09-11T14:37:00Z",
+            last_error: "this rule's settings cannot be evaluated",
+          }),
+        ]),
+      ),
+      "p1",
+    );
+    expect(model).toMatchObject({
+      kind: "alert_list",
+      model: {
+        rows: [
+          expect.objectContaining({
+            id: "al-1",
+            state: "parked · evaluation stopped",
+            badge: expect.objectContaining({ status: "PARKED" }),
+          }),
+        ],
+      },
+    });
+  });
+
+  it("words a row's state honestly: never run, a failed delivery, and a rule with no whole rule", () => {
+    const model = readCardModel(
+      readStep(
+        "list_alerts",
+        listDetails([
+          row({ last_evaluated_at: null }),
+          row({
+            id: "al-2",
+            alerted_at: "2026-09-11T13:50:00Z",
+            last_notify_status: "COMPENSATED",
+            last_notify_error: "no-channel",
+          }),
+          row({ id: "al-3", threshold: null, status: "LIVE", severity: "OK" }),
+        ]),
+      ),
+      "p1",
+    );
+    const rows = (
+      model as { model: { rows: { state: string; summary: string | null; badge: unknown }[] } }
+    ).model.rows;
+    expect(rows[0]!.state).toBe("not evaluated yet");
+    expect(rows[1]!.state).toBe("alerted 1 hour ago · notify compensated");
+    expect(rows[2]).toMatchObject({ summary: null, badge: null });
+  });
+
+  it("says how many the read covered when the card shows fewer than the project holds", () => {
+    const model = readCardModel(
+      readStep("list_alerts", listDetails([row()], { total: 42, capacity: null })),
+      "p1",
+    );
+    expect(model).toMatchObject({ model: { total: 42, capacity: null, rows: [{ id: "al-1" }] } });
+  });
+
+  it("paths nothing when the panel has no project, and drops rows without an id", () => {
+    const model = readCardModel(
+      readStep("list_alerts", listDetails([row(), { name: "no id" }, "junk"])),
+      undefined,
+    );
+    expect(model).toMatchObject({ model: { href: null, rows: [{ id: "al-1", href: null }] } });
+    expect((model as { model: { rows: unknown[] } }).model.rows).toHaveLength(1);
+  });
+
+  it("cards a get_alert read as the alert's own card: chart, badge, chips, facts, panel open", () => {
+    const model = readCardModel(
+      readStep("get_alert", {
+        kind: "alert_detail",
+        alert: row({
+          id: "al-2",
+          name: "Error rate spike",
+          measure: "count",
+          aggregation: "count",
+          window: "5m",
+          threshold_operator: ">=",
+          threshold: 25,
+          severity: "ALERT",
+          alerted_at: "2026-09-11T14:35:00Z",
+          last_notify_status: "DELIVERED",
+          last_notify_at: "2026-09-11T14:35:10Z",
+          filters: [{ field: "environment", op: "=", value: "production" }],
+          renotify: { mode: "OFF" },
+          no_data_mode: "HOLD",
+          severity_changed_at: "2026-09-11T14:35:00Z",
+          creator: "Kai",
+          create_time: "2026-09-04T09:00:00Z",
+        }),
+      }),
+      "p1",
+    );
+    expect(model).toEqual({
+      kind: "alert",
+      model: {
+        resourceType: "alert",
+        resourceId: "al-2",
+        created: true,
+        title: "Error rate spike",
+        href: "/projects/p1/alerts/al-2",
+        meta: ["Alert", "Last 24 hours"],
+        description: "span count over 5 minutes is at or above 25",
+        badge: {
+          status: "ACTIVE",
+          severity: "ALERT",
+          lastError: null,
+          lastEvaluatedAt: "2026-09-11T14:48:00Z",
+          lastNotifyStatus: "DELIVERED",
+          lastNotifyError: null,
+        },
+        facts: [
+          // formatDate renders local time, so only the seconds (and the shape)
+          // are stable across timezones — half-hour offsets shift the minutes.
+          {
+            label: "alerting since",
+            value: expect.stringMatching(/^\d{4}-\d\d-\d\d \d\d:\d\d:00$/),
+          },
+          {
+            label: "last evaluated",
+            value: expect.stringMatching(/^\d{4}-\d\d-\d\d \d\d:\d\d:00$/),
+          },
+          {
+            label: "notified",
+            value: expect.stringMatching(/^delivered · \d{4}-\d\d-\d\d \d\d:\d\d:10$/),
+          },
+          { label: "created by", value: expect.stringMatching(/^Kai · \d{4}-\d\d-\d\d$/) },
+        ],
+        definitionOpen: true,
+        body: {
+          kind: "alert",
+          chips: [
+            "view spans",
+            "count(count)",
+            "over 5m",
+            "≥ 25",
+            "environment = production",
+            "renotify off",
+            "no data → HOLD",
+          ],
+          chart: {
+            view: "SPANS",
+            measure: "count",
+            aggregation: "count",
+            window: "5m",
+            operator: ">=",
+            threshold: 25,
+            filters: [{ field: "environment", op: "=", value: "production" }],
+            projectId: "p1",
+            range: DEFAULT_DATE_FILTER,
+          },
+        },
+      },
+    });
+  });
+
+  it("lists only the facts the detail carries, and says never for a rule that has not run", () => {
+    const model = readCardModel(
+      readStep("get_alert", { kind: "alert_detail", alert: row({ last_evaluated_at: null }) }),
+      "p1",
+    );
+    expect((model as { model: ResourceCardModel }).model.facts).toEqual([
+      { label: "last evaluated", value: "never" },
+    ]);
+  });
+
+  it("has no card for an errored, unfinished or detail-less read, or a kind it does not know", () => {
+    const list = listDetails([row()]);
+    expect(readCardModel(readStep("list_alerts", list, { isError: true }), "p1")).toBeNull();
+    expect(readCardModel(readStep("list_alerts", list, { status: "running" }), "p1")).toBeNull();
+    expect(readCardModel(readStep("list_alerts", undefined), "p1")).toBeNull();
+    expect(readCardModel(readStep("list_alerts", { kind: "trace_list" }), "p1")).toBeNull();
+    expect(
+      readCardModel(readStep("list_alerts", { kind: "alert_list", alerts: "x" }), "p1"),
+    ).toBeNull();
+    expect(
+      readCardModel(readStep("get_alert", { kind: "alert_detail", alert: {} }), "p1"),
+    ).toBeNull();
+    // A truncated persisted value is a marker, not details.
+    expect(
+      readCardModel(readStep("list_alerts", { truncated: true, bytes: 40000 }), "p1"),
     ).toBeNull();
   });
 });

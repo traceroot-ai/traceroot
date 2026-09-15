@@ -35,4 +35,5 @@ export const INTERNAL_WRITE_BINDINGS: Readonly<Record<string, string>> = {
   create_detector: "/api/internal/write/detectors",
   create_dashboard: "/api/internal/write/dashboards",
   create_widget: "/api/internal/write/widgets",
+  create_alert: "/api/internal/write/alerts",
 };

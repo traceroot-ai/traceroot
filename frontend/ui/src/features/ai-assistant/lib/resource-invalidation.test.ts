@@ -43,6 +43,14 @@ describe("invalidationKeysForResult", () => {
     ).toEqual([["detectors"]]);
   });
 
+  it("stales the coarse alerts key, which the list, capacity and detail queries share", () => {
+    expect(
+      invalidationKeysForResult(
+        writeResult({ resourceType: "alert", resourceId: "al1", projectId: "p1" }),
+      ),
+    ).toEqual([["alerts"]]);
+  });
+
   it("stales the workspace surfaces a new project appears on", () => {
     expect(
       invalidationKeysForResult(

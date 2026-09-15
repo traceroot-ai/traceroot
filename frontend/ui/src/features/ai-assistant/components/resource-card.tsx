@@ -9,9 +9,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { AlertSeverityBadge } from "@/features/alerts/components/alert-severity-badge";
 import { DashboardPreview } from "./dashboard-preview";
 import { CHART_TILE_ASPECT } from "./preview-constants";
-import type { DetectorPrompt, ResourceCardBody, ResourceCardModel } from "../lib/resource-card";
+import type {
+  DetectorPrompt,
+  ReceiptRow,
+  ResourceCardBody,
+  ResourceCardModel,
+} from "../lib/resource-card";
 
 // Loaded dynamically because the preview pulls in the dashboards renderers —
 // and with them recharts — while this card sits in the assistant panel, which
@@ -28,13 +34,22 @@ const WidgetChartPreview = dynamic(
   },
 );
 
+// The alert chart pulls in recharts the same way, so it takes the same edge.
+const AlertChartPreview = dynamic(
+  () => import("./alert-chart-preview").then((mod) => mod.AlertChartPreview),
+  {
+    ssr: false,
+    loading: () => <div className="min-w-0" style={{ aspectRatio: CHART_TILE_ASPECT }} />,
+  },
+);
+
 /**
  * The card for a resource the agent created (or, marked proposed, one it
  * wants to create), shown in the transcript where the plain tool line would
  * otherwise be.
  *
  * The card IS the bubble: the resource itself — a widget's chart, a
- * dashboard scaled down, a detector's prompt — comes first, and one footer row
+ * dashboard scaled down, a detector's prompt, an alert's chart — comes first, and one footer row
  * names it. The footer's title opens a definition panel with what the card
  * would otherwise have to say up front (the spec chips, a description), so
  * the picture is never pushed down by its own caption. Nothing here decides
@@ -110,11 +125,28 @@ function DetectorPromptBlock({ prompt }: { prompt: DetectorPrompt }) {
   );
 }
 
+/** Label/value rows: a project receipt's body, or an alert read's facts. */
+function ReceiptRows({ rows }: { rows: ReceiptRow[] }) {
+  return (
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[11px]">
+      {rows.map((row) => (
+        <div key={row.label} className="contents">
+          <dt className="text-muted-foreground/70">{row.label}</dt>
+          <dd className="min-w-0 break-words font-mono text-[10px] text-foreground/70 [overflow-wrap:anywhere]">
+            {row.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 /**
  * The body: the resource itself, or null when there is nothing to picture —
  * a widget with no chart to draw, a detector with no prompt to show, a
- * dashboard with no tiles, an empty receipt. The chips that describe a
- * widget or detector are not body; they live in the definition panel.
+ * dashboard with no tiles, an alert with no runnable rule, an empty
+ * receipt. The chips that describe a widget, detector or alert are not
+ * body; they live in the definition panel.
  */
 function cardBody(body: ResourceCardBody, resourceId: string): ReactNode | null {
   switch (body.kind) {
@@ -130,20 +162,12 @@ function cardBody(body: ResourceCardBody, resourceId: string): ReactNode | null 
       );
     case "detector":
       return body.prompt === null ? null : <DetectorPromptBlock prompt={body.prompt} />;
+    case "alert":
+      // The chart the alert form previews — the rule over the page's window
+      // with the threshold across it — is what the user judges.
+      return body.chart === null ? null : <AlertChartPreview chart={body.chart} />;
     case "receipt":
-      if (body.rows.length === 0) return null;
-      return (
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[11px]">
-          {body.rows.map((row) => (
-            <div key={row.label} className="contents">
-              <dt className="text-muted-foreground/70">{row.label}</dt>
-              <dd className="min-w-0 break-words font-mono text-[10px] text-foreground/70 [overflow-wrap:anywhere]">
-                {row.value}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      );
+      return body.rows.length === 0 ? null : <ReceiptRows rows={body.rows} />;
     case "dashboard":
       // With no tiles — the transcript created no widgets, or the dashboard
       // was reused and its placements are unknowable — there is nothing to
@@ -158,13 +182,16 @@ function cardBody(body: ResourceCardBody, resourceId: string): ReactNode | null 
 function hasPreview(body: ResourceCardBody): boolean {
   return (
     (body.kind === "widget" && body.chart !== null) ||
+    (body.kind === "alert" && body.chart !== null) ||
     (body.kind === "dashboard" && body.tiles.length > 0)
   );
 }
 
-/** The chips a widget or detector is defined by; a receipt or dashboard has none. */
+/** The chips a widget, detector or alert is defined by; a receipt or dashboard has none. */
 function definitionChips(body: ResourceCardBody): string[] {
-  return body.kind === "widget" || body.kind === "detector" ? body.chips : [];
+  return body.kind === "widget" || body.kind === "detector" || body.kind === "alert"
+    ? body.chips
+    : [];
 }
 
 const iconActionClasses =
@@ -179,7 +206,7 @@ export function ResourceCard({
    *  footer meta says so, since the card is otherwise the receipt's twin. */
   proposed?: boolean;
 }) {
-  const [definitionOpen, setDefinitionOpen] = useState(false);
+  const [definitionOpen, setDefinitionOpen] = useState(model.definitionOpen === true);
   const [previewHidden, setPreviewHidden] = useState(false);
 
   const body = cardBody(model.body, model.resourceId);
@@ -187,7 +214,8 @@ export function ResourceCard({
   const bodyShown = body !== null && !(previewable && previewHidden);
 
   const chips = definitionChips(model.body);
-  const hasDefinition = chips.length > 0 || model.description !== undefined;
+  const facts = model.facts ?? [];
+  const hasDefinition = chips.length > 0 || facts.length > 0 || model.description !== undefined;
 
   const meta = (proposed ? ["Proposed", ...model.meta] : model.meta).join(" · ");
   const previewLabel = previewHidden ? "Show preview" : "Hide preview";
@@ -229,6 +257,9 @@ export function ResourceCard({
             Reused
           </Badge>
         )}
+        {/* An alert's state, as the alerts page badges it — never on a
+            proposal, whose rule has no state yet. */}
+        {model.badge !== undefined && !proposed && <AlertSeverityBadge {...model.badge} />}
         <span className="min-w-0 max-w-[45%] truncate text-[11px] text-muted-foreground/70">
           {meta}
         </span>
@@ -278,6 +309,7 @@ export function ResourceCard({
             </p>
           )}
           <Chips chips={chips} />
+          {facts.length > 0 && <ReceiptRows rows={facts} />}
         </div>
       )}
     </Card>

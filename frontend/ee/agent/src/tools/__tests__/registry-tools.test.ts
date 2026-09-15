@@ -447,6 +447,13 @@ describe("createRegistryReadTools", () => {
     // Exact rendering is owned by the formatter tests; this proves dispatch + formatter wiring.
     expect(result.content[0]!.text).toContain("Found 1 alerts");
     expect(result.content[0]!.text).toContain("alr-1");
+    // The panel's list card reads the compact projection, not the prose.
+    expect(result.details).toMatchObject({
+      kind: "alert_list",
+      total: 1,
+      capacity: { used: 1, max: 100 },
+      alerts: [{ id: "alr-1", name: "p95 latency", measure: "latency", threshold: 2000 }],
+    });
   });
 
   it("get_alert hits the internal alert route and renders the rule", async () => {
@@ -472,6 +479,17 @@ describe("createRegistryReadTools", () => {
     expect(String(url)).toBe("http://fastapi.test/api/v1/internal/projects/p1/alerts/alr-1");
     expect(result.content[0]!.text).toContain("Alert: alr-1");
     expect(result.content[0]!.text).toContain("p95(latency) over 10m > 2000");
+    expect(result.details).toMatchObject({
+      kind: "alert_detail",
+      alert: { id: "alr-1", name: "p95 latency", renotify: { mode: "OFF" }, no_data_mode: "HOLD" },
+    });
+  });
+
+  it("carries no details on the reads that have no card", async () => {
+    stubFetch({ data: [], meta: { page: 0, limit: 50, total: 0 } });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "list_detectors")!;
+    const result = await tool.execute("id", { label: "x" });
+    expect(result.details).toBeUndefined();
   });
 
   it("returns HTTP failures as tool text instead of throwing", async () => {
@@ -503,7 +521,7 @@ describe("createTools", () => {
     "list_alerts",
     "get_alert",
   ];
-  const WRITE_TOOL_NAMES = ["create_detector", "create_dashboard", "create_widget"];
+  const WRITE_TOOL_NAMES = ["create_detector", "create_dashboard", "create_widget", "create_alert"];
   const OTHER_TOOL_NAMES = [
     "download_traces",
     "download_session",

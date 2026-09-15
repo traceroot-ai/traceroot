@@ -7,6 +7,7 @@ import {
   type ParamSchema,
   type RegistryEntry,
 } from "@traceroot-ai/tools";
+import { publicUiUrl } from "./origins.js";
 
 /**
  * Per-tool execution shape the registry cannot express: how each public
@@ -23,10 +24,28 @@ interface WriteToolSpec {
   description?: string;
   /** Public snake_case field → internal camelCase body key (tenancy fields excluded). */
   fieldMap: Record<string, string>;
+  /**
+   * Per-field reshaping the flat key map cannot express — a nested object
+   * whose own keys are snake_case on the public surface. Runs on the model's
+   * value before it is placed under the mapped body key.
+   */
+  valueMap?: Record<string, (value: unknown) => unknown>;
+  /**
+   * Body keys the internal route requires that the public schema leaves
+   * optional (the public API route defaults them on the way in). A value the
+   * model supplies wins over the default.
+   */
+  bodyDefaults?: Record<string, unknown>;
   /** Key holding the resource in the route's success payload. */
-  resourceKey: "detector" | "dashboard" | "widget";
+  resourceKey: "detector" | "dashboard" | "widget" | "alert";
   /** Field naming the resource in the success text. */
   displayNameKey: "name" | "title";
+  /**
+   * The resource's page for a person, when the success text should carry a
+   * link the model may repeat (the prompt forbids assembling one from an id).
+   * Built on the browser-reachable origin, never the service-to-service one.
+   */
+  pageUrl?: (projectId: string, resourceId: string) => string;
 }
 
 /**
@@ -42,7 +61,7 @@ export interface ResourceCreatedDetails {
    * from when it did still carry "workspace" and "project", and the UI's
    * receipt cards keep rendering them.
    */
-  resourceType: "workspace" | "project" | "detector" | "dashboard" | "widget";
+  resourceType: "workspace" | "project" | "detector" | "dashboard" | "widget" | "alert";
   resourceId: string;
   /** The name (or title) the resource actually carries — for a dashboard,
    *  possibly not the one the model asked for (see renamedFrom). */
@@ -56,6 +75,63 @@ export interface ResourceCreatedDetails {
   /** Only on older persisted rows from the retired create_project tool; the UI still reads it. */
   workspaceId?: string;
   dashboardId?: string;
+  /**
+   * A created alert's evaluation state as the write route returned it, so
+   * the receipt card can show the same badge the alerts page does. A fresh
+   * rule has never run: severity UNKNOWN with no evaluation yet.
+   */
+  alertState?: AlertState;
+}
+
+/** The fields the alerts feature's badge resolves a display state from. */
+export interface AlertState {
+  status: string;
+  severity: string;
+  lastEvaluatedAt: string | null;
+  lastError: string | null;
+  lastNotifyStatus: string | null;
+  lastNotifyError: string | null;
+}
+
+/** The state off a write route's alert row, or undefined when it carries none. */
+function alertStateOf(resource: Record<string, unknown>): AlertState | undefined {
+  const { status, severity } = resource;
+  if (typeof status !== "string" || typeof severity !== "string") return undefined;
+  const nullable = (value: unknown): string | null => (typeof value === "string" ? value : null);
+  return {
+    status,
+    severity,
+    lastEvaluatedAt: nullable(resource.lastEvaluatedAt),
+    lastError: nullable(resource.lastError),
+    lastNotifyStatus: nullable(resource.lastNotifyStatus),
+    lastNotifyError: nullable(resource.lastNotifyError),
+  };
+}
+
+/**
+ * The public renotify object carries `interval_minutes`; the write service's
+ * strict zod shape wants `intervalMinutes` and refuses unknown keys, so the
+ * key is renamed rather than copied. Anything that is not an object passes
+ * through for the service to refuse with a message the model can read.
+ */
+function renotifyBody(value: unknown): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+  const { interval_minutes: intervalMinutes, ...rest } = value as Record<string, unknown>;
+  return intervalMinutes === undefined ? rest : { ...rest, intervalMinutes };
+}
+
+/**
+ * An unkeyed filter must travel without `key`: the service's strict shape
+ * takes an absent key, never a null one (the same rule the public API route
+ * applies with exclude_none).
+ */
+function filtersBody(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((filter) => {
+    if (typeof filter !== "object" || filter === null || Array.isArray(filter)) return filter;
+    const { key, ...rest } = filter as Record<string, unknown>;
+    return key === undefined || key === null ? rest : { ...rest, key };
+  });
 }
 
 // No create_workspace / create_project here: the agent's tenancy is force-
@@ -103,6 +179,42 @@ const WRITE_TOOL_SPECS: Readonly<Record<string, WriteToolSpec>> = {
     },
     resourceKey: "widget",
     displayNameKey: "title",
+  },
+  create_alert: {
+    // The registry text documents the API contract; the agent also needs the
+    // measure vocabulary and its units, or "p95 latency over 2 seconds"
+    // becomes a threshold of 2 against a measure in milliseconds.
+    description:
+      "Create a threshold alert in the project: a measure of the spans view, aggregated over a " +
+      "window and compared to a threshold, with optional row filters and renotify/no-data " +
+      "settings. Measures (view SPANS): count (rows; aggregation count only); latency in " +
+      "milliseconds, cost in USD, input_tokens, output_tokens, total_tokens, " +
+      "total_tokens_per_second (numeric: sum, avg, min, max, p50, p75, p90, p95, p99); " +
+      "trace_id, unique_user_ids, unique_session_ids (aggregation uniq only). The threshold " +
+      "is in the measure's unit, so 2 seconds of latency is 2000. Filters are row predicates " +
+      "on model_name, environment, status, span_kind, name, is_root or metadata (with a key). " +
+      "renotify {mode: OFF} unless the user asks to be reminded while it stays breached. Strict " +
+      "create, never idempotent: alerts share names freely, so to avoid a duplicate list the " +
+      "project's alerts first and match the name.",
+    fieldMap: {
+      name: "name",
+      view: "view",
+      measure: "measure",
+      aggregation: "aggregation",
+      filters: "filters",
+      window: "window",
+      threshold_operator: "thresholdOperator",
+      threshold: "threshold",
+      renotify: "renotify",
+      no_data_mode: "noDataMode",
+    },
+    valueMap: { renotify: renotifyBody, filters: filtersBody },
+    // The public schema defaults an omitted filters list; the write service
+    // requires the array.
+    bodyDefaults: { filters: [] },
+    resourceKey: "alert",
+    displayNameKey: "name",
+    pageUrl: (projectId, alertId) => `${publicUiUrl()}/projects/${projectId}/alerts/${alertId}`,
   },
 };
 
@@ -168,6 +280,10 @@ function buildWriteSuccess(
   if (typeof resource?.dashboardId === "string") {
     details.dashboardId = resource.dashboardId;
   }
+  if (spec.resourceKey === "alert" && resource !== undefined) {
+    const alertState = alertStateOf(resource);
+    if (alertState !== undefined) details.alertState = alertState;
+  }
   // The dashboard route reports, beside the row, the name it had to rename
   // away from; the model must learn the real name before it refers to it.
   if (typeof payload.renamedFrom === "string") {
@@ -180,7 +296,8 @@ function buildWriteSuccess(
     };
   }
   if (created) {
-    return { text: `Created ${spec.resourceKey} "${displayName}" (id ${id})`, details };
+    const link = spec.pageUrl ? ` — ${spec.pageUrl(tenancyIds.projectId, id)}` : "";
+    return { text: `Created ${spec.resourceKey} "${displayName}" (id ${id})${link}`, details };
   }
   const capitalized = spec.resourceKey.charAt(0).toUpperCase() + spec.resourceKey.slice(1);
   return {
@@ -275,6 +392,7 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
           transport: "agent",
           agentSessionId,
           ...tenancyBody,
+          ...spec.bodyDefaults,
         };
         for (const [field, bodyKey] of Object.entries(spec.fieldMap)) {
           // A hidden field the model passes anyway must never reach the body.
@@ -285,7 +403,8 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
           // Unset optionals stay out of the body entirely — the internal zod
           // distinguishes absent from null in places, and absent is always safe.
           if (value !== undefined && value !== null) {
-            body[bodyKey] = value;
+            const reshape = spec.valueMap?.[field];
+            body[bodyKey] = reshape === undefined ? value : reshape(value);
           }
         }
         try {
@@ -311,5 +430,10 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
     } as AgentTool<any>;
   };
 
-  return [bind("create_detector"), bind("create_dashboard"), bind("create_widget")];
+  return [
+    bind("create_detector"),
+    bind("create_dashboard"),
+    bind("create_widget"),
+    bind("create_alert"),
+  ];
 }

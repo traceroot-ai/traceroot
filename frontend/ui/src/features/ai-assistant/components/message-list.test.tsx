@@ -369,6 +369,112 @@ describe("MessageList tool entries", () => {
   });
 });
 
+describe("MessageList read result entries", () => {
+  const ALERT_ROW = {
+    id: "al-1",
+    name: "p95 latency over 2s",
+    view: "SPANS",
+    measure: "latency",
+    aggregation: "p95",
+    window: "10m",
+    threshold_operator: ">",
+    threshold: 2000,
+    status: "ACTIVE",
+    severity: "OK",
+    alerted_at: null,
+    last_evaluated_at: "2026-09-11T14:48:00Z",
+    last_error: null,
+    last_notify_status: null,
+    last_notify_error: null,
+    last_notify_at: null,
+  };
+
+  function readStep(toolName: string, details: unknown, toolCallId = "tcr1"): ToolCallStep {
+    return {
+      toolCallId,
+      toolName,
+      args: {},
+      result: { content: [{ type: "text", text: "Found 1 alerts" }], details },
+      isError: false,
+      status: "done",
+    };
+  }
+
+  it("renders a list_alerts read as the list card, rows linked under the panel's project", () => {
+    render(
+      <MessageList
+        messages={[
+          toolEntry(
+            readStep("list_alerts", {
+              kind: "alert_list",
+              alerts: [ALERT_ROW],
+              total: 1,
+              capacity: { used: 1, max: 100 },
+            }),
+          ),
+        ]}
+        projectId="p1"
+      />,
+    );
+    expect(screen.getByText("p95 latency over 2s")).toBeTruthy();
+    expect(screen.getByText(/p95 latency > 2,000 ms over 10m/)).toBeTruthy();
+    expect(screen.getByText("OK")).toBeTruthy();
+    expect(screen.getByText("1 of 100 used")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open alerts" }).getAttribute("href")).toBe(
+      "/projects/p1/alerts",
+    );
+    expect(screen.queryByText("(list_alerts)")).toBeNull();
+  });
+
+  it("renders a get_alert read as the alert's card with its definition open", () => {
+    render(
+      <MessageList
+        messages={[
+          toolEntry(
+            readStep("get_alert", {
+              kind: "alert_detail",
+              alert: {
+                ...ALERT_ROW,
+                filters: [],
+                renotify: { mode: "OFF" },
+                no_data_mode: "HOLD",
+                creator: "Kai",
+                create_time: "2026-09-04T09:00:00Z",
+              },
+            }),
+          ),
+        ]}
+        projectId="p1"
+      />,
+    );
+    expect(screen.getByText("p95 latency over 2s")).toBeTruthy();
+    expect(screen.getByText("p95(latency)")).toBeTruthy();
+    expect(screen.getByText("renotify off")).toBeTruthy();
+    expect(screen.getByText("created by")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open alert" }).getAttribute("href")).toBe(
+      "/projects/p1/alerts/al-1",
+    );
+    expect(screen.queryByText("(get_alert)")).toBeNull();
+  });
+
+  it("keeps the plain tool line for a read whose result carries no card details, or failed", () => {
+    render(
+      <MessageList
+        messages={[
+          toolEntry(readStep("list_alerts", undefined, "tcr1")),
+          toolEntry({
+            ...readStep("list_alerts", { kind: "alert_list", alerts: [ALERT_ROW] }, "tcr2"),
+            isError: true,
+          }),
+        ]}
+        projectId="p1"
+      />,
+    );
+    expect(screen.getAllByText("(list_alerts)")).toHaveLength(2);
+    expect(screen.queryByText("p95 latency over 2s")).toBeNull();
+  });
+});
+
 describe("MessageList pending confirmation entries", () => {
   function pendingWidgetStep(toolCallId = "tc1"): ToolCallStep {
     return {

@@ -157,6 +157,40 @@ describe("toPiAgentTool", () => {
     expect(plainResult.content[0]!.text).toBe(JSON.stringify({ data: [] }, null, 2));
   });
 
+  it("attaches structured details beside the text when the binding asks, and never otherwise", async () => {
+    const client = new ApiClient({
+      baseUrl: "http://x",
+      headers: {},
+      fetchImpl: fakeFetch(200, { data: [{ trace_id: "t1" }] }),
+    });
+    const withDetails = toPiAgentTool(listTracesEntry, {
+      client,
+      formatResult: () => "one row",
+      details: (result) => ({
+        kind: "trace_list",
+        ids: (result as { data: { trace_id: string }[] }).data.map((r) => r.trace_id),
+      }),
+    });
+    await expect(withDetails.execute("call-1", { label: "x" })).resolves.toEqual({
+      content: [{ type: "text", text: "one row" }],
+      details: { kind: "trace_list", ids: ["t1"] },
+    });
+
+    // A failure carries no details: the surface must not card a result that
+    // is really an error message.
+    const failing = toPiAgentTool(listTracesEntry, {
+      client: new ApiClient({
+        baseUrl: "http://x",
+        headers: {},
+        fetchImpl: fakeFetch(500, { detail: "boom" }),
+      }),
+      details: () => ({ kind: "trace_list" }),
+    });
+    const failed = await failing.execute("call-1", { label: "x" });
+    expect(failed.details).toBeUndefined();
+    expect(failed.content[0]!.text).toContain("Error calling");
+  });
+
   it("renders errors as text instead of throwing", async () => {
     const client = new ApiClient({
       baseUrl: "http://x",
@@ -198,6 +232,7 @@ describe("INTERNAL_WRITE_BINDINGS", () => {
       create_detector: "/api/internal/write/detectors",
       create_dashboard: "/api/internal/write/dashboards",
       create_widget: "/api/internal/write/widgets",
+      create_alert: "/api/internal/write/alerts",
     });
   });
 });

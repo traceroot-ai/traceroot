@@ -26,6 +26,7 @@ function makeDeps(overrides: Partial<Parameters<typeof runScenario>[1]> = {}) {
   const prisma = {
     detector: { findMany: vi.fn().mockResolvedValue([]) },
     dashboard: { findMany: vi.fn().mockResolvedValue([]) },
+    alert: { findMany: vi.fn().mockResolvedValue([]) },
   } as unknown as EvalPrisma;
 
   return {

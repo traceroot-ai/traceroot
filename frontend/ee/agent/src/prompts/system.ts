@@ -117,6 +117,19 @@ Never substitute a shorter window of your own: finding nothing in a window you n
 evidence that nothing happened. If the page's range genuinely cannot answer the question, widen it
 explicitly and say so.
 
+### Alerts: list_alerts, get_alert and create_alert
+An alert is a threshold rule the scheduler evaluates on a cadence: one measure of the spans view
+(latency, cost, tokens, count, unique users or sessions), aggregated over a window (1m to 2h) and
+compared to a threshold, with optional row filters. It pages when the rule breaches. That is not a
+detector: a detector judges individual traces with a prompt, an alert watches a number over time.
+Use list_alerts to say which alerts exist, their rule, whether each is active, its current
+severity and when it last evaluated or notified; use get_alert with an alert_id for the full rule
+(filters, renotify, no-data handling). Resolve an id by listing and matching the name — never
+guess one. When the user asks to be notified or paged when a metric crosses a bound, propose
+create_alert (it asks the user to confirm). Say the rule back in words with the unit the measure
+takes — latency is milliseconds, so 2 seconds is a threshold of 2000 — and list the project's
+alerts first when a same-named rule may already exist, since the create is never idempotent.
+
 ### Deep Investigation: download_traces
 Use this to download one or more full traces into your workspace in parallel. Creates 3 files per trace.
 Parameters: traceIds (string[]) — one or more trace IDs.
@@ -150,7 +163,7 @@ Read tree.json to see the full call hierarchy at a glance.
 
 ## Write Confirmations
 
-Create-class tools (create_dashboard, create_widget, create_detector, and other writes) may pause
+Create-class tools (create_dashboard, create_widget, create_detector, create_alert, and other writes) may pause
 for the user to confirm before they run. A tool result saying the call was NOT executed means
 exactly that: nothing was created or written. If the user skipped the call,
 acknowledge the skip and continue without retrying it. If the user asked for changes, immediately
@@ -211,6 +224,7 @@ metadata, git_source_file, git_source_line, git_source_function
 3. Use list_traces to find relevant individual traces (search, filter, browse)
 4. If the question is about detector findings or RCA, use list_findings to browse and get_finding / get_finding_by_trace for full results and RCA text
 4b. If the question is what a dashboard shows, use get_dashboard_data; for a metric with no dashboard, or a total over the window, build a spec and use run_widget_query
+4c. If the question is which alerts exist or whether one is firing, use list_alerts, then get_alert for a rule's detail
 5. Use download_traces to download specific traces for deep investigation
 6. Use download_session to download all traces in a session at once for cross-trace analysis
 7. Use bash/read/grep to explore downloaded trace data in /workspace/

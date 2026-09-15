@@ -1,5 +1,6 @@
 import { REGISTRY } from "@traceroot-ai/tools";
 import type {
+  AlertRow,
   CreatedRows,
   EvalPrisma,
   EvalToolCall,
@@ -83,6 +84,100 @@ export function toolResultsNamed(turns: TurnTranscript[], name: string): EvalToo
 /** A tool result as searchable text; a result with no payload reads as empty. */
 export function resultText(result: EvalToolResult): string {
   return JSON.stringify(result.result) ?? "";
+}
+
+/**
+ * Whether a reply states a latency threshold together with its unit, in
+ * threshold context: "exceeds 2,000 ms", "a threshold of 2000 ms", "above
+ * 2 seconds". A unit that merely appears somewhere in the text ("latency is
+ * measured in ms" two sentences before a bare "2000") does not count.
+ */
+export function statesThresholdWithUnit(text: string, thresholdMs: number): boolean {
+  const ms = `\\b${figurePattern(thresholdMs).source}\\s*(?:ms|milliseconds?)\\b`;
+  const seconds =
+    thresholdMs % 1000 === 0 ? `\\b${thresholdMs / 1000}\\s*(?:s|secs?|seconds?)\\b` : null;
+  const valueWithUnit = seconds === null ? `(?:${ms})` : `(?:${ms}|${seconds})`;
+  const lead =
+    "(?:threshold|exceeds?|above|over|beyond|more than|greater than|>|latency|fires?|pages?|alerts?|when|at)";
+  const trail = "(?:threshold|latency)";
+  return new RegExp(
+    `${lead}[^.\\n]{0,60}?${valueWithUnit}|${valueWithUnit}[^.\\n]{0,40}?${trail}`,
+    "i",
+  ).test(text);
+}
+
+/** The status and severity a list_alerts result reports for one alert. */
+export interface ListedAlertState {
+  status: string;
+  severity: string;
+}
+
+/**
+ * The state a clean list_alerts result reports for the alert named `name`:
+ * from the structured details the read attaches beside its text when the
+ * result carries them, otherwise from the text's own row line
+ * ("- id | name | rule | STATUS/SEVERITY | …"). Null when no clean result
+ * lists the alert. An errored result answers nothing.
+ */
+export function listedAlertState(results: EvalToolResult[], name: string): ListedAlertState | null {
+  const wanted = name.trim().toLowerCase();
+  const sameName = (value: unknown) =>
+    typeof value === "string" && value.trim().toLowerCase() === wanted;
+  for (const result of results) {
+    if (result.isError) continue;
+    const payload = result.result as { details?: unknown; content?: unknown } | string | null;
+    const details =
+      payload !== null && typeof payload === "object"
+        ? (payload.details as { alerts?: unknown })
+        : null;
+    if (details && Array.isArray(details.alerts)) {
+      for (const row of details.alerts) {
+        const alert = row as { name?: unknown; status?: unknown; severity?: unknown };
+        if (
+          sameName(alert.name) &&
+          typeof alert.status === "string" &&
+          typeof alert.severity === "string"
+        ) {
+          return { status: alert.status, severity: alert.severity };
+        }
+      }
+    }
+    const text =
+      typeof payload === "string"
+        ? payload
+        : payload !== null && typeof payload === "object" && Array.isArray(payload.content)
+          ? payload.content
+              .map((part) => String((part as { text?: unknown }).text ?? ""))
+              .join("\n")
+          : resultText(result);
+    for (const line of text.split("\n")) {
+      const cells = line
+        .replace(/^-\s*/, "")
+        .split("|")
+        .map((cell) => cell.trim());
+      const state = cells.length >= 4 ? /^([A-Z_]+)\/([A-Z_]+)$/.exec(cells[3]!) : null;
+      if (cells.length >= 4 && sameName(cells[1]) && state) {
+        return { status: state[1]!, severity: state[2]! };
+      }
+    }
+  }
+  return null;
+}
+
+/** Whether a reply says an alert is firing — and does not, in the same breath, say it is not. */
+export function saysFiring(text: string): boolean {
+  return (
+    /\b(?:is|are|currently|now|still)\s+(?:firing|alerting|breach(?:ing|ed)|in breach)\b/i.test(
+      text,
+    ) && !saysNotFiring(text)
+  );
+}
+
+/** Whether a reply says an alert is not firing, or has no state to fire from yet. */
+export function saysNotFiring(text: string): boolean {
+  return /\b(?:not|isn'?t|aren'?t|no(?:ne|thing)?|never)\b[^.]{0,40}\b(?:firing|alerting|breach)|\bunknown\b|no[- ]data|not (?:yet |been )?evaluated|never (?:been )?evaluated|hasn'?t (?:fired|been evaluated|run)/i.test(
+    text,
+  );
 }
 
 /**
@@ -280,11 +375,20 @@ export function noUnsourcedFigures(turns: TurnTranscript[]): void {
 
 /** Everything the write tools can create in a project, at one point in time. */
 export async function readProjectRows(prisma: EvalPrisma, projectId: string): Promise<ProjectRows> {
-  const [detectors, dashboards] = await Promise.all([
+  const [detectors, dashboards, alerts] = await Promise.all([
     prisma.detector.findMany({ where: { projectId } }),
     prisma.dashboard.findMany({ where: { projectId }, include: { widgets: true } }),
+    prisma.alert.findMany({ where: { projectId } }),
   ]);
-  return { detectors, dashboards };
+  return { detectors, dashboards, alerts };
+}
+
+/**
+ * A stored alert's threshold as a number. The column is a Decimal, which
+ * Prisma hands back as its own object; its string form is the exact value.
+ */
+export function alertThreshold(row: AlertRow): number {
+  return Number(String(row.threshold));
 }
 
 /**
@@ -299,6 +403,7 @@ export function newRows(before: ProjectRows, after: ProjectRows): CreatedRows {
   const widgetIds = new Set(
     before.dashboards.flatMap((dashboard) => dashboard.widgets.map((widget) => widget.id)),
   );
+  const alertIds = new Set(before.alerts.map((row) => row.id));
 
   return {
     detectors: after.detectors.filter((row) => !detectorIds.has(row.id)),
@@ -306,6 +411,7 @@ export function newRows(before: ProjectRows, after: ProjectRows): CreatedRows {
     widgets: after.dashboards
       .flatMap((dashboard) => dashboard.widgets)
       .filter((widget) => !widgetIds.has(widget.id)),
+    alerts: after.alerts.filter((row) => !alertIds.has(row.id)),
   };
 }
 

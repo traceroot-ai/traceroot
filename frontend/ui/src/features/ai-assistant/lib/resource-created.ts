@@ -16,6 +16,8 @@ export interface ResourceCreatedDetails {
   projectId?: string;
   workspaceId?: string;
   dashboardId?: string;
+  /** A created alert's evaluation state, as the write route returned it. */
+  alertState?: unknown;
 }
 
 /**

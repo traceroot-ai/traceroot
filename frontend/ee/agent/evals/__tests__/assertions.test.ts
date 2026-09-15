@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EvalAssertionError,
   WRITE_TOOL_NAMES,
+  alertThreshold,
   assistantText,
   dateMentionPattern,
   expectNoWrites,
@@ -19,8 +20,23 @@ import {
   toolResultsNamed,
   noUnsourcedFigures,
   writeToolCalls,
+  listedAlertState,
+  saysFiring,
+  saysNotFiring,
+  statesThresholdWithUnit,
 } from "../assertions.js";
-import type { EvalPrisma, ProjectRows, TurnTranscript } from "../types.js";
+import type { AlertRow, EvalPrisma, ProjectRows, TurnTranscript } from "../types.js";
+
+const alertRow = (overrides: Partial<AlertRow> = {}): AlertRow => ({
+  id: "al-1",
+  name: "Latency",
+  measure: "latency",
+  aggregation: "p95",
+  window: "10m",
+  thresholdOperator: ">",
+  threshold: 2000,
+  ...overrides,
+});
 
 function turn(overrides: Partial<TurnTranscript> = {}): TurnTranscript {
   return {
@@ -132,21 +148,33 @@ describe("assistantText", () => {
 });
 
 describe("readProjectRows", () => {
-  it("reads detectors and dashboards-with-widgets for the project", async () => {
+  it("reads detectors, dashboards-with-widgets and alerts for the project", async () => {
     const prisma = {
       detector: { findMany: vi.fn().mockResolvedValue([{ id: "d-1" }]) },
       dashboard: { findMany: vi.fn().mockResolvedValue([{ id: "db-1", widgets: [] }]) },
+      alert: { findMany: vi.fn().mockResolvedValue([{ id: "al-1" }]) },
     } as unknown as EvalPrisma;
 
     const rows = await readProjectRows(prisma, "proj-1");
 
     expect(rows.detectors).toEqual([{ id: "d-1" }]);
     expect(rows.dashboards).toEqual([{ id: "db-1", widgets: [] }]);
+    expect(rows.alerts).toEqual([{ id: "al-1" }]);
     expect(prisma.detector.findMany).toHaveBeenCalledWith({ where: { projectId: "proj-1" } });
     expect(prisma.dashboard.findMany).toHaveBeenCalledWith({
       where: { projectId: "proj-1" },
       include: { widgets: true },
     });
+    expect(prisma.alert.findMany).toHaveBeenCalledWith({ where: { projectId: "proj-1" } });
+  });
+});
+
+describe("alertThreshold", () => {
+  it("reads a Decimal-like threshold through its string form, and a plain number as itself", () => {
+    const decimal = { toString: () => "2000.000000000000000000000000000000" };
+    expect(alertThreshold(alertRow({ threshold: decimal }))).toBe(2000);
+    expect(alertThreshold(alertRow({ threshold: 0.5 }))).toBe(0.5);
+    expect(alertThreshold(alertRow({ threshold: "5" }))).toBe(5);
   });
 });
 
@@ -161,6 +189,7 @@ describe("newRows", () => {
         widgets: [{ id: "w-1", dashboardId: "db-1", title: "old", type: "query", spec: {} }],
       },
     ],
+    alerts: [alertRow({ id: "al-1", name: "old" })],
   };
 
   it("returns only rows absent from the earlier read", () => {
@@ -170,17 +199,20 @@ describe("newRows", () => {
         { id: "d-2", name: "new", template: "failure", prompt: "p" },
       ],
       dashboards: [...before.dashboards, { id: "db-2", name: "Latency", layout: [], widgets: [] }],
+      alerts: [...before.alerts, alertRow({ id: "al-2", name: "new" })],
     };
 
     const created = newRows(before, after);
     expect(created.detectors.map((d) => d.id)).toEqual(["d-2"]);
     expect(created.dashboards.map((d) => d.id)).toEqual(["db-2"]);
     expect(created.widgets).toEqual([]);
+    expect(created.alerts.map((a) => a.id)).toEqual(["al-2"]);
   });
 
   it("detects a widget added to a dashboard that already existed", () => {
     const after: ProjectRows = {
       detectors: before.detectors,
+      alerts: before.alerts,
       dashboards: [
         {
           ...before.dashboards[0]!,
@@ -197,7 +229,7 @@ describe("newRows", () => {
 
   it("returns nothing when the project is unchanged", () => {
     const created = newRows(before, before);
-    expect(created).toEqual({ detectors: [], dashboards: [], widgets: [] });
+    expect(created).toEqual({ detectors: [], dashboards: [], widgets: [], alerts: [] });
   });
 });
 
@@ -427,6 +459,7 @@ describe("WRITE_TOOL_NAMES", () => {
     expect(WRITE_TOOL_NAMES.has("create_dashboard")).toBe(true);
     expect(WRITE_TOOL_NAMES.has("create_widget")).toBe(true);
     expect(WRITE_TOOL_NAMES.has("create_detector")).toBe(true);
+    expect(WRITE_TOOL_NAMES.has("create_alert")).toBe(true);
   });
 
   it("excludes the query tool, a POST that only reads", () => {
@@ -512,6 +545,94 @@ describe("toolResultsNamed and resultText", () => {
 
   it("renders a payload-less result as an empty string", () => {
     expect(resultText(result("run_widget_query", undefined))).toBe("");
+  });
+});
+
+describe("statesThresholdWithUnit", () => {
+  it("accepts the value and its unit together in threshold context, in ms or seconds", () => {
+    for (const text of [
+      "It pages when p95 latency over 10 minutes exceeds 2,000 ms.",
+      "Created the alert with a threshold of 2000 ms.",
+      "Done — the alert fires when p95 latency exceeds 2 seconds.",
+      "2,000 ms is the threshold; it renotifies every hour.",
+    ]) {
+      expect(statesThresholdWithUnit(text, 2000), text).toBe(true);
+    }
+  });
+
+  it("rejects a bare figure even when the unit appears elsewhere in the reply", () => {
+    for (const text of [
+      "Created the alert with a threshold of 2000.",
+      "Latency is measured in ms. Created the alert with a threshold of 2000.",
+      "The p95 latency alert is set at 2000; the window is 10 minutes.",
+      "Threshold: 2 (the measure's unit is ms).",
+    ]) {
+      expect(statesThresholdWithUnit(text, 2000), text).toBe(false);
+    }
+  });
+
+  it("offers the seconds spelling only for a whole number of seconds", () => {
+    expect(statesThresholdWithUnit("fires above 1.5 seconds", 1500)).toBe(false);
+    expect(statesThresholdWithUnit("fires above 1,500 ms", 1500)).toBe(true);
+  });
+});
+
+describe("listedAlertState", () => {
+  const result = (payload: unknown, isError = false) => ({
+    toolCallId: "tc-1",
+    name: "list_alerts",
+    isError,
+    result: payload,
+  });
+  const LINE =
+    "Found 1 alerts:\n- al-7 | Cost watch | sum(cost) over 1h > 5 | ACTIVE/ALERT | evaluated 2026-09-11T14:48:00Z | by eval@example.com";
+
+  it("reads the state from the structured details when the result carries them", () => {
+    const payload = {
+      content: [{ type: "text", text: LINE }],
+      details: {
+        kind: "alert_list",
+        alerts: [{ id: "al-7", name: "Cost watch", status: "PAUSED", severity: "OK" }],
+      },
+    };
+    expect(listedAlertState([result(payload)], "cost watch")).toEqual({
+      status: "PAUSED",
+      severity: "OK",
+    });
+  });
+
+  it("falls back to the text's row line, as a string or as content parts", () => {
+    expect(listedAlertState([result(LINE)], "Cost watch")).toEqual({
+      status: "ACTIVE",
+      severity: "ALERT",
+    });
+    expect(
+      listedAlertState([result({ content: [{ type: "text", text: LINE }] })], "Cost watch"),
+    ).toEqual({ status: "ACTIVE", severity: "ALERT" });
+  });
+
+  it("answers null for an errored result, another alert's row, or no rows at all", () => {
+    expect(listedAlertState([result(LINE, true)], "Cost watch")).toBeNull();
+    expect(listedAlertState([result(LINE)], "Spend")).toBeNull();
+    expect(listedAlertState([result("No alerts found in this project.")], "Cost watch")).toBeNull();
+  });
+});
+
+describe("saysFiring and saysNotFiring", () => {
+  it("tells a firing report from a not-firing one, including negations near the word", () => {
+    expect(saysFiring("Cost watch is currently firing: cost is above 5.")).toBe(true);
+    expect(saysFiring("Cost watch is now alerting.")).toBe(true);
+    expect(saysNotFiring("Cost watch is now alerting.")).toBe(false);
+    expect(saysFiring("It is active but has never been evaluated, so it is not firing.")).toBe(
+      false,
+    );
+    expect(saysNotFiring("It is active but has never been evaluated, so it is not firing.")).toBe(
+      true,
+    );
+    expect(
+      saysNotFiring("One alert, Cost watch: active, currently no data in its 1h window."),
+    ).toBe(true);
+    expect(saysNotFiring("You have 1 alert: Cost watch, on cost over 1h above 5.")).toBe(false);
   });
 });
 
