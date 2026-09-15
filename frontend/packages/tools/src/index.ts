@@ -14,4 +14,4 @@ export {
   type PiToolResultContent,
   type ToPiAgentToolOptions,
 } from "./pi.js";
-export { INTERNAL_BINDINGS } from "./internal.js";
+export { INTERNAL_BINDINGS, INTERNAL_WRITE_BINDINGS } from "./internal.js";

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiClient } from "../client.js";
-import { INTERNAL_BINDINGS } from "../internal.js";
+import { INTERNAL_BINDINGS, INTERNAL_WRITE_BINDINGS } from "../internal.js";
 import { toPiAgentTool } from "../pi.js";
 import type { RegistryEntry } from "../types.js";
 
@@ -184,8 +184,119 @@ describe("INTERNAL_BINDINGS", () => {
       get_finding_by_trace: "/api/v1/projects/{project_id}/detectors/traces/{trace_id}/finding",
       list_dashboards: "/api/v1/internal/projects/{project_id}/dashboards",
       get_dashboard: "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}",
+      get_dashboard_data: "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}/data",
+      run_widget_query: "/api/v1/projects/{project_id}/widgets/query",
       list_alerts: "/api/v1/internal/projects/{project_id}/alerts",
       get_alert: "/api/v1/internal/projects/{project_id}/alerts/{alert_id}",
     });
+  });
+});
+
+describe("INTERNAL_WRITE_BINDINGS", () => {
+  it("covers exactly the agent's current write set with flat trusted-caller routes", () => {
+    expect(INTERNAL_WRITE_BINDINGS).toEqual({
+      create_detector: "/api/internal/write/detectors",
+      create_dashboard: "/api/internal/write/dashboards",
+      create_widget: "/api/internal/write/widgets",
+    });
+  });
+});
+
+describe("toPiAgentTool defaults", () => {
+  const queryEntry: RegistryEntry = {
+    name: "run_widget_query",
+    description: "Run a widget query.",
+    method: "post",
+    path: "/api/v1/public/widgets/query",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string" },
+        spec: { type: "object" },
+        range: { type: "string", enum: ["1d", "7d"] },
+      },
+      required: ["spec"],
+      additionalProperties: false,
+    },
+    bodyParams: ["spec", "range"],
+    policy: { approvalClass: "none", minRole: "VIEWER", tenancy: "project" },
+  };
+
+  function toolWith(defaults: () => Record<string, unknown>) {
+    const fetch = fakeFetch(200, { ok: true });
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl: fetch });
+    const tool = toPiAgentTool(queryEntry, {
+      client,
+      pathOverride: "/api/v1/projects/{project_id}/widgets/query",
+      fixedArgs: { project_id: "p1" },
+      defaults,
+    });
+    return { tool, fetch };
+  }
+
+  async function bodySent(fetch: ReturnType<typeof fakeFetch>) {
+    const init = fetch.mock.calls[0][1] as RequestInit;
+    return JSON.parse(init.body as string) as Record<string, unknown>;
+  }
+
+  it("fills a param the model omitted from the per-call defaults", async () => {
+    // The page's selected range travels with the message; when the model
+    // says nothing about a window, the query runs for that range.
+    const { tool, fetch } = toolWith(() => ({ range: "7d" }));
+    await tool.execute("c1", { label: "q", spec: { view: "spans" } });
+    expect(await bodySent(fetch)).toEqual({ spec: { view: "spans" }, range: "7d" });
+  });
+
+  it("keeps the model's value when it names one", async () => {
+    // "last day" in the message beats the page's picker: the user asked.
+    const { tool, fetch } = toolWith(() => ({ range: "7d" }));
+    await tool.execute("c1", { label: "q", spec: { view: "spans" }, range: "1d" });
+    expect((await bodySent(fetch)).range).toBe("1d");
+  });
+
+  it("reads the defaults at call time, not when the tool was built", async () => {
+    // Tools are built once per session; the window changes per message.
+    let current = "1d";
+    const { tool, fetch } = toolWith(() => ({ range: current }));
+    current = "30d";
+    await tool.execute("c1", { label: "q", spec: { view: "spans" } });
+    expect((await bodySent(fetch)).range).toBe("30d");
+  });
+
+  it("reports a throwing defaults callback as tool-result text, like any failure", async () => {
+    const { tool, fetch } = toolWith(() => {
+      throw new Error("no window for this message");
+    });
+    const result = await tool.execute("c1", { label: "q", spec: { view: "spans" } });
+    expect(result.content[0]).toEqual({
+      type: "text",
+      text: "Error calling run_widget_query: no window for this message",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("hands the model's args to the defaults function so it can stand down", async () => {
+    const seen: unknown[] = [];
+    const { tool, fetch } = toolWith((supplied) => {
+      seen.push(supplied);
+      return "range" in supplied ? {} : { range: "7d" };
+    });
+    await tool.execute("c1", { label: "q", spec: { view: "spans" }, range: "1d" });
+    expect(seen).toEqual([{ spec: { view: "spans" }, range: "1d" }]);
+    expect((await bodySent(fetch)).range).toBe("1d");
+  });
+
+  it("lets a surface replace the entry's description with the truth that applies to it", () => {
+    const fetch = fakeFetch(200, {});
+    const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl: fetch });
+    const tool = toPiAgentTool(queryEntry, { client, description: "Page-window edition." });
+    expect(tool.description).toBe("Page-window edition.");
+    expect(toPiAgentTool(queryEntry, { client }).description).toBe("Run a widget query.");
+  });
+
+  it("leaves the schema alone: a defaulted param stays visible and optional", () => {
+    const { tool } = toolWith(() => ({ range: "7d" }));
+    expect(tool.parameters.properties.range).toEqual({ type: "string", enum: ["1d", "7d"] });
+    expect(tool.parameters.required).toEqual(["label", "spec"]);
   });
 });

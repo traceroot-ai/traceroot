@@ -180,6 +180,38 @@ def test_create_detector_omits_absent_optionals():
     }
 
 
+def test_create_detector_request_accepts_a_body_without_prompt():
+    """prompt is optional at the schema level; the write service owns the
+    standard-template-or-400 rule."""
+    from rest.schemas.public_write import CreateDetectorRequest
+
+    req = CreateDetectorRequest(project_id="proj-1", name="D", template="failure")
+    assert req.prompt is None
+
+
+@respx.mock
+def test_create_detector_omits_absent_prompt():
+    """A promptless body crosses without a prompt key, so the write service
+    can fill the canonical template instructions."""
+    _mock_account_auth()
+    write = _mock_write(DETECTOR_WRITE_URL, {"created": True, "detector": DETECTOR_ROW})
+
+    resp = _client().post(
+        "/api/v1/public/detectors",
+        json={"project_id": "proj-1", "name": "Latency spikes", "template": "failure"},
+        headers=USER_HEADER,
+    )
+
+    assert resp.status_code == 200
+    assert json.loads(write.calls.last.request.content) == {
+        "actorUserId": "u1",
+        "projectId": "proj-1",
+        "name": "Latency spikes",
+        "template": "failure",
+        "transport": "public-api",
+    }
+
+
 @respx.mock
 def test_create_detector_forwards_the_service_role_message():
     """The write service's own 403 string is the public detail, verbatim."""
@@ -317,6 +349,34 @@ def test_create_dashboard_rejects_api_key_with_403():
 
 # ── widget ──────────────────────────────────────────────────────────────
 
+# Canonical query-dialect spec (mirrors WidgetSpecSchema in
+# frontend/ui/src/features/dashboards/types.ts).
+QUERY_SPEC = {
+    "view": "traces",
+    "filters": [{"field": "model_name", "op": "=", "value": "model-a"}],
+    "metric": {"measure": "count", "agg": "count"},
+    "breakdown": None,
+    "display": {"type": "number"},
+}
+
+# Canonical trace_feed-dialect spec (the trace-list predicate wire format the
+# dashboard seed produces).
+FEED_SPEC = {"filters": [{"field": "errors", "op": "gt", "value": 0}], "limit": 10}
+
+
+def _post_widget(spec, type_="query", title="Cost"):
+    return _client().post(
+        "/api/v1/public/widgets",
+        json={
+            "project_id": "proj-1",
+            "dashboard_id": "dash-1",
+            "title": title,
+            "type": type_,
+            "spec": spec,
+        },
+        headers=USER_HEADER,
+    )
+
 
 @respx.mock
 def test_create_widget_translates_display_config():
@@ -332,7 +392,7 @@ def test_create_widget_translates_display_config():
             "dashboard_id": "dash-1",
             "title": "Cost",
             "type": "query",
-            "spec": {"measure": "cost"},
+            "spec": QUERY_SPEC,
             "display_config": {"chart": "line"},
         },
         headers=USER_HEADER,
@@ -352,7 +412,7 @@ def test_create_widget_translates_display_config():
         "dashboardId": "dash-1",
         "title": "Cost",
         "type": "query",
-        "spec": {"measure": "cost"},
+        "spec": QUERY_SPEC,
         "displayConfig": {"chart": "line"},
         "transport": "public-api",
     }
@@ -363,17 +423,7 @@ def test_create_widget_omits_absent_display_config():
     _mock_account_auth()
     write = _mock_write(WIDGET_WRITE_URL, {"created": True, "widget": WIDGET_ROW})
 
-    resp = _client().post(
-        "/api/v1/public/widgets",
-        json={
-            "project_id": "proj-1",
-            "dashboard_id": "dash-1",
-            "title": "Cost",
-            "type": "query",
-            "spec": {"measure": "cost"},
-        },
-        headers=USER_HEADER,
-    )
+    resp = _post_widget(QUERY_SPEC)
 
     assert resp.status_code == 200
     assert json.loads(write.calls.last.request.content) == {
@@ -382,9 +432,101 @@ def test_create_widget_omits_absent_display_config():
         "dashboardId": "dash-1",
         "title": "Cost",
         "type": "query",
-        "spec": {"measure": "cost"},
+        "spec": QUERY_SPEC,
         "transport": "public-api",
     }
+
+
+@respx.mock
+def test_create_widget_spec_forwards_only_provided_fields():
+    """Optional spec fields the caller left out stay out of the forwarded body
+    (the write service fills its own defaults), so what the caller sent is
+    exactly what the service validates."""
+    _mock_account_auth()
+    write = _mock_write(WIDGET_WRITE_URL, {"created": True, "widget": WIDGET_ROW})
+
+    spec = {
+        "view": "spans",
+        "metric": {"measure": "duration_ms", "agg": "p95"},
+        "display": {"type": "line"},
+    }
+    resp = _post_widget(spec)
+
+    assert resp.status_code == 200
+    assert json.loads(write.calls.last.request.content)["spec"] == spec
+
+
+@respx.mock
+def test_create_widget_accepts_trace_feed_spec():
+    """The seed-shaped trace_feed spec passes validation and forwards verbatim."""
+    _mock_account_auth()
+    write = _mock_write(WIDGET_WRITE_URL, {"created": True, "widget": WIDGET_ROW})
+
+    resp = _post_widget(FEED_SPEC, type_="trace_feed")
+
+    assert resp.status_code == 200
+    assert json.loads(write.calls.last.request.content)["spec"] == FEED_SPEC
+
+
+@respx.mock
+def test_create_widget_rejects_hallucinated_spec_shape():
+    """A spec in neither dialect fails pydantic validation (422) before any
+    internal call — the model/CLI sees the real contract, not a render-time error."""
+    _mock_account_auth()
+    write = _mock_write(WIDGET_WRITE_URL, {"created": True, "widget": WIDGET_ROW})
+
+    resp = _post_widget(
+        {
+            "metric": "input_tokens",
+            "source": "observations",
+            "group_by": "model",
+            "aggregation": "sum",
+        }
+    )
+
+    assert resp.status_code == 422
+    assert write.call_count == 0
+
+
+@respx.mock
+def test_create_widget_rejects_query_spec_under_trace_feed_type():
+    """A well-formed spec of the WRONG dialect is a validation error naming the
+    expected dialect."""
+    _mock_account_auth()
+    write = _mock_write(WIDGET_WRITE_URL, {"created": True, "widget": WIDGET_ROW})
+
+    resp = _post_widget(QUERY_SPEC, type_="trace_feed")
+
+    assert resp.status_code == 422
+    assert "TraceFeedSpec" in json.dumps(resp.json())
+    assert write.call_count == 0
+
+
+@respx.mock
+def test_create_widget_rejects_trace_feed_spec_under_query_type():
+    _mock_account_auth()
+    write = _mock_write(WIDGET_WRITE_URL, {"created": True, "widget": WIDGET_ROW})
+
+    resp = _post_widget(FEED_SPEC, type_="query")
+
+    assert resp.status_code == 422
+    assert "WidgetSpec" in json.dumps(resp.json())
+    assert write.call_count == 0
+
+
+@respx.mock
+def test_create_widget_unknown_type_forwards_for_service_message():
+    """The type whitelist itself stays with the write service (canonical
+    message); an unknown type with a parseable spec passes through."""
+    _mock_account_auth()
+    _mock_write(
+        WIDGET_WRITE_URL, {"error": 'type must be "query" or "trace_feed"'}, status_code=400
+    )
+
+    resp = _post_widget(FEED_SPEC, type_="chart")
+
+    assert resp.status_code == 400
+    assert resp.json() == {"detail": 'type must be "query" or "trace_feed"'}
 
 
 def test_create_widget_requires_authorization():
@@ -396,7 +538,7 @@ def test_create_widget_requires_authorization():
             "dashboard_id": "dash-1",
             "title": "Cost",
             "type": "query",
-            "spec": {},
+            "spec": QUERY_SPEC,
         },
     )
     assert resp.status_code == 401
@@ -408,17 +550,7 @@ def test_create_widget_forwards_upstream_400_message():
     _mock_account_auth()
     _mock_write(WIDGET_WRITE_URL, {"error": "title is required"}, status_code=400)
 
-    resp = _client().post(
-        "/api/v1/public/widgets",
-        json={
-            "project_id": "proj-1",
-            "dashboard_id": "dash-1",
-            "title": " ",
-            "type": "query",
-            "spec": {},
-        },
-        headers=USER_HEADER,
-    )
+    resp = _post_widget(QUERY_SPEC, title=" ")
 
     assert resp.status_code == 400
     assert resp.json() == {"detail": "title is required"}
@@ -686,7 +818,11 @@ _OVERSIZED_BODIES = [
             "dashboard_id": "dash-1",
             "title": "Cost",
             "type": "query",
-            "spec": {"blob": _OVERSIZED_BLOB},
+            # The spec is typed, so the only way past the cap is a huge value.
+            "spec": {
+                **QUERY_SPEC,
+                "filters": [{"field": "model_name", "op": "=", "value": _OVERSIZED_BLOB}],
+            },
         },
     ),
     (
@@ -696,7 +832,7 @@ _OVERSIZED_BODIES = [
             "dashboard_id": "dash-1",
             "title": "Cost",
             "type": "query",
-            "spec": {},
+            "spec": QUERY_SPEC,
             "display_config": {"blob": _OVERSIZED_BLOB},
         },
     ),
@@ -760,7 +896,10 @@ def test_json_payload_field_at_the_cap_is_accepted():
             "dashboard_id": "dash-1",
             "title": "Cost",
             "type": "query",
-            "spec": {"blob": "x" * (32 * 1024 - 100)},
+            "spec": {
+                **QUERY_SPEC,
+                "filters": [{"field": "model_name", "op": "=", "value": "x" * (32 * 1024 - 200)}],
+            },
         },
         headers=USER_HEADER,
     )

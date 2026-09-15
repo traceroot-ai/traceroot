@@ -42,6 +42,7 @@ from rest.routers.public.sessions_read import router as public_sessions_read_rou
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.public.traces_read import router as public_traces_read_router
 from rest.routers.public.whoami import router as public_whoami_router
+from rest.routers.public.widgets_query import router as public_widgets_query_router
 from rest.routers.sessions import router as sessions_router
 from rest.routers.traces import router as traces_router
 from rest.routers.users import router as users_router
@@ -125,6 +126,7 @@ app.include_router(public_traces_read_router, prefix="/api/v1")
 app.include_router(public_sessions_read_router, prefix="/api/v1")
 app.include_router(public_detectors_read_router, prefix="/api/v1")
 app.include_router(public_dashboards_read_router, prefix="/api/v1")
+app.include_router(public_widgets_query_router, prefix="/api/v1")
 app.include_router(public_alerts_read_router, prefix="/api/v1")
 
 # Public offline-eval API (dataset authoring + run reporting). Thin authenticated

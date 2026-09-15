@@ -45,6 +45,44 @@ describe("mapDbMessages", () => {
     expect(msg.toolStep?.isError).toBe(true);
   });
 
+  it("labels a persisted declined step from its proposal_declined details", () => {
+    const [skippedMsg, revisedMsg] = mapDbMessages([
+      {
+        ...base,
+        id: "row1",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t1",
+          toolName: "create_widget",
+          args: {},
+          result: { content: [], details: { kind: "proposal_declined", outcome: "skipped" } },
+          isError: true,
+        },
+      },
+      {
+        ...base,
+        id: "row2",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t2",
+          toolName: "create_widget",
+          args: {},
+          result: {
+            content: [],
+            details: { kind: "proposal_declined", outcome: "revised", text: "use p95" },
+          },
+          isError: true,
+        },
+      },
+    ]);
+    expect(skippedMsg.toolStep?.skipped).toBe(true);
+    expect(skippedMsg.toolStep?.revisedText).toBeUndefined();
+    expect(revisedMsg.toolStep?.revisedText).toBe("use p95");
+    expect(revisedMsg.toolStep?.skipped).toBeFalsy();
+  });
+
   it("tolerates a tool_step row with missing metadata", () => {
     const [msg] = mapDbMessages([
       { ...base, id: "row1", role: "tool_step", content: "", metadata: null },
@@ -193,6 +231,38 @@ describe("mapDbMessages", () => {
     ]);
     expect(msgs).toHaveLength(2);
     expect(msgs[1].inputTokens).toBe(5);
+  });
+
+  it("renders a persisted run error as an error bubble like the live stream", () => {
+    const [msg] = mapDbMessages([
+      { ...base, id: "a1", role: "assistant", content: "", metadata: { runError: "boom" } },
+    ]);
+    expect(msg.role).toBe("assistant");
+    expect(msg.content).toBe("Error: boom");
+  });
+
+  it("appends the run error after partial text the run produced before failing", () => {
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "a1",
+        role: "assistant",
+        content: "partial answer",
+        metadata: { runError: "boom" },
+      },
+    ]);
+    expect(msg.content).toBe("partial answer\n\nError: boom");
+  });
+
+  it("never folds a content-less error row into the previous assistant bubble", () => {
+    const msgs = mapDbMessages([
+      { ...base, id: "u1", role: "user", content: "go" },
+      { ...base, id: "a1", role: "assistant", content: "Checking." },
+      { ...base, id: "a2", role: "assistant", content: "", metadata: { runError: "boom" } },
+    ]);
+    expect(msgs.map((m) => m.id)).toEqual(["u1", "a1", "a2"]);
+    expect(msgs[1].content).toBe("Checking.");
+    expect(msgs[2].content).toBe("Error: boom");
   });
 
   it("maps plain user/assistant rows and preserves order", () => {

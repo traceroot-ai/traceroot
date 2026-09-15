@@ -25,6 +25,7 @@ describe("committed registry", () => {
       "export_trace",
       "get_alert",
       "get_dashboard",
+      "get_dashboard_data",
       "get_detector",
       "get_finding",
       "get_finding_by_trace",
@@ -39,6 +40,7 @@ describe("committed registry", () => {
       "list_trace_filter_values",
       "list_traces",
       "list_workspaces",
+      "run_widget_query",
       "whoami",
     ]);
   });
@@ -67,7 +69,11 @@ describe("committed registry", () => {
     const create = REGISTRY.find((entry) => entry.name === "create_alert")!;
     expect(create.method).toBe("post");
     expect(create.path).toBe("/api/v1/public/alerts");
-    expect(create.policy).toEqual({ approvalClass: "none", minRole: "MEMBER", tenancy: "project" });
+    expect(create.policy).toEqual({
+      approvalClass: "confirm",
+      minRole: "MEMBER",
+      tenancy: "project",
+    });
     expect(create.bodyParams).toEqual([
       "aggregation",
       "filters",

@@ -3,6 +3,7 @@
 import {
   Children,
   isValidElement,
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -18,6 +19,14 @@ import { ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AIMessage, ToolCallStep } from "../types";
 import { PANEL_MAX_WIDTH } from "../constants";
+import {
+  createdWidgetsByDashboard,
+  pendingCardModel,
+  resourceCardModel,
+  suppressedWidgetStepIds,
+} from "../lib/resource-card";
+import { ResourceCard } from "./resource-card";
+import { PendingResourceCard } from "./pending-resource-card";
 
 // ---------------------------------------------------------------------------
 // Lightweight markdown normalization for streamed, partial content.
@@ -321,6 +330,15 @@ function formatToolName(name: string): string {
   return name.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
+/** Cap the revision text shown on the tool line; the full text stays in the result. */
+const REVISED_NOTE_MAX_CHARS = 80;
+
+function revisedNote(text: string): string {
+  const trimmed =
+    text.length > REVISED_NOTE_MAX_CHARS ? `${text.slice(0, REVISED_NOTE_MAX_CHARS)}…` : text;
+  return `revised — ${trimmed}`;
+}
+
 function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolean }) {
   const [isOpen, setIsOpen] = useState(isActive);
 
@@ -343,13 +361,33 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
         onClick={() => setIsOpen((v) => !v)}
         className="flex w-full cursor-pointer select-none items-center gap-1.5 rounded px-1 py-0.5 hover:bg-muted/50"
       >
-        {step.status === "running" && (
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground/60" />
+        {/* A declined call (skipped or revised) was not broken — its line stays muted. */}
+        {step.skipped || step.revisedText !== undefined ? (
+          <XCircle className="h-3 w-3 shrink-0 text-muted-foreground/50" />
+        ) : (
+          <>
+            {step.status === "running" && (
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground/60" />
+            )}
+            {step.status === "done" && (
+              <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />
+            )}
+            {step.status === "error" && (
+              <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />
+            )}
+          </>
         )}
-        {step.status === "done" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />}
-        {step.status === "error" && <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />}
         <span className="italic text-muted-foreground/80">{formatToolName(step.toolName)}</span>
         <span className="font-mono text-[10px] text-muted-foreground/40">({step.toolName})</span>
+        {step.skipped ? (
+          <span className="text-muted-foreground/60">skipped</span>
+        ) : (
+          step.revisedText !== undefined && (
+            <span className="min-w-0 flex-1 truncate text-left text-muted-foreground/60">
+              {revisedNote(step.revisedText)}
+            </span>
+          )
+        )}
         <ChevronRight
           className={cn(
             "ml-auto h-3 w-3 shrink-0 text-muted-foreground/30 transition-transform duration-200",
@@ -376,10 +414,18 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
                 <p
                   className={cn(
                     "mb-0.5",
-                    step.isError ? "text-destructive/70" : "text-muted-foreground/50",
+                    step.isError && !step.skipped && step.revisedText === undefined
+                      ? "text-destructive/70"
+                      : "text-muted-foreground/50",
                   )}
                 >
-                  {step.isError ? "Error" : "Result"}
+                  {step.skipped
+                    ? "Skipped"
+                    : step.revisedText !== undefined
+                      ? "Revised"
+                      : step.isError
+                        ? "Error"
+                        : "Result"}
                 </p>
                 <pre className="max-h-[200px] overflow-auto rounded bg-background/70 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-foreground/60">
                   {resultStr}
@@ -391,6 +437,94 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
       </div>
     </div>
   );
+}
+
+/**
+ * One tool-step row of the transcript, with the card model derived inside so
+ * it lives behind this memo boundary. Streamed text deltas rebuild the
+ * messages array many times a second, but every prop here is stable across a
+ * delta-only update (the step objects survive by identity, and the derived
+ * maps are pinned by useStableToolSteps) — so neither the model derivation
+ * nor the preview subtrees rerun per delta.
+ */
+const ToolStepEntry = memo(function ToolStepEntry({
+  step,
+  suppressed,
+  widgetsByDashboard,
+  projectId,
+  retentionDays,
+  isActive,
+  bubbleMaxWidth,
+}: {
+  step: ToolCallStep;
+  /** True when this widget's card would duplicate the preview of a CREATED
+   *  dashboard's card above it (a reused dashboard draws none). */
+  suppressed: boolean;
+  widgetsByDashboard: ReadonlyMap<string, readonly ToolCallStep[]>;
+  projectId?: string;
+  /** The plan's retention window, which clamps every card's charted range.
+   *  Undefined while the plan is still resolving — nothing is clamped then. */
+  retentionDays?: number | null;
+  isActive: boolean;
+  bubbleMaxWidth: string;
+}) {
+  // A parked write shows the card BEFORE the resource exists, marked
+  // proposed; the decision itself is taken at the composer (create/skip
+  // buttons there, or a typed reply that revises). The tool result (or a
+  // posted decision) clears `pending` and the step falls through to the
+  // receipt flow.
+  const pendingCard = useMemo(
+    () => (step.pending ? pendingCardModel(step, projectId, retentionDays) : null),
+    [step, projectId, retentionDays],
+  );
+  // A write that created something we can show becomes its card; every other
+  // step — and every write we can't read a resource out of, or whose card
+  // would duplicate a created dashboard's preview above it — keeps the
+  // plain expandable tool line.
+  const card = useMemo(
+    () =>
+      pendingCard !== null || suppressed
+        ? null
+        : resourceCardModel(step, widgetsByDashboard, retentionDays),
+    [pendingCard, suppressed, step, widgetsByDashboard, retentionDays],
+  );
+  return (
+    <AnimatedItem>
+      <div className="flex justify-start">
+        {/* Cards span the message column — the width text bubbles get — so
+            every card shares one edge instead of each sizing to its content. */}
+        <div
+          className={cn("min-w-0", (card !== null || pendingCard !== null) && "w-full")}
+          style={{ maxWidth: bubbleMaxWidth }}
+        >
+          {pendingCard ? (
+            <PendingResourceCard model={pendingCard} />
+          ) : card ? (
+            <ResourceCard model={card} />
+          ) : (
+            <ToolStepItem step={step} isActive={isActive} />
+          )}
+        </div>
+      </div>
+    </AnimatedItem>
+  );
+});
+
+/**
+ * The transcript's tool-step entries, identity-stable across renders that
+ * changed none of them. A streamed delta replaces the messages array on every
+ * tick while reusing each untouched tool-step object, so pinning this list to
+ * its previous identity (when its members are unchanged) lets everything
+ * derived from the tool steps — and the memoized rows above — stand still
+ * under streaming text.
+ */
+function useStableToolSteps(messages: readonly AIMessage[]): readonly AIMessage[] {
+  const prevRef = useRef<readonly AIMessage[]>([]);
+  const next = messages.filter((m) => m.role === "tool_step" && m.toolStep !== undefined);
+  const prev = prevRef.current;
+  const unchanged = prev.length === next.length && next.every((m, i) => m === prev[i]);
+  if (!unchanged) prevRef.current = next;
+  return unchanged ? prev : next;
 }
 
 function AssistantBubble({ msg, panelWidth }: { msg: AIMessage; panelWidth: number }) {
@@ -470,17 +604,46 @@ function UsageFooter({ msg }: { msg: AIMessage }) {
 interface MessageListProps {
   messages: AIMessage[];
   sessionStreaming?: boolean;
+  /** The project the panel is mounted in — a pending widget card aims its
+   *  chart preview here, the scope the proposed write would land in. */
+  projectId?: string;
+  /** The plan's retention window. It clamps the range every card charts and
+   *  labels, so a selection left in storage by a workspace that has since
+   *  downgraded is neither queried nor named. Undefined while the plan is
+   *  still resolving, and with no project to look one up by. */
+  retentionDays?: number | null;
 }
 
-export function MessageList({ messages, sessionStreaming = false }: MessageListProps) {
+export function MessageList({
+  messages,
+  sessionStreaming = false,
+  projectId,
+  retentionDays,
+}: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
   const [panelWidth, setPanelWidth] = useState(400);
   const isStreaming = messages.some((m) => m.isStreaming);
+  // Derived off the identity-stable tool-step list, not `messages`: a delta
+  // replaces the array per tick, and rebuilding these maps then would churn
+  // the memoized rows' props on every keystroke of streamed text.
+  const toolSteps = useStableToolSteps(messages);
+  // A dashboard's widget count lives nowhere in its own call — the widgets are
+  // separate calls that land after it — so it is read back off the transcript.
+  const widgetsByDashboard = useMemo(() => createdWidgetsByDashboard(toolSteps), [toolSteps]);
+  // A widget created into a CREATED (not reused) dashboard carded earlier in
+  // this transcript keeps the plain tool line: that dashboard's preview
+  // already draws it, and a second card right under the preview reads as a
+  // duplicate. A reused dashboard's card draws no preview, so its widget
+  // cards stay.
+  const suppressedWidgets = useMemo(() => suppressedWidgetStepIds(toolSteps), [toolSteps]);
   // True when the session is active but no text bubble is open - the LLM is processing
-  // a tool result before it starts writing its next response.
-  const isWaiting = sessionStreaming && !isStreaming;
+  // a tool result before it starts writing its next response. Not while a call is
+  // parked on a confirmation card: the run is alive, but it is waiting on the
+  // user, and a spinner there reads as "still generating".
+  const hasPendingDecision = toolSteps.some((m) => m.toolStep?.pending !== undefined);
+  const isWaiting = sessionStreaming && !isStreaming && !hasPendingDecision;
   const lastToolStepIdx = messages.reduce((acc, m, i) => (m.role === "tool_step" ? i : acc), -1);
   const hasTextAfterLastTool =
     lastToolStepIdx !== -1 &&
@@ -542,13 +705,16 @@ export function MessageList({ messages, sessionStreaming = false }: MessageListP
         {messages.map((msg) => {
           if (msg.role === "tool_step" && msg.toolStep) {
             return (
-              <AnimatedItem key={msg.id}>
-                <div className="flex justify-start">
-                  <div className="min-w-0" style={{ maxWidth: bubbleMaxWidth }}>
-                    <ToolStepItem step={msg.toolStep} isActive={msg.id === activeToolStepId} />
-                  </div>
-                </div>
-              </AnimatedItem>
+              <ToolStepEntry
+                key={msg.id}
+                step={msg.toolStep}
+                suppressed={suppressedWidgets.has(msg.id)}
+                widgetsByDashboard={widgetsByDashboard}
+                projectId={projectId}
+                retentionDays={retentionDays}
+                isActive={msg.id === activeToolStepId}
+                bubbleMaxWidth={bubbleMaxWidth}
+              />
             );
           }
           return (
