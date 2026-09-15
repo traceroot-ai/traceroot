@@ -21,6 +21,10 @@ const VALID_ROW: AlertRowLike = {
   severity: "ALERT",
   severityChangedAt: CHANGED_AT,
   alertedAt: ALERTED_AT,
+  lastNotifyStatus: "FAILED",
+  lastNotifyError: "no-channel",
+  lastNotifyAt: ALERTED_AT,
+  slackUpdatedAt: null,
 };
 
 const rowWith = (overrides: Partial<AlertRowLike>): AlertRowLike => ({
@@ -32,12 +36,19 @@ const filtersOf = (value: unknown): unknown =>
   parseAlertRule(rowWith({ filters: [{ field: "status", op: "=", value }] }));
 
 describe("parseAlertRule — a well-formed row", () => {
-  it("returns the rule with every column carried through, the three state ones nested", () => {
-    const { severity, severityChangedAt, alertedAt, ...columns } = VALID_ROW;
+  it("returns the rule with every column carried through, the state and delivery ones nested", () => {
+    const { severity, severityChangedAt, alertedAt, ...rest } = VALID_ROW;
+    const { lastNotifyStatus, lastNotifyError, lastNotifyAt, slackUpdatedAt, ...columns } = rest;
 
     expect(parseAlertRule(VALID_ROW)).toEqual({
       ...columns,
       state: { severity, severityChangedAt, alertedAt },
+      lastDelivery: {
+        status: lastNotifyStatus,
+        error: lastNotifyError,
+        at: lastNotifyAt,
+        slackUpdatedAt,
+      },
     });
   });
 
