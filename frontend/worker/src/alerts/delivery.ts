@@ -25,7 +25,7 @@ const FAILED = "FAILED";
  * same wall.
  *
  * - the failure is about the emission still standing: recorded after it was stamped,
- *   and the severity it announced is the one this evaluation read again;
+ *   the rule has held that emission's severity since, and this evaluation read it again;
  * - Slack's settings moved after that failure was recorded.
  */
 export function isAwaitingSlackRetry(rule: AlertRule, severity: AlertSeverity): boolean {
@@ -36,6 +36,12 @@ export function isAwaitingSlackRetry(rule: AlertRule, severity: AlertSeverity): 
   }
   if (state.alertedAt === null || lastDelivery.at === null) return false;
   if (severity !== state.severity) return false;
+  // `alertedAt` outlives a silent move into NO_DATA, so a severity entered after the
+  // page is not the one that page announced: replaying it would page the wrong thing.
+  const { severityChangedAt } = state;
+  if (severityChangedAt !== null && severityChangedAt.getTime() > state.alertedAt.getTime()) {
+    return false;
+  }
   if (lastDelivery.at.getTime() < state.alertedAt.getTime()) return false;
   const { slackUpdatedAt } = lastDelivery;
   return slackUpdatedAt !== null && slackUpdatedAt.getTime() > lastDelivery.at.getTime();

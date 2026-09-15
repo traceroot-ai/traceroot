@@ -551,6 +551,44 @@ describe("runAlertTick — a page that failed before Slack was set up", () => {
     expect(enqueueAlertNotification).not.toHaveBeenCalled();
   });
 
+  it("does not replay a failed ALERT page as the gap the rule has since moved into", async () => {
+    // Entering NO_DATA pages nothing but carries the outstanding `alertedAt` across,
+    // so the rule reads NO_DATA on a stamp that belongs to the ALERT page that failed.
+    const GAP_SINCE = new Date("2026-08-12T10:25:00.000Z");
+    // Inside the NOTIFY debounce, so the state machine itself has nothing to say yet.
+    const UNSETTLED_GAP_SINCE = new Date("2026-08-12T10:33:00.000Z");
+    claimDueAlerts.mockResolvedValue([
+      undelivered("hold-gap", {}, { severity: "NO_DATA", severityChangedAt: GAP_SINCE }),
+      claimWith("notify-gap", {
+        noDataMode: "NOTIFY",
+        state: {
+          severity: "NO_DATA",
+          severityChangedAt: UNSETTLED_GAP_SINCE,
+          alertedAt: ALERTED_AT,
+        },
+        lastDelivery: {
+          status: "FAILED",
+          error: "no-channel",
+          at: FAILED_AT,
+          slackUpdatedAt: CONNECTED_AT,
+        },
+        renotify: { mode: "EVERY", intervalMinutes: 60 },
+      }),
+    ]);
+    evaluateAlerts.mockResolvedValue([
+      { alert_id: "hold-gap", value: null, row_count: 0, error: null, errorKind: null },
+      { alert_id: "notify-gap", value: null, row_count: 0, error: null, errorKind: null },
+    ]);
+
+    await runAlertTick(NOW);
+
+    expect(completeAlertEvaluation.mock.calls.map(([c]) => c.state.alertedAt)).toEqual([
+      ALERTED_AT,
+      ALERTED_AT,
+    ]);
+    expect(enqueueAlertNotification).not.toHaveBeenCalled();
+  });
+
   it("lets a real transition speak for itself rather than replaying the failed page", async () => {
     // The breach ended: the recovery is the news, and it carries the ALERT it came from.
     claimDueAlerts.mockResolvedValue([undelivered("cooled-1")]);
