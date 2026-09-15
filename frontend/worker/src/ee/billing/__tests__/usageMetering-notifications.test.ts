@@ -67,8 +67,47 @@ beforeEach(() => {
   mocks.workspaceFindMany.mockResolvedValue([workspace()]);
   mocks.workspaceUpdate.mockResolvedValue({});
   mocks.detectorRcaCount.mockResolvedValue(7);
-  mocks.getWorkspaceUsageDetails.mockResolvedValue({ traces: 100, spans: 900, detectorRuns: 3 });
+  mocks.getWorkspaceUsageDetails.mockResolvedValue({
+    traces: 100,
+    spans: 900,
+    detectorRuns: 3,
+    bySource: {
+      user: { traces: 100, spans: 900 },
+      detector: { traces: 0, spans: 0 },
+      agent: { traces: 0, spans: 0 },
+    },
+  });
   mocks.runUsageQuotaNotifications.mockResolvedValue(undefined);
+});
+
+describe("runBillingJob with a projectless workspace", () => {
+  it("writes zero usage with the full breakdown shape", async () => {
+    mocks.workspaceFindMany.mockResolvedValue([workspace({ projects: [] })]);
+    mocks.detectorRcaCount.mockResolvedValue(0);
+    // getWorkspaceUsageDetails short-circuits to zeros for an empty project list.
+    mocks.getWorkspaceUsageDetails.mockResolvedValue({
+      traces: 0,
+      spans: 0,
+      detectorRuns: 0,
+      bySource: {
+        user: { traces: 0, spans: 0 },
+        detector: { traces: 0, spans: 0 },
+        agent: { traces: 0, spans: 0 },
+      },
+    });
+
+    await runBillingJob();
+
+    expect(mocks.workspaceUpdate).toHaveBeenCalledTimes(1);
+    const written = mocks.workspaceUpdate.mock.calls[0][0].data.currentUsage;
+    expect(written.traces).toBe(0);
+    expect(written.spans).toBe(0);
+    expect(written.bySource).toEqual({
+      user: { traces: 0, spans: 0 },
+      detector: { traces: 0, spans: 0 },
+      agent: { traces: 0, spans: 0 },
+    });
+  });
 });
 
 describe("runBillingJob usage-quota notification wiring", () => {
