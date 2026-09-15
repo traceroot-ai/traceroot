@@ -74,16 +74,19 @@ export function isAgentTraceEnabled(kind: AgentTraceKind): boolean {
 }
 
 /**
- * Root span name for an RCA execution.
+ * Root span name for every agent turn.
  *
- * The run is the pi-mono coding agent, so the root is named after it — the
- * same way a customer's root span names their agent — and reads the same for
- * every RCA in the trace list. What the analysis was about (which detectors
- * fired) is on the root span's `metadata.detectors` and spelled out in its
- * input; it used to be in the name ("rca: 2 detectors"), which read as a label
- * for the finding rather than for the thing that ran (UX review, 2026-09-15).
+ * Whatever started the turn — a detector's RCA, a follow-up in that chat, a
+ * chat the user opened — it is the same pi-mono coding agent that runs, so
+ * the root is named after it, the way a customer's root span names their
+ * agent, and reads the same across the trace list. What the turn was
+ * (`kind`), and for an RCA which detectors fired (`detectors`), is on the
+ * root span's metadata and spelled out in its input; the kind used to be the
+ * name for follow-ups and chats and the detectors for RCAs ("rca: 2
+ * detectors"), which read as labels for the finding rather than for the thing
+ * that ran (UX review, 2026-09-15).
  */
-export const RCA_ROOT_SPAN_NAME = "pi-mono";
+export const ROOT_SPAN_NAME = "pi-mono";
 
 export function turnTraceId(sessionId: string, messageId: string): string {
   return createHash("sha256").update(`${sessionId}:${messageId}`).digest("hex").slice(0, 32);
