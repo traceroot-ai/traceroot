@@ -20,7 +20,8 @@ async function handleGET(_request: NextRequest, { params }: RouteParams) {
   const backendRes = await fetch(
     `${BACKEND_INTERNAL_URL}/api/v1/projects/${projectId}/traces/${traceId}/live`,
     {
-      headers: { "x-user-id": user.id },
+      headers: { cookie: _request.headers.get("cookie") ?? "" },
+      signal: _request.signal,
     },
   );
 

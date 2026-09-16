@@ -309,7 +309,7 @@ class TestAuthenticateApiKey:
 class TestGetProjectAccess:
     @respx.mock
     async def test_valid_access(self):
-        respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
+        route = respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
             return_value=Response(
                 200,
                 json={
@@ -327,6 +327,11 @@ class TestGetProjectAccess:
         assert result.user_id == "user-456"
         assert result.role == "ADMIN"
         assert result.workspace_id == "ws-456"
+        import json
+
+        request = route.calls.last.request
+        assert json.loads(request.content) == {"browserSession": True, "projectId": "proj-123"}
+        assert request.headers["cookie"] == "better-auth.session_token=signed-cookie"
 
     async def test_missing_user_id(self):
         with pytest.raises(HTTPException) as exc_info:
