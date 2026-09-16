@@ -13,7 +13,6 @@ type Context = {
   mode?: string;
   targetEmail?: string;
   expiresAt?: string;
-  reason?: string | null;
   workspace?: { id: string; name: string } | null;
 };
 
@@ -164,14 +163,6 @@ export function ImpersonationBanner() {
         </span>
         {context?.workspace && (
           <span title={context.workspace.id}>Workspace: {context.workspace.name}</span>
-        )}
-        {context?.reason && (
-          <span
-            className="max-w-xs truncate text-amber-800 dark:text-amber-300"
-            title={context.reason}
-          >
-            Reason: {context.reason}
-          </span>
         )}
         {notice && (
           <span
