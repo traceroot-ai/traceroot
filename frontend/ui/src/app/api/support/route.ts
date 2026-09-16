@@ -96,7 +96,6 @@ export async function GET(request: NextRequest) {
         name: true,
         role: true,
         banned: true,
-        _count: { select: { memberships: true } },
       },
       orderBy: [{ email: "asc" }, { id: "asc" }],
       skip: (page - 1) * 25,

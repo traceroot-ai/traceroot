@@ -131,12 +131,15 @@ test("out-of-range console page clamps to the last non-empty page", async ({ con
   await page.goto(`/admin?q=${encodeURIComponent(emails.customer)}&page=999`);
   await expect(page.getByText(/1 results · Page 1 of 1/)).toBeVisible();
   await expect(page.getByText(emails.customer, { exact: true })).toBeVisible();
+  const row = page.getByRole("row").filter({ hasText: emails.customer });
+  await expect(row.getByRole("cell")).toHaveCount(4);
+  await expect(row.getByRole("cell").nth(0)).toHaveText("E2E customer");
+  await expect(row.getByRole("cell").nth(1)).toHaveText(emails.customer);
+  await expect(row.getByRole("cell").nth(2)).toHaveText(ids.customer);
+  await expect(page.getByRole("columnheader", { name: "Workspaces" })).toHaveCount(0);
 });
 
-test("support UI: browse, search, workspaces, reason, banner, exit and audit", async ({
-  page,
-  context,
-}) => {
+test("support UI: browse, search, reason, banner, exit and audit", async ({ page, context }) => {
   await login(context, ids.support);
   await page.goto("/admin");
   await expect(page.getByRole("heading", { name: "Support console" })).toBeVisible();
@@ -152,12 +155,14 @@ test("support UI: browse, search, workspaces, reason, banner, exit and audit", a
   await page.getByRole("textbox", { name: "Search users" }).fill(emails.customer);
   await expect(page.getByText(emails.customer, { exact: true })).toBeVisible();
   const customerRow = page.getByRole("row").filter({ hasText: emails.customer });
-  await expect(customerRow.getByRole("cell")).toHaveCount(3);
-  await expect(customerRow.getByRole("cell").nth(1)).toHaveText("2");
-  await expect(customerRow.getByRole("cell").first()).toContainText(ids.customer);
-  await expect(customerRow.getByRole("cell").first().getByRole("button")).toHaveCount(0);
-  await page.screenshot({ path: "/tmp/impersonation-user-two-lines.png", fullPage: true });
-  await expect(page.getByRole("columnheader", { name: "User ID", exact: true })).toHaveCount(0);
+  await expect(customerRow.getByRole("cell")).toHaveCount(4);
+  await expect(customerRow.getByRole("cell").nth(0)).toHaveText("E2E customer");
+  await expect(customerRow.getByRole("cell").nth(1)).toHaveText(emails.customer);
+  await expect(customerRow.getByRole("cell").nth(2)).toHaveText(ids.customer);
+  await expect(customerRow.getByRole("cell").nth(0).getByRole("button")).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/impersonation-user-columns.png", fullPage: true });
+  await expect(page.getByRole("columnheader", { name: "User ID", exact: true })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Workspaces", exact: true })).toHaveCount(0);
   await expect(page.getByText("Workspace admin", { exact: true })).toHaveCount(0);
   await expect(customerRow.getByRole("button", { name: /workspaces/ })).toHaveCount(0);
   await customerRow.getByRole("button", { name: "Impersonate", exact: true }).click();
@@ -397,10 +402,7 @@ test("Python reads use the real session, reject forged identity and revoked supp
   }
 });
 
-test("admin UI grants access and deep links switch customers through an audited exit", async ({
-  page,
-  context,
-}) => {
+test("admin UI grants access with the staff role selector", async ({ page, context }) => {
   await login(context, ids.admin);
   await page.goto("/admin");
   await page.getByRole("tab", { name: "Staff access" }).click();
@@ -415,35 +417,37 @@ test("admin UI grants access and deep links switch customers through an audited 
       user.email.toLowerCase().endsWith("@traceroot.ai"),
     ),
   ).toBe(true);
+  await expect(page.getByRole("columnheader", { name: "Name" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Email" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "User ID" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Account" })).toHaveCount(0);
+  await expect(page.getByText(/Every @traceroot\.ai account/)).toHaveCount(0);
   const ownRow = page.getByRole("row").filter({ hasText: emails.admin });
-  await expect(ownRow.getByRole("button", { name: "Admin", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(ownRow.getByRole("button", { name: "Support", exact: true })).toBeDisabled();
+  const ownAccess = ownRow.getByRole("combobox", { name: `Staff access for ${emails.admin}` });
+  await expect(ownAccess).toHaveText("Admin");
+  await expect(ownAccess).toBeDisabled();
   const employeeRow = page.getByRole("row").filter({ hasText: emails.employee });
+  const employeeAccess = employeeRow.getByRole("combobox", {
+    name: `Staff access for ${emails.employee}`,
+  });
   const setRole = async (label: string) => {
-    await employeeRow.getByRole("button", { name: label, exact: true }).click();
+    await employeeAccess.click();
+    await page.getByRole("option", { name: label, exact: true }).click();
     await page.getByRole("button", { name: "Confirm", exact: true }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
   };
   await setRole("Admin");
-  await expect(employeeRow.getByRole("button", { name: "Admin", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(employeeAccess).toHaveText("Admin");
   await setRole("Support");
-  await expect(employeeRow.getByRole("button", { name: "Support", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(employeeAccess).toHaveText("Support");
   await setRole("No Access");
-  await expect(employeeRow.getByRole("button", { name: "No Access", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await page.screenshot({ path: "/tmp/impersonation-staff-inline.png", fullPage: true });
+  await expect(employeeAccess).toHaveText("No Access");
+  await page.screenshot({ path: "/tmp/impersonation-staff-access-select.png", fullPage: true });
   await expect(page.getByText(emails.employee, { exact: true })).toBeVisible();
+});
+
+test("deep links switch customers through an audited exit", async ({ page, context }) => {
+  await login(context, ids.admin);
   await page.goto(`/admin/impersonate?userId=${ids.customer}`);
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("textbox", { name: "Reason" }).fill("Deep link support investigation");
