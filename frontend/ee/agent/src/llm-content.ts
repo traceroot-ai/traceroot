@@ -4,13 +4,11 @@
 // through the same redaction, tool allowlist and size bound the root span's
 // I/O and the persisted tool I/O already go through.
 import type { ContentCaptureKind, ContentCaptureValue } from "@traceroot-ai/traceroot";
-import { applyCapturePolicy, redactSecrets } from "@traceroot/core/capture-policy";
+import { applyCapturePolicy, boundedText, redactValue } from "@traceroot/core/capture-policy";
 import { withheldOutputText } from "@traceroot/core/capture-note";
 
-/** Per-span bound on a model call's rendered input or output (spec B8): same as the root's. */
+/** Per-span bound, in UTF-8 bytes, on a model call's rendered input or output (spec B8): same as the root's. */
 export const LLM_IO_CAP = 16_384;
-
-const TRUNCATION_MARKER = "…";
 
 type Part = { type?: string; text?: string; id?: string; name?: string; arguments?: unknown };
 type Message = {
@@ -32,11 +30,17 @@ function textOf(content: unknown): string {
 
 function toolCallsOf(content: unknown): Array<{ id?: string; name?: string; arguments?: unknown }> {
   if (!Array.isArray(content)) return [];
-  return content
-    .filter(
-      (p): p is Part => typeof p === "object" && p !== null && (p as Part).type === "toolCall",
-    )
-    .map((p) => ({ id: p.id, name: p.name, arguments: p.arguments }));
+  return (
+    content
+      .filter(
+        (p): p is Part => typeof p === "object" && p !== null && (p as Part).type === "toolCall",
+      )
+      // The arguments take the same key-aware walk the tool span's args took:
+      // a credential-shaped key (`apiToken`, `dbPassword`) is blanked here too,
+      // or what the tool row withheld would come back verbatim in the model's
+      // history, once per call that carries it.
+      .map((p) => ({ id: p.id, name: p.name, arguments: redactValue(p.arguments) }))
+  );
 }
 
 /**
@@ -88,12 +92,9 @@ function renderMessage(message: Message): Record<string, unknown> {
   }
 }
 
-/** Redact, then bound: a cut before the redaction could split a token and defeat the pattern. */
+/** Redact, then bound to LLM_IO_CAP bytes (marker included, byte-safe): see boundedText. */
 function bounded(text: string): string {
-  const redacted = redactSecrets(text);
-  return redacted.length > LLM_IO_CAP
-    ? `${redacted.slice(0, LLM_IO_CAP)}${TRUNCATION_MARKER}`
-    : redacted;
+  return boundedText(text, LLM_IO_CAP);
 }
 
 /**

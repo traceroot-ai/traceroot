@@ -199,6 +199,28 @@ function truncateTo(text: string, bytes: number): { text: string; truncated: boo
   return { text: buf.subarray(0, room).toString("utf8") + TRUNCATION_MARKER, truncated: true };
 }
 
+/**
+ * Redact, then bound to `bytes` of UTF-8, marker included: the one helper
+ * for a text a span stores whole rather than through the step budget — the
+ * self-trace root's prompt and answer, an LLM span's rendered input and
+ * output. Redaction runs first (a cut could split a token and defeat a
+ * pattern); the cut is byte-safe, so a CJK or emoji text lands under the
+ * same ceiling as ASCII instead of three times over it.
+ */
+export function boundedText(text: string, bytes: number): string {
+  return truncateTo(redactSecrets(text), bytes).text;
+}
+
+/**
+ * Key-aware redaction for a value about to be serialised into a span — a
+ * tool call's arguments inside a model message, say. A credential-shaped
+ * key blanks its whole value; every string leaf goes through the text
+ * patterns. A value too deep to walk degrades whole to the marker.
+ */
+export function redactValue(value: unknown): unknown {
+  return value !== null && typeof value === "object" ? safeRedactStructured(value) : value;
+}
+
 /** What a kept result is stored as: text stays text, a structured value stays structured. */
 export type CapturedResult = string | Record<string, unknown> | unknown[] | number | boolean | null;
 
