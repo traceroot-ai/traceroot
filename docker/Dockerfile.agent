@@ -48,7 +48,10 @@ RUN cd ee/agent && pnpm build
 FROM node:24-alpine AS runner
 WORKDIR /app
 
-RUN apk add --no-cache openssl docker-cli
+# Runtime images start from a freshly upgraded base and drop npm, which is
+# not used at runtime but ships its own bundled dependencies.
+RUN apk upgrade --no-cache && apk add --no-cache openssl docker-cli && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # Copy workspace node_modules (pnpm hoisted deps)
 COPY --from=builder /app/node_modules ./node_modules

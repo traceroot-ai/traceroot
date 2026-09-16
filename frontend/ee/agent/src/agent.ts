@@ -18,8 +18,11 @@ import {
   invalidateProviderConfigCache,
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
+import { REGISTRY } from "@traceroot-ai/tools";
 import { SessionManager } from "./session.js";
+import { createWritePolicyHook } from "./tools/write-policy.js";
 import { captureLlmContent } from "./llm-content.js";
+import { agentCaptureInput } from "./capture-input.js";
 import { recordToolSpan, currentCaptureState } from "./self-trace.js";
 
 // Process-global, idempotent: patches Agent.prototype once. Spans only land inside an
@@ -44,13 +47,20 @@ instrumentPiAgentCore(piAgentCore, {
     // splitting one shared budget between them. Undefined outside a run (SDK
     // used standalone).
     const c = applyCapturePolicy(
-      { toolName, args, result },
+      agentCaptureInput(toolName, args, result),
       currentCaptureState() ?? { spentBytes: 0 },
     );
     // A withheld result is described in the reader's terms (what is missing
     // and why), the same wording the persisted chat step shows — never the
-    // policy's bare verdict, which reads as an error in the trace viewer.
-    return { args: c.args, result: c.result ?? withheldOutputText(c) };
+    // policy's bare verdict, which reads as an error in the trace viewer. A
+    // kept structured result is serialised for the span attribute.
+    const text: string =
+      c.result === undefined
+        ? withheldOutputText(c)
+        : typeof c.result === "string"
+          ? c.result
+          : JSON.stringify(c.result);
+    return { args: c.args, result: text };
   },
   onToolSpan: recordToolSpan,
 });
@@ -107,8 +117,17 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
   const existingAgent = sessionAgents.get(config.sessionId);
   const existingManager = sessionManagers.get(config.sessionId);
 
-  // Return cached agent if model hasn't changed
+  // Return cached agent if model hasn't changed. Tools close over
+  // per-request context (projectId from the URL, the current executor), and
+  // the agent cache outlives it — a stale closure would aim write tools at
+  // the wrong project — so refresh the tools with this request's closures.
+  // The system prompt carries the same per-request context (current
+  // trace/session/project) and pi-agent-core reads state.systemPrompt at
+  // prompt time, so refresh it the same way — a stale prompt would have the
+  // model reason about one context while its tools bind to another.
   if (existingAgent && existingManager && cachedModel === cacheKeyModel) {
+    existingAgent.state.tools = config.tools;
+    existingAgent.state.systemPrompt = config.systemPrompt;
     return { agent: existingAgent, sessionManager: existingManager };
   }
 
@@ -144,6 +163,9 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
     },
     // TODO: implement proper convertToLlm instead of identity cast
     convertToLlm: (messages: AgentMessage[]) => messages as Message[],
+    // Session-bound so confirm-class writes can park against this session's
+    // live run channel and wait for the user's decision.
+    beforeToolCall: createWritePolicyHook(REGISTRY, { sessionId: config.sessionId }),
     getApiKey: async (provider: string) => {
       // If we have BYOK config with a decrypted key, use it directly
       if (providerConfig && providerConfig.key !== BEDROCK_USE_DEFAULT_CREDENTIALS) {
@@ -203,6 +225,15 @@ export async function runAgent(
   } finally {
     unsubscribe();
   }
+}
+
+/**
+ * Abort the session's in-flight run, if it has one. Used by session delete:
+ * the deleted session's turn has nobody left to narrate to, and every tool it
+ * would still run writes into a session row that no longer exists.
+ */
+export function abortSessionRun(sessionId: string): void {
+  sessionAgents.get(sessionId)?.abort();
 }
 
 /**
