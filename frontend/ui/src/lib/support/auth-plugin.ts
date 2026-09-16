@@ -107,6 +107,17 @@ export const supportPlugin = () =>
           const value = await ctx.getSignedCookie(cookie.name, ctx.context.secret);
           const legacyCookie = ctx.context.createAuthCookie("admin_session");
           const legacy = await ctx.getSignedCookie(legacyCookie.name, ctx.context.secret);
+          const [token, savedId] = value
+            ? value.split(":")
+            : [legacy ? legacy.split(":")[0] : "", ""];
+          // Better Auth removes expired sessions while resolving the current
+          // login. Retain their expiry before that lookup for an accurate exit.
+          const savedSession = savedId
+            ? await prisma.session.findFirst({
+                where: { id: savedId },
+                select: { expiresAt: true },
+              })
+            : null;
           const current = await getSessionFromCtx(ctx);
           if (current && !current.session.impersonatedBy) {
             // Nothing to unwind. A genuine login (e.g. the employee session
@@ -122,9 +133,6 @@ export const supportPlugin = () =>
           }
           // A lost restore cookie must not leave a copied customer token live.
           // The old admin cookie stores token:dontRemember, not token:sessionId.
-          const [token, savedId] = value
-            ? value.split(":")
-            : [legacy ? legacy.split(":")[0] : "", ""];
           const id = savedId || current?.session.id;
           if (current && savedId && current.session.id !== savedId)
             throw new APIError("FORBIDDEN", {
@@ -153,7 +161,7 @@ export const supportPlugin = () =>
             });
             await tx.session.deleteMany({ where: { id } });
             if (started && !started.endedAt) {
-              const expiresAt = live?.expiresAt ?? started.expiresAt;
+              const expiresAt = live?.expiresAt ?? savedSession?.expiresAt ?? started.expiresAt;
               const expired = expiresAt && expiresAt.getTime() <= Date.now();
               await tx.auditLog.updateMany({
                 where: { id: started.id, endedAt: null },
