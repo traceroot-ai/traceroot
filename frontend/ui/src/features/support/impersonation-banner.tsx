@@ -13,7 +13,6 @@ type Context = {
   mode?: string;
   targetEmail?: string;
   expiresAt?: string;
-  workspace?: { id: string; name: string } | null;
 };
 
 const CONTEXT_REFRESH_MS = 60_000;
@@ -161,9 +160,6 @@ export function ImpersonationBanner() {
         >
           {context?.mode === "read-write" ? "Read + write" : "Read-only"}
         </span>
-        {context?.workspace && (
-          <span title={context.workspace.id}>Workspace: {context.workspace.name}</span>
-        )}
         {notice && (
           <span
             role="alert"
