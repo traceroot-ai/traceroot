@@ -38,16 +38,16 @@ const target = {
   emailVerified: true,
 };
 
-function request(email: string) {
+function request(email: string, role: "support" | "admin" | null = "support") {
   return new Request("http://localhost/api/support", {
     method: "POST",
     headers: { "content-type": "application/json", origin: "http://localhost" },
-    body: JSON.stringify({ email, role: "support" }),
+    body: JSON.stringify({ email, role }),
   }) as Parameters<typeof POST>[0];
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   mocks.getSession.mockResolvedValue({ session: {}, user: { id: actor.id } });
   mocks.actor.mockResolvedValue(actor);
   mocks.transaction.mockImplementation(async (callback) =>
@@ -102,4 +102,52 @@ it("rejects ambiguous case-insensitive email matches", async () => {
   expect(await response.json()).toEqual({ error: "Email matches more than one account" });
   expect(mocks.update).not.toHaveBeenCalled();
   expect(mocks.audit).not.toHaveBeenCalled();
+});
+
+it("rejects cross-origin role changes before opening a transaction", async () => {
+  const crossOrigin = new Request("http://localhost/api/support", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://evil.example" },
+    body: JSON.stringify({ email: target.email, role: "support" }),
+  }) as Parameters<typeof POST>[0];
+  const response = await POST(crossOrigin);
+  expect(response.status).toBe(403);
+  expect(mocks.transaction).not.toHaveBeenCalled();
+});
+
+it("rejects an invalid role before opening a transaction", async () => {
+  const invalid = new Request("http://localhost/api/support", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "http://localhost" },
+    body: JSON.stringify({ email: target.email, role: "owner" }),
+  }) as Parameters<typeof POST>[0];
+  const response = await POST(invalid);
+  expect(response.status).toBe(400);
+  expect(mocks.transaction).not.toHaveBeenCalled();
+});
+
+it("does not write a duplicate audit event when the role is unchanged", async () => {
+  const supportTarget = { ...target, role: "support" };
+  mocks.exact.mockResolvedValue(supportTarget);
+  mocks.byId.mockReset().mockResolvedValueOnce(actor).mockResolvedValueOnce(supportTarget);
+  const response = await POST(request(target.email));
+  expect(response.status).toBe(200);
+  expect(mocks.update).not.toHaveBeenCalled();
+  expect(mocks.audit).not.toHaveBeenCalled();
+});
+
+it("ends active sessions when access is revoked", async () => {
+  const adminTarget = { ...target, role: "admin" };
+  mocks.exact.mockResolvedValue(adminTarget);
+  mocks.byId.mockReset().mockResolvedValueOnce(actor).mockResolvedValueOnce(adminTarget);
+  const response = await POST(request(target.email, null));
+  expect(response.status).toBe(200);
+  expect(mocks.update).toHaveBeenCalledWith({
+    where: { id: target.id },
+    data: { role: null },
+  });
+  expect(mocks.endSessions).toHaveBeenCalledWith({
+    where: expect.objectContaining({ actorUserId: target.id, endedAt: null }),
+    data: expect.objectContaining({ endReason: "revoked" }),
+  });
 });
