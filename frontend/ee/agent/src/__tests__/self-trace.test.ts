@@ -15,8 +15,10 @@ vi.mock("@traceroot-ai/traceroot", () => ({
 }));
 
 let mod: typeof import("../self-trace.js");
+let priorSecret: string | undefined;
 beforeEach(async () => {
   vi.resetModules();
+  priorSecret = process.env.INTERNAL_API_SECRET_AGENT;
   initialize.mockReset();
   flush.mockReset().mockResolvedValue(undefined);
   observe.mockClear();
@@ -29,6 +31,8 @@ beforeEach(async () => {
 afterEach(() => {
   delete process.env.AGENT_SELF_TRACE;
   delete process.env.AGENT_SELF_TRACE_KINDS;
+  if (priorSecret === undefined) delete process.env.INTERNAL_API_SECRET_AGENT;
+  else process.env.INTERNAL_API_SECRET_AGENT = priorSecret;
 });
 
 const meta = {
@@ -235,6 +239,15 @@ describe("withAgentTrace root I/O", () => {
     spy.mockRestore();
   });
 
+  it("keeps the trace's own kind when the caller's metadata carries a kind of its own", async () => {
+    const r = await mod.withAgentTrace(
+      { ...meta, kind: "rca", metadata: { kind: "chat", finding_id: "f1" } },
+      async () => "ok",
+    );
+    expect(r.trace).toBe("available");
+    expect(observe.mock.calls[0][0].metadata).toEqual({ finding_id: "f1", kind: "rca" });
+  });
+
   it("stamps the trace-level metadata on the root, before the run, so ingest promotes it", async () => {
     // observe() only sets the span-level metadata; the trace record's
     // metadata (what the viewer reads) comes from traceroot.trace.metadata.
@@ -249,13 +262,13 @@ describe("withAgentTrace root I/O", () => {
       mod.withAgentTrace(rcaMeta, async () => {
         // Already stamped when fn starts: a failed run keeps it.
         expect(Object.fromEntries(setAttribute.mock.calls)["traceroot.trace.metadata"]).toBe(
-          JSON.stringify({ kind: "rca", ...rcaMeta.metadata }),
+          JSON.stringify({ ...rcaMeta.metadata, kind: "rca" }),
         );
         throw new Error("run failed");
       }),
     ).rejects.toThrow("run failed");
     // Same document observe() got for the span-level metadata.
-    expect(observe.mock.calls[0][0].metadata).toEqual({ kind: "rca", ...rcaMeta.metadata });
+    expect(observe.mock.calls[0][0].metadata).toEqual({ ...rcaMeta.metadata, kind: "rca" });
     spy.mockRestore();
   });
 

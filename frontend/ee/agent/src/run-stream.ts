@@ -304,7 +304,12 @@ export async function runAgentStream(
           ? undefined
           : { traceId: options.trace.traceId, status: outcome.trace },
       );
-      if (options.trace && outcome.trace !== "disabled") {
+      // The frame is sent whenever a trace was asked for, `disabled` included:
+      // the worker reads the execution's trace status from it, and a missing
+      // frame means the run never reached this point, not that tracing was
+      // off — without it every RCA on a service with the flag off recorded
+      // `failed` (cubic, 2026-09-16).
+      if (options.trace) {
         await stream.writeSSE({
           event: "trace",
           data: JSON.stringify({ status: outcome.trace, traceId: options.trace.traceId }),
