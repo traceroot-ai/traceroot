@@ -26,6 +26,8 @@ import { cn } from "@/lib/utils";
 import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
 import { SidebarUpgradeButton } from "@/components/layout/SidebarUpgradeButton";
 import { clientEnv } from "@/env.client";
+import { exitImpersonation } from "@/features/support/exit";
+import { isStaff } from "@/lib/support/policy";
 
 function getInitials(name?: string | null, email?: string | null): string {
   if (name) {
@@ -81,42 +83,6 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           collapsed ? "w-14" : "w-48",
         )}
       >
-        {isImpersonating && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div
-                className={cn(
-                  "flex items-center gap-2 border-b border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30",
-                  collapsed ? "justify-center px-2 py-2" : "px-3 py-2",
-                )}
-              >
-                <UserRoundSearch className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                {!collapsed && (
-                  <>
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-amber-800 dark:text-amber-300">
-                      {user?.email ?? user?.name}
-                    </span>
-                    <button
-                      className="shrink-0 rounded-md border border-amber-300 bg-white px-1.5 py-0.5 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:bg-transparent dark:text-amber-400 dark:hover:bg-amber-900/50"
-                      onClick={async () => {
-                        await authClient.admin.stopImpersonating();
-                        window.location.reload();
-                      }}
-                    >
-                      Stop
-                    </button>
-                  </>
-                )}
-              </div>
-            </TooltipTrigger>
-            {collapsed && (
-              <TooltipContent side="right" sideOffset={16}>
-                <p className="font-medium">Impersonating</p>
-                <p className="text-xs text-muted-foreground">{user?.email ?? user?.name}</p>
-              </TooltipContent>
-            )}
-          </Tooltip>
-        )}
         {/* Header with logo */}
         <div
           className={cn(
@@ -139,6 +105,16 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
         {/* Navigation */}
         <nav className="flex-1">
+          {!isImpersonating && isStaff(user?.role) && (
+            <Link
+              href="/admin"
+              title="Support console"
+              className="mx-2 my-2 flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted"
+            >
+              <UserRoundSearch className="h-4 w-4" />
+              {!collapsed && "Support console"}
+            </Link>
+          )}
           {projectId ? (
             // Project context navigation
             <>
@@ -494,11 +470,15 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 <button
                   className="flex w-full items-center justify-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
                   onClick={async () => {
+                    if (isImpersonating) {
+                      await exitImpersonation().catch(() => window.location.assign("/admin"));
+                      return;
+                    }
                     await authClient.signOut();
                     window.location.href = "/auth/sign-in";
                   }}
                 >
-                  Log Out
+                  {isImpersonating ? "Exit impersonation" : "Log Out"}
                 </button>
               </div>
             </PopoverContent>
