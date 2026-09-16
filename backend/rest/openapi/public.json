@@ -5428,6 +5428,16 @@
             },
             "description": "The credential cannot access this project"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {

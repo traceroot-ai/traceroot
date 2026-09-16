@@ -12,8 +12,10 @@ independent refusals of the same thing, which is deliberate: the tenant boundary
 should not rest on any single one of them holding.
 """
 
+import json
 import logging
 from collections import Counter
+from collections.abc import Awaitable, Callable, MutableMapping
 from functools import partial
 from typing import Any
 
@@ -30,6 +32,8 @@ from rest.rate_limit import (
 from rest.routers.public.deps import DualStampedAuth
 from rest.schemas.eval import ErrorResponse
 from rest.schemas.public import (
+    SQL_PARAMETERS_MAX_CHARS,
+    SQL_QUERY_MAX_CHARS,
     SqlColumn,
     SqlRequest,
     SqlResponse,
@@ -50,6 +54,89 @@ router = APIRouter(prefix="/public/sql", tags=["SQL (Public)"])
 #: failure is an oracle, and these responses are the one place a rewritten query
 #: could otherwise become visible.
 _GENERIC_FAILURE = "Query execution failed."
+
+#: The largest request body this route reads. The field limits on the request
+#: model are enforced by pydantic, which runs after the whole body has been read
+#: and parsed, so they bound what reaches the service and not what reaches this
+#: process. This is the bound on the body itself: the two field limits plus room
+#: for JSON syntax, key names and whitespace.
+SQL_REQUEST_MAX_BYTES = SQL_QUERY_MAX_CHARS + SQL_PARAMETERS_MAX_CHARS + 16_384
+
+_TOO_LARGE = "Request body too large."
+
+
+class SqlBodyLimitMiddleware:
+    """Refuse an oversized body on the SQL route before anything parses it.
+
+    Reads at most ``max_bytes + 1`` and answers 413 as soon as the body passes
+    the cap, so the rest is never read into this process. Written as raw ASGI
+    rather than a ``BaseHTTPMiddleware``, which would buffer the body itself.
+    """
+
+    def __init__(self, app: Any, path: str, max_bytes: int = SQL_REQUEST_MAX_BYTES) -> None:
+        self.app = app
+        self.path = path
+        self.max_bytes = max_bytes
+
+    async def __call__(
+        self,
+        scope: MutableMapping[str, Any],
+        receive: Callable[[], Awaitable[MutableMapping[str, Any]]],
+        send: Callable[[MutableMapping[str, Any]], Awaitable[None]],
+    ) -> None:
+        if (
+            scope["type"] != "http"
+            or scope.get("method") != "POST"
+            or scope.get("path") != self.path
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        body = bytearray()
+        more_body = True
+        while more_body:
+            message = await receive()
+            if message["type"] != "http.request":
+                # A disconnect: hand it on and let the app unwind normally.
+                await self.app(scope, _replay([message]), send)
+                return
+            body.extend(message.get("body", b""))
+            if len(body) > self.max_bytes:
+                await _reject(send)
+                return
+            more_body = bool(message.get("more_body", False))
+
+        await self.app(scope, _replay([{"type": "http.request", "body": bytes(body)}]), send)
+
+
+def _replay(
+    messages: list[MutableMapping[str, Any]],
+) -> Callable[[], Awaitable[MutableMapping[str, Any]]]:
+    """Hand the already-read body to the app, then behave as a drained stream."""
+    pending = list(messages)
+
+    async def receive() -> MutableMapping[str, Any]:
+        if pending:
+            return pending.pop(0)
+        return {"type": "http.disconnect"}
+
+    return receive
+
+
+async def _reject(send: Callable[[MutableMapping[str, Any]], Awaitable[None]]) -> None:
+    payload = json.dumps({"detail": _TOO_LARGE}).encode()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(payload)).encode()),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": payload})
+
 
 #: Returned when there is no free slot for another query right now.
 _BUSY = "Too many queries are running. Retry shortly."
@@ -128,6 +215,7 @@ _SQL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": "The query breaks the read-only contract, asked for more than the "
         "server allows, or the credential names no project",
     },
+    413: {"model": ErrorResponse, "description": "Request body too large"},
     429: {
         "model": ErrorResponse,
         "description": "Rate limit exceeded, or too many queries are already running",

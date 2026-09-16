@@ -36,6 +36,7 @@ from rest.routers.public.detectors_read import router as public_detectors_read_r
 from rest.routers.public.eval import router as public_eval_router
 from rest.routers.public.project_write import router as public_project_write_router
 from rest.routers.public.sessions_read import router as public_sessions_read_router
+from rest.routers.public.sql import SqlBodyLimitMiddleware
 from rest.routers.public.sql import router as public_sql_router
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.public.traces_read import router as public_traces_read_router
@@ -56,6 +57,9 @@ app = FastAPI(
 # CORS remains the outermost middleware and its headers apply to every
 # response, including gzipped ones.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+# One route reads a caller-authored query, and its field limits only apply once
+# the body has been read and parsed. This bounds the body itself.
+app.add_middleware(SqlBodyLimitMiddleware, path=f"{PUBLIC_PREFIX}sql")
 
 # Rate limiting. Enforcement + X-RateLimit-* headers are handled by the
 # per-route @limiter decorators (see rest.rate_limit); SlowAPIMiddleware is

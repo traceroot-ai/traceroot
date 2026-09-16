@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 import rest.routers.public.sql as sql_router
 from rest.main import app
 from rest.routers.public.deps import AuthResult, authenticate_public_caller
+from rest.routers.public.sql import SQL_REQUEST_MAX_BYTES
 from rest.services.sql.errors import SqlExecutionError, SqlValidationError
 from rest.services.sql.service import SqlColumn, SqlResult
 
@@ -184,6 +185,34 @@ class TestScopeIsServerSide:
         assert post(SQL_MAX_PARAMETERS + 1).status_code == 422
         assert not stub.calls
         assert post(SQL_MAX_PARAMETERS).status_code == 200
+
+    def test_a_body_past_the_size_cap_never_reaches_the_parser(
+        self, stub: StubService, client: TestClient
+    ) -> None:
+        # The field limits run after the body is read and parsed, so only a bound
+        # on the body keeps an oversized request out of this process.
+        from rest.routers.public.sql import SQL_REQUEST_MAX_BYTES
+
+        resp = client.post(
+            "/api/v1/public/sql",
+            content=b'{"query": "SELECT 1 FROM spans", "parameters": {"p": "'
+            + b"x" * SQL_REQUEST_MAX_BYTES
+            + b'"}}',
+            headers={**AUTH_HEADER, "content-type": "application/json"},
+        )
+        assert resp.status_code == 413
+        assert resp.json() == {"detail": "Request body too large."}
+        assert not stub.calls
+
+    def test_the_body_cap_leaves_other_routes_alone(self, client: TestClient) -> None:
+        # The middleware is bound to one path, so a large body elsewhere is that
+        # route's business, not this one's.
+        resp = client.post(
+            "/api/v1/public/traces",
+            content=b"x" * (SQL_REQUEST_MAX_BYTES + 1024),
+            headers={**AUTH_HEADER, "content-type": "application/x-protobuf"},
+        )
+        assert resp.status_code != 413
 
     def test_an_oversized_parameter_payload_is_refused(
         self, stub: StubService, client: TestClient
