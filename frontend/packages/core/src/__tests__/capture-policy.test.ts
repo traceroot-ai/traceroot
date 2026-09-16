@@ -606,6 +606,13 @@ describe("boundedText", () => {
     }
   });
 
+  it("takes the key walk when the text is a JSON document", () => {
+    const out = boundedText('{"apiToken":"review-dummy-secret","keep":"plain"}', 16_384);
+    expect(out).not.toContain("review-dummy-secret");
+    expect(out).toContain("[REDACTED]");
+    expect(out).toContain('"keep":"plain"');
+  });
+
   it("redacts before it cuts, and leaves a short text alone", () => {
     expect(boundedText("token=ghp_" + "a".repeat(40) + " tail", 16_384)).toBe(
       "token=[REDACTED] tail",
@@ -627,6 +634,14 @@ describe("redactValue", () => {
       nested: { dbPassword: "[REDACTED]", note: "plain", text: "AKIA[REDACTED] inline" },
       list: [{ Authorization: "[REDACTED]" }],
     });
+  });
+
+  it("redacts a bare string like a leaf: a JSON document by key, prose by pattern", () => {
+    const out = redactValue('{"password":"review-dummy-secret","note":"plain"}') as string;
+    expect(out).not.toContain("review-dummy-secret");
+    expect(out).toContain("[REDACTED]");
+    expect(out).toContain('"note":"plain"');
+    expect(redactValue("token=ghp_" + "a".repeat(40))).toBe("token=[REDACTED]");
   });
 
   it("passes scalars through and degrades an unwalkable value to the marker", () => {

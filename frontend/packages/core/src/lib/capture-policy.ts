@@ -208,16 +208,22 @@ function truncateTo(text: string, bytes: number): { text: string; truncated: boo
  * same ceiling as ASCII instead of three times over it.
  */
 export function boundedText(text: string, bytes: number): string {
-  return truncateTo(redactSecrets(text), bytes).text;
+  // The JSON-aware form: a text that is itself a JSON document (a prompt
+  // that pastes a config, an answer that quotes one) takes the key walk,
+  // so `{"apiToken": …}` is blanked by its key, not left to the patterns.
+  return truncateTo(redactText(text), bytes).text;
 }
 
 /**
  * Key-aware redaction for a value about to be serialised into a span — a
- * tool call's arguments inside a model message, say. A credential-shaped
- * key blanks its whole value; every string leaf goes through the text
- * patterns. A value too deep to walk degrades whole to the marker.
+ * tool call's arguments inside a model message, a rendered message list. A
+ * credential-shaped key blanks its whole value; every string leaf takes the
+ * JSON-aware text redaction (so a leaf that is itself a JSON document gets
+ * the key walk too). A value too deep to walk degrades whole to the marker.
+ * A bare string is redacted like a leaf.
  */
 export function redactValue(value: unknown): unknown {
+  if (typeof value === "string") return redactText(value);
   return value !== null && typeof value === "object" ? safeRedactStructured(value) : value;
 }
 
