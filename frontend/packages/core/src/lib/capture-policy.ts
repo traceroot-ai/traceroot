@@ -10,7 +10,7 @@ export interface CaptureBudget {
   perStepBytes: number;
   perRunBytes: number;
 }
-const DEFAULT_CAPTURE_BUDGET: CaptureBudget = { perStepBytes: 8_192, perRunBytes: 262_144 };
+export const DEFAULT_CAPTURE_BUDGET: CaptureBudget = { perStepBytes: 8_192, perRunBytes: 262_144 };
 
 /** Tools whose output is data the customer already owns inside TraceRoot. */
 const OUTPUT_ALLOWLIST: ReadonlySet<string> = new Set([
