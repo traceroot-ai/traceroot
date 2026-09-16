@@ -1,5 +1,6 @@
 import { prisma, Role, hasMinRole } from "@traceroot/core";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { seedDefaultDashboard } from "@/lib/dashboard-seed";
 import { writeAudit } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
 
@@ -85,6 +86,12 @@ export async function createProject(input: {
           traceTtlDays,
         },
       });
+      // Only a genuinely new project seeds — the idempotent hit above returned
+      // already, so a retried create can't touch an existing Default dashboard.
+      await seedDefaultDashboard(tx, {
+        projectId: project.id,
+        actorUserId: input.actorUserId,
+      });
       return {
         ok: true as const,
         created: true,
@@ -113,7 +120,7 @@ export async function createProject(input: {
       resourceId: result.data.id,
       workspaceId: input.workspaceId,
       projectId: result.data.id,
-      summary: { name },
+      summary: { name, defaultDashboard: true },
       transport: input.provenance.transport,
       agentSessionId: input.provenance.agentSessionId ?? null,
     });
