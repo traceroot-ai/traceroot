@@ -98,11 +98,12 @@ function bounded(text: string): string {
 
 /**
  * instrumentPiAgentCore's captureContent. The SDK's own AGENT span
- * (`Agent.prompt`) records nothing: the run's prompt and final answer already
- * sit on the self-trace root withAgentTrace owns, and a second copy would only
- * double the bytes. Each LLM span records the conversation it was given (system
- * prompt first, tool results under the allowlist) and the assistant message it
- * produced, both redacted and bounded.
+ * (`Agent.prompt`) is not opened under the self-trace root at all
+ * (agentSpan: 'unless-nested' in agent.ts); should one ever be — the SDK used
+ * outside a run — it records nothing, since the run's prompt and final answer
+ * sit on the root withAgentTrace owns. Each LLM span records the conversation
+ * it was given (system prompt first, tool results under the allowlist) and the
+ * assistant message it produced, both redacted and bounded.
  */
 export function captureLlmContent(
   kind: ContentCaptureKind,

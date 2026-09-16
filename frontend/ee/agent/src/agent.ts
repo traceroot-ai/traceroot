@@ -29,6 +29,12 @@ import { recordToolSpan, currentCaptureState } from "./self-trace.js";
 // active withAgentTrace() context; outside one the instrumentation opens roots that
 // the SDK drops as unattributed (no project id), so this is safe to install unconditionally.
 //
+// agentSpan is 'unless-nested': withAgentTrace opens the run's root (pi-mono)
+// and records the prompt and the answer on it, so the SDK's own Agent.prompt
+// span would only sit between that root and the LLM spans with nothing of its
+// own to show (review feedback, 2026-09-16). The LLM and tool spans hang
+// directly off the root instead.
+//
 // captureContent is a function, not `true`: the boolean form stamps the raw
 // prompt and assistant text on the child LLM spans, bypassing the redaction and
 // cap the root span's I/O (self-trace.ts) and the persisted tool I/O (capture
@@ -36,6 +42,7 @@ import { recordToolSpan, currentCaptureState } from "./self-trace.js";
 // verbatim once the model quoted it. captureLlmContent renders each model
 // call's input and output through the same policy first (llm-content.ts).
 instrumentPiAgentCore(piAgentCore, {
+  agentSpan: "unless-nested",
   captureContent: captureLlmContent,
   captureToolIo: (toolName, args, result) => {
     // Charge the run's SPAN budget (currentCaptureState() — one accumulator
