@@ -118,7 +118,9 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Valid email and role required" }, { status: 400 });
   const { email, role } = parsed.data;
   const result = await prisma.$transaction(async (tx) => {
-    const found = await tx.user.findUnique({ where: { email } });
+    const found = await tx.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+    });
     if (!found) return "Choose an existing account";
     await tx.$queryRaw`SELECT id FROM users WHERE id IN (${actor.id}, ${found.id}) ORDER BY id FOR UPDATE`;
     const [current, target] = await Promise.all([

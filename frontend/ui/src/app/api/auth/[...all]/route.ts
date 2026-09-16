@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { toNextJsHandler } from "better-auth/next-js";
 import { impersonationContext } from "@/lib/support/session";
 import { NextRequest } from "next/server";
+import { hasSupportRestoreCookie } from "@/lib/support/restoration";
 
 const handlers = toNextJsHandler(auth);
 
@@ -32,6 +33,7 @@ function applySetCookies(cookieHeader: string | null, setCookies: string[]) {
 // sign-in itself is blocked — with no exit control on that page.
 async function endImpersonation(request: NextRequest, path: string) {
   const stopped = await auth.api.supportStop({ headers: request.headers, asResponse: true });
+  if (!stopped.ok) return stopped;
   const setCookies = stopped.headers.getSetCookie();
   if (path !== "/get-session") {
     const response = Response.json(
@@ -51,12 +53,17 @@ async function endImpersonation(request: NextRequest, path: string) {
 
 async function handle(request: NextRequest) {
   const path = new URL(request.url).pathname.replace("/api/auth", "");
+  // Preserve old clients' exit URL, but use the audited stop/recovery flow.
+  if (path === "/admin/stop-impersonating" && request.method === "POST")
+    return auth.api.supportStop({ headers: request.headers, asResponse: true });
   // The console owns grants and audited starts. Never leave the built-in admin
   // endpoints as an alternate, unaudited privilege-management surface.
   if (path.startsWith("/admin/"))
     return Response.json({ error: "Use the support console" }, { status: 403 });
   if (path !== "/support/stop") {
     const session = await auth.api.getSession({ headers: request.headers });
+    if (!session && path === "/get-session" && hasSupportRestoreCookie(request.headers))
+      return endImpersonation(request, path);
     if (session?.session.impersonatedBy) {
       const context = await impersonationContext(session.session);
       if (!context?.valid) return endImpersonation(request, path);

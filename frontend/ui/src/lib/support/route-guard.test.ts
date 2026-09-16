@@ -39,8 +39,29 @@ describe("support policy", () => {
       ["/api/cli/token", "POST"],
       ["/api/projects/p/api-keys", "POST"],
       ["/api/github/callback", "GET"],
+      ["/api/workspaces/w/model-providers/test", "POST"],
+      ["/api/workspaces/w/model-providers/p", "PATCH"],
+      ["/api/workspaces/w/model-providers/p", "DELETE"],
+      ["/api/workspaces/w/model-providers", "POST"],
     ])
       expect(impersonationDenial(path, method, role)).toBeTruthy();
+  });
+  it("still permits masked provider reads", () => {
+    expect(impersonationDenial("/api/workspaces/w/model-providers", "GET", "support")).toBeNull();
+  });
+  it("does not finalize a streaming write at response headers", async () => {
+    mocks.context.mockResolvedValue({ valid: true, actor: { id: "staff", role: "admin" } });
+    const response = await withImpersonationPolicy(
+      async () =>
+        new Response("event: done\ndata: {}\n\n", {
+          headers: { "content-type": "text/event-stream" },
+        }),
+    )(new NextRequest("http://localhost/api/workspaces/w/action", { method: "POST" }));
+    expect(mocks.update).not.toHaveBeenCalled();
+    await response.text();
+    expect(mocks.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ outcome: "success" }) }),
+    );
   });
   it("allows reads but blocks support writes before the handler", async () => {
     const handler = vi.fn(async () => NextResponse.json({ ok: true }));

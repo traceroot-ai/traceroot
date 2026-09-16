@@ -86,6 +86,12 @@ describe("DashboardIndexPage", () => {
     expect(screen.getByText("Loading dashboards…")).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
   });
+  it("renders an empty legacy project without a perpetual spinner", () => {
+    mockDashboards([]);
+    render(<DashboardIndexPage />);
+    expect(screen.getByText("No dashboards yet.")).toBeTruthy();
+    expect(screen.queryByText("Loading dashboards…")).toBeNull();
+  });
 
   it("auto-opens the only dashboard instead of listing it", () => {
     mockDashboards([OVERVIEW]);
