@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 // Pin the connection timeout low (50ms) BEFORE the route module is imported, so
 // timeout-path tests resolve fast and deterministically without fake timers.
 vi.hoisted(() => {

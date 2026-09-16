@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, SYSTEM_MODELS, ModelSource, ADAPTER_MODELS } from "@traceroot/core";
 import type { LLMAdapter } from "@traceroot/core";
@@ -6,7 +7,7 @@ import { requireAuth, requireWorkspaceMembership, successResponse } from "@/lib/
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
 // GET /api/workspaces/[workspaceId]/llm-models
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -49,3 +50,4 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   return successResponse({ systemModels, byokProviders });
 }
+export const GET = withImpersonationPolicy(handleGET);

@@ -69,6 +69,7 @@ export async function fetchTraceApi<T>(
 
   const response = await fetch(`${TRACE_API_BASE}${endpoint}`, {
     ...options,
+    credentials: "include",
     headers: {
       ...headers,
       ...options.headers,

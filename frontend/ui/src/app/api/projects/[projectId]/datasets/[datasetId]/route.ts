@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, UpdateDatasetRequestSchema } from "@traceroot/core";
 import {
@@ -14,7 +15,7 @@ type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> }
 // GET — dataset detail: a chosen version (default current), its test cases, and
 // the version list. `?version_id=` views an older immutable snapshot; an unknown
 // or omitted id falls back to the current version.
-export async function GET(req: NextRequest, { params }: RouteParams) {
+async function handleGET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, datasetId } = await params;
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 }
 
 // PATCH — update editable dataset metadata (not its snapshots).
-export async function PATCH(req: NextRequest, { params }: RouteParams) {
+async function handlePATCH(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, datasetId } = await params;
@@ -151,7 +152,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 // The database enforces it (evaluation_runs → dataset_versions is NoAction, so the
 // cascade cannot take a pinned version with it); this pre-check exists so the
 // answer is a deliberate 409 rather than a foreign-key error surfacing as a 500.
-export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+async function handleDELETE(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, datasetId } = await params;
@@ -181,3 +182,6 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   }
   return successResponse({ deleted: true });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);
