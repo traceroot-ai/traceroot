@@ -417,7 +417,10 @@ export async function createSession(params: {
       workspaceId: params.workspaceId,
       userId: params.userId ?? null,
       title: params.title,
-      executionId: params.executionId ?? null,
+      // An execution link belongs to a system session only: the worker opens
+      // one per RCA attempt. A user's own chat never carries one, whatever
+      // the caller sent.
+      executionId: params.userId === undefined ? (params.executionId ?? null) : null,
     },
   });
 }
