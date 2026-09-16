@@ -18,4 +18,22 @@ export const INTERNAL_BINDINGS: Readonly<Record<string, string>> = {
   // ingress) with secret-only auth — it has no user-header surface at all.
   list_dashboards: "/api/v1/internal/projects/{project_id}/dashboards",
   get_dashboard: "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}",
+  get_dashboard_data: "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}/data",
+  run_widget_query: "/api/v1/projects/{project_id}/widgets/query",
+  list_alerts: "/api/v1/internal/projects/{project_id}/alerts",
+  get_alert: "/api/v1/internal/projects/{project_id}/alerts/{alert_id}",
+};
+
+/**
+ * Internal Next-app write route templates, keyed by tool name, for surfaces
+ * that call the trusted-caller write routes directly (flat POSTs — tenancy
+ * and provenance travel in the camelCase body, not the path). Only the
+ * agent's current write set is bound; widening this map is a deliberate
+ * per-tool decision.
+ */
+export const INTERNAL_WRITE_BINDINGS: Readonly<Record<string, string>> = {
+  create_detector: "/api/internal/write/detectors",
+  create_dashboard: "/api/internal/write/dashboards",
+  create_widget: "/api/internal/write/widgets",
+  create_alert: "/api/internal/write/alerts",
 };

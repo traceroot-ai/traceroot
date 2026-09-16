@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useWidgetData } from "../hooks/use-widget-data";
+import { useWidgetData, type WidgetDataRefetchOptions } from "../hooks/use-widget-data";
 import { FIELD_UNIT } from "@/features/filters/filter-controls";
 import { parseSpec, type TimeRange, type Widget } from "../types";
 import { QueryWidgetRenderer } from "./renderers";
@@ -17,10 +17,12 @@ function QueryWidgetBody({
   projectId,
   widget,
   range,
+  queryOptions,
 }: {
   projectId: string;
   widget: Widget;
   range: TimeRange;
+  queryOptions?: WidgetDataRefetchOptions;
 }) {
   const spec = parseSpec(widget.spec);
 
@@ -38,6 +40,7 @@ function QueryWidgetBody({
     },
     range,
     spec !== null,
+    queryOptions,
   );
 
   if (!spec) {
@@ -65,6 +68,46 @@ function QueryWidgetBody({
       seriesLabel={spec.metric.measure}
       agg={spec.metric.agg}
     />
+  );
+}
+
+/**
+ * A tile's body alone: the per-type dispatch every surface that draws a widget
+ * shares, so the dashboard's card and the assistant panel's scaled-down
+ * preview render one widget one way. `queryOptions` lets a caller drawing a
+ * frozen snapshot pin its queries' refetch behavior; the dashboard leaves it
+ * unset and keeps the live defaults.
+ */
+export function WidgetBody({
+  projectId,
+  widget,
+  range,
+  queryOptions,
+}: {
+  projectId: string;
+  widget: Widget;
+  range: TimeRange;
+  queryOptions?: WidgetDataRefetchOptions;
+}) {
+  return (
+    <>
+      {widget.type === "query" && (
+        <QueryWidgetBody
+          projectId={projectId}
+          widget={widget}
+          range={range}
+          queryOptions={queryOptions}
+        />
+      )}
+      {widget.type === "trace_feed" && (
+        <TraceFeedWidget
+          projectId={projectId}
+          spec={widget.spec as { limit?: number }}
+          range={range}
+          queryOptions={queryOptions}
+        />
+      )}
+    </>
   );
 }
 
@@ -109,16 +152,7 @@ export function WidgetCard({
 
       {/* Body */}
       <div className="min-h-0 flex-1">
-        {widget.type === "query" && (
-          <QueryWidgetBody projectId={projectId} widget={widget} range={range} />
-        )}
-        {widget.type === "trace_feed" && (
-          <TraceFeedWidget
-            projectId={projectId}
-            spec={widget.spec as { limit?: number }}
-            range={range}
-          />
-        )}
+        <WidgetBody projectId={projectId} widget={widget} range={range} />
       </div>
     </div>
   );
