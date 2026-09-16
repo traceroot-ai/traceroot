@@ -1,35 +1,71 @@
 name: Publish @traceroot-ai/tools
 
 # The tool registry is generated from the public OpenAPI schema and consumed by
-# traceroot-cli as a published dependency, so it needs its own release cadence
-# separate from the product releases this repo already tags as vX.Y.Z.
+# traceroot-cli as a published dependency, so it has its own version, separate
+# from the vX.Y.Z platform releases.
 #
-# Trigger with a tools-v prefixed tag, e.g. tools-v0.2.0:
-#   gh release create tools-v0.2.0 --generate-notes
+# It publishes silently: no git tag, no GitHub Release, no Discord post. Tags
+# and releases in this repo belong to the platform only (a non-v tag on main
+# also became the platform version label in the web UI).
+#
+# To release: bump "version" in frontend/packages/tools/package.json, add a
+# CHANGELOG.md entry, and merge the PR. This workflow publishes on merge when
+# that version is not on npm yet. See frontend/packages/tools/README.md.
 on:
-  release:
-    types: [published]
-  # Re-run a publish after a workflow fix without recreating the release.
+  push:
+    branches: [main]
+    paths:
+      - frontend/packages/tools/package.json
+  # Re-run a publish after a workflow fix. Publishes main's version, if unpublished.
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing release tag to publish, e.g. tools-v0.2.0"
-        required: true
+
+concurrency:
+  # Per commit, so a manual re-run never races the push run for the same
+  # version, while bumps merged back to back still each get their own run.
+  group: publish-tools-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
+  check:
+    # A manual run from any other branch must not publish.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Most pushes that touch package.json are not version bumps. Publish only
+      # when this version is missing from npm (E404); fail on any other error
+      # rather than guessing.
+      - name: Check whether this version is already published
+        id: check
+        run: |
+          VERSION=$(node -p "require('./frontend/packages/tools/package.json').version")
+          if out=$(npm view "@traceroot-ai/tools@$VERSION" version 2>&1); then
+            echo "::notice::@traceroot-ai/tools@$VERSION is already on npm; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$out" | grep -q E404; then
+            echo "::notice::@traceroot-ai/tools@$VERSION is not on npm yet; publishing."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' "$out"
+            echo "::error::could not check npm for @traceroot-ai/tools@$VERSION"
+            exit 1
+          fi
+
   publish:
-    # Product releases (vX.Y.Z) must not publish this package.
-    if: >-
-      startsWith(github.event.release.tag_name, 'tools-v') ||
-      startsWith(inputs.tag, 'tools-v')
+    needs: check
+    if: needs.check.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write   # npm trusted publishing
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       - uses: pnpm/action-setup@v4
         with:
@@ -52,18 +88,6 @@ jobs:
 
       - name: Install dependencies
         run: cd frontend && pnpm install --frozen-lockfile
-
-      - name: Verify release tag matches package version
-        env:
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: |
-          PKG_VERSION=$(node -p "require('./frontend/packages/tools/package.json').version")
-          TAG_VERSION="${TAG#tools-v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::tag ($TAG_VERSION) does not match package.json ($PKG_VERSION)"
-            exit 1
-          fi
-          echo "version $PKG_VERSION matches tag $TAG"
 
       - name: Build
         run: cd frontend/packages/tools && pnpm build

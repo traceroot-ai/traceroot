@@ -35,8 +35,9 @@ concurrency:
 
 jobs:
   announce:
-    # tools-v* tags publish @traceroot-ai/tools, which is a package bump rather
-    # than a product release. Announcing those would misrepresent them.
+    # @traceroot-ai/tools no longer uses tags or releases (it publishes on merge,
+    # see publish-tools.yml). Kept as a backstop: a stray tools-v* release is a
+    # package bump, not a product release, and must never be announced.
     if: >-
       !startsWith(github.event.release.tag_name, 'tools-v') &&
       !startsWith(inputs.tag, 'tools-v')
