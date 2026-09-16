@@ -283,6 +283,34 @@ def test_dashboard_data_route_documents_not_found_like_its_sibling():
     assert responses["404"]["description"] == "Dashboard not found"
 
 
+def test_widget_read_routes_document_not_found_like_the_dashboard_reads():
+    """Both widget reads pass the widget's 404 through, so their contracts say so."""
+    paths = _schema()["paths"]
+    detail = paths["/api/v1/public/widgets/{widget_id}"]["get"]["responses"]
+    assert set(detail) >= {"200", "401", "404", "503"}
+    assert detail["404"]["description"] == "Widget not found"
+    data = paths["/api/v1/public/widgets/{widget_id}/data"]["get"]["responses"]
+    assert set(data) >= {"200", "401", "404", "422", "503"}
+    assert data["404"]["description"] == "Widget not found"
+
+
+def test_widget_read_tools_steer_the_model_to_the_saved_widget():
+    """get_widget_data is the saved widget answered for a window: the model is
+    told to prefer it over an ad hoc run_widget_query when the widget exists,
+    that feeds come back skipped, and that every figure names its window."""
+    paths = _schema()["paths"]
+    get_tool = paths["/api/v1/public/widgets/{widget_id}"]["get"]["x-tool"]
+    data_tool = paths["/api/v1/public/widgets/{widget_id}/data"]["get"]["x-tool"]
+    assert get_tool["enabled"] and data_tool["enabled"]
+    assert "policy" not in get_tool and "policy" not in data_tool
+    assert "definition" in get_tool["description"]
+    assert "get_widget_data" in get_tool["description"]
+    assert "saved" in data_tool["description"]
+    assert "run_widget_query" in data_tool["description"]
+    assert "list_traces" in data_tool["description"]
+    assert "name the window" in data_tool["description"]
+
+
 def test_dashboard_read_tools_steer_name_resolution():
     """Both dashboard read tools tell the model to resolve a dashboard by
     listing and matching its name — never to guess an id."""
@@ -333,6 +361,8 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/alerts/{alert_id}": {"get": "get_alert"},
     "/api/v1/public/widgets": {"post": "create_widget"},
     "/api/v1/public/widgets/query": {"post": "run_widget_query"},
+    "/api/v1/public/widgets/{widget_id}": {"get": "get_widget"},
+    "/api/v1/public/widgets/{widget_id}/data": {"get": "get_widget_data"},
     "/api/v1/public/detectors": {"get": "list_detectors", "post": "create_detector"},
     "/api/v1/public/detectors/findings": {"get": "list_findings"},
     "/api/v1/public/detectors/findings/{finding_id}": {"get": "get_finding"},
@@ -432,6 +462,8 @@ def test_x_tool_enabled_set_and_shape():
         "get_dashboard_data",
         "run_sql",
         "get_sql_schema",
+        "get_widget",
+        "get_widget_data",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
@@ -454,6 +486,8 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/dashboards",
     "/api/v1/public/dashboards/{dashboard_id}",
     "/api/v1/public/dashboards/{dashboard_id}/data",
+    "/api/v1/public/widgets/{widget_id}",
+    "/api/v1/public/widgets/{widget_id}/data",
     "/api/v1/public/alerts",
     "/api/v1/public/alerts/{alert_id}",
 ]

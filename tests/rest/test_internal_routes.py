@@ -36,6 +36,9 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}"),
     # Dashboard data mirror (#2196): the agent reads a dashboard's widgets' data.
     ("GET", "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}/data"),
+    # Single-widget mirrors: one widget's definition, and its rows over a window.
+    ("GET", "/api/v1/internal/projects/{project_id}/widgets/{widget_id}"),
+    ("GET", "/api/v1/internal/projects/{project_id}/widgets/{widget_id}/data"),
     # Alerts mirror for the agent (#2196): read-only listing and detail,
     # mounted from routers/project_alerts.py.
     ("GET", "/api/v1/internal/projects/{project_id}/alerts"),

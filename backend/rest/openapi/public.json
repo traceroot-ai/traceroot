@@ -4693,6 +4693,144 @@
         "title": "WhoamiResponse",
         "type": "object"
       },
+      "WidgetDataResponse": {
+        "description": "One saved widget answered for one window.\n\nThe per-widget answer of a dashboard data read, addressed by widget id:\n``status`` says what happened \u2014 ``ok`` carries the engine's columns/rows/\nmeta; ``skipped`` is a feed or legacy detector widget (a trace list, not\nan aggregate \u2014 read those with ``list_traces`` and the feed's filters);\n``error`` carries a short reason and no rows when the stored spec no\nlonger validates or the engine rejects it \u2014 so a broken widget is still a\n200 a script can branch on. One widget has no fan-out to protect, so the\nrows follow ``run_widget_query``: a series comes back whole and every\nother display returns what the engine returns. ``truncated`` is kept for\nparity with the dashboard read and is always false here. ``window`` is\nthe window the rows were answered for \u2014 the one to name with any figure.",
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {},
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "skipped",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "widget": {
+            "$ref": "#/components/schemas/WidgetRef"
+          },
+          "window": {
+            "$ref": "#/components/schemas/QueryWindow"
+          }
+        },
+        "required": [
+          "widget",
+          "window",
+          "status"
+        ],
+        "title": "WidgetDataResponse",
+        "type": "object"
+      },
+      "WidgetDetail": {
+        "description": "One saved widget, as stored, with the dashboard it belongs to.\n\n``spec`` is exactly what the create parsed (defaults filled, unknown keys\nstripped), so what a caller reads is what the engine runs. ``dashboard_id``\nand ``dashboard_name`` let a caller holding only a widget id climb to the\ndashboard without a second read. Widgets record no creator.",
+        "properties": {
+          "create_time": {
+            "format": "date-time",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "dashboard_id": {
+            "title": "Dashboard Id",
+            "type": "string"
+          },
+          "dashboard_name": {
+            "title": "Dashboard Name",
+            "type": "string"
+          },
+          "display_config": {
+            "title": "Display Config"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "spec": {
+            "title": "Spec"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "update_time": {
+            "format": "date-time",
+            "title": "Update Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "type",
+          "spec",
+          "create_time",
+          "dashboard_id",
+          "dashboard_name",
+          "display_config",
+          "update_time"
+        ],
+        "title": "WidgetDetail",
+        "type": "object"
+      },
       "WidgetDisplay": {
         "additionalProperties": false,
         "description": "Controls how the query result is rendered on the dashboard.",
@@ -4907,6 +5045,35 @@
           "window"
         ],
         "title": "WidgetQueryResponse",
+        "type": "object"
+      },
+      "WidgetRef": {
+        "description": "The identity of the widget a data read answered, with its dashboard.",
+        "properties": {
+          "dashboard_id": {
+            "title": "Dashboard Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "dashboard_id",
+          "title",
+          "type"
+        ],
+        "title": "WidgetRef",
         "type": "object"
       },
       "WidgetSpec": {
@@ -9008,6 +9175,272 @@
             "minRole": "VIEWER",
             "tenancy": "project"
           }
+        }
+      }
+    },
+    "/api/v1/public/widgets/{widget_id}": {
+      "get": {
+        "description": "Get one saved widget's definition, with its dashboard, for the caller's project.",
+        "operationId": "get_widget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "widget_id",
+            "required": true,
+            "schema": {
+              "title": "Widget Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WidgetDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Widget not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Widget",
+        "tags": [
+          "Dashboards (Public)"
+        ],
+        "x-tool": {
+          "description": "Fetch one saved widget's definition by id: its title, type, the query spec exactly as stored (what get_widget_data runs), display config, timestamps, and the id and name of the dashboard it sits on. Resolve a widget id from get_dashboard (which lists a dashboard's widgets) \u2014 never guess an id. For what the widget shows, use get_widget_data.",
+          "enabled": true,
+          "name": "get_widget"
+        }
+      }
+    },
+    "/api/v1/public/widgets/{widget_id}/data": {
+      "get": {
+        "description": "Answer one saved widget for a window, with a status instead of an exception.",
+        "operationId": "get_widget_data",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "widget_id",
+            "required": true,
+            "schema": {
+              "title": "Widget Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A preset window ending now, by the site picker's id. Give this or explicit start_time/end_time; neither means the site's 24-hour default.",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "30m",
+                    "1h",
+                    "3h",
+                    "6h",
+                    "1d",
+                    "7d",
+                    "14d",
+                    "30d",
+                    "60d",
+                    "90d"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A preset window ending now, by the site picker's id. Give this or explicit start_time/end_time; neither means the site's 24-hour default.",
+              "title": "Range"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Time"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WidgetDataResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Widget not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Widget Data",
+        "tags": [
+          "Dashboards (Public)"
+        ],
+        "x-tool": {
+          "description": "Answer one saved widget for a window \u2014 the way to say what a widget shows without re-sending its spec. Prefer this over run_widget_query whenever the widget already exists on a dashboard; run_widget_query is for a spec that is saved nowhere. Takes a widget id plus a window like run_widget_query (range preset or explicit start_time/end_time; neither means the site's default). The answer carries a status: ok with every row the engine returns (a series comes back whole; no row cap), skipped for a trace feed or legacy detector widget (read those with list_traces and the feed's filters), or error with a reason when the stored spec no longer runs. Every figure you report must come from these rows, and name the window it was answered for \u2014 the response echoes it and says when retention clamped it.",
+          "enabled": true,
+          "name": "get_widget_data"
         }
       }
     },
