@@ -82,11 +82,42 @@ describe("captureLlmContent", () => {
     expect(leaky).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789");
   });
 
-  it("bounds each span's content to LLM_IO_CAP after redacting", () => {
-    const big = { role: "user", content: "x".repeat(LLM_IO_CAP * 2) };
-    const out = captureLlmContent("llm_input", { messages: [big] })!;
-    expect(out.length).toBe(LLM_IO_CAP + 1);
-    expect(out.endsWith("…")).toBe(true);
+  it("bounds each span's content to LLM_IO_CAP bytes after redacting, whatever the script", () => {
+    for (const text of [
+      "x".repeat(LLM_IO_CAP * 2),
+      "汉".repeat(LLM_IO_CAP),
+      "😀".repeat(LLM_IO_CAP),
+    ]) {
+      const out = captureLlmContent("llm_input", { messages: [{ role: "user", content: text }] })!;
+      expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(LLM_IO_CAP);
+      expect(out.endsWith("…")).toBe(true);
+    }
+  });
+
+  it("redacts credential-shaped keys inside a tool call's arguments, on the output and the input side", () => {
+    const message = {
+      role: "assistant",
+      content: [
+        {
+          type: "toolCall",
+          id: "t1",
+          name: "bash",
+          arguments: {
+            apiToken: "review-dummy-secret",
+            nested: { dbPassword: 4242, keep: "plain" },
+          },
+        },
+      ],
+    };
+    const output = captureLlmContent("llm_output", { message })!;
+    const input = captureLlmContent("llm_input", { messages: [message] })!;
+    for (const out of [output, input]) {
+      expect(out).not.toContain("review-dummy-secret");
+      expect(out).not.toContain("4242");
+      expect(out).toContain('"apiToken":"[REDACTED]"');
+      expect(out).toContain('"dbPassword":"[REDACTED]"');
+      expect(out).toContain('"keep":"plain"');
+    }
   });
 
   it("records nothing when the host could not supply the messages", () => {
