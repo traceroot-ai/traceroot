@@ -174,6 +174,10 @@ test("support UI: browse, search, workspaces, reason, banner, exit and audit", a
   await page.waitForURL(base + "/");
   await expect(page.getByRole("button", { name: "Exit impersonation" })).toBeVisible();
   await expect(page.getByText("Read-only", { exact: true })).toBeVisible();
+  await expect(page.getByText("Reason:", { exact: false })).toHaveCount(0);
+  await expect(
+    page.getByText("Investigate missing traces in E2E ticket", { exact: false }),
+  ).toHaveCount(0);
   expect((await context.request.get("/api/workspaces")).status()).toBe(200);
   expect(
     (
