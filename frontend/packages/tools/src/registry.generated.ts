@@ -902,6 +902,64 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_widget",
+    description:
+      "Fetch one saved widget's definition by id: its title, type, the query spec exactly as stored (what get_widget_data runs), display config, timestamps, and the id and name of the dashboard it sits on. Resolve a widget id from get_dashboard (which lists a dashboard's widgets) — never guess an id. For what the widget shows, use get_widget_data.",
+    method: "get",
+    path: "/api/v1/public/widgets/{widget_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        widget_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["widget_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_widget_data",
+    description:
+      "Answer one saved widget for a window — the way to say what a widget shows without re-sending its spec. Prefer this over run_widget_query whenever the widget already exists on a dashboard; run_widget_query is for a spec that is saved nowhere. Takes a widget id plus a window like run_widget_query (range preset or explicit start_time/end_time; neither means the site's default). The answer carries a status: ok with every row the engine returns (a series comes back whole; no row cap), skipped for a trace feed or legacy detector widget (read those with list_traces and the feed's filters), or error with a reason when the stored spec no longer runs. Every figure you report must come from these rows, and name the window it was answered for — the response echoes it and says when retention clamped it.",
+    method: "get",
+    path: "/api/v1/public/widgets/{widget_id}/data",
+    inputSchema: {
+      type: "object",
+      properties: {
+        widget_id: {
+          type: "string",
+        },
+        range: {
+          enum: ["30m", "1h", "3h", "6h", "1d", "7d", "14d", "30d", "60d", "90d"],
+          type: "string",
+          description:
+            "A preset window ending now, by the site picker's id. Give this or explicit start_time/end_time; neither means the site's 24-hour default.",
+        },
+        start_time: {
+          format: "date-time",
+          type: "string",
+        },
+        end_time: {
+          format: "date-time",
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["widget_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_alerts",
     description:
       "List the project's threshold alerts (id, name, rule summary, status, current severity, last evaluation and notification state, creator) with the project's alert capacity. Paginated; search_query matches the alert name. To resolve an alert by name, list here and match its name — never guess an alert id.",

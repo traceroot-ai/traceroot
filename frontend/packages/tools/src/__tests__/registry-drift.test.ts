@@ -32,6 +32,8 @@ describe("committed registry", () => {
       "get_session",
       "get_sql_schema",
       "get_trace",
+      "get_widget",
+      "get_widget_data",
       "list_alerts",
       "list_dashboards",
       "list_detectors",
@@ -65,6 +67,34 @@ describe("committed registry", () => {
     expect(get.policy).toBeUndefined();
     expect(Object.keys(get.inputSchema.properties).sort()).toEqual(["dashboard_id", "project_id"]);
     expect(get.inputSchema.required).toEqual(["dashboard_id"]);
+  });
+
+  it("generates the widget reads as pure GET tools with the window params on the data read", () => {
+    const get = REGISTRY.find((entry) => entry.name === "get_widget")!;
+    expect(get.method).toBe("get");
+    expect(get.path).toBe("/api/v1/public/widgets/{widget_id}");
+    expect(get.bodyParams).toBeUndefined();
+    expect(get.policy).toBeUndefined();
+    expect(Object.keys(get.inputSchema.properties).sort()).toEqual(["project_id", "widget_id"]);
+    expect(get.inputSchema.required).toEqual(["widget_id"]);
+
+    const data = REGISTRY.find((entry) => entry.name === "get_widget_data")!;
+    expect(data.method).toBe("get");
+    expect(data.path).toBe("/api/v1/public/widgets/{widget_id}/data");
+    expect(data.bodyParams).toBeUndefined();
+    expect(data.policy).toBeUndefined();
+    expect(Object.keys(data.inputSchema.properties).sort()).toEqual([
+      "end_time",
+      "project_id",
+      "range",
+      "start_time",
+      "widget_id",
+    ]);
+    expect(data.inputSchema.required).toEqual(["widget_id"]);
+    // The same window description run_widget_query takes, so the agent's
+    // page-window default applies to it unchanged.
+    const range = (data.inputSchema.properties as Record<string, { enum?: unknown[] }>).range!;
+    expect(range.enum).toContain("7d");
   });
 
   it("generates the alert create with the stable enums and a full policy", () => {
