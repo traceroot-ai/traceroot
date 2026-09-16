@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
+import { ImpersonationBanner } from "@/features/support/impersonation-banner";
 import { Button } from "@/components/ui/button";
 import { PanelLeft } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -165,6 +166,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 )}
               </header>
 
+              <ImpersonationBanner />
               <main className="min-h-0 flex-1 overflow-auto">{children}</main>
             </ResizablePanel>
 

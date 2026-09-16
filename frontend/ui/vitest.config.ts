@@ -5,6 +5,7 @@ export default defineConfig({
   // untransformed; component tests need the automatic runtime instead.
   esbuild: { jsx: "automatic" },
   test: {
+    exclude: ["**/node_modules/**", "**/.next/**", "e2e/**"],
     environment: "node",
     coverage: {
       provider: "v8",
