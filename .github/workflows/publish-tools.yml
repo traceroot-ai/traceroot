@@ -32,6 +32,10 @@ jobs:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       - uses: pnpm/action-setup@v4
+        with:
+          # The pnpm version is pinned by the frontend workspace's packageManager
+          # field; the repo root has none, so point the action at it.
+          package_json_file: frontend/package.json
 
       - uses: actions/setup-node@v4
         with:

@@ -58,7 +58,12 @@ function renderToolResult(message: Message): Record<string, unknown> {
     tool: toolName,
     tool_call_id: message.toolCallId,
     ...(message.isError ? { is_error: true } : {}),
-    content: c.result ?? withheldOutputText(c),
+    content:
+      c.result === undefined
+        ? withheldOutputText(c)
+        : typeof c.result === "string"
+          ? c.result
+          : JSON.stringify(c.result),
   };
 }
 

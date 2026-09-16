@@ -22,8 +22,10 @@ const OUTPUT_ALLOWLIST: ReadonlySet<string> = new Set([
 // A credential name is the bare word or ends with `_word`, so `monkey=` and
 // `token_count=` stay readable while `api_key=` and `DB_PASSWORD=` do not.
 // Known false positives, accepted for the sake of a short pattern: `sort_key=`,
-// `primary_key=` and a URL's `?key=` are redacted too (display only — tool_step
-// rows are never fed back to the model, see SessionManager.buildContext).
+// `primary_key=` and a URL's `?key=` are redacted too (the row is shown to the
+// user and, since the session rebuild restores tool steps, read back by the
+// model as a bounded summary — a redacted key in either place is the safe
+// side).
 const SECRET_NAME =
   "([A-Za-z0-9]+(?:_[A-Za-z0-9]+)*_)?(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)";
 // A value is a double- or single-quoted string, or a run of non-space characters.
@@ -197,40 +199,62 @@ function truncateTo(text: string, bytes: number): { text: string; truncated: boo
   return { text: buf.subarray(0, room).toString("utf8") + TRUNCATION_MARKER, truncated: true };
 }
 
+/** What a kept result is stored as: text stays text, a structured value stays structured. */
+export type CapturedResult = string | Record<string, unknown> | unknown[] | number | boolean | null;
+
 export function applyCapturePolicy(
-  input: { toolName: string; args: unknown; result: unknown },
+  input: {
+    toolName: string;
+    args: unknown;
+    result: unknown;
+    /**
+     * The caller vouches that this tool's output is the customer's own
+     * TraceRoot data, so it is kept like an allow-listed tool's. The agent
+     * sets it for the registry-bound API tools (`create_alert`, `get_alert`,
+     * …): their results are the resources the API returned, and the session
+     * rebuild and the chat cards read the outcome back from the stored row.
+     */
+    keepOutput?: boolean;
+  },
   state: { spentBytes: number },
   budget: CaptureBudget = DEFAULT_CAPTURE_BUDGET,
 ): {
   args: unknown;
-  result?: string;
+  /**
+   * A string result is kept as redacted, truncated text. A structured result
+   * is kept structured, bounded leaf by leaf the way args are, so a small
+   * field beside a large one (a created resource's `details` next to its
+   * `content`) survives instead of being cut off with the tail of one big
+   * string; oversized leaves become the `"[withheld: budget]"` sentinel.
+   */
+  result?: CapturedResult;
   outputBytes: number;
-  /** Whether anything kept — an args leaf or the result — was cut. */
+  /** Whether anything kept — an args leaf, the result or one of its leaves — was cut. */
   truncated: boolean;
   withheld: "not-allowlisted" | "budget" | null;
 } {
   // Args are captured for every tool, so they are the one thing every step
   // writes — and a `write` call carries its whole file body in them. Bound and
   // charge them like output, or the budgets only govern the smaller half.
-  // One step allowance, shared by the args and the result below.
-  const step = { remaining: budget.perStepBytes };
+  // One step allowance is shared by the args and the result, but when both
+  // want more than fits, the args may take at most half of it: a large args
+  // payload (a dashboard spec, a file body) must not starve the result — the
+  // created resource's id — that the session rebuild reads back later.
+  const keep = input.keepOutput === true || OUTPUT_ALLOWLIST.has(input.toolName);
+  const wantArgs = serializedBytes(input.args);
+  const wantResult = keep ? serializedBytes(input.result) : 0;
+  const argsAllowance =
+    wantArgs + wantResult <= budget.perStepBytes
+      ? budget.perStepBytes
+      : Math.max(Math.floor(budget.perStepBytes / 2), budget.perStepBytes - wantResult);
+  const step = { remaining: Math.min(budget.perStepBytes, argsAllowance) };
   const { args, truncated: argsTruncated } = capArgs(input.args, state, budget, step);
+  // Whatever the args left of the step goes to the result.
+  step.remaining += budget.perStepBytes - Math.min(budget.perStepBytes, argsAllowance);
   // `outputBytes` is what the tool actually returned — the size a withheld
   // step reports — so it is measured before any redaction changes the text.
   const outputBytes = Buffer.byteLength(toText(input.result), "utf8");
-  // A structured result is redacted by key before it is serialised (the text
-  // patterns below cannot see a credential-shaped key once it is just text);
-  // a string result gets the same key walk if it parses as JSON, and the text
-  // patterns otherwise.
-  const raw =
-    typeof input.result === "string"
-      ? redactText(input.result)
-      : toText(
-          input.result !== null && typeof input.result === "object"
-            ? safeRedactStructured(input.result)
-            : input.result,
-        );
-  if (!OUTPUT_ALLOWLIST.has(input.toolName)) {
+  if (!keep) {
     return { args, outputBytes, truncated: argsTruncated, withheld: "not-allowlisted" };
   }
   // Never spend past the run budget: the last step gets what is left, not a
@@ -241,9 +265,51 @@ export function applyCapturePolicy(
   if (remaining <= 0) {
     return { args, outputBytes, truncated: argsTruncated, withheld: "budget" };
   }
-  const { text, truncated } = truncateTo(redactSecrets(raw), remaining);
-  state.spentBytes += Buffer.byteLength(text, "utf8");
-  return { args, result: text, outputBytes, truncated: argsTruncated || truncated, withheld: null };
+  if (typeof input.result === "string") {
+    // A string result gets the key walk if it parses as JSON (the text
+    // patterns cannot see a credential-shaped key once it is just text), and
+    // the text patterns otherwise; then the cut.
+    const { text, truncated } = truncateTo(redactSecrets(redactText(input.result)), remaining);
+    state.spentBytes += Buffer.byteLength(text, "utf8");
+    return {
+      args,
+      result: text,
+      outputBytes,
+      truncated: argsTruncated || truncated,
+      withheld: null,
+    };
+  }
+  if (input.result === undefined) {
+    return { args, outputBytes, truncated: argsTruncated, withheld: null };
+  }
+  // A structured result takes the same walk as the args: redacted by key and
+  // by text pattern at every leaf, charged leaf by leaf against what is left
+  // of the step, so a small field survives beside a large one. A value nested
+  // too deeply to walk degrades whole to the marker, as a string would.
+  const probe =
+    typeof input.result === "object" ? safeRedactStructured(input.result) : input.result;
+  if (probe === REDACTED) {
+    state.spentBytes += Buffer.byteLength(JSON.stringify(REDACTED), "utf8");
+    return { args, result: REDACTED, outputBytes, truncated: argsTruncated, withheld: null };
+  }
+  const { args: result, truncated } = capArgs(input.result, state, budget, step);
+  return {
+    args,
+    result: result as CapturedResult,
+    outputBytes,
+    truncated: argsTruncated || truncated,
+    withheld: null,
+  };
+}
+
+/** JSON-serialised size of a value, for ordering; unserialisable sorts last. */
+function serializedBytes(value: unknown): number {
+  try {
+    const json = JSON.stringify(value);
+    return json === undefined ? 0 : Buffer.byteLength(json, "utf8");
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 /** What `capArgs` substitutes for a value it can't fit any more of the budget into. */
@@ -371,15 +437,21 @@ function capArgs(
         return { value: WITHHELD_BUDGET, exhausted: true };
       }
       spend(2); // '{' + '}'
-      const out: Record<string, unknown> = {};
+      // Entries are charged smallest first, so a large field takes the cut
+      // and its small siblings survive (a created resource's `details` beside
+      // a long `content`); the output keeps the original key order.
+      const entries = Object.entries(value as Record<string, unknown>);
+      const bySize = entries
+        .map(([k, v], i) => ({ k, v, i, bytes: serializedBytes(v) }))
+        .sort((a, b) => a.bytes - b.bytes || a.i - b.i);
+      const kept = new Map<string, unknown>();
       let first = true;
       let exhausted = false;
-      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      for (const { k, v } of bySize) {
         const sep = first ? 0 : 1;
         const keyBytes = Buffer.byteLength(JSON.stringify(k), "utf8") + 1; // + ':'
         if (remaining() < sep + keyBytes) {
           truncated = true;
-          out["…"] = WITHHELD_BUDGET;
           exhausted = true;
           break;
         }
@@ -389,13 +461,17 @@ function capArgs(
         // value — whatever its type — rather than recursing into it. Charged
         // like any other string leaf, via the same `cap`.
         const capped = CREDENTIAL_KEY.test(k) ? cap(REDACTED) : cap(v);
-        out[k] = capped.value;
+        kept.set(k, capped.value);
         if (capped.exhausted) {
           truncated = true;
           exhausted = true;
           break;
         }
       }
+      const out: Record<string, unknown> = {};
+      for (const [k] of entries) if (kept.has(k)) out[k] = kept.get(k);
+      // One sentinel stands for every entry that did not fit, at the end.
+      if (exhausted && kept.size < entries.length) out["…"] = WITHHELD_BUDGET;
       return { value: out, exhausted };
     }
     return { value, exhausted: false };

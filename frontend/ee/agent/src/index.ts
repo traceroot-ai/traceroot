@@ -13,12 +13,16 @@ import {
   executionBelongsToProject,
   type TurnAttribution,
 } from "./session.js";
-import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
-import { StreamPersister } from "./stream-persister.js";
-import { UsageAccumulator } from "./usage-accumulator.js";
 import {
-  withAgentTrace,
-  currentToolSpanIds,
+  getOrCreateAgent,
+  removeAgent,
+  abortSessionRun,
+  invalidateProviderCache,
+} from "./agent.js";
+import { decisionsRoute } from "./decisions-route.js";
+import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "./pending-decisions.js";
+import { claimRun, releaseRun, runAgentStream, waitForRunToSettle } from "./run-stream.js";
+import {
   isAgentTraceEnabled,
   turnTraceId,
   ROOT_SPAN_NAME,
@@ -27,8 +31,22 @@ import {
 } from "./self-trace.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
+import {
+  clearSessionDeleted,
+  fenceExecutorToSession,
+  markSessionDeleted,
+} from "./executors/deleted-session-fence.js";
 import { createTools } from "./tools/index.js";
+import {
+  closePreviousListener,
+  registerSignalHandlers,
+  rememberExecutors,
+  rememberListener,
+} from "./hot-reload.js";
+import { parseQueryWindow } from "./tools/query-window.js";
 import type { Executor } from "./executors/interface.js";
+import type { Agent } from "@earendil-works/pi-agent-core";
+import type { SessionManager } from "./session.js";
 
 const app = new Hono();
 
@@ -45,9 +63,14 @@ const TRACE_KIND: Record<"rca_execution" | "rca_followup" | "chat", AgentTraceKi
   chat: "chat",
 };
 
+// When this module was (re-)executed. Reported by /health so a caller can tell
+// whether the running process predates the sources it is being graded against
+// — the eval harness refuses to score a service older than its own code.
+const BOOT_TIME = new Date().toISOString();
+
 // Health check
 app.get("/health", (c) => {
-  return c.json({ status: "ok", service: "traceroot-agent" });
+  return c.json({ status: "ok", service: "traceroot-agent", startedAt: BOOT_TIME });
 });
 
 // Cache invalidation — called by Next.js API when a model provider is updated/deleted
@@ -130,25 +153,56 @@ app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
 
-  // Destroy executor if one exists for this session
-  const executor = sessionExecutors.get(sessionId);
-  if (executor) {
-    await executor.destroy();
-    sessionExecutors.delete(sessionId);
-  }
-
-  removeAgent(sessionId);
-  const result = await deleteSession(sessionId, userId);
+  // Authorize first: deleteSession only removes a session the caller owns
+  // in this project. Tearing down the executor and agent before that check
+  // would let any project member holding a session id destroy another
+  // user's sandbox by way of a 404.
+  const result = await deleteSession(sessionId, userId, c.req.param("projectId"));
   if (!result) return c.json({ error: "not found" }, 404);
+
+  // Mark BEFORE anything resumes the run: releasing a parked decision below
+  // hands control back to the turn in a microtask, and the mark is what stops
+  // its next sandbox tool call from re-creating a container (see the fence).
+  markSessionDeleted(sessionId);
+  // The turn has nobody left to narrate to and would keep spending tokens.
+  abortSessionRun(sessionId);
+  // The session is gone — any tool call still parked on a confirmation for
+  // it can never receive a decision, so release it as a skip.
+  pendingDecisions.releaseSession(sessionId, SESSION_DELETED_SKIP_REASON);
+
+  // Only now is the executor safe to tear down: destroying it while the
+  // resumed run is still executing tools would leave the sandbox that run
+  // re-creates untracked, and leaked for the life of the process.
+  const settled = await waitForRunToSettle(sessionId);
+
+  try {
+    const executor = sessionExecutors.get(sessionId);
+    if (executor) {
+      // Untracked before destroy: a teardown that throws must not leave a
+      // dead executor in the map for a later request to hand out.
+      sessionExecutors.delete(sessionId);
+      await executor.destroy();
+    }
+    removeAgent(sessionId);
+  } finally {
+    // The fence must never outlive the request that raised it, even when the
+    // teardown throws: a stale mark refuses every later run's sandbox. The one
+    // case it must outlive the request is a run that outlived the wait — it is
+    // still live, and its next sandbox call would create a container nothing
+    // tracks. That run drops its own mark when it settles.
+    if (settled) clearSessionDeleted(sessionId);
+  }
   return c.json({ ok: true });
 });
+
+// Confirmation decisions for parked confirm-class tool calls
+app.route("/", decisionsRoute);
 
 // Message route — SSE streaming via agent runner
 app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
   const projectId = c.req.param("projectId");
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
-  const workspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{
     message: string;
     model?: string;
@@ -157,56 +211,74 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     providerName?: string;
     source?: ModelSource;
     agentTrace?: { traceId: string; kind: "rca"; metadata: Record<string, unknown> };
+    /** The page's selected time range: a preset id, or custom bounds. */
+    range?: string;
+    start_time?: string;
+    end_time?: string;
   }>();
 
-  // Authorize first: caller must own the session (user-bound) or have
-  // projectId scope on a system session. Without this check, any caller
-  // who can reach the proxy could append messages and run the LLM in
-  // another user's session by guessing/known sessionIds.
+  // The window the page is showing rides with each message and becomes the
+  // default for the dashboard reads. Malformed is a 400, never a silent
+  // default: the caller asked for a window and would get another one's numbers.
+  const window = parseQueryWindow({
+    range: body.range,
+    start_time: body.start_time,
+    end_time: body.end_time,
+  });
+  if (window instanceof Error) {
+    return c.json({ error: `invalid window: ${window.message}` }, 400);
+  }
+
+  // Authorize first: caller must own the session in THIS project (user-bound)
+  // or have projectId scope on a system session — getSession treats a
+  // session/project mismatch exactly like a missing session. Without this
+  // check, any caller who can reach the proxy could append messages and run
+  // the LLM in another user's session by guessing/known sessionIds.
   const ownedSession = await getSession(sessionId, userId, projectId);
   if (!ownedSession) {
     return c.json({ error: "session not found" }, 404);
   }
 
   const systemPrompt = getSystemPrompt({
-    projectId,
+    projectId: ownedSession.projectId,
     traceId: body.traceId,
     traceSessionId: body.traceSessionId,
+    // The same window the read tools default to, stated in the prompt so the
+    // model can tell whether omitting it actually answers the question.
+    window,
   });
 
   // Get or create executor for this session (lazy — not initialized until tool use)
   let executor = sessionExecutors.get(sessionId);
   if (!executor) {
-    executor = createExecutor();
+    executor = fenceExecutorToSession(createExecutor(), sessionId);
     sessionExecutors.set(sessionId, executor);
   }
 
-  // Use the session's workspaceId (authorized by getSession above) rather than
-  // the raw header value, so tools can't be coerced into another workspace.
+  // Both tenancy ids come from the ONE session row authorized above — never
+  // the raw header or the raw path value — so tools can't be coerced into
+  // another workspace, and projectId/workspaceId can't name two unrelated
+  // tenancies. (getSession already guarantees session.projectId matches the
+  // path; deriving from the row makes that structural.)
   const tools = createTools({
-    projectId,
+    projectId: ownedSession.projectId,
     userId,
     workspaceId: ownedSession.workspaceId,
+    agentSessionId: sessionId,
     executor,
+    window,
   });
 
   console.log(
     `[Agent] POST message: session=${sessionId}, model=${body.model}, provider=${body.providerName}, source=${body.source}`,
   );
 
-  const { agent, sessionManager } = await getOrCreateAgent({
-    sessionId,
-    projectId,
-    workspaceId: ownedSession.workspaceId,
-    userId,
-    systemPrompt,
-    tools,
-    model: body.model,
-    providerName: body.providerName,
-    source: body.source,
-  });
-
-  console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
+  // One run per session at a time. Claimed before the user row lands and
+  // before the cached agent's tools/prompt are refreshed under a live run;
+  // runAgentStream releases the claim when the run settles.
+  if (!claimRun(sessionId)) {
+    return c.json({ error: "a run is already in progress for this session" }, 409);
+  }
 
   // Attribution is computed once per turn and applied to every row it
   // produces (the user message, and every assistant/tool_step row the
@@ -227,16 +299,39 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
       : { turnKind: "chat" as const, initiatorUserId: userId || null }
   ) satisfies TurnAttribution;
 
-  // Persist user message to DB via SessionManager. The created row's id is
-  // this turn's messageId, used below to derive a deterministic trace id for
-  // follow-up and chat turns.
-  const userRow = await sessionManager.appendMessage("user", body.message, attribution);
+  let agent: Agent;
+  let sessionManager: SessionManager;
+  // The user row's id is this turn's messageId, used below to derive a
+  // deterministic trace id for follow-up and chat turns.
+  let userRow: Awaited<ReturnType<SessionManager["appendMessage"]>>;
+  try {
+    ({ agent, sessionManager } = await getOrCreateAgent({
+      sessionId,
+      projectId: ownedSession.projectId,
+      workspaceId: ownedSession.workspaceId,
+      userId,
+      systemPrompt,
+      tools,
+      model: body.model,
+      providerName: body.providerName,
+      source: body.source,
+    }));
 
-  // Auto-generate session title from first user message (we already have
-  // the session loaded above for the auth check — reuse it).
-  if (!ownedSession.title) {
-    const title = body.message.slice(0, 80) + (body.message.length > 80 ? "..." : "");
-    await updateSessionTitle(sessionId, title);
+    console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
+
+    // Persist user message to DB via SessionManager, attributed to this turn
+    userRow = await sessionManager.appendMessage("user", body.message, attribution);
+
+    // Auto-generate session title from first user message (we already have
+    // the session loaded above for the auth check — reuse it).
+    if (!ownedSession.title) {
+      const title = body.message.slice(0, 80) + (body.message.length > 80 ? "..." : "");
+      await updateSessionTitle(sessionId, title);
+    }
+  } catch (error) {
+    // The run never started, so nothing else will release the claim.
+    releaseRun(sessionId);
+    throw error;
   }
 
   // The trace kind is the attribution's turn kind under another name — one
@@ -276,125 +371,22 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     },
   };
 
-  return streamSSE(c, async (stream) => {
-    // Accumulates token usage across all message_end events (tool-use loops)
-    const usageAccumulator = new UsageAccumulator();
-    let loggedFirstUpdate = false;
-
-    // Runs the agent and resolves with the persister that mirrored the run
-    // into AIMessage rows (text segments, tool steps) so reloaded history
-    // matches what the live stream rendered. The persister is built inside
-    // the run because withAgentTrace's scope is only live in here: it stamps
-    // each tool_step row with the OTel span id the instrumentation reported
-    // for that tool call. Its capture budget is its OWN fresh accumulator —
-    // deliberately NOT the span budget (currentCaptureState(), charged by
-    // agent.ts's captureToolIo callback). The same tool event is
-    // policy-transformed once for the span sink and once for the row sink;
-    // sharing one accumulator between them would charge both transforms
-    // against a single perRunBytes budget and roughly halve each sink's
-    // effective cap. Two independent accumulators mean each sink is bounded
-    // by perRunBytes on its own — total captured bytes across the two sinks
-    // is bounded by 2x perRunBytes, not perRunBytes.
-    const run = () =>
-      new Promise<{ persister: StreamPersister; error?: Error }>((resolve) => {
-        const persister = new StreamPersister(
-          (role, content, metadata, tokenUsage) =>
-            sessionManager.appendMessage(role, content, attribution, metadata, tokenUsage),
-          { toolSpanIds: currentToolSpanIds },
-        );
-        runAgent(agent, body.message, {
-          onEvent: (event) => {
-            if (event.type === "message_update") {
-              // Log only the very first message_update for debugging
-              if (!loggedFirstUpdate) {
-                loggedFirstUpdate = true;
-                console.log(`[Agent] First message_update:`, JSON.stringify(event).slice(0, 500));
-              }
-            } else if (event.type !== "message_start") {
-              // Skip noisy message_start, log other event types
-              console.log(`[Agent] Event: ${event.type}`);
-            }
-            // Log error details from message_end
-            if (event.type === "message_end") {
-              const msg = (event as any).message;
-              console.log(
-                `[Agent] message_end:`,
-                JSON.stringify({
-                  model: msg?.model,
-                  provider: msg?.provider,
-                  usage: msg?.usage,
-                  stopReason: msg?.stopReason,
-                }).slice(0, 500),
-              );
-              if (msg?.stopReason === "error") {
-                console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
-              }
-            }
-            // Forward all events to the frontend
-            stream.writeSSE({
-              event: event.type,
-              data: JSON.stringify(event),
-            });
-
-            // Mirror the event into token totals and durable rows
-            usageAccumulator.onEvent(event);
-            persister.onEvent(event);
-          },
-          onError: (error) => {
-            // Log the full error server-side; the raw provider/agent message
-            // can carry internal detail (connection strings, stack frames)
-            // and this SSE frame reaches the browser, so only a sanitised
-            // form goes out over it.
-            console.error(`[Agent] ERROR:`, error);
-            stream.writeSSE({
-              event: "error",
-              data: JSON.stringify({ message: publicErrorMessage(error) }),
-            });
-            // Resolve, not reject: the run happened and its rows persist below.
-            // The error still marks the root span so the trace reads as failed.
-            resolve({ persister, error });
-          },
-          onDone: () => {
-            resolve({ persister });
-          },
-        });
-      });
-
-    const outcome = await withAgentTrace(traceMeta, run, {
-      recordOutput: ({ persister }) => persister.finalText() || undefined,
-      // The root span's exception and status message are read by anyone who
-      // can open the trace, so the raw provider/agent error (connection
-      // strings, stack frames, an echoed credential) stays in the server log
-      // above and only the same sanitised form the SSE frame carries is
-      // recorded here.
-      runError: ({ error }) => (error ? new Error(publicErrorMessage(error)) : undefined),
-    });
-    const { persister } = outcome.value;
-
-    // Flush the trailing text segment (or the usage-only row) — stamped with
-    // this turn's trace outcome — and wait for all rows to land. Runs once
-    // here (after the run — success or error — resolves) rather than inside
-    // onDone/onError, so it happens exactly once regardless of outcome.
-    const tokenUsage = await usageAccumulator.toTokenUsage(body.source === ModelSource.BYOK);
-    // When tracing is disabled, pass no trace argument at all: finish()'s
-    // `!trace` gate must see undefined, not a present-but-inert object, or a
-    // tool-only turn with the flag off would gain an extra empty assistant
-    // row that main today never writes (Global Constraint: byte-identical
-    // row set with the flag off).
-    await persister.finish(
-      tokenUsage,
-      outcome.trace === "disabled"
-        ? undefined
-        : { traceId: traceMeta.traceId, status: outcome.trace },
-    );
-    console.log(`[Agent] Done. Run persisted for session ${sessionId}`);
-
-    await stream.writeSSE({
-      event: "trace",
-      data: JSON.stringify({ status: outcome.trace, traceId: traceMeta.traceId }),
-    });
-    await stream.writeSSE({ event: "done", data: "{}" });
-  });
+  return streamSSE(c, (stream) =>
+    runAgentStream(stream, {
+      agent,
+      message: body.message,
+      sessionId,
+      // Attended means THIS request comes from a user who can answer
+      // confirmation cards — independent of who owns the session row, since
+      // a signed-in user may continue a system/RCA session (owner null).
+      // Only a user-less caller is unattended.
+      channelUserId: userId,
+      isByok: body.source === ModelSource.BYOK,
+      sessionManager,
+      attribution,
+      trace: traceMeta,
+    }),
+  );
 });
 
 // Graceful shutdown
@@ -419,11 +411,19 @@ async function shutdown(signal: string): Promise<void> {
   }
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
-
 async function main(): Promise<void> {
   console.log("[Agent] TraceRoot Agent Service starting...");
+
+  // First, before anything slow: under `vite-node --watch` this module is
+  // re-executed in the same process, so the previous execution's listener is
+  // still holding the port and its signal handlers are still registered.
+  // Leaving them in place makes serve() below throw EADDRINUSE and the
+  // process goes on serving the code it booted with.
+  await closePreviousListener();
+  registerSignalHandlers(["SIGTERM", "SIGINT"], (signal) => {
+    void shutdown(signal);
+  });
+  rememberExecutors(sessionExecutors);
 
   // Verify DB connection
   try {
@@ -437,14 +437,19 @@ async function main(): Promise<void> {
   // Sync standard model pricing from JSON → DB
   await syncStandardPrices();
 
-  serve({ fetch: app.fetch, port: PORT }, (info) => {
-    console.log(`[Agent] Listening on http://localhost:${info.port}`);
-  });
+  rememberListener(
+    serve({ fetch: app.fetch, port: PORT }, (info) => {
+      console.log(`[Agent] Listening on http://localhost:${info.port}`);
+    }),
+  );
 }
 
-main().catch((error) => {
-  console.error("[Agent] Fatal error:", error);
-  process.exit(1);
-});
+// Under vitest the app is exercised via app.request — don't boot the server.
+if (!process.env.VITEST) {
+  main().catch((error) => {
+    console.error("[Agent] Fatal error:", error);
+    process.exit(1);
+  });
+}
 
 export { app };

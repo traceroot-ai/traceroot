@@ -5,8 +5,9 @@ const base = { createTime: "2026-01-01T00:00:00Z" };
 
 describe("mapDbMessages", () => {
   it("maps persisted tool_step rows into the bubble shape the live stream produces", () => {
-    // The persister stores the result as JSON text; the live stream showed the
-    // parsed value, and the reloaded bubble must render the same way.
+    // The persister stores a kept result as the structured value the live
+    // stream showed (bounded leaf by leaf), and the reloaded bubble renders it
+    // the same way.
     const [msg] = mapDbMessages([
       {
         ...base,
@@ -17,7 +18,7 @@ describe("mapDbMessages", () => {
           toolCallId: "t1",
           toolName: "get_traces",
           args: { traceId: "abc" },
-          result: '{"spans":3}',
+          result: { spans: 3 },
           outputBytes: 11,
           isError: false,
         },
@@ -103,6 +104,44 @@ describe("mapDbMessages", () => {
     ]);
     expect(msg.toolStep?.status).toBe("error");
     expect(msg.toolStep?.isError).toBe(true);
+  });
+
+  it("labels a persisted declined step from its proposal_declined details", () => {
+    const [skippedMsg, revisedMsg] = mapDbMessages([
+      {
+        ...base,
+        id: "row1",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t1",
+          toolName: "create_widget",
+          args: {},
+          result: { content: [], details: { kind: "proposal_declined", outcome: "skipped" } },
+          isError: true,
+        },
+      },
+      {
+        ...base,
+        id: "row2",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t2",
+          toolName: "create_widget",
+          args: {},
+          result: {
+            content: [],
+            details: { kind: "proposal_declined", outcome: "revised", text: "use p95" },
+          },
+          isError: true,
+        },
+      },
+    ]);
+    expect(skippedMsg.toolStep?.skipped).toBe(true);
+    expect(skippedMsg.toolStep?.revisedText).toBeUndefined();
+    expect(revisedMsg.toolStep?.revisedText).toBe("use p95");
+    expect(revisedMsg.toolStep?.skipped).toBeFalsy();
   });
 
   it("tolerates a tool_step row with missing metadata", () => {
@@ -276,6 +315,38 @@ describe("mapDbMessages", () => {
     ]);
     expect(out[0].toolStep?.spanId).toBe("abcdef0123456789");
     expect(out[1]).toMatchObject({ traceId: "f".repeat(32), traceStatus: "available" });
+  });
+
+  it("renders a persisted run error as an error bubble like the live stream", () => {
+    const [msg] = mapDbMessages([
+      { ...base, id: "a1", role: "assistant", content: "", metadata: { runError: "boom" } },
+    ]);
+    expect(msg.role).toBe("assistant");
+    expect(msg.content).toBe("Error: boom");
+  });
+
+  it("appends the run error after partial text the run produced before failing", () => {
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "a1",
+        role: "assistant",
+        content: "partial answer",
+        metadata: { runError: "boom" },
+      },
+    ]);
+    expect(msg.content).toBe("partial answer\n\nError: boom");
+  });
+
+  it("never folds a content-less error row into the previous assistant bubble", () => {
+    const msgs = mapDbMessages([
+      { ...base, id: "u1", role: "user", content: "go" },
+      { ...base, id: "a1", role: "assistant", content: "Checking." },
+      { ...base, id: "a2", role: "assistant", content: "", metadata: { runError: "boom" } },
+    ]);
+    expect(msgs.map((m) => m.id)).toEqual(["u1", "a1", "a2"]);
+    expect(msgs[1].content).toBe("Checking.");
+    expect(msgs[2].content).toBe("Error: boom");
   });
 
   it("maps plain user/assistant rows and preserves order", () => {

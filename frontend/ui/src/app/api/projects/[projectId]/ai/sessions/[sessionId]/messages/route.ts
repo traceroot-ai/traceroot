@@ -92,12 +92,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         source: body.source,
         traceId: body.traceId,
         traceSessionId: body.traceSessionId,
+        // The window the page is showing: the default for the agent's
+        // dashboard reads. Forwarded as sent; the service validates it.
+        range: body.range,
+        start_time: body.start_time,
+        end_time: body.end_time,
       }),
     },
   );
 
   if (!agentRes.ok || !agentRes.body) {
-    return new Response(JSON.stringify({ error: "Agent service error" }), {
+    // Surface the service's own reason when it gives one (e.g. a 409 because
+    // a run is already in flight for this session); the panel shows this text.
+    const upstream = (await agentRes.json().catch(() => null)) as { error?: unknown } | null;
+    const error =
+      typeof upstream?.error === "string" && upstream.error
+        ? upstream.error
+        : "Agent service error";
+    return new Response(JSON.stringify({ error }), {
       status: agentRes.status,
       headers: { "Content-Type": "application/json" },
     });
