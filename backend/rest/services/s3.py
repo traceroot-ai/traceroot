@@ -126,6 +126,16 @@ class S3Service:
         body = response["Body"].read()
         return json.loads(body.decode("utf-8"))
 
+    def delete_object(self, s3_key: str) -> None:
+        """Delete an object from S3.
+
+        Args:
+            s3_key: Full S3 key path
+        """
+        client = self._get_client()
+        client.delete_object(Bucket=self._bucket_name, Key=s3_key)
+        logger.debug(f"Deleted s3://{self._bucket_name}/{s3_key}")
+
 
 # Global singleton instance
 _s3_service: S3Service | None = None
