@@ -79,8 +79,14 @@ export function SupportConsole({ role, actorId }: { role: "admin" | "support"; a
       const params = new URLSearchParams({ view, q: q.trim(), page: String(page) });
       api(`/api/support?${params}`, { signal: controller.signal })
         .then((data) => {
+          if (controller.signal.aborted) return;
+          const nextTotal = data.total ?? data.rows.length;
+          if (view === "users" && nextTotal > 0 && page > Math.ceil(nextTotal / PAGE_SIZE)) {
+            setPage(Math.ceil(nextTotal / PAGE_SIZE));
+            return;
+          }
           setUsers(data.rows);
-          setTotal(data.total ?? data.rows.length);
+          setTotal(nextTotal);
           if (!deepLinked && view === "users" && search.get("userId")) {
             const user = data.rows.find((u: User) => u.id === search.get("userId"));
             if (user && !impersonateBlocker(user)) setTarget(user);
