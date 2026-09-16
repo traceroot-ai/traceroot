@@ -114,3 +114,24 @@ describe("formatWidgetData", () => {
     expect(out).toContain("output truncated at 16384 bytes");
   });
 });
+
+describe("formatWidgetData keeps every row", () => {
+  it("shows all rows of a non-series display instead of the short-list cap", () => {
+    const rows = Array.from({ length: 40 }, (_, i) => [`model-${i}`, i + 1]);
+    const out = formatWidgetData(
+      {
+        widget: { id: "w1", dashboard_id: "d1", title: "Cost by model", type: "query" },
+        window: WINDOW,
+        status: "ok",
+        columns: ["model_name", "value"],
+        rows,
+        meta: {},
+        truncated: false,
+      },
+      {},
+    );
+    expect(out).toContain("40 rows (model_name, value)");
+    expect(out).toContain("model-39");
+    expect(out).not.toContain("more rows not shown");
+  });
+});

@@ -112,7 +112,10 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("a widget id comes\nfrom get_dashboard, never from a guess");
     // The window rule covers the new read too, and the Live Data section
     // restates the preference so a figure names its window either way.
-    expect(prompt).toContain("All three take a window");
+    expect(prompt).toContain(
+      "The data reads — get_dashboard_data, run_widget_query and get_widget_data — take a window",
+    );
+    expect(prompt).toContain("get_widget takes none");
     expect(prompt).toContain("run_widget_query, get_widget_data or get_dashboard_data results");
     expect(prompt).toContain(
       "When the widget already exists on a dashboard, answer it with\nget_widget_data rather than running its spec again through run_widget_query",

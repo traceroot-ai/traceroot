@@ -345,6 +345,12 @@ interface RowsOptions {
   truncated?: boolean;
   /** The window the rows were answered for; names a number tile's range and marks a still-open last bucket. */
   window?: { start_time?: string; end_time?: string };
+  /**
+   * Rows a non-series display keeps before "… N more rows not shown". Defaults
+   * to a short list (an ad hoc query or a dashboard tile wants the shape);
+   * Infinity keeps every row and leaves the byte budget as the only bound.
+   */
+  maxRows?: number;
 }
 
 /**
@@ -536,7 +542,7 @@ export function formatRows(
     return `${columns[0]}${range}: ${formatNumber(only)}`;
   }
   if (isTimeSeries(columns, meta, rows)) return formatSeries(columns, rows, meta, options);
-  const shown = rows.slice(0, WIDGET_ROW_CAP);
+  const shown = rows.slice(0, options.maxRows ?? WIDGET_ROW_CAP);
   const lines = shown.map(
     (r) => `  ${r.map((v, i) => (i === 0 ? String(v ?? "—") : formatNumber(v))).join("  |  ")}`,
   );
@@ -689,7 +695,9 @@ export function formatWidgetData(data: unknown, options: DashboardDataOptions = 
             Array.isArray(d.columns) ? d.columns : [],
             Array.isArray(d.rows) ? d.rows : [],
             d.meta ?? undefined,
-            { truncated: d.truncated === true, window },
+            // The single-widget read exists to return every row the engine
+            // did; the byte budget below is its only bound.
+            { truncated: d.truncated === true, window, maxRows: Infinity },
           );
   const bounded = truncateHead([...head, body].join("\n"), {
     maxBytes: DASHBOARD_DATA_BUDGET_BYTES,

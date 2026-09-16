@@ -127,7 +127,8 @@ It runs the widget's stored spec whole (no row cap), so never re-send a saved wi
 run_widget_query is for a spec that is saved nowhere. Use get_widget with a widget_id for what a
 widget IS (its spec, display config and dashboard) rather than what it shows; a widget id comes
 from get_dashboard, never from a guess.
-All three take a window: a range preset (1h, 1d, 7d, 30d, …) or explicit start_time/end_time. When
+The data reads — get_dashboard_data, run_widget_query and get_widget_data — take a window: a range
+preset (1h, 1d, 7d, 30d, …) or explicit start_time/end_time; get_widget takes none. When
 the user names no period, leave the window out — the read then answers for the page time range above.
 Never substitute a shorter window of your own: finding nothing in a window you narrowed is not
 evidence that nothing happened. If the page's range genuinely cannot answer the question, widen it
