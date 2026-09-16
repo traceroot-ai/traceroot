@@ -94,6 +94,30 @@ describe("captureLlmContent", () => {
     }
   });
 
+  it("redacts a credential inside a message's own text — user, system, assistant — before serialising", () => {
+    const pasted = JSON.stringify({ password: "review-dummy-secret", note: "plain" });
+    const input = captureLlmContent("llm_input", {
+      systemPrompt: `Config: ${pasted}`,
+      messages: [
+        { role: "user", content: pasted },
+        { role: "assistant", content: [{ type: "text", text: pasted }] },
+      ],
+    })!;
+    expect(input).not.toContain("review-dummy-secret");
+    expect(input).toContain("plain");
+    const output = captureLlmContent("llm_output", {
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: pasted },
+          { type: "toolCall", id: "t1", name: "bash", arguments: { command: "ls" } },
+        ],
+      },
+    })!;
+    expect(output).not.toContain("review-dummy-secret");
+    expect(output).toContain('"command":"ls"');
+  });
+
   it("redacts credential-shaped keys inside a tool call's arguments, on the output and the input side", () => {
     const message = {
       role: "assistant",

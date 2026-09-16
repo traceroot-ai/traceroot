@@ -448,6 +448,11 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
     );
   };
 
+  // Remembered across the catch below: once the run itself has settled, a
+  // later persistence failure must not rewrite an exported trace as `failed`
+  // — the trace exists, and the RCA route and the next attempt read this row
+  // to find it.
+  let settledTraceStatus: TraceStatus | undefined;
   try {
     // Pull project-scoped rca_model and alert recipients in one read.
     // Inside the try so a Prisma failure routes through the catch's
@@ -489,6 +494,7 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
       executionTraceId: execution.traceId,
     });
 
+    settledTraceStatus = traceStatus;
     // The execution row first (this attempt's own history — nothing else writes
     // it), then the finding, which only the latest attempt may write.
     await prisma.detectorRcaExecution.update({
@@ -520,7 +526,9 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
     await prisma.detectorRcaExecution
       .update({
         where: { id: execution.executionId },
-        data: { traceStatus: "failed", finishedAt: new Date() },
+        // A run that settled keeps the trace status it settled with; only a
+        // run that failed before settling is recorded as `failed`.
+        data: { traceStatus: settledTraceStatus ?? "failed", finishedAt: new Date() },
       })
       .catch(() => {}); // best-effort
     await finishFindingIfLatest(prisma, {

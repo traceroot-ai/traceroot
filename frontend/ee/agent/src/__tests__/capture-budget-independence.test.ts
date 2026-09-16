@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_CAPTURE_BUDGET } from "@traceroot/core/capture-policy";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 
 /**
@@ -137,6 +138,6 @@ describe("span sink and row sink capture budgets are independent", () => {
     expect(rowMetadata?.result).toBe(result);
     expect(rowMetadata?.withheld).toBeUndefined();
     expect(rowState.spentBytes).toBeGreaterThan(0);
-    expect(rowState.spentBytes).toBeLessThan(262_144);
+    expect(rowState.spentBytes).toBeLessThan(DEFAULT_CAPTURE_BUDGET.perRunBytes);
   });
 });

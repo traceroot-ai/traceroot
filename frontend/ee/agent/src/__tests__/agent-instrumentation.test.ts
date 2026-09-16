@@ -53,6 +53,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
   delete process.env.AGENT_SELF_TRACE;
+  delete process.env.INTERNAL_API_SECRET_AGENT;
 });
 
 const meta = {
@@ -76,18 +77,19 @@ describe("agent.ts instrumentation wiring", () => {
     });
   });
 
-  it("runs tool I/O through the capture policy: redacted, and withheld past the per-step cap", () => {
+  it("runs tool I/O through the capture policy: redacted args, and a kept result cut at the per-step cap", () => {
+    // download_traces is allow-listed, so this exercises the cut on a kept
+    // result rather than the withholding of a non-allow-listed one.
     const out = config.captureToolIo(
-      "get_traces",
+      "download_traces",
       { token: "ghp_" + "x".repeat(40) },
       "y".repeat(200_000),
     );
     expect(JSON.stringify(out.args)).toContain("[REDACTED]");
     expect(JSON.stringify(out.args)).not.toContain("x".repeat(40));
-    // The policy withholds a result over the cap and the closure substitutes
-    // a marker (the SDK would otherwise stamp `undefined`).
     expect(typeof out.result).toBe("string");
-    expect((out.result as string).length).toBeLessThan(200_000);
+    expect(Buffer.byteLength(out.result as string, "utf8")).toBeLessThanOrEqual(8_192);
+    expect((out.result as string).endsWith("…")).toBe(true);
   });
 
   it("stamps a withheld result as the reader-facing note the chat step shows, not the policy's verdict", () => {
