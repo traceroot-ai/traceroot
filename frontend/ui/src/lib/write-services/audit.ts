@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 
-/** The subset of the client the writer needs. */
-export type PrismaTxLike = Pick<PrismaClient, "auditLog">;
+/** The subset of the root client the writer needs. */
+export type AuditLogClient = Pick<PrismaClient, "auditLog">;
 
 export interface AuditEntry {
   actorUserId: string;
@@ -20,7 +20,7 @@ export interface AuditEntry {
 // client once the resource transaction has committed — inside a transaction a
 // failed INSERT aborts the whole transaction, so catching the error here would
 // still discard the resource the caller was told it created.
-export async function writeAudit(db: PrismaTxLike, entry: AuditEntry): Promise<void> {
+export async function writeAudit(db: AuditLogClient, entry: AuditEntry): Promise<void> {
   try {
     await db.auditLog.create({
       data: {

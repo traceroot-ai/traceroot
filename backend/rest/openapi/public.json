@@ -1,6 +1,536 @@
 {
   "components": {
     "schemas": {
+      "AlertCapacity": {
+        "description": "How many alerts the project holds against its per-project cap.",
+        "properties": {
+          "max": {
+            "title": "Max",
+            "type": "integer"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "used",
+          "max"
+        ],
+        "title": "AlertCapacity",
+        "type": "object"
+      },
+      "AlertDetail": {
+        "description": "One alert with its full rule: the summary plus filters and gap handling.",
+        "properties": {
+          "aggregation": {
+            "title": "Aggregation",
+            "type": "string"
+          },
+          "alerted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alerted At"
+          },
+          "create_time": {
+            "format": "date-time",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "creator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creator"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/AlertFilterItem"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Evaluated At"
+          },
+          "last_notify_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify At"
+          },
+          "last_notify_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify Error"
+          },
+          "last_notify_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify Status"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "no_data_mode": {
+            "title": "No Data Mode",
+            "type": "string"
+          },
+          "renotify": {
+            "$ref": "#/components/schemas/AlertRenotify"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "severity_changed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity Changed At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "threshold_operator": {
+            "title": "Threshold Operator",
+            "type": "string"
+          },
+          "update_time": {
+            "format": "date-time",
+            "title": "Update Time",
+            "type": "string"
+          },
+          "view": {
+            "title": "View",
+            "type": "string"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "view",
+          "measure",
+          "aggregation",
+          "window",
+          "threshold_operator",
+          "threshold",
+          "status",
+          "severity",
+          "severity_changed_at",
+          "alerted_at",
+          "last_evaluated_at",
+          "last_error",
+          "last_error_at",
+          "last_notify_status",
+          "last_notify_error",
+          "last_notify_at",
+          "create_time",
+          "update_time",
+          "creator",
+          "filters",
+          "renotify",
+          "no_data_mode"
+        ],
+        "title": "AlertDetail",
+        "type": "object"
+      },
+      "AlertFilterItem": {
+        "description": "A row predicate an alert's measure is evaluated over.\n\nMirrors the alert filter vocabulary in the frontend core package: ``op``\nis one of the two alert operators, and ``key`` names the map entry on a\nkeyed field (metadata).",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "op": {
+            "enum": [
+              "=",
+              "contains"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "AlertFilterItem",
+        "type": "object"
+      },
+      "AlertListMeta": {
+        "description": "Pagination plus the project's alert capacity.",
+        "properties": {
+          "capacity": {
+            "$ref": "#/components/schemas/AlertCapacity"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "page",
+          "limit",
+          "total",
+          "capacity"
+        ],
+        "title": "AlertListMeta",
+        "type": "object"
+      },
+      "AlertRenotify": {
+        "description": "How often an alert re-notifies while it stays in the alerting state.\n\nKept a single-level object rather than a discriminated union: the tool\nregistry generator refuses nested schema references. The cross-field\nrule is enforced by a validator instead, so a contradictory stored rule\nfails the detail read closed rather than passing through half-typed.",
+        "properties": {
+          "interval_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Minutes"
+          },
+          "mode": {
+            "enum": [
+              "OFF",
+              "EVERY"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "AlertRenotify",
+        "type": "object"
+      },
+      "AlertRenotifyRequest": {
+        "description": "How often an alert re-notifies while it stays in the alerting state.",
+        "properties": {
+          "interval_minutes": {
+            "description": "Minutes between repeat notifications; required when mode is EVERY",
+            "title": "Interval Minutes",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "OFF",
+              "EVERY"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "AlertRenotifyRequest",
+        "type": "object"
+      },
+      "AlertSummary": {
+        "description": "The alert fields shared by the list and detail reads (Postgres ``alerts``).\n\n``threshold`` is stored as a decimal and served as a JSON number.\n``creator`` is the created-by user's display name (or email), resolved by\nthe internal route; it is None when the creating account was deleted.",
+        "properties": {
+          "aggregation": {
+            "title": "Aggregation",
+            "type": "string"
+          },
+          "alerted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alerted At"
+          },
+          "create_time": {
+            "format": "date-time",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "creator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creator"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Evaluated At"
+          },
+          "last_notify_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify At"
+          },
+          "last_notify_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify Error"
+          },
+          "last_notify_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Notify Status"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "severity_changed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity Changed At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "threshold_operator": {
+            "title": "Threshold Operator",
+            "type": "string"
+          },
+          "update_time": {
+            "format": "date-time",
+            "title": "Update Time",
+            "type": "string"
+          },
+          "view": {
+            "title": "View",
+            "type": "string"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "view",
+          "measure",
+          "aggregation",
+          "window",
+          "threshold_operator",
+          "threshold",
+          "status",
+          "severity",
+          "severity_changed_at",
+          "alerted_at",
+          "last_evaluated_at",
+          "last_error",
+          "last_error_at",
+          "last_notify_status",
+          "last_notify_error",
+          "last_notify_at",
+          "create_time",
+          "update_time",
+          "creator"
+        ],
+        "title": "AlertSummary",
+        "type": "object"
+      },
       "CompleteRunRequest": {
         "description": "Complete/fail a run, reporting final completeness counts.",
         "properties": {
@@ -114,6 +644,162 @@
           "status"
         ],
         "title": "CompleteRunResponse",
+        "type": "object"
+      },
+      "CreateAlertRequest": {
+        "description": "Body for creating a threshold alert in a project.",
+        "properties": {
+          "aggregation": {
+            "enum": [
+              "sum",
+              "avg",
+              "count",
+              "max",
+              "min",
+              "p50",
+              "p75",
+              "p90",
+              "p95",
+              "p99",
+              "uniq"
+            ],
+            "title": "Aggregation",
+            "type": "string"
+          },
+          "filters": {
+            "description": "Row predicates the measure is evaluated over",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "description": "A span field, e.g. model_name or metadata",
+                  "type": "string"
+                },
+                "key": {
+                  "description": "The map entry to compare; required for the metadata field",
+                  "type": "string"
+                },
+                "op": {
+                  "enum": [
+                    "=",
+                    "contains"
+                  ],
+                  "type": "string"
+                },
+                "value": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ],
+              "type": "object"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "measure": {
+            "description": "A measure of the view, e.g. latency, cost, count",
+            "title": "Measure",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "no_data_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "HOLD",
+                  "ZERO",
+                  "NOTIFY"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a window that measured nothing means; column default when omitted",
+            "title": "No Data Mode"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "renotify": {
+            "$ref": "#/components/schemas/AlertRenotifyRequest"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "threshold_operator": {
+            "enum": [
+              ">",
+              ">=",
+              "<",
+              "<=",
+              "=",
+              "!="
+            ],
+            "title": "Threshold Operator",
+            "type": "string"
+          },
+          "view": {
+            "const": "SPANS",
+            "title": "View",
+            "type": "string"
+          },
+          "window": {
+            "enum": [
+              "1m",
+              "5m",
+              "10m",
+              "30m",
+              "1h",
+              "2h"
+            ],
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "view",
+          "measure",
+          "aggregation",
+          "window",
+          "threshold_operator",
+          "threshold",
+          "renotify"
+        ],
+        "title": "CreateAlertRequest",
+        "type": "object"
+      },
+      "CreateAlertResponse": {
+        "description": "The created alert with its full rule (alert creation is strict, never idempotent).",
+        "properties": {
+          "alert": {
+            "$ref": "#/components/schemas/AlertDetail"
+          },
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "created",
+          "alert"
+        ],
+        "title": "CreateAlertResponse",
         "type": "object"
       },
       "CreateDashboardRequest": {
@@ -254,8 +940,16 @@
             "type": "string"
           },
           "prompt": {
-            "title": "Prompt",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Detector instructions. Omit to adopt the canonical instructions of a standard template; required for any other template.",
+            "title": "Prompt"
           },
           "sample_rate": {
             "anyOf": [
@@ -282,14 +976,14 @@
                 "type": "null"
               }
             ],
+            "description": "Conditions gating WHICH completed traces the detector evaluates; omit or pass [] to evaluate every completed trace. Each condition is {field, op, value} (metadata also takes key): model_name/environment take =, !=; cost/total_tokens/duration_ms/errors take >, >=, <, <=, =; metadata takes =, contains. A condition is a deterministic pre-filter, not the flag decision - the prompt still judges every trace that passes.",
             "title": "Trigger Conditions"
           }
         },
         "required": [
           "project_id",
           "name",
-          "template",
-          "prompt"
+          "template"
         ],
         "title": "CreateDetectorRequest",
         "type": "object"
@@ -393,7 +1087,7 @@
         "type": "object"
       },
       "CreateWidgetRequest": {
-        "description": "Body for creating a widget on a dashboard.",
+        "description": "Body for creating a widget on a dashboard.\n\nUnlike the other create bodies, ``spec`` is deep-validated here: it is a\nstructured contract the agent/CLI must compose (a wrong shape only\nsurfaces at render time otherwise), and the union below is what generated\ntool schemas show the model.",
         "properties": {
           "dashboard_id": {
             "title": "Dashboard Id",
@@ -416,9 +1110,350 @@
             "type": "string"
           },
           "spec": {
-            "additionalProperties": true,
-            "title": "Spec",
-            "type": "object"
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "description": "Chart spec over the \"spans\" view; the enums below are the complete field vocabulary for this view.",
+                "properties": {
+                  "breakdown": {
+                    "enum": [
+                      "name",
+                      "span_kind",
+                      "model_name",
+                      "environment",
+                      null
+                    ],
+                    "title": "Breakdown",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "display": {
+                    "additionalProperties": false,
+                    "description": "Controls how the query result is rendered on the dashboard.",
+                    "properties": {
+                      "type": {
+                        "enum": [
+                          "line",
+                          "area",
+                          "bar",
+                          "pie",
+                          "number",
+                          "table",
+                          "histogram"
+                        ],
+                        "title": "Type",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "title": "WidgetDisplay",
+                    "type": "object"
+                  },
+                  "filters": {
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A single filter predicate applied to a widget query.",
+                      "properties": {
+                        "field": {
+                          "enum": [
+                            "name",
+                            "span_kind",
+                            "status",
+                            "model_name",
+                            "environment",
+                            "is_root",
+                            "duration_ms",
+                            "cost",
+                            "input_tokens",
+                            "output_tokens",
+                            "cache_read_tokens",
+                            "cache_write_tokens",
+                            "total_tokens",
+                            "metadata"
+                          ],
+                          "title": "Field",
+                          "type": "string"
+                        },
+                        "key": {
+                          "title": "Key",
+                          "type": "string"
+                        },
+                        "op": {
+                          "enum": [
+                            "=",
+                            "contains",
+                            ">",
+                            ">=",
+                            "<",
+                            "<="
+                          ],
+                          "title": "Op",
+                          "type": "string"
+                        },
+                        "value": {
+                          "anyOf": [
+                            {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "title": "Value",
+                          "type": [
+                            "string",
+                            "number"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "field",
+                        "op",
+                        "value"
+                      ],
+                      "title": "WidgetFilter",
+                      "type": "object"
+                    },
+                    "title": "Filters",
+                    "type": "array"
+                  },
+                  "metric": {
+                    "additionalProperties": false,
+                    "description": "The measure and aggregation function that define the widget's y-axis.",
+                    "properties": {
+                      "agg": {
+                        "enum": [
+                          "count",
+                          "sum",
+                          "avg",
+                          "min",
+                          "max",
+                          "p50",
+                          "p75",
+                          "p90",
+                          "p95",
+                          "p99",
+                          "uniq"
+                        ],
+                        "title": "Agg",
+                        "type": "string"
+                      },
+                      "measure": {
+                        "enum": [
+                          "duration_ms",
+                          "cost",
+                          "input_tokens",
+                          "output_tokens",
+                          "cache_read_tokens",
+                          "cache_write_tokens",
+                          "total_tokens",
+                          "tokens_per_second",
+                          "trace_id",
+                          "count"
+                        ],
+                        "title": "Measure",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "measure",
+                      "agg"
+                    ],
+                    "title": "WidgetMetric",
+                    "type": "object"
+                  },
+                  "view": {
+                    "const": "spans",
+                    "title": "View",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "view",
+                  "metric",
+                  "display"
+                ],
+                "title": "WidgetSpec (spans)",
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Chart spec over the \"traces\" view; the enums below are the complete field vocabulary for this view.",
+                "properties": {
+                  "breakdown": {
+                    "enum": [
+                      "name",
+                      "user_id",
+                      "session_id",
+                      "environment",
+                      null
+                    ],
+                    "title": "Breakdown",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "display": {
+                    "additionalProperties": false,
+                    "description": "Controls how the query result is rendered on the dashboard.",
+                    "properties": {
+                      "type": {
+                        "enum": [
+                          "line",
+                          "area",
+                          "bar",
+                          "pie",
+                          "number",
+                          "table",
+                          "histogram"
+                        ],
+                        "title": "Type",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "title": "WidgetDisplay",
+                    "type": "object"
+                  },
+                  "filters": {
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A single filter predicate applied to a widget query.",
+                      "properties": {
+                        "field": {
+                          "enum": [
+                            "name",
+                            "user_id",
+                            "session_id",
+                            "environment",
+                            "duration_ms",
+                            "cost",
+                            "input_tokens",
+                            "output_tokens",
+                            "cache_read_tokens",
+                            "cache_write_tokens",
+                            "total_tokens",
+                            "error_count"
+                          ],
+                          "title": "Field",
+                          "type": "string"
+                        },
+                        "key": {
+                          "title": "Key",
+                          "type": "string"
+                        },
+                        "op": {
+                          "enum": [
+                            "=",
+                            "contains",
+                            ">",
+                            ">=",
+                            "<",
+                            "<="
+                          ],
+                          "title": "Op",
+                          "type": "string"
+                        },
+                        "value": {
+                          "anyOf": [
+                            {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "title": "Value",
+                          "type": [
+                            "string",
+                            "number"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "field",
+                        "op",
+                        "value"
+                      ],
+                      "title": "WidgetFilter",
+                      "type": "object"
+                    },
+                    "title": "Filters",
+                    "type": "array"
+                  },
+                  "metric": {
+                    "additionalProperties": false,
+                    "description": "The measure and aggregation function that define the widget's y-axis.",
+                    "properties": {
+                      "agg": {
+                        "enum": [
+                          "count",
+                          "sum",
+                          "avg",
+                          "min",
+                          "max",
+                          "p50",
+                          "p75",
+                          "p90",
+                          "p95",
+                          "p99",
+                          "uniq"
+                        ],
+                        "title": "Agg",
+                        "type": "string"
+                      },
+                      "measure": {
+                        "enum": [
+                          "duration_ms",
+                          "cost",
+                          "input_tokens",
+                          "output_tokens",
+                          "cache_read_tokens",
+                          "cache_write_tokens",
+                          "total_tokens",
+                          "count",
+                          "error_count"
+                        ],
+                        "title": "Measure",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "measure",
+                      "agg"
+                    ],
+                    "title": "WidgetMetric",
+                    "type": "object"
+                  },
+                  "view": {
+                    "const": "traces",
+                    "title": "View",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "view",
+                  "metric",
+                  "display"
+                ],
+                "title": "WidgetSpec (traces)",
+                "type": "object"
+              },
+              {
+                "$ref": "#/components/schemas/TraceFeedSpec"
+              }
+            ],
+            "description": "The widget's content. For type \"query\": a chart spec (view/filters/metric/breakdown/display). For type \"trace_feed\": a trace-list feed spec (predicate filters + row limit).",
+            "title": "Spec"
           },
           "title": {
             "title": "Title",
@@ -514,6 +1549,46 @@
           "created"
         ],
         "title": "CreateWorkspaceResponse",
+        "type": "object"
+      },
+      "DashboardDataResponse": {
+        "description": "A dashboard's query widgets, up to the per-request cap, answered for one window.\n\nWidgets keep the dashboard's order. ``window`` is the window they were all\nanswered for \u2014 the one to name alongside any figure taken from here.",
+        "properties": {
+          "dashboard": {
+            "$ref": "#/components/schemas/DashboardSummary"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "queried": {
+            "title": "Queried",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "widgets": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardWidgetData"
+            },
+            "title": "Widgets",
+            "type": "array"
+          },
+          "window": {
+            "$ref": "#/components/schemas/QueryWindow"
+          }
+        },
+        "required": [
+          "dashboard",
+          "window",
+          "widgets",
+          "queried",
+          "skipped",
+          "failed"
+        ],
+        "title": "DashboardDataResponse",
         "type": "object"
       },
       "DashboardDetail": {
@@ -647,6 +1722,157 @@
           "widget_count"
         ],
         "title": "DashboardListItem",
+        "type": "object"
+      },
+      "DashboardSummary": {
+        "description": "The dashboard fields shared by the list and detail reads.\n\n``creator`` is the created-by user's display name (or email), resolved by\nthe internal route; it is None when the creating account was deleted.",
+        "properties": {
+          "create_time": {
+            "format": "date-time",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "creator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creator"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "update_time": {
+            "format": "date-time",
+            "title": "Update Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "is_default",
+          "creator",
+          "create_time",
+          "update_time"
+        ],
+        "title": "DashboardSummary",
+        "type": "object"
+      },
+      "DashboardWidgetData": {
+        "description": "One widget's answer within a dashboard data read.\n\n``status`` says what happened: ``ok`` carries the engine's columns/rows/\nmeta (a series carries every bucket of the window; every other display's\nrows are capped, with ``truncated`` set when the cap bit); ``skipped``\nis a feed widget (a trace list, not an aggregate \u2014 read those with\n``list_traces`` and the feed's filters); ``error`` carries a short reason\nand no rows \u2014 a broken widget, or a query widget past the per-request cap\nwith a reason naming it \u2014 so neither fails the whole dashboard.",
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {},
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "skipped",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "type",
+          "status"
+        ],
+        "title": "DashboardWidgetData",
         "type": "object"
       },
       "DashboardWidgetItem": {
@@ -1324,6 +2550,27 @@
         "title": "ProjectListItem",
         "type": "object"
       },
+      "PublicAlertListResponse": {
+        "description": "Paginated list of the project's alerts for the public API.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/AlertSummary"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/AlertListMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "PublicAlertListResponse",
+        "type": "object"
+      },
       "PublicDashboardListResponse": {
         "description": "The project's dashboards for the public API.\n\nNot paginated: a project's dashboard catalog is small and bounded.",
         "properties": {
@@ -1741,6 +2988,56 @@
           "data"
         ],
         "title": "PublicWorkspaceListResponse",
+        "type": "object"
+      },
+      "QueryWindow": {
+        "description": "The window a query was actually answered for.\n\n``range`` is the preset id the caller gave (or the default's, when they\ngave nothing) and None for explicit bounds. ``clamped`` is True when the\nplan's retention pulled ``start_time`` forward \u2014 the honest reason a\ncaller's window and the answered one differ.",
+        "properties": {
+          "clamped": {
+            "title": "Clamped",
+            "type": "boolean"
+          },
+          "end_time": {
+            "format": "date-time",
+            "title": "End Time",
+            "type": "string"
+          },
+          "range": {
+            "anyOf": [
+              {
+                "enum": [
+                  "30m",
+                  "1h",
+                  "3h",
+                  "6h",
+                  "1d",
+                  "7d",
+                  "14d",
+                  "30d",
+                  "60d",
+                  "90d"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Range"
+          },
+          "start_time": {
+            "format": "date-time",
+            "title": "Start Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_time",
+          "end_time",
+          "range",
+          "clamped"
+        ],
+        "title": "QueryWindow",
         "type": "object"
       },
       "RCAResult": {
@@ -2979,6 +4276,150 @@
         "title": "SqlSchemaTable",
         "type": "object"
       },
+      "TraceFeedInPredicate": {
+        "additionalProperties": false,
+        "description": "Membership predicate: the field's value is one of the listed strings.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "op": {
+            "const": "in",
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "items": {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Value",
+            "type": "array"
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "TraceFeedInPredicate",
+        "type": "object"
+      },
+      "TraceFeedNumericPredicate": {
+        "additionalProperties": false,
+        "description": "Numeric comparison predicate (equality or ordering) on a finite number.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "eq",
+              "gt",
+              "gte",
+              "lt",
+              "lte"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "TraceFeedNumericPredicate",
+        "type": "object"
+      },
+      "TraceFeedSpec": {
+        "additionalProperties": false,
+        "description": "Spec for a ``trace_feed`` widget: a filtered live list of recent traces.\n\nMirrors the trace-list predicate wire format (canonical shape: what\n``isValidPredicate`` in frontend/ui/src/features/filters/predicate.ts\naccepts and the dashboard seed produces). ``limit`` carries the trace-list\npage-size bound; it defaults to 10 rows in the renderer when omitted.",
+        "properties": {
+          "filters": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TraceFeedInPredicate"
+                },
+                {
+                  "$ref": "#/components/schemas/TraceFeedNumericPredicate"
+                },
+                {
+                  "$ref": "#/components/schemas/TraceFeedTextPredicate"
+                }
+              ]
+            },
+            "maxItems": 20,
+            "title": "Filters",
+            "type": "array"
+          },
+          "limit": {
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "TraceFeedSpec",
+        "type": "object"
+      },
+      "TraceFeedTextPredicate": {
+        "additionalProperties": false,
+        "description": "Text predicate: exact match or substring containment.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "eq",
+              "contains"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "TraceFeedTextPredicate",
+        "type": "object"
+      },
       "UpsertResultRequest": {
         "description": "Upsert one test-case result. Idempotent on (``run_id``, ``test_case_id``).\n``trace_id`` may be null now and set on a later call (out-of-order arrival).\n\n``scores`` is genuinely optional and carries three distinct meanings, so the\nout-of-order flow (POST the result with its scores, then re-POST later just to\nattach the OTel ``trace_id``) cannot destroy them: absent \u2192 leave the existing\nscores untouched, ``[]`` \u2192 clear them, non-empty \u2192 replace them. Do not give\nthis a ``default_factory=list``, which would collapse the first two cases.\n\nEvery optional field is a *partial* update: a key the caller omits keeps its\nstored value, while an explicit null clears it. Sending ``scores`` replaces\nthe result's scores (``[]`` clears them); omitting it leaves them alone.",
         "properties": {
@@ -3252,6 +4693,267 @@
         "title": "WhoamiResponse",
         "type": "object"
       },
+      "WidgetDisplay": {
+        "additionalProperties": false,
+        "description": "Controls how the query result is rendered on the dashboard.",
+        "properties": {
+          "type": {
+            "enum": [
+              "line",
+              "area",
+              "bar",
+              "pie",
+              "number",
+              "table",
+              "histogram"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "WidgetDisplay",
+        "type": "object"
+      },
+      "WidgetFilter": {
+        "additionalProperties": false,
+        "description": "A single filter predicate applied to a widget query.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "=",
+              "contains",
+              ">",
+              ">=",
+              "<",
+              "<="
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Value",
+            "type": [
+              "string",
+              "number"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "WidgetFilter",
+        "type": "object"
+      },
+      "WidgetMetric": {
+        "additionalProperties": false,
+        "description": "The measure and aggregation function that define the widget's y-axis.",
+        "properties": {
+          "agg": {
+            "enum": [
+              "count",
+              "sum",
+              "avg",
+              "min",
+              "max",
+              "p50",
+              "p75",
+              "p90",
+              "p95",
+              "p99",
+              "uniq"
+            ],
+            "title": "Agg",
+            "type": "string"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          }
+        },
+        "required": [
+          "measure",
+          "agg"
+        ],
+        "title": "WidgetMetric",
+        "type": "object"
+      },
+      "WidgetQueryRequest": {
+        "additionalProperties": false,
+        "description": "Envelope that pairs a WidgetSpec with the time window to answer it for.\n\nThe window is either a ``range`` preset (the site picker's ids \u2014 how the\nagent and the CLI describe one) or explicit ``start_time``/``end_time``\n(how the dashboard page and the card previews do). Neither means the\nsite's default window; both, or one bound alone, is rejected. The rules\nlive in ``rest.services.date_presets.resolve_window`` so every query\nsurface applies the same ones.",
+        "properties": {
+          "bucket_seconds": {
+            "anyOf": [
+              {
+                "maximum": 86400.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bucket Seconds"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          },
+          "range": {
+            "anyOf": [
+              {
+                "enum": [
+                  "30m",
+                  "1h",
+                  "3h",
+                  "6h",
+                  "1d",
+                  "7d",
+                  "14d",
+                  "30d",
+                  "60d",
+                  "90d"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A preset window ending now, by the site picker's id. Give this or explicit start_time/end_time; neither means the site's 24-hour default.",
+            "title": "Range"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/WidgetSpec"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "title": "WidgetQueryRequest",
+        "type": "object"
+      },
+      "WidgetQueryResponse": {
+        "description": "Query result returned to the frontend; meta carries display hints (e.g. granularity for time-series displays).",
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "meta": {
+            "additionalProperties": true,
+            "title": "Meta",
+            "type": "object"
+          },
+          "rows": {
+            "items": {
+              "items": {},
+              "type": "array"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "window": {
+            "$ref": "#/components/schemas/QueryWindow"
+          }
+        },
+        "required": [
+          "columns",
+          "rows",
+          "window"
+        ],
+        "title": "WidgetQueryResponse",
+        "type": "object"
+      },
+      "WidgetSpec": {
+        "additionalProperties": false,
+        "description": "Full declarative specification of a single dashboard widget.\n\nMirrors the canonical zod ``WidgetSpecSchema``\n(frontend/ui/src/features/dashboards/types.ts); the frontend\nwidget-spec-parity test guards the two against structural drift.",
+        "properties": {
+          "breakdown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Breakdown"
+          },
+          "display": {
+            "$ref": "#/components/schemas/WidgetDisplay"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/WidgetFilter"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "metric": {
+            "$ref": "#/components/schemas/WidgetMetric"
+          },
+          "view": {
+            "enum": [
+              "spans",
+              "traces"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view",
+          "metric",
+          "display"
+        ],
+        "title": "WidgetSpec",
+        "type": "object"
+      },
       "WorkspaceListItem": {
         "description": "A workspace the authenticated user belongs to, with their role in it.",
         "properties": {
@@ -3290,6 +4992,376 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/public/alerts": {
+      "get": {
+        "description": "List the alerts in the caller's project (oldest first) with its capacity.",
+        "operationId": "list_alerts",
+        "parameters": [
+          {
+            "description": "Items per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "0-based page index",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "0-based page index",
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Case-insensitive substring match on the alert name",
+            "in": "query",
+            "name": "search_query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive substring match on the alert name",
+              "title": "Search Query"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicAlertListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Alerts",
+        "tags": [
+          "Alerts (Public)"
+        ],
+        "x-tool": {
+          "description": "List the project's threshold alerts (id, name, rule summary, status, current severity, last evaluation and notification state, creator) with the project's alert capacity. Paginated; search_query matches the alert name. To resolve an alert by name, list here and match its name \u2014 never guess an alert id.",
+          "enabled": true,
+          "name": "list_alerts"
+        }
+      },
+      "post": {
+        "description": "Create a threshold alert in a project the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Strict create \u2014 alerts have no unique name, so every\ncall inserts and ``created`` is always ``true`` on success.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateAlertRequest): The alert rule to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateAlertResponse: The created alert with its full rule.",
+        "operationId": "create_alert",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateAlertResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The project has reached its alert limit"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create an alert",
+        "tags": [
+          "Alerts (Public)"
+        ],
+        "x-tool": {
+          "description": "Create a threshold alert in a project: a measure of the spans view, aggregated over a window and compared to a threshold, with optional row filters and renotify/no-data settings. Strict create, never idempotent: alerts share names freely, so to avoid a duplicate list the project's alerts first and match the name.",
+          "enabled": true,
+          "name": "create_alert",
+          "policy": {
+            "approvalClass": "confirm",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
+        }
+      }
+    },
+    "/api/v1/public/alerts/{alert_id}": {
+      "get": {
+        "description": "Get one alert with its full rule for the caller's project.",
+        "operationId": "get_alert",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "title": "Alert Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Alert not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Alert",
+        "tags": [
+          "Alerts (Public)"
+        ],
+        "x-tool": {
+          "description": "Fetch one alert's full rule by id: view, measure, aggregation, filters, window, threshold, renotify and no-data handling, plus its evaluation state. Resolve the alert id by listing the project's alerts and matching the name \u2014 never guess an id.",
+          "enabled": true,
+          "name": "get_alert"
+        }
+      }
+    },
     "/api/v1/public/dashboards": {
       "get": {
         "description": "List the dashboards in the caller's project (default first).",
@@ -3480,7 +5552,7 @@
           "enabled": true,
           "name": "create_dashboard",
           "policy": {
-            "approvalClass": "none",
+            "approvalClass": "confirm",
             "minRole": "MEMBER",
             "tenancy": "project"
           }
@@ -3600,6 +5672,186 @@
           "description": "Fetch one dashboard with its widgets (id, title, type, query spec, creation time). Resolve the dashboard id by listing the project's dashboards and matching the name \u2014 never guess an id.",
           "enabled": true,
           "name": "get_dashboard"
+        }
+      }
+    },
+    "/api/v1/public/dashboards/{dashboard_id}/data": {
+      "get": {
+        "description": "Answer one dashboard's query widgets, up to the per-request cap, for a window.",
+        "operationId": "get_dashboard_data",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dashboard_id",
+            "required": true,
+            "schema": {
+              "title": "Dashboard Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A preset window ending now, by the site picker's id. Give this or explicit start_time/end_time; neither means the site's 24-hour default.",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "30m",
+                    "1h",
+                    "3h",
+                    "6h",
+                    "1d",
+                    "7d",
+                    "14d",
+                    "30d",
+                    "60d",
+                    "90d"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A preset window ending now, by the site picker's id. Give this or explicit start_time/end_time; neither means the site's 24-hour default.",
+              "title": "Range"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Time"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardDataResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Dashboard not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Dashboard Data",
+        "tags": [
+          "Dashboards (Public)"
+        ],
+        "x-tool": {
+          "description": "Answer a dashboard's query widgets (up to 24) for one window \u2014 the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows (a series carries every bucket; any other display is capped at 25 rows, with truncated set), skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
+          "enabled": true,
+          "name": "get_dashboard_data"
         }
       }
     },
@@ -3856,11 +6108,11 @@
           "Project (Public)"
         ],
         "x-tool": {
-          "description": "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project \u2014 idempotent on the detector name within the project.",
+          "description": "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project \u2014 idempotent on the detector name within the project. The standard detector types (failure, hallucination, logic, task, safety) have canonical default instructions: pass the matching template id and OMIT prompt to use them. Only supply prompt when the user provides genuinely custom instructions \u2014 a supplied prompt is stored verbatim and overrides the template default.",
           "enabled": true,
           "name": "create_detector",
           "policy": {
-            "approvalClass": "none",
+            "approvalClass": "confirm",
             "minRole": "MEMBER",
             "tenancy": "project"
           }
@@ -5000,7 +7252,7 @@
           "enabled": true,
           "name": "create_project",
           "policy": {
-            "approvalClass": "none",
+            "approvalClass": "confirm",
             "minRole": "MEMBER",
             "tenancy": "workspace"
           }
@@ -7021,12 +9273,119 @@
           "Project (Public)"
         ],
         "x-tool": {
-          "description": "Add a widget (title, type, query spec) to an existing dashboard. Strict create: every call adds a new widget.",
+          "description": "Add a widget (title, type, spec) to an existing dashboard. Type \"query\" charts a metric (spec: view/filters/metric/breakdown/display); type \"trace_feed\" lists recent traces (spec: predicate filters + limit). Strict create: every call adds a new widget. The spec schema enumerates the only available views, metrics, filter operators, and display types \u2014 nothing outside it exists. If the user asks for a visualization or option that is not in the schema (for example a display type the enum lacks), say so explicitly and propose the closest available match instead of silently substituting. Pick the view first \u2014 spans and traces expose different fields, and the enums in this schema are the complete field vocabulary for each view. If the user asks for a dimension or metric that exists on neither view, say so and propose the closest available one (for example \"traces by model\" is built on the spans view via model_name).",
           "enabled": true,
           "name": "create_widget",
           "policy": {
-            "approvalClass": "none",
+            "approvalClass": "confirm",
             "minRole": "MEMBER",
+            "tenancy": "project"
+          }
+        }
+      }
+    },
+    "/api/v1/public/widgets/query": {
+      "post": {
+        "description": "Run a widget spec for a window and return its rows with the window answered.",
+        "operationId": "run_widget_query",
+        "parameters": [
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WidgetQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WidgetQueryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Run Widget Query",
+        "tags": [
+          "Dashboards (Public)"
+        ],
+        "x-tool": {
+          "description": "Run a widget query and return its rows \u2014 the way to answer a metric question (error counts, p95 latency, cost by model) without a dashboard existing. Takes the same spec shape as create_widget (view, metric, breakdown, display, filters) plus a window: a range preset by the site picker's id (1h, 1d, 7d, 30d, \u2026) or explicit start_time/end_time; neither means the site's default 24-hour window. The response echoes the window it was answered for and says when retention clamped it. A read that happens to be a POST: nothing is written.",
+          "enabled": true,
+          "name": "run_widget_query",
+          "policy": {
+            "approvalClass": "none",
+            "minRole": "VIEWER",
             "tenancy": "project"
           }
         }
@@ -7212,7 +9571,7 @@
           "enabled": true,
           "name": "create_workspace",
           "policy": {
-            "approvalClass": "none",
+            "approvalClass": "confirm",
             "minRole": "VIEWER",
             "tenancy": "account"
           }
