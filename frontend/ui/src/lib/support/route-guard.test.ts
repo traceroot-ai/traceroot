@@ -42,6 +42,8 @@ describe("support policy", () => {
       ["/api/workspaces/w/slack", "DELETE"],
       ["/api/workspaces/w/slack/channels", "GET"],
       ["/api/workspaces/w/slack/test-message", "POST"],
+      ["/api/workspaces/w/slack/install", "GET"],
+      ["/api/workspaces/w/slack/channel", "POST"],
       ["/api/workspaces/w/model-providers/test", "POST"],
       ["/api/workspaces/w/model-providers/p", "PATCH"],
       ["/api/workspaces/w/model-providers/p", "DELETE"],
