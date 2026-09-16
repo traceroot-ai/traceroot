@@ -242,7 +242,9 @@ def test_one_more_row_than_max_rows_is_truncated_to_max_rows(gateway, service):
     ids = sorted(gateway.seeded.spans[PROJECT_A])
     result = service.run(ORDERED, PROJECT_A, max_rows=len(ids) - 1)
     assert (result.row_count, result.truncated) == (len(ids) - 1, True)
-    assert [row[0] for row in result.rows] == ids[:-1], "the sentinel row was returned"
+    assert [row[0] for row in result.rows] == ids[:-1], (
+        "expected the first max_rows ids in order, with the sentinel row dropped"
+    )
 
 
 def test_a_larger_caller_limit_does_not_lift_the_cap(service):
