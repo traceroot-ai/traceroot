@@ -12,6 +12,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useLayout } from "@/components/layout/app-layout";
 import { cn } from "@/lib/utils";
 import { isStaff } from "@/lib/support/policy";
@@ -24,7 +31,6 @@ type User = {
   role: string | null;
   banned?: boolean;
   emailVerified?: boolean;
-  _count?: { memberships: number };
 };
 type View = "users" | "staff";
 type StaffRole = "admin" | "support" | null;
@@ -165,7 +171,7 @@ export function SupportConsole({ role, actorId }: { role: "admin" | "support"; a
           {listError}
         </p>
       )}
-      {view === "users" ? (
+      {view === "users" && (
         <Input
           aria-label="Search users"
           placeholder="Filter by email or exact user ID"
@@ -176,28 +182,26 @@ export function SupportConsole({ role, actorId }: { role: "admin" | "support"; a
             setPage(1);
           }}
         />
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Every @traceroot.ai account. Admin: read + write and manage staff. Support: read-only.
-        </p>
       )}
       <div
         className={cn(
-          "max-w-3xl overflow-x-auto rounded-lg border transition-opacity",
+          "max-w-5xl overflow-x-auto rounded-lg border transition-opacity",
           loading && "opacity-60",
         )}
         aria-busy={loading}
       >
-        <table className="w-full min-w-[640px] table-fixed text-left text-sm">
+        <table className="w-full min-w-[760px] table-fixed text-left text-sm">
           <colgroup>
+            <col className="w-44" />
+            <col className="w-64" />
             <col />
-            <col className="w-28" />
-            <col className={view === "staff" ? "w-60" : "w-40"} />
+            <col className={view === "staff" ? "w-40" : "w-36"} />
           </colgroup>
           <thead className="border-b bg-muted/40">
             <tr>
-              <th className="p-3 font-medium">User</th>
-              <th className="p-3 font-medium">{view === "staff" ? "Account" : "Workspaces"}</th>
+              <th className="p-3 font-medium">Name</th>
+              <th className="p-3 font-medium">Email</th>
+              <th className="p-3 font-medium">User ID</th>
               <th className="p-3 font-medium">
                 <span className="sr-only">Actions</span>
               </th>
@@ -210,78 +214,54 @@ export function SupportConsole({ role, actorId }: { role: "admin" | "support"; a
               const eligible = !!user.emailVerified && !user.banned;
               return (
                 <tr key={user.id} className="border-b last:border-0">
-                  <td className="p-3">
-                    <div className="flex min-w-0 items-baseline gap-3 whitespace-nowrap">
-                      <span
-                        className="max-w-[45%] shrink-0 truncate font-medium"
-                        title={user.name ?? undefined}
-                      >
-                        {user.name || "—"}
-                      </span>
-                      <span
-                        className="min-w-0 truncate text-xs text-muted-foreground"
-                        title={user.email}
-                      >
-                        {user.email}
-                      </span>
-                    </div>
-                    <div
-                      className="truncate font-mono text-xs text-muted-foreground"
-                      title={user.id}
-                    >
-                      {user.id}
-                    </div>
+                  <td className="truncate p-3 font-medium" title={user.name ?? undefined}>
+                    {user.name || "—"}
                   </td>
-                  <td className="p-3">
-                    {view === "staff" ? (
-                      <span className="whitespace-nowrap">
-                        {user.banned ? "Banned" : user.emailVerified ? "Verified" : "Unverified"}
-                      </span>
-                    ) : (
-                      (user._count?.memberships ?? 0)
-                    )}
+                  <td className="truncate p-3 text-muted-foreground" title={user.email}>
+                    {user.email}
+                  </td>
+                  <td
+                    className="truncate p-3 font-mono text-xs text-muted-foreground"
+                    title={user.id}
+                  >
+                    {user.id}
                   </td>
                   <td className="p-3 text-right">
                     {view === "staff" ? (
-                      <div
-                        className="inline-flex gap-1 rounded-md border p-1"
-                        role="group"
-                        aria-label={`Staff access for ${user.email}`}
-                        title={
-                          self
-                            ? "You cannot change your own role"
-                            : !eligible && !isStaff(user.role)
-                              ? "Only verified, non-banned accounts can be granted access"
-                              : undefined
-                        }
+                      <Select
+                        value={isStaff(user.role) ? user.role : "none"}
+                        disabled={busy || self || (!eligible && !isStaff(user.role))}
+                        onValueChange={(value) => {
+                          setActionError("");
+                          setConfirmation({
+                            user,
+                            role: value === "none" ? null : (value as Exclude<StaffRole, null>),
+                          });
+                        }}
                       >
-                        {(["admin", "support", null] as const).map((nextRole) => {
-                          const selected =
-                            nextRole === null ? !isStaff(user.role) : user.role === nextRole;
-                          return (
-                            <Button
-                              key={nextRole ?? "none"}
-                              size="sm"
-                              className={cn("h-7 px-2 text-xs", selected && "disabled:opacity-100")}
-                              variant={selected ? "default" : "ghost"}
-                              aria-pressed={selected}
-                              disabled={
-                                busy || self || selected || (nextRole !== null && !eligible)
-                              }
-                              onClick={() => {
-                                setActionError("");
-                                setConfirmation({ user, role: nextRole });
-                              }}
-                            >
-                              {nextRole === "admin"
-                                ? "Admin"
-                                : nextRole === "support"
-                                  ? "Support"
-                                  : "No Access"}
-                            </Button>
-                          );
-                        })}
-                      </div>
+                        <SelectTrigger
+                          className="ml-auto h-8 w-32 text-xs"
+                          aria-label={`Staff access for ${user.email}`}
+                          title={
+                            self
+                              ? "You cannot change your own role"
+                              : !eligible && !isStaff(user.role)
+                                ? "Only verified, non-banned accounts can be granted access"
+                                : undefined
+                          }
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent align="end">
+                          <SelectItem value="admin" disabled={!eligible}>
+                            Admin
+                          </SelectItem>
+                          <SelectItem value="support" disabled={!eligible}>
+                            Support
+                          </SelectItem>
+                          <SelectItem value="none">No Access</SelectItem>
+                        </SelectContent>
+                      </Select>
                     ) : (
                       <span title={blocker ?? undefined}>
                         <Button
@@ -310,7 +290,7 @@ export function SupportConsole({ role, actorId }: { role: "admin" | "support"; a
         )}
       </div>
       {view === "users" && (
-        <div className="flex max-w-3xl items-center justify-between text-sm text-muted-foreground">
+        <div className="flex max-w-5xl items-center justify-between text-sm text-muted-foreground">
           <span>
             {total} results · Page {page} of {pages}
           </span>
