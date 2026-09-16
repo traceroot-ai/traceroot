@@ -69,6 +69,7 @@ describe("agent.ts instrumentation wiring", () => {
     expect(instrumentPiAgentCore).toHaveBeenCalledTimes(1);
     expect(instrumentPiAgentCore.mock.calls[0]![0]).toBe(piAgentCore);
     expect(config).toMatchObject({
+      agentSpan: "unless-nested",
       captureContent: expect.any(Function),
       captureToolIo: expect.any(Function),
       onToolSpan: expect.any(Function),
