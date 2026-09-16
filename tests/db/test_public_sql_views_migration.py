@@ -5,52 +5,36 @@ ClickHouse (the full live security matrix lives in a separate integration suite)
 They guard the curated
 projection, the parameterized + DEFINER + dedup shape, and that no forbidden
 column is projected.
+
+The projection and the row scope are also compared against the public schema
+contract in ``rest.services.sql.schema``, which the validator and rewriter are built
+from. Those comparisons parse the view bodies with sqlglot rather than matching
+strings, so reflowing the DDL cannot break them and a comment quoting a predicate
+cannot satisfy them. Without them the views and the contract agree only because both
+were written to the same spec, and a change to either side drifts silently.
 """
 
 import re
 from pathlib import Path
 
 import pytest
+import sqlglot
+import sqlglot.expressions as exp
+
+from rest.services.sql.schema import (
+    PUBLIC_TABLES,
+    TABLE_VIEW_MAP,
+    VIEW_EVALUATION_EXCLUSION,
+    VIEW_ROW_FILTERS,
+)
 
 MIGRATION = (
     Path(__file__).resolve().parents[2]
     / "backend/db/clickhouse/migrations/012_create_public_sql_views.sql"
 )
 
-# Curated public columns the views MUST project (the public schema contract).
-SPANS_COLUMNS = [
-    "span_id",
-    "trace_id",
-    "parent_span_id",
-    "span_start_time",
-    "span_end_time",
-    "duration_ms",
-    "name",
-    "span_kind",
-    "status",
-    "status_message",
-    "model_name",
-    "cost",
-    "input_tokens",
-    "output_tokens",
-    "total_tokens",
-    "environment",
-    "metadata",
-    "git_source_file",
-    "git_source_line",
-    "git_source_function",
-]
-TRACES_COLUMNS = [
-    "trace_id",
-    "trace_start_time",
-    "name",
-    "user_id",
-    "session_id",
-    "git_ref",
-    "git_repo",
-    "environment",
-    "metadata",
-]
+# Every contract table paired with the view it rewrites to, for per-view parametrizing.
+VIEWS = sorted(TABLE_VIEW_MAP.items())
 
 # Columns that must NEVER appear in the curated projection. `metadata` is absent
 # from this list on purpose: it IS curated, but only as the queryable one-level map
@@ -95,6 +79,36 @@ def _view_block(text: str, view: str) -> str:
     start = text.index(f"CREATE OR REPLACE VIEW {view}")
     end = text.find("CREATE OR REPLACE VIEW", start + 1)
     return text[start:] if end == -1 else text[start:end]
+
+
+def _view_select(text: str, view: str) -> exp.Select:
+    """The body of one view, parsed.
+
+    Comments are dropped before parsing, since the header quotes predicates to explain
+    them. Nothing in this migration puts ``--`` inside a string literal.
+    """
+    up = re.sub(r"--[^\n]*", "", text.split("-- +goose Down")[0])
+    match = re.search(
+        rf"CREATE OR REPLACE VIEW {view}\s+DEFINER\s*=\s*\w+\s+SQL SECURITY DEFINER\s+AS\b"
+        r"(?P<body>.*?);",
+        up,
+        re.DOTALL,
+    )
+    assert match, f"migration 012 does not create {view}"
+    tree = sqlglot.parse_one(match.group("body"), read="clickhouse")
+    assert isinstance(tree, exp.Select), f"{view} body is not a single SELECT"
+    return tree
+
+
+def _conjuncts(select: exp.Select) -> list[exp.Expression]:
+    where = select.args.get("where")
+    if where is None:
+        return []
+    return list(where.this.flatten()) if isinstance(where.this, exp.And) else [where.this]
+
+
+def _predicate(text: str) -> exp.Expression:
+    return sqlglot.parse_one(f"SELECT 1 WHERE {text}", read="clickhouse").args["where"].this
 
 
 def test_migration_exists(text):
@@ -190,6 +204,33 @@ def test_inner_select_provides_every_projected_column(sql):
             )
 
 
+# The range a ClickHouse Date can hold. Bounds outside it wrap during primary-key analysis
+# on `toDate(trace_start_time)` and prune parts that match, so both views clamp to it.
+DATE_MIN = "toDateTime64('1970-01-01 00:00:00.000', 3)"
+# The last millisecond of the last representable day. The next midnight is out of range too,
+# and clamping to the day's start would drop that whole day.
+DATE_MAX = "toDateTime64('2149-06-06 23:59:59.999', 3)"
+
+
+def test_time_bounds_are_clamped_to_what_a_date_key_can_hold(sql):
+    """An open bound is 1900-01-01, which is outside the Date range. On `traces`, whose
+    sort key is `toDate(trace_start_time)`, ClickHouse converted it with wraparound to
+    2079-06-07 and pruned every part it could date, so an unbounded query returned 11,968
+    of a project's 40,000 rows. Clamping in the view protects every caller, including a
+    user who writes a bound before 1970."""
+    for view, column in (
+        ("spans_public_v1", "span_start_time"),
+        ("traces_public_v1", "trace_start_time"),
+    ):
+        block = _view_block(sql, view)
+        assert f"greatest({{start_time:DateTime64(3)}}, {DATE_MIN})" in block, (
+            f"{view} passes the lower bound to {column} unclamped"
+        )
+        assert (
+            f"least({{end_time:DateTime64(3)}} - toIntervalMillisecond(1), {DATE_MAX})" in block
+        ), f"{view} passes the upper bound to {column} unclamped"
+
+
 def test_views_take_a_time_range_on_their_own_time_column(sql):
     """The caller's window has to reach the view body or it cannot prune.
 
@@ -203,8 +244,11 @@ def test_views_take_a_time_range_on_their_own_time_column(sql):
         ("traces_public_v1", "trace_start_time"),
     ):
         block = _view_block(sql, view)
-        assert f"{column} >= {{start_time:DateTime64(3)}}" in block, view
-        assert f"{column} <  {{end_time:DateTime64(3)}}" in block, view
+        assert f"{column} >= greatest({{start_time:DateTime64(3)}}, {DATE_MIN})" in block, view
+        assert (
+            f"{column} <= least({{end_time:DateTime64(3)}} - toIntervalMillisecond(1), {DATE_MAX})"
+            in block
+        ), view
         bound = block.index("start_time:DateTime64(3)")
         dedup = block.index("LIMIT 1 BY")
         assert bound < dedup, f"{view} applies the bound after deduplicating"
@@ -213,14 +257,21 @@ def test_views_take_a_time_range_on_their_own_time_column(sql):
 def test_time_range_is_half_open(sql):
     """`>= start_time` and `< end_time`, matching the exclusive `end_before` upper bound.
 
+    The upper side is written `<= end_time - 1 ms`, which is exactly `< end_time` for a
+    DateTime64(3) value. The rewrite exists for the open bound: it lets the clamp itself
+    be reached, so a row at the last representable millisecond is not dropped.
+
     The caller has to emit the identical bound. A wider one is not safe either: a row on
     the boundary would enter the deduplication, win it as the newest version, and then be
     removed by the caller's own filter, hiding an older version that was in the window.
     """
     for column in ("span_start_time", "trace_start_time"):
-        assert f"{column} >= {{start_time:DateTime64(3)}}" in sql, column
-        assert f"{column} <  {{end_time:DateTime64(3)}}" in sql, column
-        assert f"{column} <= {{end_time:DateTime64(3)}}" not in sql, (
+        assert f"{column} >= greatest({{start_time:DateTime64(3)}}, {DATE_MIN})" in sql, column
+        assert (
+            f"{column} <= least({{end_time:DateTime64(3)}} - toIntervalMillisecond(1), {DATE_MAX})"
+            in sql
+        ), column
+        assert f"{column} <= least({{end_time:DateTime64(3)}}," not in sql, (
             f"{column} uses an inclusive upper bound; the read services treat it as exclusive"
         )
 
@@ -277,20 +328,20 @@ def test_goose_up_and_down(text):
     assert "DROP VIEW IF EXISTS traces_public_v1" in text
 
 
-def test_spans_projection_is_exactly_curated(text):
-    proj = _outer_projection(text, "spans_public_v1")
-    for col in SPANS_COLUMNS:
-        assert re.search(rf"\b{col}\b", proj), f"spans view must project {col}"
-    for col in FORBIDDEN_PROJECTED:
-        assert not re.search(rf"\b{col}\b", proj), f"spans view must NOT project {col}"
+@pytest.mark.parametrize("table,view", VIEWS)
+def test_view_projects_exactly_the_contract_columns(text, table, view):
+    """Exact and in contract order. A curated column added to the contract or to the
+    view alone fails here, which a presence check per listed column cannot see."""
+    projected = [e.alias_or_name for e in _view_select(text, view).expressions]
+    assert projected == [c.name for c in PUBLIC_TABLES[table].columns]
 
 
-def test_traces_projection_is_exactly_curated(text):
-    proj = _outer_projection(text, "traces_public_v1")
-    for col in TRACES_COLUMNS:
-        assert re.search(rf"\b{col}\b", proj), f"traces view must project {col}"
-    for col in FORBIDDEN_PROJECTED:
-        assert not re.search(rf"\b{col}\b", proj), f"traces view must NOT project {col}"
+@pytest.mark.parametrize("table,view", VIEWS)
+def test_view_projection_reads_no_forbidden_column(text, table, view):
+    """Checked on what the projection reads, not on its output names, so aliasing a
+    forbidden column to a curated name does not get it through."""
+    read = {c.name for e in _view_select(text, view).expressions for c in e.find_all(exp.Column)}
+    assert not read & set(FORBIDDEN_PROJECTED), f"{view} projects {read & set(FORBIDDEN_PROJECTED)}"
 
 
 def test_metadata_comes_from_the_map_not_the_blob(text):
@@ -345,3 +396,27 @@ def test_evaluation_subselect_repeats_the_project_scope(text):
         assert excl.group(1).count("project_id = {project_id:String}") == 2, (
             f"each evaluation sub-select in {view} must be project-scoped"
         )
+
+
+@pytest.mark.parametrize("table,view", VIEWS)
+def test_view_applies_the_contract_row_filters_to_the_deduped_row(text, table, view):
+    """Each contract row filter is a conjunct of the OUTER WHERE, and never of the inner
+    scan. A per-row predicate is a statement about current state, so applying it to raw
+    versions lets a stale version answer for a row that no longer qualifies."""
+    select = _view_select(text, view)
+    inner = select.args["from"].this
+    assert isinstance(inner, exp.Subquery), f"{view} no longer deduplicates in a subquery"
+    for rule in VIEW_ROW_FILTERS:
+        predicate = _predicate(rule)
+        assert predicate in _conjuncts(select), f"{view} does not apply {rule!r}"
+        assert predicate not in _conjuncts(inner.this), f"{view} applies {rule!r} before the dedup"
+
+
+@pytest.mark.parametrize("table,view", VIEWS)
+def test_view_applies_the_contract_evaluation_exclusion(text, table, view):
+    """The exclusion is compared as a whole expression, so both halves of the union, the
+    project scope inside each, and the membership shape all have to match the contract."""
+    exclusion = _predicate(VIEW_EVALUATION_EXCLUSION)
+    assert exclusion in _conjuncts(_view_select(text, view)), (
+        f"{view} does not apply the contract's evaluation exclusion"
+    )

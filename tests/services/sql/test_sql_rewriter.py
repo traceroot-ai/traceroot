@@ -476,20 +476,21 @@ def test_layer3_rejects_an_injected_view_it_does_not_recognise(
     assert "unexpected anonymous table reference" in str(exc_info.value)
 
 
-def test_layer3_rejects_a_blocked_function_in_the_rewritten_tree() -> None:
+def test_layer3_rejects_a_blocked_function_in_the_rewritten_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import sqlglot
 
     from rest.services.sql import rewriter as rewriter_module
 
-    # A tree shaped like a correct rewrite, with a blocked function smuggled into
-    # it. Verification re-scans the rewritten AST rather than trusting that Layer 1
-    # saw this tree, so it must still fire.
-    tree = sqlglot.parse_one(
-        "SELECT sleep(1) FROM spans_public_v1(project_id = {scope_project_id:String}) AS spans",
-        dialect="clickhouse",
+    # A correct rewrite with a blocked function smuggled past Layer 1. Verification
+    # re-scans the rewritten AST rather than trusting that Layer 1 saw this tree,
+    # so it must still fire.
+    monkeypatch.setattr(
+        rewriter_module, "validate", lambda sql: sqlglot.parse_one(sql, dialect="clickhouse")
     )
     with pytest.raises(SqlValidationError) as exc_info:
-        rewriter_module._verify_rewritten_ast(tree, set())
+        scope_and_render("SELECT sleep(1) FROM spans", PID)
     assert "blocked function" in str(exc_info.value)
 
 
@@ -601,8 +602,8 @@ class TestTimeRange:
         assert "GREATEST(" in call.upper()
 
     def test_layer3_accepts_the_widened_view_call(self) -> None:
-        # Verification keys on the view name, so the extra arguments pass through.
-        # Pinned because a stricter check would reject every bounded call.
+        # Verification checks every argument of the call. Pinned so that check
+        # keeps accepting the exact call the rewriter builds.
         rendered, _ = scope_and_render(
             "SELECT count() FROM spans WHERE span_start_time >= '2026-09-01'", PID
         )
@@ -660,3 +661,148 @@ class TestTimeRange:
         call = _view_call(rendered, "spans_public_v1")
         assert "GREATEST(" in call.upper()
         assert call.upper().count("TOTIMEZONE(") >= 2
+
+
+# ---------------------------------------------------------------------------
+# Layer 3 on the view call's arguments. Each test breaks the rewrite in one way
+# the name check alone would have let through, and expects the query refused.
+# ---------------------------------------------------------------------------
+def _bypass_layer1(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sqlglot
+
+    monkeypatch.setattr(
+        rewriter_mod, "validate", lambda sql: sqlglot.parse_one(sql, dialect="clickhouse")
+    )
+
+
+def _patch_view_arguments(monkeypatch: pytest.MonkeyPatch, change) -> None:  # type: ignore[no-untyped-def]
+    """Build the real view call, then let *change* edit its argument list."""
+    real_build = rewriter_mod._build_view_table
+
+    def _build(view_name, alias_node, param_value, start, end):  # type: ignore[no-untyped-def]
+        table = real_build(view_name, alias_node, param_value, start, end)
+        table.this.set("expressions", change(list(table.this.expressions)))
+        return table
+
+    monkeypatch.setattr(rewriter_mod, "_build_view_table", _build)
+
+
+def _argument(name: str, value: exp.Expression) -> exp.EQ:
+    return exp.EQ(this=exp.Column(this=exp.Identifier(this=name)), expression=value)
+
+
+class TestLayer3ViewCallArguments:
+    def test_a_call_that_lost_a_bound_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # ClickHouse would answer Code 456 at execution; the rewrite is wrong first.
+        _patch_view_arguments(monkeypatch, lambda args: args[:2])
+        with pytest.raises(SqlValidationError, match="missing an argument"):
+            scope_and_render("SELECT count() FROM spans", PID)
+
+    def test_a_repeated_tenant_argument_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_view_arguments(
+            monkeypatch,
+            lambda args: [*args, _argument("project_id", exp.Literal.string("someone-else"))],
+        )
+        with pytest.raises(SqlValidationError, match="unexpected arguments"):
+            scope_and_render("SELECT count() FROM spans", PID)
+
+    def test_an_undeclared_argument_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # ClickHouse accepts and ignores an undeclared view argument, so only this
+        # check notices a rewrite that emits one.
+        _patch_view_arguments(
+            monkeypatch, lambda args: [*args, _argument("tenant", exp.Literal.string("x"))]
+        )
+        with pytest.raises(SqlValidationError, match="unexpected arguments"):
+            scope_and_render("SELECT count() FROM spans", PID)
+
+    def test_a_call_scoped_to_another_value_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The view name is right and every argument is present, but the tenant
+        # argument is not the value this render bound. The name check passed this.
+        real_build = rewriter_mod._build_view_table
+
+        def _build(view_name, alias_node, param_value, start, end):  # type: ignore[no-untyped-def]
+            return real_build(view_name, alias_node, exp.Literal.string("someone-else"), start, end)
+
+        monkeypatch.setattr(rewriter_mod, "_build_view_table", _build)
+        with pytest.raises(SqlValidationError, match="not scoped to the bound project"):
+            scope_and_render("SELECT count() FROM spans", PID)
+
+    def test_literal_mode_checks_the_literal_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(rewriter_mod, "USE_BOUND_PARAM", False)
+        real_build = rewriter_mod._build_view_table
+
+        def _build(view_name, alias_node, param_value, start, end):  # type: ignore[no-untyped-def]
+            return real_build(view_name, alias_node, exp.Literal.string("other.proj"), start, end)
+
+        monkeypatch.setattr(rewriter_mod, "_build_view_table", _build)
+        with pytest.raises(SqlValidationError, match="not scoped to the bound project"):
+            scope_and_render("SELECT count() FROM spans", PID)
+
+    def test_the_scope_parameter_inside_a_bound_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _bypass_layer1(monkeypatch)
+        with pytest.raises(SqlValidationError, match="unverified time bound"):
+            scope_and_render(
+                "SELECT count() FROM spans WHERE span_start_time >= {scope_project_id:DateTime64(3)}",
+                PID,
+            )
+
+    @pytest.mark.parametrize("name", ["scope_project_id", "SCOPE_other", "project_id"])
+    def test_a_reserved_parameter_outside_the_view_call_is_refused(
+        self, name: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _bypass_layer1(monkeypatch)
+        with pytest.raises(SqlValidationError, match="reserved parameter"):
+            scope_and_render(f"SELECT {{{name}:String}} AS p FROM spans", PID)
+
+    def test_a_column_in_a_bound_is_refused_even_if_extraction_lets_it_through(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Verification has its own constant check, so a defect in extraction
+        # cannot also blind the layer meant to catch it.
+        monkeypatch.setattr(rewriter_mod, "_is_constant_bound", lambda node: True)
+        with pytest.raises(SqlValidationError, match="unverified time bound"):
+            scope_and_render(
+                "SELECT s.span_id FROM spans AS s JOIN traces AS t ON s.trace_id = t.trace_id"
+                " WHERE s.span_start_time >= t.trace_start_time",
+                PID,
+            )
+
+    def test_a_bound_that_skipped_normalisation_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Without the timezone normalisation a zoned bound shifts by its offset.
+        monkeypatch.setattr(rewriter_mod, "_as_bound", lambda value: value.copy())
+        with pytest.raises(SqlValidationError, match="unverified time bound"):
+            scope_and_render("SELECT count() FROM spans WHERE span_start_time >= '2026-09-01'", PID)
+
+    def test_bounds_combined_the_widening_way_are_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_narrowest = rewriter_mod._narrowest
+        swapped = {"greatest": "least", "least": "greatest"}
+        monkeypatch.setattr(
+            rewriter_mod, "_narrowest", lambda bounds, func: real_narrowest(bounds, swapped[func])
+        )
+        with pytest.raises(SqlValidationError, match="unverified time bound"):
+            scope_and_render(
+                "SELECT count() FROM spans WHERE span_start_time >= '2026-09-01'"
+                " AND span_start_time >= '2026-09-05'",
+                PID,
+            )
+
+    def test_a_callers_own_parameter_in_a_bound_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A caller parameter is a value, like a literal, and the service binds it.
+        # Layer 1 on this branch still refuses placeholders, so it is bypassed to
+        # prove Layer 3 alone does not reject the shape.
+        _bypass_layer1(monkeypatch)
+        rendered, binds = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time >= {since:DateTime64(3)}", PID
+        )
+        assert "toDateTime64({since: DateTime64(3)}, 3)" in _view_call(rendered, "spans_public_v1")
+        assert binds == {"scope_project_id": PID}

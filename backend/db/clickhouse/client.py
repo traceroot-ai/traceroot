@@ -43,17 +43,18 @@ class ClickHouseClient:
     def readonly_from_settings(cls) -> "ClickHouseClient":
         """Create a client authenticated as the read-only SQL gateway user.
 
-        Raises if ``CLICKHOUSE_RO_USER`` is unset — callers wanting the
-        cloud-fatal / self-host-fallback behavior must use
+        Raises unless both ``CLICKHOUSE_RO_USER`` and ``CLICKHOUSE_RO_PASSWORD`` are set.
+        Callers wanting the cloud-fatal / self-host-fallback behavior must use
         ``get_readonly_clickhouse_client`` instead.
         """
         ch = settings.clickhouse
-        if not ch.ro_user:
+        if not _readonly_configured():
             raise RuntimeError(
-                "readonly_from_settings() requires CLICKHOUSE_RO_USER to be set; "
-                "use get_readonly_clickhouse_client() for the configured fallback behavior."
+                "readonly_from_settings() requires CLICKHOUSE_RO_USER and CLICKHOUSE_RO_PASSWORD "
+                "to be set; use get_readonly_clickhouse_client() for the configured fallback "
+                "behavior."
             )
-        return cls._build(ch.ro_user, ch.ro_password or "")
+        return cls._build(ch.ro_user, ch.ro_password)
 
     @classmethod
     def _build(cls, username: str, password: str) -> "ClickHouseClient":
@@ -272,6 +273,19 @@ def get_clickhouse_client() -> ClickHouseClient:
     return _client
 
 
+def _readonly_configured() -> bool:
+    """Whether the read-only gateway identity is usable, which needs both halves.
+
+    The user alone is not enough. Compose defaults ``CLICKHOUSE_RO_USER`` to the account
+    name so that setting only the password turns the gateway on, and it provisions that
+    account only when the password is set. A user with no password is therefore an account
+    that does not exist, and logging in as it would fail every gateway query with an
+    authentication error instead of the explicit refusal or fallback below.
+    """
+    ch = settings.clickhouse
+    return bool(ch.ro_user and ch.ro_password)
+
+
 def get_readonly_clickhouse_client() -> ClickHouseClient:
     """Get or create the singleton read-only ClickHouse client for the SQL gateway.
 
@@ -290,7 +304,7 @@ def get_readonly_clickhouse_client() -> ClickHouseClient:
     if _ro_client is not None:
         return _ro_client
 
-    if settings.clickhouse.ro_user:
+    if _readonly_configured():
         _ro_client = ClickHouseClient.readonly_from_settings()
         return _ro_client
 
@@ -300,15 +314,16 @@ def get_readonly_clickhouse_client() -> ClickHouseClient:
 
     if is_billing_enabled():
         raise RuntimeError(
-            "CLICKHOUSE_RO_USER is required in cloud mode (ENABLE_BILLING != 'false') for the "
-            "public SQL gateway, but it is not configured. Refusing to execute user SQL through "
-            "a privileged ClickHouse client."
+            "CLICKHOUSE_RO_USER and CLICKHOUSE_RO_PASSWORD are required in cloud mode "
+            "(ENABLE_BILLING != 'false') for the public SQL gateway, but they are not both set. "
+            "Refusing to execute user SQL through a privileged ClickHouse client."
         )
 
     logger.warning(
-        "SQL gateway FALLBACK: CLICKHOUSE_RO_USER is not set; using the default (privileged) "
-        "ClickHouse client. This is acceptable for local/dev/self-host only — cloud deployments "
-        "MUST set CLICKHOUSE_RO_USER."
+        "SQL gateway FALLBACK: CLICKHOUSE_RO_USER / CLICKHOUSE_RO_PASSWORD are not both set; "
+        "using the default (privileged) "
+        "ClickHouse client. This is acceptable for local/dev/self-host only; cloud deployments "
+        "MUST set both CLICKHOUSE_RO_USER and CLICKHOUSE_RO_PASSWORD."
     )
     # The caps normally come from the read-only user's CONST settings profile. Without
     # that user there is no profile, so without this the fallback runs user SQL with no

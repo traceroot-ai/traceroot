@@ -1,9 +1,10 @@
 """Response schemas for the public, API-key-authenticated API."""
 
+import json
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from rest.schemas.common import PaginationMeta
 from rest.schemas.traces import SpanResponse, TraceDetailResponse, TraceListItem
@@ -269,3 +270,103 @@ class PublicDashboardListResponse(BaseModel):
     """
 
     data: list[DashboardListItem]
+
+
+#: Longest query accepted, in characters. Parsing, validating and rewriting run in
+#: this process before any ClickHouse cap applies, and their cost grows with the
+#: query: about 0.4 s and 18 MB at 55 KB, 1.8 s at 140 KB. 64 KiB is far past any
+#: query a person or an agent writes.
+SQL_QUERY_MAX_CHARS = 65_536
+
+#: Most parameters one query may bind.
+SQL_MAX_PARAMETERS = 100
+
+#: Longest the whole parameter payload may be once serialised. A count alone
+#: bounds nothing: one key can carry a 100 MB string or a deeply nested
+#: structure, and every byte is held in this process and sent to ClickHouse.
+#: Values stay untyped so a query can still bind an array or a map.
+SQL_PARAMETERS_MAX_CHARS = 16_384
+
+
+class SqlRequest(BaseModel):
+    """A public SQL query. The project is never part of this body.
+
+    ``extra="forbid"`` is the point rather than tidiness: scope is resolved from
+    the credential, so a body carrying ``project_id`` or a ``scope_*`` key is a
+    caller trying to choose a tenant. Forbidding unknown keys turns that into a
+    422 instead of a silently ignored field.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    query: str = Field(
+        min_length=1,
+        max_length=SQL_QUERY_MAX_CHARS,
+        description="A single read-only SELECT over the public schema",
+    )
+    parameters: dict[str, Any] | None = Field(
+        default=None,
+        max_length=SQL_MAX_PARAMETERS,
+        description="Values for {name:Type} placeholders in the query",
+    )
+
+    @field_validator("parameters")
+    @classmethod
+    def _bounded_payload(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Refuse a parameter payload too large to be a set of query values."""
+        if value is None:
+            return value
+        encoded = json.dumps(value, default=str, separators=(",", ":"))
+        if len(encoded) > SQL_PARAMETERS_MAX_CHARS:
+            raise ValueError(
+                f"parameters must serialise to at most {SQL_PARAMETERS_MAX_CHARS} characters"
+            )
+        return value
+
+    max_rows: int | None = Field(
+        default=None,
+        ge=1,
+        le=1_000_000,
+        # Strict, because lax mode coerces JSON `true` to 1, `1.0` to 1 and "5" to
+        # 5, so a nonsense cap would execute a query instead of being refused.
+        strict=True,
+        description="Rows to return, clamped down to the server ceiling",
+    )
+
+
+class SqlColumn(BaseModel):
+    """One column of a result, named and typed as ClickHouse reported it."""
+
+    name: str
+    type: str
+
+
+class SqlResponse(BaseModel):
+    """A completed query, already trimmed to what the caller may receive."""
+
+    columns: list[SqlColumn]
+    rows: list[list[Any]]
+    row_count: int
+    truncated: bool = Field(description="True when more rows matched than were returned")
+    elapsed_ms: int
+    statistics: dict[str, Any] = Field(default_factory=dict)
+
+
+class SqlSchemaColumn(BaseModel):
+    """A curated column a caller may select."""
+
+    name: str
+    type: str
+
+
+class SqlSchemaTable(BaseModel):
+    """A logical table the gateway exposes."""
+
+    name: str
+    columns: list[SqlSchemaColumn]
+
+
+class SqlSchemaResponse(BaseModel):
+    """The curated analytical schema, which is all a caller can query."""
+
+    tables: list[SqlSchemaTable]
