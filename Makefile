@@ -3,7 +3,8 @@
 # =============================================================================
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
-APP_VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
+# Only vX.Y.Z tags are platform versions; other tag families (e.g. package tags) must not win.
+APP_VERSION ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo dev)
 
 .PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
 

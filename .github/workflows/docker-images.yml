@@ -76,9 +76,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Only vX.Y.Z tags are platform versions. Without --match, the nearest tag
+      # of any kind wins, so a package tag (e.g. tools-v0.2.0) would become the
+      # version label baked into the web image.
       - name: Resolve app version
         id: app_version
-        run: echo "value=$(git describe --tags --abbrev=0 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
+        run: echo "value=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
 
       - name: Docker meta
         id: meta

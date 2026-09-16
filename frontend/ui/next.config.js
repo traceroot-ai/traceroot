@@ -4,7 +4,8 @@ const path = require("path");
 function resolveAppVersion() {
   if (process.env.APP_VERSION) return process.env.APP_VERSION;
   try {
-    return execSync("git describe --tags --abbrev=0", {
+    // Only vX.Y.Z tags are platform versions; ignore any other tag family.
+    return execSync("git describe --tags --abbrev=0 --match 'v[0-9]*'", {
       cwd: path.join(__dirname, "../"),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
