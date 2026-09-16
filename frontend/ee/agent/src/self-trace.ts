@@ -39,7 +39,8 @@ const ROOT_IO_CAP = 16_384;
 const TRACE_METADATA = "traceroot.trace.metadata";
 
 function rootMetadata(meta: AgentTraceMeta): Record<string, unknown> {
-  return { kind: meta.kind, ...meta.metadata };
+  // `kind` is the trace's own field: a caller's metadata cannot relabel it.
+  return { ...meta.metadata, kind: meta.kind };
 }
 
 /** Redact, then bound to ROOT_IO_CAP bytes (marker included, byte-safe): the policy's helper. */
@@ -152,6 +153,9 @@ function initOnce(): boolean {
     if (!TraceRoot.isTracingActive()) {
       latchedOff = true;
       console.warn("[AgentTrace] SDK initialized but tracing is not active; self-trace disabled");
+      // The provider initialize() built is not the global one; release its
+      // exporter and batch processor rather than leave them idling.
+      void TraceRoot.shutdown().catch(() => {});
       return false;
     }
     initialized = true;
