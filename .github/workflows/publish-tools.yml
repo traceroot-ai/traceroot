@@ -13,12 +13,13 @@ on:
   # Re-run a publish after a workflow fix.
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     outputs:
       publish: ${{ steps.check.outputs.publish }}
     steps:
