@@ -15,7 +15,7 @@ export function impersonationDenial(
   }
   if (
     (/^\/api\/(github|slack)\//.test(path) && !/^\/api\/github\/status\/?$/.test(path)) ||
-    /^\/api\/workspaces\/[^/]+\/slack\/install\/?$/.test(path)
+    /^\/api\/workspaces\/[^/]+\/slack(\/|$)/.test(path)
   ) {
     return "Integration authorization is unavailable while impersonating";
   }
