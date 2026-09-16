@@ -364,6 +364,82 @@ const client = new Anthropic();`,
     },
   },
   {
+    id: "azure",
+    name: "Azure OpenAI",
+    href: "https://traceroot.ai/docs/integrations/azure",
+    category: "provider",
+    logo: "/logo/integrations/azure.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot openai",
+        initSnippet: `import os
+from openai import AzureOpenAI
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = AzureOpenAI(
+    api_key=os.environ["AZURE_OPENAI_API_KEY"],
+    azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+    api_version="2024-10-21",
+)`,
+      },
+      typescript: {
+        installCommand: "npm install @traceroot-ai/traceroot openai",
+        initSnippet: `import { AzureOpenAI } from "openai";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: AzureOpenAI },
+});
+
+const client = new AzureOpenAI({
+  apiKey: process.env.AZURE_OPENAI_API_KEY,
+  endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+  apiVersion: "2024-10-21",
+});`,
+      },
+    },
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    href: "https://traceroot.ai/docs/integrations/deepseek",
+    category: "provider",
+    logo: "/logo/integrations/deepseek.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot openai",
+        initSnippet: `import os
+import openai
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = openai.OpenAI(
+    api_key=os.environ["DEEPSEEK_API_KEY"],
+    base_url="https://api.deepseek.com",
+)`,
+      },
+      typescript: {
+        installCommand: "npm install @traceroot-ai/traceroot openai",
+        initSnippet: `import OpenAI from "openai";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const client = new OpenAI({
+  apiKey: process.env.DEEPSEEK_API_KEY,
+  baseURL: "https://api.deepseek.com",
+});`,
+      },
+    },
+  },
+  {
     id: "gemini",
     name: "Google Gemini",
     href: "https://traceroot.ai/docs/integrations/gemini",
@@ -457,6 +533,117 @@ TraceRoot.initialize({
 const openai = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
   baseURL: "https://openrouter.ai/api/v1",
+});`,
+      },
+    },
+  },
+  {
+    id: "xai",
+    name: "xAI",
+    href: "https://traceroot.ai/docs/integrations/xai",
+    category: "provider",
+    logo: "/logo/integrations/xai.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot openai",
+        initSnippet: `import os
+import openai
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = openai.OpenAI(
+    api_key=os.environ["XAI_API_KEY"],
+    base_url="https://api.x.ai/v1",
+)`,
+      },
+      typescript: {
+        installCommand: "npm install @traceroot-ai/traceroot openai",
+        initSnippet: `import OpenAI from "openai";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const client = new OpenAI({
+  apiKey: process.env.XAI_API_KEY,
+  baseURL: "https://api.x.ai/v1",
+});`,
+      },
+    },
+  },
+  {
+    id: "moonshot",
+    name: "Moonshot (Kimi)",
+    href: "https://traceroot.ai/docs/integrations/moonshot",
+    category: "provider",
+    logo: "/logo/integrations/moonshot.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot openai",
+        initSnippet: `import os
+import openai
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = openai.OpenAI(
+    api_key=os.environ["MOONSHOT_API_KEY"],
+    base_url="https://api.moonshot.ai/v1",
+)`,
+      },
+      typescript: {
+        installCommand: "npm install @traceroot-ai/traceroot openai",
+        initSnippet: `import OpenAI from "openai";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const client = new OpenAI({
+  apiKey: process.env.MOONSHOT_API_KEY,
+  baseURL: "https://api.moonshot.ai/v1",
+});`,
+      },
+    },
+  },
+  {
+    id: "zai",
+    name: "Z.AI (GLM)",
+    href: "https://traceroot.ai/docs/integrations/zai",
+    category: "provider",
+    logo: "/logo/integrations/zai.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot openai",
+        initSnippet: `import os
+import openai
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = openai.OpenAI(
+    api_key=os.environ["ZAI_API_KEY"],
+    base_url="https://api.z.ai/api/paas/v4",
+)`,
+      },
+      typescript: {
+        installCommand: "npm install @traceroot-ai/traceroot openai",
+        initSnippet: `import OpenAI from "openai";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const client = new OpenAI({
+  apiKey: process.env.ZAI_API_KEY,
+  baseURL: "https://api.z.ai/api/paas/v4",
 });`,
       },
     },
