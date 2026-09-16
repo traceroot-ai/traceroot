@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useParams, usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { useTheme } from "next-themes";
@@ -18,6 +19,7 @@ import {
   UserRoundSearch,
   Database,
   FlaskConical,
+  LogOut,
 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -48,6 +50,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed = false }: SidebarProps) {
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const pathname = usePathname();
   const { data: sessionData } = authClient.useSession();
   const isImpersonating = !!sessionData?.session?.impersonatedBy;
@@ -105,16 +108,6 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
         {/* Navigation */}
         <nav className="flex-1">
-          {!isImpersonating && isStaff(user?.role) && (
-            <Link
-              href="/admin"
-              title="Support console"
-              className="mx-2 my-2 flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted"
-            >
-              <UserRoundSearch className="h-4 w-4" />
-              {!collapsed && "Support console"}
-            </Link>
-          )}
           {projectId ? (
             // Project context navigation
             <>
@@ -373,9 +366,10 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           </Tooltip>
 
           {/* User menu */}
-          <Popover>
+          <Popover open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
             <PopoverTrigger asChild>
               <button
+                aria-label="Account menu"
                 className={cn(
                   "flex w-full items-center gap-2 py-2 transition-colors hover:bg-muted/50",
                   collapsed ? "justify-center px-2" : "px-3",
@@ -397,13 +391,13 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             <PopoverContent
               side="right"
               align="end"
-              className="w-48 p-0"
-              sideOffset={0}
+              className="w-56 p-0"
+              sideOffset={8}
               alignOffset={0}
             >
               {/* User info */}
               <div className="flex items-center gap-2 px-3 py-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-sm font-medium">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-sm font-medium">
                   {initials}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -418,57 +412,70 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               <div className="p-1">
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent">
+                    <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent">
+                      <Sun className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span>Theme</span>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent side="right" align="start" className="w-28 p-1" sideOffset={4}>
                     <button
                       className={cn(
-                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
                         theme === "light" ? "bg-accent" : "hover:bg-accent",
                       )}
                       onClick={() => setTheme("light")}
                     >
+                      <Sun className="h-4 w-4 shrink-0" />
                       <span>Light</span>
-                      <Sun className="h-4 w-4" />
                     </button>
                     <button
                       className={cn(
-                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
                         theme === "dark" ? "bg-accent" : "hover:bg-accent",
                       )}
                       onClick={() => setTheme("dark")}
                     >
+                      <Moon className="h-4 w-4 shrink-0" />
                       <span>Dark</span>
-                      <Moon className="h-4 w-4" />
                     </button>
                     <button
                       className={cn(
-                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
                         theme === "system" || !theme ? "bg-accent" : "hover:bg-accent",
                       )}
                       onClick={() => setTheme("system")}
                     >
+                      <Monitor className="h-4 w-4 shrink-0" />
                       <span>System</span>
-                      <Monitor className="h-4 w-4" />
                     </button>
                   </PopoverContent>
                 </Popover>
 
+                {!isImpersonating && isStaff(user?.role) && (
+                  <Link
+                    href="/admin"
+                    onClick={() => setAccountMenuOpen(false)}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                  >
+                    <UserRoundSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span>Support console</span>
+                  </Link>
+                )}
+
                 {/* Active sessions — the revoke control for CLI/device logins */}
                 <Link
                   href="/account/settings/sessions"
-                  className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                  onClick={() => setAccountMenuOpen(false)}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
                 >
+                  <MonitorSmartphone className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span>Active Sessions</span>
-                  <MonitorSmartphone className="h-4 w-4" />
                 </Link>
 
                 {/* Sign out */}
                 <button
-                  className="flex w-full items-center justify-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
                   onClick={async () => {
                     if (isImpersonating) {
                       await exitImpersonation().catch(() => window.location.assign("/admin"));
@@ -478,6 +485,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     window.location.href = "/auth/sign-in";
                   }}
                 >
+                  <LogOut className="h-4 w-4 shrink-0 text-muted-foreground" />
                   {isImpersonating ? "Exit impersonation" : "Log Out"}
                 </button>
               </div>
