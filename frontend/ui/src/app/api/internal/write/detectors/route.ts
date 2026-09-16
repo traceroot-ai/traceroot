@@ -14,7 +14,9 @@ const bodySchema = z.object({
   projectId: z.string("projectId is required").min(1, "projectId is required"),
   name: z.string("name is required").min(1, "name is required"),
   template: z.string("template is required").min(1, "template is required"),
-  prompt: z.string("prompt is required").min(1, "prompt is required"),
+  // Optional at the shape level: the service decides whether an absent prompt
+  // is fillable from a standard template or a 400.
+  prompt: z.string("prompt is required").min(1, "prompt is required").optional(),
   sampleRate: z.number().optional(),
   // Carry the service's own messages so a non-array is rejected identically
   // whichever surface catches it first.

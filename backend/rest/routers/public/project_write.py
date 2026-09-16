@@ -76,12 +76,14 @@ async def create_detector(
         "projectId": payload.project_id,
         "name": payload.name,
         "template": payload.template,
-        "prompt": payload.prompt,
         "transport": "public-api",
     }
     # Unset optionals stay out of the body entirely — the internal zod
     # distinguishes absent from null in places, and absent is always safe.
+    # An absent prompt in particular tells the write service to fill the
+    # canonical instructions of a standard template.
     optionals = {
+        "prompt": payload.prompt,
         "sampleRate": payload.sample_rate,
         "outputSchema": payload.output_schema,
         "triggerConditions": payload.trigger_conditions,
@@ -201,7 +203,10 @@ async def create_widget(
         "dashboardId": payload.dashboard_id,
         "title": payload.title,
         "type": payload.type,
-        "spec": payload.spec,
+        # Only the fields the caller actually sent: the write service fills its
+        # own defaults, and an unset optional (e.g. a predicate's key) must stay
+        # absent rather than crossing as an explicit null.
+        "spec": payload.spec.model_dump(exclude_unset=True),
         "transport": "public-api",
     }
     if payload.display_config is not None:

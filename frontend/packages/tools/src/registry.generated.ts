@@ -4,6 +4,123 @@ import type { RegistryEntry } from "./types.js";
 
 export const REGISTRY: readonly RegistryEntry[] = [
   {
+    name: "create_alert",
+    description:
+      "Create a threshold alert in a project: a measure of the spans view, aggregated over a window and compared to a threshold, with optional row filters and renotify/no-data settings. Strict create, never idempotent: alerts share names freely, so to avoid a duplicate list the project's alerts first and match the name.",
+    method: "post",
+    path: "/api/v1/public/alerts",
+    inputSchema: {
+      type: "object",
+      properties: {
+        aggregation: {
+          enum: ["sum", "avg", "count", "max", "min", "p50", "p75", "p90", "p95", "p99", "uniq"],
+          type: "string",
+        },
+        filters: {
+          description: "Row predicates the measure is evaluated over",
+          items: {
+            additionalProperties: false,
+            properties: {
+              field: {
+                description: "A span field, e.g. model_name or metadata",
+                type: "string",
+              },
+              key: {
+                description: "The map entry to compare; required for the metadata field",
+                type: "string",
+              },
+              op: {
+                enum: ["=", "contains"],
+                type: "string",
+              },
+              value: {
+                type: ["string", "number"],
+              },
+            },
+            required: ["field", "op", "value"],
+            type: "object",
+          },
+          type: "array",
+        },
+        measure: {
+          description: "A measure of the view, e.g. latency, cost, count",
+          type: "string",
+        },
+        name: {
+          type: "string",
+        },
+        no_data_mode: {
+          enum: ["HOLD", "ZERO", "NOTIFY"],
+          type: "string",
+          description: "What a window that measured nothing means; column default when omitted",
+        },
+        project_id: {
+          type: "string",
+        },
+        renotify: {
+          description: "How often an alert re-notifies while it stays in the alerting state.",
+          properties: {
+            interval_minutes: {
+              description: "Minutes between repeat notifications; required when mode is EVERY",
+              type: "integer",
+            },
+            mode: {
+              enum: ["OFF", "EVERY"],
+              type: "string",
+            },
+          },
+          required: ["mode"],
+          type: "object",
+        },
+        threshold: {
+          type: "number",
+        },
+        threshold_operator: {
+          enum: [">", ">=", "<", "<=", "=", "!="],
+          type: "string",
+        },
+        view: {
+          const: "SPANS",
+          type: "string",
+        },
+        window: {
+          enum: ["1m", "5m", "10m", "30m", "1h", "2h"],
+          type: "string",
+        },
+      },
+      required: [
+        "project_id",
+        "name",
+        "view",
+        "measure",
+        "aggregation",
+        "window",
+        "threshold_operator",
+        "threshold",
+        "renotify",
+      ],
+      additionalProperties: false,
+    },
+    bodyParams: [
+      "aggregation",
+      "filters",
+      "measure",
+      "name",
+      "no_data_mode",
+      "project_id",
+      "renotify",
+      "threshold",
+      "threshold_operator",
+      "view",
+      "window",
+    ],
+    policy: {
+      approvalClass: "confirm",
+      minRole: "MEMBER",
+      tenancy: "project",
+    },
+  },
+  {
     name: "create_dashboard",
     description:
       "Create a dashboard in a project (idempotent on the dashboard name within the project); add charts to it with create_widget.",
@@ -27,7 +144,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
     bodyParams: ["description", "name", "project_id"],
     policy: {
-      approvalClass: "none",
+      approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "project",
     },
@@ -35,7 +152,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
   {
     name: "create_detector",
     description:
-      "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project — idempotent on the detector name within the project.",
+      "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project — idempotent on the detector name within the project. The standard detector types (failure, hallucination, logic, task, safety) have canonical default instructions: pass the matching template id and OMIT prompt to use them. Only supply prompt when the user provides genuinely custom instructions — a supplied prompt is stored verbatim and overrides the template default.",
     method: "post",
     path: "/api/v1/public/detectors",
     inputSchema: {
@@ -68,6 +185,8 @@ export const REGISTRY: readonly RegistryEntry[] = [
         },
         prompt: {
           type: "string",
+          description:
+            "Detector instructions. Omit to adopt the canonical instructions of a standard template; required for any other template.",
         },
         sample_rate: {
           type: "integer",
@@ -78,9 +197,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
         trigger_conditions: {
           items: {},
           type: "array",
+          description:
+            "Conditions gating WHICH completed traces the detector evaluates; omit or pass [] to evaluate every completed trace. Each condition is {field, op, value} (metadata also takes key): model_name/environment take =, !=; cost/total_tokens/duration_ms/errors take >, >=, <, <=, =; metadata takes =, contains. A condition is a deterministic pre-filter, not the flag decision - the prompt still judges every trace that passes.",
         },
       },
-      required: ["project_id", "name", "template", "prompt"],
+      required: ["project_id", "name", "template"],
       additionalProperties: false,
     },
     bodyParams: [
@@ -98,7 +219,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
       "trigger_conditions",
     ],
     policy: {
-      approvalClass: "none",
+      approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "project",
     },
@@ -128,7 +249,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
     bodyParams: ["name", "trace_ttl_days", "workspace_id"],
     agentHiddenParams: ["trace_ttl_days"],
     policy: {
-      approvalClass: "none",
+      approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "workspace",
     },
@@ -136,7 +257,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
   {
     name: "create_widget",
     description:
-      "Add a widget (title, type, query spec) to an existing dashboard. Strict create: every call adds a new widget.",
+      'Add a widget (title, type, spec) to an existing dashboard. Type "query" charts a metric (spec: view/filters/metric/breakdown/display); type "trace_feed" lists recent traces (spec: predicate filters + limit). Strict create: every call adds a new widget. The spec schema enumerates the only available views, metrics, filter operators, and display types — nothing outside it exists. If the user asks for a visualization or option that is not in the schema (for example a display type the enum lacks), say so explicitly and propose the closest available match instead of silently substituting. Pick the view first — spans and traces expose different fields, and the enums in this schema are the complete field vocabulary for each view. If the user asks for a dimension or metric that exists on neither view, say so and propose the closest available one (for example "traces by model" is built on the spans view via model_name).',
     method: "post",
     path: "/api/v1/public/widgets",
     inputSchema: {
@@ -153,7 +274,343 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
         },
         spec: {
-          additionalProperties: true,
+          description:
+            'The widget\'s content. For type "query": a chart spec (view/filters/metric/breakdown/display). For type "trace_feed": a trace-list feed spec (predicate filters + row limit).',
+          anyOf: [
+            {
+              additionalProperties: false,
+              description:
+                'Chart spec over the "spans" view; the enums below are the complete field vocabulary for this view.',
+              properties: {
+                breakdown: {
+                  enum: ["name", "span_kind", "model_name", "environment", null],
+                  type: ["string", "null"],
+                },
+                display: {
+                  additionalProperties: false,
+                  description: "Controls how the query result is rendered on the dashboard.",
+                  properties: {
+                    type: {
+                      enum: ["line", "area", "bar", "pie", "number", "table", "histogram"],
+                      type: "string",
+                    },
+                  },
+                  required: ["type"],
+                  type: "object",
+                },
+                filters: {
+                  items: {
+                    additionalProperties: false,
+                    description: "A single filter predicate applied to a widget query.",
+                    properties: {
+                      field: {
+                        enum: [
+                          "name",
+                          "span_kind",
+                          "status",
+                          "model_name",
+                          "environment",
+                          "is_root",
+                          "duration_ms",
+                          "cost",
+                          "input_tokens",
+                          "output_tokens",
+                          "cache_read_tokens",
+                          "cache_write_tokens",
+                          "total_tokens",
+                          "metadata",
+                        ],
+                        type: "string",
+                      },
+                      key: {
+                        type: "string",
+                      },
+                      op: {
+                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        type: "string",
+                      },
+                      value: {
+                        type: ["string", "number"],
+                        anyOf: [
+                          {
+                            minLength: 1,
+                            type: "string",
+                          },
+                          {
+                            type: "number",
+                          },
+                        ],
+                      },
+                    },
+                    required: ["field", "op", "value"],
+                    type: "object",
+                  },
+                  type: "array",
+                },
+                metric: {
+                  additionalProperties: false,
+                  description:
+                    "The measure and aggregation function that define the widget's y-axis.",
+                  properties: {
+                    agg: {
+                      enum: [
+                        "count",
+                        "sum",
+                        "avg",
+                        "min",
+                        "max",
+                        "p50",
+                        "p75",
+                        "p90",
+                        "p95",
+                        "p99",
+                        "uniq",
+                      ],
+                      type: "string",
+                    },
+                    measure: {
+                      enum: [
+                        "duration_ms",
+                        "cost",
+                        "input_tokens",
+                        "output_tokens",
+                        "cache_read_tokens",
+                        "cache_write_tokens",
+                        "total_tokens",
+                        "tokens_per_second",
+                        "trace_id",
+                        "count",
+                      ],
+                      type: "string",
+                    },
+                  },
+                  required: ["measure", "agg"],
+                  type: "object",
+                },
+                view: {
+                  const: "spans",
+                  type: "string",
+                },
+              },
+              required: ["view", "metric", "display"],
+              type: "object",
+            },
+            {
+              additionalProperties: false,
+              description:
+                'Chart spec over the "traces" view; the enums below are the complete field vocabulary for this view.',
+              properties: {
+                breakdown: {
+                  enum: ["name", "user_id", "session_id", "environment", null],
+                  type: ["string", "null"],
+                },
+                display: {
+                  additionalProperties: false,
+                  description: "Controls how the query result is rendered on the dashboard.",
+                  properties: {
+                    type: {
+                      enum: ["line", "area", "bar", "pie", "number", "table", "histogram"],
+                      type: "string",
+                    },
+                  },
+                  required: ["type"],
+                  type: "object",
+                },
+                filters: {
+                  items: {
+                    additionalProperties: false,
+                    description: "A single filter predicate applied to a widget query.",
+                    properties: {
+                      field: {
+                        enum: [
+                          "name",
+                          "user_id",
+                          "session_id",
+                          "environment",
+                          "duration_ms",
+                          "cost",
+                          "input_tokens",
+                          "output_tokens",
+                          "cache_read_tokens",
+                          "cache_write_tokens",
+                          "total_tokens",
+                          "error_count",
+                        ],
+                        type: "string",
+                      },
+                      key: {
+                        type: "string",
+                      },
+                      op: {
+                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        type: "string",
+                      },
+                      value: {
+                        type: ["string", "number"],
+                        anyOf: [
+                          {
+                            minLength: 1,
+                            type: "string",
+                          },
+                          {
+                            type: "number",
+                          },
+                        ],
+                      },
+                    },
+                    required: ["field", "op", "value"],
+                    type: "object",
+                  },
+                  type: "array",
+                },
+                metric: {
+                  additionalProperties: false,
+                  description:
+                    "The measure and aggregation function that define the widget's y-axis.",
+                  properties: {
+                    agg: {
+                      enum: [
+                        "count",
+                        "sum",
+                        "avg",
+                        "min",
+                        "max",
+                        "p50",
+                        "p75",
+                        "p90",
+                        "p95",
+                        "p99",
+                        "uniq",
+                      ],
+                      type: "string",
+                    },
+                    measure: {
+                      enum: [
+                        "duration_ms",
+                        "cost",
+                        "input_tokens",
+                        "output_tokens",
+                        "cache_read_tokens",
+                        "cache_write_tokens",
+                        "total_tokens",
+                        "count",
+                        "error_count",
+                      ],
+                      type: "string",
+                    },
+                  },
+                  required: ["measure", "agg"],
+                  type: "object",
+                },
+                view: {
+                  const: "traces",
+                  type: "string",
+                },
+              },
+              required: ["view", "metric", "display"],
+              type: "object",
+            },
+            {
+              additionalProperties: false,
+              description:
+                "Spec for a ``trace_feed`` widget: a filtered live list of recent traces.\n\nMirrors the trace-list predicate wire format (canonical shape: what\n``isValidPredicate`` in frontend/ui/src/features/filters/predicate.ts\naccepts and the dashboard seed produces). ``limit`` carries the trace-list\npage-size bound; it defaults to 10 rows in the renderer when omitted.",
+              properties: {
+                filters: {
+                  items: {
+                    anyOf: [
+                      {
+                        additionalProperties: false,
+                        description:
+                          "Membership predicate: the field's value is one of the listed strings.",
+                        properties: {
+                          field: {
+                            type: "string",
+                          },
+                          key: {
+                            maxLength: 256,
+                            minLength: 1,
+                            type: "string",
+                          },
+                          op: {
+                            const: "in",
+                            type: "string",
+                          },
+                          value: {
+                            items: {
+                              maxLength: 1024,
+                              type: "string",
+                            },
+                            minItems: 1,
+                            type: "array",
+                          },
+                        },
+                        required: ["field", "op", "value"],
+                        type: "object",
+                      },
+                      {
+                        additionalProperties: false,
+                        description:
+                          "Numeric comparison predicate (equality or ordering) on a finite number.",
+                        properties: {
+                          field: {
+                            type: "string",
+                          },
+                          key: {
+                            maxLength: 256,
+                            minLength: 1,
+                            type: "string",
+                          },
+                          op: {
+                            enum: ["eq", "gt", "gte", "lt", "lte"],
+                            type: "string",
+                          },
+                          value: {
+                            type: "number",
+                          },
+                        },
+                        required: ["field", "op", "value"],
+                        type: "object",
+                      },
+                      {
+                        additionalProperties: false,
+                        description: "Text predicate: exact match or substring containment.",
+                        properties: {
+                          field: {
+                            type: "string",
+                          },
+                          key: {
+                            maxLength: 256,
+                            minLength: 1,
+                            type: "string",
+                          },
+                          op: {
+                            enum: ["eq", "contains"],
+                            type: "string",
+                          },
+                          value: {
+                            maxLength: 1024,
+                            minLength: 1,
+                            type: "string",
+                          },
+                        },
+                        required: ["field", "op", "value"],
+                        type: "object",
+                      },
+                    ],
+                    type: "object",
+                  },
+                  maxItems: 20,
+                  type: "array",
+                },
+                limit: {
+                  maximum: 200,
+                  minimum: 1,
+                  type: "integer",
+                },
+              },
+              type: "object",
+            },
+          ],
           type: "object",
         },
         title: {
@@ -168,7 +625,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
     bodyParams: ["dashboard_id", "display_config", "project_id", "spec", "title", "type"],
     policy: {
-      approvalClass: "none",
+      approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "project",
     },
@@ -191,7 +648,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
     bodyParams: ["name"],
     policy: {
-      approvalClass: "none",
+      approvalClass: "confirm",
       minRole: "VIEWER",
       tenancy: "account",
     },
@@ -223,6 +680,28 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_alert",
+    description:
+      "Fetch one alert's full rule by id: view, measure, aggregation, filters, window, threshold, renotify and no-data handling, plus its evaluation state. Resolve the alert id by listing the project's alerts and matching the name — never guess an id.",
+    method: "get",
+    path: "/api/v1/public/alerts/{alert_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        alert_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["alert_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_dashboard",
     description:
       "Fetch one dashboard with its widgets (id, title, type, query spec, creation time). Resolve the dashboard id by listing the project's dashboards and matching the name — never guess an id.",
@@ -232,6 +711,42 @@ export const REGISTRY: readonly RegistryEntry[] = [
       type: "object",
       properties: {
         dashboard_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["dashboard_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_dashboard_data",
+    description:
+      "Answer a dashboard's query widgets (up to 24) for one window — the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows (a series carries every bucket; any other display is capped at 25 rows, with truncated set), skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
+    method: "get",
+    path: "/api/v1/public/dashboards/{dashboard_id}/data",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dashboard_id: {
+          type: "string",
+        },
+        range: {
+          enum: ["30m", "1h", "3h", "6h", "1d", "7d", "14d", "30d", "60d", "90d"],
+          type: "string",
+          description:
+            "A preset window ending now, by the site picker's id. Give this or explicit start_time/end_time; neither means the site's 24-hour default.",
+        },
+        start_time: {
+          format: "date-time",
+          type: "string",
+        },
+        end_time: {
+          format: "date-time",
           type: "string",
         },
         project_id: {
@@ -364,6 +879,44 @@ export const REGISTRY: readonly RegistryEntry[] = [
         },
       },
       required: ["trace_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_alerts",
+    description:
+      "List the project's threshold alerts (id, name, rule summary, status, current severity, last evaluation and notification state, creator) with the project's alert capacity. Paginated; search_query matches the alert name. To resolve an alert by name, list here and match its name — never guess an alert id.",
+    method: "get",
+    path: "/api/v1/public/alerts",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Items per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        page: {
+          default: 0,
+          description: "0-based page index",
+          maximum: 10000,
+          minimum: 0,
+          type: "integer",
+        },
+        search_query: {
+          maxLength: 200,
+          type: "string",
+          description: "Case-insensitive substring match on the alert name",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
       additionalProperties: false,
     },
   },
@@ -879,6 +1432,138 @@ export const REGISTRY: readonly RegistryEntry[] = [
       properties: {},
       required: [],
       additionalProperties: false,
+    },
+  },
+  {
+    name: "run_widget_query",
+    description:
+      "Run a widget query and return its rows — the way to answer a metric question (error counts, p95 latency, cost by model) without a dashboard existing. Takes the same spec shape as create_widget (view, metric, breakdown, display, filters) plus a window: a range preset by the site picker's id (1h, 1d, 7d, 30d, …) or explicit start_time/end_time; neither means the site's default 24-hour window. The response echoes the window it was answered for and says when retention clamped it. A read that happens to be a POST: nothing is written.",
+    method: "post",
+    path: "/api/v1/public/widgets/query",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+        bucket_seconds: {
+          maximum: 86400,
+          minimum: 1,
+          type: "integer",
+        },
+        end_time: {
+          format: "date-time",
+          type: "string",
+        },
+        range: {
+          enum: ["30m", "1h", "3h", "6h", "1d", "7d", "14d", "30d", "60d", "90d"],
+          type: "string",
+          description:
+            "A preset window ending now, by the site picker's id. Give this or explicit start_time/end_time; neither means the site's 24-hour default.",
+        },
+        spec: {
+          additionalProperties: false,
+          description:
+            "Full declarative specification of a single dashboard widget.\n\nMirrors the canonical zod ``WidgetSpecSchema``\n(frontend/ui/src/features/dashboards/types.ts); the frontend\nwidget-spec-parity test guards the two against structural drift.",
+          properties: {
+            breakdown: {
+              type: "string",
+            },
+            display: {
+              additionalProperties: false,
+              description: "Controls how the query result is rendered on the dashboard.",
+              properties: {
+                type: {
+                  enum: ["line", "area", "bar", "pie", "number", "table", "histogram"],
+                  type: "string",
+                },
+              },
+              required: ["type"],
+              type: "object",
+            },
+            filters: {
+              items: {
+                additionalProperties: false,
+                description: "A single filter predicate applied to a widget query.",
+                properties: {
+                  field: {
+                    type: "string",
+                  },
+                  key: {
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["=", "contains", ">", ">=", "<", "<="],
+                    type: "string",
+                  },
+                  value: {
+                    type: ["string", "number"],
+                    anyOf: [
+                      {
+                        minLength: 1,
+                        type: "string",
+                      },
+                      {
+                        type: "number",
+                      },
+                    ],
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              type: "array",
+            },
+            metric: {
+              additionalProperties: false,
+              description: "The measure and aggregation function that define the widget's y-axis.",
+              properties: {
+                agg: {
+                  enum: [
+                    "count",
+                    "sum",
+                    "avg",
+                    "min",
+                    "max",
+                    "p50",
+                    "p75",
+                    "p90",
+                    "p95",
+                    "p99",
+                    "uniq",
+                  ],
+                  type: "string",
+                },
+                measure: {
+                  type: "string",
+                },
+              },
+              required: ["measure", "agg"],
+              type: "object",
+            },
+            view: {
+              enum: ["spans", "traces"],
+              type: "string",
+            },
+          },
+          required: ["view", "metric", "display"],
+          type: "object",
+        },
+        start_time: {
+          format: "date-time",
+          type: "string",
+        },
+      },
+      required: ["spec"],
+      additionalProperties: false,
+    },
+    bodyParams: ["bucket_seconds", "end_time", "range", "spec", "start_time"],
+    policy: {
+      approvalClass: "none",
+      minRole: "VIEWER",
+      tenancy: "project",
     },
   },
   {
