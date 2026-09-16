@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess } from "@/lib/auth-helpers";
 
@@ -6,7 +7,7 @@ const BACKEND_INTERNAL_URL = process.env.BACKEND_INTERNAL_URL || "http://localho
 type RouteParams = { params: Promise<{ projectId: string; traceId: string }> };
 
 // GET /api/projects/[projectId]/traces/[traceId]/live — SSE proxy for live trace streaming
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+async function handleGET(_request: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -39,3 +40,4 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     },
   });
 }
+export const GET = withImpersonationPolicy(handleGET);

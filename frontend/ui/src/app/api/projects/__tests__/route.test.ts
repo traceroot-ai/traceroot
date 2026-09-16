@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
 
 const mockRequireAuth = vi.fn();
 const mockRequireProjectAccess = vi.fn();

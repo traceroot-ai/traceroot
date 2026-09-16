@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: vi.fn() } } }));
 
 vi.mock("next/server", () => ({
   NextRequest: class {},

@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
@@ -14,7 +15,7 @@ type RouteParams = {
 // dashboard id is passed along so a widget under the wrong dashboard path
 // stays a 404.
 
-export async function PATCH(req: NextRequest, { params }: RouteParams) {
+async function handlePATCH(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, dashboardId, widgetId } = auth.params;
@@ -34,7 +35,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   return successResponse({ widget: result.data });
 }
 
-export async function DELETE(req: NextRequest, { params }: RouteParams) {
+async function handleDELETE(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, dashboardId, widgetId } = auth.params;
@@ -50,3 +51,5 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
   if (!result.ok) return errorResponse(result.error, result.status);
   return successResponse({ deleted: true });
 }
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

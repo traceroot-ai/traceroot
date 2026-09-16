@@ -31,8 +31,9 @@ export async function POST(request: NextRequest) {
   }
   const session = await prisma.session.findUnique({
     where: { id: parsed.data.sessionId },
-    select: { expiresAt: true },
+    select: { expiresAt: true, impersonatedBy: true },
   });
-  const live = session !== null && session.expiresAt.getTime() > Date.now();
+  const live =
+    session !== null && !session.impersonatedBy && session.expiresAt.getTime() > Date.now();
   return NextResponse.json({ live });
 }

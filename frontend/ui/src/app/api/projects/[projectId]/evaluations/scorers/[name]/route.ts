@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import {
@@ -14,7 +15,7 @@ type RouteParams = { params: Promise<{ projectId: string; name: string }> };
 // and a family-level usage/recent-run summary. Scoped to the scorer name so it reads
 // only that scorer's Score rows (not the whole project), still with no N+1. Read-only:
 // scorers are defined in the SDK and cannot be created or edited here.
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, name: rawName } = await params;
@@ -97,3 +98,4 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     source: "SDK" as const,
   });
 }
+export const GET = withImpersonationPolicy(handleGET);
