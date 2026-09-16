@@ -59,7 +59,7 @@ it("discards a previous session response even if its JSON resolves after recover
   await act(async () => finishJson({ impersonating: true, valid: false }));
   expect(screen.getByText(/You are back on your employee account/)).toBeTruthy();
 });
-it("keeps the recorded reason out of the banner", async () => {
+it("keeps context details out of the banner", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
@@ -68,6 +68,7 @@ it("keeps the recorded reason out of the banner", async () => {
         valid: true,
         targetEmail: "customer@example.com",
         reason: "Private ticket note",
+        workspace: { id: "workspace-1", name: "Customer Workspace" },
       }),
     ),
   );
@@ -79,6 +80,7 @@ it("keeps the recorded reason out of the banner", async () => {
   await screen.findByText("customer@example.com");
   expect(screen.queryByText(/Private ticket note|Reason:/)).toBeNull();
   expect(screen.queryByTitle("Private ticket note")).toBeNull();
+  expect(screen.queryByText(/Customer Workspace|Workspace:/)).toBeNull();
 });
 it("does not claim restoration when no employee session exists", async () => {
   vi.stubGlobal(
