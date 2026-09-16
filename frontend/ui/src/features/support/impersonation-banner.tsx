@@ -56,17 +56,25 @@ export function ImpersonationBanner() {
   useEffect(() => {
     const suspected = !!impersonatedBy || sessionStorage.getItem(SUPPORT_ACTIVE_KEY) === "true";
     setActive(suspected);
-    if (!suspected) return;
+    setContext(null);
+    if (impersonatedBy) setRestored(false);
+    if (!suspected || isPending) return;
     let disposed = false;
+    let revision = 0;
+    const controller = new AbortController();
     const update = async () => {
       if (document.visibilityState === "hidden") return;
       setNow(Date.now());
+      const currentRevision = ++revision;
       try {
         const params = new URLSearchParams({ view: "context" });
         const match = pathname.match(/^\/(workspaces|projects)\/([^/]+)/);
         if (match) params.set(match[1] === "workspaces" ? "workspaceId" : "projectId", match[2]);
-        const response = await fetch(`/api/support?${params}`);
-        if (response.ok && !disposed) setContext(await response.json());
+        const response = await fetch(`/api/support?${params}`, { signal: controller.signal });
+        if (response.ok) {
+          const next = await response.json();
+          if (!disposed && currentRevision === revision) setContext(next);
+        }
       } catch {
         /* Keep the exit control available during an outage. */
       }
@@ -77,11 +85,12 @@ export function ImpersonationBanner() {
     window.addEventListener("focus", update);
     return () => {
       disposed = true;
+      controller.abort();
       clearInterval(interval);
       document.removeEventListener("visibilitychange", update);
       window.removeEventListener("focus", update);
     };
-  }, [impersonatedBy, pathname]);
+  }, [impersonatedBy, pathname, isPending, data?.session?.id]);
   useEffect(() => {
     if (!active || restored) return;
     return watchDeniedRequests(setDenied);
@@ -94,11 +103,18 @@ export function ImpersonationBanner() {
   // The server already unwound this session (see /api/auth get-session): the
   // cookie now holds the employee login, so there is nothing left to exit.
   useEffect(() => {
-    if (active && !isPending && !impersonatedBy && context && !context.impersonating) {
+    if (
+      active &&
+      !isPending &&
+      data?.session &&
+      !impersonatedBy &&
+      context &&
+      !context.impersonating
+    ) {
       clearSupportMarkers();
       setRestored(true);
     }
-  }, [active, isPending, impersonatedBy, context]);
+  }, [active, isPending, impersonatedBy, context, data?.session]);
   if (!active) return null;
   if (restored)
     return (

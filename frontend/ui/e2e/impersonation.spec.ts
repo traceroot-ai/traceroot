@@ -103,6 +103,36 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
+test("stale restoration cookie cannot replace a fresh customer login", async ({ context }) => {
+  await login(context, ids.admin);
+  expect((await start(context.request)).status()).toBe(200);
+  await login(context, ids.viewer);
+  expect((await stop(context.request)).status()).toBe(200);
+  const session = await (await context.request.get("/api/auth/get-session")).json();
+  expect(session.user.id).toBe(ids.viewer);
+  expect((await context.cookies()).some((cookie) => cookie.name.includes("support_original"))).toBe(
+    false,
+  );
+});
+
+test("expired impersonation can recover from the admin page", async ({ context, page }) => {
+  await login(context, ids.admin);
+  expect((await start(context.request)).status()).toBe(200);
+  const { session } = await (await context.request.get("/api/auth/get-session")).json();
+  await prisma.session.update({ where: { id: session.id }, data: { expiresAt: new Date(0) } });
+  await page.goto("/admin");
+  await expect(page.getByRole("heading", { name: "This support session has ended" })).toBeVisible();
+  await page.getByRole("button", { name: "Back to my account" }).first().click();
+  await expect(page.getByRole("heading", { name: "Support console" })).toBeVisible();
+});
+
+test("out-of-range console page clamps to the last non-empty page", async ({ context, page }) => {
+  await login(context, ids.admin);
+  await page.goto(`/admin?q=${encodeURIComponent(emails.customer)}&page=999`);
+  await expect(page.getByText(/1 results · Page 1 of 1/)).toBeVisible();
+  await expect(page.getByText(emails.customer, { exact: true })).toBeVisible();
+});
+
 test("support UI: browse, search, workspaces, reason, banner, exit and audit", async ({
   page,
   context,
@@ -168,7 +198,9 @@ test("staff grants, no self-change, role boundaries and immediate revocation", a
     expect((await staff.request.get("/admin")).status()).toBe(404);
     expect((await grant(context.request, emails.admin, "support")).status()).toBe(400);
     expect((await grant(context.request, emails.customer, "support")).status()).toBe(400);
-    expect((await grant(context.request, emails.employee, "support")).status()).toBe(200);
+    expect((await grant(context.request, emails.employee.toUpperCase(), "support")).status()).toBe(
+      200,
+    );
     expect((await staff.request.get("/api/support")).status()).toBe(200);
     expect((await grant(staff.request, emails.employee, "admin")).status()).toBe(404);
     expect((await start(staff.request, ids.admin)).status()).toBe(403);
@@ -254,6 +286,20 @@ test("hard blocks credential escapes without an impersonation-specific duration 
   expect(sessionResponse.headers()["set-auth-jwt"]).toBeUndefined();
   const { session } = await sessionResponse.json();
   expect((await context.request.get("/api/auth/token")).status()).toBe(403);
+  expect(
+    (
+      await context.request.post(`/api/workspaces/${ids.workspace}/model-providers/test`, {
+        data: { providerId: "stored", baseUrl: "https://example.com" },
+      })
+    ).status(),
+  ).toBe(403);
+  expect(
+    (
+      await context.request.patch(`/api/workspaces/${ids.workspace}/model-providers/stored`, {
+        data: { baseUrl: "https://example.com" },
+      })
+    ).status(),
+  ).toBe(403);
   expect(
     (
       await context.request.post("/api/auth/device/approve", {

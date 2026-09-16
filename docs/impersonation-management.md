@@ -25,6 +25,18 @@ Audit rows have actor/customer email snapshots and no foreign-key cascades. Keep
 
 ## Local verification
 
+### Recovery and streaming details
+
+- A fresh non-impersonated login wins over stale restoration cookies. Both current and legacy restore cookies are cleared on exit. The old `/admin/stop-impersonating` URL delegates to support stop; other built-in admin endpoints remain blocked. Expired customer sessions can recover on `get-session` or through the `/admin` recovery page without granting unauthenticated access to the console.
+- Impersonated model-provider mutations and credential tests are blocked for both tiers; masked provider listing remains available. A stored key cannot be redirected by changing its base URL.
+- Open SSE responses revalidate the same session and live staff policy every 15 seconds, canceling the upstream reader on invalidation or validation failure. Already-performed business effects are not rolled back. Non-streaming requests already dispatched are still not canceled.
+- Streaming write audits stay pending until the body ends. An explicit agent `done` event without an error records success; reported errors record error; disconnects, revocation and EOF without a terminal event record unknown. This records stream completion, not proof that every individual tool operation succeeded.
+- Session changes invalidate in-flight banner responses. A missing employee session is never presented as successful restoration. Non-empty user searches clamp stale page numbers; empty dashboard lists render an empty state.
+
+### Migration locking
+
+The additive migration runs atomically with a 5-second lock timeout and a 60-second statement timeout. On timeout, confirm rollback and mark the failed migration rolled back with Prisma's `migrate resolve --rolled-back` before retrying during a quiet window; do not blindly retry or reset the database. For an `audit_logs` table too large to index in that window, schedule maintenance or prepare a separately reviewed concurrent-index migration before rollout. Local databases that applied the earlier version already have the same schema; do not reset them to rerun this lock-policy-only change.
+
 After starting local Postgres, UI on `localhost:3000`, and REST on `localhost:8000`:
 
 ```sh
