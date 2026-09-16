@@ -105,25 +105,48 @@ export const supportPlugin = () =>
         async (ctx) => {
           const cookie = ctx.context.createAuthCookie("support_original");
           const value = await ctx.getSignedCookie(cookie.name, ctx.context.secret);
-          const current = !value ? await getSessionFromCtx(ctx) : null;
-          if (!value && !current?.session.impersonatedBy) {
+          const legacyCookie = ctx.context.createAuthCookie("admin_session");
+          const legacy = await ctx.getSignedCookie(legacyCookie.name, ctx.context.secret);
+          const current = await getSessionFromCtx(ctx);
+          if (current && !current.session.impersonatedBy) {
             // Nothing to unwind. A genuine login (e.g. the employee session
             // already restored by another tab) must be left signed in.
             expireCookie(ctx, cookie);
-            return ctx.json({ restored: !!current });
+            expireCookie(ctx, legacyCookie);
+            return ctx.json({ restored: true });
+          }
+          if (!value && !legacy && !current) {
+            expireCookie(ctx, cookie);
+            expireCookie(ctx, legacyCookie);
+            return ctx.json({ restored: false });
           }
           // A lost restore cookie must not leave a copied customer token live.
-          const [token, id] = value ? value.split(":") : ["", current!.session.id];
+          // The old admin cookie stores token:dontRemember, not token:sessionId.
+          const [token, savedId] = value
+            ? value.split(":")
+            : [legacy ? legacy.split(":")[0] : "", ""];
+          const id = savedId || current?.session.id;
+          if (current && savedId && current.session.id !== savedId)
+            throw new APIError("FORBIDDEN", {
+              message: "Restore cookie does not match this session",
+            });
           const original = token
             ? await prisma.session.findUnique({
                 where: { token },
                 include: { user: true },
               })
             : null;
-          const started = await prisma.auditLog.findFirst({
-            where: { impersonationSessionId: id, operation: "impersonation.started" },
-          });
+          if (current && original && original.userId !== current.session.impersonatedBy)
+            throw new APIError("FORBIDDEN", {
+              message: "Restore account does not match this session",
+            });
+          const started = id
+            ? await prisma.auditLog.findFirst({
+                where: { impersonationSessionId: id, operation: "impersonation.started" },
+              })
+            : null;
           await prisma.$transaction(async (tx) => {
+            if (!id) return;
             const live = await tx.session.findUnique({
               where: { id },
               select: { expiresAt: true },
@@ -144,6 +167,7 @@ export const supportPlugin = () =>
           });
           deleteSessionCookie(ctx);
           expireCookie(ctx, cookie);
+          expireCookie(ctx, legacyCookie);
           const restored =
             !!original &&
             original.expiresAt.getTime() > Date.now() &&
