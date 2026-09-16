@@ -1,60 +1,35 @@
 name: Publish @traceroot-ai/tools
 
 # The tool registry is generated from the public OpenAPI schema and consumed by
-# traceroot-cli as a published dependency, so it has its own version, separate
-# from the vX.Y.Z platform releases.
+# traceroot-cli as a published dependency, so it needs its own release cadence
+# separate from the product releases this repo already tags as vX.Y.Z.
 #
-# It publishes silently: no git tag, no GitHub Release, no Discord post. Tags
-# and releases in this repo belong to the platform only (a non-v tag on main
-# also became the platform version label in the web UI).
-#
-# To release: bump "version" in frontend/packages/tools/package.json, add a
-# CHANGELOG.md entry, and merge the PR. This workflow publishes on merge when
-# that version is not on npm yet. See frontend/packages/tools/README.md.
+# Publishes silently, with no tag or GitHub Release: merging a version bump in
+# frontend/packages/tools/package.json publishes it if it is not on npm yet.
 on:
   push:
     branches: [main]
-    paths:
-      - frontend/packages/tools/package.json
-  # Re-run a publish after a workflow fix. Publishes main's version, if unpublished.
+    paths: [frontend/packages/tools/package.json]
+  # Re-run a publish after a workflow fix.
   workflow_dispatch:
-
-concurrency:
-  # Per commit, so a manual re-run never races the push run for the same
-  # version, while bumps merged back to back still each get their own run.
-  group: publish-tools-${{ github.sha }}
-  cancel-in-progress: false
-
-permissions:
-  contents: read
 
 jobs:
   check:
-    # A manual run from any other branch must not publish.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       publish: ${{ steps.check.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
-
-      # Most pushes that touch package.json are not version bumps. Publish only
-      # when this version is missing from npm (E404); fail on any other error
-      # rather than guessing.
-      - name: Check whether this version is already published
-        id: check
+      - id: check
         run: |
           VERSION=$(node -p "require('./frontend/packages/tools/package.json').version")
-          if out=$(npm view "@traceroot-ai/tools@$VERSION" version 2>&1); then
-            echo "::notice::@traceroot-ai/tools@$VERSION is already on npm; nothing to publish."
+          if npm view "@traceroot-ai/tools@$VERSION" version >/dev/null 2>&1; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
-          elif printf '%s' "$out" | grep -q E404; then
-            echo "::notice::@traceroot-ai/tools@$VERSION is not on npm yet; publishing."
-            echo "publish=true" >> "$GITHUB_OUTPUT"
           else
-            printf '%s\n' "$out"
-            echo "::error::could not check npm for @traceroot-ai/tools@$VERSION"
-            exit 1
+            echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
 
   publish:
