@@ -62,6 +62,25 @@
 -- newest version, and then be removed by the caller's own filter, hiding an older
 -- version that was genuinely in the window.
 --
+-- Both bounds are clamped to 1970-01-01 .. 2149-06-06, the range a Date can hold.
+-- `traces` keys on toDate(trace_start_time), and when a bound falls outside that range
+-- ClickHouse's primary-key analysis converts it with wraparound: a start of 1900-01-01
+-- becomes 2079-06-07, so every part or granule whose dates are known to be earlier is
+-- pruned, and the query silently returns a fraction of the project (measured: 11,968 of
+-- 40,000 rows). Open bounds are exactly such values, and so is any caller bound before
+-- 1970. The upper clamp is the last millisecond of 2149-06-06, not the next midnight: that
+-- midnight is itself outside the range and wraps to 1970, and a clamp at the day's start
+-- would drop the whole final day. The upper bound is written as `<= end_time - 1 ms`,
+-- which is exactly `< end_time` for a DateTime64(3) value, so a real window stays half
+-- open, while an open bound reaches the clamp itself and keeps that final millisecond.
+-- The clamp is a deliberate trade against unvalidated client clocks, not a claim that
+-- such rows cannot exist. Ingest does not range-check span timestamps (nanos_to_datetime
+-- accepts any integer), so a start before 1970 or after 2149 can be stored; those rows
+-- stay in storage but are unreachable through these views. On `traces` that trade is
+-- what makes every unbounded query correct. `spans` does not key on toDate today, so
+-- there the clamp only costs such rows; it is kept so a join over both views sees one
+-- window, and so a date key added to spans later cannot bring the defect back.
+--
 -- Pruning is uneven between the two tables, and the sort keys are why. `traces` is
 -- ordered by (project_id, toDate(trace_start_time), trace_id), so the bound prunes on
 -- the key prefix. `spans` is ordered by (project_id, trace_id, span_start_time,
@@ -143,8 +162,8 @@ FROM
         git_source_file, git_source_line, git_source_function, source
     FROM spans
     WHERE project_id = {project_id:String}
-      AND span_start_time >= {start_time:DateTime64(3)}
-      AND span_start_time <  {end_time:DateTime64(3)}
+      AND span_start_time >= greatest({start_time:DateTime64(3)}, toDateTime64('1970-01-01 00:00:00.000', 3))
+      AND span_start_time <= least({end_time:DateTime64(3)} - toIntervalMillisecond(1), toDateTime64('2149-06-06 23:59:59.999', 3))
     ORDER BY ch_update_time DESC
     LIMIT 1 BY trace_id, span_id
 )
@@ -174,8 +193,8 @@ FROM
         environment, metadata_map, source
     FROM traces
     WHERE project_id = {project_id:String}
-      AND trace_start_time >= {start_time:DateTime64(3)}
-      AND trace_start_time <  {end_time:DateTime64(3)}
+      AND trace_start_time >= greatest({start_time:DateTime64(3)}, toDateTime64('1970-01-01 00:00:00.000', 3))
+      AND trace_start_time <= least({end_time:DateTime64(3)} - toIntervalMillisecond(1), toDateTime64('2149-06-06 23:59:59.999', 3))
     ORDER BY ch_update_time DESC
     LIMIT 1 BY trace_id
 )
