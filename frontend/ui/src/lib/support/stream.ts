@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 // Streaming responses outlive the route handler. Keep revocation checks and
 // audit finalization alive for exactly as long as their response body.
 export const STREAM_CHECK_MS = 15_000;
+export const STREAM_AUTH_TIMEOUT_MS = 5_000;
 type Outcome = "success" | "error" | "unknown";
 
 export function guardSupportStream(
@@ -58,7 +59,24 @@ export function guardSupportStream(
     closed = true;
     clearInterval(timer);
     signal.removeEventListener("abort", abort);
-    await finalize(outcome);
+    try {
+      await finalize(outcome);
+    } catch (error) {
+      console.error("Support stream finalization failed", error);
+    }
+  }
+  async function stillAuthorized() {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        authorized(),
+        new Promise<boolean>((resolve) => {
+          timeout = setTimeout(() => resolve(false), STREAM_AUTH_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
   function abort() {
     if (closed) return;
@@ -73,7 +91,7 @@ export function guardSupportStream(
         if (closed || checking) return;
         checking = true;
         try {
-          if (!(await authorized())) abort();
+          if (!(await stillAuthorized())) abort();
         } catch {
           abort();
         } finally {
