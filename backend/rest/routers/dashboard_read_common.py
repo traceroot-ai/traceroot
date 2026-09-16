@@ -373,7 +373,7 @@ async def _answer_widget(
             return _widget_error(
                 widget,
                 "not answered: the window has too many buckets for a dashboard read; "
-                "run this one with run_widget_query",
+                "read it alone with get_widget_data",
             )
     try:
         async with gate if gate is not None else contextlib.nullcontext():
@@ -450,7 +450,7 @@ async def get_dashboard_data_page(
     gate = asyncio.Semaphore(DASHBOARD_DATA_CONCURRENCY)
     over_cap = (
         f"not answered: the dashboard has more than {DASHBOARD_DATA_QUERY_WIDGET_CAP} query "
-        "widgets; run this one with run_widget_query"
+        "widgets; read it alone with get_widget_data"
     )
 
     async def answer(w: DashboardWidgetItem, past_cap: bool) -> DashboardWidgetData:
