@@ -319,7 +319,7 @@ describe("formatDashboardData", () => {
       "#3 Cost by model | query | error\n  error: breakdown: field is not groupable",
     );
     expect(out).toContain(
-      "#4 Errors | query | ok\nvalue (whole window): 412\n  (rows capped by the server — run",
+      "#4 Errors | query | ok\nvalue (whole window): 412\n  (rows capped by the server — get_widget_data",
     );
     // The counts lead, so they survive any cut at the tail.
     expect(lines[2]).toBe("2 widgets queried, 1 feeds skipped, 1 failed");
@@ -349,10 +349,10 @@ describe("formatDashboardData", () => {
     expect(out).not.toMatch(/latest/);
   });
 
-  it("tells the model how to get the rest of a capped widget", () => {
+  it("tells the model how to get the rest of a capped widget: the saved widget, by id", () => {
     const out = formatDashboardData(data);
     expect(out).toContain(
-      "(rows capped by the server — run this widget's spec with run_widget_query for every row)",
+      "(rows capped by the server — get_widget_data with widget_id w4 returns every row)",
     );
   });
 
@@ -380,7 +380,9 @@ describe("formatDashboardData", () => {
     expect(out.split("\n").slice(0, 4).join("\n")).toContain("40 widgets queried");
     for (let i = 0; i < 40; i += 1) expect(out).toContain(`#${i + 1} Widget ${i} | query | ok`);
     expect(out).toContain("#1 Widget 0 | query | ok\n25 rows (k, v)");
-    expect(out).toContain("rows not included: the dashboard read is over its text budget");
+    expect(out).toContain(
+      "rows not included: the dashboard read is over its text budget — get_widget_data with widget_id w39 answers this one alone",
+    );
     expect(out).not.toContain("output truncated at");
   });
 
@@ -394,6 +396,8 @@ describe("formatDashboardData", () => {
     }));
     const out = formatDashboardData({ ...data, widgets, queried: 0, skipped: 0, failed: 900 });
     expect(Buffer.byteLength(out, "utf-8")).toBeLessThan(16 * 1024 + 256);
-    expect(out).toContain("output truncated at 16384 bytes");
+    expect(out).toContain(
+      "output truncated at 16384 bytes; read the dashboard with get_dashboard for a widget's id, then get_widget_data for that widget",
+    );
   });
 });

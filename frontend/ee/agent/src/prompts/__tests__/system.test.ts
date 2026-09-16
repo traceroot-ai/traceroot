@@ -103,6 +103,23 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("use get_dashboard_data; for a metric with no dashboard");
   });
 
+  it("sends a saved widget to get_widget_data, never its spec back through run_widget_query", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain("Use get_widget_data with a widget_id to answer ONE saved widget");
+    expect(prompt).toContain("never re-send a saved widget's spec through run_widget_query");
+    expect(prompt).toContain("run_widget_query is for a spec that is saved nowhere");
+    expect(prompt).toContain("Use get_widget with a widget_id for what a\nwidget IS");
+    expect(prompt).toContain("a widget id comes\nfrom get_dashboard, never from a guess");
+    // The window rule covers the new read too, and the Live Data section
+    // restates the preference so a figure names its window either way.
+    expect(prompt).toContain("All three take a window");
+    expect(prompt).toContain("run_widget_query, get_widget_data or get_dashboard_data results");
+    expect(prompt).toContain(
+      "When the widget already exists on a dashboard, answer it with\nget_widget_data rather than running its spec again through run_widget_query",
+    );
+    expect(prompt).toContain("for one saved widget, get_widget_data");
+  });
+
   it("sends a total over a window to a number query, not to summed buckets", () => {
     const prompt = getSystemPrompt({ projectId: "p1" });
     expect(prompt).toContain("even when a dashboard charts that metric");

@@ -38,7 +38,11 @@ export const WRITE_TOOL_NAMES = new Set(
 );
 
 /** The read tools that take a window, and whose window an assertion checks. */
-export const WINDOWED_READ_TOOLS = new Set(["run_widget_query", "get_dashboard_data"]);
+export const WINDOWED_READ_TOOLS = new Set([
+  "run_widget_query",
+  "get_dashboard_data",
+  "get_widget_data",
+]);
 
 /** Every write-tool call across `turns`. */
 export function writeToolCalls(turns: TurnTranscript[]): EvalToolCall[] {

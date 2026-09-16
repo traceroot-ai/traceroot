@@ -20,6 +20,8 @@ import {
   formatSessionDetail,
   formatSessionList,
   formatTraceList,
+  formatWidgetData,
+  formatWidgetDetail,
   formatWidgetQueryResult,
 } from "./formatters.js";
 import { publicUiUrl } from "./origins.js";
@@ -99,10 +101,13 @@ export function createRegistryReadTools(
     }
     return tool;
   };
-  // The two data reads default to the window the page is showing, so the
-  // agent's numbers match the dashboard beside it unless the user named a
-  // window of their own.
+  // The data reads default to the window the page is showing, so the agent's
+  // numbers match the dashboard beside it unless the user named a window of
+  // their own.
   const pageWindow = windowDefaults(window);
+  // A link a person will click: the browser-reachable origin, never the
+  // service-to-service one.
+  const dashboardUrl = (id: string) => `${publicUiUrl()}/projects/${projectId}/dashboard/${id}`;
   return [
     bind("list_traces", formatTraceList),
     bind("list_sessions", formatSessionList),
@@ -115,16 +120,13 @@ export function createRegistryReadTools(
     bind("list_dashboards", formatDashboardList),
     bind("get_dashboard", formatDashboardDetail),
     bind("run_widget_query", formatWidgetQueryResult, { defaults: pageWindow }),
-    bind(
-      "get_dashboard_data",
-      (data) =>
-        formatDashboardData(data, {
-          // A link a person will click: the browser-reachable origin, never
-          // the service-to-service one.
-          dashboardUrl: (id) => `${publicUiUrl()}/projects/${projectId}/dashboard/${id}`,
-        }),
-      { defaults: pageWindow },
-    ),
+    bind("get_dashboard_data", (data) => formatDashboardData(data, { dashboardUrl }), {
+      defaults: pageWindow,
+    }),
+    bind("get_widget", formatWidgetDetail),
+    bind("get_widget_data", (data) => formatWidgetData(data, { dashboardUrl }), {
+      defaults: pageWindow,
+    }),
     // The two alert reads are carded in the chat: a compact projection of
     // the payload rides beside the text so the panel can draw rows and a
     // badge without re-reading the model's prose.
