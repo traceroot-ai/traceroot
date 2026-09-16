@@ -141,6 +141,12 @@ test("support UI: browse, search, workspaces, reason, banner, exit and audit", a
   await page.goto("/admin");
   await expect(page.getByRole("heading", { name: "Support console" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Staff access" })).toHaveCount(0);
+  await expect(page.locator('nav a[href="/admin"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await expect(page.getByRole("link", { name: "Support console", exact: true })).toBeVisible();
+  await page.screenshot({ path: "/tmp/impersonation-account-menu.png", fullPage: true });
+  await page.getByRole("link", { name: "Support console", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Support console", exact: true })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "Access logs" })).toHaveCount(0);
   expect((await context.request.get("/api/support?view=staff")).status()).toBe(404);
   await page.getByRole("textbox", { name: "Search users" }).fill(emails.customer);
@@ -154,7 +160,7 @@ test("support UI: browse, search, workspaces, reason, banner, exit and audit", a
   await expect(page.getByRole("columnheader", { name: "User ID", exact: true })).toHaveCount(0);
   await expect(page.getByText("Workspace admin", { exact: true })).toHaveCount(0);
   await expect(customerRow.getByRole("button", { name: /workspaces/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "Impersonate", exact: true }).click();
+  await customerRow.getByRole("button", { name: "Impersonate", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveAccessibleName(`Impersonate E2E customer`);
   await expect(page.getByRole("dialog")).toHaveAccessibleDescription(emails.customer);
   await expect(page.getByRole("dialog").getByText(/Read-only:|Read \+ write:/)).toHaveCount(0);
