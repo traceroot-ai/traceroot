@@ -10,7 +10,7 @@ import { exportAgentSpan } from "./sandbox-spans.js";
 import { createHash } from "node:crypto";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { TraceRoot, observe } from "@traceroot-ai/traceroot";
-import { redactSecrets } from "@traceroot/core/capture-policy";
+import { boundedText as boundedTextBytes } from "@traceroot/core/capture-policy";
 
 export type AgentTraceKind = "rca" | "followup" | "chat";
 const AGENT_TRACE_KINDS: ReadonlySet<string> = new Set<AgentTraceKind>(["rca", "followup", "chat"]);
@@ -32,7 +32,7 @@ export interface AgentTraceMeta {
   input?: string;
 }
 
-/** Root-span I/O cap (spec B8): the root carries the prompt and the final answer, bounded. */
+/** Root-span I/O cap in UTF-8 bytes (spec B8): the root carries the prompt and the final answer, bounded. */
 const ROOT_IO_CAP = 16_384;
 
 /** Root attribute ingest promotes to the trace record's `metadata` (otel_transform.py). */
@@ -42,10 +42,10 @@ function rootMetadata(meta: AgentTraceMeta): Record<string, unknown> {
   return { kind: meta.kind, ...meta.metadata };
 }
 
+/** Redact, then bound to ROOT_IO_CAP bytes (marker included, byte-safe): the policy's helper. */
 function boundedText(text: string | undefined): string | undefined {
   if (!text) return undefined;
-  const redacted = redactSecrets(text);
-  return redacted.length > ROOT_IO_CAP ? `${redacted.slice(0, ROOT_IO_CAP)}…` : redacted;
+  return boundedTextBytes(text, ROOT_IO_CAP);
 }
 
 const FLUSH_TIMEOUT_MS = 30_000;

@@ -223,13 +223,15 @@ describe("withAgentTrace root I/O", () => {
     const r = await mod.withAgentTrace(
       { ...meta, input: "why did it fail? token ghp_" + "x".repeat(40) },
       async () => "done",
-      { recordOutput: (v) => `answer: ${v} ` + "y".repeat(20_000) },
+      { recordOutput: (v) => `answer: ${v} ` + "汉".repeat(20_000) },
     );
     expect(r.trace).toBe("available");
     const calls = Object.fromEntries(setAttribute.mock.calls);
     expect(calls["traceroot.span.input"]).toContain("ghp_[REDACTED]");
     expect(calls["traceroot.span.output"].startsWith("answer: done")).toBe(true);
-    expect(calls["traceroot.span.output"].length).toBeLessThanOrEqual(16_385);
+    // The cap is 16 KB of UTF-8, marker included — not 16 K UTF-16 units.
+    expect(Buffer.byteLength(calls["traceroot.span.output"], "utf8")).toBeLessThanOrEqual(16_384);
+    expect(calls["traceroot.span.output"].endsWith("…")).toBe(true);
     spy.mockRestore();
   });
 
