@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   expire: vi.fn(),
   clear: vi.fn(),
   remove: vi.fn(),
+  snapshot: vi.fn(),
+  update: vi.fn(),
 }));
 vi.mock("better-auth/api", async (original) => ({
   ...(await original<typeof import("better-auth/api")>()),
@@ -21,7 +23,7 @@ vi.mock("better-auth/cookies", () => ({
 }));
 vi.mock("@traceroot/core", () => ({
   prisma: {
-    session: { findUnique: mocks.original },
+    session: { findUnique: mocks.original, findFirst: mocks.snapshot },
     auditLog: { findFirst: mocks.audit },
     $transaction: mocks.transaction,
   },
@@ -44,9 +46,11 @@ beforeEach(() => {
   mocks.current.mockResolvedValue(null);
   mocks.original.mockResolvedValue(original);
   mocks.audit.mockResolvedValue(null);
+  mocks.snapshot.mockResolvedValue(null);
   mocks.transaction.mockImplementation(async (fn) =>
     fn({
       session: { findUnique: async () => null, deleteMany: mocks.remove },
+      auditLog: { updateMany: mocks.update },
     }),
   );
 });
@@ -89,4 +93,18 @@ it("does not restore an expired employee login", async () => {
   await supportPlugin().endpoints.supportStop(ctx({ support_original: "token:ended" }) as never);
   expect(mocks.set).not.toHaveBeenCalled();
   expect(mocks.clear).toHaveBeenCalledOnce();
+});
+it("retains expired audit timestamps after Better Auth deletes the session", async () => {
+  const expired = new Date(Date.now() - 1000);
+  mocks.snapshot.mockResolvedValue({ expiresAt: expired });
+  mocks.audit.mockResolvedValue({
+    id: "audit",
+    endedAt: null,
+    expiresAt: new Date(Date.now() + 60000),
+  });
+  await supportPlugin().endpoints.supportStop(ctx({ support_original: "token:ended" }) as never);
+  expect(mocks.update).toHaveBeenCalledWith({
+    where: { id: "audit", endedAt: null },
+    data: { expiresAt: expired, endedAt: expired, endReason: "expired" },
+  });
 });
