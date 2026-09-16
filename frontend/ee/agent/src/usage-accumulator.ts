@@ -70,7 +70,13 @@ export class UsageAccumulator {
         cost = 0;
       }
     }
-    if (cost === 0 && (this.inputTokens > 0 || this.outputTokens > 0)) {
+    const anyTokens =
+      this.inputTokens > 0 ||
+      this.outputTokens > 0 ||
+      this.cacheReadTokens > 0 ||
+      this.cacheWriteTokens > 0;
+    // Cache-only runs bill too, so their missing pricing is just as visible.
+    if (cost === 0 && anyTokens) {
       console.warn(
         `[Agent] Standard model pricing missing for "${this.model}", cost recorded as $0`,
       );

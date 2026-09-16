@@ -22,6 +22,12 @@ const FILTER_TOKEN_MAX = 128;
 const FILTER_VALUE_MAX = 1024;
 export const ALERT_FILTERS_MAX = 50;
 
+// Keeps one project's rules a small fraction of the scheduler's per-tick claim
+// (ALERT_CLAIM_LIMIT in frontend/worker/src/alerts/claim.ts), so a single
+// tenant cannot crowd the round-robin. Bounds one tenant's share, not total
+// load.
+export const MAX_ALERTS_PER_PROJECT = 100;
+
 // The threshold column is Decimal(65,30), so anything past 35 integer digits is
 // a database error rather than a validation one.
 export const THRESHOLD_ABS_MAX = 1e34;

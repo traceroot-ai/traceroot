@@ -18,6 +18,7 @@ from rest.services.filters.translate import (
     MAX_VALUE_LENGTH,
     NUMERIC_TYPE_MAX,
 )
+from rest.services.widget_registry import registry_schema
 
 PUBLIC_PREFIX = "/api/v1/public/"
 TITLE = "TraceRoot Public API"
@@ -138,6 +139,17 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
     )
     if dashboard_get_op is not None:
         dashboard_get_op["responses"].setdefault("404", _error_response("Dashboard not found"))
+    dashboard_data_op = (
+        schema["paths"].get("/api/v1/public/dashboards/{dashboard_id}/data", {}).get("get")
+    )
+    if dashboard_data_op is not None:
+        dashboard_data_op["responses"].setdefault("404", _error_response("Dashboard not found"))
+
+    # Alert read error contract (matches the route code): the proxy passes the
+    # internal route's 404 through; ambiguity fails closed as the shared 503.
+    alert_get_op = schema["paths"].get("/api/v1/public/alerts/{alert_id}", {}).get("get")
+    if alert_get_op is not None:
+        alert_get_op["responses"].setdefault("404", _error_response("Alert not found"))
 
     # Session read error contract (matches the route code).
     sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
@@ -246,6 +258,103 @@ def _apply_filters_param_schema(schema: dict[str, Any]) -> None:
                     }
                 }
             }
+
+
+def _inline_component_refs(node: Any, schemas: dict[str, Any]) -> Any:
+    """Deep-copy ``node`` with every ``#/components/schemas/`` ``$ref`` replaced
+    by its (recursively inlined) target, so a copy can be specialized without
+    mutating the shared component. Sibling keys beside a ``$ref`` override the
+    target's, matching the tools generator's resolution rule.
+
+    Args:
+        node (Any): Schema fragment to copy; dicts/lists are walked, scalars
+            returned as-is.
+        schemas (dict[str, Any]): ``components.schemas`` to resolve refs against.
+
+    Returns:
+        Any: A fully inlined deep copy of ``node``.
+    """
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
+            target = schemas[ref.rsplit("/", 1)[1]]
+            merged = {**target, **{k: v for k, v in node.items() if k != "$ref"}}
+            return _inline_component_refs(merged, schemas)
+        return {key: _inline_component_refs(value, schemas) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_inline_component_refs(value, schemas) for value in node]
+    return node
+
+
+def _widget_query_spec_variants(schemas: dict[str, Any]) -> list[dict[str, Any]]:
+    """One inline query-spec variant per widget registry view.
+
+    Each variant is the ``WidgetSpec`` component (refs inlined) specialized to
+    one view: ``view`` pinned to a const, and the measure, breakdown, and
+    filter-field vocabularies enumerated from the widget field registry — the
+    same source the write service validates against — so generated tool schemas
+    and API docs show exactly the fields create accepts, never hand-listed.
+
+    Args:
+        schemas (dict[str, Any]): ``components.schemas`` of the public document.
+
+    Returns:
+        list[dict[str, Any]]: The per-view ``anyOf`` variants, in registry order.
+    """
+    variants: list[dict[str, Any]] = []
+    for view_name, view in registry_schema().items():
+        fields = view["fields"]
+        measures = [name for name, f in fields.items() if f["aggs"]]
+        groupables = [name for name, f in fields.items() if f["groupable"]]
+        filterables = [name for name, f in fields.items() if f["filterOps"]]
+        variant = _inline_component_refs(schemas["WidgetSpec"], schemas)
+        variant["title"] = f"WidgetSpec ({view_name})"
+        variant["description"] = (
+            f'Chart spec over the "{view_name}" view; the enums below are the '
+            "complete field vocabulary for this view."
+        )
+        properties = variant["properties"]
+        # Explicit `type` alongside const/enum throughout: these variants feed
+        # model tool definitions, and some providers reject untyped properties.
+        properties["view"] = {"const": view_name, "title": "View", "type": "string"}
+        properties["metric"]["properties"]["measure"] = {
+            "enum": measures,
+            "title": "Measure",
+            "type": "string",
+        }
+        properties["breakdown"] = {
+            "enum": [*groupables, None],
+            "title": "Breakdown",
+            "type": ["string", "null"],
+        }
+        properties["filters"]["items"]["properties"]["field"] = {
+            "enum": filterables,
+            "title": "Field",
+            "type": "string",
+        }
+        variants.append(variant)
+    return variants
+
+
+def _apply_widget_spec_vocabulary(schema: dict[str, Any]) -> None:
+    """Replace ``CreateWidgetRequest.spec``'s ``WidgetSpec`` branch with the
+    per-view variants from :func:`_widget_query_spec_variants`; the trace_feed
+    branch keeps its ``$ref``. The ``WidgetSpec`` component itself stays in the
+    document even though the union no longer references it: the frontend
+    widget-spec-parity test anchors on it to guard the pydantic/zod mirror.
+
+    Args:
+        schema (dict[str, Any]): The public-only OpenAPI document; mutated in
+            place. No-op if the request schema is absent.
+    """
+    schemas = (schema.get("components") or {}).get("schemas", {})
+    request = schemas.get("CreateWidgetRequest")
+    if request is None:
+        return
+    request["properties"]["spec"]["anyOf"] = [
+        *_widget_query_spec_variants(schemas),
+        {"$ref": "#/components/schemas/TraceFeedSpec"},
+    ]
 
 
 # Agent/CLI-facing tool curation, keyed by operationId. Reviewed in the same PR
@@ -363,6 +472,60 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         ),
         "enabled": True,
     },
+    "run_widget_query": {
+        "name": "run_widget_query",
+        "description": (
+            "Run a widget query and return its rows — the way to answer a "
+            "metric question (error counts, p95 latency, cost by model) without "
+            "a dashboard existing. Takes the same spec shape as create_widget "
+            "(view, metric, breakdown, display, filters) plus a window: a "
+            "range preset by the site picker's id (1h, 1d, 7d, 30d, …) or "
+            "explicit start_time/end_time; neither means the site's default "
+            "24-hour window. The response echoes the window it was answered "
+            "for and says when retention clamped it. A read that happens to "
+            "be a POST: nothing is written."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
+    },
+    "get_dashboard_data": {
+        "name": "get_dashboard_data",
+        "description": (
+            "Answer a dashboard's query widgets (up to 24) for one window — the way "
+            "to say what a dashboard shows, not just what it contains. Resolve "
+            "the dashboard id with list_dashboards and match its name; never "
+            "guess an id. Takes a window like run_widget_query (range preset "
+            "or explicit bounds; neither means the site's default). Widgets come "
+            "back in the dashboard's order with a status each: ok with rows "
+            "(a series carries every bucket; any other display is capped at 25 "
+            "rows, with truncated set), "
+            "skipped for a trace feed (read those with list_traces and the "
+            "feed's filters), or error with a reason. Every figure you report "
+            "must come from these rows, and name the window it was answered for."
+        ),
+        "enabled": True,
+    },
+    "list_alerts": {
+        "name": "list_alerts",
+        "description": (
+            "List the project's threshold alerts (id, name, rule summary, status, "
+            "current severity, last evaluation and notification state, creator) "
+            "with the project's alert capacity. Paginated; search_query matches "
+            "the alert name. To resolve an alert by name, list here and match "
+            "its name — never guess an alert id."
+        ),
+        "enabled": True,
+    },
+    "get_alert": {
+        "name": "get_alert",
+        "description": (
+            "Fetch one alert's full rule by id: view, measure, aggregation, "
+            "filters, window, threshold, renotify and no-data handling, plus its "
+            "evaluation state. Resolve the alert id by listing the project's "
+            "alerts and matching the name — never guess an id."
+        ),
+        "enabled": True,
+    },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
@@ -376,7 +539,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "returns it instead of duplicating."
         ),
         "enabled": True,
-        "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "account"},
+        "policy": {"approvalClass": "confirm", "minRole": "VIEWER", "tenancy": "account"},
     },
     "create_project": {
         "name": "create_project",
@@ -385,7 +548,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "(idempotent on the project name within the workspace)."
         ),
         "enabled": True,
-        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"},
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "workspace"},
         # API/CLI-visible but hidden from the agent: no UI form exposes the
         # field, so the model shouldn't interrogate users about it.
         "agentHiddenParams": ["trace_ttl_days"],
@@ -395,10 +558,15 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "description": (
             "Create a detector (name, template, prompt, optional sampling/RCA "
             "settings) in a project — idempotent on the detector name within "
-            "the project."
+            "the project. The standard detector types (failure, hallucination, "
+            "logic, task, safety) have canonical default instructions: pass "
+            "the matching template id and OMIT prompt to use them. Only supply "
+            "prompt when the user provides genuinely custom instructions — a "
+            "supplied prompt is stored verbatim and overrides the template "
+            "default."
         ),
         "enabled": True,
-        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     },
     "create_dashboard": {
         "name": "create_dashboard",
@@ -407,16 +575,41 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "within the project); add charts to it with create_widget."
         ),
         "enabled": True,
-        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     },
     "create_widget": {
         "name": "create_widget",
         "description": (
-            "Add a widget (title, type, query spec) to an existing dashboard. "
-            "Strict create: every call adds a new widget."
+            "Add a widget (title, type, spec) to an existing dashboard. Type "
+            '"query" charts a metric (spec: view/filters/metric/breakdown/'
+            'display); type "trace_feed" lists recent traces (spec: predicate '
+            "filters + limit). Strict create: every call adds a new widget. "
+            "The spec schema enumerates the only available views, metrics, "
+            "filter operators, and display types — nothing outside it exists. "
+            "If the user asks for a visualization or option that is not in "
+            "the schema (for example a display type the enum lacks), say so "
+            "explicitly and propose the closest available match instead of "
+            "silently substituting. Pick the view first — spans and traces "
+            "expose different fields, and the enums in this schema are the "
+            "complete field vocabulary for each view. If the user asks for a "
+            "dimension or metric that exists on neither view, say so and "
+            'propose the closest available one (for example "traces by model" '
+            "is built on the spans view via model_name)."
         ),
         "enabled": True,
-        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "create_alert": {
+        "name": "create_alert",
+        "description": (
+            "Create a threshold alert in a project: a measure of the spans view, "
+            "aggregated over a window and compared to a threshold, with optional "
+            "row filters and renotify/no-data settings. Strict create, never "
+            "idempotent: alerts share names freely, so to avoid a duplicate list "
+            "the project's alerts first and match the name."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     },
     "list_workspaces": {
         "name": "list_workspaces",
@@ -443,8 +636,16 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
 # Legal values for each required write-tool policy key. Mirrors the registry
 # generator's validation exactly, so a policy mistake fails the schema build
 # here before the generated artifact can even drift.
+#
+# approvalClass semantics:
+#   "none"     — execute immediately.
+#   "confirm"  — an attended surface shows the proposal and waits for the
+#                user's yes; an unattended surface executes as if "none".
+#                A taste gate, not a security control.
+#   "approval" — reserved for destructive ops (future deletes); fail-closed
+#                everywhere today.
 _POLICY_VALUES: dict[str, tuple[str, ...]] = {
-    "approvalClass": ("none", "approval"),
+    "approvalClass": ("none", "confirm", "approval"),
     "minRole": ("VIEWER", "MEMBER", "ADMIN"),
     "tenancy": ("account", "workspace", "project"),
 }
@@ -647,6 +848,7 @@ def build_public_schema(app: Any) -> dict[str, Any]:
     }
     _apply_public_contract(schema)
     _apply_filters_param_schema(schema)
+    _apply_widget_spec_vocabulary(schema)
     _apply_tool_curation(schema)
     return schema
 

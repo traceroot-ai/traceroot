@@ -4,11 +4,10 @@ import { useEffect, useMemo, useRef } from "react";
 import { GridLayout } from "react-grid-layout";
 import type { Layout, LayoutItem as RGLLayoutItem } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
+import { COLS, ROW_HEIGHT } from "../grid-constants";
 import type { LayoutItem, TimeRange, Widget } from "../types";
 import { WidgetCard } from "./WidgetCard";
 
-const COLS = 12;
-const ROW_HEIGHT = 56;
 // Floor for widget resizing: below 2x2 grid units a tile's title and body get
 // clipped into illegibility, so react-grid-layout refuses to shrink past it.
 const MIN_W = 2;

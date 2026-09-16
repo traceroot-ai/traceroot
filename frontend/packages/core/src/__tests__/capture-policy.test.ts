@@ -111,7 +111,7 @@ describe("applyCapturePolicy", () => {
       state,
     );
     expect(r.result).toContain("ghp_[REDACTED]");
-    expect(r.result!.length).toBeLessThanOrEqual(8_192 + 1);
+    expect((r.result as string).length).toBeLessThanOrEqual(8_192 + 1);
     expect(r.truncated).toBe(true);
     expect(r.withheld).toBeNull();
     expect(state.spentBytes).toBeGreaterThan(0);
@@ -131,10 +131,10 @@ describe("applyCapturePolicy", () => {
     expect(r.result).toBeUndefined();
     expect(r.withheld).toBe("budget");
   });
-  it("redacts a JSON-stringified result before keeping it", () => {
+  it("keeps a structured result structured, redacted by key", () => {
     // Allowlisted output is span data, which routinely carries credential-shaped
-    // attributes; results are serialised before redaction so the colon form is
-    // what the pattern must catch.
+    // attributes; a structured result stays an object so a reader (the session
+    // rebuild, the chat cards) can pick fields out of it.
     const r = applyCapturePolicy(
       {
         toolName: "download_traces",
@@ -143,11 +143,65 @@ describe("applyCapturePolicy", () => {
       },
       { spentBytes: 0 },
     );
-    expect(r.result).not.toContain("hunter2xx");
-    expect(r.result).toBe('{"spans":[{"attributes":{"db.password":[REDACTED],"db.name":"app"}}]}');
+    expect(r.result).toEqual({
+      spans: [{ attributes: { "db.password": "[REDACTED]", "db.name": "app" } }],
+    });
+    expect(JSON.stringify(r.result)).not.toContain("hunter2xx");
   });
 
-  it("redacts a structured result by key before serialising it, camelCase included", () => {
+  it("bounds a structured result leaf by leaf, so a small field survives beside a large one", () => {
+    const state = { spentBytes: 0 };
+    const r = applyCapturePolicy(
+      {
+        toolName: "download_traces",
+        args: {},
+        result: { content: "x".repeat(10 * 1024), details: { resourceId: "d1" } },
+      },
+      state,
+    );
+    const result = r.result as { content: string; details: unknown };
+    expect(result.content.length).toBeLessThan(10 * 1024);
+    expect(result.content.endsWith("…")).toBe(true);
+    // The step's allowance was used up by `content`; the sibling that follows
+    // is marked, not silently dropped, and the object stays valid JSON.
+    expect(r.truncated).toBe(true);
+    expect(JSON.stringify(r.result).length).toBeLessThanOrEqual(8_192 + 64);
+  });
+
+  it("keeps a small structured field beside a large one when the step has room", () => {
+    const r = applyCapturePolicy(
+      {
+        toolName: "download_traces",
+        args: {},
+        result: { content: "x".repeat(4 * 1024), details: { resourceId: "d1" } },
+      },
+      { spentBytes: 0 },
+    );
+    expect(r.result).toEqual({ content: "x".repeat(4 * 1024), details: { resourceId: "d1" } });
+    expect(r.truncated).toBe(false);
+  });
+
+  it("keeps a non-allowlisted tool's output when the caller vouches for it (keepOutput)", () => {
+    const r = applyCapturePolicy(
+      {
+        toolName: "create_alert",
+        args: {},
+        result: { details: { resourceId: "a1" } },
+        keepOutput: true,
+      },
+      { spentBytes: 0 },
+    );
+    expect(r.result).toEqual({ details: { resourceId: "a1" } });
+    expect(r.withheld).toBeNull();
+    const withheld = applyCapturePolicy(
+      { toolName: "create_alert", args: {}, result: { details: { resourceId: "a1" } } },
+      { spentBytes: 0 },
+    );
+    expect(withheld.result).toBeUndefined();
+    expect(withheld.withheld).toBe("not-allowlisted");
+  });
+
+  it("redacts a structured result by key, camelCase included", () => {
     const state = { spentBytes: 0 };
     const out = applyCapturePolicy(
       {
@@ -161,14 +215,14 @@ describe("applyCapturePolicy", () => {
       },
       state,
     );
-    expect(out.result).not.toContain("hunter2");
-    expect(out.result).not.toContain("12345");
-    expect(out.result).not.toContain("abcdefghijklmnop");
-    expect(out.result).not.toContain("AKIAIOSFODNN7EXAMPLE");
-    expect(out.result).toContain('"dbPassword":"[REDACTED]"');
-    expect(out.result).toContain('"apiToken":"[REDACTED]"');
-    expect(out.result).toContain('"note":"plain"');
-    expect(JSON.parse(out.result!)).toBeTruthy();
+    const text = JSON.stringify(out.result);
+    expect(text).not.toContain("hunter2");
+    expect(text).not.toContain("12345");
+    expect(text).not.toContain("abcdefghijklmnop");
+    expect(text).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(text).toContain('"dbPassword":"[REDACTED]"');
+    expect(text).toContain('"apiToken":"[REDACTED]"');
+    expect(text).toContain('"note":"plain"');
     // The reported size is the tool's actual output, not the redacted text.
     const original = JSON.stringify({
       rows: [{ dbPassword: "hunter2", apiToken: 12345, note: "plain" }],
@@ -176,7 +230,7 @@ describe("applyCapturePolicy", () => {
       text: "AKIAIOSFODNN7EXAMPLE inline",
     });
     expect(out.outputBytes).toBe(Buffer.byteLength(original, "utf8"));
-    expect(out.outputBytes).not.toBe(Buffer.byteLength(out.result!, "utf8"));
+    expect(out.outputBytes).not.toBe(Buffer.byteLength(text, "utf8"));
   });
 
   it("redacts a camelCase credential key inside a JSON-shaped string result", () => {
@@ -308,7 +362,7 @@ describe("applyCapturePolicy", () => {
         { perStepBytes, perRunBytes },
       );
       expect(r.truncated).toBe(true);
-      expect(Buffer.byteLength(r.result!, "utf8")).toBeLessThanOrEqual(perStepBytes);
+      expect(Buffer.byteLength(r.result as string, "utf8")).toBeLessThanOrEqual(perStepBytes);
       expect(state.spentBytes).toBeLessThanOrEqual(perRunBytes);
       expect(r.result).not.toContain("�");
     }
@@ -327,19 +381,38 @@ describe("applyCapturePolicy", () => {
     expect(state.spentBytes).toBeLessThanOrEqual(20);
   });
 
-  it("reports cut args as truncated, and withholds the result the args used up", () => {
+  it("reports cut args as truncated, and keeps a small result beside large args", () => {
     // Before, a 20 KB `bash` command cut to the step allowance came back with
-    // `truncated: false`, and a result with no allowance left came back as
-    // `result: ""` — an empty string that reads as real output — instead of
-    // the `withheld: "budget"` a spent run budget yields.
-    const withheld = applyCapturePolicy(
+    // `truncated: false`. Large args may take at most half of the step when
+    // the result wants the rest, so the result — the created resource's id —
+    // is not starved by a big spec or file body.
+    const kept = applyCapturePolicy(
       { toolName: "download_traces", args: { q: "x".repeat(5_000) }, result: "rows" },
       { spentBytes: 0 },
       { perStepBytes: 1_000, perRunBytes: 100_000 },
     );
-    expect(withheld.truncated).toBe(true);
-    expect(withheld.result).toBeUndefined();
-    expect(withheld.withheld).toBe("budget");
+    expect(kept.truncated).toBe(true);
+    expect(kept.result).toBe("rows");
+    expect(kept.withheld).toBeNull();
+    expect(Buffer.byteLength(JSON.stringify(kept.args), "utf8")).toBeLessThanOrEqual(1_000);
+
+    // When both args and result are large, each side gets half; a result with
+    // no allowance left at all (a spent run budget) is withheld, never "".
+    const both = applyCapturePolicy(
+      { toolName: "download_traces", args: { q: "x".repeat(5_000) }, result: "y".repeat(5_000) },
+      { spentBytes: 0 },
+      { perStepBytes: 1_000, perRunBytes: 100_000 },
+    );
+    expect(both.truncated).toBe(true);
+    expect((both.result as string).length).toBeGreaterThan(400);
+    expect(Buffer.byteLength(JSON.stringify(both.args), "utf8")).toBeLessThanOrEqual(520);
+    const spent = applyCapturePolicy(
+      { toolName: "download_traces", args: {}, result: "rows" },
+      { spentBytes: 100_000 },
+      { perStepBytes: 1_000, perRunBytes: 100_000 },
+    );
+    expect(spent.result).toBeUndefined();
+    expect(spent.withheld).toBe("budget");
 
     const cutArgs = applyCapturePolicy(
       { toolName: "bash", args: { command: "x".repeat(5_000) }, result: "out" },
@@ -375,7 +448,7 @@ describe("applyCapturePolicy", () => {
     const argBytes = Object.values(out.args as Record<string, string>)
       .filter((v) => !v.startsWith("[withheld:"))
       .reduce((n, v) => n + Buffer.byteLength(v, "utf8"), 0);
-    const resultBytes = Buffer.byteLength(out.result ?? "", "utf8");
+    const resultBytes = Buffer.byteLength((out.result as string | undefined) ?? "", "utf8");
     expect(argBytes + resultBytes).toBeLessThanOrEqual(1_000);
   });
 
@@ -491,7 +564,10 @@ describe("applyCapturePolicy", () => {
     const out = applyCapturePolicy({ toolName: "bash", args, result: "" }, state, budget);
     const serialized = JSON.stringify(out.args);
     expect(serialized.match(/\[withheld: budget\]/g)?.length ?? 0).toBe(1);
-    expect(serialized).not.toContain("never");
+    // Entries are charged smallest first: the short `after` survives, and
+    // every "never" inside the oversized `outer` is gone.
+    expect((out.args as { after: string }).after).toBe("never");
+    expect(JSON.stringify((out.args as { outer: unknown }).outer)).not.toContain("never");
     expect(Buffer.byteLength(serialized, "utf8")).toBeLessThanOrEqual(
       budget.perStepBytes + BUDGET_SLACK_BYTES,
     );
