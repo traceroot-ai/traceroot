@@ -12,8 +12,9 @@ off by default and controlled per kind.
    Do not set it on the worker or the UI: which secret authenticates a request decides the
    `source` the ingest route stamps, and only the agent service may write `agent`.
 2. Apply the Prisma migrations `20260901000000_rca_executions` and
-   `20260901000001_ai_message_attribution` (`pnpm db:migrate deploy` in
-   `frontend/packages/core`). Both are additive; no backfill of executions is performed.
+   `20260901000001_ai_message_attribution` (in `frontend/packages/core`, with
+   `DATABASE_URL` set: `pnpm exec prisma migrate deploy`). Both are additive; no backfill
+   of executions is performed.
 3. Agent service env: `AGENT_SELF_TRACE=1` (or `true`), then widen
    `AGENT_SELF_TRACE_KINDS` over a few days: `rca` → `rca,followup` → `rca,followup,chat`.
    Unset means all kinds; a token that is not one of those three is ignored and warned
@@ -46,7 +47,9 @@ off by default and controlled per kind.
 - One kind: remove it from `AGENT_SELF_TRACE_KINDS` — takes effect on the next turn, no
   restart.
 - Entirely: `AGENT_SELF_TRACE=0`. Existing `available` links keep working; new executions
-  record `trace_status=disabled` and persist exactly the rows they did before tracing.
+  record `trace_status=disabled` and persist the same row set they did before tracing (no
+  extra rows, no trace stamps). The rows' tool I/O still goes through the capture policy,
+  which is not behind the flag — see Rollback.
 
 ## Rollback
 

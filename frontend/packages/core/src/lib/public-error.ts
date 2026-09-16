@@ -8,16 +8,19 @@
  *
  * First line only (a multi-line message is usually a stack trace or a
  * provider dump past the first line), redacted the same way persisted tool
- * I/O is (see capture-policy.ts's redactSecrets), and capped well short of
+ * I/O is (see capture-policy.ts's boundedText), and capped well short of
  * a UI string.
  */
-import { redactSecrets } from "./capture-policy.ts";
+import { boundedText } from "./capture-policy.ts";
 
+/** Bytes of UTF-8, marker included. */
 const PUBLIC_ERROR_CAP = 200;
 
 export function publicErrorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   const firstLine = raw.split("\n", 1)[0] ?? "";
-  const redacted = redactSecrets(firstLine);
-  return redacted.length > PUBLIC_ERROR_CAP ? `${redacted.slice(0, PUBLIC_ERROR_CAP)}…` : redacted;
+  // JSON-aware (a provider's JSON error body gets the key walk) and cut on a
+  // code-point boundary, so an emoji at the cap does not become a lone
+  // surrogate.
+  return boundedText(firstLine, PUBLIC_ERROR_CAP);
 }

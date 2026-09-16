@@ -247,19 +247,22 @@ describe("processRcaJob execution lifecycle", () => {
   it("a superseded attempt that succeeds keeps its result on its execution row only", async () => {
     finishFindingIfLatest.mockResolvedValueOnce(false);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    agentReplies([textDeltaFrame, { event: "trace", data: { status: "available" } }]);
+    try {
+      agentReplies([textDeltaFrame, { event: "trace", data: { status: "available" } }]);
 
-    const { processRcaJob } = await import("../detector-rca-processor.js");
-    await expect(processRcaJob(job)).resolves.toBeUndefined();
+      const { processRcaJob } = await import("../detector-rca-processor.js");
+      await expect(processRcaJob(job)).resolves.toBeUndefined();
 
-    // The session-id write plus the completion write — both against this
-    // attempt's own execution row, regardless of which attempt owns the finding.
-    expect(detectorRcaExecutionUpdate).toHaveBeenCalledTimes(2);
-    expect(detectorRcaUpdate).not.toHaveBeenCalled();
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("newer attempt owns the finding"));
-    // The digest still goes out: a finding must never fail silently.
-    expect(digestQueueAdd).toHaveBeenCalledTimes(1);
-    log.mockRestore();
+      // The session-id write plus the completion write — both against this
+      // attempt's own execution row, regardless of which attempt owns the finding.
+      expect(detectorRcaExecutionUpdate).toHaveBeenCalledTimes(2);
+      expect(detectorRcaUpdate).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("newer attempt owns the finding"));
+      // The digest still goes out: a finding must never fail silently.
+      expect(digestQueueAdd).toHaveBeenCalledTimes(1);
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("marks the execution failed and still rethrows when the agent errors after allocation", async () => {
@@ -307,6 +310,20 @@ describe("processRcaJob execution lifecycle", () => {
       expect.objectContaining({ findingId: "f1", attempt: 1, status: "failed" }),
     );
     expect(detectorRcaUpdate).not.toHaveBeenCalled();
+  });
+
+  it("keeps an exported trace `available` when the finding write fails after the run", async () => {
+    // The run settled with its trace exported; finishFindingIfLatest then
+    // throws. The catch must not rewrite that attempt's trace as `failed` —
+    // the RCA route and the next attempt read this row to find the trace.
+    finishFindingIfLatest.mockRejectedValueOnce(new Error("db down"));
+    agentReplies([textDeltaFrame, { event: "trace", data: { status: "available" } }]);
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(processRcaJob(job)).rejects.toThrow(/db down/);
+    const writes = detectorRcaExecutionUpdate.mock.calls.map((c) => c[0].data.traceStatus);
+    expect(writes).toContain("available");
+    expect(writes).not.toContain("failed");
   });
 
   it("rethrows the agent's error even when the failure writes themselves fail", async () => {

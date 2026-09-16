@@ -27,10 +27,25 @@ describe("publicErrorMessage", () => {
     expect(result).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
   });
 
-  it("caps the result well short of a UI string", () => {
+  it("caps the result well short of a UI string: 200 bytes of UTF-8, marker included", () => {
     const err = new Error("x".repeat(500));
     const result = publicErrorMessage(err);
-    expect(result.length).toBe(201); // 200 chars + the truncation marker
+    expect(Buffer.byteLength(result, "utf8")).toBeLessThanOrEqual(200);
     expect(result.endsWith("…")).toBe(true);
+  });
+
+  it("never cuts inside a code point, so an emoji at the cap does not become a lone surrogate", () => {
+    const result = publicErrorMessage(new Error("😀".repeat(300)));
+    expect(Buffer.byteLength(result, "utf8")).toBeLessThanOrEqual(200);
+    expect(result).not.toContain("\uFFFD");
+    expect(result.endsWith("…")).toBe(true);
+  });
+
+  it("blanks a credential-shaped key inside a JSON error body", () => {
+    const result = publicErrorMessage(
+      new Error(JSON.stringify({ error: "upstream", apiToken: "review-dummy-secret" })),
+    );
+    expect(result).not.toContain("review-dummy-secret");
+    expect(result).toContain("upstream");
   });
 });
