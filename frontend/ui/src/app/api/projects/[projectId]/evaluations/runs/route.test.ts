@@ -11,11 +11,28 @@ const prismaMock = vi.hoisted(() => ({
   evaluationRun: { findMany: vi.fn(), count: vi.fn() },
   dataset: { findMany: vi.fn() },
   evaluationResult: { findMany: vi.fn(), groupBy: vi.fn() },
+  workspace: { findUnique: vi.fn() },
   $transaction: vi.fn(async (arr: Promise<unknown>[]) => Promise.all(arr)),
 }));
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
 
-vi.mock("@traceroot/core", () => ({ prisma: prismaMock }));
+// `getRetentionDays` is mirrored (not imported) so the mock stays a plain module
+// factory, matching detector-counts/route.test.ts. The numbers are the plan
+// windows from packages/core/src/ee/billing/plans.ts, including the fail-closed
+// 15-day fallback for an unrecognized plan.
+vi.mock("@traceroot/core", () => ({
+  prisma: prismaMock,
+  PlanType: { FREE: "free", STARTER: "starter", PRO: "pro", ENTERPRISE: "enterprise" },
+  getRetentionDays: (plan: string) => {
+    const days: Record<string, number | null> = {
+      free: 15,
+      starter: 30,
+      pro: 90,
+      enterprise: null,
+    };
+    return Object.prototype.hasOwnProperty.call(days, plan) ? days[plan] : 15;
+  },
+}));
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: auth.requireAuth,
   requireProjectAccess: auth.requireProjectAccess,
@@ -64,7 +81,11 @@ function group(
 beforeEach(() => {
   vi.clearAllMocks();
   auth.requireAuth.mockResolvedValue({ user: { id: "u1" } });
-  auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
+  auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1", workspaceId: "w1" } });
+  // Unlimited retention by default, so the derivation/sort/window tests below assert
+  // exactly what they used to: the clamp is a pass-through for enterprise. The clamp
+  // itself is exercised per-plan in the "retention clamp" block at the end.
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "enterprise" });
   prismaMock.$transaction.mockImplementation(async (arr: Promise<unknown>[]) => Promise.all(arr));
   prismaMock.dataset.findMany.mockResolvedValue([{ id: "ds1", name: "support" }]);
   prismaMock.evaluationResult.groupBy.mockResolvedValue([]);
@@ -520,6 +541,8 @@ it("sorts by elapsedMs, treating a still-running run (no completedAt) as sorting
   expect(body.data.map((r) => r.id)).toEqual(["run_fast", "run_slow", "run_running"]);
 });
 
+// Runs under the default (enterprise) plan, so the requested bounds survive the
+// retention clamp verbatim — see the "retention clamp" block for the gated plans.
 it("narrows to a startedAt window via started_after/started_before", async () => {
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run()]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -544,6 +567,8 @@ it("narrows to a startedAt window via started_after/started_before", async () =>
   );
 });
 
+// Enterprise again: with no cutoff to fall back to, an unparseable bound is simply
+// dropped. On a limited plan it fails closed to the cutoff instead (see below).
 it("drops an unparseable started_after instead of erroring", async () => {
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run()]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -556,4 +581,162 @@ it("drops an unparseable started_after instead of erroring", async () => {
       where: expect.not.objectContaining({ startedAt: expect.anything() }),
     }),
   );
+});
+
+// ── retention clamp ────────────────────────────────────────────────────────
+// The date picker is plan-gated in the UI, but a hand-crafted request must not
+// out-reach the plan's window either. This route is the only server-side reader of
+// evaluation runs, so it is where the clamp has to live — the same
+// `clampStartAfter` the detector proxies use, and the same window
+// (days + a 1-hour boundary buffer) the Python gate applies to traces.
+const DAY_MS = 86_400_000;
+const BUFFER_MS = 3_600_000;
+
+/** The `startedAt.gte` the route handed Prisma. */
+function requestedGte(): Date | undefined {
+  const args = prismaMock.evaluationRun.findMany.mock.calls[0][0] as {
+    where: { startedAt?: { gte?: Date; lte?: Date } };
+  };
+  return args.where.startedAt?.gte;
+}
+
+/** Assert `gte` is the cutoff for a `days`-wide window (tolerating clock drift). */
+function expectCutoff(gte: Date | undefined, days: number) {
+  expect(gte).toBeInstanceOf(Date);
+  const expected = Date.now() - days * DAY_MS - BUFFER_MS;
+  expect(Math.abs(gte!.getTime() - expected)).toBeLessThan(5_000);
+}
+
+function stubOneRun() {
+  prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run()]);
+  prismaMock.evaluationRun.count.mockResolvedValue(1);
+  prismaMock.evaluationResult.findMany.mockResolvedValue([]);
+}
+
+it("clamps a started_after beyond the FREE window to the 15-day cutoff", async () => {
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "free" });
+  stubOneRun();
+
+  await GET(
+    nextUrl(`started_after=${new Date(Date.now() - 60 * DAY_MS).toISOString()}`) as never,
+    params,
+  );
+
+  expectCutoff(requestedGte(), 15);
+});
+
+it("clamps to the 30-day cutoff on STARTER", async () => {
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "starter" });
+  stubOneRun();
+
+  await GET(
+    nextUrl(`started_after=${new Date(Date.now() - 60 * DAY_MS).toISOString()}`) as never,
+    params,
+  );
+
+  expectCutoff(requestedGte(), 30);
+});
+
+it("leaves a 60-day window alone on PRO (inside the 90-day entitlement)", async () => {
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "pro" });
+  stubOneRun();
+  const requested = new Date(Date.now() - 60 * DAY_MS).toISOString();
+
+  await GET(nextUrl(`started_after=${requested}`) as never, params);
+
+  expect(requestedGte()).toEqual(new Date(requested));
+});
+
+it("leaves an arbitrarily old window alone on ENTERPRISE (unlimited)", async () => {
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "enterprise" });
+  stubOneRun();
+  const requested = new Date(Date.now() - 365 * DAY_MS).toISOString();
+
+  await GET(nextUrl(`started_after=${requested}`) as never, params);
+
+  expect(requestedGte()).toEqual(new Date(requested));
+});
+
+it("leaves a started_after inside the plan window untouched", async () => {
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "free" });
+  stubOneRun();
+  const requested = new Date(Date.now() - 5 * DAY_MS).toISOString();
+
+  await GET(nextUrl(`started_after=${requested}`) as never, params);
+
+  expect(requestedGte()).toEqual(new Date(requested));
+});
+
+it("bounds an UNBOUNDED request to the cutoff — omitting started_after is not a bypass", async () => {
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "free" });
+  stubOneRun();
+
+  await GET(nextUrl() as never, params);
+
+  expectCutoff(requestedGte(), 15);
+});
+
+it("fails closed to the cutoff for an unparseable started_after on a limited plan", async () => {
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "free" });
+  stubOneRun();
+
+  await GET(nextUrl("started_after=not-a-date") as never, params);
+
+  expectCutoff(requestedGte(), 15);
+});
+
+it("fails closed to the 15-day cutoff for an unrecognized plan string", async () => {
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "constructor" });
+  stubOneRun();
+
+  await GET(
+    nextUrl(`started_after=${new Date(Date.now() - 60 * DAY_MS).toISOString()}`) as never,
+    params,
+  );
+
+  expectCutoff(requestedGte(), 15);
+});
+
+it("fails closed to the 15-day cutoff when the workspace row is missing", async () => {
+  prismaMock.workspace.findUnique.mockResolvedValue(null);
+  stubOneRun();
+
+  await GET(
+    nextUrl(`started_after=${new Date(Date.now() - 60 * DAY_MS).toISOString()}`) as never,
+    params,
+  );
+
+  expectCutoff(requestedGte(), 15);
+});
+
+it("clamps the cost/elapsed sort branch too, not just the DB-sorted one", async () => {
+  // The two branches build the same `where`, but only one of them is exercised by the
+  // tests above — a clamp applied in only one is still a leak.
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "free" });
+  stubOneRun();
+
+  await GET(
+    nextUrl(`sort=cost&started_after=${new Date(Date.now() - 60 * DAY_MS).toISOString()}`) as never,
+    params,
+  );
+
+  expectCutoff(requestedGte(), 15);
+});
+
+it("does not touch started_before while clamping started_after", async () => {
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "free" });
+  stubOneRun();
+  const before = new Date(Date.now() - 1 * DAY_MS).toISOString();
+
+  await GET(
+    nextUrl(
+      `started_after=${new Date(Date.now() - 60 * DAY_MS).toISOString()}&started_before=${before}`,
+    ) as never,
+    params,
+  );
+
+  const args = prismaMock.evaluationRun.findMany.mock.calls[0][0] as {
+    where: { startedAt?: { lte?: Date } };
+  };
+  expect(args.where.startedAt?.lte).toEqual(new Date(before));
 });
