@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { applyCapturePolicy, redactSecrets } from "../lib/capture-policy.ts";
+import {
+  applyCapturePolicy,
+  boundedText,
+  redactSecrets,
+  redactValue,
+} from "../lib/capture-policy.ts";
 
 // A truncated result may carry one uncharged "[withheld: budget]" (or "…")
 // placeholder capArgs doesn't bill to the budget, plus the string-escaping
@@ -584,5 +589,50 @@ describe("applyCapturePolicy", () => {
     );
     expect(state.spentBytes).toBeLessThanOrEqual(budget.perRunBytes);
     expect(out.truncated).toBe(true);
+  });
+});
+
+describe("boundedText", () => {
+  it("bounds by UTF-8 bytes, marker included, without splitting a code point", () => {
+    for (const [text, label] of [
+      ["x".repeat(20_000), "ascii"],
+      ["汉".repeat(20_000), "cjk"],
+      ["😀".repeat(20_000), "emoji"],
+    ] as const) {
+      const out = boundedText(text, 16_384);
+      expect(Buffer.byteLength(out, "utf8"), label).toBeLessThanOrEqual(16_384);
+      expect(out.endsWith("…"), label).toBe(true);
+      expect(out, label).not.toContain("\uFFFD");
+    }
+  });
+
+  it("redacts before it cuts, and leaves a short text alone", () => {
+    expect(boundedText("token=ghp_" + "a".repeat(40) + " tail", 16_384)).toBe(
+      "token=[REDACTED] tail",
+    );
+    expect(boundedText("plain", 16_384)).toBe("plain");
+  });
+});
+
+describe("redactValue", () => {
+  it("blanks credential-shaped keys at any depth and redacts string leaves", () => {
+    expect(
+      redactValue({
+        apiToken: "review-dummy-secret",
+        nested: { dbPassword: 12345, note: "plain", text: "AKIAIOSFODNN7EXAMPLE inline" },
+        list: [{ Authorization: "Bearer abcdefghijklmnop" }],
+      }),
+    ).toEqual({
+      apiToken: "[REDACTED]",
+      nested: { dbPassword: "[REDACTED]", note: "plain", text: "AKIA[REDACTED] inline" },
+      list: [{ Authorization: "[REDACTED]" }],
+    });
+  });
+
+  it("passes scalars through and degrades an unwalkable value to the marker", () => {
+    expect(redactValue("as-is")).toBe("as-is");
+    expect(redactValue(7)).toBe(7);
+    const depth = 2_000;
+    expect(redactValue(JSON.parse("[".repeat(depth) + "]".repeat(depth)))).toBe("[REDACTED]");
   });
 });
