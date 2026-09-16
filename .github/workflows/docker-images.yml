@@ -78,7 +78,8 @@ jobs:
 
       - name: Resolve app version
         id: app_version
-        run: echo "value=$(git describe --tags --abbrev=0 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
+        # Only application release tags count; package releases use their own prefixes.
+        run: echo "value=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
 
       - name: Docker meta
         id: meta
