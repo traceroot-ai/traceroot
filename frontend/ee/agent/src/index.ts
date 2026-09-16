@@ -21,7 +21,7 @@ import {
   currentToolSpanIds,
   isAgentTraceEnabled,
   turnTraceId,
-  rcaSpanName,
+  ROOT_SPAN_NAME,
   type AgentTraceMeta,
   type AgentTraceKind,
 } from "./self-trace.js";
@@ -266,7 +266,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     traceId: rcaTrace?.traceId ?? turnTraceId(sessionId, userRow.id),
     projectId,
     kind,
-    name: kind === "rca" ? rcaSpanName(rcaTrace?.metadata.detectors as string[] | undefined) : kind,
+    name: ROOT_SPAN_NAME,
     input: body.message,
     metadata: {
       ...rcaTrace?.metadata,
