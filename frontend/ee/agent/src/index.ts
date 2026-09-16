@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { prisma, calculateCost, syncStandardPrices, ModelSource } from "@traceroot/core";
+import { prisma, syncStandardPrices, ModelSource } from "@traceroot/core";
 import {
   createSession,
   getSession,
@@ -10,11 +10,33 @@ import {
   deleteSession,
   updateSessionTitle,
 } from "./session.js";
-import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
+import {
+  getOrCreateAgent,
+  removeAgent,
+  abortSessionRun,
+  invalidateProviderCache,
+} from "./agent.js";
+import { decisionsRoute } from "./decisions-route.js";
+import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "./pending-decisions.js";
+import { claimRun, releaseRun, runAgentStream, waitForRunToSettle } from "./run-stream.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
+import {
+  clearSessionDeleted,
+  fenceExecutorToSession,
+  markSessionDeleted,
+} from "./executors/deleted-session-fence.js";
 import { createTools } from "./tools/index.js";
+import {
+  closePreviousListener,
+  registerSignalHandlers,
+  rememberExecutors,
+  rememberListener,
+} from "./hot-reload.js";
+import { parseQueryWindow } from "./tools/query-window.js";
 import type { Executor } from "./executors/interface.js";
+import type { Agent } from "@earendil-works/pi-agent-core";
+import type { SessionManager } from "./session.js";
 
 const app = new Hono();
 
@@ -24,9 +46,14 @@ const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 // Per-session executor cache (executor lifecycle tied to session)
 const sessionExecutors = new Map<string, Executor>();
 
+// When this module was (re-)executed. Reported by /health so a caller can tell
+// whether the running process predates the sources it is being graded against
+// — the eval harness refuses to score a service older than its own code.
+const BOOT_TIME = new Date().toISOString();
+
 // Health check
 app.get("/health", (c) => {
-  return c.json({ status: "ok", service: "traceroot-agent" });
+  return c.json({ status: "ok", service: "traceroot-agent", startedAt: BOOT_TIME });
 });
 
 // Cache invalidation — called by Next.js API when a model provider is updated/deleted
@@ -92,25 +119,56 @@ app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
 
-  // Destroy executor if one exists for this session
-  const executor = sessionExecutors.get(sessionId);
-  if (executor) {
-    await executor.destroy();
-    sessionExecutors.delete(sessionId);
-  }
-
-  removeAgent(sessionId);
-  const result = await deleteSession(sessionId, userId);
+  // Authorize first: deleteSession only removes a session the caller owns
+  // in this project. Tearing down the executor and agent before that check
+  // would let any project member holding a session id destroy another
+  // user's sandbox by way of a 404.
+  const result = await deleteSession(sessionId, userId, c.req.param("projectId"));
   if (!result) return c.json({ error: "not found" }, 404);
+
+  // Mark BEFORE anything resumes the run: releasing a parked decision below
+  // hands control back to the turn in a microtask, and the mark is what stops
+  // its next sandbox tool call from re-creating a container (see the fence).
+  markSessionDeleted(sessionId);
+  // The turn has nobody left to narrate to and would keep spending tokens.
+  abortSessionRun(sessionId);
+  // The session is gone — any tool call still parked on a confirmation for
+  // it can never receive a decision, so release it as a skip.
+  pendingDecisions.releaseSession(sessionId, SESSION_DELETED_SKIP_REASON);
+
+  // Only now is the executor safe to tear down: destroying it while the
+  // resumed run is still executing tools would leave the sandbox that run
+  // re-creates untracked, and leaked for the life of the process.
+  const settled = await waitForRunToSettle(sessionId);
+
+  try {
+    const executor = sessionExecutors.get(sessionId);
+    if (executor) {
+      // Untracked before destroy: a teardown that throws must not leave a
+      // dead executor in the map for a later request to hand out.
+      sessionExecutors.delete(sessionId);
+      await executor.destroy();
+    }
+    removeAgent(sessionId);
+  } finally {
+    // The fence must never outlive the request that raised it, even when the
+    // teardown throws: a stale mark refuses every later run's sandbox. The one
+    // case it must outlive the request is a run that outlived the wait — it is
+    // still live, and its next sandbox call would create a container nothing
+    // tracks. That run drops its own mark when it settles.
+    if (settled) clearSessionDeleted(sessionId);
+  }
   return c.json({ ok: true });
 });
+
+// Confirmation decisions for parked confirm-class tool calls
+app.route("/", decisionsRoute);
 
 // Message route — SSE streaming via agent runner
 app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
   const projectId = c.req.param("projectId");
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
-  const workspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{
     message: string;
     model?: string;
@@ -118,183 +176,121 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     traceSessionId?: string;
     providerName?: string;
     source?: ModelSource;
+    /** The page's selected time range: a preset id, or custom bounds. */
+    range?: string;
+    start_time?: string;
+    end_time?: string;
   }>();
 
-  // Authorize first: caller must own the session (user-bound) or have
-  // projectId scope on a system session. Without this check, any caller
-  // who can reach the proxy could append messages and run the LLM in
-  // another user's session by guessing/known sessionIds.
+  // The window the page is showing rides with each message and becomes the
+  // default for the dashboard reads. Malformed is a 400, never a silent
+  // default: the caller asked for a window and would get another one's numbers.
+  const window = parseQueryWindow({
+    range: body.range,
+    start_time: body.start_time,
+    end_time: body.end_time,
+  });
+  if (window instanceof Error) {
+    return c.json({ error: `invalid window: ${window.message}` }, 400);
+  }
+
+  // Authorize first: caller must own the session in THIS project (user-bound)
+  // or have projectId scope on a system session — getSession treats a
+  // session/project mismatch exactly like a missing session. Without this
+  // check, any caller who can reach the proxy could append messages and run
+  // the LLM in another user's session by guessing/known sessionIds.
   const ownedSession = await getSession(sessionId, userId, projectId);
   if (!ownedSession) {
     return c.json({ error: "session not found" }, 404);
   }
 
   const systemPrompt = getSystemPrompt({
-    projectId,
+    projectId: ownedSession.projectId,
     traceId: body.traceId,
     traceSessionId: body.traceSessionId,
+    // The same window the read tools default to, stated in the prompt so the
+    // model can tell whether omitting it actually answers the question.
+    window,
   });
 
   // Get or create executor for this session (lazy — not initialized until tool use)
   let executor = sessionExecutors.get(sessionId);
   if (!executor) {
-    executor = createExecutor();
+    executor = fenceExecutorToSession(createExecutor(), sessionId);
     sessionExecutors.set(sessionId, executor);
   }
 
-  // Use the session's workspaceId (authorized by getSession above) rather than
-  // the raw header value, so tools can't be coerced into another workspace.
+  // Both tenancy ids come from the ONE session row authorized above — never
+  // the raw header or the raw path value — so tools can't be coerced into
+  // another workspace, and projectId/workspaceId can't name two unrelated
+  // tenancies. (getSession already guarantees session.projectId matches the
+  // path; deriving from the row makes that structural.)
   const tools = createTools({
-    projectId,
+    projectId: ownedSession.projectId,
     userId,
     workspaceId: ownedSession.workspaceId,
+    agentSessionId: sessionId,
     executor,
+    window,
   });
 
   console.log(
     `[Agent] POST message: session=${sessionId}, model=${body.model}, provider=${body.providerName}, source=${body.source}`,
   );
 
-  const { agent, sessionManager } = await getOrCreateAgent({
-    sessionId,
-    projectId,
-    workspaceId: ownedSession.workspaceId,
-    userId,
-    systemPrompt,
-    tools,
-    model: body.model,
-    providerName: body.providerName,
-    source: body.source,
-  });
-
-  console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
-
-  // Persist user message to DB via SessionManager
-  await sessionManager.appendMessage("user", body.message);
-
-  // Auto-generate session title from first user message (we already have
-  // the session loaded above for the auth check — reuse it).
-  if (!ownedSession.title) {
-    const title = body.message.slice(0, 80) + (body.message.length > 80 ? "..." : "");
-    await updateSessionTitle(sessionId, title);
+  // One run per session at a time. Claimed before the user row lands and
+  // before the cached agent's tools/prompt are refreshed under a live run;
+  // runAgentStream releases the claim when the run settles.
+  if (!claimRun(sessionId)) {
+    return c.json({ error: "a run is already in progress for this session" }, 409);
   }
 
-  return streamSSE(c, async (stream) => {
-    let assistantText = "";
-    let loggedFirstUpdate = false;
+  let agent: Agent;
+  let sessionManager: SessionManager;
+  try {
+    ({ agent, sessionManager } = await getOrCreateAgent({
+      sessionId,
+      projectId: ownedSession.projectId,
+      workspaceId: ownedSession.workspaceId,
+      userId,
+      systemPrompt,
+      tools,
+      model: body.model,
+      providerName: body.providerName,
+      source: body.source,
+    }));
 
-    // Accumulate token usage across all message_end events (tool-use loops)
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-    let totalCacheReadTokens = 0;
-    let totalCacheWriteTokens = 0;
-    let totalCost = 0;
-    let responseModel: string | undefined;
-    let responseProvider: string | undefined;
+    console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
-    await new Promise<void>((resolve) => {
-      runAgent(agent, body.message, {
-        onEvent: (event) => {
-          if (event.type === "message_update") {
-            // Log only the very first message_update for debugging
-            if (!loggedFirstUpdate) {
-              loggedFirstUpdate = true;
-              console.log(`[Agent] First message_update:`, JSON.stringify(event).slice(0, 500));
-            }
-          } else if (event.type !== "message_start") {
-            // Skip noisy message_start, log other event types
-            console.log(`[Agent] Event: ${event.type}`);
-          }
-          // Log error details and accumulate token usage from message_end
-          if (event.type === "message_end") {
-            const msg = (event as any).message;
-            console.log(
-              `[Agent] message_end:`,
-              JSON.stringify({
-                model: msg?.model,
-                provider: msg?.provider,
-                usage: msg?.usage,
-                stopReason: msg?.stopReason,
-              }).slice(0, 500),
-            );
-            if (msg?.stopReason === "error") {
-              console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
-            }
-            // Accumulate token usage
-            const usage = msg?.usage;
-            if (usage) {
-              totalInputTokens += usage.input ?? usage.inputTokens ?? 0;
-              totalOutputTokens += usage.output ?? usage.outputTokens ?? 0;
-              totalCacheReadTokens += usage.cacheRead ?? 0;
-              totalCacheWriteTokens += usage.cacheWrite ?? 0;
-              totalCost += usage.cost?.total ?? 0;
-            }
-            if (msg?.model) responseModel = msg.model;
-            if (msg?.provider) responseProvider = msg.provider;
-          }
-          // Forward all events to the frontend
-          stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event),
-          });
+    // Persist user message to DB via SessionManager
+    await sessionManager.appendMessage("user", body.message);
 
-          // Accumulate assistant text for DB persistence
-          if (event.type === "message_update") {
-            const msgEvent = event as any;
-            const delta = msgEvent.assistantMessageEvent;
-            if ((delta?.type === "text_delta" || delta?.type === "thinking_delta") && delta.delta) {
-              assistantText += delta.delta;
-            }
-          }
-        },
-        onError: (error) => {
-          console.error(`[Agent] ERROR:`, error.message);
-          stream.writeSSE({
-            event: "error",
-            data: JSON.stringify({ message: error.message }),
-          });
-          resolve();
-        },
-        onDone: async () => {
-          console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
-          // Persist assistant response to DB via SessionManager
-          if (assistantText) {
-            // Use our pricing table if pi-ai returned 0 cost
-            const cost =
-              totalCost > 0
-                ? totalCost
-                : responseModel
-                  ? await calculateCost(
-                      responseModel,
-                      totalInputTokens,
-                      totalOutputTokens,
-                      totalCacheReadTokens,
-                      totalCacheWriteTokens,
-                    )
-                  : 0;
-            if (cost === 0 && responseModel && (totalInputTokens > 0 || totalOutputTokens > 0)) {
-              console.warn(
-                `[Agent] Standard model pricing missing for "${responseModel}", cost recorded as $0`,
-              );
-            }
-            const tokenUsage = responseModel
-              ? {
-                  model: responseModel,
-                  provider: responseProvider || "unknown",
-                  isByok: body.source === ModelSource.BYOK,
-                  inputTokens: totalInputTokens,
-                  outputTokens: totalOutputTokens,
-                  cost,
-                }
-              : undefined;
-            await sessionManager.appendMessage("assistant", assistantText, undefined, tokenUsage);
-          }
-          stream.writeSSE({ event: "done", data: "{}" });
-          resolve();
-        },
-      });
-    });
-  });
+    // Auto-generate session title from first user message (we already have
+    // the session loaded above for the auth check — reuse it).
+    if (!ownedSession.title) {
+      const title = body.message.slice(0, 80) + (body.message.length > 80 ? "..." : "");
+      await updateSessionTitle(sessionId, title);
+    }
+  } catch (error) {
+    // The run never started, so nothing else will release the claim.
+    releaseRun(sessionId);
+    throw error;
+  }
+
+  return streamSSE(c, (stream) =>
+    runAgentStream(stream, {
+      agent,
+      message: body.message,
+      sessionId,
+      // Attended means THIS request comes from a user who can answer
+      // confirmation cards — independent of who owns the session row, since
+      // a signed-in user may continue a system/RCA session (owner null).
+      // Only a user-less caller is unattended.
+      channelUserId: userId,
+      isByok: body.source === ModelSource.BYOK,
+      sessionManager,
+    }),
+  );
 });
 
 // Graceful shutdown
@@ -319,11 +315,19 @@ async function shutdown(signal: string): Promise<void> {
   }
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
-
 async function main(): Promise<void> {
   console.log("[Agent] TraceRoot Agent Service starting...");
+
+  // First, before anything slow: under `vite-node --watch` this module is
+  // re-executed in the same process, so the previous execution's listener is
+  // still holding the port and its signal handlers are still registered.
+  // Leaving them in place makes serve() below throw EADDRINUSE and the
+  // process goes on serving the code it booted with.
+  await closePreviousListener();
+  registerSignalHandlers(["SIGTERM", "SIGINT"], (signal) => {
+    void shutdown(signal);
+  });
+  rememberExecutors(sessionExecutors);
 
   // Verify DB connection
   try {
@@ -337,14 +341,19 @@ async function main(): Promise<void> {
   // Sync standard model pricing from JSON → DB
   await syncStandardPrices();
 
-  serve({ fetch: app.fetch, port: PORT }, (info) => {
-    console.log(`[Agent] Listening on http://localhost:${info.port}`);
-  });
+  rememberListener(
+    serve({ fetch: app.fetch, port: PORT }, (info) => {
+      console.log(`[Agent] Listening on http://localhost:${info.port}`);
+    }),
+  );
 }
 
-main().catch((error) => {
-  console.error("[Agent] Fatal error:", error);
-  process.exit(1);
-});
+// Under vitest the app is exercised via app.request — don't boot the server.
+if (!process.env.VITEST) {
+  main().catch((error) => {
+    console.error("[Agent] Fatal error:", error);
+    process.exit(1);
+  });
+}
 
 export { app };
