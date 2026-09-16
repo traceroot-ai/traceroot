@@ -447,19 +447,13 @@ def validate(sql: str) -> exp.Query:
             if lowered == "project_id" or lowered.startswith(_RESERVED_PARAM_PREFIX):
                 raise SqlValidationError("Bound parameters may not use a reserved name")
 
-            # Every OTHER placeholder is refused too, for now. Nothing populates
-            # them: the request has no wired `parameters` payload yet, so a query
-            # carrying `{mytid:String}` passes all five layers and reaches
-            # ClickHouse, which answers `Code: 456 … Substitution 'mytid' is not
-            # set` -- an unsanitised error that echoes the caller's own parameter
-            # name back, which is exactly what this layer exists to prevent.
-            # Refusing here says the same thing in the module's own vocabulary.
-            #
-            # To lift this when the endpoint wires the payload: delete this
-            # branch, keep the reserved-name check above it (it is what stops a
-            # user parameter colliding with the scope bind), and scrub reserved
-            # names from the incoming payload at the service boundary too.
-            raise SqlValidationError("Bound parameters are not supported yet")
+            # Other placeholders are allowed. The service binds the caller's
+            # `parameters` payload, having scrubbed the same reserved names this
+            # check refuses, so a placeholder here is a value the server
+            # substitutes rather than something that reaches the query text. A
+            # placeholder the caller references but does not supply comes back as
+            # ClickHouse code 456, which the execution layer maps to a message
+            # that does not echo the parameter name.
 
         # 10. Function gate — allowlist-primary.
         if isinstance(node, exp.Func) and not isinstance(node, _SKIP_FUNC_TYPES):

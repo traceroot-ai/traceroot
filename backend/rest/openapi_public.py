@@ -261,6 +261,29 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
     },
     "ingest_traces": {"enabled": False},
+    "run_sql": {
+        "name": "run_sql",
+        "description": (
+            "Run one read-only SQL query over the project's own spans and traces "
+            "and return the rows. Use get_sql_schema first to see the columns "
+            "available; the query may only read the curated spans and traces "
+            "tables, and results are capped and may be truncated."
+        ),
+        "enabled": True,
+        # A read that happens to arrive by POST, because the query travels in the
+        # body. VIEWER and no approval match the other read operations; the
+        # method is what forces a policy entry here at all.
+        "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
+    },
+    "get_sql_schema": {
+        "name": "get_sql_schema",
+        "description": (
+            "List the tables and columns available to run_sql, with their types. "
+            "Read this before writing a query: it is the whole surface a query "
+            "may reference."
+        ),
+        "enabled": True,
+    },
     "list_traces": {
         "name": "list_traces",
         "description": (
