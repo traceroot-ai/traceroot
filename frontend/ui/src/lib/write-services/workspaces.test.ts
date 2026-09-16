@@ -87,7 +87,7 @@ describe("createWorkspace", () => {
       data: { id: "w0", name: "Acme", role: "ADMIN" },
     });
     expect(tx.workspace.create).not.toHaveBeenCalled();
-    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).not.toHaveBeenCalled();
   });
 
   it("stamps the creator on the row so the unique key can back the idempotency", async () => {

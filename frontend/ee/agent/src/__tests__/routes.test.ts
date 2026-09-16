@@ -255,7 +255,7 @@ describe("POST /projects/:projectId/sessions/:sessionId/messages — attribution
     expect(calls[1][1]).toBe("Let me look.");
     expect(calls[2][3]).toMatchObject({ toolName: "bash", withheld: "not-allowlisted" });
     expect(calls[3][3]).toEqual({ thinking: "hmm" });
-    expect(calls[4][3]).toMatchObject({ toolName: "download_traces", result: '{"spans":[]}' });
+    expect(calls[4][3]).toMatchObject({ toolName: "download_traces", result: { spans: [] } });
     expect(calls[5][1]).toBe("");
     expect(calls[5][4]).toMatchObject({ model: "m", inputTokens: 1, outputTokens: 2 });
 
