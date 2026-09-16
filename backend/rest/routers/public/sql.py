@@ -58,9 +58,19 @@ _GENERIC_FAILURE = "Query execution failed."
 #: The largest request body this route reads. The field limits on the request
 #: model are enforced by pydantic, which runs after the whole body has been read
 #: and parsed, so they bound what reaches the service and not what reaches this
-#: process. This is the bound on the body itself: the two field limits plus room
-#: for JSON syntax, key names and whitespace.
-SQL_REQUEST_MAX_BYTES = SQL_QUERY_MAX_CHARS + SQL_PARAMETERS_MAX_CHARS + 16_384
+#: process. This bounds the body itself, and deliberately only that: the public
+#: limits stay the character counts the schema advertises, and this is sized so
+#: that every body which could carry a valid request is read.
+#:
+#: A character costs at most 12 bytes in a JSON string: an astral code point is
+#: one character to the field limit but a surrogate pair, and each half may
+#: arrive escaped as ``\uXXXX``. Sizing this in bytes as though a character were
+#: one byte would 413 a query in any non-Latin script before pydantic could
+#: measure it.
+_JSON_BYTES_PER_CHAR = 12
+SQL_REQUEST_MAX_BYTES = (
+    SQL_QUERY_MAX_CHARS + SQL_PARAMETERS_MAX_CHARS
+) * _JSON_BYTES_PER_CHAR + 16_384
 
 _TOO_LARGE = "Request body too large."
 

@@ -204,6 +204,22 @@ class TestScopeIsServerSide:
         assert resp.json() == {"detail": "Request body too large."}
         assert not stub.calls
 
+    def test_a_query_in_another_script_is_measured_in_characters(
+        self, stub: StubService, client: TestClient
+    ) -> None:
+        # A body cap sized as though a character were a byte would refuse this
+        # before pydantic could measure it against the limit the schema publishes.
+        from rest.schemas.public import SQL_QUERY_MAX_CHARS
+
+        literal = "漢" * (SQL_QUERY_MAX_CHARS - len("SELECT '' FROM spans"))
+        query = f"SELECT '{literal}' FROM spans"
+        assert len(query) == SQL_QUERY_MAX_CHARS
+        assert len(query.encode()) > SQL_QUERY_MAX_CHARS
+
+        resp = client.post("/api/v1/public/sql", json={"query": query}, headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert stub.calls
+
     def test_the_body_cap_leaves_other_routes_alone(self, client: TestClient) -> None:
         # The middleware is bound to one path, so a large body elsewhere is that
         # route's business, not this one's.
