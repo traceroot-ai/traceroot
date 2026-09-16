@@ -1,3 +1,4 @@
+import { proposalDeclined } from "./proposal-declined";
 import type { AIMessage } from "../types";
 import type { TraceStatus } from "@traceroot/core";
 
@@ -15,32 +16,37 @@ export interface DbAiMessageRow {
   cost?: number | string | null;
 }
 
+/**
+ * Metadata persisted on a tool_step row, after the capture policy: the args
+ * always (redacted, bounded), the result only for tools whose output is kept
+ * — as the structured value the live stream showed, bounded leaf by leaf, or
+ * as text for a text result. `withheld` says why a result is absent,
+ * `truncated` that something kept was cut, `outputBytes` how big the real
+ * output was.
+ */
 interface ToolStepMetadata {
   toolCallId?: string;
   toolName?: string;
   args?: Record<string, unknown>;
-  /** JSON text (or a plain string result) after the capture policy; absent when withheld. */
   result?: unknown;
   isError?: boolean;
+  /** ClickHouse span id for this tool call, when the run was traced. */
   spanId?: string;
   withheld?: "not-allowlisted" | "budget" | null;
   truncated?: boolean;
   outputBytes?: number;
 }
 
-/**
- * The persister stores the result as text (serialised before it is redacted
- * and truncated), while the live stream showed the parsed value. Give the
- * bubble the same value back: parse an intact JSON string; a truncated one
- * cannot be valid JSON, and a plain-string result never was — both stay text.
- */
-function restoreResult(md: ToolStepMetadata): unknown {
-  if (typeof md.result !== "string" || md.truncated) return md.result;
-  try {
-    return JSON.parse(md.result);
-  } catch {
-    return md.result;
-  }
+/** Metadata persisted on an assistant segment row. `runError` is set on the
+ *  final segment of a run that failed — the live stream showed an error
+ *  bubble, so reload must render one too. */
+interface AssistantMetadata {
+  thinking?: string;
+  totalTokens?: number;
+  runError?: string;
+  /** The turn's self-trace, stamped on the final segment when the run was traced. */
+  traceId?: string;
+  traceStatus?: TraceStatus;
 }
 
 /**
@@ -54,6 +60,10 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
   for (const m of rows) {
     if (m.role === "tool_step") {
       const md = (m.metadata ?? {}) as ToolStepMetadata;
+      // A declined proposal persists its outcome in the result's structured
+      // details — reload labels the step (skipped / revised) exactly as the
+      // live stream did instead of showing a plain failure.
+      const declined = proposalDeclined(md.result);
       out.push({
         id: m.id,
         role: "tool_step",
@@ -63,21 +73,21 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
           toolCallId: md.toolCallId ?? m.id,
           toolName: md.toolName ?? "unknown",
           args: md.args ?? {},
-          result: restoreResult(md),
+          result: md.result,
           isError: md.isError,
           status: md.isError ? "error" : "done",
-          spanId: md.spanId,
+          ...(md.spanId ? { spanId: md.spanId } : {}),
           ...(md.withheld ? { withheld: md.withheld } : {}),
           ...(md.truncated ? { truncated: true } : {}),
           ...(md.outputBytes != null ? { outputBytes: md.outputBytes } : {}),
+          ...(declined?.outcome === "skipped" ? { skipped: true } : {}),
+          ...(declined?.outcome === "revised" ? { revisedText: declined.text ?? "" } : {}),
         },
       });
       continue;
     }
-    const md = m.metadata as
-      | { thinking?: string; totalTokens?: number; traceId?: string; traceStatus?: TraceStatus }
-      | null
-      | undefined;
+    const md = m.metadata as AssistantMetadata | null | undefined;
+    const runError = typeof md?.runError === "string" && md.runError ? md.runError : undefined;
     const usage = {
       ...(m.inputTokens != null ? { inputTokens: m.inputTokens } : {}),
       ...(m.outputTokens != null ? { outputTokens: m.outputTokens } : {}),
@@ -90,8 +100,9 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
     // a tool boundary. The live stream pins usage on the last text bubble, so
     // fold it into the previous assistant bubble instead of rendering an
     // empty one — but only within the same run: stop at the user turn so a
-    // carrier can never overwrite an earlier run's usage.
-    if (m.role === "assistant" && !m.content && !md?.thinking) {
+    // carrier can never overwrite an earlier run's usage. A row carrying a
+    // run error is never folded — the failure must stay visible.
+    if (m.role === "assistant" && !m.content && !md?.thinking && runError === undefined) {
       let prev: AIMessage | undefined;
       for (let i = out.length - 1; i >= 0; i -= 1) {
         if (out[i].role === "user") break;
@@ -105,10 +116,18 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
         continue;
       }
     }
+    // A persisted run failure renders like the live stream's error bubble,
+    // after whatever partial text the run produced before failing.
+    const errorLine = runError ? `Error: ${runError}` : "";
+    const content = errorLine
+      ? m.content
+        ? `${m.content}\n\n${errorLine}`
+        : errorLine
+      : m.content;
     out.push({
       id: m.id,
       role: m.role as "user" | "assistant",
-      content: m.content,
+      content,
       timestamp: m.createTime,
       ...(md?.thinking ? { thinking: md.thinking } : {}),
       ...usage,

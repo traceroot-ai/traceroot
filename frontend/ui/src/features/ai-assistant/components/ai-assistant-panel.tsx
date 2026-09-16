@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
+import { PendingDecisionBar } from "./pending-decision-bar";
 import { SessionHistory } from "./session-history";
 import { AgentTraceSheet } from "./agent-trace-sheet";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
+import { useRetention } from "@/lib/hooks/use-retention";
 
 interface AiAssistantPanelProps {
   projectId?: string;
@@ -86,6 +88,12 @@ export function AiAssistantPanel({
   // workspaceId from project (only available on project pages)
   const workspaceId = project?.workspace_id;
 
+  // The plan's retention window, passed to the transcript so a range left in
+  // storage by a workspace that has since downgraded is neither charted nor
+  // labeled on a card. (It reuses the project query above; with no project
+  // there is no plan to look up, and nothing is clamped.)
+  const { retentionDays } = useRetention(projectId ?? "");
+
   // Check if any models are available (system or BYOK)
   const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],
@@ -110,9 +118,12 @@ export function AiAssistantPanel({
     historyOpen,
     currentSessionId,
     modelSelection,
+    hasPendingDecision,
+    pendingDecision,
     setHistoryOpen,
     setModelSelection,
     handleSend,
+    handleDecision,
     handleAbort,
     handleNewSession,
     handleClose,
@@ -252,6 +263,19 @@ export function AiAssistantPanel({
             onOpenTrace={
               projectId ? (traceId, spanId) => setOpenTrace({ traceId, spanId }) : undefined
             }
+            projectId={projectId}
+            retentionDays={projectId ? retentionDays : undefined}
+          />
+        )}
+
+        {/* A parked proposal is decided here, at the composer, not on its
+            card: create/skip are the reply. Keyed by the decision so a
+            superseding proposal re-arms the buttons in place. */}
+        {pendingDecision !== null && (
+          <PendingDecisionBar
+            key={pendingDecision.decisionId}
+            decision={pendingDecision}
+            onDecide={handleDecision}
           />
         )}
 
@@ -262,6 +286,8 @@ export function AiAssistantPanel({
           onModelChange={setModelSelection}
           disabled={!projectId || !hasModels}
           workspaceId={workspaceId}
+          // While a proposal awaits a decision, a typed reply revises it.
+          placeholder={hasPendingDecision ? "Reply to revise" : undefined}
           actions={
             isStreaming && (
               <button
