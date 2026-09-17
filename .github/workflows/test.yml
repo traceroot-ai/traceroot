@@ -215,6 +215,89 @@ jobs:
           path: coverage-frontend.lcov
 
   # ---------------------------------------------------------------------------
+  # Agent self-trace contract  (tests/e2e/test_agent_trace_contract.py)
+  #
+  # The one automated guard that an internal (agent / detector) trace never
+  # reaches a customer surface or the customer's usage bucket. It needs a live
+  # REST over migrated Postgres + ClickHouse + Redis, so it runs here rather
+  # than in backend-tests: infra from docker-compose.yml, REST from source, and
+  # tests/e2e/stub_key_validator.py standing in for the UI's key-resolution
+  # route (which has its own unit tests). No image is built.
+  # ---------------------------------------------------------------------------
+  agent-trace-contract:
+    name: Agent Trace Contract
+    runs-on: ubuntu-24.04
+    needs: [lint]
+    timeout-minutes: 20
+    env:
+      INTERNAL_API_SECRET: ci-platform-secret-0123456789abcdef0123456789abcdef
+      INTERNAL_API_SECRET_AGENT: ci-agent-secret-0123456789abcdef0123456789abcdef
+      TRACEROOT_E2E_PROJECT_ID: 00000000-0000-4000-8000-00000000e2e0
+      TRACEROOT_E2E_API_KEY: tr-00000000-0000-4000-8000-0000000000e2
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      ENABLE_BILLING: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies (Prisma)
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Start Postgres, ClickHouse and Redis
+        run: docker compose up -d --wait postgres clickhouse redis
+
+      - name: Migrate Postgres
+        run: cd frontend/packages/core && pnpm exec prisma migrate deploy
+
+      - name: Migrate ClickHouse
+        run: docker compose run --rm migrate-clickhouse up
+
+      - name: Start the key-resolution stub and REST
+        run: |
+          set -euo pipefail
+          nohup uv run python tests/e2e/stub_key_validator.py 3999 > stub.log 2>&1 &
+          TRACEROOT_UI_URL=http://localhost:3999 \
+            nohup uv run uvicorn rest.main:app --host 127.0.0.1 --port 8000 > rest.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:8000/health > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://localhost:8000/health
+
+      - name: Run the contract test
+        env:
+          TRACEROOT_E2E: "1"
+          TRACEROOT_REST_URL: http://localhost:8000
+          TRACEROOT_CH_URL: http://localhost:8123/?user=clickhouse&password=clickhouse
+          TRACEROOT_REDIS_URL: redis://localhost:6379/0
+        run: uv run pytest tests/e2e/test_agent_trace_contract.py -v
+
+      - name: Service logs
+        if: failure()
+        run: |
+          echo "::group::REST"; cat rest.log; echo "::endgroup::"
+          echo "::group::stub"; cat stub.log; echo "::endgroup::"
+          docker compose logs --tail=100 clickhouse postgres redis
+
+  # ---------------------------------------------------------------------------
   # Coverage summary
   # ---------------------------------------------------------------------------
   coverage:
