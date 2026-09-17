@@ -156,7 +156,12 @@ def test_dedup_is_by_logical_id_and_runs_before_the_row_filters(sql):
     # must dedup on both or it drops one of two traces that reuse a span id.
     assert "LIMIT 1 BY trace_id, span_id" in sql
     assert re.search(r"LIMIT 1 BY trace_id\s*\n", sql), "traces view dedups by trace_id"
-    assert sql.count("ORDER BY ch_update_time DESC") == 2
+    # Counted per view, not across the file: a global count of two is satisfied by one
+    # view carrying both clauses while the other picks an arbitrary version.
+    for view in ("spans_public_v1", "traces_public_v1"):
+        assert "ORDER BY ch_update_time DESC" in _view_block(sql, view), (
+            f"{view} does not order its dedup by ch_update_time"
+        )
     assert "FINAL" not in sql, "FINAL cannot dedup across the sort key here"
 
     # The filters live OUTSIDE the dedup subquery, so the dedup sees every version.
@@ -192,15 +197,19 @@ def test_inner_select_provides_every_projected_column(sql):
     because ClickHouse defers body validation for parameterized views.
     """
     for view in ("spans_public_v1", "traces_public_v1"):
-        block = _view_block(sql, view)
-        inner = block[block.index("FROM\n(") : block.index("    FROM ")]
-        provided = {c.strip() for c in inner.split("SELECT", 1)[1].replace("\n", " ").split(",")}
-        for projected in _outer_projection(sql, view).replace("\n", " ").split(","):
-            projected = projected.strip()
-            if not projected or " AS " in projected or "(" in projected:
+        # Read off the parsed tree rather than sliced out of the text: locating the
+        # inner SELECT by its exact indentation made a reformat of the migration fail
+        # this test before it checked any SQL semantics.
+        select = _view_select(sql, view)
+        inner = select.args["from"].this
+        if isinstance(inner, exp.Subquery):
+            inner = inner.this
+        provided = {e.alias_or_name for e in inner.expressions}
+        for projection in select.expressions:
+            if not isinstance(projection, exp.Column):
                 continue  # computed or renamed, checked by its own test
-            assert projected in provided, (
-                f"{view} projects {projected!r} but the inner SELECT does not provide it"
+            assert projection.name in provided, (
+                f"{view} projects {projection.name!r} but the inner SELECT does not provide it"
             )
 
 
@@ -229,6 +238,39 @@ def test_time_bounds_are_clamped_to_what_a_date_key_can_hold(sql):
         assert (
             f"least({{end_time:DateTime64(3)}} - toIntervalMillisecond(1), {DATE_MAX})" in block
         ), f"{view} passes the upper bound to {column} unclamped"
+
+
+def test_the_clamp_is_tighter_than_the_open_sentinel_on_purpose(sql):
+    """The rewriter's open end and the view's clamp are different values, deliberately.
+
+    The rewriter sends ``2299-12-31 23:59:59.999`` when the caller gives no upper bound,
+    because a sentinel inside the storable range would hide a row at 2150 from every
+    unbounded query. The view then clamps that down to ``2149-06-06 23:59:59.999``,
+    because `traces` keys on ``toDate(trace_start_time)`` and a bound the Date type
+    cannot hold wraps during key analysis and prunes parts that match: an unbounded
+    query returned 11,968 of a project's 40,000 rows before the clamp.
+
+    The cost is recorded here so it stays a decision rather than an accident: a row
+    whose timestamp really is after 2149-06-06 is unreachable through the gateway,
+    though it stays in storage. Ingest does not range-check timestamps, so such a row
+    is storable. Raising the clamp to meet the sentinel would reinstate the pruning
+    bug; lowering the sentinel to meet the clamp would hide rows from unbounded
+    queries at the rewriter instead. They are meant to differ.
+    """
+    from rest.services.sql.rewriter import _OPEN_END
+
+    assert _OPEN_END == "2299-12-31 23:59:59.999", (
+        "the rewriter's open end moved; the clamp below is what bounds it"
+    )
+    assert DATE_MAX == "toDateTime64('2149-06-06 23:59:59.999', 3)"
+    assert _OPEN_END[:4] > "2149", (
+        "the sentinel must sit outside the Date range so the clamp is what truncates, "
+        "not the sentinel"
+    )
+    for view in ("spans_public_v1", "traces_public_v1"):
+        assert DATE_MAX in _view_block(sql, view), (
+            f"{view} no longer clamps the upper bound to what a Date key can hold"
+        )
 
 
 def test_views_take_a_time_range_on_their_own_time_column(sql):
