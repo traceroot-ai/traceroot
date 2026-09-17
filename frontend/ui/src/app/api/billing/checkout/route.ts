@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
@@ -15,6 +16,19 @@ function alreadySubscribed() {
     },
     { status: 409 },
   );
+}
+
+type Stripe = ReturnType<typeof getStripeOrThrow>;
+
+// A simultaneous request may have expired the same session first; that is fine as
+// long as it is no longer open.
+async function expireCheckoutSession(stripe: Stripe, sessionId: string) {
+  try {
+    await stripe.checkout.sessions.expire(sessionId);
+  } catch (error) {
+    const current = await stripe.checkout.sessions.retrieve(sessionId);
+    if (current.status === "open") throw error;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -50,12 +64,15 @@ export async function POST(req: NextRequest) {
 
     // A subscribed workspace changes plans through change-plan. A checkout session
     // here would add a second active subscription to the same customer, and both
-    // would bill every period.
-    if (workspace.billingSubscriptionId) {
+    // would bill every period. With a customer on file, Stripe is asked below
+    // instead, so a stored id whose cancellation webhook was missed does not block
+    // a new subscription.
+    if (workspace.billingSubscriptionId && !workspace.billingCustomerId) {
       return alreadySubscribed();
     }
 
     const stripe = getStripeOrThrow();
+    const expiredSessionIds: string[] = [];
 
     // The stored subscription id can lag Stripe (a missed or delayed webhook), so
     // also ask Stripe before opening checkout for an existing customer.
@@ -73,43 +90,67 @@ export async function POST(req: NextRequest) {
       }
 
       // Stripe creates the subscription only when a session completes, so two open
-      // sessions for one workspace could each become a subscription. Hand back an open
-      // session for the same plan (a double submit or a retry), and expire one for a
-      // different plan before opening the new one.
-      const openSessions = await stripe.checkout.sessions.list({
+      // sessions for one workspace could each become a subscription. Keep one open
+      // session for the same plan (a double submit or a retry) and expire every other
+      // one, including extra same-plan sessions, before returning or opening a new one.
+      let reusableUrl: string | null = null;
+      for await (const openSession of stripe.checkout.sessions.list({
         customer: workspace.billingCustomerId,
         status: "open",
         limit: 100,
-      });
-      for (const openSession of openSessions.data) {
+      })) {
         if (openSession.metadata?.workspaceId !== workspaceId) continue;
-        if (openSession.metadata?.plan === plan && openSession.url) {
-          return NextResponse.json({ url: openSession.url });
+        if (!reusableUrl && openSession.metadata?.plan === plan && openSession.url) {
+          reusableUrl = openSession.url;
+          continue;
         }
-        await stripe.checkout.sessions.expire(openSession.id);
+        await expireCheckoutSession(stripe, openSession.id);
+        expiredSessionIds.push(openSession.id);
+      }
+      if (reusableUrl) {
+        return NextResponse.json({ url: reusableUrl });
       }
     }
-
-    // Requests that arrive together see no open session yet. The same idempotency key
-    // makes Stripe return one customer and one session to all of them.
-    const idempotencyWindow = Math.floor(Date.now() / 60_000);
 
     // Create or get Stripe customer
     let customerId = workspace.billingCustomerId;
     if (!customerId) {
-      const customer = await stripe.customers.create(
-        {
-          email: session.user.email ?? undefined,
-          metadata: { workspaceId },
-        },
-        { idempotencyKey: `workspace-customer-${workspaceId}-${idempotencyWindow}` },
-      );
-      customerId = customer.id;
-      await prisma.workspace.update({
-        where: { id: workspaceId },
-        data: { billingCustomerId: customerId },
+      const customer = await stripe.customers.create({
+        email: session.user.email ?? undefined,
+        metadata: { workspaceId },
       });
+      // Two admins can start checkout for a new workspace at the same time. Only the
+      // first customer is stored; a request that loses the race deletes its own and
+      // continues with the stored one, so both reach the same checkout below.
+      const claimed = await prisma.workspace.updateMany({
+        where: { id: workspaceId, billingCustomerId: null },
+        data: { billingCustomerId: customer.id },
+      });
+      if (claimed.count === 1) {
+        customerId = customer.id;
+      } else {
+        await stripe.customers.del(customer.id).catch((error: unknown) => {
+          console.warn(`[Billing] Failed to delete unused customer ${customer.id}:`, error);
+        });
+        const stored = await prisma.workspace.findUnique({
+          where: { id: workspaceId },
+          select: { billingCustomerId: true },
+        });
+        if (!stored?.billingCustomerId) {
+          throw new Error(`Workspace ${workspaceId} has no billing customer`);
+        }
+        customerId = stored.billingCustomerId;
+      }
     }
+
+    // Requests that arrive together see no open session yet. The same idempotency key
+    // makes Stripe return one session to all of them. Sessions this request expired
+    // are part of the key: otherwise a retry within the window would get back the
+    // cached response for a session that is no longer open.
+    const idempotencyWindow = Math.floor(Date.now() / 60_000);
+    const expiredDigest = expiredSessionIds.length
+      ? `-${createHash("sha256").update(expiredSessionIds.join(",")).digest("hex").slice(0, 16)}`
+      : "";
 
     // Create checkout session with plan price + all three metered products.
     // Metered items have no quantity — usage flows from Stripe meter events.
@@ -150,7 +191,9 @@ export async function POST(req: NextRequest) {
           metadata: { workspaceId },
         },
       },
-      { idempotencyKey: `workspace-checkout-${workspaceId}-${plan}-${idempotencyWindow}` },
+      {
+        idempotencyKey: `workspace-checkout-${workspaceId}-${plan}-${idempotencyWindow}${expiredDigest}`,
+      },
     );
 
     return NextResponse.json({ url: checkoutSession.url });

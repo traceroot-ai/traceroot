@@ -15,41 +15,50 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 const workspaceFindFirstMock = vi.fn();
-const workspaceUpdateMock = vi.fn();
+const workspaceUpdateManyMock = vi.fn();
+const workspaceFindUniqueMock = vi.fn();
 const subscriptionsListMock = vi.fn();
 const customersCreateMock = vi.fn();
+const customersDelMock = vi.fn();
 const checkoutCreateMock = vi.fn();
 const checkoutListMock = vi.fn();
 const checkoutExpireMock = vi.fn();
+const checkoutRetrieveMock = vi.fn();
+
+// Like Stripe's list result: `data` is only the first page (limit 100), and
+// iterating the result follows every page.
+function stripeList<T>(items: T[]) {
+  return {
+    data: items.slice(0, 100),
+    has_more: items.length > 100,
+    async *[Symbol.asyncIterator]() {
+      yield* items;
+    },
+  };
+}
 
 vi.mock("@traceroot/core", () => ({
   prisma: {
     workspace: {
       findFirst: (...args: unknown[]) => workspaceFindFirstMock(...args),
-      update: (...args: unknown[]) => workspaceUpdateMock(...args),
+      updateMany: (...args: unknown[]) => workspaceUpdateManyMock(...args),
+      findUnique: (...args: unknown[]) => workspaceFindUniqueMock(...args),
     },
   },
   getStripeOrThrow: () => ({
     subscriptions: {
-      // Like Stripe's list result: `data` is only the first page (limit 100), and
-      // iterating the result follows every page.
-      list: (...args: unknown[]) => {
-        const subscriptions = subscriptionsListMock(...args) as Array<{ status: string }>;
-        return {
-          data: subscriptions.slice(0, 100),
-          has_more: subscriptions.length > 100,
-          async *[Symbol.asyncIterator]() {
-            yield* subscriptions;
-          },
-        };
-      },
+      list: (...args: unknown[]) => stripeList(subscriptionsListMock(...args)),
     },
-    customers: { create: (...args: unknown[]) => customersCreateMock(...args) },
+    customers: {
+      create: (...args: unknown[]) => customersCreateMock(...args),
+      del: (...args: unknown[]) => customersDelMock(...args),
+    },
     checkout: {
       sessions: {
         create: (...args: unknown[]) => checkoutCreateMock(...args),
-        list: (...args: unknown[]) => checkoutListMock(...args),
+        list: (...args: unknown[]) => stripeList(checkoutListMock(...args)),
         expire: (...args: unknown[]) => checkoutExpireMock(...args),
+        retrieve: (...args: unknown[]) => checkoutRetrieveMock(...args),
       },
     },
   }),
@@ -63,6 +72,10 @@ function makeRequest(body: unknown = { workspaceId: "ws-1", plan: "pro" }) {
   return { json: async () => body } as unknown as Parameters<typeof POST>[0];
 }
 
+function openSession(id: string, plan: string, workspaceId = "ws-1") {
+  return { id, url: `https://checkout.stripe.test/${id}`, metadata: { workspaceId, plan } };
+}
+
 function workspace(overrides: Record<string, unknown> = {}) {
   return { id: "ws-1", billingCustomerId: "cus_1", billingSubscriptionId: null, ...overrides };
 }
@@ -70,28 +83,46 @@ function workspace(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   getSessionMock.mockReset();
   workspaceFindFirstMock.mockReset();
-  workspaceUpdateMock.mockReset();
+  workspaceUpdateManyMock.mockReset();
+  workspaceFindUniqueMock.mockReset();
   subscriptionsListMock.mockReset();
   customersCreateMock.mockReset();
+  customersDelMock.mockReset();
   checkoutCreateMock.mockReset();
   checkoutListMock.mockReset();
   checkoutExpireMock.mockReset();
+  checkoutRetrieveMock.mockReset();
 
   getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "a@example.com" } });
   subscriptionsListMock.mockReturnValue([]);
   checkoutCreateMock.mockResolvedValue({ url: "https://checkout.stripe.test/session" });
-  checkoutListMock.mockResolvedValue({ data: [] });
+  checkoutListMock.mockReturnValue([]);
   checkoutExpireMock.mockResolvedValue({});
+  workspaceUpdateManyMock.mockResolvedValue({ count: 1 });
+  customersDelMock.mockResolvedValue({});
 });
 
 describe("POST /api/billing/checkout — existing subscription", () => {
   it("refuses a workspace that already has a stored subscription", async () => {
-    workspaceFindFirstMock.mockResolvedValue(workspace({ billingSubscriptionId: "sub_1" }));
+    workspaceFindFirstMock.mockResolvedValue(
+      workspace({ billingCustomerId: null, billingSubscriptionId: "sub_1" }),
+    );
 
     const res = await POST(makeRequest());
 
     expect(res.status).toBe(409);
     expect(checkoutCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("lets Stripe decide when the row still names a subscription that has ended", async () => {
+    // The cancellation webhook was missed, so the row still carries the id.
+    workspaceFindFirstMock.mockResolvedValue(workspace({ billingSubscriptionId: "sub_old" }));
+    subscriptionsListMock.mockReturnValue([{ id: "sub_old", status: "canceled" }]);
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
   });
 
   it("refuses when Stripe has a live subscription the workspace row has not caught up with", async () => {
@@ -146,41 +177,82 @@ describe("POST /api/billing/checkout — existing subscription", () => {
 
   it("hands back a checkout already open for the same plan instead of opening another", async () => {
     workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutListMock.mockResolvedValue({
-      data: [
-        {
-          id: "cs_open",
-          url: "https://checkout.stripe.test/open",
-          metadata: { workspaceId: "ws-1", plan: "pro" },
-        },
-      ],
-    });
+    checkoutListMock.mockReturnValue([openSession("cs_open", "pro")]);
 
     const res = await POST(makeRequest());
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/open" });
+    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/cs_open" });
     expect(checkoutCreateMock).not.toHaveBeenCalled();
     expect(checkoutExpireMock).not.toHaveBeenCalled();
   });
 
   it("expires an open checkout for a different plan before opening the new one", async () => {
     workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutListMock.mockResolvedValue({
-      data: [
-        {
-          id: "cs_starter",
-          url: "https://checkout.stripe.test/starter",
-          metadata: { workspaceId: "ws-1", plan: "starter" },
-        },
-      ],
-    });
+    checkoutListMock.mockReturnValue([openSession("cs_starter", "starter")]);
 
     const res = await POST(makeRequest());
 
     expect(res.status).toBe(200);
     expect(checkoutExpireMock).toHaveBeenCalledWith("cs_starter");
     expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("finds an open checkout past the first page of sessions", async () => {
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutListMock.mockReturnValue([
+      ...Array.from({ length: 120 }, (_, i) =>
+        openSession(`cs_other_${i}`, "pro", `ws-other-${i}`),
+      ),
+      openSession("cs_open", "pro"),
+    ]);
+
+    const res = await POST(makeRequest());
+
+    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/cs_open" });
+    expect(checkoutCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps one open checkout for the plan and expires any duplicates", async () => {
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutListMock.mockReturnValue([
+      openSession("cs_first", "pro"),
+      openSession("cs_second", "pro"),
+    ]);
+
+    const res = await POST(makeRequest());
+
+    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/cs_first" });
+    expect(checkoutExpireMock).toHaveBeenCalledTimes(1);
+    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_second");
+  });
+
+  it("tolerates a session a simultaneous request already expired", async () => {
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutListMock.mockReturnValue([openSession("cs_starter", "starter")]);
+    checkoutExpireMock.mockRejectedValue(new Error("session is not open"));
+    checkoutRetrieveMock.mockResolvedValue({ id: "cs_starter", status: "expired" });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a new idempotency key after expiring a session, so a retry is not served a closed one", async () => {
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_790_000_000_000);
+
+    await POST(makeRequest());
+    checkoutListMock.mockReturnValue([openSession("cs_starter", "starter")]);
+    await POST(makeRequest());
+    now.mockRestore();
+
+    const [[, before], [, after]] = checkoutCreateMock.mock.calls as [
+      unknown,
+      { idempotencyKey: string },
+    ][];
+    expect(after.idempotencyKey).not.toBe(before.idempotencyKey);
   });
 
   it("gives simultaneous requests the same idempotency key, so Stripe opens one session", async () => {
@@ -212,6 +284,26 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     expect(checkoutCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({ customer: "cus_new" }),
       expect.objectContaining({ idempotencyKey: expect.any(String) }),
+    );
+    expect(workspaceUpdateManyMock).toHaveBeenCalledWith({
+      where: { id: "ws-1", billingCustomerId: null },
+      data: { billingCustomerId: "cus_new" },
+    });
+  });
+
+  it("continues with the stored customer when another admin created one first", async () => {
+    workspaceFindFirstMock.mockResolvedValue(workspace({ billingCustomerId: null }));
+    customersCreateMock.mockResolvedValue({ id: "cus_late" });
+    workspaceUpdateManyMock.mockResolvedValue({ count: 0 });
+    workspaceFindUniqueMock.mockResolvedValue({ billingCustomerId: "cus_first" });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(customersDelMock).toHaveBeenCalledWith("cus_late");
+    expect(checkoutCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ customer: "cus_first" }),
+      expect.anything(),
     );
   });
 });
