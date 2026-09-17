@@ -25,7 +25,11 @@ TITLE = "TraceRoot Public API"
 
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 _BEARER_SCHEME = {"type": "http", "scheme": "bearer"}
-_ERROR_SCHEMA = {"type": "object", "properties": {"detail": {"type": "string"}}}
+#: The canonical envelope, by reference. Inline, these responses generated an
+#: anonymous type per operation, so a client branching on an error saw one shape
+#: for the statuses a route declares itself and another for the two added here.
+#: ErrorResponse is the same object and also marks ``detail`` required.
+_ERROR_SCHEMA = {"$ref": "#/components/schemas/ErrorResponse"}
 
 
 def _error_response(description: str) -> dict[str, Any]:
