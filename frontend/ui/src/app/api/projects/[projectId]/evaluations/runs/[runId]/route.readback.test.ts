@@ -61,6 +61,10 @@ vi.mock("@traceroot/core", async (importOriginal) => {
         }),
       },
       dataset: { findFirst: vi.fn(async () => db.dataset) },
+      // The route resolves the workspace's plan for the retention gate. Unlimited
+      // retention keeps these exposure assertions independent of the gate and of the
+      // wall clock; route.retention.test.ts covers the gate itself.
+      workspace: { findUnique: vi.fn(async () => ({ billingPlan: "enterprise" })) },
     },
   };
 });
@@ -74,7 +78,9 @@ const params = (runId: string) => ({
 
 beforeEach(() => {
   auth.requireAuth.mockResolvedValue({ user: { id: "u1", email: "e@x.com" } });
-  auth.requireProjectAccess.mockResolvedValue({ project: { id: PROJECT_ID } });
+  auth.requireProjectAccess.mockResolvedValue({
+    project: { id: PROJECT_ID, workspaceId: "ws1" },
+  });
   db.dataset = { id: "ds1", name: "Billing routing" };
   db.run = {
     id: "run1",
