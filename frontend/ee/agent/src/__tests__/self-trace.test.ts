@@ -257,6 +257,19 @@ describe("withAgentTrace root I/O", () => {
     // The cap is 16 KB of UTF-8, marker included — not 16 K UTF-16 units.
     expect(Buffer.byteLength(calls["traceroot.span.output"], "utf8")).toBeLessThanOrEqual(16_384);
     expect(calls["traceroot.span.output"].endsWith("…")).toBe(true);
+    // The cut is marked on the root, like on every other span whose capture cut.
+    expect(calls["traceroot.truncated"]).toBe(true);
+    spy.mockRestore();
+  });
+
+  it("does not mark a root whose prompt and answer fit", async () => {
+    const setAttribute = vi.fn();
+    const { trace } = await import("@opentelemetry/api");
+    const spy = vi.spyOn(trace, "getActiveSpan").mockReturnValue({ setAttribute } as never);
+    await mod.withAgentTrace({ ...meta, input: "short" }, async () => "done", {
+      recordOutput: (v) => `answer: ${v}`,
+    });
+    expect(Object.fromEntries(setAttribute.mock.calls)).not.toHaveProperty("traceroot.truncated");
     spy.mockRestore();
   });
 

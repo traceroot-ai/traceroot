@@ -44,11 +44,14 @@ off by default and controlled per kind.
   `SELECT source, count(), sum(length(output)) FROM spans
    WHERE ch_create_time > now() - INTERVAL 1 DAY GROUP BY source`.
 - Export failures: agent-service log lines `[AgentTrace] export failed`.
-- Cut captures: a span whose recorded input/output was cut to the per-step cap carries
+- Cut captures: a span whose recorded input/output was cut to its cap (the root's prompt,
+  answer and system prompt; an LLM span's input/output; a tool span's args/result) carries
   `traceroot.truncated = true`; a tool span whose result was withheld because the run's
   capture budget was already spent carries `traceroot.capture_budget_exceeded = true`.
-  Many of the latter in one run means the budget (`DEFAULT_CAPTURE_BUDGET`) is too small
-  for that agent's tool mix.
+  Both live in the span's `metadata` JSON (the `traceroot.*` keys are kept out of
+  `metadata_map` by design), so query them as
+  `JSONExtractBool(metadata, 'traceroot.capture_budget_exceeded')`. Many of the latter in
+  one run means the budget (`DEFAULT_CAPTURE_BUDGET`) is too small for that agent's tool mix.
 - Customer surfaces: the Traces list and dashboards must show zero `agent` rows
   (`customer_traffic_only()` guards every customer read; `tests/rest/test_source_consumers.py`
   enforces the inventory).
