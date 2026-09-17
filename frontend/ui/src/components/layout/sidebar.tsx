@@ -29,6 +29,7 @@ import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
 import { SidebarUpgradeButton } from "@/components/layout/SidebarUpgradeButton";
 import { clientEnv } from "@/env.client";
 import { exitImpersonation } from "@/features/support/exit";
+import { ImpersonationBanner } from "@/features/support/impersonation-banner";
 import { isStaff } from "@/lib/support/policy";
 
 function getInitials(name?: string | null, email?: string | null): string {
@@ -86,6 +87,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           collapsed ? "w-14" : "w-48",
         )}
       >
+        <ImpersonationBanner collapsed={collapsed} />
+
         {/* Header with logo */}
         <div
           className={cn(
