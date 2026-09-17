@@ -108,6 +108,18 @@ class TestProjectAccessInternalBypass:
         assert info.user_id == "system"
         assert len(compare_digest_spy) == 1
 
+    async def test_no_platform_secret_configured_closes_the_bypass_to_both(
+        self, secret, monkeypatch
+    ):
+        # The internal router answers 503 in this state; the app routes must not
+        # still honour a credential, or an agent secret alone would open an
+        # admin door on a deployment that never configured internal traffic.
+        monkeypatch.setattr(settings, "internal_api_secret", "")
+        for header in ("test-secret", "agent-secret"):
+            with pytest.raises(HTTPException) as exc:
+                await get_project_access(project_id="p1", x_user_id=None, x_internal_secret=header)
+            assert exc.value.status_code == 401
+
     async def test_agent_secret_grants_the_same_system_access(self, secret, compare_digest_spy):
         # The agent service holds only its own secret and reads traces through
         # this route (download_traces); a platform-only bypass 401s every RCA.
