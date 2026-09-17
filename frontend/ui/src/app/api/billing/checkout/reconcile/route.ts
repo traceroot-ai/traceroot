@@ -62,7 +62,19 @@ export async function POST(req: NextRequest) {
     }
 
     const billing = workspaceBillingFromSubscription(subscription);
-    await prisma.workspace.update({ where: { id: workspaceId }, data: billing });
+    // Only fill in a workspace that has no subscription yet or is already on this
+    // one. A revisited success link, or a checkout that lost a race to another,
+    // must not replace the subscription the workspace is actually on.
+    const { count } = await prisma.workspace.updateMany({
+      where: {
+        id: workspaceId,
+        OR: [{ billingSubscriptionId: null }, { billingSubscriptionId: subscription.id }],
+      },
+      data: billing,
+    });
+    if (count === 0) {
+      return NextResponse.json({ reconciled: false });
+    }
 
     return NextResponse.json({ reconciled: true, plan: billing.billingPlan });
   } catch (error) {

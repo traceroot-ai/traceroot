@@ -38,7 +38,7 @@ vi.mock("@traceroot/core", async () => ({
   prisma: {
     workspace: {
       findFirst: (...args: unknown[]) => workspaceFindFirstMock(...args),
-      update: (...args: unknown[]) => workspaceUpdateMock(...args),
+      updateMany: (...args: unknown[]) => workspaceUpdateMock(...args),
     },
   },
   getStripeOrThrow: () => ({
@@ -92,7 +92,7 @@ beforeEach(() => {
 
   getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
   workspaceFindFirstMock.mockResolvedValue({ id: "ws-1" });
-  workspaceUpdateMock.mockResolvedValue({ id: "ws-1" });
+  workspaceUpdateMock.mockResolvedValue({ count: 1 });
   sessionsRetrieveMock.mockResolvedValue(checkoutSession());
 });
 
@@ -104,10 +104,13 @@ describe("POST /api/billing/checkout/reconcile", () => {
     expect(await res.json()).toEqual({ reconciled: true, plan: "pro" });
     expect(workspaceUpdateMock).toHaveBeenCalledTimes(1);
     const arg = workspaceUpdateMock.mock.calls[0][0] as {
-      where: { id: string };
+      where: { id: string; OR: unknown };
       data: Record<string, unknown>;
     };
-    expect(arg.where.id).toBe("ws-1");
+    expect(arg.where).toEqual({
+      id: "ws-1",
+      OR: [{ billingSubscriptionId: null }, { billingSubscriptionId: "sub_1" }],
+    });
     expect(arg.data).toMatchObject({
       billingCustomerId: "cus_1",
       billingSubscriptionId: "sub_1",
@@ -126,6 +129,16 @@ describe("POST /api/billing/checkout/reconcile", () => {
 
     expect(await res.json()).toEqual({ reconciled: true, plan: "pro" });
     expect(subscriptionsRetrieveMock).toHaveBeenCalledWith("sub_1");
+  });
+
+  it("leaves a workspace that is already on a different subscription alone", async () => {
+    // The conditional update matches no row when the stored subscription differs.
+    workspaceUpdateMock.mockResolvedValue({ count: 0 });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ reconciled: false });
   });
 
   it("does not write while the checkout is still open", async () => {
