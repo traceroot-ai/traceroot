@@ -21,7 +21,12 @@ const AGENT_TRACE_KINDS: ReadonlySet<string> = new Set<AgentTraceKind>(["rca", "
  * turn's spans can still fail after its flush resolved. Per-trace export
  * confirmation needs SDK support.
  */
-export type AgentTraceOutcome = "disabled" | "available" | "failed";
+/**
+ * `pending` is what a deferred flush reports at the turn's end: the spans are
+ * recorded and the upload runs afterwards; `flushed` settles to available or
+ * failed and the caller writes that onto the persisted row.
+ */
+export type AgentTraceOutcome = "disabled" | "available" | "failed" | "pending";
 export interface AgentTraceMeta {
   traceId: string;
   projectId: string;
@@ -217,8 +222,16 @@ export async function withAgentTrace<T>(
     recordOutput?: (value: T) => string | undefined;
     /** An error the run resolved WITH (the agent failed but fn did not reject) — marks the root ERROR. */
     runError?: (value: T) => Error | undefined;
+    /**
+     * `await` (default): the call resolves once the trace is uploaded, with
+     * the final status. `defer`: the call resolves as soon as the run's spans
+     * are closed, with `trace: "pending"` and a `flushed` promise for the
+     * upload's outcome — for a turn a user is waiting on, which must not sit
+     * behind a slow ingest (the flush queue is process-wide, 30 s timeout).
+     */
+    flush?: "await" | "defer";
   } = {},
-): Promise<{ value: T; trace: AgentTraceOutcome }> {
+): Promise<{ value: T; trace: AgentTraceOutcome; flushed?: Promise<"available" | "failed"> }> {
   if (!isAgentTraceEnabled(meta.kind) || !initOnce()) {
     return { value: await fn(), trace: "disabled" };
   }
@@ -309,11 +322,13 @@ export async function withAgentTrace<T>(
     console.error("[AgentTrace] observe failed before the run; running untraced:", err);
     return { value: await fn(), trace: "failed" };
   }
-  try {
-    await flushSerialised();
-    return { value, trace: "available" };
-  } catch (err) {
-    console.error(`[AgentTrace] export failed for trace ${meta.traceId}:`, err);
-    return { value, trace: "failed" };
-  }
+  const flushed = flushSerialised().then(
+    () => "available" as const,
+    (err: unknown) => {
+      console.error(`[AgentTrace] export failed for trace ${meta.traceId}:`, err);
+      return "failed" as const;
+    },
+  );
+  if (options.flush === "defer") return { value, trace: "pending", flushed };
+  return { value, trace: await flushed };
 }

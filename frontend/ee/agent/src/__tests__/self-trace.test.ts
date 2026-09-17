@@ -167,6 +167,27 @@ describe("withAgentTrace", () => {
     const r = await mod.withAgentTrace(meta, async () => "v");
     expect(r).toEqual({ value: "v", trace: "failed" });
   });
+  it("defer: resolves pending once the spans are closed and reports the upload separately", async () => {
+    let settle!: () => void;
+    flush.mockImplementation(() => new Promise<void>((res) => (settle = res)));
+    const r = await mod.withAgentTrace(meta, async () => 42, { flush: "defer" });
+    expect(r.value).toBe(42);
+    expect(r.trace).toBe("pending");
+    expect(flush).toHaveBeenCalledTimes(1); // the upload started, it is just not awaited
+    settle();
+    await expect(r.flushed).resolves.toBe("available");
+  });
+  it("defer: a failed upload lands on `flushed`, never on the call", async () => {
+    flush.mockRejectedValueOnce(new Error("export 403"));
+    const r = await mod.withAgentTrace(meta, async () => "v", { flush: "defer" });
+    expect(r.trace).toBe("pending");
+    await expect(r.flushed).resolves.toBe("failed");
+  });
+  it("await (default) carries no `flushed` promise", async () => {
+    const r = await mod.withAgentTrace(meta, async () => "v");
+    expect(r).toEqual({ value: "v", trace: "available" });
+    expect(r).not.toHaveProperty("flushed");
+  });
   it("returns disabled and runs fn plainly when the flag is off", async () => {
     process.env.AGENT_SELF_TRACE = "0";
     const r = await mod.withAgentTrace(meta, async () => "v");

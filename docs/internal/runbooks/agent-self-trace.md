@@ -28,6 +28,11 @@ off by default and controlled per kind.
    the exporter is process-wide, so a batch holding a turn's spans can still fail after
    that turn was acked. Cross-check with the span volume query below; a link whose trace
    never landed opens an empty trace.
+   Only an RCA turn waits for its flush before ending. A chat or follow-up turn ends as
+   soon as its spans are closed: its final assistant row is written with
+   `metadata.traceStatus = "pending"` and updated to `available`/`failed` when the
+   upload settles (a few seconds later; 30 s at most). A row left at `pending` means the
+   agent process died between the two writes.
 
 ## Observe (first week)
 

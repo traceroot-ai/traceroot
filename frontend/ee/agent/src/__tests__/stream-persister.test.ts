@@ -100,6 +100,19 @@ describe("StreamPersister", () => {
     expect(last.metadata).toMatchObject({ traceId: "f".repeat(32), traceStatus: "available" });
   });
 
+  it("remembers the final assistant row's id, so a deferred trace status can be stamped on it", async () => {
+    let n = 0;
+    const p = new StreamPersister(async (role) => ({ id: `${role}-${++n}` }));
+    expect(p.finalSegmentId()).toBeUndefined();
+    p.onEvent(textDelta("a"));
+    p.onEvent(toolStart("call-1", "bash", { cmd: "ls" }));
+    p.onEvent(toolEnd("call-1", "bash", "ok"));
+    p.onEvent(textDelta("b"));
+    await p.finish(USAGE, { traceId: "f".repeat(32), status: "pending" });
+    // Rows: assistant-1, tool_step-2, assistant-3 — the last assistant one wins.
+    expect(p.finalSegmentId()).toBe("assistant-3");
+  });
+
   it("persists a text-only run as a single assistant row carrying the usage", async () => {
     const { persister, calls } = makePersister();
     persister.onEvent(textDelta("Hello"));
