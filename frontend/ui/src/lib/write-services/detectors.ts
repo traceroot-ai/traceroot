@@ -1,4 +1,10 @@
-import { prisma, Role, hasMinRole } from "@traceroot/core";
+import {
+  prisma,
+  Role,
+  hasMinRole,
+  detectorModelProblem,
+  listWorkspaceModels,
+} from "@traceroot/core";
 import { z } from "zod";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import {
@@ -33,6 +39,7 @@ const STANDARD_TEMPLATE_IDS = DETECTOR_TEMPLATES.filter((t) => t.id !== "blank")
 // Mirrors the cookie route's validation verbatim so both write surfaces
 // reject the same payloads with the same messages — except prompt, which
 // only this surface may omit to adopt a standard template's instructions.
+// The model check below the schema is shared with that route the same way.
 const inputSchema = z
   .object({
     name: nonEmptyString("name"),
@@ -154,6 +161,22 @@ export async function createDetector(input: {
       // A detector created at 0% sampling should not show as "enabled but never
       // fires" — default enabled to sampleRate > 0 so it starts paused instead.
       const resolvedEnabled = enabled ?? resolvedSampleRate > 0;
+
+      // A model the workspace cannot run fails here, not on the detector's
+      // first evaluation: the message lists what it can run, so a caller
+      // that guessed an id (an agent, a script) can retry with a real one.
+      // Reading the list is skipped for the plain default choice; a provider
+      // beside a system model is not checked because the picker sends the
+      // system provider's name there, and the worker ignores it.
+      if (parsed.data.detectionModel || detectionSource === "byok") {
+        const problem = detectorModelProblem(
+          parsed.data,
+          await listWorkspaceModels(project.workspaceId, { db: tx }),
+        );
+        if (problem !== null) {
+          return { result: { ok: false, status: 400, error: problem } };
+        }
+      }
 
       // Idempotent create: a detector with the same name in this project is
       // returned as-is, so agent/CLI retries can't fan out duplicates. This

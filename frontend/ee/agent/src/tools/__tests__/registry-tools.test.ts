@@ -523,6 +523,7 @@ describe("createTools", () => {
   ];
   const WRITE_TOOL_NAMES = ["create_detector", "create_dashboard", "create_widget", "create_alert"];
   const OTHER_TOOL_NAMES = [
+    "list_detector_models",
     "download_traces",
     "download_session",
     "check_github_access",

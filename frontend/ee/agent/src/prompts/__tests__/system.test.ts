@@ -146,6 +146,14 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("never restate it as a figure such as $0 or 0");
   });
 
+  it("routes a detector's model through list_detector_models and retries a 400 with a listed id", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("call list_detector_models and take the id from its result");
+    expect(prompt).toContain("never a remembered or guessed id");
+    expect(prompt).toContain("Leaving detection_model unset runs the system default");
+    expect(prompt).toContain("propose the same call again with one of those");
+  });
+
   it("tells the agent a numeric threshold could be a prompt or a trigger condition, and to ask", () => {
     const prompt = getSystemPrompt({ projectId: "p1" });
     expect(prompt).toContain("deterministic trigger condition");

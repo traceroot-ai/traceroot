@@ -44,6 +44,9 @@ export * from "./alerts.ts";
 // LLM Providers
 export * from "./llm-providers.ts";
 
+// The models a workspace can run a detector on, and the check a detector write makes against them
+export * from "./workspace-models.ts";
+
 // Model Pricing (DB-backed)
 export * from "./model-pricing/index.ts";
 
