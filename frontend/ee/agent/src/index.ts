@@ -81,8 +81,8 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const workspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{ title?: string; executionId?: unknown }>();
 
-  // Every message in this session inherits the session's executionId as its
-  // attribution, so an id from another project would attribute this project's
+  // Every message in this session reaches its execution through the session's
+  // executionId, so an id from another project would attribute this project's
   // turns to that one. The caller is trusted to reach the route, not to name
   // an execution: confirm it exists under this project before storing it. A
   // malformed id is rejected here rather than surfacing later as an FK error
@@ -267,20 +267,14 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   // Attribution is computed once per turn and applied to every row it
   // produces (the user message, and every assistant/tool_step row the
   // persister writes below) so a turn reads as one attributed unit.
+  // A follow-up's author is recorded (the RCA session has no user of its
+  // own); a chat turn's author is the session's user, so nothing is repeated.
   const attribution: TurnAttribution =
     ownedSession.userId === null
       ? userId
-        ? {
-            turnKind: "rca_followup",
-            executionId: ownedSession.executionId,
-            initiatorUserId: userId,
-          }
-        : {
-            turnKind: "rca_execution",
-            executionId: ownedSession.executionId,
-            initiatorUserId: null,
-          }
-      : { turnKind: "chat", initiatorUserId: userId || null };
+        ? { turnKind: "rca_followup", initiatorUserId: userId }
+        : { turnKind: "rca_execution" }
+      : { turnKind: "chat" };
 
   let agent: Agent;
   let sessionManager: SessionManager;

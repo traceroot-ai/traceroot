@@ -28,7 +28,12 @@ export interface TokenUsageData {
 
 export interface TurnAttribution {
   turnKind: TurnKind;
-  executionId?: string | null;
+  /**
+   * Who sent a follow-up in an RCA session. The session is the system's
+   * (`user_id` null), so this is the only record of the author; it is kept
+   * on the user row's metadata (`initiatorUserId`) — no column until
+   * something reads it. A chat session's author is the session's user.
+   */
   initiatorUserId?: string | null;
 }
 
@@ -382,11 +387,11 @@ export class SessionManager {
         workspaceId: session.workspaceId,
         kind: LEGACY_KIND[attribution.turnKind],
         turnKind: attribution.turnKind,
-        executionId: attribution.executionId ?? null,
-        initiatorUserId: attribution.initiatorUserId ?? null,
         role,
         content,
-        metadata: metadata as any,
+        metadata: (role === "user" && attribution.initiatorUserId
+          ? { ...metadata, initiatorUserId: attribution.initiatorUserId }
+          : metadata) as any,
         ...(tokenUsage && {
           model: tokenUsage.model,
           provider: tokenUsage.provider,
