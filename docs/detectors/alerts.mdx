@@ -3,7 +3,7 @@ title: Alerts
 description: Send detector findings to email and Slack
 ---
 
-An alert fires once the two-step pipeline completes: the LLM-as-a-judge flags a trace, the TraceRoot AI agent finishes its root cause analysis, and the combined result lands in your configured channels. Email is supported by default; Slack is available on Pro plans and above.
+An alert fires once the two-step pipeline completes: the LLM-as-a-judge flags a trace, the TraceRoot AI agent finishes its root cause analysis, and the combined result lands in your configured channels. Email is supported by default; Slack is available on all plans, including Free.
 
 ## Email
 
@@ -16,7 +16,7 @@ Each finding produces one email containing:
 
 ## Slack
 
-Slack delivery is available on **Pro plans** and above. The integration is workspace-level — one Slack workspace per TraceRoot workspace, with a single destination channel.
+Slack delivery is available on **all plans**, including Free. The integration is workspace-level — one Slack workspace per TraceRoot workspace, with a single destination channel.
 
 <Frame>
   <img src="/images/detector_slack_v1.png" alt="Detector alert posted to a Slack channel" />
@@ -27,8 +27,6 @@ Slack delivery is available on **Pro plans** and above. The integration is works
 1. Open **Settings** then **Integrations** as a workspace admin.
 2. Click **Connect** and complete the OAuth flow in your Slack workspace.
 3. Pick the channel TraceRoot should post alerts to.
-
-If your plan doesn't include Slack, the connect button takes you to the upgrade page instead of starting the OAuth flow.
 
 ### What Slack alerts contain
 
