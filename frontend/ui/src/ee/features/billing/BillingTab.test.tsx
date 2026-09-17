@@ -73,8 +73,26 @@ describe("BillingTab", () => {
 
     // Customer rows: user traces + spans.
     expect(screen.getByText("Your events").nextSibling?.textContent).toBe("1,100");
-    // Platform rows: detector + agent, traces + spans.
+    // Platform rows: everything that is not the customer's (total − user).
     expect(screen.getByText("Platform events").nextSibling?.textContent).toBe("100");
+  });
+
+  it("counts a platform writer the breakdown does not name", () => {
+    const usage: UsageStats = {
+      traces: 120, // 100 user + 8 detector + 2 agent + 10 from a newer writer
+      spans: 1090,
+      tokens: 0,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      bySource: {
+        user: { traces: 100, spans: 1000 },
+        detector: { traces: 8, spans: 80 },
+        agent: { traces: 2, spans: 10 },
+      },
+    };
+
+    render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.PRO} currentUsage={usage} />);
+
+    expect(screen.getByText("Platform events").nextSibling?.textContent).toBe("110");
   });
 
   it("omits the per-source breakdown for workspaces not yet re-metered (no bySource)", () => {
