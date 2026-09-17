@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from rest.routers.deps import get_project_access
 from rest.routers.internal import verify_internal_secret
 from shared.config import settings
+from shared.enums import MemberRole
 
 
 @pytest.fixture()
@@ -106,6 +107,16 @@ class TestProjectAccessInternalBypass:
         info = await get_project_access(project_id="p1", x_user_id=None, x_internal_secret=secret)
         assert info.user_id == "system"
         assert len(compare_digest_spy) == 1
+
+    async def test_agent_secret_grants_the_same_system_access(self, secret, compare_digest_spy):
+        # The agent service holds only its own secret and reads traces through
+        # this route (download_traces); a platform-only bypass 401s every RCA.
+        info = await get_project_access(
+            project_id="p1", x_user_id=None, x_internal_secret="agent-secret"
+        )
+        assert info.user_id == "system"
+        assert info.role == MemberRole.ADMIN
+        assert len(compare_digest_spy) == 2
 
     async def test_wrong_secret_falls_through_to_401(self, secret):
         with pytest.raises(HTTPException) as exc:
