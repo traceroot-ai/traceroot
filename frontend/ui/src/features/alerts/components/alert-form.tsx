@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_ALERT_WINDOW, type AlertWindow } from "@traceroot/core";
 import {
+  DEFAULT_ALERT_NO_DATA_MODE,
   DEFAULT_ALERT_RENOTIFY,
   DEFAULT_ALERT_VIEW,
   getMeasure,
   isCompleteAlertFilter,
   type AlertAggregation,
   type AlertFilter,
+  type AlertNoDataMode,
   type AlertOperator,
   type AlertRenotify,
   type AlertView,
@@ -41,6 +43,7 @@ export interface AlertDraft {
   operator: AlertOperator;
   threshold: string;
   window: AlertWindow;
+  noDataMode: AlertNoDataMode;
   renotify: AlertRenotify;
   name: string;
 }
@@ -53,6 +56,7 @@ const INITIAL_DRAFT: AlertDraft = {
   operator: ">",
   threshold: "",
   window: DEFAULT_ALERT_WINDOW,
+  noDataMode: DEFAULT_ALERT_NO_DATA_MODE,
   renotify: DEFAULT_ALERT_RENOTIFY,
   name: "",
 };
@@ -120,6 +124,7 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
       thresholdOperator: draft.operator,
       threshold,
       renotify: draft.renotify,
+      noDataMode: draft.noDataMode,
     };
     const options = { onSuccess: () => router.push(`/projects/${projectId}/alerts`) };
     // The whole rule goes on every edit, not a diff: the route's change
@@ -153,10 +158,12 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
             operator={draft.operator}
             threshold={draft.threshold}
             window={draft.window}
+            noDataMode={draft.noDataMode}
             renotify={draft.renotify}
             onOperatorChange={(operator) => setDraft((d) => ({ ...d, operator }))}
             onThresholdChange={(threshold) => setDraft((d) => ({ ...d, threshold }))}
             onWindowChange={(window) => setDraft((d) => ({ ...d, window }))}
+            onNoDataModeChange={(noDataMode) => setDraft((d) => ({ ...d, noDataMode }))}
             onRenotifyChange={(renotify) => setDraft((d) => ({ ...d, renotify }))}
           />
 
