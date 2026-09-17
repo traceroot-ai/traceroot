@@ -225,6 +225,44 @@ def test_a_referenced_parameter_the_caller_did_not_send_is_a_client_error(http):
     assert resp.json()["detail"] == "Query uses a parameter that was not supplied."
 
 
+#: A value the declared type cannot hold. ClickHouse raises a different code per
+#: type family, and the wording is what the service reads, so these have to run
+#: against a real server: a fake would only prove the code matches itself. The
+#: trailing Z is the spelling every ISO-8601 formatter emits.
+UNPARSEABLE = [
+    (
+        "an ISO timestamp with a zone",
+        "SELECT count() FROM spans WHERE span_start_time > {p:DateTime64(3)}",
+        "2026-01-01T00:00:00Z",
+    ),
+    (
+        "a number that is not one",
+        "SELECT count() FROM spans WHERE duration_ms > {p:Int64}",
+        "not-a-number",
+    ),
+    (
+        "a date that is not one",
+        "SELECT count() FROM spans WHERE toDate(span_start_time) > {p:Date}",
+        "nope",
+    ),
+]
+
+
+@pytest.mark.parametrize("label,sql,value", UNPARSEABLE, ids=[u[0] for u in UNPARSEABLE])
+def test_a_value_the_declared_type_cannot_hold_is_a_client_error(http, label, sql, value):
+    # A 500 would send the caller to read a status page about a value only they
+    # can fix, and would page whoever owns the gateway for it.
+    resp = http(PROJECT_A).post(
+        SQL_URL, json={"query": sql, "parameters": {"p": value}}, headers=AUTH_HEADER
+    )
+    assert resp.status_code == 400, f"{label}: {resp.text}"
+    assert resp.json()["detail"] == (
+        "Query supplied a parameter value that its declared type cannot hold."
+    )
+    _assert_no_leak(resp.text)
+    assert value not in resp.text, f"{label}: the refused value came back"
+
+
 # ---------------------------------------------------------------------------
 # 3. The row cap and its truncation sentinel
 # ---------------------------------------------------------------------------

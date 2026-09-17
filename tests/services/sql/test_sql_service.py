@@ -265,6 +265,86 @@ class TestErrorClassification:
             _service(client).run("SELECT span_id FROM spans", PID)
         assert exc_info.value.is_client_error is False
 
+    # Verbatim from ClickHouse 25.2. Each type family raises its own code, which
+    # is the reason blame follows the clause naming the parameter rather than a
+    # list of codes that would go stale with the next type ClickHouse adds.
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            # The trailing Z every ISO-8601 formatter emits, which is the shape a
+            # caller is most likely to send by accident.
+            "Code: 457. DB::Exception: Value 2026-01-01T00:00:00Z cannot be parsed as "
+            "DateTime64(3) for query parameter 'p' because it isn't parsed completely: "
+            "only 19 of 20 bytes was parsed: 2026-01-01 00:00:00. (BAD_QUERY_PARAMETER)",
+            "Code: 41. DB::Exception: Cannot parse datetime: value nope cannot be parsed "
+            "as DateTime for query parameter 'p'. (CANNOT_PARSE_DATETIME)",
+            "Code: 38. DB::Exception: Cannot parse date: value is too short: value nope "
+            "cannot be parsed as Date for query parameter 'p'. (CANNOT_PARSE_DATE)",
+            "Code: 376. DB::Exception: Cannot parse uuid nope: value nope cannot be "
+            "parsed as UUID for query parameter 'p'. (CANNOT_PARSE_UUID)",
+            "Code: 130. DB::Exception: Array does not start with '[' character: value "
+            "nope cannot be parsed as Array(UInt8) for query parameter 'p'. "
+            "(CANNOT_READ_ARRAY_FROM_TEXT)",
+            "Code: 27. DB::Exception: Cannot parse input: expected '{' before: 'nope': "
+            "value nope cannot be parsed as Map(String,UInt8) for query parameter 'p'. "
+            "(CANNOT_PARSE_INPUT_ASSERTION_FAILED)",
+        ],
+    )
+    def test_a_value_the_declared_type_cannot_hold_is_the_caller_s_problem(self, raw: str) -> None:
+        # A 500 here would send the caller to read a status page about a value
+        # only they can fix, and would page whoever owns the gateway for it.
+        client = FakeClient(raises=ClickHouseError(raw))
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run(
+                "SELECT span_id FROM spans WHERE duration_ms > {p:Int64}",
+                PID,
+                parameters={"p": "nope"},
+            )
+        assert exc_info.value.is_client_error
+        assert str(exc_info.value) == (
+            "Query supplied a parameter value that its declared type cannot hold."
+        )
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            # A parameter the caller did not supply is the rewriter's bind, so the
+            # value came from the gateway and the gateway is what is wrong.
+            "Code: 457. DB::Exception: Value x cannot be parsed as String for query "
+            "parameter 'scope_project_id'. (BAD_QUERY_PARAMETER)",
+            # Wording this code cannot read stays a server error, so a change in
+            # ClickHouse's prose costs a caller a generic message and never costs
+            # an alert.
+            "Code: 457. DB::Exception: a wording nobody has seen",
+        ],
+    )
+    def test_a_value_failure_the_caller_did_not_cause_stays_a_server_error(self, raw: str) -> None:
+        client = FakeClient(raises=ClickHouseError(raw))
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run(
+                "SELECT span_id FROM spans WHERE duration_ms > {p:Int64}",
+                PID,
+                parameters={"p": "nope"},
+            )
+        assert exc_info.value.is_client_error is False
+        assert str(exc_info.value) == "Query execution failed."
+
+    def test_the_value_that_was_refused_never_reaches_the_caller(self) -> None:
+        # The raw text quotes the value back, and a caller's value can carry
+        # anything, so the returned sentence is fixed and derived from nothing.
+        raw = (
+            "Code: 457. DB::Exception: Value spans_public_v1 cannot be parsed as Int64 "
+            "for query parameter 'p'. (BAD_QUERY_PARAMETER)"
+        )
+        client = FakeClient(raises=ClickHouseError(raw))
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run(
+                "SELECT span_id FROM spans WHERE duration_ms > {p:Int64}",
+                PID,
+                parameters={"p": "spans_public_v1"},
+            )
+        assert "spans_public_v1" not in str(exc_info.value)
+
     def test_a_message_with_no_code_is_opaque(self) -> None:
         message, is_client_error = classify_ch_error("connection reset by peer")
         assert is_client_error is False
