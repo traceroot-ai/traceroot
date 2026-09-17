@@ -417,25 +417,29 @@ def test_jwt_without_sid_is_rejected(monkeypatch):
 
 # ── liveness gate coverage across every write route ─────────────────────
 
-# The five write routes beyond create_workspace, each with its minimal valid
-# body and the internal write route it would reach if the gate failed open.
+INTERNAL = f"{BASE_URL}/api/internal/write"
+DELETE_QUERY = "project_id=proj-1&reason=no%20longer%20needed"
+
+# Every write route beyond create_workspace as (method, public path, body,
+# internal write url): the minimal valid request and the internal route it
+# would reach if the gate failed open. Deletes carry their tenancy and reason
+# in the query string and send no body.
 _OTHER_WRITE_ROUTES = [
+    ("POST", "/api/v1/public/projects", {"workspace_id": "ws-1", "name": "P1"}, PROJECT_WRITE_URL),
     (
-        "/api/v1/public/projects",
-        {"workspace_id": "ws-1", "name": "P1"},
-        PROJECT_WRITE_URL,
-    ),
-    (
+        "POST",
         "/api/v1/public/detectors",
         {"project_id": "proj-1", "name": "D", "template": "custom", "prompt": "p"},
-        f"{BASE_URL}/api/internal/write/detectors",
+        f"{INTERNAL}/detectors",
     ),
     (
+        "POST",
         "/api/v1/public/dashboards",
         {"project_id": "proj-1", "name": "Spend"},
-        f"{BASE_URL}/api/internal/write/dashboards",
+        f"{INTERNAL}/dashboards",
     ),
     (
+        "POST",
         "/api/v1/public/widgets",
         {
             "project_id": "proj-1",
@@ -448,9 +452,10 @@ _OTHER_WRITE_ROUTES = [
                 "display": {"type": "number"},
             },
         },
-        f"{BASE_URL}/api/internal/write/widgets",
+        f"{INTERNAL}/widgets",
     ),
     (
+        "POST",
         "/api/v1/public/alerts",
         {
             "project_id": "proj-1",
@@ -463,29 +468,92 @@ _OTHER_WRITE_ROUTES = [
             "threshold": 900,
             "renotify": {"mode": "OFF"},
         },
-        f"{BASE_URL}/api/internal/write/alerts",
+        f"{INTERNAL}/alerts",
     ),
+    ("PATCH", "/api/v1/public/workspaces/ws-1", {"name": "Beta"}, f"{INTERNAL}/workspaces/ws-1"),
+    ("PATCH", "/api/v1/public/projects/proj-1", {"name": "P2"}, f"{INTERNAL}/projects/proj-1"),
+    (
+        "PATCH",
+        "/api/v1/public/detectors/det-1",
+        {"project_id": "proj-1", "enabled": False},
+        f"{INTERNAL}/detectors/det-1",
+    ),
+    (
+        "PATCH",
+        "/api/v1/public/dashboards/dash-1",
+        {"project_id": "proj-1", "name": "Spend"},
+        f"{INTERNAL}/dashboards/dash-1",
+    ),
+    (
+        "PATCH",
+        "/api/v1/public/widgets/wid-1",
+        {"project_id": "proj-1", "title": "Cost"},
+        f"{INTERNAL}/widgets/wid-1",
+    ),
+    (
+        "PATCH",
+        "/api/v1/public/alerts/alr-1",
+        {"project_id": "proj-1", "threshold": 1},
+        f"{INTERNAL}/alerts/alr-1",
+    ),
+    (
+        "PATCH",
+        "/api/v1/public/alerts/alr-1/status",
+        {"project_id": "proj-1", "status": "PAUSED"},
+        f"{INTERNAL}/alerts/alr-1/status",
+    ),
+    (
+        "DELETE",
+        "/api/v1/public/workspaces/ws-1?name=Alpha&reason=winding%20down",
+        None,
+        f"{INTERNAL}/workspaces/ws-1",
+    ),
+    (
+        "DELETE",
+        "/api/v1/public/projects/proj-1?reason=winding%20down",
+        None,
+        f"{INTERNAL}/projects/proj-1",
+    ),
+    (
+        "DELETE",
+        f"/api/v1/public/detectors/det-1?{DELETE_QUERY}",
+        None,
+        f"{INTERNAL}/detectors/det-1",
+    ),
+    (
+        "DELETE",
+        f"/api/v1/public/dashboards/dash-1?{DELETE_QUERY}",
+        None,
+        f"{INTERNAL}/dashboards/dash-1",
+    ),
+    ("DELETE", f"/api/v1/public/widgets/wid-1?{DELETE_QUERY}", None, f"{INTERNAL}/widgets/wid-1"),
+    ("DELETE", f"/api/v1/public/alerts/alr-1?{DELETE_QUERY}", None, f"{INTERNAL}/alerts/alr-1"),
 ]
 
 
+def _mock_internal(method, url, body):
+    """Mock one internal write route for the given method."""
+    return respx.route(method=method, url=url).mock(return_value=Response(200, json=body))
+
+
 @respx.mock
-@pytest.mark.parametrize(("path", "body", "write_url"), _OTHER_WRITE_ROUTES)
+@pytest.mark.parametrize(("method", "path", "body", "write_url"), _OTHER_WRITE_ROUTES)
 def test_jwt_write_with_revoked_session_is_401_on_every_write_route(
-    monkeypatch, path, body, write_url
+    monkeypatch, method, path, body, write_url
 ):
     """Every write route blocks a JWT whose minting session was revoked.
 
     The liveness dependency is wired per route, so create_workspace passing
-    proves nothing about the other five — without this, deleting ``_live``
-    from any of them would let a revoked CLI session keep writing until its
-    JWT expired, with CI green.
+    proves nothing about the others — without this, deleting ``_live`` from
+    any of them would let a revoked CLI session keep writing until its JWT
+    expired, with CI green.
     """
     priv = _install_jwt_signer(monkeypatch)
     respx.post(LIVE_URL).mock(return_value=Response(200, json={"live": False}))
-    write = respx.post(write_url).mock(return_value=Response(200, json={}))
+    write = _mock_internal(method, write_url, {})
     token = _mint_jwt(priv, extra_claims={"sid": "sess-1"})
 
-    resp = _client().post(path, json=body, headers={"Authorization": f"Bearer {token}"})
+    resp = _client().request(method, path, json=body, headers={"Authorization": f"Bearer {token}"})
 
     assert resp.status_code == 401
     assert resp.json() == {"detail": "Session revoked or expired"}
@@ -494,30 +562,62 @@ def test_jwt_write_with_revoked_session_is_401_on_every_write_route(
 
 # ── write rate bucket enforcement (route level) ─────────────────────────
 
-# Success envelope per internal write route, so throttle tests see clean 200s
-# until the bucket trips.
+DETECTOR_ROW = {"id": "d1", "name": "D", "projectId": "proj-1", "enabled": True, "sampleRate": 10}
+DASHBOARD_ROW = {"id": "da1", "name": "Spend", "projectId": "proj-1"}
+WIDGET_ROW = {"id": "w1", "dashboardId": "dash-1", "title": "Cost", "type": "query"}
+DELETED = {"deleted": True, "reason": "no longer needed"}
+
+# Success envelope per (method, internal write url), so throttle tests see
+# clean 200s until the bucket trips.
 _WRITE_ENVELOPES = {
-    WS_WRITE_URL: {"created": True, "workspace": WORKSPACE_ROW},
-    PROJECT_WRITE_URL: {"created": True, "project": PROJECT_ROW},
-    f"{BASE_URL}/api/internal/write/detectors": {
-        "created": True,
-        "detector": {
-            "id": "d1",
-            "name": "D",
-            "projectId": "proj-1",
-            "enabled": True,
-            "sampleRate": 10,
-        },
+    ("POST", WS_WRITE_URL): {"created": True, "workspace": WORKSPACE_ROW},
+    ("POST", PROJECT_WRITE_URL): {"created": True, "project": PROJECT_ROW},
+    ("POST", f"{INTERNAL}/detectors"): {"created": True, "detector": DETECTOR_ROW},
+    ("POST", f"{INTERNAL}/dashboards"): {"created": True, "dashboard": DASHBOARD_ROW},
+    ("POST", f"{INTERNAL}/widgets"): {"created": True, "widget": WIDGET_ROW},
+    ("PATCH", f"{INTERNAL}/workspaces/ws-1"): {
+        "updated": True,
+        "changed": ["name"],
+        "workspace": WORKSPACE_ROW,
     },
-    f"{BASE_URL}/api/internal/write/dashboards": {
-        "created": True,
-        "dashboard": {"id": "da1", "name": "Spend", "projectId": "proj-1"},
+    ("PATCH", f"{INTERNAL}/projects/proj-1"): {
+        "updated": True,
+        "changed": ["name"],
+        "project": PROJECT_ROW,
     },
-    f"{BASE_URL}/api/internal/write/widgets": {
-        "created": True,
-        "widget": {"id": "w1", "dashboardId": "dash-1", "title": "Cost", "type": "query"},
+    ("PATCH", f"{INTERNAL}/detectors/det-1"): {
+        "updated": True,
+        "changed": ["enabled"],
+        "detector": DETECTOR_ROW,
     },
-    f"{BASE_URL}/api/internal/write/alerts": {
+    ("PATCH", f"{INTERNAL}/dashboards/dash-1"): {
+        "updated": True,
+        "changed": [],
+        "dashboard": DASHBOARD_ROW,
+    },
+    ("PATCH", f"{INTERNAL}/widgets/wid-1"): {"updated": True, "changed": [], "widget": WIDGET_ROW},
+    ("DELETE", f"{INTERNAL}/workspaces/ws-1"): {
+        **DELETED,
+        "workspace": {"id": "ws-1", "name": "Alpha"},
+    },
+    ("DELETE", f"{INTERNAL}/projects/proj-1"): {
+        **DELETED,
+        "project": {"id": "proj-1", "name": "P1"},
+    },
+    ("DELETE", f"{INTERNAL}/detectors/det-1"): {
+        **DELETED,
+        "detector": {"id": "det-1", "name": "D"},
+    },
+    ("DELETE", f"{INTERNAL}/dashboards/dash-1"): {
+        **DELETED,
+        "dashboard": {"id": "dash-1", "name": "Spend"},
+    },
+    ("DELETE", f"{INTERNAL}/widgets/wid-1"): {**DELETED, "widget": {"id": "wid-1", "name": "Cost"}},
+    ("DELETE", f"{INTERNAL}/alerts/alr-1"): {**DELETED, "alert": {"id": "alr-1", "name": "A"}},
+}
+# The alert routes answer with the same full detail (create, rule edit, status).
+_ALERT_ENVELOPES = {
+    ("POST", f"{INTERNAL}/alerts"): {
         "created": True,
         "alert": {
             "id": "alr-1",
@@ -547,9 +647,16 @@ _WRITE_ENVELOPES = {
         },
     },
 }
+for _alert_url in (f"{INTERNAL}/alerts/alr-1", f"{INTERNAL}/alerts/alr-1/status"):
+    _ALERT_ENVELOPES[("PATCH", _alert_url)] = {
+        "updated": True,
+        "changed": [],
+        "alert": _ALERT_ENVELOPES[("POST", f"{INTERNAL}/alerts")]["alert"],
+    }
+_WRITE_ENVELOPES.update(_ALERT_ENVELOPES)
 
 _ALL_WRITE_ROUTES = [
-    ("/api/v1/public/workspaces", {"name": "Alpha"}, WS_WRITE_URL)
+    ("POST", "/api/v1/public/workspaces", {"name": "Alpha"}, WS_WRITE_URL)
 ] + _OTHER_WRITE_ROUTES
 
 
@@ -577,22 +684,25 @@ def _enabled_memory_limiter(monkeypatch):
 
 
 @respx.mock
-@pytest.mark.parametrize(("path", "body", "write_url"), _ALL_WRITE_ROUTES)
+@pytest.mark.parametrize(("method", "path", "body", "write_url"), _ALL_WRITE_ROUTES)
 def test_every_write_route_throttles_on_the_write_bucket(
-    _enabled_memory_limiter, path, body, write_url
+    _enabled_memory_limiter, method, path, body, write_url
 ):
-    """Each of the six write routes 429s once the write bucket is exhausted.
+    """Each write route (create, update, delete) 429s once the write bucket is
+    exhausted.
 
     The decorator is wired per route, so a unit test of ``key_write``'s key
     string proves nothing about the routes — without this, dropping the
     decorator (or a ``scope=`` typo) would silently turn a public write into
-    an unmetered create endpoint with CI green.
+    an unmetered endpoint with CI green.
     """
     _mock_account_auth()
-    respx.post(write_url).mock(return_value=Response(200, json=_WRITE_ENVELOPES[write_url]))
+    _mock_internal(method, write_url, _WRITE_ENVELOPES[(method, write_url)])
     client = _client()
 
-    statuses = [client.post(path, json=body, headers=USER_HEADER).status_code for _ in range(3)]
+    statuses = [
+        client.request(method, path, json=body, headers=USER_HEADER).status_code for _ in range(3)
+    ]
 
     assert statuses == [200, 200, 429]
 
@@ -625,7 +735,7 @@ def test_reads_do_not_consume_the_write_bucket(_enabled_memory_limiter):
 
 
 @respx.mock
-def test_post_internal_write_unencodable_payload_fails_closed_as_503():
+def test_send_internal_write_unencodable_payload_fails_closed_as_503():
     """A payload httpx cannot JSON-encode fails closed as a controlled 503.
 
     The schema layer rejects non-finite floats with a 422, so this backstop
@@ -636,11 +746,13 @@ def test_post_internal_write_unencodable_payload_fails_closed_as_503():
 
     from fastapi import HTTPException
 
-    from rest.routers.public.account_write import _post_internal_write
+    from rest.routers.public.account_write import _send_internal_write
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(
-            _post_internal_write("/api/internal/write/widgets", {"spec": {"v": float("nan")}})
+            _send_internal_write(
+                "POST", "/api/internal/write/widgets", {"spec": {"v": float("nan")}}
+            )
         )
 
     assert exc_info.value.status_code == 503
