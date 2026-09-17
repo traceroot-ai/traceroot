@@ -19,6 +19,32 @@ def _matches(header: str, secret: str) -> bool:
     return bool(secret) and hmac.compare_digest(header.encode("latin-1"), secret.encode())
 
 
+def internal_caller(x_internal_secret: str | None) -> InternalCaller | None:
+    """Which internal credential a header carries, or None for neither.
+
+    The one matcher for both secrets, so every site that trusts internal
+    traffic trusts the same set: the internal router's dependency below and
+    the app routes' system bypass (`routers/deps.get_project_access`), which
+    the agent's own tools reach. A site that checked only the platform secret
+    would 401 the agent service, which holds only its own (design: agent
+    self-trace, decision 2).
+
+    Args:
+        x_internal_secret: The `X-Internal-Secret` header, if any.
+
+    Returns:
+        InternalCaller | None: "platform", "agent", or None when the header is
+            absent, empty, or matches neither configured secret.
+    """
+    if not x_internal_secret:
+        return None
+    if _matches(x_internal_secret, settings.internal_api_secret):
+        return "platform"
+    if _matches(x_internal_secret, settings.internal_api_secret_agent):
+        return "agent"
+    return None
+
+
 def verify_internal_secret(
     x_internal_secret: Annotated[str | None, Header()] = None,
 ) -> InternalCaller:
@@ -43,10 +69,7 @@ def verify_internal_secret(
             status_code=503,
             detail="INTERNAL_API_SECRET not configured on server",
         )
-    if not x_internal_secret:
+    caller = internal_caller(x_internal_secret)
+    if caller is None:
         raise HTTPException(status_code=403, detail="Invalid internal secret")
-    if _matches(x_internal_secret, settings.internal_api_secret):
-        return "platform"
-    if _matches(x_internal_secret, settings.internal_api_secret_agent):
-        return "agent"
-    raise HTTPException(status_code=403, detail="Invalid internal secret")
+    return caller
