@@ -1,5 +1,6 @@
 import type { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import { isPlainObject } from "@/lib/is-plain-object";
 import {
   errorResponse,
   requireAuth,
@@ -69,16 +70,22 @@ export function isRecordGone(e: unknown): boolean {
  */
 export const UI_DELETE_REASON = "Deleted from the web app";
 
-export async function readDeleteReason(req: Request): Promise<string> {
+/**
+ * The optional JSON object a cookie-session delete may carry. No body, a
+ * non-object or unparsable JSON all read as an empty object: the web app's
+ * deletes send nothing today.
+ */
+export async function readJsonObject(req: Request): Promise<Record<string, unknown>> {
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return UI_DELETE_REASON;
+    return {};
   }
-  const reason =
-    body !== null && typeof body === "object" && !Array.isArray(body)
-      ? (body as Record<string, unknown>).reason
-      : undefined;
+  return isPlainObject(body) ? body : {};
+}
+
+export async function readDeleteReason(req: Request): Promise<string> {
+  const { reason } = await readJsonObject(req);
   return typeof reason === "string" ? reason : UI_DELETE_REASON;
 }

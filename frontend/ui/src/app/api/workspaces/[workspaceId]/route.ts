@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
 import {
   requireAuth,
@@ -7,11 +6,9 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
-import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
-
-const updateWorkspaceSchema = z.object({
-  name: z.string().min(1, "Name is required").max(100, "Name too long"),
-});
+import { isPlainObject } from "@/lib/is-plain-object";
+import { UI_DELETE_REASON, readJsonObject } from "@/lib/route-helpers";
+import { deleteWorkspace, updateWorkspace } from "@/lib/write-services/workspaces";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
@@ -70,6 +67,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // PUT /api/workspaces/[workspaceId] - Update workspace (ADMIN+)
+// Still a PUT for the web app, but a thin adapter over the write service,
+// which owns the validation, the ADMIN floor, the diff and the audit row.
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
@@ -86,38 +85,28 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   } catch {
     return errorResponse("Invalid JSON", 400);
   }
+  const name = isPlainObject(body) ? body.name : undefined;
 
-  const result = updateWorkspaceSchema.safeParse(body);
-  if (!result.success) {
-    return errorResponse(result.error.issues[0].message, 400);
-  }
-
-  const { name } = result.data;
-
-  let workspace;
-  try {
-    workspace = await prisma.workspace.update({
-      where: { id: workspaceId },
-      data: {
-        name,
-        updateTime: new Date(),
-      },
-    });
-  } catch (e) {
-    // The creator already has another workspace by this name
-    // (uq_workspace_created_by_name).
-    if (!isPrismaKnownError(e, "P2002")) throw e;
-    return errorResponse("A workspace with this name already exists", 409);
-  }
+  const result = await updateWorkspace({
+    actorUserId: user.id,
+    workspaceId,
+    patch: { name } as { name?: string },
+    provenance: { transport: "ui" },
+  });
+  if (!result.ok) return errorResponse(result.error, result.status);
 
   return successResponse({
-    id: workspace.id,
-    name: workspace.name,
-    update_time: workspace.updateTime,
+    id: result.data.id,
+    name: result.data.name,
+    update_time: result.data.updateTime,
   });
 }
 
 // DELETE /api/workspaces/[workspaceId] - Delete workspace (ADMIN only)
+// The service requires the workspace's name as a typed confirmation. The web
+// app's dialog is the confirmation step on this surface and sends no body
+// today, so a missing name is filled in from the row; a body carrying
+// `name` (and `reason`) is honored when one arrives.
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
@@ -128,10 +117,25 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, Role.ADMIN);
   if (membershipResult.error) return membershipResult.error;
 
-  // Delete workspace (cascades to projects, memberships, invites, access keys)
-  await prisma.workspace.delete({
-    where: { id: workspaceId },
+  const body = await readJsonObject(request);
+  let name = typeof body.name === "string" ? body.name : undefined;
+  if (name === undefined) {
+    const current = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { name: true },
+    });
+    if (!current) return errorResponse("Workspace not found", 404);
+    name = current.name;
+  }
+
+  const result = await deleteWorkspace({
+    actorUserId: user.id,
+    workspaceId,
+    name,
+    reason: typeof body.reason === "string" ? body.reason : UI_DELETE_REASON,
+    provenance: { transport: "ui" },
   });
+  if (!result.ok) return errorResponse(result.error, result.status);
 
   return NextResponse.json({ deleted: true }, { status: 200 });
 }
