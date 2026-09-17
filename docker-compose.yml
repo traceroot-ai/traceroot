@@ -78,7 +78,11 @@ services:
       CLICKHOUSE_USER: sql_gateway_bootstrap
       CLICKHOUSE_PASSWORD: ${SQL_GATEWAY_BOOTSTRAP_PASSWORD:-dev-sql-gateway-bootstrap}
       # Dev stack: weak known defaults, matching this stack's other credentials.
-      SQL_GATEWAY_WRITER_PASSWORD: ${SQL_GATEWAY_WRITER_PASSWORD:-dev-sql-gateway-writer}
+      # Not the writer, though. Nothing logs in as it, since the curated views are
+      # SQL SECURITY DEFINER and run on its grants, so a known password only creates
+      # an account that can read the raw tables. Left empty, clickhouse-init below
+      # generates one and never stores it.
+      SQL_GATEWAY_WRITER_PASSWORD: ${SQL_GATEWAY_WRITER_PASSWORD:-}
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
       CLICKHOUSE_RO_PASSWORD: ${CLICKHOUSE_RO_PASSWORD:-dev-sql-gateway-ro}
     entrypoint: >

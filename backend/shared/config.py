@@ -51,6 +51,30 @@ class ClickHouseSettings(BaseSettings):
     sql_max_result_bytes: int = 536_870_912  # 512 MiB
     sql_max_memory_usage: int = 4_294_967_296  # 4 GiB
 
+    @field_validator(
+        "sql_max_execution_time",
+        "sql_max_result_rows",
+        "sql_max_result_bytes",
+        "sql_max_memory_usage",
+    )
+    @classmethod
+    def _cap_must_bound_something(cls, value: int, info) -> int:
+        """ClickHouse reads 0 as "no limit", so a zero cap removes the guard.
+
+        On the self-host fallback these values are sent as per-query settings and are
+        the only limit customer SQL runs under, since there is no read-only user and
+        therefore no settings profile. A zero there is not a small budget: it is an
+        unbounded query. Refused at startup, where the name of the variable is still
+        available to say in the error.
+        """
+        if value <= 0:
+            raise ValueError(
+                f"{info.field_name} must be greater than zero, got {value}. "
+                "ClickHouse reads 0 as no limit, so this would remove the cap rather "
+                "than tighten it."
+            )
+        return value
+
 
 class S3Settings(BaseSettings):
     """S3/MinIO settings for trace data storage.

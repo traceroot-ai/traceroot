@@ -1,5 +1,8 @@
 """Tests for the SQL gateway additions to ClickHouseSettings."""
 
+import pytest
+from pydantic import ValidationError
+
 from shared.config import ClickHouseSettings
 
 
@@ -31,3 +34,26 @@ class TestSqlGatewaySettings:
         s = ClickHouseSettings()
         assert s.ro_user == "sql_gateway_ro"
         assert s.ro_password == "secret"
+
+    @pytest.mark.parametrize(
+        "var",
+        [
+            "CLICKHOUSE_SQL_MAX_EXECUTION_TIME",
+            "CLICKHOUSE_SQL_MAX_RESULT_ROWS",
+            "CLICKHOUSE_SQL_MAX_RESULT_BYTES",
+            "CLICKHOUSE_SQL_MAX_MEMORY_USAGE",
+        ],
+    )
+    @pytest.mark.parametrize("value", ["0", "-1"])
+    def test_a_cap_that_bounds_nothing_is_refused(self, monkeypatch, var, value):
+        """ClickHouse reads 0 as "no limit", so a zero cap removes the guard.
+
+        These are the only limit customer SQL runs under on the self-host fallback,
+        where there is no read-only user and therefore no settings profile. Refused
+        at startup, while the variable's name can still be named in the error.
+        """
+        monkeypatch.setenv(var, value)
+        with pytest.raises(ValidationError) as excinfo:
+            ClickHouseSettings()
+        assert "must be greater than zero" in str(excinfo.value)
+        assert var.removeprefix("CLICKHOUSE_").lower() in str(excinfo.value)
