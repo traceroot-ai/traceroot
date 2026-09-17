@@ -83,6 +83,26 @@ def scoping_mode(request, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def test_the_server_recorded_the_definer_the_migration_names(gateway):
+    """What the migration declares and what the server stored are different facts.
+
+    The isolation rests on the view body running under the writer's grants. A view
+    created without the clause, or with another account, reads under the caller's
+    own privileges instead, and every other check here still passes: the read-only
+    user is still refused the physical tables, and the views still return rows.
+
+    Asserted against the live server rather than the migration text, which a
+    separate unit test already covers, and in CI rather than only in the chart's
+    verification hook, which is off by default.
+    """
+    for view in ("spans_public_v1", "traces_public_v1"):
+        ddl = gateway.admin.query(f"SHOW CREATE VIEW {view}").result_rows[0][0]
+        header = ddl.split("\\nAS ", 1)[0]
+        assert "DEFINER = sql_gateway_writer SQL SECURITY DEFINER" in header, (
+            f"{view} was created as {header!r}, which does not name the writer as its definer"
+        )
+
+
 def test_rendered_sql_executes_in_both_scoping_modes(gateway, scoping_mode):
     rendered, binds = rewriter.scope_and_render("SELECT count() FROM spans", PROJECT_A)
     if scoping_mode == "bound":
