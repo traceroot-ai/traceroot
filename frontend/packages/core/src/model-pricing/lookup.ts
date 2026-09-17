@@ -58,8 +58,13 @@ registerCacheClear(clearCache);
 async function loadCache(): Promise<CachedModel[]> {
   if (cache) return cache;
 
+  // Ordered by modelName to match the worker's `ORDER BY m.model_name` (pricing.py),
+  // so the two sides read the catalogue the same way. Ranking below is what makes the
+  // answer correct rather than merely consistent: both runtimes agreeing on the first
+  // pattern that matches would still pick `claude-sonnet-4` for `claude-sonnet-4-6`.
   const models = await prisma.standardModel.findMany({
     include: { prices: true },
+    orderBy: { modelName: "asc" },
   });
 
   cache = models.map((m) => {
@@ -84,24 +89,121 @@ async function loadCache(): Promise<CachedModel[]> {
 }
 
 /**
- * Look up pricing for a model by name.
- * Tries exact match on modelName first, then regex matchPattern fallback.
- * Returns prices in USD per token, or null if not found.
+ * Gateway / router prefixes stripped before the second matching pass.
+ *
+ * Every catalogue pattern hand-encodes which prefixes it tolerates, so coverage
+ * drifts between siblings and no entry accepts the router prefixes real
+ * deployments emit. Normalizing once here fixes every row at the same time.
+ *
+ * Keep in sync with GATEWAY_PREFIXES in backend/worker/tokens/types.py — the two
+ * lookups must agree on what a model id means. The Python test
+ * tests/worker/tokens/test_gateway_prefix_parity.py fails if they drift.
  */
-export async function getModelPricing(modelId: string): Promise<ModelPricing | null> {
-  const models = await loadCache();
+export const GATEWAY_PREFIXES = new Set([
+  "amazon_bedrock",
+  "anthropic",
+  "azure",
+  "azure_ai",
+  "bedrock",
+  "bedrock_converse",
+  "deepseek",
+  "fireworks_ai",
+  "gemini",
+  "google",
+  "googleai",
+  "groq",
+  "litellm",
+  "litellm_proxy",
+  "mistral",
+  "mistralai",
+  "models",
+  "moonshot",
+  "moonshotai",
+  "openai",
+  "openrouter",
+  "portkey",
+  "together_ai",
+  "vertex_ai",
+  "vertexai",
+  "x-ai",
+  "xai",
+  "z-ai",
+  "zai",
+]);
 
+// Chained prefixes in the wild are at most two deep ("openrouter/anthropic/…").
+const MAX_PREFIX_DEPTH = 3;
+
+/**
+ * Drop leading gateway/router segments from a model id.
+ *
+ * `openrouter/anthropic/claude-opus-4-8` -> `claude-opus-4-8`.
+ *
+ * Only segments in GATEWAY_PREFIXES are removed, so an id whose first segment is
+ * part of the model's real name is returned untouched. Bedrock's
+ * `us.anthropic.claude-…` and Vertex's `model@date` forms are distinct id shapes
+ * rather than slash prefixes and pass through unchanged.
+ */
+export function stripGatewayPrefixes(modelId: string): string {
+  let current = modelId;
+  for (let depth = 0; depth < MAX_PREFIX_DEPTH; depth++) {
+    const separator = current.indexOf("/");
+    if (separator === -1) break;
+    const head = current.slice(0, separator);
+    const tail = current.slice(separator + 1);
+    if (!tail || !GATEWAY_PREFIXES.has(head.toLowerCase())) break;
+    current = tail;
+  }
+  return current;
+}
+
+function matchPricing(models: CachedModel[], modelId: string): ModelPricing | null {
   // Exact match
   const exact = models.find((m) => m.modelName === modelId);
   if (exact) return exact.prices;
 
-  // Regex fallback — catches provider-prefixed and Bedrock/Vertex-style aliases
-  // (e.g. "anthropic/claude-opus-5", "us.anthropic.claude-opus-5-v1:0").
+  // Regex fallback, catching provider-prefixed and Bedrock/Vertex-style aliases such as
+  // "anthropic/claude-opus-5" or "us.anthropic.claude-opus-5-v1:0".
+  //
+  // Most specific wins rather than first seen. Several patterns carry an optional
+  // version tail, so a predecessor subsumes its successors: claude-sonnet-4's pattern
+  // also matches claude-sonnet-4-5 and claude-sonnet-4-6. Taking the first match would
+  // make the answer depend on row order, and the two runtimes do not agree on that.
+  // A longer modelName is the more specific entry, with the name breaking ties.
+  // Mirrors _match_specificity in backend/worker/tokens/pricing.py.
+  let best: CachedModel | null = null;
   for (const m of models) {
-    if (m.matcher?.test(modelId)) return m.prices;
+    if (!m.matcher?.test(modelId)) continue;
+    if (
+      best === null ||
+      m.modelName.length > best.modelName.length ||
+      (m.modelName.length === best.modelName.length && m.modelName > best.modelName)
+    ) {
+      best = m;
+    }
   }
 
-  return null;
+  return best ? best.prices : null;
+}
+
+/**
+ * Look up pricing for a model by name.
+ * Tries exact match on modelName first, then regex matchPattern fallback.
+ * Returns prices in USD per token, or null if not found.
+ *
+ * The id is matched as given first, so any pattern that deliberately recognises a
+ * prefixed form keeps winning exactly as before. Only when nothing matches are
+ * gateway prefixes stripped and the passes retried — the fallback is additive, so
+ * it can turn a null into a price but never change a price that already resolved.
+ */
+export async function getModelPricing(modelId: string): Promise<ModelPricing | null> {
+  const models = await loadCache();
+
+  const direct = matchPricing(models, modelId);
+  if (direct) return direct;
+
+  const bare = stripGatewayPrefixes(modelId);
+  return bare === modelId ? null : matchPricing(models, bare);
 }
 
 /**
