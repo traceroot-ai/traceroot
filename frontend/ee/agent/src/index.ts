@@ -36,7 +36,7 @@ import {
 import { parseQueryWindow } from "./tools/query-window.js";
 import type { Executor } from "./executors/interface.js";
 import type { Agent } from "@earendil-works/pi-agent-core";
-import type { SessionManager } from "./session.js";
+import type { MessageKind, SessionManager } from "./session.js";
 
 const app = new Hono();
 
@@ -245,6 +245,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     return c.json({ error: "a run is already in progress for this session" }, 409);
   }
 
+  const turnKind: MessageKind = userId ? "chat" : "rca";
   let agent: Agent;
   let sessionManager: SessionManager;
   try {
@@ -262,8 +263,11 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
     console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
-    // Persist user message to DB via SessionManager
-    await sessionManager.appendMessage("user", body.message);
+    // Persist user message to DB via SessionManager. The turn's kind decides which
+    // meter it lands in, and it is a property of the request, not of the session:
+    // the worker's automatic RCA prompt arrives without x-user-id, while a person
+    // asking a follow-up inside that same RCA session arrives with one.
+    await sessionManager.appendMessage("user", body.message, turnKind);
 
     // Auto-generate session title from first user message (we already have
     // the session loaded above for the auth check — reuse it).
@@ -288,6 +292,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
       // Only a user-less caller is unattended.
       channelUserId: userId,
       isByok: body.source === ModelSource.BYOK,
+      turnKind,
       sessionManager,
     }),
   );

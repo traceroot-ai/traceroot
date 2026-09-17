@@ -68,6 +68,7 @@ function options(sessionId: string, decisions: PendingDecisions) {
     sessionId,
     channelUserId: "u1",
     isByok: false,
+    turnKind: "chat" as const,
     sessionManager: { appendMessage: vi.fn(async () => ({}) as never) },
     decisions,
   };
@@ -202,6 +203,7 @@ describe("runAgentStream", () => {
     expect(opts.sessionManager.appendMessage).toHaveBeenCalledWith(
       "assistant",
       "",
+      "chat",
       expect.objectContaining({ runError: "model exploded" }),
       undefined,
     );
@@ -322,6 +324,7 @@ describe("runAgentStream", () => {
     expect(opts.sessionManager.appendMessage).toHaveBeenCalledWith(
       "tool_step",
       "",
+      "chat",
       expect.objectContaining({
         result: expect.objectContaining({ details: declinedDetails }),
         isError: true,

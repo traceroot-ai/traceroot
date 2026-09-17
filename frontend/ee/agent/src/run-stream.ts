@@ -10,7 +10,7 @@ import {
 } from "./pending-decisions.js";
 import { StreamPersister } from "./stream-persister.js";
 import { UsageAccumulator } from "./usage-accumulator.js";
-import type { SessionManager } from "./session.js";
+import type { MessageKind, SessionManager } from "./session.js";
 
 /**
  * The slice of hono's SSEStreamingApi the run needs — kept structural so
@@ -29,6 +29,8 @@ export interface RunStreamOptions {
   /** The requesting user who can answer confirmation cards (empty when unattended). */
   channelUserId: string;
   isByok: boolean;
+  /** The meter this turn's rows land in; decided per request by the route. */
+  turnKind: MessageKind;
   sessionManager: Pick<SessionManager, "appendMessage">;
   /** Decision registry override for tests; defaults to the service singleton. */
   decisions?: PendingDecisions;
@@ -121,7 +123,7 @@ export async function runAgentStream(
   // Mirrors the run into AIMessage rows (text segments, tool steps) so
   // reloaded history matches what the live stream rendered.
   const persister = new StreamPersister((role, content, metadata, tokenUsage) =>
-    options.sessionManager.appendMessage(role, content, metadata, tokenUsage),
+    options.sessionManager.appendMessage(role, content, options.turnKind, metadata, tokenUsage),
   );
   // Accumulates token usage across all message_end events (tool-use loops)
   const usageAccumulator = new UsageAccumulator();
