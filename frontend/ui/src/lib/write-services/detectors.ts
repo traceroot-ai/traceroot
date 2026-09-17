@@ -399,7 +399,7 @@ export async function updateDetector(input: {
           actorUserId: input.actorUserId,
           operation: "update_detector",
           resourceType: "detector",
-          resourceId: detector.id,
+          resourceId: existing.id,
           workspaceId: access.workspaceId,
           projectId: input.projectId,
           summary: { changed },

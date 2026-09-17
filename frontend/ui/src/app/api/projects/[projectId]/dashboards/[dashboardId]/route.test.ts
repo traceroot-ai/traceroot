@@ -216,6 +216,30 @@ describe("PATCH /dashboards/[dashboardId]", () => {
     expect(dashboardUpdateMock).not.toHaveBeenCalled();
   });
 
+  it("answers a patch that changes nothing with 200 and no write, no audit", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await PATCH(
+      makeRequest({ name: "My Dashboard", layout: [] }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(200);
+    expect(dashboardUpdateMock).not.toHaveBeenCalled();
+    expect(auditCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("records the edit on the audit log under the ui transport", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    dashboardUpdateMock.mockResolvedValue({ ...fakeDashboard, name: "Renamed" });
+    await PATCH(makeRequest({ name: "Renamed" }), makeParams());
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "update_dashboard",
+        transport: "ui",
+        summary: { changed: ["name"] },
+      }),
+    });
+  });
+
   it("returns 400 for non-object body (array)", async () => {
     const req = { json: async () => ["a", "b"] } as unknown as Parameters<typeof PATCH>[0];
     const res = (await PATCH(req, makeParams())) as MockResponse;
@@ -297,6 +321,17 @@ describe("DELETE /dashboards/[dashboardId]", () => {
     const where = (call[0] as { where: Record<string, unknown> }).where;
     expect(where.id).toBe("dash-1");
     expect(where.projectId).toBe("proj-1");
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "delete_dashboard",
+        transport: "ui",
+        summary: {
+          name: "My Dashboard",
+          reason: "Deleted from the web app",
+          cascaded: { widgets: 0 },
+        },
+      }),
+    });
   });
 
   it("returns 404 when dashboard not found in project", async () => {
