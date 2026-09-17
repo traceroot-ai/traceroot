@@ -66,11 +66,12 @@ export function jsonEqual(a: unknown, b: unknown): boolean {
  */
 export function diffPatch<P extends Record<string, unknown>>(
   patch: P,
-  current: Record<string, unknown>,
+  current: object,
 ): { changed: string[]; data: Partial<P> } {
+  const stored = current as Record<string, unknown>;
   const data: Partial<P> = {};
   for (const key of definedKeys(patch)) {
-    if (!jsonEqual(patch[key], current[key])) data[key as keyof P] = patch[key] as P[keyof P];
+    if (!jsonEqual(patch[key], stored[key])) data[key as keyof P] = patch[key] as P[keyof P];
   }
   return { changed: Object.keys(data).map(toPublicField), data };
 }
