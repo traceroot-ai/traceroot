@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { getSystemPrompt } from "../prompts/system.js";
-import { captureLlmContent, LLM_IO_CAP } from "../llm-content.js";
+import type {
+  CaptureContext,
+  ContentCaptureKind,
+  ContentCaptureValue,
+} from "@traceroot-ai/traceroot";
+import { captureLlmContent as capture, LLM_IO_CAP, TRUNCATED_ATTRIBUTE } from "../llm-content.js";
+
+/** The capture context of the last call: what the capture asked to set on the span. */
+let ctx: CaptureContext = { attributes: {} };
+function captureLlmContent(kind: ContentCaptureKind, value: ContentCaptureValue) {
+  ctx = { attributes: {} };
+  return capture(kind, value, ctx);
+}
 
 const user = { role: "user", content: "Where is order A-2002?" };
 const assistantWithCall = {
@@ -92,7 +104,16 @@ describe("captureLlmContent", () => {
       const out = captureLlmContent("llm_input", { messages: [{ role: "user", content: text }] })!;
       expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(LLM_IO_CAP);
       expect(out.endsWith("…")).toBe(true);
+      // The cut is on the span as an attribute, not only as a marker in the text (design B7).
+      expect(ctx.attributes).toEqual({ [TRUNCATED_ATTRIBUTE]: true });
     }
+  });
+
+  it("marks nothing on a span whose content fit", () => {
+    captureLlmContent("llm_input", { messages: [user] });
+    expect(ctx.attributes).toEqual({});
+    captureLlmContent("llm_output", { message: assistantWithCall });
+    expect(ctx.attributes).toEqual({});
   });
 
   it("keeps the latest turn with the real system prompt in play", () => {
@@ -131,6 +152,8 @@ describe("captureLlmContent", () => {
     expect(rendered[rendered.length - 1].content.startsWith("message 39 ")).toBe(true);
     expect(out).not.toContain("message 0 ");
     expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(LLM_IO_CAP);
+    // Dropping whole messages is a cut too.
+    expect(ctx.attributes).toEqual({ [TRUNCATED_ATTRIBUTE]: true });
   });
 
   it("redacts a credential inside a message's own text — user, system, assistant — before serialising", () => {

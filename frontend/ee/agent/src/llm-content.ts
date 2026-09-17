@@ -3,8 +3,12 @@
 // function, so nothing the model saw or said lands on a span without going
 // through the same redaction, tool allowlist and size bound the root span's
 // I/O and the persisted tool I/O already go through.
-import type { ContentCaptureKind, ContentCaptureValue } from "@traceroot-ai/traceroot";
-import { applyCapturePolicy, boundedText, redactValue } from "@traceroot/core/capture-policy";
+import type {
+  CaptureContext,
+  ContentCaptureKind,
+  ContentCaptureValue,
+} from "@traceroot-ai/traceroot";
+import { applyCapturePolicy, capText, redactValue } from "@traceroot/core/capture-policy";
 import { agentCaptureInput } from "./capture-input.js";
 import { withheldOutputText } from "@traceroot/core/capture-note";
 
@@ -102,9 +106,12 @@ function renderMessage(message: Message): Record<string, unknown> {
  * included, byte-safe). Redacting the serialised string instead would miss
  * the colon patterns once the inner quotes are escaped (review F5).
  */
-function bounded(rendered: unknown): string {
-  return boundedText(JSON.stringify(redactValue(rendered)), LLM_IO_CAP);
+function bounded(rendered: unknown): Cut {
+  return capText(JSON.stringify(redactValue(rendered)), LLM_IO_CAP);
 }
+
+/** A capped text and whether the cap cut it — the cut is marked on the span. */
+type Cut = { text: string; truncated: boolean };
 
 /**
  * The conversation a model call was given, bounded from the OLD end: when
@@ -113,7 +120,7 @@ function bounded(rendered: unknown): string {
  * reacting to, the user's newest message — is what the span keeps. The
  * byte-safe cut in `bounded` still applies to a single oversized message.
  */
-function boundedNewest(rendered: Record<string, unknown>[]): string {
+function boundedNewest(rendered: Record<string, unknown>[]): Cut {
   const redacted = redactValue(rendered) as Record<string, unknown>[];
   let dropped = 0;
   let kept = redacted;
@@ -129,7 +136,8 @@ function boundedNewest(rendered: Record<string, unknown>[]): string {
       ...kept,
     ]);
   }
-  return boundedText(json, LLM_IO_CAP);
+  const cut = capText(json, LLM_IO_CAP);
+  return { text: cut.text, truncated: cut.truncated || dropped > 0 };
 }
 
 /**
@@ -145,6 +153,7 @@ function boundedNewest(rendered: Record<string, unknown>[]): string {
 export function captureLlmContent(
   kind: ContentCaptureKind,
   value: ContentCaptureValue,
+  ctx: CaptureContext,
 ): string | undefined {
   switch (kind) {
     case "llm_input": {
@@ -153,16 +162,32 @@ export function captureLlmContent(
       // 17 KB on every call and alone exceeds the cap, so rendering it first
       // left every LLM span with a truncated prompt and no message at all
       // (review, 2026-09-16). The root span records it once.
-      return boundedNewest(value.messages.map((m) => renderMessage(m as Message)));
+      return marked(ctx, boundedNewest(value.messages.map((m) => renderMessage(m as Message))));
     }
     case "llm_output": {
       if (!value.message) return undefined;
       const rendered = renderMessage(value.message as Message);
       const text = typeof rendered.content === "string" ? rendered.content : null;
       // A text-only reply reads as plain text; a tool-calling one keeps its structure.
-      return "tool_calls" in rendered ? bounded(rendered) : boundedText(text ?? "", LLM_IO_CAP);
+      return marked(
+        ctx,
+        "tool_calls" in rendered ? bounded(rendered) : capText(text ?? "", LLM_IO_CAP),
+      );
     }
     default:
       return undefined;
   }
+}
+
+/**
+ * The attribute a span carries when what it records was cut to fit: the
+ * viewer and a query can key on it instead of scanning for a marker in the
+ * text (design B7). Set by every capture that cuts — an LLM span's input or
+ * output here, a tool span's args or result in agent.ts.
+ */
+export const TRUNCATED_ATTRIBUTE = "traceroot.truncated";
+
+function marked(ctx: CaptureContext, cut: Cut): string {
+  if (cut.truncated) ctx.attributes[TRUNCATED_ATTRIBUTE] = true;
+  return cut.text;
 }

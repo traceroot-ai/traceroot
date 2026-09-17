@@ -208,10 +208,15 @@ function truncateTo(text: string, bytes: number): { text: string; truncated: boo
  * same ceiling as ASCII instead of three times over it.
  */
 export function boundedText(text: string, bytes: number): string {
+  return capText(text, bytes).text;
+}
+
+/** `boundedText`, and whether the cut happened — for a caller that marks the span it cut. */
+export function capText(text: string, bytes: number): { text: string; truncated: boolean } {
   // The JSON-aware form: a text that is itself a JSON document (a prompt
   // that pastes a config, an answer that quotes one) takes the key walk,
   // so `{"apiToken": …}` is blanked by its key, not left to the patterns.
-  return truncateTo(redactText(text), bytes).text;
+  return truncateTo(redactText(text), bytes);
 }
 
 /**
