@@ -280,6 +280,26 @@ def _seed(admin: Client) -> Seeded:
     return Seeded(spans=spans, traces=traces)
 
 
+def _drop_everything(root: Client) -> None:
+    """Remove the test database and the two server-wide accounts.
+
+    Accounts and the settings profile outlive the database, and grants are recorded by
+    name, so leaving them behind hands the next run a read-only account carrying more
+    access than the bootstrap script gives it. Each statement is independent: a run that
+    failed partway through has only some of these to remove, and one that is already
+    gone must not stop the rest.
+    """
+    for statement in (
+        f"DROP DATABASE IF EXISTS {DATABASE}",
+        "DROP USER IF EXISTS sql_gateway_ro, sql_gateway_writer",
+        "DROP SETTINGS PROFILE IF EXISTS sql_readonly_profile",
+    ):
+        try:
+            root.command(statement)
+        except Exception:
+            pass
+
+
 @pytest.fixture(scope="session")
 def gateway() -> Iterator[Gateway]:
     if not HOST:
@@ -296,48 +316,61 @@ def gateway() -> Iterator[Gateway]:
     root.command("DROP USER IF EXISTS sql_gateway_ro, sql_gateway_writer")
     root.command("DROP SETTINGS PROFILE IF EXISTS sql_readonly_profile")
     root.command(f"CREATE DATABASE {DATABASE}")
-    admin = _connect(ADMIN_USER, ADMIN_PASSWORD, DATABASE)
+    admin = None
+    try:
+        admin = _connect(ADMIN_USER, ADMIN_PASSWORD, DATABASE)
 
-    # Accounts first, exactly as clickhouse-init does: migration 012 names the writer as
-    # the views' DEFINER, and grants are name-based so they precede the objects.
-    # Every bootstrap script, in the order clickhouse-init runs them. The read-only account
-    # lives in sql_gateway_users.sql or in its own sql_gateway_readonly.sql depending on the
-    # revision, so the files are read if present and the account is then required to exist,
-    # rather than this fixture hardcoding where it is defined.
-    ro_password = secrets.token_hex(16)
-    for name in ("sql_gateway_users.sql", "sql_gateway_readonly.sql"):
-        path = BOOTSTRAP / name
-        if not path.exists():
-            continue
-        script = (
-            path.read_text()
-            .replace("__WRITER_HASH__", hashlib.sha256(secrets.token_bytes(32)).hexdigest())
-            # SHA-256 is not a choice here: ClickHouse's IDENTIFIED WITH sha256_hash
-            # accepts exactly this digest, so a password-hashing KDF cannot be used.
-            # The value is a random 32-hex token generated above, never a human
-            # password, so the offline-guessing risk the rule exists for does not apply.
-            .replace(  # codeql[py/weak-sensitive-data-hashing]
-                "__RO_HASH__", hashlib.sha256(ro_password.encode()).hexdigest()
+        # Accounts first, exactly as clickhouse-init does: migration 012 names the writer as
+        # the views' DEFINER, and grants are name-based so they precede the objects.
+        # Every bootstrap script, in the order clickhouse-init runs them. The read-only account
+        # lives in sql_gateway_users.sql or in its own sql_gateway_readonly.sql depending on the
+        # revision, so the files are read if present and the account is then required to exist,
+        # rather than this fixture hardcoding where it is defined.
+        ro_password = secrets.token_hex(16)
+        for name in ("sql_gateway_users.sql", "sql_gateway_readonly.sql"):
+            path = BOOTSTRAP / name
+            if not path.exists():
+                continue
+            script = (
+                path.read_text()
+                .replace("__WRITER_HASH__", hashlib.sha256(secrets.token_bytes(32)).hexdigest())
+                # SHA-256 is not a choice here: ClickHouse's IDENTIFIED WITH sha256_hash
+                # accepts exactly this digest, so a password-hashing KDF cannot be used.
+                # The value is a random 32-hex token generated above, never a human
+                # password, so the offline-guessing risk the rule exists for does not apply.
+                .replace(  # codeql[py/weak-sensitive-data-hashing]
+                    "__RO_HASH__", hashlib.sha256(ro_password.encode()).hexdigest()
+                )
+                .replace("__DB__", DATABASE)
             )
-            .replace("__DB__", DATABASE)
+            for statement in _statements(script):
+                admin.command(statement)
+        provisioned = {row[0] for row in root.query("SELECT name FROM system.users").result_rows}
+        assert {"sql_gateway_writer", "sql_gateway_ro"} <= provisioned, (
+            f"the bootstrap SQL did not create both gateway accounts: {sorted(provisioned)}"
         )
-        for statement in _statements(script):
-            admin.command(statement)
-    provisioned = {row[0] for row in root.query("SELECT name FROM system.users").result_rows}
-    assert {"sql_gateway_writer", "sql_gateway_ro"} <= provisioned, (
-        f"the bootstrap SQL did not create both gateway accounts: {sorted(provisioned)}"
-    )
 
-    for migration in sorted(MIGRATIONS.glob("[0-9]*.sql")):
-        for statement in _statements(migration.read_text()):
-            admin.command(statement)
+        for migration in sorted(MIGRATIONS.glob("[0-9]*.sql")):
+            for statement in _statements(migration.read_text()):
+                admin.command(statement)
 
-    seeded = _seed(admin)
-    ro = ClickHouseClient(_connect("sql_gateway_ro", ro_password, DATABASE))
+        seeded = _seed(admin)
+        ro = ClickHouseClient(_connect("sql_gateway_ro", ro_password, DATABASE))
+    except Exception:
+        # Setup leaves a database, two server-wide accounts and a settings profile
+        # behind if it stops partway. The next run drops them first, but a developer
+        # reading the server in between should not find this fixture's leftovers, and
+        # a shared server should not accumulate them.
+        if admin is not None:
+            admin.close()
+        _drop_everything(root)
+        root.close()
+        raise
+
     try:
         yield Gateway(admin=admin, ro=ro, seeded=seeded)
     finally:
         ro.close()
-        root.command(f"DROP DATABASE IF EXISTS {DATABASE}")
+        _drop_everything(root)
         admin.close()
         root.close()
