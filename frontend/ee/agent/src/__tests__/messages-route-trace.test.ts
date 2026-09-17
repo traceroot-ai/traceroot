@@ -110,7 +110,9 @@ beforeEach(() => {
   delete process.env.AGENT_SELF_TRACE_KINDS;
   process.env.INTERNAL_API_SECRET_AGENT = "s";
   appendMessage.mockClear();
-  observe.mockClear();
+  // Implementation too, not just the call history: a test that overrides it
+  // (mockImplementationOnce) must not leak its callback into the next one.
+  observe.mockReset().mockImplementation(async (_opts: unknown, fn: () => unknown) => fn());
   executionFindUnique.mockReset().mockResolvedValue({ traceId: "e".repeat(32), findingId: "f1" });
   getSession.mockReset().mockResolvedValue(userSession);
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -129,6 +131,13 @@ describe("POST .../messages — disabled-tracing row parity", () => {
     // finish()'s `!trace` gate and force an extra empty assistant row.
     expect(traceArg).toBeUndefined();
     expect(observe).not.toHaveBeenCalled();
+  });
+
+  it("still sends the trace frame, as disabled, when AGENT_SELF_TRACE is unset", async () => {
+    // The worker reads the execution's trace status from this frame; without
+    // it every RCA on a service with the flag off recorded `failed`.
+    const { sse } = await post({ message: "hi" });
+    expect(sse).toContain('"status":"disabled"');
   });
 
   it("does not read the parent execution for a follow-up that will not be traced", async () => {

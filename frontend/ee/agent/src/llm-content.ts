@@ -5,6 +5,7 @@
 // I/O and the persisted tool I/O already go through.
 import type { ContentCaptureKind, ContentCaptureValue } from "@traceroot-ai/traceroot";
 import { applyCapturePolicy, boundedText, redactValue } from "@traceroot/core/capture-policy";
+import { agentCaptureInput } from "./capture-input.js";
 import { withheldOutputText } from "@traceroot/core/capture-note";
 
 /** Per-span bound, in UTF-8 bytes, on a model call's rendered input or output (spec B8): same as the root's. */
@@ -53,10 +54,12 @@ function toolCallsOf(content: unknown): Array<{ id?: string; name?: string; argu
  */
 function renderToolResult(message: Message): Record<string, unknown> {
   const toolName = message.toolName ?? "tool";
-  const c = applyCapturePolicy(
-    { toolName, args: undefined, result: textOf(message.content) },
-    { spentBytes: 0 },
-  );
+  // The agent's own allow-list applies here as it does to the tool span and
+  // the persisted row, so a registry write tool's result reads the same in
+  // all three places.
+  const c = applyCapturePolicy(agentCaptureInput(toolName, undefined, textOf(message.content)), {
+    spentBytes: 0,
+  });
   return {
     role: "tool",
     tool: toolName,
@@ -92,9 +95,15 @@ function renderMessage(message: Message): Record<string, unknown> {
   }
 }
 
-/** Redact, then bound to LLM_IO_CAP bytes (marker included, byte-safe): see boundedText. */
-function bounded(text: string): string {
-  return boundedText(text, LLM_IO_CAP);
+/**
+ * Redact every text leaf of the rendered structure FIRST (a user message
+ * that pastes a JSON config, a system prompt, an assistant's text beside
+ * its tool calls), then serialise, then bound to LLM_IO_CAP bytes (marker
+ * included, byte-safe). Redacting the serialised string instead would miss
+ * the colon patterns once the inner quotes are escaped (review F5).
+ */
+function bounded(rendered: unknown): string {
+  return boundedText(JSON.stringify(redactValue(rendered)), LLM_IO_CAP);
 }
 
 /**
@@ -117,14 +126,14 @@ export function captureLlmContent(
         ...(value.systemPrompt ? [{ role: "system", content: value.systemPrompt }] : []),
         ...value.messages.map((m) => renderMessage(m as Message)),
       ];
-      return bounded(JSON.stringify(rendered));
+      return bounded(rendered);
     }
     case "llm_output": {
       if (!value.message) return undefined;
       const rendered = renderMessage(value.message as Message);
       const text = typeof rendered.content === "string" ? rendered.content : null;
       // A text-only reply reads as plain text; a tool-calling one keeps its structure.
-      return bounded("tool_calls" in rendered ? JSON.stringify(rendered) : (text ?? ""));
+      return "tool_calls" in rendered ? bounded(rendered) : boundedText(text ?? "", LLM_IO_CAP);
     }
     default:
       return undefined;
