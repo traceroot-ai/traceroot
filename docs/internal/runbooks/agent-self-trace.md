@@ -71,7 +71,7 @@ off by default and controlled per kind.
 ## Rollback
 
 - With the flag off the agent service, worker and REST behave as before emission; the
-  only runtime differences that ship unflagged are the executions table, the attribution
-  columns, the capture policy on persisted tool output, and the per-source usage
-  breakdown. Reverting the agent-service emit change alone stops emission; the
+  only runtime differences that ship unflagged are the executions table, the
+  `ai_messages.turn_kind` column, the capture policy on persisted tool output, and the
+  per-source usage breakdown. Reverting the agent-service emit change alone stops emission; the
   migrations are additive and can stay.
