@@ -69,12 +69,26 @@ def _done_findings() -> list[dict]:
 
 
 def _executions(app: httpx.Client) -> list[dict]:
-    """The current execution of every completed finding, as the finding page reads it."""
+    """The current execution of every completed finding that has one.
+
+    A finding analysed before the executions table existed — or one whose
+    executions a schema rollback removed — keeps `status: done` with a null
+    attempt, trace id and trace status, and every surface reads that as "no
+    link" (design B2: no backfill). Those are asserted to be consistently
+    empty and then left out, so the rest of this module can state the full
+    contract without a null check in every assertion.
+    """
     rows = []
     for finding in _done_findings():
         resp = app.get(f"/api/projects/{PROJECT}/findings/{finding['finding_id']}/rca")
         assert resp.status_code == 200, resp.text
-        rows.append(resp.json()["rca"])
+        rca = resp.json()["rca"]
+        if rca["attempt"] is None:
+            assert rca["traceId"] is None and rca["traceStatus"] is None, rca
+            continue
+        rows.append(rca)
+    if not rows:
+        pytest.skip("no completed finding has a traced execution yet")
     return rows
 
 
@@ -95,7 +109,9 @@ def test_agent_trace_is_readable_only_through_the_source_agent_seam(app):
         opted_in = httpx.get(base, params={"source": "agent"}, headers=_APP)
         assert opted_in.status_code == 200, opted_in.text
         trace = opted_in.json()
-        assert trace["name"].startswith("rca:"), trace["name"]
+        # Every agent root is named after the agent that ran, not the run's
+        # kind (2026-09-15 UX decision); `metadata.kind` is what says why.
+        assert trace["name"] == "pi-mono", trace["name"]
         assert trace["spans"], "agent trace must carry its span tree"
 
         # The same id without the opt-in — and through the customer's public
