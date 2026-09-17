@@ -7,7 +7,7 @@ import {
 
 // The transaction client and the root client carry separate auditLog mocks so
 // the tests can tell which one the audit row was written through.
-const { tx, root } = vi.hoisted(() => ({
+const { tx, root, listWorkspaceModels } = vi.hoisted(() => ({
   tx: {
     project: { findUnique: vi.fn() },
     workspaceMember: { findUnique: vi.fn() },
@@ -15,9 +15,13 @@ const { tx, root } = vi.hoisted(() => ({
     auditLog: { create: vi.fn() },
   },
   root: { auditLog: { create: vi.fn() }, detector: { findFirst: vi.fn() } },
+  listWorkspaceModels: vi.fn(),
 }));
-vi.mock("@traceroot/core", () => {
+vi.mock("@traceroot/core", async (importOriginal) => {
   const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
+  // The model check itself is real: these tests pin that the service reads the
+  // workspace's list through the transaction and turns a problem into a 400.
+  const { detectorModelProblem } = await importOriginal<typeof import("@traceroot/core")>();
   return {
     prisma: {
       $transaction: (fn: (t: unknown) => unknown) => fn(tx),
@@ -27,6 +31,8 @@ vi.mock("@traceroot/core", () => {
     Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
     hasMinRole: (userRole: string, minRole: string) =>
       ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
+    detectorModelProblem,
+    listWorkspaceModels,
   };
 });
 import { createDetector } from "./detectors";
@@ -70,6 +76,25 @@ beforeEach(() => {
   root.auditLog.create.mockReset();
   root.auditLog.create.mockResolvedValue({});
   root.detector.findFirst.mockReset();
+  listWorkspaceModels.mockReset();
+  listWorkspaceModels.mockResolvedValue({
+    systemModels: [
+      {
+        provider: "Anthropic",
+        adapter: "anthropic",
+        source: "system",
+        models: [{ id: "claude-haiku-4-5", label: "claude-haiku-4-5" }],
+      },
+    ],
+    byokProviders: [
+      {
+        provider: "My OpenAI",
+        adapter: "openai",
+        source: "byok",
+        models: [{ id: "gpt-5.4", label: "gpt-5.4", supported: true }],
+      },
+    ],
+  });
 });
 
 /** A duck-typed Prisma unique-violation, as the P2002 handlers match it. */
@@ -191,6 +216,89 @@ describe("createDetector", () => {
       ok: false,
       status: 400,
       error: 'detectionSource must be "system" or "byok"',
+    });
+  });
+
+  describe("detection model", () => {
+    it("does not read the workspace's models for the default choice", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await run({ detectionSource: "system" });
+      expect(r.ok).toBe(true);
+      expect(listWorkspaceModels).not.toHaveBeenCalled();
+    });
+
+    it("reads the list through the transaction and stores a system model it contains", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await run({ detectionModel: "claude-haiku-4-5" });
+      expect(r.ok).toBe(true);
+      expect(listWorkspaceModels).toHaveBeenCalledWith("w1", { db: tx });
+      expect(tx.detector.create.mock.calls[0][0].data).toMatchObject({
+        detectionModel: "claude-haiku-4-5",
+        detectionProvider: null,
+        detectionSource: null,
+      });
+    });
+
+    it("rejects a system model the workspace cannot use with 400 and the models it can", async () => {
+      mockAccess();
+      const r = await run({ detectionModel: "claude-9" });
+      expect(r).toEqual({
+        ok: false,
+        status: 400,
+        error: expect.stringMatching(
+          /^detection_model "claude-9" is not a system model this workspace can use\. System models: "claude-haiku-4-5"\. /,
+        ),
+      });
+      expect(tx.detector.findFirst).not.toHaveBeenCalled();
+      expect(tx.detector.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects a byok choice without a provider with 400", async () => {
+      mockAccess();
+      const r = await run({ detectionSource: "byok", detectionModel: "gpt-5.4" });
+      expect(r).toMatchObject({
+        ok: false,
+        status: 400,
+        error: expect.stringMatching(
+          /^detection_provider is required when detection_source is "byok"\. /,
+        ),
+      });
+    });
+
+    it("rejects a byok model not configured on the provider with 400", async () => {
+      mockAccess();
+      const r = await run({
+        detectionSource: "byok",
+        detectionProvider: "My OpenAI",
+        detectionModel: "gpt-5.5",
+      });
+      expect(r).toEqual({
+        ok: false,
+        status: 400,
+        error:
+          'detection_model "gpt-5.5" is not configured on provider "My OpenAI". Models on "My OpenAI": "gpt-5.4".',
+      });
+    });
+
+    it("stores a byok model configured on the named provider", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await run({
+        detectionSource: "byok",
+        detectionProvider: "My OpenAI",
+        detectionModel: "gpt-5.4",
+      });
+      expect(r.ok).toBe(true);
+      expect(tx.detector.create.mock.calls[0][0].data).toMatchObject({
+        detectionModel: "gpt-5.4",
+        detectionProvider: "My OpenAI",
+        detectionSource: "byok",
+      });
     });
   });
 
@@ -433,8 +541,8 @@ describe("createDetector", () => {
     const r = await run({
       triggerConditions: conditions,
       detectionSource: "byok",
-      detectionModel: "gpt-x",
-      detectionProvider: "openai",
+      detectionModel: "gpt-5.4",
+      detectionProvider: "My OpenAI",
       enableRca: false,
       provenance: { transport: "agent", agentSessionId: "as1" },
     });
@@ -444,8 +552,8 @@ describe("createDetector", () => {
         data: expect.objectContaining({
           trigger: { create: { conditions } },
           detectionSource: "byok",
-          detectionModel: "gpt-x",
-          detectionProvider: "openai",
+          detectionModel: "gpt-5.4",
+          detectionProvider: "My OpenAI",
           enableRca: false,
         }),
       }),
