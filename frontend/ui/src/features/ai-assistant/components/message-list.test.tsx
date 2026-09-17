@@ -683,8 +683,23 @@ describe("MessageList tool-step trace resolution", () => {
     expect(onOpenTrace).toHaveBeenCalledWith("trace-1", "span-t2");
   });
 
-  it("offers no link while the turn's trace is pending or failed", () => {
-    for (const status of ["pending", "failed", "disabled"]) {
+  it("links a step while the turn's trace is still uploading (pending)", () => {
+    // A chat turn ends before its upload finishes; the trace exists and fills
+    // in within seconds, so the way into it is offered at once.
+    const onOpenTrace = vi.fn();
+    render(
+      <MessageList
+        messages={[user("u1"), step("t1"), assistant("a1", "trace-1", "pending")]}
+        onOpenTrace={onOpenTrace}
+      />,
+    );
+    openSteps();
+    fireEvent.click(screen.getByText("Open span"));
+    expect(onOpenTrace).toHaveBeenCalledWith("trace-1", "span-t1");
+  });
+
+  it("offers no link when the turn's trace failed or tracing was off", () => {
+    for (const status of ["failed", "disabled"]) {
       const onOpenTrace = vi.fn();
       render(
         <MessageList
@@ -696,6 +711,69 @@ describe("MessageList tool-step trace resolution", () => {
       expect(screen.queryByText("Open span")).toBeNull();
       cleanup();
     }
+  });
+});
+
+describe("MessageList reply-level trace entry point", () => {
+  // Every turn has a way into its trace, tool calls or not (review item 4):
+  // the link sits under the reply that carries the trace stamp, which is the
+  // same final segment live (trace SSE frame) and after a reload (row metadata).
+  it("shows View trace under a reply whose trace is available, and opens it unfocused", () => {
+    const onOpenTrace = vi.fn();
+    render(
+      <MessageList
+        messages={[user("u1"), finalBubble("a1", { traceId: "trace-1", traceStatus: "available" })]}
+        onOpenTrace={onOpenTrace}
+      />,
+    );
+    fireEvent.click(screen.getByText("View trace"));
+    expect(onOpenTrace).toHaveBeenCalledWith("trace-1");
+  });
+
+  it("shows View trace while the upload is pending, and says so", () => {
+    const onOpenTrace = vi.fn();
+    render(
+      <MessageList
+        messages={[user("u1"), assistant("a1", "trace-1", "pending")]}
+        onOpenTrace={onOpenTrace}
+      />,
+    );
+    const link = screen.getByText("View trace");
+    expect(link.getAttribute("title")).toMatch(/still being uploaded/);
+    fireEvent.click(link);
+    expect(onOpenTrace).toHaveBeenCalledWith("trace-1");
+  });
+
+  it("says a failed upload has no trace, and offers nothing for a turn without one", () => {
+    render(
+      <MessageList
+        messages={[user("u1"), assistant("a1", "trace-1", "failed"), user("u2"), segment("a2")]}
+        onOpenTrace={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Trace not available")).toBeTruthy();
+    expect(screen.queryByText("View trace")).toBeNull();
+  });
+
+  it("keeps the usage line as it was, with the link after it", () => {
+    render(
+      <MessageList
+        messages={[user("u1"), finalBubble("a1", { traceId: "trace-1", traceStatus: "available" })]}
+        onOpenTrace={vi.fn()}
+      />,
+    );
+    const footer = screen.getByText("View trace").parentElement!;
+    expect(footer.textContent).toBe("12 in·34 out·View trace");
+  });
+
+  it("offers no link without an opener, even when the trace is available", () => {
+    render(
+      <MessageList
+        messages={[user("u1"), finalBubble("a1", { traceId: "trace-1", traceStatus: "available" })]}
+      />,
+    );
+    expect(screen.queryByText("View trace")).toBeNull();
+    expect(screen.getByText("12 in")).toBeTruthy();
   });
 });
 
