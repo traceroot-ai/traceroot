@@ -31,8 +31,8 @@ export interface DispatchOptions {
  * schema params to the query string (scalars stringified, objects and arrays
  * JSON-serialized, null and undefined dropped), ignore unknown args.
  *
- * A DELETE entry declares no body params, so its args (the path id, tenancy,
- * reason) take the query route exactly as a GET's do.
+ * A DELETE entry declares no body params, so its args (the path id and
+ * tenancy) take the query route exactly as a GET's do.
  */
 export async function dispatch(
   entry: RegistryEntry,

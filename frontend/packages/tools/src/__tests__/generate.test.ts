@@ -236,12 +236,19 @@ describe("generateRegistry", () => {
     doc.paths["/api/v1/public/traces"].put = {
       "x-tool": { enabled: true, name: "replace_traces", description: "Replace." },
     };
-    // PUT (full replacement) is the expected next verb, not a rejected one;
-    // the message says it is unsupported so far rather than unsupportable.
     expect(() => generateRegistry(doc)).toThrow(
       "Enabled tool on PUT /api/v1/public/traces: only GET, POST, PATCH and DELETE operations " +
         "are supported (PUT is not supported yet)",
     );
+    delete doc.paths["/api/v1/public/traces"].put;
+    doc.paths["/api/v1/public/traces"].head = {
+      "x-tool": { enabled: true, name: "head_traces", description: "Head." },
+    };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on HEAD /api/v1/public/traces: only GET, POST, PATCH and DELETE operations " +
+        "are supported",
+    );
+    expect(() => generateRegistry(doc)).not.toThrow("PUT");
   });
 
   it("emits GET entries without write-only keys", () => {
@@ -872,12 +879,15 @@ describe("generateRegistry edit operations", () => {
       type: "object",
       properties: { breakdown: { type: ["string", "null"], default: null } },
     });
-    // An all-object union keeps its stamped object type, now nullable too.
+    // An all-object union keeps its stamped object type, now nullable too,
+    // and the preserved anyOf regains a null variant so a validator that
+    // checks the variants also admits null.
     expect(update.inputSchema.properties.spec).toEqual({
       type: ["object", "null"],
       anyOf: [
         { type: "object", properties: { view: { type: "string" } } },
         { type: "object", properties: { limit: { type: "integer" } } },
+        { type: "null" },
       ],
     });
     // A type that is already a list gains "null" instead of nesting.
@@ -885,6 +895,31 @@ describe("generateRegistry edit operations", () => {
       type: ["array", "null"],
       items: { type: ["string", "number"] },
     });
+  });
+
+  it("recognizes a `const: null` variant as the null branch of a PATCH body property", () => {
+    // Some OpenAPI emitters spell the null branch as `{const: null}` rather
+    // than `{type: "null"}`; both mean the field admits null.
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      name: { anyOf: [{ type: "string" }, { const: null }], title: "Name" },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.inputSchema.properties.name).toEqual({ type: ["string", "null"] });
+  });
+
+  it("collapses a `const: null` variant to T on a POST body", () => {
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      name: { anyOf: [{ type: "string" }, { const: null }], title: "Name" },
+    };
+    const ops = doc.paths["/api/v1/public/dashboards/{dashboard_id}"];
+    ops.post = { ...ops.patch, "x-tool": { ...ops.patch!["x-tool"], name: "create_dashboard" } };
+    delete ops.patch;
+    delete ops.delete;
+    const create = generateRegistry(doc)[0]!;
+    expect(create.method).toBe("post");
+    expect(create.inputSchema.properties.name).toEqual({ type: "string" });
   });
 
   it("does not double up null on a PATCH property whose type list already admits it", () => {
@@ -896,15 +931,69 @@ describe("generateRegistry edit operations", () => {
     expect(update.inputSchema.properties.value).toEqual({ type: ["string", "null"] });
   });
 
+  it("flattens an inline (non-$ref) PATCH body schema", () => {
+    const doc = fakeEditDoc();
+    doc.paths["/api/v1/public/dashboards/{dashboard_id}"].patch!.requestBody = {
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            properties: {
+              project_id: { type: "string", title: "Project Id" },
+              name: { anyOf: [{ type: "string" }, { type: "null" }], title: "Name" },
+            },
+            required: ["project_id"],
+          },
+        },
+      },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.bodyParams).toEqual(["name", "project_id"]);
+    expect(update.inputSchema.properties.name).toEqual({ type: ["string", "null"] });
+  });
+
+  it("adds null to an enum on a nullable PATCH body property", () => {
+    // `enum` applies to every value, so a widened type alone would still
+    // reject null.
+    const doc = fakeEditDoc();
+    doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+      status: {
+        anyOf: [{ type: "string", enum: ["active", "paused"] }, { type: "null" }],
+        title: "Status",
+      },
+    };
+    const update = generateRegistry(doc).find((entry) => entry.name === "update_dashboard")!;
+    expect(update.inputSchema.properties.status).toEqual({
+      type: ["string", "null"],
+      enum: ["active", "paused", null],
+    });
+  });
+
+  const cannotWiden =
+    "Enabled tool on PATCH /api/v1/public/dashboards/{dashboard_id}: nullable body schema " +
+    'cannot be widened with "null" (it needs a type and no const, oneOf or allOf) — extend the ' +
+    "generator before enabling this operation";
+
   it("throws when a nullable PATCH body property has no type to widen", () => {
     const doc = fakeEditDoc();
     doc.components!.schemas!.UpdateDashboardRequest!.properties = {
       value: { anyOf: [{ type: "string" }, { type: "integer" }, { type: "null" }], title: "Value" },
     };
-    expect(() => generateRegistry(doc)).toThrow(
-      "Enabled tool on PATCH /api/v1/public/dashboards/{dashboard_id}: nullable body schema has " +
-        'no type to widen with "null" — extend the generator before enabling this operation',
-    );
+    expect(() => generateRegistry(doc)).toThrow(cannotWiden);
+  });
+
+  it("throws when a nullable PATCH body property carries const, oneOf or allOf", () => {
+    for (const keyword of [
+      { const: "fixed" },
+      { oneOf: [{ type: "string" }] },
+      { allOf: [{ type: "string" }] },
+    ]) {
+      const doc = fakeEditDoc();
+      doc.components!.schemas!.UpdateDashboardRequest!.properties = {
+        value: { anyOf: [{ type: "string", ...keyword }, { type: "null" }], title: "Value" },
+      };
+      expect(() => generateRegistry(doc)).toThrow(cannotWiden);
+    }
   });
 
   it("emits a delete entry with path and query params, its policy, and no bodyParams", () => {
@@ -935,7 +1024,7 @@ describe("generateRegistry edit operations", () => {
     };
     expect(() => generateRegistry(doc)).toThrow(
       "Enabled tool on DELETE /api/v1/public/dashboards/{dashboard_id}: DELETE operations take " +
-        "no request body — pass tenancy and reason as query parameters",
+        "no request body — declare its arguments as path or query parameters",
     );
   });
 

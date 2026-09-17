@@ -23,13 +23,7 @@ export interface InputSchema {
  * HTTP verbs the registry can express. `get` reads; `post` creates; `patch`
  * partially updates (absent body field = untouched, explicit null = clear);
  * `delete` removes, carrying its arguments in the path and query only.
- *
- * `put` (full replacement: the caller sends the whole resource and the server
- * stores exactly that) is the expected next member, not a rejected one.
- * Adding it is one more value here, one more accepted verb in the generator's
- * method guard, and a `replace_x` curation entry per resource on the same
- * service as its `update_x`. The null rule does not apply to a PUT because its
- * body is complete by definition, so it flattens like a POST.
+ * `put` is the expected next member; see SUPPORTED_METHODS in generate.ts.
  */
 export type ToolMethod = "get" | "post" | "patch" | "delete";
 

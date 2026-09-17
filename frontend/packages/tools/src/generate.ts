@@ -2,9 +2,13 @@ import { stripOversizedNumericBounds } from "./sanitize.js";
 import type { InputSchema, ParamSchema, RegistryEntry, ToolMethod, ToolPolicy } from "./types.js";
 
 /**
- * Verbs an enabled operation may use. `put` (full replacement) is the expected
- * next one: add it to `ToolMethod` and here, and let it take the POST branch
- * below — a complete body flattens like a create and needs no null rule.
+ * Verbs an enabled operation may use. `put` (full replacement: the caller
+ * sends the whole resource and the server stores exactly that) is the expected
+ * next one, not a rejected one. Adding it is one more member on `ToolMethod`,
+ * one more entry here, and a `replace_x` curation entry per resource on the
+ * same service as its `update_x`; it takes the POST branch of the body
+ * flattening, because a complete body has nothing to clear and needs no null
+ * rule.
  */
 const SUPPORTED_METHODS: readonly ToolMethod[] = ["get", "post", "patch", "delete"];
 
@@ -58,6 +62,14 @@ export interface OpenApiDocument {
 }
 
 /**
+ * True for the null branch of a nullable union. OpenAPI emitters spell it
+ * either as `{type: "null"}` or as `{const: null}`; both mean the same thing.
+ */
+function isNullVariant(variant: Record<string, unknown>): boolean {
+  return variant.type === "null" || variant.const === null;
+}
+
+/**
  * Flatten one plain (non-JSON-content) parameter schema: collapse FastAPI's
  * `anyOf [T, null]` wrapper for optional params into T and drop the generated
  * `title`, keeping every other constraint (format, bounds, default, ...).
@@ -75,7 +87,7 @@ function flattenParamSchema(schema: Record<string, unknown> | undefined): ParamS
     title?: unknown;
   } & Record<string, unknown>;
   if (Array.isArray(anyOf)) {
-    const variants = anyOf.filter((variant) => variant.type !== "null");
+    const variants = anyOf.filter((variant) => !isNullVariant(variant));
     if (variants.length === 1) {
       const { title: _variantTitle, ...variant } = variants[0]!;
       return { ...variant, ...rest };
@@ -147,27 +159,45 @@ const MAX_REF_DEPTH = 10;
  * On a PATCH an explicit null means clear, so the emitted schema must say
  * null is legal: its `type` becomes a list ending in `"null"` — a type list,
  * never a bare anyOf, because some model providers reject typeless tool
- * parameters. On a POST the null variant is simply dropped: optionality
- * lives in `required`, and a create has no stored value to clear.
+ * parameters. Keywords that constrain every value are widened alongside,
+ * since a validator applies them to null too: `enum` gains a null member and
+ * a preserved `anyOf` gains a `{type: "null"}` variant. On a POST the null
+ * variant is simply dropped: optionality lives in `required`, and a create
+ * has no stored value to clear.
  *
- * A nullable PATCH schema with no `type` to widen cannot express the rule, so
- * it fails closed rather than silently shipping a field the model cannot clear.
+ * A nullable PATCH schema this cannot widen — no `type`, or a `const`,
+ * `oneOf` or `allOf` that would still reject null — fails closed rather than
+ * silently shipping a field the model cannot clear.
  */
 function admitNull(schema: Record<string, unknown>, ctx: BodyContext): Record<string, unknown> {
   if (ctx.method !== "patch") {
     return schema;
   }
-  const { type } = schema;
-  if (typeof type === "string") {
-    return { ...schema, type: [type, "null"] };
-  }
-  if (Array.isArray(type) && type.length > 0) {
-    return type.includes("null") ? schema : { ...schema, type: [...type, "null"] };
-  }
-  throw new Error(
-    `Enabled tool on ${ctx.route}: nullable body schema has no type to widen with "null" — ` +
-      "extend the generator before enabling this operation",
+  const cannotWiden = new Error(
+    `Enabled tool on ${ctx.route}: nullable body schema cannot be widened with "null" ` +
+      "(it needs a type and no const, oneOf or allOf) — extend the generator before enabling " +
+      "this operation",
   );
+  const { type, enum: enumValues, anyOf } = schema;
+  if ("const" in schema || "oneOf" in schema || "allOf" in schema) {
+    throw cannotWiden;
+  }
+  let widenedType: string[];
+  if (typeof type === "string") {
+    widenedType = [type, "null"];
+  } else if (Array.isArray(type) && type.length > 0) {
+    widenedType = type.includes("null") ? (type as string[]) : [...(type as string[]), "null"];
+  } else {
+    throw cannotWiden;
+  }
+  const out: Record<string, unknown> = { ...schema, type: widenedType };
+  if (Array.isArray(enumValues) && !enumValues.includes(null)) {
+    out.enum = [...enumValues, null];
+  }
+  if (Array.isArray(anyOf) && !anyOf.some((variant) => isNullVariant(variant))) {
+    out.anyOf = [...anyOf, { type: "null" }];
+  }
+  return out;
 }
 
 /**
@@ -212,7 +242,7 @@ function normalizeBodySchema(
     const normalized = anyOf.map((variant) =>
       normalizeBodySchema(variant as Record<string, unknown>, ctx, seenRefs),
     );
-    const variants = normalized.filter((variant) => variant.type !== "null");
+    const variants = normalized.filter((variant) => !isNullVariant(variant));
     nullable = variants.length < normalized.length;
     if (variants.length === 1) {
       const merged = { ...variants[0], ...out };
@@ -342,8 +372,8 @@ export function generateRegistry(doc: OpenApiDocument): RegistryEntry[] {
       const route = `${method.toUpperCase()} ${path}`;
       if (!isSupportedMethod(method)) {
         throw new Error(
-          `Enabled tool on ${route}: only GET, POST, PATCH and DELETE operations are supported ` +
-            "(PUT is not supported yet)",
+          `Enabled tool on ${route}: only GET, POST, PATCH and DELETE operations are supported` +
+            (method === "put" ? " (PUT is not supported yet)" : ""),
         );
       }
       if (tool.name === undefined || tool.description === undefined) {
@@ -369,13 +399,13 @@ export function generateRegistry(doc: OpenApiDocument): RegistryEntry[] {
       const policy = validatePolicy(tool.policy, route);
       let bodyParams: string[] | undefined;
       if (method === "delete") {
-        // The public surface keeps DELETE bodies off the wire (tenancy and
-        // reason travel in the query). Ignoring a declared body would ship a
-        // tool that silently drops arguments, so fail closed instead.
+        // The public surface keeps DELETE bodies off the wire (the path id
+        // and tenancy travel in the path and query). Ignoring a declared body
+        // would ship a tool that silently drops arguments, so fail closed.
         if (op.requestBody !== undefined) {
           throw new Error(
             `Enabled tool on ${route}: DELETE operations take no request body — ` +
-              "pass tenancy and reason as query parameters",
+              "declare its arguments as path or query parameters",
           );
         }
       } else {
