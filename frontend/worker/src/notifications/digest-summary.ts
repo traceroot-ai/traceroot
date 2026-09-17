@@ -156,10 +156,21 @@ export interface DigestSummaryUsage {
  * a valid BYOK config uses the project's rcaModel on that config; everything
  * else (system source, BYOK lookup failure) uses the detector system default.
  */
+export interface DigestSummaryResult {
+  summary: string;
+  usage: DigestSummaryUsage;
+  /**
+   * The self-trace this flush's LLM call was recorded under, when the worker
+   * emitted one — stored on the digest's ai_messages row so the trace can be
+   * found from Postgres; nothing else keeps the id.
+   */
+  trace?: { traceId: string };
+}
+
 export async function generateDigestSummary(
   input: DigestSummaryInput,
   cfg: DigestSummaryModelConfig,
-): Promise<{ summary: string; usage: DigestSummaryUsage } | null> {
+): Promise<DigestSummaryResult | null> {
   try {
     const prompt = buildDigestSummaryPrompt(input);
     if (!prompt) return null;
@@ -196,13 +207,14 @@ export async function generateDigestSummary(
         toolChoice: "auto",
         signal: controller.signal,
       };
+      // Fresh id per flush. A window can be flushed twice (dedupe key
+      // expired, stalled job re-run), and each flush makes its own LLM
+      // call with fresh span ids — reusing one trace id would stack two
+      // roots under it, so two flushes are two traces.
+      const traceId = randomUUID().replaceAll("-", "");
       const traced = await withSelfTrace(
         {
-          // Fresh id per flush. A window can be flushed twice (dedupe key
-          // expired, stalled job re-run), and each flush makes its own LLM
-          // call with fresh span ids — reusing one trace id would stack two
-          // roots under it, so two flushes are two traces.
-          traceId: randomUUID().replaceAll("-", ""),
+          traceId,
           projectId: cfg.projectId,
           name: "digest-summary",
           metadata: {
@@ -249,6 +261,7 @@ export async function generateDigestSummary(
           outputTokens: response.usage?.output ?? 0,
           cost: response.usage?.cost?.total ?? 0,
         },
+        ...(traced.selfTraced ? { trace: { traceId } } : {}),
       };
     } finally {
       clearTimeout(timeout);
