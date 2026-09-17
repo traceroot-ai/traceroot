@@ -226,6 +226,8 @@ jobs:
       - name: Start the key-resolution stub and REST
         run: |
           set -euo pipefail
+          # The stub verifies a digest, so it is given one — never the key.
+          export TRACEROOT_E2E_API_KEY_SHA256="$(printf '%s' "$TRACEROOT_E2E_API_KEY" | sha256sum | cut -d' ' -f1)"
           nohup uv run python tests/e2e/stub_key_validator.py 3999 > stub.log 2>&1 &
           TRACEROOT_UI_URL=http://localhost:3999 \
             nohup uv run uvicorn rest.main:app --host 127.0.0.1 --port 8000 > rest.log 2>&1 &

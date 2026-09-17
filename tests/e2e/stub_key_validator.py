@@ -5,17 +5,21 @@ REST resolves a public API key by asking the Next.js server (see
 ``rest/routers/public/deps.py::authenticate_api_key``). The contract test in
 ``test_agent_trace_contract.py`` is about ingest isolation, not key resolution,
 and the UI route has its own unit tests — so in CI this process answers for it:
-one key (``TRACEROOT_E2E_API_KEY``) maps to one project
+one key (by its SHA-256, ``TRACEROOT_E2E_API_KEY_SHA256``) maps to one project
 (``TRACEROOT_E2E_PROJECT_ID``); anything else is 401. It checks the platform
 secret the same way the real route does, so a REST that stopped sending it
 would fail here too.
 
-Usage: ``TRACEROOT_E2E_API_KEY=… TRACEROOT_E2E_PROJECT_ID=… INTERNAL_API_SECRET=…
+It is given the key's SHA-256, never the key: the digest is all a validator
+needs, and a fixture that hashes a credential reads (to a scanner and to a
+person) like one that stores passwords.
+
+Usage: ``TRACEROOT_E2E_API_KEY_SHA256=$(printf '%s' "$TRACEROOT_E2E_API_KEY" |
+shasum -a 256 | cut -d' ' -f1) TRACEROOT_E2E_PROJECT_ID=… INTERNAL_API_SECRET=…
 python tests/e2e/stub_key_validator.py 3999`` and point REST at it with
 ``TRACEROOT_UI_URL=http://localhost:3999``.
 """
 
-import hashlib
 import hmac
 import json
 import os
@@ -35,12 +39,7 @@ class Handler(BaseHTTPRequestHandler):
             key_hash = json.loads(body or b"{}").get("keyHash") or ""
         except ValueError:
             key_hash = ""
-        # The same digest the real route computes over the same value — an API
-        # key is a high-entropy random token, not a user password, so SHA256 is
-        # the right primitive here (`routers/public/deps.py` says so where it
-        # hashes the key for real, and this must match it byte for byte).
-        # codeql[py/weak-sensitive-data-hashing]
-        expected = hashlib.sha256(os.environ["TRACEROOT_E2E_API_KEY"].encode()).hexdigest()
+        expected = os.environ["TRACEROOT_E2E_API_KEY_SHA256"]
         if not hmac.compare_digest(key_hash, expected):
             return self._json(401, {"valid": False, "error": "Invalid API key"})
         return self._json(
