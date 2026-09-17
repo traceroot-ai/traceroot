@@ -41,6 +41,10 @@ class ClickHouseSettings(BaseSettings):
     # describes, ran customer SQL through the privileged client while the read-only
     # account sat provisioned and unused. Naming the account that does not exist is
     # not a risk: the password still gates it, and the two are provisioned together.
+    # Overriding the name is for a deployment that provisioned its own account, and it
+    # owns that provisioning: bootstrap creates sql_gateway_ro and nothing else, so a
+    # name nothing created fails every gateway query as a server error, which is the
+    # direction that alerts rather than the one that quietly runs SQL as the admin.
     # Env: CLICKHOUSE_RO_USER, CLICKHOUSE_RO_PASSWORD.
     ro_user: str | None = "sql_gateway_ro"
     ro_password: str | None = None
