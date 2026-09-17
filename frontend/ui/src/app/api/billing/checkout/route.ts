@@ -3,8 +3,10 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { prisma, getStripeOrThrow, getPlanConfig, PlanType } from "@traceroot/core";
 
-// Subscription statuses that still bill, or will once payment settles.
-const BILLING_STATUSES = new Set(["active", "trialing", "past_due", "unpaid"]);
+// Subscription statuses that bill now or can start billing. `incomplete` is a
+// first payment still settling (for example a pending 3DS step), which becomes
+// active on success, so a second checkout opened meanwhile would also bill.
+const BILLING_STATUSES = new Set(["active", "trialing", "past_due", "unpaid", "incomplete"]);
 
 function alreadySubscribed() {
   return NextResponse.json(
@@ -58,13 +60,16 @@ export async function POST(req: NextRequest) {
     // The stored subscription id can lag Stripe (a missed or delayed webhook), so
     // also ask Stripe before opening checkout for an existing customer.
     if (workspace.billingCustomerId) {
-      const subscriptions = await stripe.subscriptions.list({
+      // status "all" includes ended subscriptions, so a live one can sit past the
+      // first page; iterating the list follows every page.
+      for await (const subscription of stripe.subscriptions.list({
         customer: workspace.billingCustomerId,
         status: "all",
         limit: 100,
-      });
-      if (subscriptions.data.some((subscription) => BILLING_STATUSES.has(subscription.status))) {
-        return alreadySubscribed();
+      })) {
+        if (BILLING_STATUSES.has(subscription.status)) {
+          return alreadySubscribed();
+        }
       }
     }
 

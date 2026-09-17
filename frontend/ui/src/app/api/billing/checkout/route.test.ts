@@ -28,7 +28,18 @@ vi.mock("@traceroot/core", () => ({
     },
   },
   getStripeOrThrow: () => ({
-    subscriptions: { list: (...args: unknown[]) => subscriptionsListMock(...args) },
+    subscriptions: {
+      // Stripe's list result is async-iterable across pages; the mock returns the
+      // full sequence of subscriptions.
+      list: (...args: unknown[]) => {
+        const subscriptions = subscriptionsListMock(...args) as Array<{ status: string }>;
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield* subscriptions;
+          },
+        };
+      },
+    },
     customers: { create: (...args: unknown[]) => customersCreateMock(...args) },
     checkout: { sessions: { create: (...args: unknown[]) => checkoutCreateMock(...args) } },
   }),
@@ -55,7 +66,7 @@ beforeEach(() => {
   checkoutCreateMock.mockReset();
 
   getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "a@example.com" } });
-  subscriptionsListMock.mockResolvedValue({ data: [] });
+  subscriptionsListMock.mockReturnValue([]);
   checkoutCreateMock.mockResolvedValue({ url: "https://checkout.stripe.test/session" });
 });
 
@@ -71,7 +82,7 @@ describe("POST /api/billing/checkout — existing subscription", () => {
 
   it("refuses when Stripe has a live subscription the workspace row has not caught up with", async () => {
     workspaceFindFirstMock.mockResolvedValue(workspace());
-    subscriptionsListMock.mockResolvedValue({ data: [{ id: "sub_1", status: "active" }] });
+    subscriptionsListMock.mockReturnValue([{ id: "sub_1", status: "active" }]);
 
     const res = await POST(makeRequest());
 
@@ -82,14 +93,35 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     expect(checkoutCreateMock).not.toHaveBeenCalled();
   });
 
+  it("refuses while a first payment is still settling", async () => {
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    subscriptionsListMock.mockReturnValue([{ id: "sub_pending", status: "incomplete" }]);
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
+    expect(checkoutCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("finds a live subscription behind a full page of ended ones", async () => {
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    subscriptionsListMock.mockReturnValue([
+      ...Array.from({ length: 150 }, (_, i) => ({ id: `sub_old_${i}`, status: "canceled" })),
+      { id: "sub_live", status: "active" },
+    ]);
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
+    expect(checkoutCreateMock).not.toHaveBeenCalled();
+  });
+
   it("opens checkout when the customer's only subscriptions have ended", async () => {
     workspaceFindFirstMock.mockResolvedValue(workspace());
-    subscriptionsListMock.mockResolvedValue({
-      data: [
-        { id: "sub_old", status: "canceled" },
-        { id: "sub_abandoned", status: "incomplete_expired" },
-      ],
-    });
+    subscriptionsListMock.mockReturnValue([
+      { id: "sub_old", status: "canceled" },
+      { id: "sub_abandoned", status: "incomplete_expired" },
+    ]);
 
     const res = await POST(makeRequest());
 
