@@ -312,7 +312,13 @@ def gateway() -> Iterator[Gateway]:
         script = (
             path.read_text()
             .replace("__WRITER_HASH__", hashlib.sha256(secrets.token_bytes(32)).hexdigest())
-            .replace("__RO_HASH__", hashlib.sha256(ro_password.encode()).hexdigest())
+            # SHA-256 is not a choice here: ClickHouse's IDENTIFIED WITH sha256_hash
+            # accepts exactly this digest, so a password-hashing KDF cannot be used.
+            # The value is a random 32-hex token generated above, never a human
+            # password, so the offline-guessing risk the rule exists for does not apply.
+            .replace(  # codeql[py/weak-sensitive-data-hashing]
+                "__RO_HASH__", hashlib.sha256(ro_password.encode()).hexdigest()
+            )
             .replace("__DB__", DATABASE)
         )
         for statement in _statements(script):

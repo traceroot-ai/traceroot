@@ -409,6 +409,8 @@ class SqlSchemaResponse(BaseModel):
     """The curated analytical schema, which is all a caller can query."""
 
     tables: list[SqlSchemaTable]
+
+
 class AlertSummary(BaseModel):
     """The alert fields shared by the list and detail reads (Postgres ``alerts``).
 
