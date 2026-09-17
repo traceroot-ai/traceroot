@@ -598,7 +598,21 @@ describe("createTools", () => {
     "list_alerts",
     "get_alert",
   ];
-  const WRITE_TOOL_NAMES = ["create_detector", "create_dashboard", "create_widget", "create_alert"];
+  const WRITE_TOOL_NAMES = [
+    "create_detector",
+    "create_dashboard",
+    "create_widget",
+    "create_alert",
+    "update_detector",
+    "update_dashboard",
+    "update_widget",
+    "update_alert",
+    "set_alert_status",
+    "delete_detector",
+    "delete_dashboard",
+    "delete_widget",
+    "delete_alert",
+  ];
   const OTHER_TOOL_NAMES = [
     "list_detector_models",
     "download_traces",
