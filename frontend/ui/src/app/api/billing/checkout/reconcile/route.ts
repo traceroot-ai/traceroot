@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth";
 import { prisma, getStripeOrThrow } from "@traceroot/core";
 import { workspaceBillingFromSubscription } from "../../workspace-billing";
 
+const PAID_STATUSES = new Set(["paid", "no_payment_required"]);
+
 /**
  * Sync a workspace's subscription from Stripe when Checkout redirects back.
  *
@@ -48,7 +50,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Checkout session not found" }, { status: 404 });
     }
 
-    if (checkoutSession.status !== "complete" || !checkoutSession.subscription) {
+    // A session can be complete while an asynchronous payment (SEPA debit, for
+    // example) is still processing. Leave those to the webhook rather than grant the
+    // plan before the money arrives.
+    if (
+      checkoutSession.status !== "complete" ||
+      !checkoutSession.subscription ||
+      !PAID_STATUSES.has(checkoutSession.payment_status)
+    ) {
       return NextResponse.json({ reconciled: false });
     }
 

@@ -73,6 +73,7 @@ function checkoutSession(overrides: Record<string, unknown> = {}) {
   return {
     id: "cs_1",
     status: "complete",
+    payment_status: "paid",
     metadata: { workspaceId: "ws-1" },
     subscription: subscription(),
     ...overrides,
@@ -139,6 +140,26 @@ describe("POST /api/billing/checkout/reconcile", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ reconciled: false });
+  });
+
+  it("does not write while an asynchronous payment is still processing", async () => {
+    sessionsRetrieveMock.mockResolvedValue(checkoutSession({ payment_status: "unpaid" }));
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ reconciled: false });
+    expect(workspaceUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("writes for a checkout that needed no payment", async () => {
+    sessionsRetrieveMock.mockResolvedValue(
+      checkoutSession({ payment_status: "no_payment_required" }),
+    );
+
+    const res = await POST(makeRequest());
+
+    expect(await res.json()).toEqual({ reconciled: true, plan: "pro" });
   });
 
   it("does not write while the checkout is still open", async () => {
