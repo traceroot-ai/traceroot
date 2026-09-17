@@ -749,10 +749,13 @@ describe("createWidget", () => {
     await runWidget();
     const [strings, ...values] = tx.$queryRaw.mock.calls[0] as [string[], ...unknown[]];
     const sql = strings.join("?");
-    expect(sql).toMatch(/SELECT layout FROM dashboards WHERE id = \? FOR UPDATE/);
+    expect(sql).toMatch(
+      /SELECT layout FROM dashboards WHERE id = \? AND project_id = \? FOR UPDATE/,
+    );
     // The id is a bound parameter, never interpolated into the statement.
     expect(sql).not.toContain("dash1");
-    expect(values).toEqual(["dash1"]);
+    expect(sql).not.toContain("p1");
+    expect(values).toEqual(["dash1", "p1"]);
     // Taking the lock after the insert would deadlock: the insert's foreign
     // key already holds a weaker lock on the same row.
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(

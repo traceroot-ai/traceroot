@@ -60,3 +60,25 @@ export async function parseJsonObject(
 export function isRecordGone(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025";
 }
+
+/**
+ * The reason a cookie-session delete records on its audit row when the web
+ * app sends none. The app's confirm dialogs are the consent step on this
+ * surface and send no body today; a body carrying `reason` is honored when
+ * one arrives.
+ */
+export const UI_DELETE_REASON = "Deleted from the web app";
+
+export async function readDeleteReason(req: Request): Promise<string> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return UI_DELETE_REASON;
+  }
+  const reason =
+    body !== null && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>).reason
+      : undefined;
+  return typeof reason === "string" ? reason : UI_DELETE_REASON;
+}

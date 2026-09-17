@@ -63,7 +63,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   // placement renders through the grid's unpersisted client fallback, as a
   // narrow stack down the left edge, until someone drags a tile.
   const widget = await prisma.$transaction((tx) =>
-    createWidgetWithPlacement(tx, { dashboardId, type }, () =>
+    createWidgetWithPlacement(tx, { dashboardId, projectId, type }, () =>
       tx.widget.create({
         data: {
           dashboardId,

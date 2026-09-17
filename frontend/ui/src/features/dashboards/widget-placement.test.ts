@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { WIDGET_TYPES } from "./types";
-import { appendWidgetPlacement } from "./widget-placement";
+import { appendWidgetPlacement, removeWidgetPlacement } from "./widget-placement";
 
 const query = { id: "w-new", type: "query" as const };
 const feed = { id: "w-new", type: "trace_feed" as const };
@@ -95,5 +95,35 @@ describe("appendWidgetPlacement", () => {
     expect(appendWidgetPlacement({ i: "w1" }, query)).toEqual([
       { i: "w-new", x: 0, y: 0, w: 6, h: 4 },
     ]);
+  });
+});
+
+describe("removeWidgetPlacement", () => {
+  it("drops the widget's entry and keeps the others in place", () => {
+    const layout = [
+      { i: "w1", x: 0, y: 0, w: 6, h: 4 },
+      { i: "w2", x: 6, y: 0, w: 6, h: 4 },
+    ];
+    expect(removeWidgetPlacement(layout, "w1")).toEqual([{ i: "w2", x: 6, y: 0, w: 6, h: 4 }]);
+  });
+
+  it("returns null when the widget has no entry, so nothing is rewritten", () => {
+    expect(removeWidgetPlacement([{ i: "w2", x: 0, y: 0, w: 6, h: 4 }], "w1")).toBeNull();
+    expect(removeWidgetPlacement(null, "w1")).toBeNull();
+  });
+
+  it("drops malformed entries alongside the removed one, since the layout is rewritten anyway", () => {
+    const layout = [{ i: "w1", x: 0, y: 0, w: 6, h: 4 }, null, { i: "w2", x: "a" }];
+    expect(removeWidgetPlacement(layout, "w1")).toEqual([]);
+  });
+
+  it("still rewrites the layout when the removed widget's own entry is malformed", () => {
+    // The entry goes whether or not it renders: skipping the rewrite would
+    // leave a broken entry behind for a widget that no longer exists.
+    const layout = [
+      { i: "w1", x: "a" },
+      { i: "w2", x: 6, y: 0, w: 6, h: 4 },
+    ];
+    expect(removeWidgetPlacement(layout, "w1")).toEqual([{ i: "w2", x: 6, y: 0, w: 6, h: 4 }]);
   });
 });
