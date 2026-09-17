@@ -41,12 +41,12 @@ vi.mock("@traceroot/core/model-resolver", () => ({
 }));
 vi.mock("../session.js", () => ({ SessionManager: class {} }));
 
+type Ctx = { toolCallId: string; attributes: Record<string, unknown> };
 type Config = {
-  captureToolIo: (
-    toolName: string,
-    args: unknown,
-    result: unknown,
-  ) => { args: unknown; result: unknown };
+  captureToolIo: {
+    args: (toolName: string, args: unknown, ctx: Ctx) => unknown;
+    result: (toolName: string, result: unknown, ctx: Ctx) => string | undefined;
+  };
 };
 
 let selfTrace: typeof import("../self-trace.js");
@@ -94,7 +94,7 @@ describe("span sink and row sink capture budgets are independent", () => {
       { state: rowState },
     );
 
-    let spanClose: { args: unknown; result: unknown } | undefined;
+    let spanClose: { result: unknown } | undefined;
 
     await selfTrace.withAgentTrace(meta, async () => {
       // Simulate the span sink having already spent its whole perRunBytes
@@ -103,11 +103,12 @@ describe("span sink and row sink capture budgets are independent", () => {
       const spanState = selfTrace.currentCaptureState()!;
       spanState.spentBytes = 262_144;
 
-      // The vendored SDK's own call pattern: captureToolIo once at span open
-      // (args only) and once at span close (result only) — both hit the
-      // now-near-exhausted span budget.
-      config.captureToolIo(toolName, args, undefined);
-      spanClose = config.captureToolIo(toolName, undefined, result);
+      // The vendored SDK's own call pattern: the args capture at span open and
+      // the result capture at span close — both hit the now-near-exhausted
+      // span budget.
+      const ctx: Ctx = { toolCallId: "1", attributes: {} };
+      config.captureToolIo.args(toolName, args, ctx);
+      spanClose = { result: config.captureToolIo.result(toolName, result, ctx) };
 
       // The SAME event, mirrored into a row by the persister — a completely
       // separate accumulator (rowState), never currentCaptureState().

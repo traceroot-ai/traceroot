@@ -1,5 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import { agentInternalSecret } from "../internal-secret.js";
 
 const schema = Type.Object({
   repo: Type.String({ description: "Repository in 'owner/repo' format" }),
@@ -22,7 +23,7 @@ export function createCheckGitHubAccessTool(
         {
           headers: {
             "x-workspace-id": workspaceId,
-            "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
+            "X-Internal-Secret": agentInternalSecret(),
           },
         },
       );

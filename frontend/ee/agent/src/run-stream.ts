@@ -10,7 +10,12 @@ import {
 } from "./pending-decisions.js";
 import { StreamPersister } from "./stream-persister.js";
 import { UsageAccumulator } from "./usage-accumulator.js";
-import type { SessionManager, TokenUsageData, TurnAttribution } from "./session.js";
+import {
+  stampTraceStatus,
+  type SessionManager,
+  type TokenUsageData,
+  type TurnAttribution,
+} from "./session.js";
 import { withAgentTrace, currentToolSpanIds, type AgentTraceMeta } from "./self-trace.js";
 import { publicErrorMessage } from "@traceroot/core/public-error";
 
@@ -282,6 +287,12 @@ export async function runAgentStream(
           // the server log and only the sanitised form the SSE frame carries
           // is recorded here.
           runError: ({ error }) => (error ? new Error(publicErrorMessage(error)) : undefined),
+          // A user is waiting on a chat/followup turn: its `done` must not
+          // sit behind the trace upload (process-wide queue, 30 s timeout).
+          // The row lands as `pending` and is stamped once the flush settles.
+          // An RCA has nobody waiting and the worker reads the final status
+          // from the trace frame, so it keeps awaiting the upload.
+          flush: options.trace.kind === "rca" ? "await" : "defer",
         })
       : { value: await run(), trace: "disabled" as const };
     const { persister, error } = outcome.value;
@@ -322,6 +333,17 @@ export async function runAgentStream(
       }
     } catch (cleanupError) {
       console.error("[Agent] Error while completing a run:", cleanupError);
+    }
+    // Deferred flush: the turn is over for the user; settle the row's status
+    // in the background. Not awaited — the finally below releases the run.
+    if (outcome.flushed) {
+      const rowId = persister.finalSegmentId();
+      void outcome.flushed.then((status) => {
+        if (!rowId) return;
+        return stampTraceStatus(rowId, status).catch((err: unknown) => {
+          console.error(`[Agent] Could not record trace status for session ${sessionId}:`, err);
+        });
+      });
     }
   } finally {
     decisions.unregisterChannel(sessionId, channel);

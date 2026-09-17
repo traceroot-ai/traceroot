@@ -10,7 +10,7 @@ import type { Message } from "@earendil-works/pi-ai";
 import { ADAPTER_TO_PI_AI, BEDROCK_USE_DEFAULT_CREDENTIALS, ModelSource } from "@traceroot/core";
 import { applyCapturePolicy } from "@traceroot/core/capture-policy";
 import { withheldOutputText } from "@traceroot/core/capture-note";
-import { instrumentPiAgentCore } from "@traceroot-ai/traceroot";
+import { instrumentPiAgentCore, type ToolIoCaptureContext } from "@traceroot-ai/traceroot";
 import {
   resolvePiModel,
   fetchProviderConfig,
@@ -21,7 +21,7 @@ import {
 import { REGISTRY } from "@traceroot-ai/tools";
 import { SessionManager } from "./session.js";
 import { createWritePolicyHook } from "./tools/write-policy.js";
-import { captureLlmContent } from "./llm-content.js";
+import { captureLlmContent, TRUNCATED_ATTRIBUTE } from "./llm-content.js";
 import { agentCaptureInput } from "./capture-input.js";
 import { recordToolSpan, currentCaptureState } from "./self-trace.js";
 
@@ -41,33 +41,46 @@ import { recordToolSpan, currentCaptureState } from "./self-trace.js";
 // policy) go through — a secret withheld from a tool span would reappear
 // verbatim once the model quoted it. captureLlmContent renders each model
 // call's input and output through the same policy first (llm-content.ts).
+// Charge the run's SPAN budget (currentCaptureState() — one accumulator for
+// the whole run, shared across the args and result sides of every tool call
+// so the per-run cap holds across calls, not just within one). This is
+// deliberately independent of the StreamPersister's row budget: the same
+// tool event is captured once for the span and once for the persisted row,
+// and each sink is bounded by perRunBytes on its own rather than splitting
+// one shared budget between them. Undefined outside a run (SDK used standalone).
+function policed(toolName: string, args: unknown, result: unknown, ctx: ToolIoCaptureContext) {
+  const c = applyCapturePolicy(
+    agentCaptureInput(toolName, args, result),
+    currentCaptureState() ?? { spentBytes: 0 },
+  );
+  // The span says when its I/O was cut to fit (per-step cap) and when the
+  // run's budget was spent before this call (design B7/B8), so a query or
+  // the viewer can key on the attribute instead of scanning the text.
+  if (c.truncated) ctx.attributes[TRUNCATED_ATTRIBUTE] = true;
+  if (c.withheld === "budget") ctx.attributes[BUDGET_EXCEEDED_ATTRIBUTE] = true;
+  return c;
+}
+
+/** The attribute a tool span carries when the run's capture budget was already spent (design B8). */
+export const BUDGET_EXCEEDED_ATTRIBUTE = "traceroot.capture_budget_exceeded";
+
 instrumentPiAgentCore(piAgentCore, {
   agentSpan: "unless-nested",
   captureContent: captureLlmContent,
-  captureToolIo: (toolName, args, result) => {
-    // Charge the run's SPAN budget (currentCaptureState() — one accumulator
-    // for the whole run, shared across this callback's open/close calls so
-    // the per-run cap holds across tool calls, not just within one). This is
-    // deliberately independent of the StreamPersister's row budget: the same
-    // tool event is captured once for the span and once for the persisted
-    // row, and each sink is bounded by perRunBytes on its own rather than
-    // splitting one shared budget between them. Undefined outside a run (SDK
-    // used standalone).
-    const c = applyCapturePolicy(
-      agentCaptureInput(toolName, args, result),
-      currentCaptureState() ?? { spentBytes: 0 },
-    );
-    // A withheld result is described in the reader's terms (what is missing
-    // and why), the same wording the persisted chat step shows — never the
-    // policy's bare verdict, which reads as an error in the trace viewer. A
-    // kept structured result is serialised for the span attribute.
-    const text: string =
-      c.result === undefined
+  captureToolIo: {
+    args: (toolName, args, ctx) => policed(toolName, args, undefined, ctx).args,
+    result: (toolName, result, ctx) => {
+      const c = policed(toolName, undefined, result, ctx);
+      // A withheld result is described in the reader's terms (what is missing
+      // and why), the same wording the persisted chat step shows — never the
+      // policy's bare verdict, which reads as an error in the trace viewer. A
+      // kept structured result is serialised for the span attribute.
+      return c.result === undefined
         ? withheldOutputText(c)
         : typeof c.result === "string"
           ? c.result
           : JSON.stringify(c.result);
-    return { args: c.args, result: text };
+    },
   },
   onToolSpan: recordToolSpan,
 });

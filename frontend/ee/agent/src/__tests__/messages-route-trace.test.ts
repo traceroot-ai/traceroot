@@ -18,10 +18,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@hono/node-server", () => ({ serve: vi.fn() }));
 
 const observe = vi.fn(async (_opts: unknown, fn: () => unknown) => fn());
+const flush = vi.fn(async () => {});
 vi.mock("@traceroot-ai/traceroot", () => ({
   TraceRoot: {
     initialize: vi.fn(),
-    flush: vi.fn(async () => {}),
+    flush: (...a: unknown[]) => flush(...(a as [])),
     isTracingActive: () => true,
   },
   observe: (...a: unknown[]) => observe(...(a as [unknown, () => unknown])),
@@ -38,11 +39,13 @@ vi.mock("@traceroot/core", async (orig) => ({
   syncStandardPrices: async () => {},
 }));
 
-const appendMessage = vi.fn(async () => ({ id: "user-row-1" }));
+const appendMessage = vi.fn(async (role: string) => ({ id: `${role}-row-1` }));
 const getSession = vi.fn();
+const stampTraceStatus = vi.fn(async () => {});
 vi.mock("../session.js", () => ({
   createSession: vi.fn(),
   getSession: (...a: unknown[]) => getSession(...a),
+  stampTraceStatus: (...a: unknown[]) => stampTraceStatus(...(a as [string, string])),
   getSessionMessages: vi.fn(),
   listSessions: vi.fn(),
   deleteSession: vi.fn(),
@@ -110,6 +113,8 @@ beforeEach(() => {
   delete process.env.AGENT_SELF_TRACE_KINDS;
   process.env.INTERNAL_API_SECRET_AGENT = "s";
   appendMessage.mockClear();
+  stampTraceStatus.mockClear();
+  flush.mockReset().mockResolvedValue(undefined);
   // Implementation too, not just the call history: a test that overrides it
   // (mockImplementationOnce) must not leak its callback into the next one.
   observe.mockReset().mockImplementation(async (_opts: unknown, fn: () => unknown) => fn());
@@ -157,11 +162,32 @@ describe("POST .../messages — enabled", () => {
     expect(observeOpts).toMatchObject({ projectId: "p1", name: "pi-mono" });
     const traceId = observeOpts.traceId as string;
     expect(traceId).toMatch(/^[0-9a-f]{32}$/);
-    expect(traceArg).toEqual({ traceId, status: "available" });
-    expect(sse).toContain(
-      `event: trace\ndata: ${JSON.stringify({ status: "available", traceId })}`,
-    );
+    // A chat turn does not wait for the upload: the row and the frame carry
+    // `pending`, and the row is stamped once the flush settles.
+    expect(traceArg).toEqual({ traceId, status: "pending" });
+    expect(sse).toContain(`event: trace\ndata: ${JSON.stringify({ status: "pending", traceId })}`);
     expect(observeOpts.metadata).toEqual({ kind: "chat", session_id: "s1" });
+    await vi.waitFor(() => expect(stampTraceStatus).toHaveBeenCalledTimes(1));
+    expect(stampTraceStatus).toHaveBeenCalledWith("assistant-row-1", "available");
+  });
+
+  it("ends a chat turn with `done` even when the trace upload never settles", async () => {
+    // The flush queue is process-wide with a 30 s timeout; a user waiting on
+    // a reply must not be held behind it (Xinwei review, item 2).
+    flush.mockImplementation(() => new Promise<void>(() => {}));
+    const { sse, traceArg } = await post({ message: "hi" });
+    expect(sse).toContain("event: done");
+    expect(traceArg).toMatchObject({ status: "pending" });
+    expect(stampTraceStatus).not.toHaveBeenCalled();
+  });
+
+  it("stamps the chat row `failed` when the deferred upload fails", async () => {
+    flush.mockRejectedValue(new Error("export 403"));
+    const { sse } = await post({ message: "hi" });
+    expect(sse).toContain("event: done");
+    await vi.waitFor(() =>
+      expect(stampTraceStatus).toHaveBeenCalledWith("assistant-row-1", "failed"),
+    );
   });
 
   it("links a follow-up to the execution that opened its session", async () => {
@@ -185,7 +211,7 @@ describe("POST .../messages — enabled", () => {
     getSession.mockResolvedValue(systemSession);
     executionFindUnique.mockRejectedValue(new Error("db down"));
     const { traceArg, observeOpts } = await post({ message: "and then?" });
-    expect(traceArg).toMatchObject({ status: "available" });
+    expect(traceArg).toMatchObject({ status: "pending" });
     expect(observeOpts.metadata).toEqual({
       kind: "followup",
       session_id: "s1",
@@ -212,8 +238,23 @@ describe("POST .../messages — enabled", () => {
       detectors: ["det1"],
       session_id: "s1",
     });
+    // An RCA awaits the upload: the worker reads the final status from the frame.
     expect(traceArg).toEqual({ traceId: "c".repeat(32), status: "available" });
     expect(sse).toContain(`"traceId":"${"c".repeat(32)}"`);
+    expect(stampTraceStatus).not.toHaveBeenCalled();
+  });
+
+  it("holds an execution turn's trace frame until the upload settles", async () => {
+    getSession.mockResolvedValue(systemSession);
+    flush.mockRejectedValue(new Error("export 403"));
+    const agentTrace = {
+      traceId: "c".repeat(32),
+      kind: "rca",
+      metadata: { execution_id: "exec-1" },
+    };
+    const { sse, traceArg } = await post({ message: "analyse", agentTrace }, {});
+    expect(traceArg).toEqual({ traceId: "c".repeat(32), status: "failed" });
+    expect(sse).toContain('"status":"failed"');
   });
 
   it("ignores a worker-style agentTrace on a chat turn", async () => {
