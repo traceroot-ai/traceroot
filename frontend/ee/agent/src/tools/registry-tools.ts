@@ -24,6 +24,7 @@ import {
 } from "./formatters.js";
 import { publicUiUrl } from "./origins.js";
 import { type QueryWindow, windowDefaults } from "./query-window.js";
+import { agentInternalSecret } from "../internal-secret.js";
 
 function requireEntry(name: string) {
   const entry = REGISTRY.find((e) => e.name === name);
@@ -45,7 +46,7 @@ export function createRegistryReadTools(
 ): AgentTool<any>[] {
   const client = new ApiClient({
     baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
-    headers: internalAuth(process.env.INTERNAL_API_SECRET || "", userId),
+    headers: internalAuth(agentInternalSecret(), userId),
   });
   const bind = (
     name: string,
