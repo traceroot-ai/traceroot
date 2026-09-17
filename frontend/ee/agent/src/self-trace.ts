@@ -8,9 +8,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { exportAgentSpan } from "./sandbox-spans.js";
 import { createHash } from "node:crypto";
-import { SpanStatusCode, trace } from "@opentelemetry/api";
+import { SpanStatusCode, trace, type Span } from "@opentelemetry/api";
 import { TraceRoot, observe } from "@traceroot-ai/traceroot";
-import { boundedText as boundedTextBytes } from "@traceroot/core/capture-policy";
+import { capText } from "@traceroot/core/capture-policy";
 import { agentInternalSecret } from "./internal-secret.js";
 
 export type AgentTraceKind = "rca" | "followup" | "chat";
@@ -55,10 +55,16 @@ function rootMetadata(meta: AgentTraceMeta): Record<string, unknown> {
   return { ...meta.metadata, kind: meta.kind };
 }
 
-/** Redact, then bound to ROOT_IO_CAP bytes (marker included, byte-safe): the policy's helper. */
-function boundedText(text: string | undefined): string | undefined {
-  if (!text) return undefined;
-  return boundedTextBytes(text, ROOT_IO_CAP);
+/**
+ * Redact, then bound to ROOT_IO_CAP bytes (marker included, byte-safe) and
+ * set on the root; a cut marks the root `traceroot.truncated`, the same
+ * attribute every LLM and tool span carries when its capture cut (design B7).
+ */
+function setBounded(root: Span | undefined, key: string, text: string | undefined): void {
+  if (!root || !text) return;
+  const cut = capText(text, ROOT_IO_CAP);
+  root.setAttribute(key, cut.text);
+  if (cut.truncated) root.setAttribute("traceroot.truncated", true);
 }
 
 const FLUSH_TIMEOUT_MS = 30_000;
@@ -259,12 +265,8 @@ export async function withAgentTrace<T>(
     // attribute, so stamp it here too. Set before fn runs so it survives a
     // failed run.
     if (root) root.setAttribute(TRACE_METADATA, JSON.stringify(rootMetadata(meta)));
-    const input = boundedText(meta.input);
-    if (root && input !== undefined) root.setAttribute("traceroot.span.input", input);
-    const systemPrompt = boundedText(meta.systemPrompt);
-    if (root && systemPrompt !== undefined) {
-      root.setAttribute("traceroot.agent.system_prompt", systemPrompt);
-    }
+    setBounded(root, "traceroot.span.input", meta.input);
+    setBounded(root, "traceroot.agent.system_prompt", meta.systemPrompt);
     let value: T;
     try {
       value = await fn();
@@ -274,8 +276,7 @@ export async function withAgentTrace<T>(
     }
     outcome = { ok: true, value };
     try {
-      const output = boundedText(options.recordOutput?.(value));
-      if (root && output !== undefined) root.setAttribute("traceroot.span.output", output);
+      setBounded(root, "traceroot.span.output", options.recordOutput?.(value));
       const runError = options.runError?.(value);
       if (root && runError) {
         root.recordException(runError);
