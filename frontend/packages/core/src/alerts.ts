@@ -24,6 +24,20 @@ export function isAlertSeverity(value: string): value is AlertSeverity {
 }
 
 /**
+ * A breach that has been announced and not yet recovered: in ALERT it is the
+ * emission that put the rule there; in NO_DATA it is the one carried across
+ * the gap. The worker's state machine reads it to tell a recovery from a
+ * first reading, and the write services read it to say when an edit or a
+ * delete discarded an open page.
+ */
+export function hasOutstandingAlertPage(state: {
+  severity: string;
+  alertedAt: Date | null;
+}): boolean {
+  return (state.severity === "ALERT" || state.severity === "NO_DATA") && state.alertedAt !== null;
+}
+
+/**
  * What a window that measured nothing means for this rule. HOLD reads a gap as
  * deciding nothing: the severity reads NO_DATA, nothing pages or clears, and
  * an outstanding page stays open across it. ZERO suits a measure whose absence

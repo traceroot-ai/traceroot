@@ -97,23 +97,33 @@ const alertCreate = vi.fn(async ({ data }: { data: Where }) => {
 
 vi.mock("next/server", () => ({ NextRequest: class {} }));
 
+const auditCreate = vi.fn(async () => ({}));
+
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
-  return {
-    ...actual,
-    prisma: {
-      alert: {
-        findFirst: alertFindFirst,
-        findMany: alertFindMany,
-        count: alertCount,
-        create: alertCreate,
-        updateMany: alertUpdateMany,
-        deleteMany: alertDeleteMany,
-      },
-      user: { findMany: async () => [{ id: "user-1", name: "Ada", email: "ada@example.com" }] },
-      $transaction: (operations: Promise<unknown>[]) => Promise.all(operations),
+  // The mutating handlers delegate to the write service, which runs its own
+  // tenancy check, its writes and the creator lookup inside a transaction on
+  // this same client; the list handler still batches plain operations.
+  const client = {
+    alert: {
+      findFirst: alertFindFirst,
+      findMany: alertFindMany,
+      count: alertCount,
+      create: alertCreate,
+      updateMany: alertUpdateMany,
+      deleteMany: alertDeleteMany,
     },
+    project: { findUnique: async () => ({ workspaceId: "ws-1", deleteTime: null }) },
+    workspaceMember: { findUnique: async () => ({ role: "MEMBER" }) },
+    user: {
+      findMany: async () => [{ id: "user-1", name: "Ada", email: "ada@example.com" }],
+      findUnique: async () => ({ name: "Ada", email: "ada@example.com" }),
+    },
+    auditLog: { create: auditCreate },
+    $transaction: (operations: Promise<unknown>[] | ((tx: unknown) => unknown)) =>
+      typeof operations === "function" ? operations(client) : Promise.all(operations),
   };
+  return { ...actual, prisma: client };
 });
 
 const requireAuthMock = vi.fn();
@@ -224,6 +234,19 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
     expect(store.get("alert-1")?.severity).toBe("ALERT");
     expect(store.get("alert-1")?.lastClaimedAt).not.toBeNull();
     expect(alertUpdateMany.mock.calls[0][0].where).toEqual({ id: "alert-1", projectId: "proj-1" });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "update_alert",
+        transport: "ui",
+        summary: { changed: ["name"] },
+      }),
+    });
+  });
+
+  it("answers a patch that changes nothing with 200 and no write, no audit", async () => {
+    expect((await patch({ name: "P95 latency", threshold: 500 })).status).toBe(200);
+    expect(alertUpdateMany).not.toHaveBeenCalled();
+    expect(auditCreate).not.toHaveBeenCalled();
   });
 
   it("resets the alert to a cold start when the rule itself changed", async () => {
@@ -420,12 +443,12 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]/pause", () => {
     expect((await pause("PAUSED")).status).toBe(200);
     expect(store.get("alert-1")?.status).toBe("PAUSED");
     expect(store.get("alert-1")?.severity).toBe("ALERT");
-    // A rule can only be paused from ACTIVE, or from PAUSED as a repeat: PARKED
-    // is the evaluator's verdict and is not a client's to relabel.
+    // A rule can only be paused from ACTIVE: PARKED is the evaluator's verdict
+    // and is not a client's to relabel, and a repeat pause is a no-op.
     expect(alertUpdateMany.mock.calls[0][0].where).toEqual({
       id: "alert-1",
       projectId: "proj-1",
-      status: { in: ["ACTIVE", "PAUSED"] },
+      status: "ACTIVE",
     });
   });
 
@@ -511,10 +534,17 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]/pause", () => {
 });
 
 describe("DELETE /api/projects/[projectId]/alerts/[alertId]", () => {
-  it("deletes through a project-scoped statement", async () => {
+  it("deletes through a project-scoped statement and records the reason on the audit log", async () => {
     expect((await remove()).status).toBe(200);
     expect(store.has("alert-1")).toBe(false);
     expect(alertDeleteMany.mock.calls[0][0].where).toEqual({ id: "alert-1", projectId: "proj-1" });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "delete_alert",
+        transport: "ui",
+        summary: { name: "P95 latency", reason: "Deleted from the web app", pageCleared: true },
+      }),
+    });
   });
 
   it("404s on an id that does not exist at all", async () => {
