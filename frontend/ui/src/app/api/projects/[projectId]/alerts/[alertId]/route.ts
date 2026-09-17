@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { canonicalizeAlertFilters, prisma, Role, type AlertFilter } from "@traceroot/core";
@@ -20,7 +21,7 @@ import {
 
 type RouteParams = { params: Promise<{ projectId: string; alertId: string }> };
 
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params);
   if (auth.error) return auth.error;
   const { projectId, alertId } = auth.params;
@@ -34,7 +35,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   return successResponse({ alert: await serializeAlert(alert) });
 }
 
-export async function PATCH(req: NextRequest, { params }: RouteParams) {
+async function handlePATCH(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, alertId } = auth.params;
@@ -169,7 +170,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   return successResponse({ alert: await serializeAlert(alert) });
 }
 
-export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+async function handleDELETE(_req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, alertId } = auth.params;
@@ -179,3 +180,6 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
 
   return successResponse({ success: true });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

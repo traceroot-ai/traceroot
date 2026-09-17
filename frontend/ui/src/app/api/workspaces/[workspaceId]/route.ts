@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
@@ -16,7 +17,7 @@ const updateWorkspaceSchema = z.object({
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
 // GET /api/workspaces/[workspaceId] - Get workspace details with projects
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // PUT /api/workspaces/[workspaceId] - Update workspace (ADMIN+)
-export async function PUT(request: NextRequest, { params }: RouteParams) {
+async function handlePUT(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -118,7 +119,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/workspaces/[workspaceId] - Delete workspace (ADMIN only)
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -135,3 +136,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   return NextResponse.json({ deleted: true }, { status: 200 });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const PUT = withImpersonationPolicy(handlePUT);
+export const DELETE = withImpersonationPolicy(handleDELETE);

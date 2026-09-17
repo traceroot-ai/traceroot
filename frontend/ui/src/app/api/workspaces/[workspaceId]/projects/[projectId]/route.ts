@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role, isAlertWindow, DEFAULT_ALERT_WINDOW } from "@traceroot/core";
@@ -22,7 +23,7 @@ const updateProjectSchema = z.object({
 type RouteParams = { params: Promise<{ workspaceId: string; projectId: string }> };
 
 // GET /api/workspaces/[workspaceId]/projects/[projectId] - Get project details
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId, projectId } = await params;
 
   const authResult = await requireAuth();
@@ -81,7 +82,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // PATCH /api/workspaces/[workspaceId]/projects/[projectId] - Update project (ADMIN+)
-export async function PATCH(request: NextRequest, { params }: RouteParams) {
+async function handlePATCH(request: NextRequest, { params }: RouteParams) {
   const { workspaceId, projectId } = await params;
 
   const authResult = await requireAuth();
@@ -173,7 +174,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/workspaces/[workspaceId]/projects/[projectId] - Soft delete project (ADMIN+)
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   const { workspaceId, projectId } = await params;
 
   const authResult = await requireAuth();
@@ -207,3 +208,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   return NextResponse.json({ deleted: true }, { status: 200 });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
@@ -14,7 +15,7 @@ async function findWidget(dashboardId: string, widgetId: string, projectId: stri
   });
 }
 
-export async function PATCH(req: NextRequest, { params }: RouteParams) {
+async function handlePATCH(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, dashboardId, widgetId } = auth.params;
@@ -67,7 +68,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+async function handleDELETE(_req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, dashboardId, widgetId } = auth.params;
@@ -84,3 +85,5 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   }
   return successResponse({ deleted: true });
 }
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

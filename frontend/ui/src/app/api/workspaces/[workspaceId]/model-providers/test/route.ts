@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { Role, LLMAdapter, ADAPTER_DEFAULT_BASE_URL, prisma, decryptKey } from "@traceroot/core";
@@ -104,7 +105,7 @@ function adapterBaseUrl(adapter: string, baseUrl?: string): string {
 }
 
 // POST /api/workspaces/[workspaceId]/model-providers/test
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -298,3 +299,4 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
   }
 }
+export const POST = withImpersonationPolicy(handlePOST);

@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
@@ -12,7 +13,7 @@ import {
 type RouteParams = { params: Promise<{ projectId: string; detectorId: string }> };
 
 // GET /api/projects/[projectId]/detectors/[detectorId] - Get a single detector
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -34,7 +35,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 }
 
 // PATCH /api/projects/[projectId]/detectors/[detectorId] - Partially update a detector
-export async function PATCH(req: NextRequest, { params }: RouteParams) {
+async function handlePATCH(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -178,7 +179,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/projects/[projectId]/detectors/[detectorId] - Delete a detector
-export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+async function handleDELETE(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -199,3 +200,6 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
 
   return successResponse({ deleted: true });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

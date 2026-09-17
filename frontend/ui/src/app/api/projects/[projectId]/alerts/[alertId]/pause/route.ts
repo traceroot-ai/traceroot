@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, STOPPED_ALERT_STATUSES } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
@@ -9,7 +10,7 @@ import { alertStateReset } from "../../rule-state";
 type RouteParams = { params: Promise<{ projectId: string; alertId: string }> };
 
 // Status only, so a pause never round-trips the rule payload it could clobber.
-export async function PATCH(req: NextRequest, { params }: RouteParams) {
+async function handlePATCH(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, alertId } = auth.params;
@@ -68,3 +69,4 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
   return successResponse({ alert: await serializeAlert(alert) });
 }
+export const PATCH = withImpersonationPolicy(handlePATCH);

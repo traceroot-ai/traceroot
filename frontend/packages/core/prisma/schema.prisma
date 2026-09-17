@@ -880,19 +880,28 @@ model Widget {
 // No relations on purpose: audit rows must survive resource deletion (an FK
 // cascade would erase history).
 model AuditLog {
-  id             String   @id @default(cuid()) @db.VarChar
-  actorUserId    String   @map("actor_user_id") @db.VarChar
-  operation      String   @db.VarChar // e.g. "create_detector"
-  resourceType   String   @map("resource_type") @db.VarChar
-  resourceId     String   @map("resource_id") @db.VarChar
-  workspaceId    String?  @map("workspace_id") @db.VarChar
-  projectId      String?  @map("project_id") @db.VarChar
-  summary        Json     @db.JsonB // payload summary, never secrets
-  transport      String   @db.VarChar // "public-api" | "agent"
-  agentSessionId String?  @map("agent_session_id") @db.VarChar
-  createTime     DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  id                     String    @id @default(cuid()) @db.VarChar
+  actorUserId            String    @map("actor_user_id") @db.VarChar
+  actorEmail             String?   @map("actor_email") @db.VarChar
+  targetUserId           String?   @map("target_user_id") @db.VarChar
+  targetEmail            String?   @map("target_email") @db.VarChar
+  impersonationSessionId String?   @map("impersonation_session_id") @db.VarChar
+  outcome                String?   @db.VarChar
+  expiresAt              DateTime? @map("expires_at") @db.Timestamp(6)
+  endedAt                DateTime? @map("ended_at") @db.Timestamp(6)
+  endReason              String?   @map("end_reason") @db.VarChar
+  operation              String    @db.VarChar // e.g. "create_detector"
+  resourceType           String    @map("resource_type") @db.VarChar
+  resourceId             String    @map("resource_id") @db.VarChar
+  workspaceId            String?   @map("workspace_id") @db.VarChar
+  projectId              String?   @map("project_id") @db.VarChar
+  summary                Json      @db.JsonB // payload summary, never secrets
+  transport              String    @db.VarChar // "public-api" | "agent"
+  agentSessionId         String?   @map("agent_session_id") @db.VarChar
+  createTime             DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
 
   @@index([workspaceId], map: "ix_audit_workspace_id")
   @@index([actorUserId], map: "ix_audit_actor_user_id")
+  @@index([impersonationSessionId], map: "ix_audit_impersonation_session_id")
   @@map("audit_logs")
 }

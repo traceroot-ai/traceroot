@@ -65,7 +65,7 @@ export default function DashboardIndexPage() {
   }
 
   // Loading, or a single dashboard about to be auto-opened by the effect.
-  if (!dashboards || dashboards.length === 0 || autoOpening) {
+  if (!dashboards || autoOpening) {
     return (
       <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
         Loading dashboards…
@@ -127,6 +127,13 @@ export default function DashboardIndexPage() {
               </tr>
             </thead>
             <tbody>
+              {dashboards.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-muted-foreground">
+                    No dashboards yet.
+                  </td>
+                </tr>
+              )}
               {dashboards.map((d) => (
                 <tr
                   key={d.id}

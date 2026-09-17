@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
@@ -9,7 +10,7 @@ export interface SubscriptionInfo {
   billingPeriod: { start: Date; end: Date } | null;
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   try {
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session?.user?.id) {
@@ -104,3 +105,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Failed to get subscription info" }, { status: 500 });
   }
 }
+export const GET = withImpersonationPolicy(handleGET);
