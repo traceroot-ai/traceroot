@@ -35,6 +35,11 @@ class Handler(BaseHTTPRequestHandler):
             key_hash = json.loads(body or b"{}").get("keyHash") or ""
         except ValueError:
             key_hash = ""
+        # The same digest the real route computes over the same value — an API
+        # key is a high-entropy random token, not a user password, so SHA256 is
+        # the right primitive here (`routers/public/deps.py` says so where it
+        # hashes the key for real, and this must match it byte for byte).
+        # codeql[py/weak-sensitive-data-hashing]
         expected = hashlib.sha256(os.environ["TRACEROOT_E2E_API_KEY"].encode()).hexdigest()
         if not hmac.compare_digest(key_hash, expected):
             return self._json(401, {"valid": False, "error": "Invalid API key"})
