@@ -239,6 +239,25 @@ describe("withAgentTrace root I/O", () => {
     spy.mockRestore();
   });
 
+  it("records the system prompt once on the root, redacted and capped", async () => {
+    const setAttribute = vi.fn();
+    const { trace } = await import("@opentelemetry/api");
+    const spy = vi.spyOn(trace, "getActiveSpan").mockReturnValue({ setAttribute } as never);
+    await mod.withAgentTrace(
+      {
+        ...meta,
+        systemPrompt: "You are the agent. token=ghp_" + "x".repeat(40) + " " + "汉".repeat(20_000),
+      },
+      async () => "ok",
+    );
+    const calls = Object.fromEntries(setAttribute.mock.calls);
+    const prompt = calls["traceroot.agent.system_prompt"] as string;
+    expect(prompt.startsWith("You are the agent.")).toBe(true);
+    expect(prompt).toContain("[REDACTED]");
+    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(16_384);
+    spy.mockRestore();
+  });
+
   it("keeps the trace's own kind when the caller's metadata carries a kind of its own", async () => {
     const r = await mod.withAgentTrace(
       { ...meta, kind: "rca", metadata: { kind: "chat", finding_id: "f1" } },

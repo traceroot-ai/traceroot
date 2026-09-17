@@ -30,6 +30,12 @@ export interface AgentTraceMeta {
   metadata: Record<string, unknown>;
   /** The turn's user message — recorded (redacted, capped) as the root span's input. */
   input?: string;
+  /**
+   * The system prompt the agent ran with — recorded once, on the root, as
+   * `traceroot.agent.system_prompt` (redacted, capped), instead of on every
+   * LLM span, where it would crowd out the messages.
+   */
+  systemPrompt?: string;
 }
 
 /** Root-span I/O cap in UTF-8 bytes (spec B8): the root carries the prompt and the final answer, bounded. */
@@ -241,6 +247,10 @@ export async function withAgentTrace<T>(
     if (root) root.setAttribute(TRACE_METADATA, JSON.stringify(rootMetadata(meta)));
     const input = boundedText(meta.input);
     if (root && input !== undefined) root.setAttribute("traceroot.span.input", input);
+    const systemPrompt = boundedText(meta.systemPrompt);
+    if (root && systemPrompt !== undefined) {
+      root.setAttribute("traceroot.agent.system_prompt", systemPrompt);
+    }
     let value: T;
     try {
       value = await fn();

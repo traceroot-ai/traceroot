@@ -107,13 +107,40 @@ function bounded(rendered: unknown): string {
 }
 
 /**
+ * The conversation a model call was given, bounded from the OLD end: when
+ * the rendered list is over the cap, the oldest messages are dropped and one
+ * marker says how many, so the latest turn — the tool result the model is
+ * reacting to, the user's newest message — is what the span keeps. The
+ * byte-safe cut in `bounded` still applies to a single oversized message.
+ */
+function boundedNewest(rendered: Record<string, unknown>[]): string {
+  const redacted = redactValue(rendered) as Record<string, unknown>[];
+  let dropped = 0;
+  let kept = redacted;
+  let json = JSON.stringify(kept);
+  while (Buffer.byteLength(json, "utf8") > LLM_IO_CAP && kept.length > 1) {
+    dropped += 1;
+    kept = redacted.slice(dropped);
+    json = JSON.stringify([
+      {
+        role: "omitted",
+        content: `[${dropped} earlier message${dropped === 1 ? "" : "s"} omitted]`,
+      },
+      ...kept,
+    ]);
+  }
+  return boundedText(json, LLM_IO_CAP);
+}
+
+/**
  * instrumentPiAgentCore's captureContent. The SDK's own AGENT span
  * (`Agent.prompt`) is not opened under the self-trace root at all
  * (agentSpan: 'unless-nested' in agent.ts); should one ever be — the SDK used
  * outside a run — it records nothing, since the run's prompt and final answer
  * sit on the root withAgentTrace owns. Each LLM span records the conversation
- * it was given (system prompt first, tool results under the allowlist) and the
- * assistant message it produced, both redacted and bounded.
+ * it was given (newest messages kept under the cap, tool results under the
+ * allowlist; the system prompt is on the root, once) and the assistant
+ * message it produced, both redacted and bounded.
  */
 export function captureLlmContent(
   kind: ContentCaptureKind,
@@ -122,11 +149,11 @@ export function captureLlmContent(
   switch (kind) {
     case "llm_input": {
       if (!value.messages) return undefined;
-      const rendered = [
-        ...(value.systemPrompt ? [{ role: "system", content: value.systemPrompt }] : []),
-        ...value.messages.map((m) => renderMessage(m as Message)),
-      ];
-      return bounded(rendered);
+      // The system prompt is not part of each call's record: it is the same
+      // 17 KB on every call and alone exceeds the cap, so rendering it first
+      // left every LLM span with a truncated prompt and no message at all
+      // (review, 2026-09-16). The root span records it once.
+      return boundedNewest(value.messages.map((m) => renderMessage(m as Message)));
     }
     case "llm_output": {
       if (!value.message) return undefined;
