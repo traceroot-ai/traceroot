@@ -5,6 +5,9 @@ import { prisma, getStripeOrThrow } from "@traceroot/core";
 import { workspaceBillingFromSubscription } from "../../workspace-billing";
 
 const PAID_STATUSES = new Set(["paid", "no_payment_required"]);
+// A paid checkout produces an active or trialing subscription. Anything else means
+// the subscription has since ended or changed, and the webhook owns that state.
+const LIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 
 /**
  * Sync a workspace's subscription from Stripe when Checkout redirects back.
@@ -68,6 +71,12 @@ export async function POST(req: NextRequest) {
 
     if (subscription.metadata?.workspaceId !== workspaceId) {
       return NextResponse.json({ error: "Checkout session not found" }, { status: 404 });
+    }
+
+    // The success link can be revisited after the subscription was canceled. Writing
+    // it then would put the workspace back on the paid plan without a payment.
+    if (!LIVE_SUBSCRIPTION_STATUSES.has(subscription.status)) {
+      return NextResponse.json({ reconciled: false });
     }
 
     const billing = workspaceBillingFromSubscription(subscription);

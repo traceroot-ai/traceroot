@@ -142,6 +142,20 @@ describe("POST /api/billing/checkout/reconcile", () => {
     expect(await res.json()).toEqual({ reconciled: false });
   });
 
+  it.each(["canceled", "incomplete_expired", "unpaid"])(
+    "does not restore the plan from an old checkout whose subscription is %s",
+    async (status) => {
+      sessionsRetrieveMock.mockResolvedValue(
+        checkoutSession({ subscription: { ...subscription(), status } }),
+      );
+
+      const res = await POST(makeRequest());
+
+      expect(await res.json()).toEqual({ reconciled: false });
+      expect(workspaceUpdateMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("does not write while an asynchronous payment is still processing", async () => {
     sessionsRetrieveMock.mockResolvedValue(checkoutSession({ payment_status: "unpaid" }));
 
