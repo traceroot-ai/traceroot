@@ -545,16 +545,87 @@ class TestTimeRange:
         assert "NOW()" in _view_call(rendered, "spans_public_v1").upper()
         assert set(binds) == {"scope_project_id"}
 
-    def test_strict_inequality_leaves_that_side_open(self) -> None:
-        # `>` cannot be expressed against an inclusive start without the next
-        # representable instant, so it yields no bound rather than a wider one.
+    SHIFT = "+ toIntervalMillisecond(1)"
+
+    @pytest.mark.parametrize(
+        ("predicate", "side"),
+        [
+            ("span_start_time > '2026-09-01'", "start_time"),
+            ("'2026-09-01' < span_start_time", "start_time"),
+            ("span_start_time <= '2026-09-01'", "end_time"),
+            ("'2026-09-01' >= span_start_time", "end_time"),
+        ],
+    )
+    def test_an_exclusive_comparison_shifts_by_one_millisecond(
+        self, predicate: str, side: str
+    ) -> None:
+        # The view's lower bound is inclusive and its upper bound subtracts a
+        # millisecond, so both of these land on exactly what the caller asked for.
+        call = _view_call(
+            scope_and_render(f"SELECT count() FROM spans WHERE {predicate}", PID)[0],
+            "spans_public_v1",
+        )
+        assert (
+            f"{side} = toTimeZone(toDateTime64('2026-09-01' {self.SHIFT}, 3), timezone())" in call
+        )
+
+    def test_the_other_side_is_still_open(self) -> None:
         call = _view_call(
             scope_and_render("SELECT count() FROM spans WHERE span_start_time > '2026-09-01'", PID)[
                 0
             ],
             "spans_public_v1",
         )
-        assert "'1900-01-01 00:00:00.000'" in call
+        assert (
+            "end_time = toTimeZone(toDateTime64('2299-12-31 23:59:59.999', 3), timezone())" in call
+        )
+
+    def test_an_inclusive_comparison_is_not_shifted(self) -> None:
+        # The shift is what makes the two spellings agree, so applying it to the
+        # side that already matches would move the window by a millisecond.
+        call = _view_call(
+            scope_and_render(
+                "SELECT count() FROM spans WHERE span_start_time >= '2026-09-01'"
+                " AND span_start_time < '2026-09-02'",
+                PID,
+            )[0],
+            "spans_public_v1",
+        )
+        assert self.SHIFT not in call
+
+    def test_a_window_spelled_either_way_scopes_the_view_the_same(self) -> None:
+        # The property the shift exists for. These describe the identical set of
+        # instants, so they must reach the view as the identical window; before the
+        # shift the second left both sides open and silently dropped rows whose
+        # newer version sat outside it.
+        inclusive = _view_call(
+            scope_and_render(
+                "SELECT count() FROM spans WHERE span_start_time >= '2026-09-01 00:00:00.000'"
+                " AND span_start_time < '2026-09-15 00:00:00.000'",
+                PID,
+            )[0],
+            "spans_public_v1",
+        )
+        exclusive = _view_call(
+            scope_and_render(
+                "SELECT count() FROM spans WHERE span_start_time > '2026-08-31 23:59:59.999'"
+                " AND span_start_time <= '2026-09-14 23:59:59.999'",
+                PID,
+            )[0],
+            "spans_public_v1",
+        )
+        assert self.SHIFT in exclusive and self.SHIFT not in inclusive
+        assert "1900-01-01" not in exclusive and "2299-12-31" not in exclusive
+
+    def test_a_relative_exclusive_bound_is_shifted_without_being_evaluated(self) -> None:
+        call = _view_call(
+            scope_and_render(
+                "SELECT count() FROM spans WHERE span_start_time > now() - INTERVAL 1 HOUR", PID
+            )[0],
+            "spans_public_v1",
+        )
+        assert self.SHIFT in call
+        assert "NOW()" in call.upper()
 
     def test_each_table_is_bounded_on_its_own_time_column(self) -> None:
         rendered, _ = scope_and_render(

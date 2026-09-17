@@ -428,6 +428,35 @@ def test_half_open_window_includes_its_start_and_excludes_its_end(gateway):
     assert _values(_rows(gateway, sql, PROJECT_SEM, open_bounds=True)) == IN_WINDOW
 
 
+#: A window that splits ``sem-dedup``'s two versions: v1 at 10:00:00 is inside it,
+#: v2 at 10:05:00 is not. Written twice, once with the comparisons that match the
+#: view's own bounds and once with the two that have to be shifted a millisecond to.
+SPLIT_WINDOW = [
+    (
+        "inclusive start, exclusive end",
+        "span_start_time >= '2026-09-02 10:00:00.000' AND span_start_time < '2026-09-02 10:02:30.000'",
+    ),
+    (
+        "exclusive start, inclusive end",
+        "span_start_time > '2026-09-02 09:59:59.999' AND span_start_time <= '2026-09-02 10:02:29.999'",
+    ),
+]
+
+
+@pytest.mark.parametrize("label,predicate", SPLIT_WINDOW, ids=[c[0] for c in SPLIT_WINDOW])
+def test_a_window_spelled_either_way_resolves_the_same_row(gateway, label, predicate):
+    """The reason ``>`` and ``<=`` are mapped rather than read as no bound.
+
+    Both predicates describe the identical set of instants. An unmapped side reaches
+    the view open, so the dedup runs over every version rather than the ones in the
+    window: v2 at 10:05 wins, the caller's own filter then drops it, and the v1 that
+    was genuinely in the window disappears. Measured on 25.2 before the fix: the
+    first spelling returned ``v1`` and the second returned nothing.
+    """
+    rows = _rows(gateway, f"SELECT span_id, name FROM spans WHERE {predicate}", PROJECT_SEM)
+    assert rows == [("sem-dedup", "v1")], label
+
+
 @pytest.mark.parametrize(
     "label,sql",
     [

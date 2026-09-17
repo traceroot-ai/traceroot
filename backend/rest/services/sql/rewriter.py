@@ -127,6 +127,29 @@ def _as_bound(value: exp.Expression) -> exp.Expression:
     )
 
 
+def _next_millisecond(value: exp.Expression) -> exp.Expression:
+    """The instant one millisecond after *value*.
+
+    The view's own bounds are ``>= start_time`` and ``<= end_time - 1 ms``, so a
+    caller's exclusive lower bound and inclusive upper bound both map onto them by
+    shifting one millisecond. Written as an expression rather than a computed
+    value because the bound may be relative, such as ``now() - INTERVAL 1 HOUR``,
+    and has no value until the server evaluates it.
+
+    Exact at any precision, because ``_as_bound`` truncates to milliseconds after
+    the shift. For a caller bound of ``12:00:00.0005``, ``> X`` admits a
+    ``DateTime64(3)`` column from ``12:00:00.001``, and the shift gives
+    ``toDateTime64(12:00:00.0015, 3)``, which truncates to exactly that. On the
+    upper side the view subtracts the millisecond again, so ``<= X`` reaches the
+    view as ``<= 12:00:00.000``, which is what ``<= 12:00:00.0005`` admits.
+    Verified against ClickHouse 25.2.
+    """
+    return exp.Add(
+        this=value.copy(),
+        expression=exp.Anonymous(this="toIntervalMillisecond", expressions=[exp.Literal.number(1)]),
+    )
+
+
 def _open(value: str) -> exp.Expression:
     """The sentinel for a side the caller did not usefully constrain."""
     return _as_bound(exp.Literal.string(value))
@@ -196,10 +219,16 @@ def _extract_time_bounds(
     was genuinely inside the window. Such predicates yield no bound, which leaves
     that side open and reproduces today's behaviour exactly.
 
-    Only ``>=`` and ``<`` map onto the view's parameters. ``>`` and ``<=`` would
-    need the next representable instant to stay exact, which means parsing a
-    caller-supplied datetime literal in every format ClickHouse accepts, so they
-    are read as no bound rather than as an approximate one.
+    All four comparisons map onto the view's parameters. ``>=`` and ``<`` match
+    them directly; ``>`` and ``<=`` are shifted by one millisecond, which is exact
+    at any precision and needs no literal parsing. See ``_next_millisecond``.
+
+    Reading them as no bound instead is not the neutral choice it looks like, and
+    that is the whole reason they are mapped. A side left open while the other is
+    bounded gives the view a window wider than the caller's, which is the hazard
+    above: measured on ClickHouse 25.2, one window spelled ``>= A AND < B``
+    returned a span whose older version sat inside it, and the identical window
+    spelled ``> A - 1ms AND <= B - 1ms`` did not.
 
     The bound expression is passed through verbatim rather than bound as a
     parameter. A parameter carries a value, and the most common window in this
@@ -212,9 +241,9 @@ def _extract_time_bounds(
     starts: list[exp.Expression] = []
     ends: list[exp.Expression] = []
 
-    def keep(side: list[exp.Expression], value: exp.Expression) -> None:
+    def keep(side: list[exp.Expression], value: exp.Expression, *, exclusive: bool = False) -> None:
         if _is_constant_bound(value):
-            side.append(_as_bound(value))
+            side.append(_as_bound(_next_millisecond(value) if exclusive else value))
 
     def visit(node: exp.Expression) -> None:
         if isinstance(node, exp.And):
@@ -238,6 +267,22 @@ def _extract_time_bounds(
             node.expression, column, aliases, qualified
         ):
             keep(ends, node.this)
+        # col > X, or the mirrored X < col. The view's lower bound is inclusive,
+        # so an exclusive one becomes the next millisecond.
+        elif isinstance(node, exp.GT) and _is_time_column(node.this, column, aliases, qualified):
+            keep(starts, node.expression, exclusive=True)
+        elif isinstance(node, exp.LT) and _is_time_column(
+            node.expression, column, aliases, qualified
+        ):
+            keep(starts, node.this, exclusive=True)
+        # col <= X, or the mirrored X >= col. The view's upper bound is exclusive
+        # and subtracts the millisecond back off, so this lands on exactly X.
+        elif isinstance(node, exp.LTE) and _is_time_column(node.this, column, aliases, qualified):
+            keep(ends, node.expression, exclusive=True)
+        elif isinstance(node, exp.GTE) and _is_time_column(
+            node.expression, column, aliases, qualified
+        ):
+            keep(ends, node.this, exclusive=True)
 
     visit(where)
     return _narrowest(starts, "greatest"), _narrowest(ends, "least")
