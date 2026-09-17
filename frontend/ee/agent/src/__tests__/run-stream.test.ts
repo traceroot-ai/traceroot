@@ -22,7 +22,7 @@ import {
   clearSessionDeleted,
 } from "../executors/deleted-session-fence.js";
 
-const ATTRIBUTION = { turnKind: "chat" as const, initiatorUserId: "u1" };
+const ATTRIBUTION = { turnKind: "chat" as const };
 
 vi.mock("../agent.js", () => ({
   runAgent: vi.fn(),

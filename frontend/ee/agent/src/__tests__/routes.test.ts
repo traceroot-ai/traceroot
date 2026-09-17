@@ -202,29 +202,22 @@ describe("POST /projects/:projectId/sessions/:sessionId/messages — attribution
     mocks.getSession.mockResolvedValue(systemSession);
     drive([textDelta("root cause")], "done");
     const [userRow] = await postMessage();
-    expect(userRow.slice(0, 3)).toEqual([
-      "user",
-      "why?",
-      { turnKind: "rca_execution", executionId: "e1", initiatorUserId: null },
-    ]);
+    expect(userRow.slice(0, 3)).toEqual(["user", "why?", { turnKind: "rca_execution" }]);
   });
 
   it("attributes a system-session turn with a user as a follow-up by that user", async () => {
     mocks.getSession.mockResolvedValue(systemSession);
     drive([textDelta("because")], "done");
     const [userRow] = await postMessage({ "x-user-id": "u9" });
-    expect(userRow[2]).toEqual({
-      turnKind: "rca_followup",
-      executionId: "e1",
-      initiatorUserId: "u9",
-    });
+    expect(userRow[2]).toEqual({ turnKind: "rca_followup", initiatorUserId: "u9" });
   });
 
   it("attributes a user-session turn as chat by the caller", async () => {
     mocks.getSession.mockResolvedValue(userSession);
     drive([textDelta("hi")], "done");
     const [userRow] = await postMessage({ "x-user-id": "u1" });
-    expect(userRow[2]).toEqual({ turnKind: "chat", initiatorUserId: "u1" });
+    // The session's user is the author; nothing is repeated on the turn.
+    expect(userRow[2]).toEqual({ turnKind: "chat" });
   });
 
   it("stamps the same attribution on every row a turn produces", async () => {
@@ -259,7 +252,7 @@ describe("POST /projects/:projectId/sessions/:sessionId/messages — attribution
     expect(calls[5][1]).toBe("");
     expect(calls[5][4]).toMatchObject({ model: "m", inputTokens: 1, outputTokens: 2 });
 
-    const attribution = { turnKind: "rca_followup", executionId: "e1", initiatorUserId: "u9" };
+    const attribution = { turnKind: "rca_followup", initiatorUserId: "u9" };
     for (const call of calls) expect(call[2]).toEqual(attribution);
   });
 
@@ -276,7 +269,7 @@ describe("POST /projects/:projectId/sessions/:sessionId/messages — attribution
     );
     const calls = await postMessage();
     expect(calls.map(([role]) => role)).toEqual(["user", "assistant", "tool_step", "assistant"]);
-    const attribution = { turnKind: "rca_execution", executionId: "e1", initiatorUserId: null };
+    const attribution = { turnKind: "rca_execution" };
     for (const call of calls) expect(call[2]).toEqual(attribution);
   });
 

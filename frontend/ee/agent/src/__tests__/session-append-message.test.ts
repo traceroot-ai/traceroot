@@ -18,11 +18,9 @@ beforeEach(() => {
 });
 
 describe("appendMessage attribution", () => {
-  it("writes the turn's attribution columns and the session's workspace", async () => {
+  it("writes the turn's kind and the session's workspace", async () => {
     await new SessionManager("s1").appendMessage("assistant", "root cause…", {
       turnKind: "rca_execution",
-      executionId: "exec-1",
-      initiatorUserId: null,
     });
     expect(findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "s1" }, select: { workspaceId: true } }),
@@ -33,21 +31,40 @@ describe("appendMessage attribution", () => {
       role: "assistant",
       content: "root cause…",
       turnKind: "rca_execution",
-      executionId: "exec-1",
-      initiatorUserId: null,
+    });
+    expect(create.mock.calls[0][0].data).not.toHaveProperty("executionId");
+    expect(create.mock.calls[0][0].data).not.toHaveProperty("initiatorUserId");
+  });
+
+  it("records a follow-up's author on the user row's metadata, nowhere else", async () => {
+    // The RCA session has no user of its own, so this is the one record of who
+    // asked; the turn's other rows are the agent's and carry nothing.
+    const m = new SessionManager("s1");
+    await m.appendMessage("user", "and then?", { turnKind: "rca_followup", initiatorUserId: "u1" });
+    await m.appendMessage("assistant", "then…", {
+      turnKind: "rca_followup",
+      initiatorUserId: "u1",
+    });
+    expect(create.mock.calls[0][0].data.metadata).toEqual({ initiatorUserId: "u1" });
+    expect(create.mock.calls[1][0].data.metadata).toBeUndefined();
+  });
+
+  it("keeps the user row's other metadata beside the author", async () => {
+    await new SessionManager("s1").appendMessage(
+      "user",
+      "hi",
+      { turnKind: "rca_followup", initiatorUserId: "u1" },
+      { attachments: 1 },
+    );
+    expect(create.mock.calls[0][0].data.metadata).toEqual({
+      attachments: 1,
+      initiatorUserId: "u1",
     });
   });
 
-  it("stores null for attribution fields the turn did not name", async () => {
-    await new SessionManager("s1").appendMessage("user", "hi", {
-      turnKind: "chat",
-      initiatorUserId: "u1",
-    });
-    expect(create.mock.calls[0][0].data).toMatchObject({
-      turnKind: "chat",
-      executionId: null,
-      initiatorUserId: "u1",
-    });
+  it("writes no author for a chat turn: the session's user already is", async () => {
+    await new SessionManager("s1").appendMessage("user", "hi", { turnKind: "chat" });
+    expect(create.mock.calls[0][0].data.metadata).toBeUndefined();
   });
 
   // `kind` is what usage metering still groups by; it must keep the pre-attribution
