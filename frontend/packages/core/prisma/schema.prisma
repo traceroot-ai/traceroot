@@ -387,32 +387,28 @@ enum TurnKind {
 
 // AI Messages - Individual messages within an AI session
 model AIMessage {
-  id              String                @id @default(cuid()) @db.VarChar
-  workspaceId     String                @map("workspace_id") @db.VarChar // direct workspace pointer for per-kind aggregation (detector scans have no session)
-  sessionId       String?               @map("session_id") @db.VarChar // nullable: detector scans have no chat session
-  kind            String                @default("chat") @db.VarChar // "chat" | "rca" | "detector" | "digest-summary" — categorical tag; usage metering aggregates only chat|rca|detector (digest-summary is recorded, not metered)
+  id           String     @id @default(cuid()) @db.VarChar
+  workspaceId  String     @map("workspace_id") @db.VarChar // direct workspace pointer for per-kind aggregation (detector scans have no session)
+  sessionId    String?    @map("session_id") @db.VarChar // nullable: detector scans have no chat session
+  kind         String     @default("chat") @db.VarChar // "chat" | "rca" | "detector" | "digest-summary" — categorical tag; usage metering aggregates only chat|rca|detector (digest-summary is recorded, not metered)
   // Per-turn attribution. `kind` is kept one release for old readers and is
   // derived from turnKind at write time; metering will move to turnKind (E-09 follow-up).
-  turnKind        TurnKind              @default(chat) @map("turn_kind")
-  executionId     String?               @map("execution_id") @db.VarChar
-  initiatorUserId String?               @map("initiator_user_id") @db.VarChar
-  role            String                @db.VarChar // user, assistant, tool
-  content         String                @db.Text
-  metadata        Json?                 @db.JsonB // tool name, tool result, etc.
-  model           String?               @db.VarChar
-  provider        String?               @db.VarChar
-  isByok          Boolean?              @map("is_byok")
-  inputTokens     Int?                  @map("input_tokens")
-  outputTokens    Int?                  @map("output_tokens")
-  cost            Decimal?              @map("cost_usd") @db.Decimal(10, 6)
-  createTime      DateTime              @default(now()) @map("create_time") @db.Timestamp(6)
-  workspace       Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  session         AISession?            @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  execution       DetectorRcaExecution? @relation(fields: [executionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  turnKind     TurnKind   @default(chat) @map("turn_kind")
+  role         String     @db.VarChar // user, assistant, tool
+  content      String     @db.Text
+  metadata     Json?      @db.JsonB // tool name, tool result, etc.
+  model        String?    @db.VarChar
+  provider     String?    @db.VarChar
+  isByok       Boolean?   @map("is_byok")
+  inputTokens  Int?       @map("input_tokens")
+  outputTokens Int?       @map("output_tokens")
+  cost         Decimal?   @map("cost_usd") @db.Decimal(10, 6)
+  createTime   DateTime   @default(now()) @map("create_time") @db.Timestamp(6)
+  workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  session      AISession? @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([sessionId], map: "ix_ai_message_session_id")
   @@index([workspaceId, kind, createTime], map: "ix_ai_message_workspace_kind_time")
-  @@index([executionId], map: "ix_ai_message_execution_id")
   @@map("ai_messages")
 }
 
@@ -470,9 +466,9 @@ model Detector {
 }
 
 model DetectorTrigger {
-  id         String   @id @default(cuid()) @db.VarChar
-  detectorId String   @unique @map("detector_id") @db.VarChar
-  conditions Json     @db.JsonB
+  id         String @id @default(cuid()) @db.VarChar
+  detectorId String @unique @map("detector_id") @db.VarChar
+  conditions Json   @db.JsonB
   // [{field: "environment", op: "=", value: "prod"}] — `environment` with =/!= is the
   // only condition evaluated today (editor: features/detectors/components/trigger-editor.tsx,
   // evaluator: backend/worker/detector_tasks.py). Empty list matches every completed trace.
@@ -552,10 +548,9 @@ model DetectorRcaExecution {
 
   rca            DetectorRca @relation(fields: [findingId], references: [findingId], onDelete: Cascade, onUpdate: NoAction)
   session        AISession?  @relation("executionSession", fields: [sessionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  // Sessions opened for this execution (AISession.executionId, set at creation)
-  // and the turns attributed to it (AIMessage.executionId).
+  // Sessions opened for this execution (AISession.executionId, set at creation);
+  // a message reaches its execution through its session.
   openedSessions AISession[] @relation("sessionExecution")
-  messages       AIMessage[]
 
   @@unique([findingId, attempt], map: "uq_rca_execution_finding_attempt")
   @@map("detector_rca_executions")
@@ -763,20 +758,20 @@ model EvaluationRun {
 // One test case's outcome within one run. Links to its source test case
 // (`testCaseId`, stable) and the produced trace (`traceId`, may arrive later).
 model EvaluationResult {
-  id              String   @id @default(cuid()) @db.VarChar
-  runId           String   @map("run_id") @db.VarChar
-  evaluationId    String   @map("evaluation_id") @db.VarChar
-  projectId       String   @map("project_id") @db.VarChar
-  testCaseId      String   @map("test_case_id") @db.VarChar // stable source-case id
-  traceId         String?  @map("trace_id") @db.VarChar
-  input           String   @db.Text
-  expectedOutput  String?  @map("expected_output") @db.Text
-  candidateOutput String?  @map("candidate_output") @db.Text // null when the task errored
-  baselineOutput  String?  @map("baseline_output") @db.Text
-  status          String   @db.VarChar // passed|failed|errored|not_scored
-  change          String?  @db.VarChar // improved|regressed|unchanged
-  taskError       String?  @map("task_error") @db.Text // application/task failure
-  durationMs      Int?     @map("duration_ms")
+  id              String    @id @default(cuid()) @db.VarChar
+  runId           String    @map("run_id") @db.VarChar
+  evaluationId    String    @map("evaluation_id") @db.VarChar
+  projectId       String    @map("project_id") @db.VarChar
+  testCaseId      String    @map("test_case_id") @db.VarChar // stable source-case id
+  traceId         String?   @map("trace_id") @db.VarChar
+  input           String    @db.Text
+  expectedOutput  String?   @map("expected_output") @db.Text
+  candidateOutput String?   @map("candidate_output") @db.Text // null when the task errored
+  baselineOutput  String?   @map("baseline_output") @db.Text
+  status          String    @db.VarChar // passed|failed|errored|not_scored
+  change          String?   @db.VarChar // improved|regressed|unchanged
+  taskError       String?   @map("task_error") @db.Text // application/task failure
+  durationMs      Int?      @map("duration_ms")
   cost            Float?
   // Set whenever cost derivation RUNS for this result, independent of the outcome — a
   // zero-cost trace legitimately leaves `cost` NULL (via NULLIF), so this marker is what
@@ -785,11 +780,11 @@ model EvaluationResult {
   // probes (`ix_eval_result_cost_backfill`, WHERE cost_derived_at IS NULL AND trace_id IS
   // NOT NULL) can't be expressed here, so it lives in the migration as raw SQL.
   costDerivedAt   DateTime? @map("cost_derived_at") @db.Timestamp(6)
-  createTime      DateTime @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime      DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+  createTime      DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime      DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
 
-  run         EvaluationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  scores      Score[]
+  run    EvaluationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  scores Score[]
 
   @@unique([runId, testCaseId], map: "uq_result_run_test_case")
   @@index([projectId], map: "ix_evaluation_result_project_id")
