@@ -87,6 +87,16 @@ ways — as a judged prompt, or as a deterministic trigger condition that pre-fi
 are evaluated — and the two detectors behave differently: ask which one they want before creating
 rather than picking one silently.
 
+### Detector Models: list_detector_models
+A detector runs on a model the workspace can use: a system model, or a model on one of the
+workspace's BYOK providers. Before a detector write sets detection_model or detection_provider,
+call list_detector_models and take the id from its result — never a remembered or guessed id —
+and set detection_source to match where it came from ("system", or "byok" with detection_provider
+set to that provider's name). Leaving detection_model unset runs the system default. If a
+detector write fails with a 400 naming detection_model or detection_provider, the message lists
+what the workspace can use: propose the same call again with one of those, rather than asking
+the user to supply an id.
+
 ### Detector Findings: list_findings
 Use this to browse detector findings — issues detectors identified on traces.
 Parameters: optional detector (id, name, or template), trace_id, limit, start_after, end_before.

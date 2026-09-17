@@ -8,6 +8,7 @@ import { createDownloadSessionTool } from "./download-session.js";
 import { createBashTool, createReadTool, createWriteTool } from "./sandbox.js";
 import { createCheckGitHubAccessTool } from "./github-access.js";
 import { createGitCloneTool } from "./git-clone.js";
+import { createListDetectorModelsTool } from "./detector-models.js";
 import type { QueryWindow } from "./query-window.js";
 import { internalUiUrl } from "./origins.js";
 
@@ -50,6 +51,9 @@ export function createTools(params: {
       }),
     );
   }
+  // The models a detector may name (host-side, workspace-scoped). Offered to
+  // every session, write tools or not, so a proposal names a real id.
+  tools.push(createListDetectorModelsTool(params.workspaceId));
   tools.push(createDownloadTracesTool(params.projectId, params.userId, params.executor));
   tools.push(createDownloadSessionTool(params.projectId, params.userId, params.executor));
 
