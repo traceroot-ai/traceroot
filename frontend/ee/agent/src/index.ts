@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -21,6 +22,8 @@ import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "./pending-decisio
 import { claimRun, releaseRun, runAgentStream, waitForRunToSettle } from "./run-stream.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
+import { reclaimOrphanedSandboxes } from "./executors/docker.js";
+import { SandboxRegistry, idleTtlMsFromEnv } from "./executors/registry.js";
 import {
   clearSessionDeleted,
   fenceExecutorToSession,
@@ -34,7 +37,6 @@ import {
   rememberListener,
 } from "./hot-reload.js";
 import { parseQueryWindow } from "./tools/query-window.js";
-import type { Executor } from "./executors/interface.js";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import type { SessionManager } from "./session.js";
 
@@ -43,8 +45,18 @@ const app = new Hono();
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 
-// Per-session executor cache (executor lifecycle tied to session)
-const sessionExecutors = new Map<string, Executor>();
+// Identifies this process to its sandbox containers. Startup reconciliation
+// removes every sandbox that does not carry it, so it must be fresh per process.
+const INSTANCE_ID = randomUUID();
+
+// Per-session executor cache. Sandboxes are also labelled with INSTANCE_ID so a
+// restart can reclaim them without any in-memory state, and the registry expires
+// them on an idle TTL so a session nobody deletes cannot hold one forever.
+const sessionExecutors = new SandboxRegistry({
+  create: (sessionId) =>
+    fenceExecutorToSession(createExecutor({ sessionId, ownerId: INSTANCE_ID }), sessionId),
+  idleTtlMs: idleTtlMsFromEnv(),
+});
 
 // When this module was (re-)executed. Reported by /health so a caller can tell
 // whether the running process predates the sources it is being graded against
@@ -142,13 +154,9 @@ app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   const settled = await waitForRunToSettle(sessionId);
 
   try {
-    const executor = sessionExecutors.get(sessionId);
-    if (executor) {
-      // Untracked before destroy: a teardown that throws must not leave a
-      // dead executor in the map for a later request to hand out.
-      sessionExecutors.delete(sessionId);
-      await executor.destroy();
-    }
+    // Untracked before destroy: a teardown that throws must not leave a dead
+    // executor in the registry for a later request to hand out.
+    await sessionExecutors.release(sessionId);
     removeAgent(sessionId);
   } finally {
     // The fence must never outlive the request that raised it, even when the
@@ -213,12 +221,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     window,
   });
 
-  // Get or create executor for this session (lazy — not initialized until tool use)
-  let executor = sessionExecutors.get(sessionId);
-  if (!executor) {
-    executor = fenceExecutorToSession(createExecutor(), sessionId);
-    sessionExecutors.set(sessionId, executor);
-  }
+  // Get or create executor for this session (lazy — not initialized until tool
+  // use). This also marks the session as active for the idle sweep.
+  const executor = sessionExecutors.acquire(sessionId);
 
   // Both tenancy ids come from the ONE session row authorized above — never
   // the raw header or the raw path value — so tools can't be coerced into
@@ -277,8 +282,13 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     throw error;
   }
 
-  return streamSSE(c, (stream) =>
-    runAgentStream(stream, {
+  return streamSSE(c, (stream) => {
+    // Held for the whole turn: a tool loop can outlast the idle TTL, and without
+    // this the sweeper would tear the sandbox down mid-request.
+    const releaseSandbox = sessionExecutors.retain(sessionId);
+    // .finally, not a trailing call: an aborted or failed turn must give the
+    // sandbox back too, or that session is never swept again.
+    return runAgentStream(stream, {
       agent,
       message: body.message,
       sessionId,
@@ -289,8 +299,8 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
       channelUserId: userId,
       isByok: body.source === ModelSource.BYOK,
       sessionManager,
-    }),
-  );
+    }).finally(releaseSandbox);
+  });
 });
 
 // Graceful shutdown
@@ -301,11 +311,10 @@ async function shutdown(signal: string): Promise<void> {
   isShuttingDown = true;
   console.log(`\n[Agent] Received ${signal}, shutting down...`);
   try {
-    // Destroy all active executors (sandbox containers)
-    for (const [id, executor] of sessionExecutors) {
-      await executor.destroy();
-      sessionExecutors.delete(id);
-    }
+    // Destroy all active executors (sandbox containers) concurrently — N
+    // sequential `docker rm -f` calls can outlast compose's stop grace period,
+    // and everything still alive when SIGKILL lands is leaked.
+    await sessionExecutors.destroyAll();
     await prisma.$disconnect();
     console.log("[Agent] Cleanup complete");
     process.exit(0);
@@ -340,6 +349,12 @@ async function main(): Promise<void> {
 
   // Sync standard model pricing from JSON → DB
   await syncStandardPrices();
+
+  // Reclaim sandboxes left behind by an earlier instance before taking traffic,
+  // then expire the ones this instance stops using. Between them these replace
+  // `make reset` as the only sweeper in the repo.
+  await reclaimOrphanedSandboxes(INSTANCE_ID);
+  sessionExecutors.startSweeping();
 
   rememberListener(
     serve({ fetch: app.fetch, port: PORT }, (info) => {
