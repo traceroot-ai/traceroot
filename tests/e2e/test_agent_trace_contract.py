@@ -1,6 +1,15 @@
 """Customer-metrics contract: ingesting internal traces changes nothing a customer sees, and
-moves only the internal usage buckets. Requires the dev stack (REST :8000, ClickHouse :8123,
-Redis :26379). Skipped unless TRACEROOT_E2E=1.
+moves only the internal usage buckets. Requires a live REST (:8000), ClickHouse (:8123) and
+Redis; skipped unless TRACEROOT_E2E=1.
+
+Runs two ways:
+- CI: the ``agent-trace-contract`` job in ``.github/workflows/test.yml`` brings up the
+  infra, migrates it, runs REST from source and answers key resolution with
+  ``stub_key_validator.py``. The project is empty there; an internal trace leaking into
+  the public list still fails the byte-identity check (an empty list would gain a row).
+- Locally against ``make dev``: ``TRACEROOT_E2E=1 TRACEROOT_E2E_PROJECT_ID=… TRACEROOT_E2E_API_KEY=…
+  INTERNAL_API_SECRET=… INTERNAL_API_SECRET_AGENT=… uv run pytest tests/e2e``, with a project
+  that has customer traces, so the ``user`` bucket is non-zero.
 """
 
 import os
@@ -19,7 +28,7 @@ pytestmark = pytest.mark.skipif(not _E2E_ENABLED, reason="needs the dev stack")
 
 REST = os.getenv("TRACEROOT_REST_URL", "http://localhost:8000")
 CH = os.getenv("TRACEROOT_CH_URL", "http://localhost:8123/?user=clickhouse&password=clickhouse")
-REDIS = os.getenv("TRACEROOT_REDIS_URL", "redis://localhost:26379/0")
+REDIS = os.getenv("TRACEROOT_REDIS_URL", "redis://localhost:6379/0")
 if _E2E_ENABLED:
     PROJECT = os.environ["TRACEROOT_E2E_PROJECT_ID"]  # a seeded project with >= 1 user trace
     API_KEY = os.environ["TRACEROOT_E2E_API_KEY"]  # project access key (public API)
