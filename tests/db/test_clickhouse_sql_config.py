@@ -7,11 +7,21 @@ from shared.config import ClickHouseSettings
 
 
 class TestSqlGatewaySettings:
-    def test_ro_user_password_optional_default_none(self, monkeypatch):
+    def test_the_password_alone_selects_the_provisioned_read_only_account(self, monkeypatch):
+        # The documented way to turn the gateway on. With the user left None this
+        # config reached _readonly_configured() as unconfigured, so the gateway ran
+        # customer SQL through the privileged client instead.
+        monkeypatch.delenv("CLICKHOUSE_RO_USER", raising=False)
+        monkeypatch.setenv("CLICKHOUSE_RO_PASSWORD", "secret")
+        s = ClickHouseSettings()
+        assert s.ro_user == "sql_gateway_ro"
+
+    def test_the_password_is_still_what_turns_the_gateway_on(self, monkeypatch):
+        # Defaulting the user must not turn a deployment that configured neither
+        # into one that tries to log in as an account nobody provisioned.
         monkeypatch.delenv("CLICKHOUSE_RO_USER", raising=False)
         monkeypatch.delenv("CLICKHOUSE_RO_PASSWORD", raising=False)
         s = ClickHouseSettings()
-        assert s.ro_user is None
         assert s.ro_password is None
 
     def test_sql_cap_defaults_mirror_operational_profile(self, monkeypatch):

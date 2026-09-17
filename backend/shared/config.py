@@ -31,11 +31,18 @@ class ClickHouseSettings(BaseSettings):
     password: str = "clickhouse"
     database: str = "default"
 
-    # Read-only user for the public SQL gateway. Optional: when unset,
-    # cloud (billing-enabled) deployments fail fast and self-host/dev falls back to
-    # the default client with a loud warning — see db.clickhouse.client.
+    # Read-only user for the public SQL gateway. The password is the switch: when it
+    # is unset, cloud (billing-enabled) deployments fail fast and self-host/dev falls
+    # back to the default client with a loud warning — see db.clickhouse.client.
+    #
+    # The user defaults to the account the bootstrap SQL provisions, because the
+    # documented way to turn the gateway on is to set the password alone. Leaving it
+    # None meant a deployment that did exactly that, including the one .env.example
+    # describes, ran customer SQL through the privileged client while the read-only
+    # account sat provisioned and unused. Naming the account that does not exist is
+    # not a risk: the password still gates it, and the two are provisioned together.
     # Env: CLICKHOUSE_RO_USER, CLICKHOUSE_RO_PASSWORD.
-    ro_user: str | None = None
+    ro_user: str | None = "sql_gateway_ro"
     ro_password: str | None = None
 
     # SQL gateway resource caps. These MIRROR the read-only user's CONST settings

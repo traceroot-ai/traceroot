@@ -87,6 +87,29 @@ class TestReadonlyClient:
 
         internal.query.assert_called_once_with("SELECT 1", parameters=None, settings=None)
 
+    def test_the_password_alone_reaches_the_read_only_client(self, monkeypatch):
+        # The end of the path the settings default exists for: a deployment that
+        # sets only CLICKHOUSE_RO_PASSWORD, as .env.example documents, must get the
+        # restricted account rather than a privileged client with a warning.
+        from shared.config import ClickHouseSettings
+
+        monkeypatch.delenv("CLICKHOUSE_RO_USER", raising=False)
+        monkeypatch.setenv("CLICKHOUSE_RO_PASSWORD", "secret")
+        fresh = ClickHouseSettings()
+        ch = ch_client_mod.settings.clickhouse
+        monkeypatch.setattr(ch, "ro_user", fresh.ro_user, raising=False)
+        monkeypatch.setattr(ch, "ro_password", fresh.ro_password, raising=False)
+        monkeypatch.setenv("ENABLE_BILLING", "false")
+
+        built = MagicMock()
+        monkeypatch.setattr(ch_client_mod.ClickHouseClient, "_build", built)
+        fell_back = MagicMock(name="default-client")
+        monkeypatch.setattr(ch_client_mod, "get_clickhouse_client", lambda: fell_back)
+
+        ch_client_mod.get_readonly_clickhouse_client()
+        built.assert_called_once_with("sql_gateway_ro", "secret")
+        fell_back.with_default_settings.assert_not_called()
+
     def test_readonly_from_settings_raises_without_ro_user(self, monkeypatch):
         # the public factory must not silently build a privileged client
         ch = ch_client_mod.settings.clickhouse
