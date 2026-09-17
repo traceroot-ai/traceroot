@@ -163,6 +163,24 @@ describe("AiAssistantPanel", () => {
     expect(screen.getByTestId("message-input").textContent).toBe("Reply to revise");
   });
 
+  it("does not hint at revising while a delete is pending — a reply skips it", () => {
+    mocks.hasPendingDecision = true;
+    mocks.pendingDecision = {
+      toolCallId: "tc1",
+      decisionId: "d1",
+      resourceType: "widget",
+      title: "Errors",
+      action: "delete",
+      approvalClass: "approval",
+    };
+    mocks.handleDecision.mockResolvedValue(true);
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.getByTestId("message-input").textContent).toBe("");
+    expect(screen.getByRole("button", { name: "Delete widget" })).toBeTruthy();
+  });
+
   it("keeps the default placeholder when nothing is pending", () => {
     render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
 
@@ -176,6 +194,8 @@ describe("AiAssistantPanel", () => {
       decisionId: "d1",
       resourceType: "widget",
       title: "Tokens by model",
+      action: "create",
+      approvalClass: "confirm",
     };
     mocks.handleDecision.mockResolvedValue(true);
 

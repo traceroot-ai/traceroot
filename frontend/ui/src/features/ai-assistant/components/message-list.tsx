@@ -27,9 +27,11 @@ import {
   readCardModel,
   resourceCardModel,
   suppressedWidgetStepIds,
+  type KnownResource,
 } from "../lib/resource-card";
 import { ResourceCard } from "./resource-card";
 import { PendingResourceCard } from "./pending-resource-card";
+import { useStableToolSteps } from "../hooks/use-stable-tool-steps";
 import { AlertListCard } from "./alert-list-card";
 
 // ---------------------------------------------------------------------------
@@ -485,6 +487,7 @@ const ToolStepEntry = memo(function ToolStepEntry({
   step,
   suppressed,
   widgetsByDashboard,
+  known,
   projectId,
   retentionDays,
   isActive,
@@ -497,6 +500,9 @@ const ToolStepEntry = memo(function ToolStepEntry({
    *  dashboard's card above it (a reused dashboard draws none). */
   suppressed: boolean;
   widgetsByDashboard: ReadonlyMap<string, readonly ToolCallStep[]>;
+  /** What the transcript knows each resource as — a pending edit or delete
+   *  names its resource and shows its before-values from here. */
+  known: ReadonlyMap<string, KnownResource>;
   projectId?: string;
   /** The plan's retention window, which clamps every card's charted range.
    *  Undefined while the plan is still resolving — nothing is clamped then. */
@@ -519,8 +525,8 @@ const ToolStepEntry = memo(function ToolStepEntry({
   // posted decision) clears `pending` and the step falls through to the
   // receipt flow.
   const pendingCard = useMemo(
-    () => (step.pending ? pendingCardModel(step, projectId, retentionDays) : null),
-    [step, projectId, retentionDays],
+    () => (step.pending ? pendingCardModel(step, projectId, retentionDays, known) : null),
+    [step, projectId, retentionDays, known],
   );
   // A read whose result carries card details (the alert reads) becomes its
   // card: rows for a list, the alert's own card for a detail.
@@ -562,23 +568,6 @@ const ToolStepEntry = memo(function ToolStepEntry({
     </AnimatedItem>
   );
 });
-
-/**
- * The transcript's tool-step entries, identity-stable across renders that
- * changed none of them. A streamed delta replaces the messages array on every
- * tick while reusing each untouched tool-step object, so pinning this list to
- * its previous identity (when its members are unchanged) lets everything
- * derived from the tool steps — and the memoized rows above — stand still
- * under streaming text.
- */
-function useStableToolSteps(messages: readonly AIMessage[]): readonly AIMessage[] {
-  const prevRef = useRef<readonly AIMessage[]>([]);
-  const next = messages.filter((m) => m.role === "tool_step" && m.toolStep !== undefined);
-  const prev = prevRef.current;
-  const unchanged = prev.length === next.length && next.every((m, i) => m === prev[i]);
-  if (!unchanged) prevRef.current = next;
-  return unchanged ? prev : next;
-}
 
 function AssistantBubble({ msg, panelWidth }: { msg: AIMessage; panelWidth: number }) {
   const normalizedContent = useMemo(
@@ -746,11 +735,18 @@ function traceByToolStep(messages: readonly AIMessage[]): ReadonlyMap<string, st
 // ---------------------------------------------------------------------------
 // MessageList
 // ---------------------------------------------------------------------------
+/** What no transcript has said about any resource. */
+const NOTHING_KNOWN: ReadonlyMap<string, KnownResource> = new Map();
+
 interface MessageListProps {
   messages: AIMessage[];
   sessionStreaming?: boolean;
   /** Opens the sidebar's agent-trace sheet on `traceId`, focused on a tool step's `spanId`. */
   onOpenTrace?: (traceId: string, spanId?: string) => void;
+  /** What the transcript knows each resource as (the chat hook derives it
+   *  once from these messages); a pending edit or delete names its resource
+   *  and shows its before-values from here. Nothing known when absent. */
+  known?: ReadonlyMap<string, KnownResource>;
   /** The project the panel is mounted in — a pending widget card aims its
    *  chart preview here, the scope the proposed write would land in. */
   projectId?: string;
@@ -765,6 +761,7 @@ export function MessageList({
   messages,
   sessionStreaming = false,
   onOpenTrace,
+  known = NOTHING_KNOWN,
   projectId,
   retentionDays,
 }: MessageListProps) {
@@ -861,6 +858,7 @@ export function MessageList({
                 step={msg.toolStep}
                 suppressed={suppressedWidgets.has(msg.id)}
                 widgetsByDashboard={widgetsByDashboard}
+                known={known}
                 projectId={projectId}
                 retentionDays={retentionDays}
                 isActive={msg.id === activeToolStepId}

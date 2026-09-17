@@ -681,6 +681,23 @@ describe("useAIStream confirmation_pending", () => {
     expect(findStep(result)?.status).toBe("running");
   });
 
+  it("carries the event's approval class onto the pending step, and leaves it off when absent", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit({ ...pendingEvent("d1"), toolName: "delete_widget", approvalClass: "approval" });
+
+    await waitFor(() =>
+      expect(findStep(result)?.pending).toEqual({ decisionId: "d1", approvalClass: "approval" }),
+    );
+
+    // An unknown class is dropped rather than carried as a string the UI never checks.
+    sse.emit({ ...pendingEvent("d2"), approvalClass: "some_future_class" });
+    await waitFor(() => expect(findStep(result)?.pending).toEqual({ decisionId: "d2" }));
+  });
+
   it("tolerates SSE heartbeat comment lines between events", async () => {
     const sse = createSSE();
     const { result } = renderHook(() => useAIStream());
@@ -974,5 +991,85 @@ describe("useAIStream releases parked steps when their run ends", () => {
     });
 
     await waitFor(() => expectReleased(result));
+  });
+});
+
+describe("useAIStream runSettled", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  /** Whether `promise` has resolved by the next macrotask, without waiting on it. */
+  const resolvedSoon = async (promise: Promise<void>) => {
+    let resolved = false;
+    void promise.then(() => {
+      resolved = true;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    return resolved;
+  };
+
+  const start = (result: { current: ReturnType<typeof useAIStream> }) => {
+    let send!: Promise<void>;
+    act(() => {
+      send = result.current.sendMessage({ sessionId: "s1", message: "hi", projectId: "p1" });
+    });
+    return send;
+  };
+
+  it("resolves at once for a session no run owns", async () => {
+    const { result } = renderHook(() => useAIStream());
+    expect(await resolvedSoon(result.current.runSettled("s1"))).toBe(true);
+  });
+
+  it("holds while the session's run is live and resolves once its stream ends", async () => {
+    const sse = createSSE();
+    fetchMock.mockResolvedValueOnce(sse.response);
+    const { result } = renderHook(() => useAIStream());
+    const send = start(result);
+
+    const settled = result.current.runSettled("s1");
+    expect(await resolvedSoon(settled)).toBe(false);
+
+    sse.close();
+    await act(() => send);
+    expect(await resolvedSoon(settled)).toBe(true);
+  });
+
+  it("resolves when the run is aborted", async () => {
+    const sse = createSSE();
+    fetchMock.mockResolvedValueOnce(sse.response);
+    const { result } = renderHook(() => useAIStream());
+    start(result);
+
+    const settled = result.current.runSettled("s1");
+    expect(await resolvedSoon(settled)).toBe(false);
+
+    act(() => {
+      result.current.abortSession("s1");
+    });
+    expect(await resolvedSoon(settled)).toBe(true);
+  });
+
+  it("resolves the superseded run when a newer send takes the session", async () => {
+    const sse = createSSE();
+    fetchMock.mockResolvedValueOnce(sse.response);
+    const { result } = renderHook(() => useAIStream());
+    start(result);
+    const settled = result.current.runSettled("s1");
+
+    fetchMock.mockResolvedValueOnce(createSSE().response);
+    start(result);
+    expect(await resolvedSoon(settled)).toBe(true);
+    // The newer run is live, so the session as a whole is not settled.
+    expect(await resolvedSoon(result.current.runSettled("s1"))).toBe(false);
   });
 });

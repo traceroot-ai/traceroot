@@ -6,9 +6,15 @@ import { resolveSiteWindow } from "@/features/dashboards/range-presets";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
 import { useAIStream, type LiveToolResult } from "./use-ai-stream";
+import { useStableToolSteps } from "./use-stable-tool-steps";
 import { mapDbMessages } from "../utils/map-db-messages";
 import { invalidationKeysForResult } from "../lib/resource-invalidation";
-import { pendingProposal, type PendingResourceType } from "../lib/resource-card";
+import {
+  knownResources,
+  pendingProposal,
+  type PendingAction,
+  type PendingResourceType,
+} from "../lib/resource-card";
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
@@ -23,11 +29,21 @@ export interface PendingDecision {
   toolCallId: string;
   decisionId: string;
   resourceType: PendingResourceType;
-  /** The name the call gave the resource; null when it gave none. */
+  /** The name the resource goes by — the call's own for a create, the
+   *  transcript's for an edit or delete; null when nothing names it. */
   title: string | null;
+  /** What the call would do to the resource: the bar's verb. */
+  action: PendingAction;
+  /** approval on a delete: the destructive bar, and a typed reply skips. */
+  approvalClass: "confirm" | "approval";
 }
 
-/** What the composer can answer a parked write with; a typed reply revises. */
+/**
+ * What the composer can answer a parked write with. "create" is the
+ * decisions route's proceed action for every class — it runs an update or a
+ * delete just the same; a typed reply revises a confirm-class park and skips
+ * an approval-class one.
+ */
 export type PendingDecisionAction = "create" | "skip";
 
 interface UseAiChatOptions extends AiTraceContext {
@@ -75,6 +91,7 @@ export function useAiChat({
     messagesBySession,
     streamingSessions,
     isSessionStreaming,
+    runSettled,
     sendMessage,
     setSessionMessages,
     sessionWriteEpoch,
@@ -315,6 +332,60 @@ export function useAiChat({
     [projectId, resolvePendingDecision, appendUserMessage],
   );
 
+  /**
+   * Resolve a parked approval-class call (a delete) as a skip because the
+   * user typed instead of deciding: there is no revise-by-typing for a
+   * delete, so the message can only mean "not this". Returns true when the
+   * message should then go out as an ordinary turn — the skip landed, or the
+   * call was already gone (404). False when the message must not go out and
+   * the caller refuses the send so the composer keeps the text: someone
+   * decided first (409), so the run is already acting on that and a send
+   * would cut it short; or the skip never reached the server, so the call is
+   * still parked and a send would be refused by the run it is parked on.
+   */
+  const skipParkedDecision = useCallback(
+    async (target: NonNullable<ReturnType<typeof findActiveParkedStep>>): Promise<boolean> => {
+      const { sessionId, step, pending } = target;
+      const hardEpoch = hardBoundaryEpochRef.current;
+      decidingRef.current.set(step.toolCallId, sessionId);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/ai/sessions/${sessionId}/decisions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decisionId: pending.decisionId, action: "skip" }),
+        });
+        if (res.status === 409) {
+          // Already decided elsewhere: the run is acting on that decision
+          // (possibly executing the delete), so the message must not
+          // supersede it. The card stops offering the call; the stream's
+          // tool result labels the outcome; the composer keeps the text.
+          if (hardEpoch === hardBoundaryEpochRef.current) {
+            resolvePendingDecision(sessionId, step.toolCallId, "create");
+          }
+          return false;
+        }
+        if (!res.ok && res.status !== 404) {
+          // A server error leaves the call parked, the same as an undelivered
+          // request: the reply would sit behind a run that never resumed, so
+          // it is refused and the card keeps its buttons.
+          return false;
+        }
+        if (hardEpoch === hardBoundaryEpochRef.current) {
+          resolvePendingDecision(sessionId, step.toolCallId, "skip");
+        }
+      } catch {
+        // Undelivered: the call stays parked with its buttons on offer, and
+        // the reply is refused rather than posted into a run that would
+        // answer 409. Nothing the user typed is lost — the composer keeps it.
+        return false;
+      } finally {
+        decidingRef.current.delete(step.toolCallId);
+      }
+      return true;
+    },
+    [projectId, resolvePendingDecision],
+  );
+
   const handleSend = useCallback(
     async (message: string, modelSelection: ModelSelection) => {
       if (!projectId) return;
@@ -323,26 +394,50 @@ export function useAiChat({
         // Revision by chat: while the active session has a write parked on a
         // confirmation card, the typed message IS the decision — it revises
         // the parked call instead of opening a new user turn. Falls through
-        // to a normal send when the decision went stale while typing.
+        // to a normal send when the decision went stale while typing. A
+        // parked delete is never revised: the message skips it, then goes
+        // out as a new turn of its own.
         const parked = findActiveParkedStep();
-        if (parked) {
-          if (await reviseParkedDecision(parked, message)) return;
-        } else if (hasDecisionInFlight(activeSessionIdRef.current)) {
-          // The parked call is being decided right now (an earlier reply, or
-          // a card click). A plain send would abort the run that is about to
-          // act on that decision, so the send is refused. Saying so — rather
-          // than returning silently — is what lets the composer put the text
-          // back instead of swallowing what the user typed.
-          return false;
-        }
-        const epoch = sessionEpochRef.current;
+        let epoch = sessionEpochRef.current;
         const hardEpoch = hardBoundaryEpochRef.current;
-        const sessionId = await ensureSession();
-        if (!sessionId) return;
-        // A hard boundary crossed while the creation was in flight drops the
-        // send entirely — a closed panel or an abandoned project must not
-        // start a new run.
-        if (hardEpoch !== hardBoundaryEpochRef.current) return;
+        let sessionId: string | null;
+        if (parked?.pending.approvalClass === "approval") {
+          if (!(await skipParkedDecision(parked))) return false;
+          // The skip lands on the still-open run, which acts on it — the
+          // declined result, whatever the model says to it — and only then
+          // ends; the service admits one run per session, so a message
+          // posted before that would be refused and never reach the model.
+          // The reply waits for the run to settle, and goes to the session
+          // the skip answered even if the user has moved on meanwhile.
+          await runSettled(parked.sessionId);
+          // A hard boundary crossed while the skip was in flight or the run
+          // was settling — the panel closed, the project left, the session
+          // deleted — refuses the reply, so the composer keeps the text.
+          if (hardEpoch !== hardBoundaryEpochRef.current) return false;
+          sessionId = parked.sessionId;
+        } else {
+          if (parked) {
+            if (await reviseParkedDecision(parked, message)) return;
+          } else if (hasDecisionInFlight(activeSessionIdRef.current)) {
+            // The parked call is being decided right now (an earlier reply,
+            // or a card click). A plain send would abort the run that is
+            // about to act on that decision, so the send is refused. Saying
+            // so — rather than returning silently — is what lets the
+            // composer put the text back instead of swallowing what the
+            // user typed.
+            return false;
+          }
+          // A revision that fell through to a plain send is sent as of now:
+          // a session the user opened while it was in flight is the one the
+          // message shows up in.
+          epoch = sessionEpochRef.current;
+          sessionId = await ensureSession();
+          if (!sessionId) return;
+          // A hard boundary crossed while the creation was in flight drops
+          // the send entirely — a closed panel or an abandoned project must
+          // not start a new run.
+          if (hardEpoch !== hardBoundaryEpochRef.current) return;
+        }
         // Commit to the ref synchronously so a second send arriving before
         // the next render sees the session and doesn't create a duplicate —
         // unless a session boundary was crossed while the creation was in
@@ -377,10 +472,12 @@ export function useAiChat({
       traceSessionId,
       retentionDays,
       ensureSession,
+      runSettled,
       sendMessage,
       findActiveParkedStep,
       hasDecisionInFlight,
       reviseParkedDecision,
+      skipParkedDecision,
     ],
   );
 
@@ -549,17 +646,25 @@ export function useAiChat({
   // a reply revises the proposal. Broader than pendingDecision: a parked tool
   // this panel has no proposal card for still takes a typed reply.
   const hasPendingDecision = parkedStep !== undefined;
+  // What the transcript has said about each resource, derived once here and
+  // handed to the message list: a pending edit or delete names its resource
+  // and shows its before-values from it. Keyed to the identity-stable tool
+  // steps so a streamed delta rebuilds nothing.
+  const toolSteps = useStableToolSteps(messages);
+  const known = useMemo(() => knownResources(toolSteps), [toolSteps]);
   const pendingDecision = useMemo<PendingDecision | null>(() => {
     if (parkedStep?.pending === undefined) return null;
-    const proposal = pendingProposal(parkedStep);
+    const proposal = pendingProposal(parkedStep, known);
     if (proposal === null) return null;
     return {
       toolCallId: parkedStep.toolCallId,
       decisionId: parkedStep.pending.decisionId,
       resourceType: proposal.resourceType,
       title: proposal.title,
+      action: proposal.action,
+      approvalClass: proposal.approvalClass,
     };
-  }, [parkedStep]);
+  }, [parkedStep, known]);
 
   return {
     // State
@@ -571,6 +676,7 @@ export function useAiChat({
     modelSelection,
     hasPendingDecision,
     pendingDecision,
+    known,
 
     // Setters
     setHistoryOpen,
