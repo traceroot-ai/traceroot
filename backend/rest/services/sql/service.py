@@ -121,6 +121,17 @@ _UNKNOWN_QUERY_PARAMETER = 456
 _MISSING_SUBSTITUTION_RE = re.compile(r"[Ss]ubstitution\s+[`'\"]?([A-Za-z_][A-Za-z0-9_]*)")
 _MISSING_PARAMETER = "Query uses a parameter that was not supplied."
 
+#: A value ClickHouse cannot parse as the type the caller declared is also the
+#: caller's to fix, and the code alone cannot say so. There is one code per type
+#: family, from 38 and 41 through 376, 457, 467, 675 and 691, the set grows with
+#: every type ClickHouse adds, and 27 and 130 are generic parse codes a server
+#: defect could reach as well. What every one of them carries is the clause
+#: ClickHouse appends on the substitution path, which names the parameter, so
+#: blame follows that name exactly as it does for 456: a name the caller did not
+#: supply, or wording that stops matching, leaves the failure a server error.
+_BAD_VALUE_RE = re.compile(r"for query parameter\s+[`'\"]?([A-Za-z_][A-Za-z0-9_]*)")
+_BAD_PARAMETER_VALUE = "Query supplied a parameter value that its declared type cannot hold."
+
 _UNEXPECTED = "Query execution failed."
 
 #: Parameter names the caller may not supply. ``scope_project_id`` is the scope
@@ -188,6 +199,17 @@ def _caller_parameter_missing(raw: str, query: str, supplied: dict[str, Any]) ->
     if name in supplied:
         return False
     return name in _placeholder_names(query)
+
+
+def _caller_parameter_unparseable(raw: str, supplied: dict[str, Any]) -> bool:
+    """True if ClickHouse refused the value of a parameter the caller supplied.
+
+    The rewriter binds only ``scope_project_id``, a String, which no value fails
+    to parse as, and the scrub refuses that name from the payload. So a reported
+    name that is in the caller's own parameters came from the caller's own value.
+    """
+    match = _BAD_VALUE_RE.search(raw or "")
+    return match is not None and match.group(1) in supplied
 
 
 def _placeholder_names(query: str) -> set[str]:
@@ -283,6 +305,8 @@ class SqlQueryService:
                 str(exc), query, caller_params
             ):
                 message, is_client_error = _MISSING_PARAMETER, True
+            elif _caller_parameter_unparseable(str(exc), caller_params):
+                message, is_client_error = _BAD_PARAMETER_VALUE, True
             # The raw text may name the curated views, so it is logged and never
             # returned. Nothing derived from it reaches the caller except the
             # sentence chosen above.
