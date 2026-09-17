@@ -3,6 +3,18 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { prisma, getStripeOrThrow, getPlanConfig, PlanType } from "@traceroot/core";
 
+// Subscription statuses that still bill, or will once payment settles.
+const BILLING_STATUSES = new Set(["active", "trialing", "past_due", "unpaid"]);
+
+function alreadySubscribed() {
+  return NextResponse.json(
+    {
+      error: "Workspace already has a subscription. Change the plan instead of starting checkout.",
+    },
+    { status: 409 },
+  );
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await auth.api.getSession({ headers: await headers() });
@@ -34,7 +46,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     }
 
+    // A subscribed workspace changes plans through change-plan. A checkout session
+    // here would add a second active subscription to the same customer, and both
+    // would bill every period.
+    if (workspace.billingSubscriptionId) {
+      return alreadySubscribed();
+    }
+
     const stripe = getStripeOrThrow();
+
+    // The stored subscription id can lag Stripe (a missed or delayed webhook), so
+    // also ask Stripe before opening checkout for an existing customer.
+    if (workspace.billingCustomerId) {
+      const subscriptions = await stripe.subscriptions.list({
+        customer: workspace.billingCustomerId,
+        status: "all",
+        limit: 100,
+      });
+      if (subscriptions.data.some((subscription) => BILLING_STATUSES.has(subscription.status))) {
+        return alreadySubscribed();
+      }
+    }
 
     // Create or get Stripe customer
     let customerId = workspace.billingCustomerId;
