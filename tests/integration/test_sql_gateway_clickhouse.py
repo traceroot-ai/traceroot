@@ -97,7 +97,11 @@ def test_the_server_recorded_the_definer_the_migration_names(gateway):
     """
     for view in ("spans_public_v1", "traces_public_v1"):
         ddl = gateway.admin.query(f"SHOW CREATE VIEW {view}").result_rows[0][0]
-        header = ddl.split("\\nAS ", 1)[0]
+        # A real newline: clickhouse_connect returns the DDL unescaped, unlike the
+        # clickhouse-client CLI, which prints it with literal \n sequences. Splitting
+        # on the escaped form never matched, so this compared the whole definition and
+        # a view whose body merely contained the phrase would have passed.
+        header = ddl.split("\nAS ", 1)[0]
         assert "DEFINER = sql_gateway_writer SQL SECURITY DEFINER" in header, (
             f"{view} was created as {header!r}, which does not name the writer as its definer"
         )
