@@ -98,11 +98,14 @@ class TestJoinBothTablesWithAliases:
 
     def test_alias_s_preserved(self) -> None:
         rendered, _ = scope_and_render(self.SQL, PID)
-        assert "AS s" in rendered
+        # Up to the next token: a dropped alias renders `AS spans`, which starts
+        # with `AS s` and would satisfy a prefix match.
+        assert "AS s JOIN" in rendered
 
     def test_alias_t_preserved(self) -> None:
         rendered, _ = scope_and_render(self.SQL, PID)
-        assert "AS t" in rendered
+        # `AS traces` would satisfy a prefix match the same way.
+        assert "AS t ON" in rendered
 
     def test_pid_absent(self) -> None:
         rendered, _ = scope_and_render(self.SQL, PID)
@@ -146,9 +149,10 @@ class TestCteBodyRewrittenAliasNot:
     def test_cte_alias_x_appears_in_from(self) -> None:
         # The outer FROM x must remain a reference to the CTE alias, not a view call.
         rendered, _ = scope_and_render(self.SQL, PID)
-        # Assert the FROM specifically. A bare `" x "` also matches the `WITH x AS`
-        # definition, so it would hold even if the outer reference had been rewritten.
-        assert "FROM x" in rendered
+        # Assert the FROM specifically, up to the next token. A bare `" x "` also
+        # matches the `WITH x AS` definition, and `FROM x` alone matches a rewritten
+        # `FROM x_public_v1`, so neither would catch the outer reference changing.
+        assert "FROM x WHERE" in rendered
 
 
 # ---------------------------------------------------------------------------

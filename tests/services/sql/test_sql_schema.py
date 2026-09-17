@@ -195,7 +195,10 @@ def test_metadata_is_the_queryable_map_not_the_raw_blob():
     # materialized one-level projection, never the raw JSON document.
     for table in PUBLIC_TABLES:
         metadata = next(c for c in PUBLIC_TABLES[table].columns if c.name == "metadata")
-        assert metadata.type.startswith("Map("), (
+        # The exact type, not just that it is some Map. The key type is half the
+        # contract: the physical column is materialized as LowCardinality keys, and
+        # a client generated against a plain String key would type its own reads wrong.
+        assert metadata.type == "Map(LowCardinality(String), String)", (
             f"{table}.metadata must be the queryable map, got {metadata.type}"
         )
 
