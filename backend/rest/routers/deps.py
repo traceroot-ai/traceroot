@@ -65,8 +65,11 @@ async def get_project_access(
     # System bypass: agent service / worker calling on behalf of the system.
     # internal_caller() owns the comparison (constant time, both secrets, blank
     # secrets never matching) so this route and the internal router cannot drift
-    # apart on which credentials count as internal.
-    if internal_caller(x_internal_secret) is not None:
+    # apart on which credentials count as internal. The platform secret gates
+    # the whole bypass, as it does the internal router's 503: a deployment that
+    # never configured it is not configured for internal traffic at all, and an
+    # agent secret alone must not still open an admin door here (Trident).
+    if settings.internal_api_secret and internal_caller(x_internal_secret) is not None:
         # Trusted internal traffic is not rate limited (system-controlled volume)
         # and exempt from retention gating (enterprise-equivalent access).
         mark_request_rate_limit_exempt()
