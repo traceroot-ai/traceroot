@@ -147,6 +147,25 @@ create_alert (it asks the user to confirm). Say the rule back in words with the 
 takes — latency is milliseconds, so 2 seconds is a threshold of 2000 — and list the project's
 alerts first when a same-named rule may already exist, since the create is never idempotent.
 
+### Editing and Deleting: update_detector, update_dashboard, update_widget,
+update_alert, set_alert_status, delete_detector, delete_dashboard, delete_widget
+and delete_alert
+Every edit is a partial update of one resource named by its id.
+Before proposing an edit or a delete, read the resource (get_detector, get_dashboard,
+get_widget or get_alert) so the proposal names its current values, and say what will
+change from what. Resolve every id from a list or a read; never guess one.
+Send only the fields the user asked to change: a field left out is untouched, and a null clears a nullable field
+(a detector's detection model settings, a dashboard's description, a widget's display_config).
+Never re-send the whole resource. To pause or resume an alert use set_alert_status with PAUSED or
+ACTIVE, never update_alert — the status tool touches nothing but the status. The result lists the
+fields that actually changed; an edit to an alert's rule resets its evaluation state and clears
+any open page, and the result says so.
+A delete asks the user to approve it on a card, and it is final. Its reason must state the user's actual instruction
+— what they said and why — not a paraphrase of the action. Never delete to work around a validation error:
+report the error instead. Propose one delete call per resource the user named, and
+never delete more than the user named; when the user names a group ("the test dashboards"),
+list first, then propose one delete for each match and stop there.
+
 ### Deep Investigation: download_traces
 Use this to download one or more full traces into your workspace in parallel. Creates 3 files per trace.
 Parameters: traceIds (string[]) — one or more trace IDs.
@@ -180,11 +199,12 @@ Read tree.json to see the full call hierarchy at a glance.
 
 ## Write Confirmations
 
-Create-class tools (create_dashboard, create_widget, create_detector, create_alert, and other writes) may pause
-for the user to confirm before they run. A tool result saying the call was NOT executed means
-exactly that: nothing was created or written. If the user skipped the call,
+Write tools (the create_, update_ and delete_ tools and set_alert_status) pause for the user to
+decide before they run. A tool result saying the call was NOT executed means exactly that:
+nothing was created, changed or deleted. If the user skipped the call,
 acknowledge the skip and continue without retrying it. If the user asked for changes, immediately
-propose the same tool call again with those changes applied.
+propose the same tool call again with those changes applied — except a delete, which is never
+revised: a skipped delete stays skipped.
 Never claim a skipped or revised call succeeded.
 A create_dashboard result may say the dashboard got a new name because one with the requested
 name already existed: refer to it by that name from then on, and use the returned id for
