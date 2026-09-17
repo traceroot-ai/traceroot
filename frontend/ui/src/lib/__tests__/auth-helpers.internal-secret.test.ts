@@ -12,7 +12,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { timingSafeEqual } from "crypto";
 
-const envMock = vi.hoisted(() => ({ INTERNAL_API_SECRET: "test-secret" }));
+const envMock = vi.hoisted(() => ({
+  INTERNAL_API_SECRET: "test-secret",
+  INTERNAL_API_SECRET_AGENT: "",
+}));
 
 vi.mock("@/env", () => ({ env: envMock }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: vi.fn() } } }));
@@ -37,7 +40,21 @@ function requestWithSecret(secret?: string): Request {
 describe("verifyInternalSecret", () => {
   beforeEach(() => {
     envMock.INTERNAL_API_SECRET = "test-secret";
+    envMock.INTERNAL_API_SECRET_AGENT = "";
     vi.mocked(timingSafeEqual).mockClear();
+  });
+
+  it("accepts the agent service's own secret when one is configured", () => {
+    envMock.INTERNAL_API_SECRET_AGENT = "agent-secret";
+    expect(verifyInternalSecret(requestWithSecret("agent-secret"))).toBe(true);
+    expect(verifyInternalSecret(requestWithSecret("test-secret"))).toBe(true);
+    expect(verifyInternalSecret(requestWithSecret("agent-secreX"))).toBe(false);
+  });
+
+  it("never lets a blank agent secret match anything", () => {
+    envMock.INTERNAL_API_SECRET_AGENT = "";
+    expect(verifyInternalSecret(requestWithSecret(""))).toBe(false);
+    expect(verifyInternalSecret(requestWithSecret("anything"))).toBe(false);
   });
 
   it("accepts the correct secret", () => {

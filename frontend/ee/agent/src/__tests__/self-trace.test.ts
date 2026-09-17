@@ -167,6 +167,27 @@ describe("withAgentTrace", () => {
     const r = await mod.withAgentTrace(meta, async () => "v");
     expect(r).toEqual({ value: "v", trace: "failed" });
   });
+  it("defer: resolves pending once the spans are closed and reports the upload separately", async () => {
+    let settle!: () => void;
+    flush.mockImplementation(() => new Promise<void>((res) => (settle = res)));
+    const r = await mod.withAgentTrace(meta, async () => 42, { flush: "defer" });
+    expect(r.value).toBe(42);
+    expect(r.trace).toBe("pending");
+    expect(flush).toHaveBeenCalledTimes(1); // the upload started, it is just not awaited
+    settle();
+    await expect(r.flushed).resolves.toBe("available");
+  });
+  it("defer: a failed upload lands on `flushed`, never on the call", async () => {
+    flush.mockRejectedValueOnce(new Error("export 403"));
+    const r = await mod.withAgentTrace(meta, async () => "v", { flush: "defer" });
+    expect(r.trace).toBe("pending");
+    await expect(r.flushed).resolves.toBe("failed");
+  });
+  it("await (default) carries no `flushed` promise", async () => {
+    const r = await mod.withAgentTrace(meta, async () => "v");
+    expect(r).toEqual({ value: "v", trace: "available" });
+    expect(r).not.toHaveProperty("flushed");
+  });
   it("returns disabled and runs fn plainly when the flag is off", async () => {
     process.env.AGENT_SELF_TRACE = "0";
     const r = await mod.withAgentTrace(meta, async () => "v");
@@ -236,6 +257,25 @@ describe("withAgentTrace root I/O", () => {
     // The cap is 16 KB of UTF-8, marker included — not 16 K UTF-16 units.
     expect(Buffer.byteLength(calls["traceroot.span.output"], "utf8")).toBeLessThanOrEqual(16_384);
     expect(calls["traceroot.span.output"].endsWith("…")).toBe(true);
+    spy.mockRestore();
+  });
+
+  it("records the system prompt once on the root, redacted and capped", async () => {
+    const setAttribute = vi.fn();
+    const { trace } = await import("@opentelemetry/api");
+    const spy = vi.spyOn(trace, "getActiveSpan").mockReturnValue({ setAttribute } as never);
+    await mod.withAgentTrace(
+      {
+        ...meta,
+        systemPrompt: "You are the agent. token=ghp_" + "x".repeat(40) + " " + "汉".repeat(20_000),
+      },
+      async () => "ok",
+    );
+    const calls = Object.fromEntries(setAttribute.mock.calls);
+    const prompt = calls["traceroot.agent.system_prompt"] as string;
+    expect(prompt.startsWith("You are the agent.")).toBe(true);
+    expect(prompt).toContain("[REDACTED]");
+    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(16_384);
     spy.mockRestore();
   });
 

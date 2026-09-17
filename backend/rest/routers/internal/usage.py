@@ -110,69 +110,13 @@ async def get_usage_details(
     start_str = to_utc_naive(start).strftime("%Y-%m-%d %H:%M:%S")
     end_str = to_utc_naive(end).strftime("%Y-%m-%d %H:%M:%S")
 
-    # Query traces count — uniqExact dedups across pre-merge ReplacingMergeTree
-    # rows (a single trace can have multiple rows until background merge runs,
-    # e.g. on status update). uniqExact is faster than count(DISTINCT trace_id)
-    # in ClickHouse and produces identical results.
-    traces_result = ch.query(
-        """
-        SELECT uniqExact(trace_id) as total
-        FROM traces
-        WHERE project_id IN {project_ids:Array(String)}
-          AND ch_create_time >= {start:String}
-          AND ch_create_time < {end:String}
-        """,
-        parameters={
-            "project_ids": project_id_list,
-            "start": start_str,
-            "end": end_str,
-        },
-    )
-
-    # Query spans count — same uniqExact pattern for ReplacingMergeTree dedup
-    spans_result = ch.query(
-        """
-        SELECT uniqExact(span_id) as total
-        FROM spans
-        WHERE project_id IN {project_ids:Array(String)}
-          AND ch_create_time >= {start:String}
-          AND ch_create_time < {end:String}
-        """,
-        parameters={
-            "project_ids": project_id_list,
-            "start": start_str,
-            "end": end_str,
-        },
-    )
-
-    traces = int(traces_result.result_rows[0][0]) if traces_result.result_rows else 0
-    spans = int(spans_result.result_rows[0][0]) if spans_result.result_rows else 0
-
-    # Detector runs: count every scan attempt recorded by the detector worker
-    # (BYOK + system source both count toward Free-plan hard cap).
-    # uniqExact on run_id dedups pre-merge duplicates in the ReplacingMergeTree —
-    # same pattern as the traces / spans queries above.
-    detector_runs_result = ch.query(
-        """
-        SELECT uniqExact(run_id) as total
-        FROM detector_runs
-        WHERE project_id IN {project_ids:Array(String)}
-          AND timestamp >= {start:String}
-          AND timestamp < {end:String}
-        """,
-        parameters={
-            "project_ids": project_id_list,
-            "start": start_str,
-            "end": end_str,
-        },
-    )
-    detector_runs = (
-        int(detector_runs_result.result_rows[0][0]) if detector_runs_result.result_rows else 0
-    )
-
-    # Breakdown is a separate query so the total queries above stay byte-for-byte
-    # unfiltered (their guard test asserts no `source` token). Same dedup as the
-    # totals: uniqExact per source over pre-merge ReplacingMergeTree rows.
+    # One scan per table, grouped by writer. The totals are the sum of the
+    # buckets: a trace or span id belongs to exactly one source, so the sum is
+    # exact, and the breakdown costs nothing beyond the count it replaces.
+    # uniqExact dedups pre-merge ReplacingMergeTree rows (a single trace can
+    # have multiple rows until background merge runs, e.g. on status update);
+    # it is faster than count(DISTINCT ...) in ClickHouse with identical results.
+    # No WHERE on source, ever: storage is billed whoever produced it (747562e2).
     breakdown_result = ch.query(
         """
         SELECT source, uniqExact(trace_id) AS traces, 0 AS spans
@@ -196,6 +140,30 @@ async def get_usage_details(
         bucket = by_source.setdefault(str(source), SourceCount())
         bucket.traces += int(t)
         bucket.spans += int(s)
+    traces = sum(b.traces for b in by_source.values())
+    spans = sum(b.spans for b in by_source.values())
+
+    # Detector runs: count every scan attempt recorded by the detector worker
+    # (BYOK + system source both count toward Free-plan hard cap).
+    # uniqExact on run_id dedups pre-merge duplicates in the ReplacingMergeTree —
+    # same pattern as the traces / spans queries above.
+    detector_runs_result = ch.query(
+        """
+        SELECT uniqExact(run_id) as total
+        FROM detector_runs
+        WHERE project_id IN {project_ids:Array(String)}
+          AND timestamp >= {start:String}
+          AND timestamp < {end:String}
+        """,
+        parameters={
+            "project_ids": project_id_list,
+            "start": start_str,
+            "end": end_str,
+        },
+    )
+    detector_runs = (
+        int(detector_runs_result.result_rows[0][0]) if detector_runs_result.result_rows else 0
+    )
 
     return UsageDetailsResponse(
         traces=traces, spans=spans, detector_runs=detector_runs, by_source=by_source

@@ -363,6 +363,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     kind,
     name: ROOT_SPAN_NAME,
     input: body.message,
+    systemPrompt,
     metadata: {
       ...rcaTrace?.metadata,
       session_id: sessionId,

@@ -10,6 +10,7 @@ import { createCheckGitHubAccessTool } from "./github-access.js";
 import { createGitCloneTool } from "./git-clone.js";
 import type { QueryWindow } from "./query-window.js";
 import { internalUiUrl } from "./origins.js";
+import { agentInternalSecret } from "../internal-secret.js";
 
 /**
  * Create all tools for the agent.
@@ -39,7 +40,7 @@ export function createTools(params: {
   if (params.userId && params.agentSessionId) {
     const client = new ApiClient({
       baseUrl: internalUiUrl(),
-      headers: internalAuth(process.env.INTERNAL_API_SECRET || "", params.userId),
+      headers: internalAuth(agentInternalSecret(), params.userId),
     });
     tools.push(
       ...createRegistryWriteTools({

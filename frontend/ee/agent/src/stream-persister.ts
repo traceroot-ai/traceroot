@@ -228,6 +228,14 @@ export class StreamPersister {
     );
   }
 
+  /** The id of the last assistant row written, for a trace status stamped after the turn. */
+  private lastAssistantRowId: string | undefined;
+
+  /** The row the run's trace status lives on: the final assistant segment, once it has landed. */
+  finalSegmentId(): string | undefined {
+    return this.lastAssistantRowId;
+  }
+
   private enqueue(
     role: string,
     content: string,
@@ -236,7 +244,11 @@ export class StreamPersister {
   ): void {
     this.chain = this.chain
       .then(async () => {
-        await this.append(role, content, metadata, tokenUsage);
+        const row = (await this.append(role, content, metadata, tokenUsage)) as
+          | { id?: unknown }
+          | null
+          | undefined;
+        if (role === "assistant" && typeof row?.id === "string") this.lastAssistantRowId = row.id;
       })
       .catch((error) => {
         console.error(`[Agent] Failed to persist ${role} message:`, error);

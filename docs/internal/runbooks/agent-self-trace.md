@@ -8,9 +8,13 @@ off by default and controlled per kind.
 ## Enable (cloud)
 
 1. Mint `INTERNAL_API_SECRET_AGENT` (`openssl rand -hex 32`). Set it on the **agent
-   service** and the **REST** service only. `make dev` / `make prod` generate it locally.
-   Do not set it on the worker or the UI: which secret authenticates a request decides the
-   `source` the ingest route stamps, and only the agent service may write `agent`.
+   service** (its only internal credential: remove `INTERNAL_API_SECRET` from it), on
+   **REST** and on the **UI** (both accept it next to the platform secret; the UI needs it
+   for the GitHub App token calls the agent's clone tools make). `make dev` / `make prod`
+   generate it locally. Do not give the worker the agent secret, and do not give the agent
+   the platform one: which secret authenticates a request decides the `source` the ingest
+   route stamps, and only the agent service may write `agent`. Order matters for the UI:
+   set the variable there before removing the platform secret from the agent.
 2. Apply the Prisma migrations `20260901000000_rca_executions` and
    `20260901000001_ai_message_attribution` (in `frontend/packages/core`, with
    `DATABASE_URL` set: `pnpm exec prisma migrate deploy`). Both are additive; no backfill
@@ -28,6 +32,11 @@ off by default and controlled per kind.
    the exporter is process-wide, so a batch holding a turn's spans can still fail after
    that turn was acked. Cross-check with the span volume query below; a link whose trace
    never landed opens an empty trace.
+   Only an RCA turn waits for its flush before ending. A chat or follow-up turn ends as
+   soon as its spans are closed: its final assistant row is written with
+   `metadata.traceStatus = "pending"` and updated to `available`/`failed` when the
+   upload settles (a few seconds later; 30 s at most). A row left at `pending` means the
+   agent process died between the two writes.
 
 ## Observe (first week)
 
@@ -35,6 +44,11 @@ off by default and controlled per kind.
   `SELECT source, count(), sum(length(output)) FROM spans
    WHERE ch_create_time > now() - INTERVAL 1 DAY GROUP BY source`.
 - Export failures: agent-service log lines `[AgentTrace] export failed`.
+- Cut captures: a span whose recorded input/output was cut to the per-step cap carries
+  `traceroot.truncated = true`; a tool span whose result was withheld because the run's
+  capture budget was already spent carries `traceroot.capture_budget_exceeded = true`.
+  Many of the latter in one run means the budget (`DEFAULT_CAPTURE_BUDGET`) is too small
+  for that agent's tool mix.
 - Customer surfaces: the Traces list and dashboards must show zero `agent` rows
   (`customer_traffic_only()` guards every customer read; `tests/rest/test_source_consumers.py`
   enforces the inventory).
