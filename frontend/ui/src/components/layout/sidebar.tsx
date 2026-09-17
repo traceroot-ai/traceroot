@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useParams, usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { useTheme } from "next-themes";
@@ -18,6 +19,7 @@ import {
   UserRoundSearch,
   Database,
   FlaskConical,
+  LogOut,
 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -26,6 +28,9 @@ import { cn } from "@/lib/utils";
 import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
 import { SidebarUpgradeButton } from "@/components/layout/SidebarUpgradeButton";
 import { clientEnv } from "@/env.client";
+import { exitImpersonation } from "@/features/support/exit";
+import { ImpersonationBanner } from "@/features/support/impersonation-banner";
+import { isStaff } from "@/lib/support/policy";
 
 function getInitials(name?: string | null, email?: string | null): string {
   if (name) {
@@ -46,6 +51,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed = false }: SidebarProps) {
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const pathname = usePathname();
   const { data: sessionData } = authClient.useSession();
   const isImpersonating = !!sessionData?.session?.impersonatedBy;
@@ -81,42 +87,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           collapsed ? "w-14" : "w-48",
         )}
       >
-        {isImpersonating && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div
-                className={cn(
-                  "flex items-center gap-2 border-b border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30",
-                  collapsed ? "justify-center px-2 py-2" : "px-3 py-2",
-                )}
-              >
-                <UserRoundSearch className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                {!collapsed && (
-                  <>
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-amber-800 dark:text-amber-300">
-                      {user?.email ?? user?.name}
-                    </span>
-                    <button
-                      className="shrink-0 rounded-md border border-amber-300 bg-white px-1.5 py-0.5 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:bg-transparent dark:text-amber-400 dark:hover:bg-amber-900/50"
-                      onClick={async () => {
-                        await authClient.admin.stopImpersonating();
-                        window.location.reload();
-                      }}
-                    >
-                      Stop
-                    </button>
-                  </>
-                )}
-              </div>
-            </TooltipTrigger>
-            {collapsed && (
-              <TooltipContent side="right" sideOffset={16}>
-                <p className="font-medium">Impersonating</p>
-                <p className="text-xs text-muted-foreground">{user?.email ?? user?.name}</p>
-              </TooltipContent>
-            )}
-          </Tooltip>
-        )}
+        <ImpersonationBanner collapsed={collapsed} />
+
         {/* Header with logo */}
         <div
           className={cn(
@@ -397,9 +369,10 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           </Tooltip>
 
           {/* User menu */}
-          <Popover>
+          <Popover open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
             <PopoverTrigger asChild>
               <button
+                aria-label="Account menu"
                 className={cn(
                   "flex w-full items-center gap-2 py-2 transition-colors hover:bg-muted/50",
                   collapsed ? "justify-center px-2" : "px-3",
@@ -421,13 +394,13 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             <PopoverContent
               side="right"
               align="end"
-              className="w-48 p-0"
-              sideOffset={0}
+              className="w-56 p-0"
+              sideOffset={8}
               alignOffset={0}
             >
               {/* User info */}
               <div className="flex items-center gap-2 px-3 py-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-sm font-medium">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-sm font-medium">
                   {initials}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -442,63 +415,81 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               <div className="p-1">
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent">
+                    <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent">
+                      <Sun className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span>Theme</span>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent side="right" align="start" className="w-28 p-1" sideOffset={4}>
                     <button
                       className={cn(
-                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
                         theme === "light" ? "bg-accent" : "hover:bg-accent",
                       )}
                       onClick={() => setTheme("light")}
                     >
+                      <Sun className="h-4 w-4 shrink-0" />
                       <span>Light</span>
-                      <Sun className="h-4 w-4" />
                     </button>
                     <button
                       className={cn(
-                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
                         theme === "dark" ? "bg-accent" : "hover:bg-accent",
                       )}
                       onClick={() => setTheme("dark")}
                     >
+                      <Moon className="h-4 w-4 shrink-0" />
                       <span>Dark</span>
-                      <Moon className="h-4 w-4" />
                     </button>
                     <button
                       className={cn(
-                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
                         theme === "system" || !theme ? "bg-accent" : "hover:bg-accent",
                       )}
                       onClick={() => setTheme("system")}
                     >
+                      <Monitor className="h-4 w-4 shrink-0" />
                       <span>System</span>
-                      <Monitor className="h-4 w-4" />
                     </button>
                   </PopoverContent>
                 </Popover>
 
+                {!isImpersonating && isStaff(user?.role) && (
+                  <Link
+                    href="/admin"
+                    onClick={() => setAccountMenuOpen(false)}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                  >
+                    <UserRoundSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span>Support console</span>
+                  </Link>
+                )}
+
                 {/* Active sessions — the revoke control for CLI/device logins */}
                 <Link
                   href="/account/settings/sessions"
-                  className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                  onClick={() => setAccountMenuOpen(false)}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
                 >
+                  <MonitorSmartphone className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span>Active Sessions</span>
-                  <MonitorSmartphone className="h-4 w-4" />
                 </Link>
 
                 {/* Sign out */}
                 <button
-                  className="flex w-full items-center justify-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
                   onClick={async () => {
+                    if (isImpersonating) {
+                      await exitImpersonation().catch(() => window.location.assign("/admin"));
+                      return;
+                    }
                     await authClient.signOut();
                     window.location.href = "/auth/sign-in";
                   }}
                 >
-                  Log Out
+                  <LogOut className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  {isImpersonating ? "Exit impersonation" : "Log Out"}
                 </button>
               </div>
             </PopoverContent>
