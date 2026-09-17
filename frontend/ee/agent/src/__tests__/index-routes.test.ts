@@ -393,6 +393,60 @@ describe("messages route tenancy", () => {
   });
 });
 
+describe("messages route metering", () => {
+  // Which meter a turn lands in is decided by the request, not the session row:
+  // a person's follow-up inside an ownerless RCA session is still a chat turn.
+  async function kindsPersisted(headers: Record<string, string>, sessionOwner: string | null) {
+    const appendMessage = vi.fn(async () => ({}));
+    vi.mocked(getOrCreateAgent).mockResolvedValueOnce({
+      agent: {},
+      sessionManager: { appendMessage },
+    } as never);
+    mockedGetSession.mockResolvedValue({
+      id: "rca-meter",
+      userId: sessionOwner,
+      projectId: "p1",
+      workspaceId: "w1",
+      title: "RCA: checkout timeout",
+    } as never);
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onEvent({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "the retry never backed off" },
+      } as never);
+      handler.onDone();
+    });
+
+    const res = await app.request("/api/v1/projects/p1/sessions/rca-meter/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify({ message: "why did this fail?" }),
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+    return (appendMessage.mock.calls as unknown[][]).map((call) => ({
+      role: call[0],
+      kind: call[2],
+    }));
+  }
+
+  it("bills a signed-in user's follow-up in a system (RCA) session as chat", async () => {
+    const kinds = await kindsPersisted({ "x-user-id": "u1" }, null);
+
+    expect(kinds.length).toBeGreaterThanOrEqual(2);
+    expect(kinds[0]).toEqual({ role: "user", kind: "chat" });
+    expect(kinds.every((row) => row.kind === "chat")).toBe(true);
+  });
+
+  it("bills the worker's automatic turn, which sends no user id, as rca", async () => {
+    const kinds = await kindsPersisted({}, null);
+
+    expect(kinds.length).toBeGreaterThanOrEqual(2);
+    expect(kinds[0]).toEqual({ role: "user", kind: "rca" });
+    expect(kinds.every((row) => row.kind === "rca")).toBe(true);
+  });
+});
+
 describe("DELETE session tenancy", () => {
   it("passes the path's project to the ownership check", async () => {
     mockedDeleteSession.mockResolvedValue(null as never);
