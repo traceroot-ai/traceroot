@@ -183,15 +183,25 @@ jobs:
     needs: [lint]
     timeout-minutes: 20
     env:
-      INTERNAL_API_SECRET: ci-platform-secret-0123456789abcdef0123456789abcdef
-      INTERNAL_API_SECRET_AGENT: ci-agent-secret-0123456789abcdef0123456789abcdef
       TRACEROOT_E2E_PROJECT_ID: 00000000-0000-4000-8000-00000000e2e0
-      TRACEROOT_E2E_API_KEY: tr-00000000-0000-4000-8000-0000000000e2
+      # The dev compose file's own defaults; the database exists for this job only.
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       ENABLE_BILLING: "false"
 
     steps:
       - uses: actions/checkout@v4
+
+      # Minted per run rather than written down: nothing here outlives the job,
+      # and a literal in the workflow reads like a secret to every scanner that
+      # sees it (and to the next person who copies it somewhere that matters).
+      - name: Mint this run's credentials
+        run: |
+          set -euo pipefail
+          {
+            echo "INTERNAL_API_SECRET=$(openssl rand -hex 32)"
+            echo "INTERNAL_API_SECRET_AGENT=$(openssl rand -hex 32)"
+            echo "TRACEROOT_E2E_API_KEY=tr-$(uuidgen | tr "[:upper:]" "[:lower:]")"
+          } >> "$GITHUB_ENV"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
