@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { TraceRoot, observe } from "@traceroot-ai/traceroot";
 import { boundedText as boundedTextBytes } from "@traceroot/core/capture-policy";
+import { agentInternalSecret } from "./internal-secret.js";
 
 export type AgentTraceKind = "rca" | "followup" | "chat";
 const AGENT_TRACE_KINDS: ReadonlySet<string> = new Set<AgentTraceKind>(["rca", "followup", "chat"]);
@@ -141,7 +142,7 @@ let latchedOff = false;
 function initOnce(): boolean {
   if (initialized) return true;
   if (latchedOff) return false;
-  const secret = process.env.INTERNAL_API_SECRET_AGENT || "";
+  const secret = agentInternalSecret();
   if (!secret) {
     latchedOff = true;
     console.warn("[AgentTrace] INTERNAL_API_SECRET_AGENT unset; agent self-trace disabled");

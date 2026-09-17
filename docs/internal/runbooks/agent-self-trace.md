@@ -8,9 +8,13 @@ off by default and controlled per kind.
 ## Enable (cloud)
 
 1. Mint `INTERNAL_API_SECRET_AGENT` (`openssl rand -hex 32`). Set it on the **agent
-   service** and the **REST** service only. `make dev` / `make prod` generate it locally.
-   Do not set it on the worker or the UI: which secret authenticates a request decides the
-   `source` the ingest route stamps, and only the agent service may write `agent`.
+   service** (its only internal credential: remove `INTERNAL_API_SECRET` from it), on
+   **REST** and on the **UI** (both accept it next to the platform secret; the UI needs it
+   for the GitHub App token calls the agent's clone tools make). `make dev` / `make prod`
+   generate it locally. Do not give the worker the agent secret, and do not give the agent
+   the platform one: which secret authenticates a request decides the `source` the ingest
+   route stamps, and only the agent service may write `agent`. Order matters for the UI:
+   set the variable there before removing the platform secret from the agent.
 2. Apply the Prisma migrations `20260901000000_rca_executions` and
    `20260901000001_ai_message_attribution` (in `frontend/packages/core`, with
    `DATABASE_URL` set: `pnpm exec prisma migrate deploy`). Both are additive; no backfill
