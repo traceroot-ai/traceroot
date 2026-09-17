@@ -71,15 +71,39 @@ export async function POST(req: NextRequest) {
           return alreadySubscribed();
         }
       }
+
+      // Stripe creates the subscription only when a session completes, so two open
+      // sessions for one workspace could each become a subscription. Hand back an open
+      // session for the same plan (a double submit or a retry), and expire one for a
+      // different plan before opening the new one.
+      const openSessions = await stripe.checkout.sessions.list({
+        customer: workspace.billingCustomerId,
+        status: "open",
+        limit: 100,
+      });
+      for (const openSession of openSessions.data) {
+        if (openSession.metadata?.workspaceId !== workspaceId) continue;
+        if (openSession.metadata?.plan === plan && openSession.url) {
+          return NextResponse.json({ url: openSession.url });
+        }
+        await stripe.checkout.sessions.expire(openSession.id);
+      }
     }
+
+    // Requests that arrive together see no open session yet. The same idempotency key
+    // makes Stripe return one customer and one session to all of them.
+    const idempotencyWindow = Math.floor(Date.now() / 60_000);
 
     // Create or get Stripe customer
     let customerId = workspace.billingCustomerId;
     if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: session.user.email ?? undefined,
-        metadata: { workspaceId },
-      });
+      const customer = await stripe.customers.create(
+        {
+          email: session.user.email ?? undefined,
+          metadata: { workspaceId },
+        },
+        { idempotencyKey: `workspace-customer-${workspaceId}-${idempotencyWindow}` },
+      );
       customerId = customer.id;
       await prisma.workspace.update({
         where: { id: workspaceId },
@@ -114,17 +138,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const checkoutSession = await stripe.checkout.sessions.create({
-      customer: customerId,
-      mode: "subscription",
-      line_items: lineItems,
-      success_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?success=true`,
-      cancel_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?canceled=true`,
-      metadata: { workspaceId },
-      subscription_data: {
-        metadata: { workspaceId },
+    const checkoutSession = await stripe.checkout.sessions.create(
+      {
+        customer: customerId,
+        mode: "subscription",
+        line_items: lineItems,
+        success_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?success=true`,
+        cancel_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?canceled=true`,
+        metadata: { workspaceId, plan },
+        subscription_data: {
+          metadata: { workspaceId },
+        },
       },
-    });
+      { idempotencyKey: `workspace-checkout-${workspaceId}-${plan}-${idempotencyWindow}` },
+    );
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (error) {
