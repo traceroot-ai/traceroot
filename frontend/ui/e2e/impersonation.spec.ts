@@ -177,8 +177,8 @@ test("support UI: browse, search, reason, banner, exit and audit", async ({ page
     .fill("Investigate missing traces in E2E ticket");
   await page.getByRole("button", { name: "Start session" }).click();
   await page.waitForURL(base + "/");
-  await expect(page.getByRole("button", { name: "Exit impersonation" })).toBeVisible();
-  await expect(page.getByText("Read-only", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await expect(page.getByText("Read-only", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Reason:", { exact: false })).toHaveCount(0);
   await expect(
     page.getByText("Investigate missing traces in E2E ticket", { exact: false }),
@@ -191,7 +191,7 @@ test("support UI: browse, search, reason, banner, exit and audit", async ({ page
       })
     ).status(),
   ).toBe(403);
-  await page.getByRole("button", { name: "Exit impersonation" }).click();
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
   await page.waitForURL(/\/admin\?/);
   await expect(page.getByRole("textbox", { name: "Search users" })).toHaveValue(emails.customer);
   const audit = await prisma.auditLog.findFirst({
@@ -452,7 +452,7 @@ test("deep links switch customers through an audited exit", async ({ page, conte
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("textbox", { name: "Reason" }).fill("Deep link support investigation");
   await page.getByRole("button", { name: "Start session" }).click();
-  await expect(page.getByRole("button", { name: "Exit impersonation", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
   await page.goto(`/admin/impersonate?userId=${ids.viewer}`);
   await page.getByRole("button", { name: "Exit and continue" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -512,8 +512,8 @@ test("customer session can be started in the UI without entering a reason", asyn
     "",
   );
   await page.getByRole("button", { name: "Start session" }).click();
-  await expect(page.getByRole("button", { name: "Exit impersonation", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Exit impersonation", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
   await page.waitForURL(/\/admin\?/);
 });
 

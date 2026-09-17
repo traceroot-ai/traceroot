@@ -34,7 +34,7 @@ it("refreshes immediately when initial session restoration settles", async () =>
   expect(fetch).not.toHaveBeenCalled();
   state.value = { data: { session: { id: "employee" } }, isPending: false };
   view.rerender(<ImpersonationBanner />);
-  await screen.findByText(/You are back on your employee account/);
+  await screen.findByText("Support session ended");
   expect(fetch).toHaveBeenCalledOnce();
 });
 it("discards a previous session response even if its JSON resolves after recovery", async () => {
@@ -55,9 +55,9 @@ it("discards a previous session response even if its JSON resolves after recover
   await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
   state.value = { data: { session: { id: "employee" } }, isPending: false };
   view.rerender(<ImpersonationBanner />);
-  await screen.findByText(/You are back on your employee account/);
+  await screen.findByText("Support session ended");
   await act(async () => finishJson({ impersonating: true, valid: false }));
-  expect(screen.getByText(/You are back on your employee account/)).toBeTruthy();
+  expect(screen.getByText("Support session ended")).toBeTruthy();
 });
 it("keeps context details out of the banner", async () => {
   vi.stubGlobal(
@@ -78,6 +78,8 @@ it("keeps context details out of the banner", async () => {
   };
   render(<ImpersonationBanner />);
   await screen.findByText("customer@example.com");
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+  expect(screen.queryByText(/Viewing as|Read-only|Read \+ write/)).toBeNull();
   expect(screen.queryByText(/Private ticket note|Reason:/)).toBeNull();
   expect(screen.queryByTitle("Private ticket note")).toBeNull();
   expect(screen.queryByText(/Customer Workspace|Workspace:/)).toBeNull();
