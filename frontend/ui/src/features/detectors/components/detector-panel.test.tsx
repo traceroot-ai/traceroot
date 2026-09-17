@@ -7,13 +7,19 @@ import type { Detector } from "../hooks/use-detectors";
 const mocks = vi.hoisted(() => ({
   detector: undefined as Detector | undefined,
   mutate: vi.fn(),
+  mutationError: null as Error | null,
   selectorProps: null as Record<string, unknown> | null,
   editedConditions: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("../hooks/use-detectors", () => ({
   useDetector: () => ({ data: mocks.detector }),
-  useUpdateDetector: () => ({ mutate: mocks.mutate, isPending: false }),
+  useUpdateDetector: () => ({
+    mutate: mocks.mutate,
+    isPending: false,
+    isError: mocks.mutationError !== null,
+    error: mocks.mutationError,
+  }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: undefined }),
@@ -101,6 +107,7 @@ afterEach(() => {
   cleanup();
   mocks.detector = undefined;
   mocks.mutate.mockReset();
+  mocks.mutationError = null;
   mocks.selectorProps = null;
   mocks.editedConditions = [];
 });
@@ -213,5 +220,15 @@ describe("DetectorPanel — the conditions it sends", () => {
     expect(mocks.mutate.mock.calls[0][0]).toEqual({
       triggerConditions: [{ field: "duration_ms", op: ">", value: 4500 }],
     });
+  });
+
+  it("renders an update error and keeps the panel open", () => {
+    mocks.detector = baseDetector;
+    mocks.mutationError = new Error("Detector not found");
+
+    const { onClose } = renderPanel();
+
+    expect(screen.getByText("Detector not found")).toBeDefined();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
