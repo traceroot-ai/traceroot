@@ -30,14 +30,26 @@ export const INTERNAL_BINDINGS: Readonly<Record<string, string>> = {
 
 /**
  * Internal Next-app write route templates, keyed by tool name, for surfaces
- * that call the trusted-caller write routes directly (flat POSTs — tenancy
- * and provenance travel in the camelCase body, not the path). Only the
- * agent's current write set is bound; widening this map is a deliberate
- * per-tool decision.
+ * that call the trusted-caller write routes directly. Tenancy and provenance
+ * travel in the camelCase body, not the path: a create is a flat POST, and an
+ * update (PATCH) or delete (DELETE) names the resource through the `{id}`
+ * segment the caller fills from the tool's id argument. Only the agent's
+ * current write set is bound — the project-tenancy tools; workspace and
+ * project writes stay CLI/API surface — and widening this map is a
+ * deliberate per-tool decision.
  */
 export const INTERNAL_WRITE_BINDINGS: Readonly<Record<string, string>> = {
   create_detector: "/api/internal/write/detectors",
   create_dashboard: "/api/internal/write/dashboards",
   create_widget: "/api/internal/write/widgets",
   create_alert: "/api/internal/write/alerts",
+  update_detector: "/api/internal/write/detectors/{id}",
+  update_dashboard: "/api/internal/write/dashboards/{id}",
+  update_widget: "/api/internal/write/widgets/{id}",
+  update_alert: "/api/internal/write/alerts/{id}",
+  set_alert_status: "/api/internal/write/alerts/{id}/status",
+  delete_detector: "/api/internal/write/detectors/{id}",
+  delete_dashboard: "/api/internal/write/dashboards/{id}",
+  delete_widget: "/api/internal/write/widgets/{id}",
+  delete_alert: "/api/internal/write/alerts/{id}",
 };

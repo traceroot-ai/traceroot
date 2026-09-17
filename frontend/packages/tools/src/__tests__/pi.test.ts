@@ -235,7 +235,28 @@ describe("INTERNAL_WRITE_BINDINGS", () => {
       create_dashboard: "/api/internal/write/dashboards",
       create_widget: "/api/internal/write/widgets",
       create_alert: "/api/internal/write/alerts",
+      update_detector: "/api/internal/write/detectors/{id}",
+      update_dashboard: "/api/internal/write/dashboards/{id}",
+      update_widget: "/api/internal/write/widgets/{id}",
+      update_alert: "/api/internal/write/alerts/{id}",
+      set_alert_status: "/api/internal/write/alerts/{id}/status",
+      delete_detector: "/api/internal/write/detectors/{id}",
+      delete_dashboard: "/api/internal/write/dashboards/{id}",
+      delete_widget: "/api/internal/write/widgets/{id}",
+      delete_alert: "/api/internal/write/alerts/{id}",
     });
+  });
+
+  it("binds only project-tenancy tools: the workspace and project writes stay off the agent", () => {
+    for (const name of Object.keys(INTERNAL_WRITE_BINDINGS)) {
+      expect(name).not.toMatch(/_(workspace|project)$/);
+    }
+  });
+
+  it("puts the resource id in the path of every update and delete, never in the body", () => {
+    for (const [name, template] of Object.entries(INTERNAL_WRITE_BINDINGS)) {
+      expect(template.includes("{id}")).toBe(!name.startsWith("create_"));
+    }
   });
 });
 
