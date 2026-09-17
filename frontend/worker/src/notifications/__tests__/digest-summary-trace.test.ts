@@ -69,6 +69,27 @@ describe("digest summary self-trace", () => {
       expect.any(Function),
     );
     expect(tracedComplete).toHaveBeenCalled();
+    // The id the call ran under comes back, for the digest's row to keep.
+    expect(out?.trace?.traceId).toBe(withSelfTrace.mock.calls[0][0].traceId);
+  });
+
+  it("reports no trace when the worker did not emit one", async () => {
+    withSelfTrace.mockImplementationOnce(async (_meta: any, fn: any) => ({
+      ok: true,
+      value: await fn(),
+      selfTraced: false,
+    }));
+    const out = await generateDigestSummary(
+      {
+        projectName: "Acme",
+        windowStart: new Date(1000),
+        windowEnd: new Date(2000),
+        detectors: [{ name: "D", findingCount: 2, sampleSummaries: ["a"] }],
+      },
+      { projectId: "p1", workspaceId: "w1", rcaModel: null, rcaProvider: null, rcaSource: null },
+    );
+    expect(out?.summary).toBe("3 findings");
+    expect(out?.trace).toBeUndefined();
   });
 
   it("gives two flushes of the same window different trace ids", async () => {

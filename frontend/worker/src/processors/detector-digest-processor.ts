@@ -120,6 +120,11 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
             inputTokens: result.usage.inputTokens,
             outputTokens: result.usage.outputTokens,
             cost: result.usage.cost,
+            // The only place the flush's trace id is kept (the same shape the
+            // agent's rows use), so a digest's trace can be looked up later.
+            ...(result.trace
+              ? { metadata: { traceId: result.trace.traceId, traceStatus: "available" } }
+              : {}),
           },
         })
         .catch((err) =>
