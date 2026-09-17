@@ -429,6 +429,48 @@ describe("processTrace — self-trace emission", () => {
     );
   });
 
+  it("marks an eval that failed after the model answered as a scan", async () => {
+    // The tokens were spent and their cost is metered, so the run has to keep
+    // counting towards scansRun. Recording it as a plain failure would leave a
+    // repeatable way to spend hosted inference without moving the meter.
+    mockRunDetection.mockResolvedValue({
+      ...CLEAN_RESULT,
+      error: "LLM did not call submit_result after retry",
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed_after_inference" }),
+    );
+  });
+
+  it("marks an eval that never reached the model as a plain failure", async () => {
+    // No API key, an unknown model, a BYOK detector with no provider: errorResult
+    // returns with its inference fields left at zero, and nothing was spent.
+    mockRunDetection.mockResolvedValue({
+      ...CLEAN_RESULT,
+      error: 'No API key configured for provider "anthropic"',
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceModel: null,
+      inferenceProvider: null,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(expect.objectContaining({ status: "failed" }));
+  });
+
+  it("still records a clean eval as completed", async () => {
+    mockRunDetection.mockResolvedValue(CLEAN_RESULT);
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockWriteRun).toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
+  });
+
   it("carries selfTraced onto the triggered run write", async () => {
     mockRunDetection.mockResolvedValue({ ...CLEAN_RESULT, identified: true, summary: "found" });
 
