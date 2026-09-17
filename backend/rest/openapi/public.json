@@ -347,6 +347,30 @@
         "title": "AlertRenotifyRequest",
         "type": "object"
       },
+      "AlertStatusRequest": {
+        "additionalProperties": false,
+        "description": "Body for pausing or resuming an alert.\n\nOnly ACTIVE and PAUSED are settable: PARKED is the evaluator's verdict.",
+        "properties": {
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "status"
+        ],
+        "title": "AlertStatusRequest",
+        "type": "object"
+      },
       "AlertSummary": {
         "description": "The alert fields shared by the list and detail reads (Postgres ``alerts``).\n\n``threshold`` is stored as a decimal and served as a JSON number.\n``creator`` is the created-by user's display name (or email), resolved by\nthe internal route; it is None when the creating account was deleted.",
         "properties": {
@@ -1724,6 +1748,30 @@
         "title": "DashboardListItem",
         "type": "object"
       },
+      "DashboardRow": {
+        "description": "A dashboard as the write service returns it.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "project_id"
+        ],
+        "title": "DashboardRow",
+        "type": "object"
+      },
       "DashboardSummary": {
         "description": "The dashboard fields shared by the list and detail reads.\n\n``creator`` is the created-by user's display name (or email), resolved by\nthe internal route; it is None when the creating account was deleted.",
         "properties": {
@@ -1907,6 +1955,196 @@
           "create_time"
         ],
         "title": "DashboardWidgetItem",
+        "type": "object"
+      },
+      "DeleteAlertResponse": {
+        "description": "A hard-deleted alert; ``page_cleared`` reports an open page it discarded.",
+        "properties": {
+          "alert": {
+            "$ref": "#/components/schemas/DeletedResource"
+          },
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "page_cleared": {
+            "default": false,
+            "title": "Page Cleared",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deleted",
+          "reason",
+          "alert"
+        ],
+        "title": "DeleteAlertResponse",
+        "type": "object"
+      },
+      "DeleteDashboardResponse": {
+        "description": "A hard-deleted dashboard and the count of widgets removed with it.",
+        "properties": {
+          "cascaded": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cascaded"
+          },
+          "dashboard": {
+            "$ref": "#/components/schemas/DeletedResource"
+          },
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deleted",
+          "reason",
+          "dashboard"
+        ],
+        "title": "DeleteDashboardResponse",
+        "type": "object"
+      },
+      "DeleteDetectorResponse": {
+        "description": "A hard-deleted detector (its findings stay readable).",
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "detector": {
+            "$ref": "#/components/schemas/DeletedResource"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deleted",
+          "reason",
+          "detector"
+        ],
+        "title": "DeleteDetectorResponse",
+        "type": "object"
+      },
+      "DeleteProjectResponse": {
+        "description": "A soft-deleted project (its data stays for the retention window).",
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "project": {
+            "$ref": "#/components/schemas/DeletedResource"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deleted",
+          "reason",
+          "project"
+        ],
+        "title": "DeleteProjectResponse",
+        "type": "object"
+      },
+      "DeleteWidgetResponse": {
+        "description": "A hard-deleted widget (its layout entry is removed with it).",
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "widget": {
+            "$ref": "#/components/schemas/DeletedResource"
+          }
+        },
+        "required": [
+          "deleted",
+          "reason",
+          "widget"
+        ],
+        "title": "DeleteWidgetResponse",
+        "type": "object"
+      },
+      "DeleteWorkspaceResponse": {
+        "description": "A hard-deleted workspace and the counts of what cascaded with it.",
+        "properties": {
+          "cascaded": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cascaded"
+          },
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/DeletedResource"
+          }
+        },
+        "required": [
+          "deleted",
+          "reason",
+          "workspace"
+        ],
+        "title": "DeleteWorkspaceResponse",
+        "type": "object"
+      },
+      "DeletedResource": {
+        "description": "What a delete removed: the row's id and name, for the receipt.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "DeletedResource",
         "type": "object"
       },
       "DetectorDetail": {
@@ -2105,6 +2343,40 @@
           "data"
         ],
         "title": "DetectorResultItem",
+        "type": "object"
+      },
+      "DetectorRow": {
+        "description": "A detector as the write service returns it.",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sample_rate": {
+            "title": "Sample Rate",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "project_id",
+          "enabled",
+          "sample_rate"
+        ],
+        "title": "DetectorRow",
         "type": "object"
       },
       "EmittedMetric": {
@@ -2548,6 +2820,30 @@
           "workspace_name"
         ],
         "title": "ProjectListItem",
+        "type": "object"
+      },
+      "ProjectRow": {
+        "description": "A project as the write service returns it.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "workspace_id"
+        ],
+        "title": "ProjectRow",
         "type": "object"
       },
       "PublicAlertListResponse": {
@@ -4420,6 +4716,830 @@
         "title": "TraceFeedTextPredicate",
         "type": "object"
       },
+      "UpdateAlertRequest": {
+        "additionalProperties": false,
+        "description": "Body for editing an alert rule (the ten rule fields, all optional).\n\nThe write service validates the patch merged with the stored rule; an\nedit to any evaluated field resets the evaluation state (and clears an\nopen page), which the response reports. Status has its own route.",
+        "properties": {
+          "aggregation": {
+            "enum": [
+              "sum",
+              "avg",
+              "count",
+              "max",
+              "min",
+              "p50",
+              "p75",
+              "p90",
+              "p95",
+              "p99",
+              "uniq"
+            ],
+            "title": "Aggregation",
+            "type": "string"
+          },
+          "filters": {
+            "description": "Row predicates the measure is evaluated over",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "description": "A span field, e.g. model_name or metadata",
+                  "type": "string"
+                },
+                "key": {
+                  "description": "The map entry to compare; required for the metadata field",
+                  "type": "string"
+                },
+                "op": {
+                  "enum": [
+                    "=",
+                    "contains"
+                  ],
+                  "type": "string"
+                },
+                "value": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ],
+              "type": "object"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "measure": {
+            "description": "A measure of the view, e.g. latency, cost, count",
+            "title": "Measure",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "no_data_mode": {
+            "description": "What a window that measured nothing means",
+            "enum": [
+              "HOLD",
+              "ZERO",
+              "NOTIFY"
+            ],
+            "title": "No Data Mode",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "renotify": {
+            "$ref": "#/components/schemas/AlertRenotifyRequest",
+            "title": "Renotify"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "threshold_operator": {
+            "enum": [
+              ">",
+              ">=",
+              "<",
+              "<=",
+              "=",
+              "!="
+            ],
+            "title": "Threshold Operator",
+            "type": "string"
+          },
+          "view": {
+            "const": "SPANS",
+            "title": "View",
+            "type": "string"
+          },
+          "window": {
+            "enum": [
+              "1m",
+              "5m",
+              "10m",
+              "30m",
+              "1h",
+              "2h"
+            ],
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "UpdateAlertRequest",
+        "type": "object"
+      },
+      "UpdateAlertResponse": {
+        "description": "The updated alert with its full rule, plus what the edit did to its state.",
+        "properties": {
+          "alert": {
+            "$ref": "#/components/schemas/AlertDetail"
+          },
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "page_cleared": {
+            "default": false,
+            "description": "True when the alert was firing and the edit discarded that page",
+            "title": "Page Cleared",
+            "type": "boolean"
+          },
+          "state_reset": {
+            "default": false,
+            "description": "True when the edit voided the evaluation state and made the rule due now (any evaluated field changed, or the alert was resumed)",
+            "title": "State Reset",
+            "type": "boolean"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "updated",
+          "changed",
+          "alert"
+        ],
+        "title": "UpdateAlertResponse",
+        "type": "object"
+      },
+      "UpdateDashboardRequest": {
+        "additionalProperties": false,
+        "description": "Body for editing a dashboard's name or description (layout stays UI-only).",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null clears the description",
+            "title": "Description"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "UpdateDashboardRequest",
+        "type": "object"
+      },
+      "UpdateDashboardResponse": {
+        "description": "The updated dashboard.",
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "dashboard": {
+            "$ref": "#/components/schemas/DashboardRow"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "updated",
+          "changed",
+          "dashboard"
+        ],
+        "title": "UpdateDashboardResponse",
+        "type": "object"
+      },
+      "UpdateDetectorRequest": {
+        "additionalProperties": false,
+        "description": "Body for editing a detector; ``template`` is immutable and not accepted.",
+        "properties": {
+          "detection_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Model"
+          },
+          "detection_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Provider"
+          },
+          "detection_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "system",
+                  "byok"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Source"
+          },
+          "enable_rca": {
+            "title": "Enable Rca",
+            "type": "boolean"
+          },
+          "enabled": {
+            "description": "The pause switch. Detection is ingestion-triggered, so enabling starts nothing retroactively.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output_schema": {
+            "description": "Replaces the whole output schema array",
+            "items": {},
+            "title": "Output Schema",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "Detector instructions, stored verbatim. There is no reset to a template's default on update: send the canonical text to restore it.",
+            "title": "Prompt",
+            "type": "string"
+          },
+          "sample_rate": {
+            "title": "Sample Rate",
+            "type": "integer"
+          },
+          "trigger_conditions": {
+            "description": "Replaces the whole trigger array; [] removes the trigger so every completed trace is evaluated. Each condition is {field, op, value} (metadata also takes key): model_name/environment take =, !=; cost/total_tokens/duration_ms/errors take >, >=, <, <=, =; metadata takes =, contains.",
+            "items": {},
+            "title": "Trigger Conditions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "UpdateDetectorRequest",
+        "type": "object"
+      },
+      "UpdateDetectorResponse": {
+        "description": "The updated detector.",
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "detector": {
+            "$ref": "#/components/schemas/DetectorRow"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "updated",
+          "changed",
+          "detector"
+        ],
+        "title": "UpdateDetectorResponse",
+        "type": "object"
+      },
+      "UpdateProjectRequest": {
+        "additionalProperties": false,
+        "description": "Body for editing a project (requires ADMIN in its workspace).",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "trace_ttl_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Trace retention in days (1-365); null returns to the plan default",
+            "title": "Trace Ttl Days"
+          }
+        },
+        "title": "UpdateProjectRequest",
+        "type": "object"
+      },
+      "UpdateProjectResponse": {
+        "description": "The updated project.",
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectRow"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "updated",
+          "changed",
+          "project"
+        ],
+        "title": "UpdateProjectResponse",
+        "type": "object"
+      },
+      "UpdateWidgetRequest": {
+        "additionalProperties": false,
+        "description": "Body for editing a widget; ``type`` and ``dashboard_id`` are immutable.",
+        "properties": {
+          "display_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replaces the whole display config; null resets it to {}",
+            "title": "Display Config"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "description": "Chart spec over the \"spans\" view; the enums below are the complete field vocabulary for this view.",
+                "properties": {
+                  "breakdown": {
+                    "enum": [
+                      "name",
+                      "span_kind",
+                      "model_name",
+                      "environment",
+                      null
+                    ],
+                    "title": "Breakdown",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "display": {
+                    "additionalProperties": false,
+                    "description": "Controls how the query result is rendered on the dashboard.",
+                    "properties": {
+                      "type": {
+                        "enum": [
+                          "line",
+                          "area",
+                          "bar",
+                          "pie",
+                          "number",
+                          "table",
+                          "histogram"
+                        ],
+                        "title": "Type",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "title": "WidgetDisplay",
+                    "type": "object"
+                  },
+                  "filters": {
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A single filter predicate applied to a widget query.",
+                      "properties": {
+                        "field": {
+                          "enum": [
+                            "name",
+                            "span_kind",
+                            "status",
+                            "model_name",
+                            "environment",
+                            "is_root",
+                            "duration_ms",
+                            "cost",
+                            "input_tokens",
+                            "output_tokens",
+                            "cache_read_tokens",
+                            "cache_write_tokens",
+                            "total_tokens",
+                            "metadata"
+                          ],
+                          "title": "Field",
+                          "type": "string"
+                        },
+                        "key": {
+                          "title": "Key",
+                          "type": "string"
+                        },
+                        "op": {
+                          "enum": [
+                            "=",
+                            "contains",
+                            ">",
+                            ">=",
+                            "<",
+                            "<="
+                          ],
+                          "title": "Op",
+                          "type": "string"
+                        },
+                        "value": {
+                          "anyOf": [
+                            {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "title": "Value",
+                          "type": [
+                            "string",
+                            "number"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "field",
+                        "op",
+                        "value"
+                      ],
+                      "title": "WidgetFilter",
+                      "type": "object"
+                    },
+                    "title": "Filters",
+                    "type": "array"
+                  },
+                  "metric": {
+                    "additionalProperties": false,
+                    "description": "The measure and aggregation function that define the widget's y-axis.",
+                    "properties": {
+                      "agg": {
+                        "enum": [
+                          "count",
+                          "sum",
+                          "avg",
+                          "min",
+                          "max",
+                          "p50",
+                          "p75",
+                          "p90",
+                          "p95",
+                          "p99",
+                          "uniq"
+                        ],
+                        "title": "Agg",
+                        "type": "string"
+                      },
+                      "measure": {
+                        "enum": [
+                          "duration_ms",
+                          "cost",
+                          "input_tokens",
+                          "output_tokens",
+                          "cache_read_tokens",
+                          "cache_write_tokens",
+                          "total_tokens",
+                          "tokens_per_second",
+                          "trace_id",
+                          "count"
+                        ],
+                        "title": "Measure",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "measure",
+                      "agg"
+                    ],
+                    "title": "WidgetMetric",
+                    "type": "object"
+                  },
+                  "view": {
+                    "const": "spans",
+                    "title": "View",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "view",
+                  "metric",
+                  "display"
+                ],
+                "title": "WidgetSpec (spans)",
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Chart spec over the \"traces\" view; the enums below are the complete field vocabulary for this view.",
+                "properties": {
+                  "breakdown": {
+                    "enum": [
+                      "name",
+                      "user_id",
+                      "session_id",
+                      "environment",
+                      null
+                    ],
+                    "title": "Breakdown",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "display": {
+                    "additionalProperties": false,
+                    "description": "Controls how the query result is rendered on the dashboard.",
+                    "properties": {
+                      "type": {
+                        "enum": [
+                          "line",
+                          "area",
+                          "bar",
+                          "pie",
+                          "number",
+                          "table",
+                          "histogram"
+                        ],
+                        "title": "Type",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "title": "WidgetDisplay",
+                    "type": "object"
+                  },
+                  "filters": {
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A single filter predicate applied to a widget query.",
+                      "properties": {
+                        "field": {
+                          "enum": [
+                            "name",
+                            "user_id",
+                            "session_id",
+                            "environment",
+                            "duration_ms",
+                            "cost",
+                            "input_tokens",
+                            "output_tokens",
+                            "cache_read_tokens",
+                            "cache_write_tokens",
+                            "total_tokens",
+                            "error_count"
+                          ],
+                          "title": "Field",
+                          "type": "string"
+                        },
+                        "key": {
+                          "title": "Key",
+                          "type": "string"
+                        },
+                        "op": {
+                          "enum": [
+                            "=",
+                            "contains",
+                            ">",
+                            ">=",
+                            "<",
+                            "<="
+                          ],
+                          "title": "Op",
+                          "type": "string"
+                        },
+                        "value": {
+                          "anyOf": [
+                            {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "title": "Value",
+                          "type": [
+                            "string",
+                            "number"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "field",
+                        "op",
+                        "value"
+                      ],
+                      "title": "WidgetFilter",
+                      "type": "object"
+                    },
+                    "title": "Filters",
+                    "type": "array"
+                  },
+                  "metric": {
+                    "additionalProperties": false,
+                    "description": "The measure and aggregation function that define the widget's y-axis.",
+                    "properties": {
+                      "agg": {
+                        "enum": [
+                          "count",
+                          "sum",
+                          "avg",
+                          "min",
+                          "max",
+                          "p50",
+                          "p75",
+                          "p90",
+                          "p95",
+                          "p99",
+                          "uniq"
+                        ],
+                        "title": "Agg",
+                        "type": "string"
+                      },
+                      "measure": {
+                        "enum": [
+                          "duration_ms",
+                          "cost",
+                          "input_tokens",
+                          "output_tokens",
+                          "cache_read_tokens",
+                          "cache_write_tokens",
+                          "total_tokens",
+                          "count",
+                          "error_count"
+                        ],
+                        "title": "Measure",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "measure",
+                      "agg"
+                    ],
+                    "title": "WidgetMetric",
+                    "type": "object"
+                  },
+                  "view": {
+                    "const": "traces",
+                    "title": "View",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "view",
+                  "metric",
+                  "display"
+                ],
+                "title": "WidgetSpec (traces)",
+                "type": "object"
+              },
+              {
+                "$ref": "#/components/schemas/TraceFeedSpec"
+              }
+            ],
+            "description": "Replaces the whole spec, in the dialect of the widget's stored type. For type \"query\": a chart spec (view/filters/metric/breakdown/display). For type \"trace_feed\": a trace-list feed spec (predicate filters + row limit).",
+            "title": "Spec"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "UpdateWidgetRequest",
+        "type": "object"
+      },
+      "UpdateWidgetResponse": {
+        "description": "The updated widget.",
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "boolean"
+          },
+          "widget": {
+            "$ref": "#/components/schemas/WidgetRow"
+          }
+        },
+        "required": [
+          "updated",
+          "changed",
+          "widget"
+        ],
+        "title": "UpdateWidgetResponse",
+        "type": "object"
+      },
+      "UpdateWorkspaceRequest": {
+        "additionalProperties": false,
+        "description": "Body for renaming a workspace the caller administers.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "UpdateWorkspaceRequest",
+        "type": "object"
+      },
+      "UpdateWorkspaceResponse": {
+        "description": "The updated workspace.",
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "boolean"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/WorkspaceRow"
+          }
+        },
+        "required": [
+          "updated",
+          "changed",
+          "workspace"
+        ],
+        "title": "UpdateWorkspaceResponse",
+        "type": "object"
+      },
       "UpsertResultRequest": {
         "description": "Upsert one test-case result. Idempotent on (``run_id``, ``test_case_id``).\n``trace_id`` may be null now and set on a later call (out-of-order arrival).\n\n``scores`` is genuinely optional and carries three distinct meanings, so the\nout-of-order flow (POST the result with its scores, then re-POST later just to\nattach the OTel ``trace_id``) cannot destroy them: absent \u2192 leave the existing\nscores untouched, ``[]`` \u2192 clear them, non-empty \u2192 replace them. Do not give\nthis a ``default_factory=list``, which would collapse the first two cases.\n\nEvery optional field is a *partial* update: a key the caller omits keeps its\nstored value, while an explicit null clears it. Sending ``scores`` replaces\nthe result's scores (``[]`` clears them); omitting it leaves them alone.",
         "properties": {
@@ -5076,6 +6196,35 @@
         "title": "WidgetRef",
         "type": "object"
       },
+      "WidgetRow": {
+        "description": "A widget as the write service returns it.",
+        "properties": {
+          "dashboard_id": {
+            "title": "Dashboard Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "dashboard_id",
+          "title",
+          "type"
+        ],
+        "title": "WidgetRow",
+        "type": "object"
+      },
       "WidgetSpec": {
         "additionalProperties": false,
         "description": "Full declarative specification of a single dashboard widget.\n\nMirrors the canonical zod ``WidgetSpecSchema``\n(frontend/ui/src/features/dashboards/types.ts); the frontend\nwidget-spec-parity test guards the two against structural drift.",
@@ -5143,6 +6292,30 @@
           "role"
         ],
         "title": "WorkspaceListItem",
+        "type": "object"
+      },
+      "WorkspaceRow": {
+        "description": "A workspace as the write service returns it: id, name, the caller's role.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role"
+        ],
+        "title": "WorkspaceRow",
         "type": "object"
       }
     },
@@ -5404,6 +6577,136 @@
       }
     },
     "/api/v1/public/alerts/{alert_id}": {
+      "delete": {
+        "description": "Hard-delete an alert.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). An outstanding page is discarded, not resolved: the\nresponse reports ``page_cleared`` when one was open.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    alert_id (str): The alert to delete.\n    project_id (str): The project the alert belongs to.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteAlertResponse: The removed alert and whether a page was cleared.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "operationId": "delete_alert",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "title": "Alert Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The project the resource belongs to",
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "description": "The project the resource belongs to",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Why the resource is being deleted; recorded on the audit row",
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "description": "Why the resource is being deleted; recorded on the audit row",
+              "maxLength": 500,
+              "minLength": 3,
+              "title": "Reason",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteAlertResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete an alert",
+        "tags": [
+          "Alerts (Public)"
+        ],
+        "x-tool": {
+          "description": "Permanently delete an alert. An open page is discarded, not resolved (the response says when one was). Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's alerts and matching the name; never delete more than the user named.",
+          "enabled": true,
+          "name": "delete_alert",
+          "policy": {
+            "approvalClass": "approval",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
+        }
+      },
       "get": {
         "description": "Get one alert with its full rule for the caller's project.",
         "operationId": "get_alert",
@@ -5501,6 +6804,250 @@
           "description": "Fetch one alert's full rule by id: view, measure, aggregation, filters, window, threshold, renotify and no-data handling, plus its evaluation state. Resolve the alert id by listing the project's alerts and matching the name \u2014 never guess an id.",
           "enabled": true,
           "name": "get_alert"
+        }
+      },
+      "patch": {
+        "description": "Edit an alert's rule in a project the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). The patch is validated merged with the stored rule; an\nedit to any evaluated field resets the evaluation state, clears an open\npage, and re-arms a parked alert \u2014 the response reports the first two.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    alert_id (str): The alert to edit.\n    payload (UpdateAlertRequest): The project and the rule fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateAlertResponse: The updated alert, the changed fields, and the\n        state flags.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "operationId": "update_alert",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "title": "Alert Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAlertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateAlertResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Edit an alert rule",
+        "tags": [
+          "Alerts (Public)"
+        ],
+        "x-tool": {
+          "description": "Edit an alert's rule: name, view, measure, aggregation, filters, window, threshold_operator, threshold, renotify, no_data_mode. Fields left out are untouched; the patch is validated against the stored rule, so an aggregation edit must fit the stored measure. Any edit to an evaluated field (everything but name) resets the alert's evaluation state and clears any open page \u2014 the response reports state_reset and page_cleared, and lists the fields that actually changed. To pause or resume, use set_alert_status instead.",
+          "enabled": true,
+          "name": "update_alert",
+          "policy": {
+            "approvalClass": "confirm",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
+        }
+      }
+    },
+    "/api/v1/public/alerts/{alert_id}/status": {
+      "patch": {
+        "description": "Pause or resume an alert without touching its rule.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Pausing keeps the severity it stopped at; resuming is a\ncold start (state reset, due now). Setting the status the alert already\nhas is a 200 with nothing changed.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    alert_id (str): The alert to pause or resume.\n    payload (AlertStatusRequest): The project and the target status.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateAlertResponse: The alert with its new status and the state flags.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "operationId": "set_alert_status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alert_id",
+            "required": true,
+            "schema": {
+              "title": "Alert Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateAlertResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A parked alert cannot be paused; resume it to run it again"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Pause or resume an alert",
+        "tags": [
+          "Alerts (Public)"
+        ],
+        "x-tool": {
+          "description": "Pause (PAUSED) or resume (ACTIVE) an alert without touching its rule \u2014 prefer this over update_alert for pause and resume. Pausing keeps the severity the alert stopped at; resuming is a cold start (evaluation state reset, due now). PARKED is the evaluator's verdict and cannot be requested; pausing a parked alert is a conflict, resume it to run it again. Setting the status the alert already has changes nothing.",
+          "enabled": true,
+          "name": "set_alert_status",
+          "policy": {
+            "approvalClass": "confirm",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
         }
       }
     },
@@ -5692,6 +7239,146 @@
       }
     },
     "/api/v1/public/dashboards/{dashboard_id}": {
+      "delete": {
+        "description": "Hard-delete a dashboard together with its widgets.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). A project's last dashboard cannot be deleted.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    dashboard_id (str): The dashboard to delete.\n    project_id (str): The project the dashboard belongs to.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteDashboardResponse: The removed dashboard and its widget count.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "operationId": "delete_dashboard",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dashboard_id",
+            "required": true,
+            "schema": {
+              "title": "Dashboard Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The project the resource belongs to",
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "description": "The project the resource belongs to",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Why the resource is being deleted; recorded on the audit row",
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "description": "Why the resource is being deleted; recorded on the audit row",
+              "maxLength": 500,
+              "minLength": 3,
+              "title": "Reason",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteDashboardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Cannot delete a project's last dashboard"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete a dashboard",
+        "tags": [
+          "Project (Public)"
+        ],
+        "x-tool": {
+          "description": "Permanently delete a dashboard together with its widgets. A project's last dashboard cannot be deleted. Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's dashboards and matching the name; never delete more than the user named.",
+          "enabled": true,
+          "name": "delete_dashboard",
+          "policy": {
+            "approvalClass": "approval",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
+        }
+      },
       "get": {
         "description": "Get one dashboard with its widgets for the caller's project.",
         "operationId": "get_dashboard",
@@ -5789,6 +7476,132 @@
           "description": "Fetch one dashboard with its widgets (id, title, type, query spec, creation time). Resolve the dashboard id by listing the project's dashboards and matching the name \u2014 never guess an id.",
           "enabled": true,
           "name": "get_dashboard"
+        }
+      },
+      "patch": {
+        "description": "Edit a dashboard's name or description.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). A null ``description`` clears it.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    dashboard_id (str): The dashboard to edit.\n    payload (UpdateDashboardRequest): The project and the fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateDashboardResponse: The updated dashboard and the changed fields.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "operationId": "update_dashboard",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dashboard_id",
+            "required": true,
+            "schema": {
+              "title": "Dashboard Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDashboardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateDashboardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Name already in use"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Edit a dashboard",
+        "tags": [
+          "Project (Public)"
+        ],
+        "x-tool": {
+          "description": "Rename a dashboard or change its description. Fields left out are untouched; a null description clears it. Tile layout is not editable here. The response lists the fields that actually changed.",
+          "enabled": true,
+          "name": "update_dashboard",
+          "policy": {
+            "approvalClass": "confirm",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
         }
       }
     },
@@ -6609,6 +8422,136 @@
       }
     },
     "/api/v1/public/detectors/{detector_id}": {
+      "delete": {
+        "description": "Hard-delete a detector; its existing findings stay readable.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Not idempotent: a second delete of the same id is a 404.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    detector_id (str): The detector to delete.\n    project_id (str): The project the detector belongs to.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteDetectorResponse: The removed detector.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "operationId": "delete_detector",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "detector_id",
+            "required": true,
+            "schema": {
+              "title": "Detector Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The project the resource belongs to",
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "description": "The project the resource belongs to",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Why the resource is being deleted; recorded on the audit row",
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "description": "Why the resource is being deleted; recorded on the audit row",
+              "maxLength": 500,
+              "minLength": 3,
+              "title": "Reason",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteDetectorResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete a detector",
+        "tags": [
+          "Project (Public)"
+        ],
+        "x-tool": {
+          "description": "Permanently delete a detector; its existing findings stay readable. Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's detectors and matching the name; never delete more than the user named.",
+          "enabled": true,
+          "name": "delete_detector",
+          "policy": {
+            "approvalClass": "approval",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
+        }
+      },
       "get": {
         "description": "Get one detector's full configuration for the key's project.",
         "operationId": "get_detector",
@@ -6716,6 +8659,132 @@
           "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
           "enabled": true,
           "name": "get_detector"
+        }
+      },
+      "patch": {
+        "description": "Edit a detector in a project the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Only the sent fields change; ``template`` is immutable.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    detector_id (str): The detector to edit.\n    payload (UpdateDetectorRequest): The project and the fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateDetectorResponse: The updated detector and the changed fields.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "operationId": "update_detector",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "detector_id",
+            "required": true,
+            "schema": {
+              "title": "Detector Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDetectorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateDetectorResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Name already in use"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Edit a detector",
+        "tags": [
+          "Project (Public)"
+        ],
+        "x-tool": {
+          "description": "Edit a detector: name, prompt, enabled (the pause switch), sample_rate, enable_rca, output_schema, trigger_conditions, or the detection model settings. Send only the fields the user asked to change \u2014 fields left out are untouched, and a null detection_model/detection_provider/detection_source clears it. output_schema and trigger_conditions replace the whole array; [] removes the trigger. The template cannot change. Read the detector first so the proposal names its current values; the response lists the fields that actually changed.",
+          "enabled": true,
+          "name": "update_detector",
+          "policy": {
+            "approvalClass": "confirm",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
         }
       }
     },
@@ -7226,6 +9295,256 @@
           "policy": {
             "approvalClass": "confirm",
             "minRole": "MEMBER",
+            "tenancy": "workspace"
+          }
+        }
+      }
+    },
+    "/api/v1/public/projects/{project_id}": {
+      "delete": {
+        "description": "Soft-delete a project.\n\nRequires ADMIN role in the project's workspace (the write service\ndecides). The project drops out of every list and read and its access\nkeys stop authenticating; its data stays for the retention window.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    project_id (str): The project to delete.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteProjectResponse: The removed project.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "operationId": "delete_project",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Why the resource is being deleted; recorded on the audit row",
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "description": "Why the resource is being deleted; recorded on the audit row",
+              "maxLength": 500,
+              "minLength": 3,
+              "title": "Reason",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteProjectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete a project",
+        "tags": [
+          "Account (Public)"
+        ],
+        "x-tool": {
+          "description": "Delete a project: it drops out of every list and read and its API keys stop authenticating (its data stays for the retention window). Requires ADMIN in the workspace and a reason (3-500 characters) that is recorded on the audit row.",
+          "enabled": true,
+          "name": "delete_project",
+          "policy": {
+            "approvalClass": "approval",
+            "minRole": "ADMIN",
+            "tenancy": "workspace"
+          }
+        }
+      },
+      "patch": {
+        "description": "Edit a project's name or trace retention.\n\nRequires ADMIN role in the project's workspace (the write service\ndecides). A null ``trace_ttl_days`` returns retention to the plan default.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    project_id (str): The project to edit.\n    payload (UpdateProjectRequest): The fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateProjectResponse: The updated project and the changed fields.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "operationId": "update_project",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateProjectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Name already in use"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Edit a project",
+        "tags": [
+          "Account (Public)"
+        ],
+        "x-tool": {
+          "agentHiddenParams": [
+            "trace_ttl_days"
+          ],
+          "description": "Edit a project's name (or, via the API, its trace retention). Fields left out are untouched; a null trace_ttl_days returns retention to the plan default. Requires ADMIN in the workspace. The response lists the fields that actually changed.",
+          "enabled": true,
+          "name": "update_project",
+          "policy": {
+            "approvalClass": "confirm",
+            "minRole": "ADMIN",
             "tenancy": "workspace"
           }
         }
@@ -9179,6 +11498,136 @@
       }
     },
     "/api/v1/public/widgets/{widget_id}": {
+      "delete": {
+        "description": "Hard-delete a widget and its entry in the dashboard's layout.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides).\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    widget_id (str): The widget to delete.\n    project_id (str): The project the widget's dashboard belongs to.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteWidgetResponse: The removed widget.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "operationId": "delete_widget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "widget_id",
+            "required": true,
+            "schema": {
+              "title": "Widget Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The project the resource belongs to",
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "description": "The project the resource belongs to",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Why the resource is being deleted; recorded on the audit row",
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "description": "Why the resource is being deleted; recorded on the audit row",
+              "maxLength": 500,
+              "minLength": 3,
+              "title": "Reason",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteWidgetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete a dashboard widget",
+        "tags": [
+          "Project (Public)"
+        ],
+        "x-tool": {
+          "description": "Permanently delete one widget from its dashboard (its layout slot is removed with it). Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id from the dashboard's detail; never delete more than the user named.",
+          "enabled": true,
+          "name": "delete_widget",
+          "policy": {
+            "approvalClass": "approval",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
+        }
+      },
       "get": {
         "description": "Get one saved widget's definition, with its dashboard, for the caller's project.",
         "operationId": "get_widget",
@@ -9276,6 +11725,122 @@
           "description": "Fetch one saved widget's definition by id: its title, type, the query spec exactly as stored (what get_widget_data runs), display config, timestamps, and the id and name of the dashboard it sits on. Resolve a widget id from get_dashboard (which lists a dashboard's widgets) \u2014 never guess an id. For what the widget shows, use get_widget_data.",
           "enabled": true,
           "name": "get_widget"
+        }
+      },
+      "patch": {
+        "description": "Edit a widget's title, spec, or display config.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). A sent ``spec`` replaces the whole spec and is checked\nagainst the widget's stored type by the service; ``type`` is immutable.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    widget_id (str): The widget to edit.\n    payload (UpdateWidgetRequest): The project and the fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateWidgetResponse: The updated widget and the changed fields.\n\nRaises:\n    HTTPException: The write service's 400/403/404 verbatim, or a 503\n        when its response is ambiguous.",
+        "operationId": "update_widget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "widget_id",
+            "required": true,
+            "schema": {
+              "title": "Widget Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWidgetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateWidgetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Edit a dashboard widget",
+        "tags": [
+          "Project (Public)"
+        ],
+        "x-tool": {
+          "description": "Edit a widget's title, spec, or display_config. Fields left out are untouched; a sent spec replaces the whole spec and must be in the dialect of the widget's existing type (query: view/filters/metric/breakdown/display; trace_feed: predicate filters + limit) \u2014 the type itself cannot change. A null display_config resets it. Read the widget's dashboard first so the new spec starts from the current one; the spec schema enumerates the only available views, metrics, filter operators, and display types. The response lists the fields that actually changed.",
+          "enabled": true,
+          "name": "update_widget",
+          "policy": {
+            "approvalClass": "confirm",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
         }
       }
     },
@@ -9616,6 +12181,274 @@
           "policy": {
             "approvalClass": "confirm",
             "minRole": "VIEWER",
+            "tenancy": "account"
+          }
+        }
+      }
+    },
+    "/api/v1/public/workspaces/{workspace_id}": {
+      "delete": {
+        "description": "Hard-delete a workspace and everything in it.\n\nRequires ADMIN role in the workspace (the write service decides); a\nworkspace outside the caller's memberships is a 403, as on the update.\nThe cascade removes every project, its data references, access keys,\nmemberships and invites; the typed ``name`` must equal the workspace's\ncurrent name, and the caller's only workspace cannot be deleted.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    workspace_id (str): The workspace to delete.\n    name (str): The workspace's current name, as a typed confirmation.\n    reason (str): Why it is being deleted; recorded on the audit row.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    DeleteWorkspaceResponse: The removed workspace and the cascade counts.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "operationId": "delete_workspace",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The workspace's current name, typed as confirmation",
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "description": "The workspace's current name, typed as confirmation",
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Why the resource is being deleted; recorded on the audit row",
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "description": "Why the resource is being deleted; recorded on the audit row",
+              "maxLength": 500,
+              "minLength": 3,
+              "title": "Reason",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteWorkspaceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The typed name does not match, or this is the caller's only workspace"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete a workspace",
+        "tags": [
+          "Account (Public)"
+        ],
+        "x-tool": {
+          "description": "Permanently delete a workspace and everything in it: every project, its access keys, memberships and invites. Requires ADMIN, the workspace's current name typed as confirmation, and a reason (3-500 characters) that is recorded on the audit row. The caller's only workspace cannot be deleted. Not reversible.",
+          "enabled": true,
+          "name": "delete_workspace",
+          "policy": {
+            "approvalClass": "approval",
+            "minRole": "ADMIN",
+            "tenancy": "account"
+          }
+        }
+      },
+      "patch": {
+        "description": "Rename a workspace the authenticated user administers.\n\nRequires ADMIN role in the workspace (the write service decides).\nWorkspace membership is the tenancy here, so a workspace outside the\ncaller's memberships is a 403 rather than a 404, as on the project\ncreate; a name the caller already administers a workspace under is a\n409.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    workspace_id (str): The workspace to edit.\n    payload (UpdateWorkspaceRequest): The fields to change.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    UpdateWorkspaceResponse: The updated workspace and the changed fields.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "operationId": "update_workspace",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateWorkspaceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Name already in use"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Rename a workspace",
+        "tags": [
+          "Account (Public)"
+        ],
+        "x-tool": {
+          "description": "Rename a workspace the logged-in user administers. Fields left out are untouched. The response lists the fields that actually changed; a name the caller already uses for another workspace is a conflict.",
+          "enabled": true,
+          "name": "update_workspace",
+          "policy": {
+            "approvalClass": "confirm",
+            "minRole": "ADMIN",
             "tenancy": "account"
           }
         }
