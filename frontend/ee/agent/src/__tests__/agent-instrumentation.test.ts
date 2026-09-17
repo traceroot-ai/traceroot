@@ -29,15 +29,25 @@ vi.mock("@traceroot/core/model-resolver", () => ({
 }));
 vi.mock("../session.js", () => ({ SessionManager: class {} }));
 
+type Ctx = { toolCallId: string; attributes: Record<string, unknown> };
 type Config = {
-  captureContent: (kind: string, value: Record<string, unknown>) => string | undefined;
-  captureToolIo: (
-    toolName: string,
-    args: unknown,
-    result: unknown,
-  ) => { args: unknown; result: unknown };
+  captureContent: (kind: string, value: Record<string, unknown>, ctx: Ctx) => string | undefined;
+  captureToolIo: {
+    args: (toolName: string, args: unknown, ctx: Ctx) => unknown;
+    result: (toolName: string, result: unknown, ctx: Ctx) => string | undefined;
+  };
   onToolSpan: (info: { toolCallId: string; spanId: string; toolName: string }) => void;
 };
+
+/** Both sides of one tool call through the wired capture, with what each asked to set on the span. */
+function captureToolIo(toolName: string, args: unknown, result: unknown) {
+  const ctx: Ctx = { toolCallId: "tc1", attributes: {} };
+  return {
+    args: config.captureToolIo.args(toolName, args, ctx),
+    result: config.captureToolIo.result(toolName, result, ctx),
+    attributes: ctx.attributes,
+  };
+}
 
 let selfTrace: typeof import("../self-trace.js");
 let config: Config;
@@ -72,7 +82,7 @@ describe("agent.ts instrumentation wiring", () => {
     expect(config).toMatchObject({
       agentSpan: "unless-nested",
       captureContent: expect.any(Function),
-      captureToolIo: expect.any(Function),
+      captureToolIo: { args: expect.any(Function), result: expect.any(Function) },
       onToolSpan: expect.any(Function),
     });
   });
@@ -80,7 +90,7 @@ describe("agent.ts instrumentation wiring", () => {
   it("runs tool I/O through the capture policy: redacted args, and a kept result cut at the per-step cap", () => {
     // download_traces is allow-listed, so this exercises the cut on a kept
     // result rather than the withholding of a non-allow-listed one.
-    const out = config.captureToolIo(
+    const out = captureToolIo(
       "download_traces",
       { token: "ghp_" + "x".repeat(40) },
       "y".repeat(200_000),
@@ -90,10 +100,26 @@ describe("agent.ts instrumentation wiring", () => {
     expect(typeof out.result).toBe("string");
     expect(Buffer.byteLength(out.result as string, "utf8")).toBeLessThanOrEqual(8_192);
     expect((out.result as string).endsWith("…")).toBe(true);
+    // The cut is marked on the span (design B7), and the budget was not the reason.
+    expect(out.attributes).toEqual({ "traceroot.truncated": true });
+  });
+
+  it("marks a span whose result the run's spent budget withheld (design B8)", async () => {
+    await selfTrace.withAgentTrace(meta, async () => {
+      selfTrace.currentCaptureState()!.spentBytes = 262_144;
+      const out = captureToolIo("download_traces", { q: "x" }, "y".repeat(100));
+      expect(out.attributes).toMatchObject({ "traceroot.capture_budget_exceeded": true });
+      expect(out.result).toContain("Output not stored: this run reached");
+    });
+  });
+
+  it("marks nothing on a tool span whose I/O was kept whole", () => {
+    const out = captureToolIo("download_traces", { q: "x" }, "y".repeat(100));
+    expect(out.attributes).toEqual({});
   });
 
   it("stamps a withheld result as the reader-facing note the chat step shows, not the policy's verdict", () => {
-    const out = config.captureToolIo("bash", { command: "ls" }, "a listing of 26 bytes.....");
+    const out = captureToolIo("bash", { command: "ls" }, "a listing of 26 bytes.....");
     expect(out.result).toBe(
       "Output not stored after the run (26 bytes returned). Shell, file and git output can " +
         "include your source code and secrets, so it is shown while the run streams but not " +
@@ -110,7 +136,7 @@ describe("agent.ts instrumentation wiring", () => {
     await selfTrace.withAgentTrace(meta, async () => {
       const state = selfTrace.currentCaptureState()!;
       before = state.spentBytes;
-      config.captureToolIo("get_traces", { q: "x" }, "y".repeat(1000));
+      captureToolIo("get_traces", { q: "x" }, "y".repeat(1000));
       after = state.spentBytes;
     });
     expect(before).toBe(0);

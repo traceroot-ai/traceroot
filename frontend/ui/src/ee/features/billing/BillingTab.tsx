@@ -296,11 +296,13 @@ export function BillingTab({
                     Platform events
                   </span>
                   <span>
+                    {/* Everything that is not the customer's: total − user, so a
+                        new platform writer is counted without a change here. */}
                     {(
-                      currentUsage.bySource.detector.traces +
-                      currentUsage.bySource.detector.spans +
-                      currentUsage.bySource.agent.traces +
-                      currentUsage.bySource.agent.spans
+                      currentUsage.traces +
+                      currentUsage.spans -
+                      currentUsage.bySource.user.traces -
+                      currentUsage.bySource.user.spans
                     ).toLocaleString()}
                   </span>
                 </div>

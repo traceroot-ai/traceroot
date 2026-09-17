@@ -29,6 +29,10 @@ const serverSchema = z.object({
   BETTER_AUTH_SECRET: authSecret(),
   BETTER_AUTH_URL: z.string().default("http://localhost:3000"),
   INTERNAL_API_SECRET: authSecret(),
+  // The agent service's own internal credential, accepted alongside the
+  // platform secret by verifyInternalSecret. Blank means the agent's calls to
+  // this app (GitHub App tokens for clones) are rejected.
+  INTERNAL_API_SECRET_AGENT: z.string().default(""),
   // Comma-separated CIDRs of proxies in front of this app, used to resolve the
   // real client address from x-forwarded-for. Blank means no trusted proxies
   // (better-auth's own default): only a single-entry header is trusted. See
