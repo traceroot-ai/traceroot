@@ -67,10 +67,13 @@ ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "max",
         "quantile",
         "quantileexact",
-        # NOTE: `uniq` is intentionally absent. sqlglot normalises `uniq()` to
-        # exp.ApproxDistinct (sql_name "APPROX_DISTINCT"), which is not in this
-        # allowlist, so `uniq()` is rejected. `uniqExact` keeps its name and is
-        # allowed. To support `uniq`, add "approx_distinct" here deliberately.
+        "quantiles",  # the array form of quantile, same computation
+        # `uniq` reaches here as exp.ApproxDistinct, whose sql_name is
+        # "APPROX_DISTINCT". It was left out while that normalisation was only a
+        # sqlglot observation; it is added now on its own merits. It computes what
+        # the already-allowed `uniqExact` computes and costs strictly less, so
+        # refusing it only pushed callers onto the more expensive function.
+        "approx_distinct",
         "uniqexact",
         "now",
         "datediff",
@@ -134,6 +137,23 @@ ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "mapkeys",  # ClickHouse mapKeys()
         "mapvalues",  # ClickHouse mapValues()
         "mapcontains",  # ClickHouse mapContains()
+        # --- Conditional aggregates. Every one of these is expressible with
+        # functions already allowed: countIf(c) is count(CASE WHEN c THEN 1 END),
+        # sumIf(x, c) is sum(if(c, x, 0)). So they add no reach, only the spelling
+        # a caller writing ClickHouse reaches for first, and refusing them taught
+        # nothing except that the gateway is fussy. Note the two spellings:
+        # sqlglot models countIf as exp.CountIf ("count_if") and leaves the rest
+        # Anonymous with their own names, which the per-function tests pin.
+        "count_if",  # ClickHouse countIf() -> exp.CountIf
+        "sumif",  # exp.AnonymousAggFunc, name preserved
+        "avgif",  # exp.AnonymousAggFunc, name preserved
+        "minif",  # exp.AnonymousAggFunc, name preserved
+        "maxif",  # exp.AnonymousAggFunc, name preserved
+        # topK returns the K most frequent values of a column as one array. It
+        # reads nothing outside the rows already in scope, and its result is
+        # bounded by the profile's max_result_bytes like any other, so the only
+        # question it raised was reach, and it has none beyond the view.
+        "topk",
     }
 )
 

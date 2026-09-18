@@ -352,13 +352,13 @@ def test_user_placeholder_outside_scope_namespace_is_allowed() -> None:
     )
 
 
-def test_uniqexact_allowed_but_uniq_rejected() -> None:
-    # uniqExact keeps its name and is in the allowlist; uniq normalises to
-    # ApproxDistinct and is (intentionally) rejected. Pin both so a sqlglot
-    # upgrade that changes normalisation cannot silently flip the outcome.
+def test_both_spellings_of_distinct_count_are_allowed() -> None:
+    # uniqExact keeps its name; uniq normalises to ApproxDistinct, which is why it
+    # was absent while that was only an observation about sqlglot. Both are allowed
+    # now, and both are pinned so an upgrade that changes normalisation fails here
+    # rather than silently refusing one of them again.
     assert isinstance(validate("SELECT uniqExact(span_id) FROM spans"), exp.Query)
-    with pytest.raises(SqlValidationError):
-        validate("SELECT uniq(span_id) FROM spans")
+    assert isinstance(validate("SELECT uniq(span_id) FROM spans"), exp.Query)
 
 
 # ---------------------------------------------------------------------------
@@ -409,12 +409,51 @@ F5_ALLOWED_CASES = [
     "SELECT row_number() OVER (ORDER BY cost) FROM spans",
     "SELECT rank() OVER (ORDER BY cost) FROM spans",
     "SELECT dense_rank() OVER (ORDER BY cost) FROM spans",
+    # Conditional aggregates and the two functions whose omission was an artifact
+    # of sqlglot naming rather than a decision.
+    "SELECT countIf(cost > 1) FROM spans",
+    "SELECT sumIf(cost, cost > 1) FROM spans",
+    "SELECT avgIf(cost, cost > 1) FROM spans",
+    "SELECT minIf(cost, cost > 1) FROM spans",
+    "SELECT maxIf(cost, cost > 1) FROM spans",
+    "SELECT uniq(trace_id) FROM spans",
+    "SELECT quantiles(0.5, 0.95)(cost) FROM spans",
+    "SELECT topK(3)(name) FROM spans",
 ]
 
 
 @pytest.mark.parametrize("sql", F5_ALLOWED_CASES)
 def test_f5_widened_functions_are_allowed(sql: str) -> None:
     assert isinstance(validate(sql), exp.Query)
+
+
+def test_a_conditional_aggregate_reaches_no_further_than_its_long_form() -> None:
+    """The reason the -If family is safe to allow, asserted rather than assumed.
+
+    Each one is the already-allowed CASE or if() spelling of the same aggregate,
+    so allowing it widens ergonomics and not reach. If that ever stops being true
+    the two sides stop agreeing and this fails.
+    """
+    for short, long in (
+        ("countIf(cost > 1)", "count(CASE WHEN cost > 1 THEN 1 END)"),
+        ("sumIf(cost, cost > 1)", "sum(if(cost > 1, cost, 0))"),
+    ):
+        assert isinstance(validate(f"SELECT {short} FROM spans"), exp.Query)
+        assert isinstance(validate(f"SELECT {long} FROM spans"), exp.Query)
+
+
+def test_widening_the_allowlist_did_not_open_the_blocklist() -> None:
+    # The blocklist wins over the allowlist, and nothing added here is a prefix or
+    # a relative of something blocked. Spot-checked on the families most likely to
+    # be confused with a conditional aggregate or a top-N.
+    for sql in (
+        "SELECT topKWeighted(3)(name, cost) FROM spans",
+        "SELECT uniqTheta(trace_id) FROM spans",
+        "SELECT countIfState(cost > 1) FROM spans",
+        "SELECT dictGetString('d', 'k', toUInt64(1)) FROM spans",
+    ):
+        with pytest.raises(SqlValidationError):
+            validate(sql)
 
 
 def test_restricted_column_error_does_not_name_project_id() -> None:
