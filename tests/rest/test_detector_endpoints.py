@@ -1134,6 +1134,30 @@ class TestUsageBillsEveryStoredRow:
         # detector_runs was never filtered — it is the per-evaluation result record.
         assert "source" not in runs_sql
 
+    def test_usage_details_meters_only_completed_detector_runs(self, client, mock_ch, secret):
+        """A failed run reached no model, so it is not a billable scan.
+
+        `detector_runs` holds one row per attempt with status 'completed' or
+        'failed'. Without the predicate a workspace whose provider key is
+        missing burns its Free hard cap on runs that did no inference, and the
+        paid hosted-LLM split divides by the wrong denominator.
+        """
+        mock_ch.query.side_effect = [
+            _make_query_result([], ["source", "traces", "spans"]),
+            _make_query_result([(2,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["detector_runs"] == 2
+        runs_sql = mock_ch.query.call_args_list[1].args[0]
+        assert "status = 'completed'" in runs_sql
+        # Still no predicate on source: BYOK and system runs both count.
+        assert "source" not in runs_sql
+
     def test_usage_details_scans_each_table_once(self, client, mock_ch, secret):
         """The breakdown is the count: one grouped scan per table, not a second pass."""
         mock_ch.query.side_effect = [

@@ -143,8 +143,15 @@ async def get_usage_details(
     traces = sum(b.traces for b in by_source.values())
     spans = sum(b.spans for b in by_source.values())
 
-    # Detector runs: count every scan attempt recorded by the detector worker
+    # Detector runs: count the scans the detector worker actually ran
     # (BYOK + system source both count toward Free-plan hard cap).
+    # Only `completed` is metered. The worker writes one row per attempt with
+    # status 'completed' or 'failed' (frontend/worker/src/detection/
+    # clickhouse-writer.ts), and a failed run never reached the model: a missing
+    # provider key or a timeout before the request costs no inference, so it is
+    # not a scan. Counting it both burns the Free hard cap without any work
+    # being done and under-bills paid hosted-LLM overage, whose denominator is
+    # this number.
     # uniqExact on run_id dedups pre-merge duplicates in the ReplacingMergeTree —
     # same pattern as the traces / spans queries above.
     detector_runs_result = ch.query(
@@ -154,6 +161,7 @@ async def get_usage_details(
         WHERE project_id IN {project_ids:Array(String)}
           AND timestamp >= {start:String}
           AND timestamp < {end:String}
+          AND status = 'completed'
         """,
         parameters={
             "project_ids": project_id_list,
