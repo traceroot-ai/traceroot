@@ -151,13 +151,19 @@ function initOnce(): boolean {
   const secret = agentInternalSecret();
   if (!secret) {
     latchedOff = true;
-    console.warn("[AgentTrace] INTERNAL_API_SECRET_AGENT unset; agent self-trace disabled");
+    console.warn("[AgentTrace] INTERNAL_API_SECRET unset; agent self-trace disabled");
     return false;
   }
   try {
     TraceRoot.initialize({
       baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
-      internalExport: { path: "/api/v1/internal/traces", headers: { "X-Internal-Secret": secret } },
+      // The agent's own ingest path: the source a trace is stored under is the
+      // route's, not the credential's — one internal secret, two paths, and
+      // nothing the exporter sends can relabel what it wrote (design: decision 2).
+      internalExport: {
+        path: "/api/v1/internal/traces/agent",
+        headers: { "X-Internal-Secret": secret },
+      },
       // The sandbox client's own HTTP-call spans carry no input or output and
       // shadow the tool spans that do; see sandbox-spans.ts.
       exportSpan: exportAgentSpan,
