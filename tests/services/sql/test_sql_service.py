@@ -345,6 +345,64 @@ class TestErrorClassification:
             )
         assert "spans_public_v1" not in str(exc_info.value)
 
+    # Verbatim from ClickHouse 25.2, one per code a caller's own literal reaches.
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "Code: 6. DB::Exception: Cannot parse string '2026-09-17 19:01:56.000' as "
+            "DateTime: syntax error at position 19 (parsed just '2026-09-17 19:01:56'): "
+            "In scope SELECT toDateTime('2026-09-17 19:01:56.000'). (CANNOT_PARSE_TEXT)",
+            "Code: 38. DB::Exception: Cannot parse string 'nonsense' as Date: In scope "
+            "SELECT toDate('nonsense'). (CANNOT_PARSE_DATE)",
+            "Code: 41. DB::Exception: Cannot parse string 'bad' as DateTime64(3): In "
+            "scope SELECT toDateTime64('bad', 3). (CANNOT_PARSE_DATETIME)",
+        ],
+    )
+    def test_a_literal_the_type_cannot_hold_is_the_caller_s_problem(self, raw: str) -> None:
+        # The caller wrote the literal, so a 500 sends them to a status page about
+        # their own typo and pages whoever owns the gateway for it.
+        client = FakeClient(raises=ClickHouseError(raw))
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run("SELECT count() FROM spans", PID)
+        assert exc_info.value.is_client_error
+        assert str(exc_info.value) == (
+            "Query contains a value that cannot be parsed as the type it is used as."
+        )
+
+    def test_the_literal_that_was_refused_never_reaches_the_caller(self) -> None:
+        # These messages quote the caller's SQL back, and the scoped SQL is what
+        # actually ran, so the raw text names the curated view.
+        raw = (
+            "Code: 6. DB::Exception: Cannot parse string 'x' as DateTime: In scope "
+            "SELECT toDateTime('x') FROM spans_public_v1(project_id = 'proj-1'). "
+            "(CANNOT_PARSE_TEXT)"
+        )
+        client = FakeClient(raises=ClickHouseError(raw))
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run("SELECT count() FROM spans", PID)
+        assert "spans_public_v1" not in str(exc_info.value)
+        assert "proj-1" not in str(exc_info.value)
+
+    def test_a_parameter_value_still_gets_the_more_specific_message(self) -> None:
+        # 41 is now in the client table, so the generic literal sentence would be
+        # correct but less useful for a value the caller passed as a parameter.
+        # The parameter branch runs after classification and must still win.
+        raw = (
+            "Code: 41. DB::Exception: Cannot parse datetime: value nope cannot be parsed "
+            "as DateTime for query parameter 'p'. (CANNOT_PARSE_DATETIME)"
+        )
+        client = FakeClient(raises=ClickHouseError(raw))
+        with pytest.raises(SqlExecutionError) as exc_info:
+            _service(client).run(
+                "SELECT span_id FROM spans WHERE duration_ms > {p:Int64}",
+                PID,
+                parameters={"p": "nope"},
+            )
+        assert exc_info.value.is_client_error
+        assert str(exc_info.value) == (
+            "Query supplied a parameter value that its declared type cannot hold."
+        )
+
     def test_a_message_with_no_code_is_opaque(self) -> None:
         message, is_client_error = classify_ch_error("connection reset by peer")
         assert is_client_error is False

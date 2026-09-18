@@ -248,6 +248,34 @@ UNPARSEABLE = [
 ]
 
 
+#: A literal the caller wrote, refused by the type it is converted to. Run live
+#: because the codes differ per conversion (6, 38, 41 on 25.2) and a fake would
+#: only prove the table matches itself.
+BAD_LITERALS = [
+    # The shape that found this: toDateTime parses seconds, not fractions.
+    (
+        "a timestamp with fractional seconds",
+        "SELECT count() FROM spans WHERE "
+        "toDateTime(span_start_time) >= toDateTime('2026-09-01 00:00:00.000')",
+    ),
+    (
+        "a date that is not one",
+        "SELECT count() FROM spans WHERE toDate(span_start_time) >= toDate('nonsense')",
+    ),
+    ("a number that is not one", "SELECT count() FROM spans WHERE duration_ms > toInt64('abc')"),
+]
+
+
+@pytest.mark.parametrize("label,sql", BAD_LITERALS, ids=[b[0] for b in BAD_LITERALS])
+def test_a_literal_the_type_cannot_hold_is_a_client_error(http, label, sql):
+    resp = http(PROJECT_A).post(SQL_URL, json={"query": sql}, headers=AUTH_HEADER)
+    assert resp.status_code == 400, f"{label}: {resp.status_code} {resp.text}"
+    assert resp.json()["detail"] == (
+        "Query contains a value that cannot be parsed as the type it is used as."
+    )
+    _assert_no_leak(resp.text)
+
+
 @pytest.mark.parametrize("label,sql,value", UNPARSEABLE, ids=[u[0] for u in UNPARSEABLE])
 def test_a_value_the_declared_type_cannot_hold_is_a_client_error(http, label, sql, value):
     # A 500 would send the caller to read a status page about a value only they

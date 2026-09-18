@@ -70,6 +70,11 @@ class SqlResult:
 # Error classification
 # ---------------------------------------------------------------------------
 
+#: The raw text for these quotes the caller's own SQL back, as in "In scope
+#: SELECT toDateTime('...')", so the sentence returned is fixed and derived from
+#: nothing in it.
+_BAD_LITERAL = "Query contains a value that cannot be parsed as the type it is used as."
+
 #: ClickHouse puts its numeric error code at the head of the message, as in
 #: ``Code: 241. DB::Exception: Memory limit (total) exceeded ...``.
 _CODE_RE = re.compile(r"\bCode:\s*(\d+)")
@@ -92,6 +97,17 @@ _CLIENT_ERRORS: dict[int, str] = {
     53: "Query compares or combines values of incompatible types.",
     47: "Query references a column that does not exist in the public schema.",
     386: "Query combines values that have no common type.",
+    # A literal the caller wrote that the type it is used as cannot hold, such as
+    # toDateTime('2026-09-17 19:01:56.000'), which ClickHouse parses only without
+    # the fractional part. Measured on 25.2: 6 for most conversions, 38 and 41 for
+    # the date and datetime ones. These sit beside 43, 53 and 47 above, which are
+    # the same kind of fact, that the caller's SQL is wrong in a way they can see
+    # and fix. The rewriter's own rendered literals are fixed sentinels that parse,
+    # and a caller's bound expression is passed through verbatim, so a parse
+    # failure in one is still the caller's literal.
+    6: _BAD_LITERAL,
+    38: _BAD_LITERAL,
+    41: _BAD_LITERAL,
 }
 
 # Deliberately absent, so they surface as server errors and alert:
