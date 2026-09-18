@@ -3,7 +3,7 @@
 Every TraceRoot-operated agent run (automatic RCA, follow-up and manual chat turns, the
 worker's digest-summary call) can be recorded as a trace in the customer's project,
 stored under `source='agent'` (agent service) or `source='detector'` (worker). Emission is
-off by default and controlled per kind.
+on by default and controlled per kind.
 
 ## Enable (cloud)
 
@@ -19,8 +19,10 @@ off by default and controlled per kind.
    `20260901000001_ai_message_attribution` (in `frontend/packages/core`, with
    `DATABASE_URL` set: `pnpm exec prisma migrate deploy`). Both are additive; no backfill
    of executions is performed.
-3. Agent service env: `AGENT_SELF_TRACE=1` (or `true`), then widen
-   `AGENT_SELF_TRACE_KINDS` over a few days: `rca` → `rca,followup` → `rca,followup,chat`.
+3. Agent service env: nothing to set — `AGENT_SELF_TRACE` unset means on (any value
+   other than `1` or `true` turns it off). To stage a rollout, narrow
+   `AGENT_SELF_TRACE_KINDS` and widen it over a few days: `rca` → `rca,followup` →
+   `rca,followup,chat`.
    Unset means all kinds; a token that is not one of those three is ignored and warned
    about once in the agent-service log (`[AgentTrace] AGENT_SELF_TRACE_KINDS token`).
 4. Confirm after the first RCA:

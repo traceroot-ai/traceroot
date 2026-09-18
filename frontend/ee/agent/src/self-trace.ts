@@ -75,7 +75,8 @@ const warnedKindTokens = new Set<string>();
 
 export function isAgentTraceEnabled(kind: AgentTraceKind): boolean {
   const flag = process.env.AGENT_SELF_TRACE;
-  if (flag !== "1" && flag !== "true") return false;
+  // On unless set: any value other than 1 or true turns it off.
+  if (flag && flag !== "1" && flag !== "true") return false;
   const list = process.env.AGENT_SELF_TRACE_KINDS;
   if (!list) return true;
   const tokens = list
