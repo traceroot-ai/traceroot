@@ -246,7 +246,6 @@ jobs:
           set -euo pipefail
           {
             echo "INTERNAL_API_SECRET=$(openssl rand -hex 32)"
-            echo "INTERNAL_API_SECRET_AGENT=$(openssl rand -hex 32)"
             echo "TRACEROOT_E2E_API_KEY=tr-$(uuidgen | tr "[:upper:]" "[:lower:]")"
           } >> "$GITHUB_ENV"
 
