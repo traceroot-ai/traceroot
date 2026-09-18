@@ -11,11 +11,18 @@ const prismaMock = vi.hoisted(() => ({
   evaluationRun: { findMany: vi.fn(), count: vi.fn() },
   dataset: { findMany: vi.fn() },
   evaluationResult: { findMany: vi.fn(), groupBy: vi.fn() },
+  workspace: { findUnique: vi.fn() },
   $transaction: vi.fn(async (arr: Promise<unknown>[]) => Promise.all(arr)),
 }));
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
 
-vi.mock("@traceroot/core", () => ({ prisma: prismaMock }));
+// Only `prisma` is faked. The retention helpers (`getRetentionDays`,
+// `RETENTION_DAYS`) stay real, so the clamp cases below are checked against the
+// actual plan windows rather than against numbers restated in this file.
+vi.mock("@traceroot/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@traceroot/core")>()),
+  prisma: prismaMock,
+}));
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: auth.requireAuth,
   requireProjectAccess: auth.requireProjectAccess,
@@ -26,6 +33,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   successResponse: (data: unknown, status = 200) => ({ status, json: async () => data }),
 }));
 
+import { PlanType, RETENTION_DAYS } from "@traceroot/core";
 import { GET } from "./route";
 
 const nextUrl = (qs = "") => ({ nextUrl: { searchParams: new URLSearchParams(qs) } });
@@ -64,7 +72,11 @@ function group(
 beforeEach(() => {
   vi.clearAllMocks();
   auth.requireAuth.mockResolvedValue({ user: { id: "u1" } });
-  auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
+  auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1", workspaceId: "w1" } });
+  // Unlimited retention by default, so the cases below exercise windowing and
+  // derivation rather than the plan gate. The retention tests set a capped
+  // plan explicitly.
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: PlanType.ENTERPRISE });
   prismaMock.$transaction.mockImplementation(async (arr: Promise<unknown>[]) => Promise.all(arr));
   prismaMock.dataset.findMany.mockResolvedValue([{ id: "ds1", name: "support" }]);
   prismaMock.evaluationResult.groupBy.mockResolvedValue([]);
@@ -556,4 +568,66 @@ it("drops an unparseable started_after instead of erroring", async () => {
       where: expect.not.objectContaining({ startedAt: expect.anything() }),
     }),
   );
+});
+
+// ── retention gate ─────────────────────────────────────────────────────────
+// The date picker locks presets beyond the plan window, but the picker is not
+// the enforcement: these cover the server side, which is what a hand-crafted
+// request meets. The plan windows come from RETENTION_DAYS rather than being
+// restated here, so changing a plan's window cannot leave these asserting the
+// old one.
+
+/** The `startedAt.gte` the route passed to Prisma, or undefined. */
+async function gteFor(plan: string, qs: string): Promise<Date | undefined> {
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: plan });
+  prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run()]);
+  prismaMock.evaluationRun.count.mockResolvedValue(1);
+  prismaMock.evaluationResult.findMany.mockResolvedValue([]);
+  await GET(nextUrl(qs) as never, params);
+  const call = prismaMock.evaluationRun.findMany.mock.calls[0][0] as {
+    where: { startedAt?: { gte?: Date } };
+  };
+  return call.where.startedAt?.gte;
+}
+
+/** Days between a clamped bound and now, to one decimal. */
+function daysAgo(d: Date): number {
+  return Math.round(((Date.now() - d.getTime()) / 86_400_000) * 10) / 10;
+}
+
+it("pulls a started_after older than the plan window forward to the cutoff", async () => {
+  const gte = await gteFor(PlanType.FREE, "started_after=2020-01-01T00:00:00.000Z");
+  expect(gte).toBeInstanceOf(Date);
+  // 15 days plus the one-hour boundary buffer the helper and the Python gate share.
+  expect(daysAgo(gte!)).toBeCloseTo(RETENTION_DAYS[PlanType.FREE]! + 1 / 24, 1);
+});
+
+it("clamps an OMITTED started_after too, because unbounded is the widest query", async () => {
+  const gte = await gteFor(PlanType.FREE, "");
+  expect(gte).toBeInstanceOf(Date);
+  expect(daysAgo(gte!)).toBeCloseTo(RETENTION_DAYS[PlanType.FREE]! + 1 / 24, 1);
+});
+
+it("clamps an unparseable started_after on a capped plan rather than dropping it", async () => {
+  const gte = await gteFor(PlanType.STARTER, "started_after=not-a-date");
+  expect(gte).toBeInstanceOf(Date);
+  expect(daysAgo(gte!)).toBeCloseTo(RETENTION_DAYS[PlanType.STARTER]! + 1 / 24, 1);
+});
+
+it("leaves a started_after inside the plan window alone", async () => {
+  const inside = new Date(Date.now() - 2 * 86_400_000).toISOString();
+  const gte = await gteFor(PlanType.FREE, `started_after=${inside}`);
+  expect(gte?.toISOString()).toBe(new Date(inside).toISOString());
+});
+
+it("applies no cutoff on a plan with unlimited retention", async () => {
+  expect(RETENTION_DAYS[PlanType.ENTERPRISE]).toBeNull();
+  const gte = await gteFor(PlanType.ENTERPRISE, "started_after=2020-01-01T00:00:00.000Z");
+  expect(gte?.toISOString()).toBe("2020-01-01T00:00:00.000Z");
+});
+
+it("fails closed to the most restrictive window for an unrecognized plan", async () => {
+  const gte = await gteFor("legacy-team", "started_after=2020-01-01T00:00:00.000Z");
+  expect(gte).toBeInstanceOf(Date);
+  expect(daysAgo(gte!)).toBeCloseTo(RETENTION_DAYS[PlanType.FREE]! + 1 / 24, 1);
 });

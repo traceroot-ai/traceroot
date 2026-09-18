@@ -18,6 +18,9 @@ import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
 import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -154,6 +157,11 @@ function RunsTab({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
   const del = useDeleteRuns(projectId);
+  // Same plan state every other list surface uses. Without it `isOptionLocked`
+  // short-circuits to false for every preset, so the retention gate is inert
+  // here while it is enforced on traces, sessions, users, detectors and
+  // dashboards.
+  const retention = useRetention(projectId);
   const [deleteRun, setDeleteRun] = React.useState<RunRow | null>(null);
   // Row selection for bulk actions (compare / delete).
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
@@ -318,6 +326,8 @@ function RunsTab({ projectId }: { projectId: string }) {
               setCustomStart(s);
               setCustomEnd(e);
             }}
+            retentionDays={retention.retentionDays}
+            onUpgradeClick={retention.onUpgradeClick}
           />
         </div>
       </SearchFilterBar>
@@ -426,6 +436,13 @@ function RunsTab({ projectId }: { projectId: string }) {
           isDeleting={del.isPending}
         />
       )}
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </>
   );
 }

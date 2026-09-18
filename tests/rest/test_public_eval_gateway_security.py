@@ -108,6 +108,26 @@ class TestUpstreamPathAllowlist:
         assert resp.status_code == 404
         assert upstream.calls.call_count == 0
 
+    def test_evaluation_runs_are_write_only_through_this_gateway(self):
+        """No GET reaches evaluation runs here, so this gateway has no time
+        window to clamp against a workspace's retention entitlement.
+
+        Retention is enforced on the one path that does read runs, the Next
+        route at `app/api/projects/[projectId]/evaluations/runs/route.ts`. That
+        is only sufficient while this allowlist stays write-only for runs: a
+        `GET` added here would be a second reader, and it would arrive ungated.
+        Pinned rather than left to review, because the omission is invisible.
+        """
+        readable = {
+            "/".join(segments)
+            for segments, methods in eval_gateway._UPSTREAM_ROUTES
+            if "GET" in methods
+        }
+        assert not [path for path in readable if path.startswith("evaluation-runs")]
+        # The routes that ARE readable take no time window, so there is nothing
+        # for retention to narrow on them.
+        assert readable == {"datasets", "datasets/*", "datasets/*/versions", "dataset-versions/*"}
+
     def test_method_not_implemented_upstream_is_not_forwarded(self, client, upstream):
         # `datasets/{id}/versions` is GET+POST upstream; PATCH is not a real route.
         resp = client.patch("/api/v1/public/datasets/ds1/versions", headers=AUTH_HEADER, json={})

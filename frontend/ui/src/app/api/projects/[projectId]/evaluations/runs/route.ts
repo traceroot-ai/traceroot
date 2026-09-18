@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, PlanType } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
+import { clampStartAfter } from "@/lib/server/retention";
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
 import { countResultStatuses, excludedSummary } from "@/lib/eval/result-status-counts";
@@ -79,7 +80,20 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   const searchQuery = searchParams.get("search_query")?.trim() || null;
   const sort = parseSort(searchParams.get("sort"));
   const order = parseOrder(searchParams.get("order"));
-  const startedAfter = parseDateParam(searchParams.get("started_after"));
+  // Retention gate, the server-side half. The date picker now locks presets
+  // beyond the plan window, but this is the backstop a hand-crafted request
+  // hits, and it is the reason a wider range is not merely unselectable but
+  // unserved. `clampStartAfter` pulls an out-of-window bound forward to the
+  // cutoff and, because an absent or unparseable bound is an UNBOUNDED query
+  // rather than a narrow one, fills that case in with the cutoff too.
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: accessResult.project.workspaceId },
+    select: { billingPlan: true },
+  });
+  const billingPlan = workspace?.billingPlan || PlanType.FREE;
+  const startedAfter = parseDateParam(
+    clampStartAfter(billingPlan, searchParams.get("started_after")),
+  );
   const startedBefore = parseDateParam(searchParams.get("started_before"));
 
   const where = {
