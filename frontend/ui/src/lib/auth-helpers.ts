@@ -145,6 +145,9 @@ export async function requireProjectAccess(
 /**
  * Verify internal API secret for Python backend calls.
  *
+ * One credential for every internal caller — the Python backend, the worker
+ * and the agent service, whose tools call this app for GitHub App tokens.
+ *
  * Compared in constant time (crypto.timingSafeEqual) so response timing cannot
  * be used to recover the secret byte-by-byte. Both sides are hashed first so
  * the compared buffers always have equal length — timingSafeEqual throws on a

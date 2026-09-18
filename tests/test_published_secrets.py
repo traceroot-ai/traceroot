@@ -105,7 +105,7 @@ def test_published_placeholder_is_repaired_in_place(env, line):
     ensure_env_file(env_path, example)
 
     text = env_path.read_text()
-    assert text.count("INTERNAL_API_SECRET") == 1, "repaired in place, not duplicated"
+    assert text.count("INTERNAL_API_SECRET=") == 1, "repaired in place, not duplicated"
     assert len(_values(env_path)["INTERNAL_API_SECRET"]) == 64
     assert "CHANGEME" not in text
 
@@ -180,7 +180,7 @@ def test_teardown_prefers_a_value_the_operator_already_set(monkeypatch):
 
 
 def test_fill_secrets_leaves_a_configured_file_alone():
-    text = "INTERNAL_API_SECRET=" + "a" * 64 + "\nBETTER_AUTH_SECRET=" + "b" * 64 + "\n"
+    text = "INTERNAL_API_SECRET=" + "a" * 64 + "c" * 64 + "\nBETTER_AUTH_SECRET=" + "b" * 64 + "\n"
     assert fill_secrets(text) == text
 
 

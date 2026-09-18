@@ -788,6 +788,7 @@ def _otlp_body(
 class TestInternalTraceIngest:
     CH_FAMILY = "ingest"
     URL = "/api/v1/internal/traces?project_id=proj-1"
+    AGENT_URL = "/api/v1/internal/traces/agent?project_id=proj-1"
 
     def test_rejects_missing_secret(self, client):
         resp = client.post(self.URL, content=_otlp_body())
@@ -926,6 +927,34 @@ class TestInternalTraceIngest:
         # points at missing spans.
         call_order = [name for name, _args, _kw in mock_ch.method_calls]
         assert call_order.index("insert_spans_batch") < call_order.index("insert_traces_batch")
+
+    def test_the_agent_path_stamps_agent_source(self, client, secret, mock_ch):
+        """The agent service's own path, same secret, different stored source."""
+        resp = client.post(
+            self.AGENT_URL, content=_otlp_body(), headers={"X-Internal-Secret": secret}
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        traces = mock_ch.insert_traces_batch.call_args[0][0]
+        assert spans and all(s["source"] == "agent" for s in spans)
+        assert traces and all(t["source"] == "agent" for t in traces)
+
+    def test_the_agent_path_needs_the_secret_too(self, client, mock_ch):
+        resp = client.post(self.AGENT_URL, content=_otlp_body())
+        assert resp.status_code == 403
+        mock_ch.insert_spans_batch.assert_not_called()
+
+    def test_source_header_is_ignored(self, client, secret, mock_ch):
+        """The client cannot choose its source: the path decides, a header naming
+        another source changes nothing."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret, "X-Internal-Source": "agent"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert all(s["source"] == "detector" for s in spans)
 
     def test_rejects_corrupt_gzip_body(self, client, secret, mock_ch, caplog):
         with caplog.at_level(logging.WARNING):
