@@ -2,6 +2,7 @@ import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { applyCapturePolicy } from "@traceroot/core/capture-policy";
 import { agentCaptureInput } from "./capture-input.js";
 import type { TokenUsageData } from "./session.js";
+import type { AgentTraceOutcome } from "./self-trace.js";
 
 /**
  * How the persister writes a row — injected so it is testable. The route binds
@@ -40,18 +41,30 @@ export type AppendMessageFn = (
  */
 export interface StreamPersisterOptions {
   /**
-   * The capture-policy budget to charge (see applyCapturePolicy). Pass the
-   * run's own accumulator — the one the SDK's captureToolIo hook charges for
-   * spans — so rows and spans stop capturing together instead of each getting
-   * a full budget. Omitted, the persister keeps a budget of its own.
+   * The capture-policy budget to charge (see applyCapturePolicy). Deliberately
+   * NOT the accumulator the SDK's captureToolIo hook charges for spans (see
+   * self-trace.ts's currentCaptureState): the same tool event is
+   * policy-transformed once for the span and once for this row, and each sink
+   * needs its own perRunBytes budget — sharing one would halve each sink's
+   * effective cap and double-charge every payload. Pass an explicit state only
+   * to give the persister a budget scoped to something other than "one
+   * fresh state per run" (e.g. tests asserting on a known accumulator);
+   * omitted, the persister allocates its own fresh one.
    */
   state?: { spentBytes: number };
+  /**
+   * Resolves the OTel span id the instrumentation reported for each tool
+   * call (by toolCallId), so a tool_step row can point at its span.
+   */
+  toolSpanIds?: () => Map<string, string> | undefined;
 }
 
 export class StreamPersister {
   private chain: Promise<void> = Promise.resolve();
   private text = "";
   private thinking = "";
+  /** The most recent non-empty text segment — the answer the root span records as its output. */
+  private lastText = "";
   private runError: string | undefined;
   /** Whether the run produced anything at all (text, thinking, or a tool step) — see finish. */
   private produced = false;
@@ -65,7 +78,7 @@ export class StreamPersister {
 
   constructor(
     private readonly append: AppendMessageFn,
-    options: StreamPersisterOptions = {},
+    private readonly options: StreamPersisterOptions = {},
   ) {
     this.captureState = options.state ?? { spentBytes: 0 };
   }
@@ -108,6 +121,7 @@ export class StreamPersister {
         agentCaptureInput(event.toolName, args, event.result),
         this.captureState,
       );
+      const spanId = this.options.toolSpanIds?.()?.get(event.toolCallId);
       this.completedToolRows.set(event.toolCallId, {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
@@ -116,10 +130,16 @@ export class StreamPersister {
         outputBytes: captured.outputBytes,
         ...(captured.truncated ? { truncated: true } : {}),
         ...(captured.withheld ? { withheld: captured.withheld } : {}),
+        ...(spanId ? { spanId } : {}),
         isError: event.isError,
       });
       this.flushCompletedToolRows();
     }
+  }
+
+  /** The final assistant text so far (trailing unflushed text, else the last flushed segment). */
+  finalText(): string {
+    return this.text || this.lastText;
   }
 
   /**
@@ -131,8 +151,11 @@ export class StreamPersister {
     this.runError ??= message || "unknown error";
   }
 
-  /** Flush the trailing text segment (with the run's usage) and wait for all inserts. */
-  async finish(tokenUsage?: TokenUsageData): Promise<void> {
+  /** Flush the trailing text segment (with the run's usage and trace outcome) and wait for all inserts. */
+  async finish(
+    tokenUsage?: TokenUsageData,
+    trace?: { traceId: string; status: AgentTraceOutcome },
+  ): Promise<void> {
     // A tool that started but never ended (the run died mid-call) has no row;
     // drain the completed ones past it so they still land in start order.
     for (const toolCallId of this.toolStartOrder) {
@@ -154,7 +177,7 @@ export class StreamPersister {
       tokenUsage.inputTokens === 0 &&
       tokenUsage.outputTokens === 0 &&
       tokenUsage.cost === 0;
-    this.flushTextSegment(consumedNothing && !this.produced ? undefined : tokenUsage);
+    this.flushTextSegment(consumedNothing && !this.produced ? undefined : tokenUsage, trace);
     await this.chain;
   }
 
@@ -172,14 +195,19 @@ export class StreamPersister {
     }
   }
 
-  private flushTextSegment(tokenUsage?: TokenUsageData): void {
-    // A run can end at a tool boundary with no trailing text; its usage must
-    // still land in a row, else the run escapes run counting and billing.
-    // Likewise a failed run must leave its error marker even with no text.
-    if (!this.text && !this.thinking && !tokenUsage && !this.runError) return;
+  private flushTextSegment(
+    tokenUsage?: TokenUsageData,
+    trace?: { traceId: string; status: AgentTraceOutcome },
+  ): void {
+    // A run can end at a tool boundary with no trailing text; its usage (and
+    // trace outcome) must still land in a row, else they escape run counting
+    // and the trace link this feature exists for. Likewise a failed run must
+    // leave its error marker even with no text.
+    if (!this.text && !this.thinking && !tokenUsage && !trace && !this.runError) return;
     const content = this.text;
     const thinking = this.thinking;
     const runError = this.runError;
+    if (content) this.lastText = content;
     this.text = "";
     this.thinking = "";
     this.runError = undefined;
@@ -188,6 +216,7 @@ export class StreamPersister {
       // The cumulative session total only exists in stream events — persist it
       // with the final segment so the reloaded usage footer can show it.
       ...(tokenUsage?.totalTokens != null ? { totalTokens: tokenUsage.totalTokens } : {}),
+      ...(trace ? { traceId: trace.traceId, traceStatus: trace.status } : {}),
       // A failed run reloads as an error bubble instead of a silent no-answer.
       ...(runError ? { runError } : {}),
     };
@@ -199,6 +228,14 @@ export class StreamPersister {
     );
   }
 
+  /** The id of the last assistant row written, for a trace status stamped after the turn. */
+  private lastAssistantRowId: string | undefined;
+
+  /** The row the run's trace status lives on: the final assistant segment, once it has landed. */
+  finalSegmentId(): string | undefined {
+    return this.lastAssistantRowId;
+  }
+
   private enqueue(
     role: string,
     content: string,
@@ -207,7 +244,11 @@ export class StreamPersister {
   ): void {
     this.chain = this.chain
       .then(async () => {
-        await this.append(role, content, metadata, tokenUsage);
+        const row = (await this.append(role, content, metadata, tokenUsage)) as
+          | { id?: unknown }
+          | null
+          | undefined;
+        if (role === "assistant" && typeof row?.id === "string") this.lastAssistantRowId = row.id;
       })
       .catch((error) => {
         console.error(`[Agent] Failed to persist ${role} message:`, error);

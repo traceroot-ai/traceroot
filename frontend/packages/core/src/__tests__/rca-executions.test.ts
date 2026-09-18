@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { allocateExecution, executionTraceId, finishFindingIfLatest } from "../rca-executions.ts";
+import {
+  allocateExecution,
+  executionTraceId,
+  finishFindingIfLatest,
+  markFindingRunningIfLatest,
+} from "../rca-executions.ts";
 
 describe("executionTraceId", () => {
   it("attempt 1 is the dashless finding id", () => {
@@ -211,5 +216,51 @@ describe("finishFindingIfLatest", () => {
     const [, result, completedAt] = sql[1].values as [string, unknown, Date];
     expect(result).toBeNull();
     expect(completedAt.getTime()).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe("markFindingRunningIfLatest", () => {
+  const exec = (attempt: number): Execution => ({
+    id: `exec-${attempt}`,
+    findingId: "f-1",
+    attempt,
+    traceId: executionTraceId("f-1", attempt),
+  });
+
+  /** updateMany evaluated against the executions list the way Postgres evaluates `none`. */
+  function fakeUpdateMany(executions: Execution[]) {
+    return vi.fn(async ({ where }: any) => {
+      const gt = where.executions.none.attempt.gt;
+      const higher = executions.some((e) => e.findingId === where.findingId && e.attempt > gt);
+      return { count: higher ? 0 : 1 };
+    });
+  }
+
+  it("marks the finding running when this attempt is the highest", async () => {
+    const updateMany = fakeUpdateMany([exec(1), exec(2)]);
+    const db = { detectorRca: { updateMany } };
+    expect(
+      await markFindingRunningIfLatest(db as any, {
+        findingId: "f-1",
+        projectId: "p-1",
+        attempt: 2,
+      }),
+    ).toBe(true);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { findingId: "f-1", executions: { none: { attempt: { gt: 2 } } } },
+      data: { status: "running", projectId: "p-1" },
+    });
+  });
+
+  it("leaves the finding alone when a newer attempt exists (redelivered stale job)", async () => {
+    const updateMany = fakeUpdateMany([exec(1), exec(2)]);
+    const db = { detectorRca: { updateMany } };
+    expect(
+      await markFindingRunningIfLatest(db as any, {
+        findingId: "f-1",
+        projectId: "p-1",
+        attempt: 1,
+      }),
+    ).toBe(false);
   });
 });

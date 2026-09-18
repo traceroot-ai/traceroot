@@ -523,3 +523,28 @@ export async function executionBelongsToProject(
   } as never);
   return found != null;
 }
+
+/**
+ * Write a turn's trace status onto its final assistant row after the fact —
+ * the deferred-flush path: the row was persisted with `traceStatus: "pending"`
+ * so the user's turn could end, and the upload settled later. Best-effort:
+ * a failure here loses the link, never the turn.
+ */
+export async function stampTraceStatus(
+  messageId: string,
+  status: "available" | "failed",
+): Promise<void> {
+  const row = await prisma.aIMessage.findUnique({
+    where: { id: messageId },
+    select: { metadata: true },
+  });
+  if (!row) return;
+  const metadata =
+    row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  await prisma.aIMessage.update({
+    where: { id: messageId },
+    data: { metadata: { ...metadata, traceStatus: status } },
+  });
+}

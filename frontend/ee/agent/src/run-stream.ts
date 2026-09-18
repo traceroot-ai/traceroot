@@ -10,7 +10,14 @@ import {
 } from "./pending-decisions.js";
 import { StreamPersister } from "./stream-persister.js";
 import { UsageAccumulator } from "./usage-accumulator.js";
-import type { SessionManager, TurnAttribution } from "./session.js";
+import {
+  stampTraceStatus,
+  type SessionManager,
+  type TokenUsageData,
+  type TurnAttribution,
+} from "./session.js";
+import { withAgentTrace, currentToolSpanIds, type AgentTraceMeta } from "./self-trace.js";
+import { publicErrorMessage } from "@traceroot/core/public-error";
 
 /**
  * The slice of hono's SSEStreamingApi the run needs — kept structural so
@@ -36,6 +43,13 @@ export interface RunStreamOptions {
    * turn reads as one attributed unit.
    */
   attribution: TurnAttribution;
+  /**
+   * The turn's self-trace: when set, the run is wrapped in withAgentTrace
+   * (root span, deterministic trace id, tool steps stamped with their span
+   * ids) and the stream ends with a `trace` frame carrying the outcome.
+   * Absent, the run is not traced and persists exactly what it always did.
+   */
+  trace?: AgentTraceMeta;
   /** Decision registry override for tests; defaults to the service singleton. */
   decisions?: PendingDecisions;
 }
@@ -124,11 +138,13 @@ export async function runAgentStream(
 ): Promise<void> {
   const { agent, message, sessionId, decisions = pendingDecisions } = options;
 
-  // Mirrors the run into AIMessage rows (text segments, tool steps) so
-  // reloaded history matches what the live stream rendered.
-  const persister = new StreamPersister((role, content, metadata, tokenUsage) =>
-    options.sessionManager.appendMessage(role, content, options.attribution, metadata, tokenUsage),
-  );
+  const append = (
+    role: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+    tokenUsage?: TokenUsageData,
+  ) =>
+    options.sessionManager.appendMessage(role, content, options.attribution, metadata, tokenUsage);
   // Accumulates token usage across all message_end events (tool-use loops)
   const usageAccumulator = new UsageAccumulator();
   let loggedFirstUpdate = false;
@@ -152,8 +168,19 @@ export async function runAgentStream(
     decisions.unregisterChannel(sessionId, channel);
   });
 
-  try {
-    await new Promise<void>((resolve) => {
+  // Runs the agent and resolves with the persister that mirrored the run into
+  // AIMessage rows (text segments, tool steps) so reloaded history matches
+  // what the live stream rendered, plus the error the run resolved with, if
+  // any. The persister is built inside the run because withAgentTrace's
+  // scope is only live in here: it stamps each tool_step row with the OTel
+  // span id the instrumentation reported for that tool call. Its capture
+  // budget is its OWN fresh accumulator — deliberately NOT the span budget
+  // (currentCaptureState(), charged by agent.ts's captureToolIo callback):
+  // the same tool event is policy-transformed once for the span sink and once
+  // for the row sink, and each sink is bounded by perRunBytes on its own.
+  const run = () =>
+    new Promise<{ persister: StreamPersister; error?: Error }>((resolve) => {
+      const persister = new StreamPersister(append, { toolSpanIds: currentToolSpanIds });
       runAgent(agent, message, {
         onEvent: (event) => {
           if (event.type === "message_update") {
@@ -214,48 +241,110 @@ export async function runAgentStream(
           // anything escaping here is an unhandled rejection, which Node may
           // take the whole process down for.
           try {
-            console.error(`[Agent] ERROR:`, error.message);
+            // Log the full error server-side; the raw provider/agent message
+            // can carry internal detail (connection strings, stack frames)
+            // and this SSE frame reaches the browser, so only a sanitised
+            // form goes out over it.
+            console.error(`[Agent] ERROR:`, error);
             // A dead run can never deliver a decision — unpark before anything else.
             decisions.releaseSession(sessionId, RUN_ERROR_SKIP_REASON);
             // Awaited so the terminal event is flushed before the stream closes.
             await stream.writeSSE({
               event: "error",
-              data: JSON.stringify({ message: error.message }),
+              data: JSON.stringify({ message: publicErrorMessage(error) }),
             });
-            // Persist whatever the run produced before failing (text so far,
-            // completed tool steps) plus a durable error marker, so reloaded
-            // history shows the failure instead of a silent non-answer — with
-            // the usage accumulated before the failure so those tokens still
-            // count toward the run meters.
+            // A durable error marker, so reloaded history shows the failure
+            // instead of a silent non-answer; the rows themselves are
+            // flushed once, below, whatever the outcome.
             persister.recordError(error.message);
-            await persister.finish(await usageAccumulator.toTokenUsage(options.isByok));
           } catch (cleanupError) {
             console.error("[Agent] Error while reporting a failed run:", cleanupError);
           } finally {
-            resolve();
+            // Resolve, not reject: the run happened and its rows persist below.
+            // The error still marks the root span so the trace reads as failed.
+            resolve({ persister, error });
           }
         },
         onDone: async () => {
-          // Same contract as onError: the resolve that releases the run claim
-          // is owed even if the flush or the persist throws, and so is the
-          // catch — this handler is invoked without being awaited.
           try {
             // Backstop: a completed run must leave nothing parked behind.
             decisions.releaseSession(sessionId, RUN_ENDED_SKIP_REASON);
-            const tokenUsage = await usageAccumulator.toTokenUsage(options.isByok);
-            // Flush the trailing text segment and wait for all rows to land
-            await persister.finish(tokenUsage);
-            console.log(`[Agent] Done. Run persisted for session ${sessionId}`);
-            // Awaited so the terminal event is flushed before the stream closes.
-            await stream.writeSSE({ event: "done", data: "{}" });
           } catch (cleanupError) {
             console.error("[Agent] Error while completing a run:", cleanupError);
           } finally {
-            resolve();
+            resolve({ persister });
           }
         },
       });
     });
+
+  try {
+    const outcome = options.trace
+      ? await withAgentTrace(options.trace, run, {
+          recordOutput: ({ persister }) => persister.finalText() || undefined,
+          // The root span's exception and status message are read by anyone
+          // who can open the trace, so the raw provider/agent error stays in
+          // the server log and only the sanitised form the SSE frame carries
+          // is recorded here.
+          runError: ({ error }) => (error ? new Error(publicErrorMessage(error)) : undefined),
+          // A user is waiting on a chat/followup turn: its `done` must not
+          // sit behind the trace upload (process-wide queue, 30 s timeout).
+          // The row lands as `pending` and is stamped once the flush settles.
+          // An RCA has nobody waiting and the worker reads the final status
+          // from the trace frame, so it keeps awaiting the upload.
+          flush: options.trace.kind === "rca" ? "await" : "defer",
+        })
+      : { value: await run(), trace: "disabled" as const };
+    const { persister, error } = outcome.value;
+
+    // Flush the trailing text segment (or the usage-only / error row) —
+    // stamped with this turn's trace outcome — and wait for all rows to
+    // land, with the usage accumulated so far so a failed run's tokens still
+    // count toward the run meters. Runs once here, after the run resolves,
+    // rather than inside onDone/onError. Same contract as the handlers: the
+    // release in the finally below is owed even if the flush throws.
+    try {
+      const tokenUsage = await usageAccumulator.toTokenUsage(options.isByok);
+      // When tracing is off, pass no trace argument at all: finish()'s
+      // `!trace` gate must see undefined, not a present-but-inert object, or a
+      // tool-only turn with the flag off would gain an extra empty assistant
+      // row that main never writes (byte-identical row set with the flag off).
+      await persister.finish(
+        tokenUsage,
+        outcome.trace === "disabled" || !options.trace
+          ? undefined
+          : { traceId: options.trace.traceId, status: outcome.trace },
+      );
+      // The frame is sent whenever a trace was asked for, `disabled` included:
+      // the worker reads the execution's trace status from it, and a missing
+      // frame means the run never reached this point, not that tracing was
+      // off — without it every RCA on a service with the flag off recorded
+      // `failed` (cubic, 2026-09-16).
+      if (options.trace) {
+        await stream.writeSSE({
+          event: "trace",
+          data: JSON.stringify({ status: outcome.trace, traceId: options.trace.traceId }),
+        });
+      }
+      if (!error) {
+        console.log(`[Agent] Done. Run persisted for session ${sessionId}`);
+        // Awaited so the terminal event is flushed before the stream closes.
+        await stream.writeSSE({ event: "done", data: "{}" });
+      }
+    } catch (cleanupError) {
+      console.error("[Agent] Error while completing a run:", cleanupError);
+    }
+    // Deferred flush: the turn is over for the user; settle the row's status
+    // in the background. Not awaited — the finally below releases the run.
+    if (outcome.flushed) {
+      const rowId = persister.finalSegmentId();
+      void outcome.flushed.then((status) => {
+        if (!rowId) return;
+        return stampTraceStatus(rowId, status).catch((err: unknown) => {
+          console.error(`[Agent] Could not record trace status for session ${sessionId}:`, err);
+        });
+      });
+    }
   } finally {
     decisions.unregisterChannel(sessionId, channel);
     releaseRun(sessionId);

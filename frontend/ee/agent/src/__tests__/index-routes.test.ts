@@ -226,11 +226,15 @@ describe("DELETE session — release path", () => {
     });
 
     mockedDeleteSession.mockResolvedValue({ id: "del-4" } as never);
+    // Consume the SSE body while the delete waits for the run to settle, as a
+    // client would: the settle happens after the run's terminal frames are
+    // written, and a stream nobody reads blocks its writer after one chunk.
+    const body = response.text();
     const del = await app.request("/api/v1/projects/p1/sessions/del-4", {
       method: "DELETE",
       headers: { "x-user-id": "u1" },
     });
-    await response.text();
+    await body;
 
     expect(del.status).toBe(200);
     // The teardown waits for the run; the resumed run gets no new sandbox.
