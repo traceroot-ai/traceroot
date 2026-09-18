@@ -7,14 +7,14 @@ off by default and controlled per kind.
 
 ## Enable (cloud)
 
-1. Mint `INTERNAL_API_SECRET_AGENT` (`openssl rand -hex 32`). Set it on the **agent
-   service** (its only internal credential: remove `INTERNAL_API_SECRET` from it), on
-   **REST** and on the **UI** (both accept it next to the platform secret; the UI needs it
-   for the GitHub App token calls the agent's clone tools make). `make dev` / `make prod`
-   generate it locally. Do not give the worker the agent secret, and do not give the agent
-   the platform one: which secret authenticates a request decides the `source` the ingest
-   route stamps, and only the agent service may write `agent`. Order matters for the UI:
-   set the variable there before removing the platform secret from the agent.
+1. No new credential: the agent service uses the existing `INTERNAL_API_SECRET`, like
+   every other internal caller. What a trace is stored as comes from the path it was
+   posted to — the agent exports to `/api/v1/internal/traces/agent` (`source='agent'`),
+   the worker to `/api/v1/internal/traces` (`source='detector'`) — so no header or
+   payload can relabel it, and nothing new has to be minted, distributed or rotated.
+   Check the agent service actually has the secret set (`make dev` / `make prod`
+   generate it; prod compose passes it): with it unset the agent logs
+   `[AgentTrace] INTERNAL_API_SECRET unset; agent self-trace disabled` and runs untraced.
 2. Apply the Prisma migrations `20260901000000_rca_executions` and
    `20260901000001_ai_message_attribution` (in `frontend/packages/core`, with
    `DATABASE_URL` set: `pnpm exec prisma migrate deploy`). Both are additive; no backfill
@@ -72,6 +72,6 @@ off by default and controlled per kind.
 
 - With the flag off the agent service, worker and REST behave as before emission; the
   only runtime differences that ship unflagged are the executions table, the
-  `ai_messages.turn_kind` column, the capture policy on persisted tool output, and the
-  per-source usage breakdown. Reverting the agent-service emit change alone stops emission; the
+  `ai_messages.turn_kind` column, the capture policy on persisted tool output, the
+  per-source usage breakdown, and the agent ingest path (unused while emission is off). Reverting the agent-service emit change alone stops emission; the
   migrations are additive and can stay.

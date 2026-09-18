@@ -111,7 +111,7 @@ beforeEach(() => {
   vi.resetModules();
   delete process.env.AGENT_SELF_TRACE;
   delete process.env.AGENT_SELF_TRACE_KINDS;
-  process.env.INTERNAL_API_SECRET_AGENT = "s";
+  process.env.INTERNAL_API_SECRET = "s";
   appendMessage.mockClear();
   stampTraceStatus.mockClear();
   flush.mockReset().mockResolvedValue(undefined);

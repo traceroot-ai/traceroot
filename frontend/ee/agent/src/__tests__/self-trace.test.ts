@@ -18,12 +18,12 @@ let mod: typeof import("../self-trace.js");
 let priorSecret: string | undefined;
 beforeEach(async () => {
   vi.resetModules();
-  priorSecret = process.env.INTERNAL_API_SECRET_AGENT;
+  priorSecret = process.env.INTERNAL_API_SECRET;
   initialize.mockReset();
   flush.mockReset().mockResolvedValue(undefined);
   observe.mockClear();
   tracingActive.value = true;
-  process.env.INTERNAL_API_SECRET_AGENT = "s";
+  process.env.INTERNAL_API_SECRET = "s";
   process.env.AGENT_SELF_TRACE = "1";
   delete process.env.AGENT_SELF_TRACE_KINDS;
   mod = await import("../self-trace.js");
@@ -31,8 +31,8 @@ beforeEach(async () => {
 afterEach(() => {
   delete process.env.AGENT_SELF_TRACE;
   delete process.env.AGENT_SELF_TRACE_KINDS;
-  if (priorSecret === undefined) delete process.env.INTERNAL_API_SECRET_AGENT;
-  else process.env.INTERNAL_API_SECRET_AGENT = priorSecret;
+  if (priorSecret === undefined) delete process.env.INTERNAL_API_SECRET;
+  else process.env.INTERNAL_API_SECRET = priorSecret;
 });
 
 const meta = {
@@ -156,7 +156,8 @@ describe("withAgentTrace", () => {
     expect(initialize).toHaveBeenCalledWith(
       expect.objectContaining({
         internalExport: expect.objectContaining({
-          path: "/api/v1/internal/traces",
+          // The agent's own path: the route decides the stored source.
+          path: "/api/v1/internal/traces/agent",
           headers: { "X-Internal-Secret": "s" },
         }),
       }),

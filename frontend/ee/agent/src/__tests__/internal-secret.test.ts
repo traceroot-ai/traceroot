@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// Every internal call the agent makes must carry INTERNAL_API_SECRET_AGENT and
-// nothing else: with only the platform secret set, the tools send no secret.
-// This is what lets the agent secret be rotated alone and keeps a compromised
-// agent from stamping traces as the platform.
+// Every internal call the agent makes carries INTERNAL_API_SECRET — the one
+// internal credential, shared with the worker and the Next.js server. What a
+// trace is stored as is decided by the ingest path the agent posts to, not by
+// which secret authenticated (design: decision 2).
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -19,25 +19,23 @@ async function secretSentBy(run: () => Promise<unknown>): Promise<string | null>
 }
 
 describe("the agent's internal calls", () => {
-  it("send the agent secret, never the platform one", async () => {
-    vi.stubEnv("INTERNAL_API_SECRET", "platform");
-    vi.stubEnv("INTERNAL_API_SECRET_AGENT", "agent");
+  it("send the internal secret", async () => {
+    vi.stubEnv("INTERNAL_API_SECRET", "s3cret");
     vi.stubEnv("BACKEND_INTERNAL_URL", "http://rest.test");
     vi.stubEnv("TRACEROOT_UI_URL", "http://web.test");
     const { downloadOneTrace } = await import("../tools/download-traces.js");
     const { createCheckGitHubAccessTool } = await import("../tools/github-access.js");
-    expect(await secretSentBy(() => download(downloadOneTrace))).toBe("agent");
+    expect(await secretSentBy(() => download(downloadOneTrace))).toBe("s3cret");
     const tool = createCheckGitHubAccessTool("w1", "http://web.test");
     expect(
       await secretSentBy(() =>
         tool.execute("call-1", { repo: "o/r" }, undefined as never, undefined as never),
       ),
-    ).toBe("agent");
+    ).toBe("s3cret");
   });
 
-  it("send no secret at all when only the platform one is configured", async () => {
-    vi.stubEnv("INTERNAL_API_SECRET", "platform");
-    vi.stubEnv("INTERNAL_API_SECRET_AGENT", "");
+  it("send an empty header rather than a stale value when none is configured", async () => {
+    vi.stubEnv("INTERNAL_API_SECRET", "");
     vi.stubEnv("BACKEND_INTERNAL_URL", "http://rest.test");
     const { downloadOneTrace } = await import("../tools/download-traces.js");
     expect(await secretSentBy(() => download(downloadOneTrace))).toBe("");
