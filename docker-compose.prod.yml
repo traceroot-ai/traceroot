@@ -153,8 +153,6 @@ services:
       # runtime env rewriting in next.config.js.
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
-      # Accepted on the internal routes the agent service calls (GitHub App tokens).
-      INTERNAL_API_SECRET_AGENT: ${INTERNAL_API_SECRET_AGENT:?required, generate with openssl rand -hex 32}
       # --- AI keys ---
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -230,7 +228,6 @@ services:
       ENABLE_BILLING: ${ENABLE_BILLING:-true}
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
-      INTERNAL_API_SECRET_AGENT: ${INTERNAL_API_SECRET_AGENT:?required, generate with openssl rand -hex 32}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
     depends_on:
       migrate:
@@ -380,9 +377,7 @@ services:
       # Browser-reachable origin for links the agent shows a person (dashboard reads).
       TRACEROOT_PUBLIC_UI_URL: ${TRACEROOT_PUBLIC_UI_URL:-${NEXT_PUBLIC_APP_URL:-http://localhost:3000}}
       # --- Secrets ---
-      # The agent's only internal credential: it never holds INTERNAL_API_SECRET,
-      # so it cannot label traces as the platform and can be rotated on its own.
-      INTERNAL_API_SECRET_AGENT: ${INTERNAL_API_SECRET_AGENT:?required, generate with openssl rand -hex 32}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
       # Agent self-tracing (design: agent-self-trace). Off unless set; kinds default to all.
       AGENT_SELF_TRACE: ${AGENT_SELF_TRACE:-0}
       AGENT_SELF_TRACE_KINDS: ${AGENT_SELF_TRACE_KINDS:-}
