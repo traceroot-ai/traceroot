@@ -197,9 +197,10 @@ class TraceReaderService:
         # long TTL (1 hour); False results expire after 10s so the onboarding
         # poll doesn't scan all partitions every 3s. Bounded to 1024 entries.
         self._has_traces_cache: dict[str, tuple[float, bool]] = {}
-        # Trace start time cache: "project:trace" -> (expiry, datetime|None).
-        # Immutable once written, so 1-hour TTL is safe. Bounded to 1024 entries.
-        self._trace_start_cache: dict[str, tuple[float, datetime | None]] = {}
+        # Trace start time cache: "project:trace" -> (expiry, datetime).
+        # A missing root is provisional while spans can arrive incrementally, so
+        # negative results are deliberately not cached. Bounded to 1024 entries.
+        self._trace_start_cache: dict[str, tuple[float, datetime]] = {}
         # Distinct-value dropdown cache: (table, project, column, floor(start), floor(end))
         # -> (expiry, rows). Short TTL; bounded to DISTINCT_VALUES_CACHE_MAX entries.
         self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
@@ -402,7 +403,8 @@ class TraceReaderService:
     def get_trace_start_time(self, project_id: str, trace_id: str) -> datetime | None:
         """Lightweight query: just the trace's root-span start time.
 
-        Immutable once written, so results are cached for 1 hour.
+        Once a root exists its start time is immutable, so positive results are cached
+        for 1 hour. A missing root is not cached because children can arrive first.
         Used by retention gating on by-id endpoints (span IO, live SSE)
         without the cost of a full get_trace() skeleton fetch.
         """
@@ -430,9 +432,10 @@ class TraceReaderService:
         )
         rows = result.result_rows
         ts = rows[0][0] if rows else None
-        if len(self._trace_start_cache) >= self._TRACE_START_CACHE_MAX:
-            self._trace_start_cache.pop(next(iter(self._trace_start_cache)))
-        self._trace_start_cache[cache_key] = (now + 3600.0, ts)
+        if ts is not None:
+            if len(self._trace_start_cache) >= self._TRACE_START_CACHE_MAX:
+                self._trace_start_cache.pop(next(iter(self._trace_start_cache)))
+            self._trace_start_cache[cache_key] = (now + 3600.0, ts)
         return ts
 
     def list_traces(
