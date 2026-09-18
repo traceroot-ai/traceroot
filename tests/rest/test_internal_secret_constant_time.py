@@ -16,7 +16,6 @@ from fastapi import HTTPException
 from rest.routers.deps import get_project_access
 from rest.routers.internal import verify_internal_secret
 from shared.config import settings
-from shared.enums import MemberRole
 
 
 @pytest.fixture()
@@ -42,15 +41,8 @@ def compare_digest_spy(monkeypatch):
 
 @pytest.fixture()
 def secret(monkeypatch):
-    """Configure known internal secrets for the duration of a test.
-
-    Both are pinned, the agent one included: the comparison counts below are
-    the point of these tests, and an agent secret picked up from the
-    environment (a developer's .env) would add a comparison and make them
-    pass or fail by machine.
-    """
+    """Configure a known internal secret for the duration of a test."""
     monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
-    monkeypatch.setattr(settings, "internal_api_secret_agent", "agent-secret")
     return "test-secret"
 
 
@@ -80,24 +72,7 @@ class TestVerifyInternalSecret:
         verify_internal_secret(x_internal_secret=secret)
         with pytest.raises(HTTPException):
             verify_internal_secret(x_internal_secret="wrong-secret")
-        # The accepted platform secret costs one comparison; a header that is
-        # neither secret is compared against both, in constant time each.
-        assert len(compare_digest_spy) == 3
-
-    def test_agent_secret_accepted_after_the_platform_secret_misses(
-        self, secret, compare_digest_spy
-    ):
-        assert verify_internal_secret(x_internal_secret="agent-secret") == "agent"
         assert len(compare_digest_spy) == 2
-
-    def test_an_unset_agent_secret_is_never_compared(self, secret, compare_digest_spy, monkeypatch):
-        # `_matches` short-circuits on a blank configured secret, so a
-        # deployment without the agent credential neither matches an empty
-        # header nor pays for a second comparison.
-        monkeypatch.setattr(settings, "internal_api_secret_agent", "")
-        with pytest.raises(HTTPException):
-            verify_internal_secret(x_internal_secret="wrong-secret")
-        assert len(compare_digest_spy) == 1
 
 
 class TestProjectAccessInternalBypass:
@@ -108,27 +83,16 @@ class TestProjectAccessInternalBypass:
         assert info.user_id == "system"
         assert len(compare_digest_spy) == 1
 
-    async def test_no_platform_secret_configured_closes_the_bypass_to_both(
-        self, secret, monkeypatch
-    ):
+    async def test_no_secret_configured_closes_the_bypass(self, monkeypatch):
         # The internal router answers 503 in this state; the app routes must not
-        # still honour a credential, or an agent secret alone would open an
-        # admin door on a deployment that never configured internal traffic.
+        # still honour a header, or a deployment that never configured internal
+        # traffic would still have an admin door.
         monkeypatch.setattr(settings, "internal_api_secret", "")
-        for header in ("test-secret", "agent-secret"):
-            with pytest.raises(HTTPException) as exc:
-                await get_project_access(project_id="p1", x_user_id=None, x_internal_secret=header)
-            assert exc.value.status_code == 401
-
-    async def test_agent_secret_grants_the_same_system_access(self, secret, compare_digest_spy):
-        # The agent service holds only its own secret and reads traces through
-        # this route (download_traces); a platform-only bypass 401s every RCA.
-        info = await get_project_access(
-            project_id="p1", x_user_id=None, x_internal_secret="agent-secret"
-        )
-        assert info.user_id == "system"
-        assert info.role == MemberRole.ADMIN
-        assert len(compare_digest_spy) == 2
+        with pytest.raises(HTTPException) as exc:
+            await get_project_access(
+                project_id="p1", x_user_id=None, x_internal_secret="test-secret"
+            )
+        assert exc.value.status_code == 401
 
     async def test_wrong_secret_falls_through_to_401(self, secret):
         with pytest.raises(HTTPException) as exc:

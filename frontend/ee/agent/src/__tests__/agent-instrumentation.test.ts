@@ -54,7 +54,7 @@ let config: Config;
 beforeEach(async () => {
   vi.resetModules();
   instrumentPiAgentCore.mockClear();
-  process.env.INTERNAL_API_SECRET_AGENT = "s";
+  process.env.INTERNAL_API_SECRET = "s";
   process.env.AGENT_SELF_TRACE = "1";
   delete process.env.AGENT_SELF_TRACE_KINDS;
   selfTrace = await import("../self-trace.js");
@@ -63,7 +63,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
   delete process.env.AGENT_SELF_TRACE;
-  delete process.env.INTERNAL_API_SECRET_AGENT;
+  delete process.env.INTERNAL_API_SECRET;
 });
 
 const meta = {

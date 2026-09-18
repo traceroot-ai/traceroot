@@ -8,8 +8,8 @@ Runs two ways:
   ``stub_key_validator.py``. The project is empty there; an internal trace leaking into
   the public list still fails the byte-identity check (an empty list would gain a row).
 - Locally against ``make dev``: ``TRACEROOT_E2E=1 TRACEROOT_E2E_PROJECT_ID=… TRACEROOT_E2E_API_KEY=…
-  INTERNAL_API_SECRET=… INTERNAL_API_SECRET_AGENT=… uv run pytest tests/e2e``, with a project
-  that has customer traces, so the ``user`` bucket is non-zero.
+  INTERNAL_API_SECRET=… uv run pytest tests/e2e``, with a project that has customer
+  traces, so the ``user`` bucket is non-zero.
 """
 
 import os
@@ -32,10 +32,9 @@ REDIS = os.getenv("TRACEROOT_REDIS_URL", "redis://localhost:6379/0")
 if _E2E_ENABLED:
     PROJECT = os.environ["TRACEROOT_E2E_PROJECT_ID"]  # a seeded project with >= 1 user trace
     API_KEY = os.environ["TRACEROOT_E2E_API_KEY"]  # project access key (public API)
-    PLATFORM_SECRET = os.environ["INTERNAL_API_SECRET"]
-    AGENT_SECRET = os.environ["INTERNAL_API_SECRET_AGENT"]
+    SECRET = os.environ["INTERNAL_API_SECRET"]
 else:
-    PROJECT = API_KEY = PLATFORM_SECRET = AGENT_SECRET = ""
+    PROJECT = API_KEY = SECRET = ""
 
 
 def _otlp_body(trace_id: bytes, name: str) -> bytes:
@@ -64,7 +63,7 @@ def _snapshot() -> dict:
         "findings": httpx.get(f"{REST}/api/v1/public/detectors/findings", headers=h).json(),
         "usage": httpx.get(
             f"{REST}/api/v1/internal/usage/details",
-            headers={"X-Internal-Secret": PLATFORM_SECRET},
+            headers={"X-Internal-Secret": SECRET},
             params={
                 "project_ids": PROJECT,
                 "start": "2000-01-01T00:00:00Z",
@@ -100,14 +99,15 @@ def test_internal_traces_do_not_change_customer_views_and_move_only_internal_buc
 
     agent_tid = uuid.uuid4().bytes
     det_tid = uuid.uuid4().bytes
-    for secret, tid, name in (
-        (AGENT_SECRET, agent_tid, "rca: test"),
-        (PLATFORM_SECRET, det_tid, "detector-run: test"),
+    # One credential, two paths: the path is what decides the stored source.
+    for path, tid, name in (
+        ("/api/v1/internal/traces/agent", agent_tid, "rca: test"),
+        ("/api/v1/internal/traces", det_tid, "detector-run: test"),
     ):
         resp = httpx.post(
-            f"{REST}/api/v1/internal/traces",
+            f"{REST}{path}",
             content=_otlp_body(tid, name),
-            headers={"X-Internal-Secret": secret, "Content-Type": "application/x-protobuf"},
+            headers={"X-Internal-Secret": SECRET, "Content-Type": "application/x-protobuf"},
         )
         assert resp.status_code == 200, resp.text
 
