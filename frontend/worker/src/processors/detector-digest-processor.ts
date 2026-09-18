@@ -101,8 +101,12 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
         rcaSource: recipients.rcaSource,
       },
     );
+    // A result with no summary is a failed attempt that still emitted (and was
+    // billed for) a trace: the row is written for its id alone, so the run a
+    // reader most wants — the timeout, the model that never called the tool —
+    // is reachable instead of being a trace nothing points at.
     if (result) {
-      digestSummary = result.summary;
+      digestSummary = result.summary ?? undefined;
       // Bookkeeping/observability only: usage metering (usageMetering.ts,
       // MessageKind = chat|rca|detector) intentionally does NOT meter
       // "digest-summary" in v1; extending metering is a documented follow-up.
@@ -115,16 +119,23 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
             turnKind: "digest",
             role: "assistant",
             content: "",
-            model: result.usage.model,
-            provider: result.usage.provider,
-            isByok: result.usage.isByok,
-            inputTokens: result.usage.inputTokens,
-            outputTokens: result.usage.outputTokens,
-            cost: result.usage.cost,
+            // Left null on an attempt that never resolved (timeout, throw).
+            model: result.usage?.model ?? null,
+            provider: result.usage?.provider ?? null,
+            isByok: result.usage?.isByok ?? null,
+            inputTokens: result.usage?.inputTokens ?? null,
+            outputTokens: result.usage?.outputTokens ?? null,
+            cost: result.usage?.cost ?? null,
             // The only place the flush's trace id is kept (the same shape the
             // agent's rows use), so a digest's trace can be looked up later.
             ...(result.trace
-              ? { metadata: { traceId: result.trace.traceId, traceStatus: "available" } }
+              ? {
+                  metadata: {
+                    traceId: result.trace.traceId,
+                    traceStatus: "available",
+                    ...(result.failure ? { failure: result.failure } : {}),
+                  },
+                }
               : {}),
           },
         })
