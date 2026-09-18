@@ -4,7 +4,10 @@ customer_traffic_only(), or on the explicit allowlist of intentionally unfiltere
 Adding a new unfiltered `FROM spans` / `FROM traces` fails this test until it is classified.
 """
 
+import ast
+import io
 import re
+import tokenize
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[2] / "backend"
@@ -36,9 +39,15 @@ ALLOW_UNFILTERED = {
 }
 
 # Individual readers that MUST NOT filter by source, in files whose other scans are
-# judged one by one. Keyed (file, function); every other function in the file is
-# still checked.
+# judged one by one. Keyed (file, scope) where a scope is a function name or, for
+# query text assembled at import time, the module-level constant holding it; every
+# other scope in the file is still checked.
 ALLOW_UNFILTERED_METHODS = {
+    ("rest/services/sql/schema.py", "VIEW_EVALUATION_EXCLUSION"): (
+        "NOT IN subquery spliced into each public view body, which filters "
+        "source = 'user' itself (012_create_public_sql_views.sql); it can only "
+        "remove rows from that guarded scan"
+    ),
     ("rest/services/trace_reader.py", "_evaluation_exclusion"): (
         "NOT IN subquery: it can only remove rows from the guarded scan it is ANDed into"
     ),
@@ -55,13 +64,78 @@ ALLOW_UNFILTERED_METHODS = {
 
 SCAN = re.compile(r"FROM\s+(spans|traces)\b")
 DEF = re.compile(r"^[ \t]*(?:async\s+)?def\s+(\w+)\s*\(", re.MULTILINE)
+ASSIGN = re.compile(r"^([A-Z_][A-Z0-9_]*)\s*(?::[^=\n]+)?=", re.MULTILINE)
+
+
+def prose_blanked(text: str) -> str:
+    """``text`` with comments and docstrings replaced by spaces of the same length.
+
+    A module that explains what SQL it rewrites quotes that SQL — the SQL gateway's
+    rewriter and validator describe ``FROM spans`` a dozen times in comments and
+    docstrings. Scanning prose would force an allowlist entry for a file that issues
+    no query at all, which is the opposite of what the allowlist is for: it would
+    then also wave through a real unguarded query added to that file later.
+    Positions are preserved so reported line numbers stay true.
+    """
+
+    out = list(text)
+
+    def blank(start_line: int, start_col: int, end_line: int, end_col: int) -> None:
+        offsets = _line_offsets(text)
+        start = offsets[start_line - 1] + start_col
+        end = offsets[end_line - 1] + end_col
+        for i in range(start, min(end, len(out))):
+            if out[i] != "\n":
+                out[i] = " "
+
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT:
+                blank(tok.start[0], tok.start[1], tok.end[0], tok.end[1])
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return text  # unparseable: scan it whole rather than skip anything
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return "".join(out)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        first = node.body[0] if node.body else None
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+            and first.end_lineno is not None
+            and first.end_col_offset is not None
+        ):
+            blank(first.lineno, first.col_offset, first.end_lineno, first.end_col_offset)
+    return "".join(out)
+
+
+def _line_offsets(text: str) -> list[int]:
+    offsets = [0]
+    for line in text.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+    return offsets
 
 
 def _enclosing_function(text: str, pos: int) -> tuple[str, int] | None:
-    """Name and start offset of the innermost `def` above ``pos``, if any."""
+    """Name and start offset of the innermost `def` above ``pos``, if any.
+
+    Falls back to the module-level constant being assigned, so query text built at
+    import time is judged as its own scope rather than as whatever function happens
+    to sit above it.
+    """
     last = None
     for m in DEF.finditer(text, 0, pos):
         last = m
+    assigned = None
+    for m in ASSIGN.finditer(text, 0, pos):
+        assigned = m
+    if assigned and (last is None or assigned.start() > last.start()):
+        return (assigned.group(1), assigned.start())
     return (last.group(1), last.start()) if last else None
 
 
@@ -149,7 +223,7 @@ def test_every_spans_or_traces_reader_is_classified():
     """
     unclassified = []
     for path in _py_files():
-        text = path.read_text()
+        text = prose_blanked(path.read_text())
         rel = str(path.relative_to(BACKEND))
         if rel in ALLOW_UNFILTERED:
             continue
@@ -168,12 +242,34 @@ def test_every_spans_or_traces_reader_is_classified():
 
 
 def test_method_exemptions_name_real_functions():
-    """An exemption for a renamed or deleted function would silently exempt nothing —
+    """An exemption for a renamed or deleted scope would silently exempt nothing —
     and the renamed reader would then be judged, which is right — but a stale entry
     still misdescribes the allowlist, so keep it honest."""
     for rel, name in ALLOW_UNFILTERED_METHODS:
         text = (BACKEND / rel).read_text()
-        assert re.search(rf"^[ \t]*def {name}\(", text, re.MULTILINE), f"{rel} has no {name}()"
+        is_function = re.search(rf"^[ \t]*(?:async\s+)?def {name}\(", text, re.MULTILINE)
+        is_constant = re.search(rf"^{name}\s*(?::[^=\n]+)?=", text, re.MULTILINE)
+        assert is_function or is_constant, f"{rel} has no {name}"
+
+
+def test_prose_is_skipped_but_a_real_query_beside_it_is_not():
+    """Blanking prose must not blank the module: a file that talks about `FROM spans`
+    in a docstring and a comment, and then issues one, still reports the query."""
+    module = (
+        '''"""Explains the rewrite of ``SELECT * FROM spans`` into a view call."""
+'''
+        "\n"
+        "# A quoted example: FROM traces AS t\n"
+        "def reader():\n"
+        '    """Docstring mentioning FROM spans again."""\n'
+        "    return 'SELECT 1 FROM spans WHERE project_id = %s'\n"
+    )
+    blanked = prose_blanked(module)
+    hits = [m.start() for m in SCAN.finditer(blanked)]
+    assert len(hits) == 1, f"expected only the real query to survive, got {len(hits)}"
+    # Offsets are preserved, so the line number reported for it is still right.
+    assert blanked.count("\n", 0, hits[0]) + 1 == 6
+    assert not _is_guarded(blanked, SCAN.search(blanked))
 
 
 def test_built_where_is_only_a_guard_when_the_method_calls_customer_traffic_only():
