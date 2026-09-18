@@ -368,6 +368,36 @@ describe("MessageList tool entries", () => {
     expect(screen.getByText("make me a chart")).toBeTruthy();
     expect(screen.getByText("Tokens by model")).toBeTruthy();
   });
+
+  it.each([
+    { name: "done", patch: {}, iconClass: "text-green-500" },
+    { name: "error", patch: { status: "error", isError: true }, iconClass: "text-destructive" },
+    {
+      name: "skipped",
+      patch: { status: "error", isError: true, skipped: true },
+      iconClass: "text-muted-foreground",
+      absent: "text-destructive",
+    },
+    {
+      name: "revised",
+      patch: { status: "done", revisedText: "use a line chart" },
+      iconClass: "text-muted-foreground",
+      absent: "text-green-500",
+    },
+    { name: "running", patch: { status: "running" }, iconClass: "animate-spin" },
+  ] as { name: string; patch: Partial<ToolCallStep>; iconClass: string; absent?: string }[])(
+    "shows one status icon on a $name tool line",
+    ({ patch, iconClass, absent }) => {
+      const step: ToolCallStep = { ...createWidgetStep(null), ...patch };
+      render(<MessageList messages={[toolEntry(step)]} />);
+      const row = screen.getByText("(create_widget)").closest("button")!;
+      // Every lucide icon on the line except the expand chevron is a status icon.
+      const icons = row.querySelectorAll("svg.lucide:not(.lucide-chevron-right)");
+      expect(icons).toHaveLength(1);
+      expect(icons[0].getAttribute("class")).toContain(iconClass);
+      if (absent) expect(row.querySelector(`svg[class*="${absent}"]`)).toBeNull();
+    },
+  );
 });
 
 describe("MessageList read result entries", () => {
