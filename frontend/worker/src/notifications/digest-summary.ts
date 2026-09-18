@@ -150,27 +150,60 @@ export interface DigestSummaryUsage {
 }
 
 /**
+ * Why a flush produced no summary. Only set on attempts that got as far as the
+ * LLM call, which are exactly the ones a self-trace exists for.
+ */
+export type DigestSummaryFailure = "timeout" | "no-summary" | "error";
+
+/**
+ * The self-trace this flush's LLM call was recorded under, when the worker
+ * emitted one — stored on the digest's ai_messages row so the trace can be
+ * found from Postgres; nothing else keeps the id.
+ */
+export interface DigestSummaryTrace {
+  traceId: string;
+}
+
+export type DigestSummaryResult =
+  | {
+      summary: string;
+      usage: DigestSummaryUsage;
+      failure?: undefined;
+      trace?: DigestSummaryTrace;
+    }
+  | {
+      /** No paragraph for the digest; the caller sends it unchanged. */
+      summary: null;
+      failure: DigestSummaryFailure;
+      /** Absent when the call never resolved (timeout, throw). */
+      usage?: DigestSummaryUsage;
+      /**
+       * A failed attempt is only reported when its trace was emitted: that
+       * trace is billed and is the one worth inspecting, and the ai_messages
+       * row the caller writes is the only place its id is kept.
+       */
+      trace: DigestSummaryTrace;
+    };
+
+/**
  * One best-effort LLM call synthesizing the window's judge sentences into a
- * short paragraph. Returns null on ANY failure — the digest must send
- * unchanged, never wait, never throw. Model choice is two clean branches:
+ * short paragraph. NO failure reaches the caller as an exception and none of
+ * them stops the digest: it sends unchanged, never waits, never throws. A
+ * failure resolves to `summary: null` when the attempt left a self-trace worth
+ * recording, and to null when it did not. Model choice is two clean branches:
  * a valid BYOK config uses the project's rcaModel on that config; everything
  * else (system source, BYOK lookup failure) uses the detector system default.
  */
-export interface DigestSummaryResult {
-  summary: string;
-  usage: DigestSummaryUsage;
-  /**
-   * The self-trace this flush's LLM call was recorded under, when the worker
-   * emitted one — stored on the digest's ai_messages row so the trace can be
-   * found from Postgres; nothing else keeps the id.
-   */
-  trace?: { traceId: string };
-}
-
 export async function generateDigestSummary(
   input: DigestSummaryInput,
   cfg: DigestSummaryModelConfig,
 ): Promise<DigestSummaryResult | null> {
+  // Set the moment the self-trace exists. Every exit below the LLM call reports
+  // it, including the ones that produce no summary: that trace was exported and
+  // billed, and the caller's ai_messages row is the only thing that keeps its
+  // id, so dropping it here would leave the failures — the runs most worth
+  // reading — unreachable.
+  let emitted: DigestSummaryTrace | undefined;
   try {
     const prompt = buildDigestSummaryPrompt(input);
     if (!prompt) return null;
@@ -231,11 +264,12 @@ export async function generateDigestSummary(
             options,
           ),
       );
+      if (traced.selfTraced) emitted = { traceId };
       if (!traced.ok) throw traced.error;
       const response = traced.value;
       if (controller.signal.aborted || response.stopReason === "aborted") {
         console.warn(`[DigestSummary] timed out after ${timeoutMs}ms (model=${model.id})`);
-        return null;
+        return failed("timeout", emitted);
       }
       const toolCall = response.content.find(
         (c): c is ToolCall => c.type === "toolCall" && c.name === "submit_digest_summary",
@@ -249,7 +283,14 @@ export async function generateDigestSummary(
         console.warn(
           `[DigestSummary] no usable summary (stopReason=${response.stopReason}, model=${model.id})${errDetail}`,
         );
-        return null;
+        return failed("no-summary", emitted, {
+          model: response.model ?? model.id,
+          provider: response.provider ?? model.provider,
+          isByok: Boolean(byokConfig),
+          inputTokens: response.usage?.input ?? 0,
+          outputTokens: response.usage?.output ?? 0,
+          cost: response.usage?.cost?.total ?? 0,
+        });
       }
       return {
         summary,
@@ -261,13 +302,28 @@ export async function generateDigestSummary(
           outputTokens: response.usage?.output ?? 0,
           cost: response.usage?.cost?.total ?? 0,
         },
-        ...(traced.selfTraced ? { trace: { traceId } } : {}),
+        ...(emitted ? { trace: emitted } : {}),
       };
     } finally {
       clearTimeout(timeout);
     }
   } catch (err) {
     console.warn(`[DigestSummary] failed; sending digest without summary:`, err);
-    return null;
+    // Everything that throws before the call (prompt, BYOK config, API key)
+    // leaves `emitted` unset and reports nothing — there is no trace to find.
+    return failed("error", emitted);
   }
+}
+
+/**
+ * A failed attempt is only worth reporting when it left a trace behind; without
+ * one there is nothing for the caller to record, so it stays null.
+ */
+function failed(
+  failure: DigestSummaryFailure,
+  trace: DigestSummaryTrace | undefined,
+  usage?: DigestSummaryUsage,
+): DigestSummaryResult | null {
+  if (!trace) return null;
+  return { summary: null, failure, trace, ...(usage ? { usage } : {}) };
 }

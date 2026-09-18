@@ -116,4 +116,97 @@ describe("digest summary self-trace", () => {
     expect(second).toMatch(/^[0-9a-f]{32}$/);
     expect(second).not.toBe(first);
   });
+
+  // An attempt that produced no summary still emitted (and was billed for) a
+  // trace. Dropping its id would leave the runs most worth reading — the
+  // timeout, the model that never called the tool — pointed at by nothing.
+  describe("a failed attempt still reports its trace", () => {
+    const input = {
+      projectName: "Acme",
+      windowStart: new Date(1000),
+      windowEnd: new Date(2000),
+      detectors: [{ name: "D", findingCount: 2, sampleSummaries: ["a"] }],
+    };
+    const cfg = {
+      projectId: "p1",
+      workspaceId: "w1",
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+    };
+
+    it("keeps it when the call times out", async () => {
+      tracedComplete.mockImplementationOnce(async () => ({
+        stopReason: "aborted",
+        model: "m",
+        provider: "anthropic",
+        content: [],
+      }));
+      withSelfTrace.mockClear();
+      const out = await generateDigestSummary(input, cfg);
+      expect(out?.summary).toBeNull();
+      expect(out?.failure).toBe("timeout");
+      expect(out?.trace?.traceId).toBe(withSelfTrace.mock.calls[0][0].traceId);
+    });
+
+    it("keeps it, with the usage it burned, when the model returns no tool call", async () => {
+      tracedComplete.mockImplementationOnce(async () => ({
+        stopReason: "endTurn",
+        model: "claude-haiku-4-5",
+        provider: "anthropic",
+        usage: { input: 10, output: 5, cost: { total: 0.001 } },
+        content: [{ type: "text", text: "here is your summary" }],
+      }));
+      withSelfTrace.mockClear();
+      const out = await generateDigestSummary(input, cfg);
+      expect(out?.summary).toBeNull();
+      expect(out?.failure).toBe("no-summary");
+      expect(out?.trace?.traceId).toBe(withSelfTrace.mock.calls[0][0].traceId);
+      // The call ran: it cost tokens even though it answered nothing usable.
+      expect(out?.usage).toMatchObject({ inputTokens: 10, outputTokens: 5, cost: 0.001 });
+    });
+
+    it("keeps it when the traced call throws", async () => {
+      withSelfTrace.mockImplementationOnce(async (_meta: any, fn: any) => {
+        await fn().catch(() => undefined);
+        return { ok: false, error: new Error("provider exploded"), selfTraced: true };
+      });
+      tracedComplete.mockImplementationOnce(async () => {
+        throw new Error("provider exploded");
+      });
+      withSelfTrace.mockClear();
+      const out = await generateDigestSummary(input, cfg);
+      expect(out?.summary).toBeNull();
+      expect(out?.failure).toBe("error");
+      expect(out?.trace?.traceId).toBe(withSelfTrace.mock.calls[0][0].traceId);
+      // Nothing resolved, so there is no usage to report.
+      expect(out?.usage).toBeUndefined();
+    });
+
+    it("reports nothing at all when the failure left no trace behind", async () => {
+      withSelfTrace.mockImplementationOnce(async (_meta: any, fn: any) => ({
+        ok: true,
+        value: await fn(),
+        selfTraced: false,
+      }));
+      tracedComplete.mockImplementationOnce(async () => ({
+        stopReason: "endTurn",
+        model: "m",
+        provider: "anthropic",
+        content: [],
+      }));
+      expect(await generateDigestSummary(input, cfg)).toBeNull();
+    });
+
+    it("reports nothing when the attempt never got as far as the LLM call", async () => {
+      // No detector has sentences: the prompt builder bails before any trace exists.
+      withSelfTrace.mockClear();
+      const out = await generateDigestSummary(
+        { ...input, detectors: [{ name: "D", findingCount: 2, sampleSummaries: [] }] },
+        cfg,
+      );
+      expect(out).toBeNull();
+      expect(withSelfTrace).not.toHaveBeenCalled();
+    });
+  });
 });
