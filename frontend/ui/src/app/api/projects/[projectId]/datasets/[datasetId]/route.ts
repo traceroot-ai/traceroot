@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth-helpers";
 import { displayJsonValue } from "@/lib/eval/json-value";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { TEST_CASE_ORDER } from "@/lib/eval/versions";
 
 type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> };
 
@@ -36,13 +37,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     dataset.versions.find((v) => v.id === dataset.currentVersionId) ??
     null;
 
-  // Newest first for the UI table (latest-added test case at the top). Every case
-  // a publish writes shares one create_time, so testCaseId breaks the tie and the
-  // table does not reshuffle between two loads of the same version.
+  // Insertion order — the order cases were added, matching the run results table (and
+  // the SDK array). `TEST_CASE_ORDER` sorts by `position` first, so cases no longer come
+  // back in content-addressed (hashed) `testCaseId` order; the order is total and stable
+  // across two loads of the same version.
   const testCases = selectedVersion
     ? await prisma.testCase.findMany({
         where: { datasetVersionId: selectedVersion.id },
-        orderBy: [{ createTime: "desc" }, { testCaseId: "desc" }],
+        orderBy: TEST_CASE_ORDER,
       })
     : [];
   const currentVersion = dataset.versions.find((v) => v.id === dataset.currentVersionId) ?? null;
