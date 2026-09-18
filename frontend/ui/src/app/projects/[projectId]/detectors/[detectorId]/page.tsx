@@ -9,7 +9,12 @@ import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
 import { useDetector } from "@/features/detectors/hooks/use-detectors";
-import { useRuns, selfTraceId, type BackendRun } from "@/features/detectors/hooks/use-findings";
+import {
+  useRuns,
+  selfTraceId,
+  agentTraceId,
+  type BackendRun,
+} from "@/features/detectors/hooks/use-findings";
 import { DetectorRunsTable } from "@/features/detectors/components/detector-runs-table";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
@@ -21,16 +26,26 @@ import { PlanType } from "@traceroot/core";
 /**
  * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
  * "original" (the run's source trace) opens its RCA when one exists; "self"
- * (the detector run's own self-trace) opens quietly, with no RCA auto-open.
+ * (the detector run's own self-trace) opens quietly, with no RCA auto-open;
+ * "finding" (the RCA's own agent trace, opened from the Finding ID cell) also
+ * opens quietly.
  */
-type SelectedTrace = { traceId: string; kind: "original" | "self" } | null;
+type SelectedTrace = {
+  traceId: string;
+  kind: "original" | "self" | "finding";
+} | null;
 
-// A self-trace is identified by its run row (dashless run_id), not by a
-// trace_id in the list, so match on the right key per kind. Module-scope so
-// effects can use it without a dependency-list entry.
+// A self-trace is identified by its run row (dashless run_id), and a finding's
+// agent trace by its execution's available trace id — neither is a trace_id
+// in the list, so match on the right key per kind. Module-scope so effects
+// can use it without a dependency-list entry.
 const rowMatchesSelection = (r: BackendRun, sel: SelectedTrace) =>
   sel != null &&
-  (sel.kind === "self" ? selfTraceId(r) === sel.traceId : r.trace_id === sel.traceId);
+  (sel.kind === "self"
+    ? selfTraceId(r) === sel.traceId
+    : sel.kind === "finding"
+      ? agentTraceId(r) === sel.traceId
+      : r.trace_id === sel.traceId);
 
 const tabs = [
   { id: "findings", label: "Findings", icon: Flag },
@@ -130,6 +145,12 @@ export default function DetectorDetailPage() {
   const openSelfTrace = (run: BackendRun) =>
     setSelectedTrace({ traceId: selfTraceId(run), kind: "self" });
 
+  // Clicking a triggered run's Finding ID cell opens the RCA's agent trace.
+  const openAgentTrace = (run: BackendRun) => {
+    const id = agentTraceId(run);
+    if (id) setSelectedTrace({ traceId: id, kind: "finding" });
+  };
+
   // Clear the selection if its run/trace is no longer in the active list (e.g. the
   // user paginated, refetched, switched tabs, or changed filters).
   useEffect(() => {
@@ -151,7 +172,8 @@ export default function DetectorDetailPage() {
     if (!traceIdFromUrl || autoOpenedKey === deepLinkKey) return;
     const sel: SelectedTrace = {
       traceId: traceIdFromUrl,
-      kind: sourceFromUrl === "detector" ? "self" : "original",
+      kind:
+        sourceFromUrl === "detector" ? "self" : sourceFromUrl === "agent" ? "finding" : "original",
     };
     if (activeRows.some((r) => rowMatchesSelection(r, sel))) {
       setSelectedTrace(sel);
@@ -270,6 +292,7 @@ export default function DetectorDetailPage() {
                 rows={activeRows}
                 onTraceClick={openOriginalTrace}
                 onRunClick={openSelfTrace}
+                onFindingClick={openAgentTrace}
               />
             );
           })()}
@@ -306,8 +329,19 @@ export default function DetectorDetailPage() {
           autoOpenRca={selectedTrace.kind === "original"}
           initialFullscreen={startFullscreen}
           newTabPath={`/projects/${projectId}/detectors/${detectorId}`}
-          source={selectedTrace.kind === "self" ? "detector" : "user"}
-          runTimestamp={activeRows[selectedIndex]?.timestamp}
+          source={
+            selectedTrace.kind === "self"
+              ? "detector"
+              : selectedTrace.kind === "finding"
+                ? "agent"
+                : "user"
+          }
+          // The run's timestamp bounds the self-trace "still being recorded"
+          // window. It says nothing about the finding's analysis trace, which
+          // starts after the run and takes minutes — so it is withheld there.
+          runTimestamp={
+            selectedTrace.kind === "finding" ? undefined : activeRows[selectedIndex]?.timestamp
+          }
         />
       )}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { PendingDecisionBar } from "./pending-decision-bar";
 import { SessionHistory } from "./session-history";
+import { AgentTraceSheet } from "./agent-trace-sheet";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -131,6 +132,11 @@ export function AiAssistantPanel({
     handleDeleteSession,
   } = useAiChatContext();
 
+  // Per-step "Open span" into the turn's trace (Task 17). useAiChatContext() doesn't
+  // carry projectId — this component already receives it as its own prop, so
+  // that's what the sheet is given.
+  const [openTrace, setOpenTrace] = useState<{ traceId: string; spanId?: string } | null>(null);
+
   // Clicking X explicitly ends the conversation: abort any in-flight stream,
   // clear messages, drop the session id. Matches the upstream pre-decoupling
   // behavior (AiChatOverlay's `handleClose`). Trace switching does not go
@@ -252,6 +258,11 @@ export function AiAssistantPanel({
           <MessageList
             messages={messages}
             sessionStreaming={isStreaming}
+            // The sheet below mounts only with a projectId; without one the
+            // links would open nothing.
+            onOpenTrace={
+              projectId ? (traceId, spanId) => setOpenTrace({ traceId, spanId }) : undefined
+            }
             projectId={projectId}
             retentionDays={projectId ? retentionDays : undefined}
           />
@@ -291,6 +302,13 @@ export function AiAssistantPanel({
           }
         />
       </div>
+      {projectId && (
+        <AgentTraceSheet
+          projectId={projectId}
+          traceId={openTrace?.traceId ?? null}
+          onClose={() => setOpenTrace(null)}
+        />
+      )}
     </div>
   );
 }

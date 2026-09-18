@@ -29,12 +29,18 @@ export interface DrawerContentProps extends React.ComponentPropsWithoutRef<
 > {
   /** Tailwind width class for the panel. */
   width?: string;
+  /**
+   * Omit the built-in top-right close control. For content that carries its
+   * own close button in a header row (the trace viewer), so the two don't
+   * overlap or read as two different controls.
+   */
+  hideClose?: boolean;
 }
 
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DrawerContentProps
->(({ className, children, width = "w-[720px]", ...props }, ref) => (
+>(({ className, children, width = "w-[720px]", hideClose = false, ...props }, ref) => (
   <DrawerPortal>
     <DialogPrimitive.Content
       ref={ref}
@@ -51,12 +57,14 @@ const DrawerContent = React.forwardRef<
       {...props}
     >
       {children}
-      <DialogPrimitive.Close
-        className="absolute right-3 top-3 rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Close"
-      >
-        <X className="h-4 w-4" />
-      </DialogPrimitive.Close>
+      {!hideClose && (
+        <DialogPrimitive.Close
+          className="absolute right-3 top-3 rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+          aria-label="Close"
+        >
+          <X className="h-4 w-4" />
+        </DialogPrimitive.Close>
+      )}
     </DialogPrimitive.Content>
   </DrawerPortal>
 ));

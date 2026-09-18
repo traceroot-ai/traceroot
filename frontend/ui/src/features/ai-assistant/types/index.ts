@@ -1,3 +1,5 @@
+import type { TraceStatus } from "@traceroot/core";
+
 /**
  * A confirm-class write parked by the agent, waiting on the user. Present only
  * while the call is parked; the tool result (or a posted decision) clears it.
@@ -17,6 +19,16 @@ export interface ToolCallStep {
   result?: unknown;
   isError?: boolean;
   status: "running" | "done" | "error";
+  /** ClickHouse span id for this tool call, when the run was traced. */
+  spanId?: string;
+  /**
+   * Capture-policy outcome on a persisted step (absent on the live stream,
+   * which shows the result in full): why the result was not kept, whether
+   * what was kept was cut, and how big the real output was.
+   */
+  withheld?: "not-allowlisted" | "budget" | null;
+  truncated?: boolean;
+  outputBytes?: number;
   /** Set while the call is parked awaiting the user's create/skip/revise
    *  decision (create and skip are the card's buttons; a typed reply revises). */
   pending?: PendingConfirmation;
@@ -41,6 +53,10 @@ export interface AIMessage {
   costUsd?: number;
   // only set when role === "tool_step"
   toolStep?: ToolCallStep;
+  /** Trace id for the run this assistant segment belongs to, when traced. */
+  traceId?: string;
+  /** Export status of `traceId` — a step's "Open span" only shows once it's "available". */
+  traceStatus?: TraceStatus;
 }
 
 export interface AISession {

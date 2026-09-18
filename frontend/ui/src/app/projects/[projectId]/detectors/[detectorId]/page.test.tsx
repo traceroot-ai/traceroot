@@ -75,13 +75,12 @@ function defaultUseRuns(_p: string, _d: string, query: { identified?: boolean } 
   };
 }
 
-vi.mock("@/features/detectors/hooks/use-findings", () => ({
+// Only the fetch hook is replaced; the id helpers (selfTraceId, agentTraceId)
+// and describeRcaStatus are pure and run for real, so the page is tested
+// against the same id derivation the table and deep links use.
+vi.mock("@/features/detectors/hooks/use-findings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/detectors/hooks/use-findings")>()),
   useRuns: (...args: unknown[]) => (mocks.useRuns as (...a: unknown[]) => unknown)(...args),
-  describeRcaStatus: (status: unknown) => ({
-    label: status === "done" ? "Done" : "—",
-    className: "",
-  }),
-  selfTraceId: (run: { run_id: string }) => run.run_id.replaceAll("-", ""),
 }));
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
@@ -413,6 +412,96 @@ describe("run_id → self-trace link", () => {
 
     expect(screen.queryByRole("button", { name: /cccc-dddd/ })).toBeNull();
     expect(screen.getByText("cccc-dddd")).toBeTruthy();
+    expect(screen.queryByTestId("trace-panel")).toBeNull();
+  });
+});
+
+describe("finding_id → RCA agent trace link", () => {
+  // Enriched by the runs proxy: attempt 2's trace landed, so the Finding ID
+  // cell opens it. The dashless finding id is what the cell displays.
+  const analyzedRun = {
+    ...triggeredRun,
+    run_id: "run-analyzed",
+    trace_id: "trace-analyzed",
+    finding_id: "3817f98c-1876-6de9-30a2-66452c8e1e9f",
+    execution_trace_id: "e".repeat(32),
+    execution_trace_status: "available",
+  };
+  // Its analysis is still exporting: nothing to open yet.
+  const pendingRun = {
+    ...triggeredRun,
+    run_id: "run-pending",
+    trace_id: "trace-pending",
+    finding_id: "5a1c0000-0000-4000-8000-000000000000",
+    execution_trace_id: "a".repeat(32),
+    execution_trace_status: "pending",
+  };
+
+  function useRunsWithAnalyzedRows(_p: string, _d: string, query: { identified?: boolean } = {}) {
+    return {
+      data: { data: query.identified ? [analyzedRun, pendingRun] : [], meta: { total: 2 } },
+      isLoading: false,
+      error: null,
+    };
+  }
+
+  it("opens the execution's trace with source=agent, quietly, and without the run's timestamp", () => {
+    mocks.useRuns.mockImplementation(useRunsWithAnalyzedRows);
+    render(<DetectorDetailPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /3817f98c18766de930a266452c8e1e9f/ }));
+
+    const panel = screen.getByTestId("trace-panel");
+    expect(within(panel).getByTestId("panel-trace").textContent).toBe("e".repeat(32));
+    expect(panel.getAttribute("data-source")).toBe("agent");
+    expect(panel.getAttribute("data-auto-open-rca")).toBe("false");
+    // The run's timestamp bounds the self-trace pending window only; passed
+    // here it made an available-but-not-ingested analysis trace read as a
+    // permanently failed export.
+    expect(panel.getAttribute("data-run-timestamp")).toBe("undefined");
+    // A point-open, like a self-trace: no stepping into original traces.
+    expect(within(panel).getByRole("button", { name: "panel-up" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("renders the finding id as plain text while its analysis trace is not available", () => {
+    mocks.useRuns.mockImplementation(useRunsWithAnalyzedRows);
+    render(<DetectorDetailPage />);
+
+    const id = "5a1c0000000040008000000000000000";
+    expect(screen.queryByRole("button", { name: new RegExp(id) })).toBeNull();
+    expect(screen.getByText(id)).toBeTruthy();
+  });
+
+  it("auto-opens the analysis trace for a ?traceId=&source=agent deep link", () => {
+    mocks.useRuns.mockImplementation(useRunsWithAnalyzedRows);
+    // What the viewer's "open in new tab" builds while showing the analysis.
+    mocks.searchParam.mockImplementation((key: string) => {
+      if (key === "traceId") return "e".repeat(32);
+      if (key === "source") return "agent";
+      return null;
+    });
+    render(<DetectorDetailPage />);
+
+    const panel = screen.getByTestId("trace-panel");
+    expect(within(panel).getByTestId("panel-trace").textContent).toBe("e".repeat(32));
+    expect(panel.getAttribute("data-source")).toBe("agent");
+    expect(panel.getAttribute("data-auto-open-rca")).toBe("false");
+  });
+
+  it("does not auto-open a deep-linked analysis trace whose export has not landed", () => {
+    // Same gate as the cell click: the row's execution id matches, but its
+    // trace is still pending, so there is nothing to open yet.
+    mocks.useRuns.mockImplementation(useRunsWithAnalyzedRows);
+    mocks.searchParam.mockImplementation((key: string) => {
+      if (key === "traceId") return "a".repeat(32);
+      if (key === "source") return "agent";
+      return null;
+    });
+    render(<DetectorDetailPage />);
+
     expect(screen.queryByTestId("trace-panel")).toBeNull();
   });
 });

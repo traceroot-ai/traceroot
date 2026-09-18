@@ -17,6 +17,7 @@ import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { describeCapture } from "@traceroot/core/capture-note";
 import type { AIMessage, ToolCallStep } from "../types";
 import { PANEL_MAX_WIDTH } from "../constants";
 import {
@@ -341,7 +342,16 @@ function revisedNote(text: string): string {
   return `revised — ${trimmed}`;
 }
 
-function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolean }) {
+function ToolStepItem({
+  step,
+  isActive,
+  onOpenSpan,
+}: {
+  step: ToolCallStep;
+  isActive: boolean;
+  /** Present only when this step's turn has a resolved trace to focus into. */
+  onOpenSpan?: (spanId: string) => void;
+}) {
   const [isOpen, setIsOpen] = useState(isActive);
 
   useEffect(() => {
@@ -356,6 +366,7 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
 
   const argsStr = JSON.stringify(step.args, null, 2);
   const resultStr = step.result != null ? JSON.stringify(step.result, null, 2) : null;
+  const captureNote = describeCapture(step);
 
   return (
     <div className="text-[11px]">
@@ -379,8 +390,14 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
             )}
           </>
         )}
-        <span className="italic text-muted-foreground/80">{formatToolName(step.toolName)}</span>
-        <span className="font-mono text-[10px] text-muted-foreground/40">({step.toolName})</span>
+        {step.status === "done" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />}
+        {step.status === "error" && <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />}
+        <span className="shrink-0 whitespace-nowrap italic text-muted-foreground/80">
+          {formatToolName(step.toolName)}
+        </span>
+        <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/40">
+          ({step.toolName})
+        </span>
         {step.skipped ? (
           <span className="text-muted-foreground/60">skipped</span>
         ) : (
@@ -434,6 +451,20 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
                 </pre>
               </div>
             )}
+            {captureNote && (
+              <p className="italic text-muted-foreground/50" title={captureNote.why}>
+                {captureNote.text}
+              </p>
+            )}
+            {step.spanId && onOpenSpan && (
+              <button
+                type="button"
+                className="text-muted-foreground/60 hover:underline"
+                onClick={() => onOpenSpan(step.spanId!)}
+              >
+                Open span
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -457,6 +488,7 @@ const ToolStepEntry = memo(function ToolStepEntry({
   retentionDays,
   isActive,
   bubbleMaxWidth,
+  onOpenSpan,
 }: {
   step: ToolCallStep;
   /** True when this widget's card would duplicate the preview of a CREATED
@@ -469,6 +501,8 @@ const ToolStepEntry = memo(function ToolStepEntry({
   retentionDays?: number | null;
   isActive: boolean;
   bubbleMaxWidth: string;
+  /** Present only when this step's turn has a resolved trace to focus into. */
+  onOpenSpan?: (spanId: string) => void;
 }) {
   // A parked write shows the card BEFORE the resource exists, marked
   // proposed; the decision itself is taken at the composer (create/skip
@@ -512,7 +546,7 @@ const ToolStepEntry = memo(function ToolStepEntry({
           ) : card ? (
             <ResourceCard model={card} />
           ) : (
-            <ToolStepItem step={step} isActive={isActive} />
+            <ToolStepItem step={step} isActive={isActive} onOpenSpan={onOpenSpan} />
           )}
         </div>
       </div>
@@ -588,7 +622,7 @@ function UserBubble({ msg }: { msg: AIMessage }) {
 
 function UsageFooter({ msg }: { msg: AIMessage }) {
   return (
-    <div className="mt-1 flex items-center gap-2 px-1 text-[10px] text-muted-foreground/60">
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap px-1 text-[10px] text-muted-foreground/60">
       <span title="Input tokens">{msg.inputTokens!.toLocaleString()} in</span>
       <span>&middot;</span>
       <span title="Output tokens">{msg.outputTokens!.toLocaleString()} out</span>
@@ -614,6 +648,8 @@ function UsageFooter({ msg }: { msg: AIMessage }) {
 interface MessageListProps {
   messages: AIMessage[];
   sessionStreaming?: boolean;
+  /** Opens the sidebar's agent-trace sheet on `traceId`, focused on a tool step's `spanId`. */
+  onOpenTrace?: (traceId: string, spanId?: string) => void;
   /** The project the panel is mounted in — a pending widget card aims its
    *  chart preview here, the scope the proposed write would land in. */
   projectId?: string;
@@ -627,6 +663,7 @@ interface MessageListProps {
 export function MessageList({
   messages,
   sessionStreaming = false,
+  onOpenTrace,
   projectId,
   retentionDays,
 }: MessageListProps) {
@@ -712,8 +749,28 @@ export function MessageList({
   return (
     <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-3 pt-3">
       <div ref={innerRef}>
-        {messages.map((msg) => {
+        {messages.map((msg, index) => {
           if (msg.role === "tool_step" && msg.toolStep) {
+            // A tool step belongs to the turn that produced it, and that turn's
+            // trace id arrives on the assistant bubble later in the list. The
+            // search must stop at the next user message: a tool-only run
+            // produces no assistant bubble, and scanning past the turn boundary
+            // would attach this step to the *next* turn's trace — a different
+            // trace that does not contain this span.
+            const turnEnd = messages.findIndex((m, i) => i > index && m.role === "user");
+            const turn = messages.slice(index + 1, turnEnd === -1 ? undefined : turnEnd);
+            // The trace outcome is stamped on the run's LAST text segment only
+            // (persister and live hook alike), so in a text → tool → text turn
+            // the bubble right after this step has none — look for the one that
+            // carries it. A pending or failed export has no trace to open.
+            const turnAssistant = turn.find(
+              (m) => m.role === "assistant" && m.traceStatus === "available",
+            );
+            const turnTraceId = turnAssistant?.traceId;
+            const onOpenSpan =
+              onOpenTrace && turnTraceId
+                ? (spanId: string) => onOpenTrace(turnTraceId, spanId)
+                : undefined;
             return (
               <ToolStepEntry
                 key={msg.id}
@@ -723,6 +780,7 @@ export function MessageList({
                 projectId={projectId}
                 retentionDays={retentionDays}
                 isActive={msg.id === activeToolStepId}
+                onOpenSpan={onOpenSpan}
                 bubbleMaxWidth={bubbleMaxWidth}
               />
             );
