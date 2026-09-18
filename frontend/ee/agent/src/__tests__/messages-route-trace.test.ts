@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // these tests exist to check.
 //
 // Disabled: the route must call StreamPersister.finish() with NO trace
-// argument at all when AGENT_SELF_TRACE is unset — not a present-but-
+// argument at all when AGENT_SELF_TRACE=0 — not a present-but-
 // "disabled" object — so finish()'s `!trace` gate behaves exactly as it did
 // before self-trace existed (Global Constraint: with the flag off, a full
 // cycle produces exactly the rows it does on main today).
@@ -129,7 +129,11 @@ afterEach(() => {
 });
 
 describe("POST .../messages — disabled-tracing row parity", () => {
-  it("calls StreamPersister.finish with no trace argument when AGENT_SELF_TRACE is unset", async () => {
+  beforeEach(() => {
+    process.env.AGENT_SELF_TRACE = "0";
+  });
+
+  it("calls StreamPersister.finish with no trace argument when AGENT_SELF_TRACE=0", async () => {
     const { traceArg } = await post({ message: "hi" });
     // Second argument (the trace stamp) must be undefined, not an object with
     // status: "disabled" — passing a present-but-inert object would defeat
@@ -138,7 +142,7 @@ describe("POST .../messages — disabled-tracing row parity", () => {
     expect(observe).not.toHaveBeenCalled();
   });
 
-  it("still sends the trace frame, as disabled, when AGENT_SELF_TRACE is unset", async () => {
+  it("still sends the trace frame, as disabled, when AGENT_SELF_TRACE=0", async () => {
     // The worker reads the execution's trace status from this frame; without
     // it every RCA on a service with the flag off recorded `failed`.
     const { sse } = await post({ message: "hi" });

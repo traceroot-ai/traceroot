@@ -195,15 +195,18 @@ describe("withAgentTrace", () => {
     expect(r.trace).toBe("disabled");
     expect(observe).not.toHaveBeenCalled();
   });
-  it("accepts 1 or true for the flag and nothing else", async () => {
+  it("is on when the flag is unset, off for any value other than 1 or true", async () => {
     for (const [flag, on] of [
+      [undefined, true],
+      ["", true],
       ["1", true],
       ["true", true],
       ["0", false],
-      ["yes", false],
-      ["", false],
+      ["false", false],
+      ["off", false],
     ] as const) {
-      process.env.AGENT_SELF_TRACE = flag;
+      if (flag === undefined) delete process.env.AGENT_SELF_TRACE;
+      else process.env.AGENT_SELF_TRACE = flag;
       expect(mod.isAgentTraceEnabled("rca"), `AGENT_SELF_TRACE=${flag}`).toBe(on);
     }
   });
