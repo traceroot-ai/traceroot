@@ -29,7 +29,7 @@ describe("createRegistryReadTools", () => {
     return impl;
   }
 
-  it("exposes exactly the twelve internally-bound read tools", () => {
+  it("exposes exactly the sixteen internally-bound read tools", () => {
     const names = createRegistryReadTools("p1", "u1").map((t) => t.name);
     expect(names).toEqual([
       "list_traces",
@@ -44,9 +44,84 @@ describe("createRegistryReadTools", () => {
       "get_dashboard",
       "run_widget_query",
       "get_dashboard_data",
+      "get_widget",
+      "get_widget_data",
       "list_alerts",
       "get_alert",
     ]);
+  });
+
+  it("get_widget GETs the internal widget route and renders the definition", async () => {
+    const impl = stubFetch({
+      id: "w1",
+      dashboard_id: "d1",
+      dashboard_name: "Latency",
+      title: "p95",
+      type: "query",
+      spec: { view: "spans" },
+      display_config: {},
+      create_time: "2026-08-01T00:00:00Z",
+      update_time: "2026-08-02T00:00:00Z",
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_widget")!;
+    const result = await tool.execute("id", { label: "x", widget_id: "w1" });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/internal/projects/p1/widgets/w1");
+    expect((init as RequestInit).method ?? "GET").toBe("GET");
+    expect((result.content[0] as { text: string }).text).toContain(
+      "Widget: w1 | p95 | type: query\nDashboard: d1 | Latency",
+    );
+  });
+
+  it("get_widget_data GETs the internal data route with the window as query params", async () => {
+    const impl = stubFetch({ widget: {}, window: {}, status: "ok", columns: [], rows: [] });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_widget_data")!;
+    await tool.execute("id", { label: "x", widget_id: "w1", range: "7d" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/widgets/w1/data?range=7d",
+    );
+  });
+
+  it("get_widget_data defaults to the page's window, and a window the model names wins", async () => {
+    const impl = stubFetch({ widget: {}, window: {}, status: "ok", columns: [], rows: [] });
+    const tool = createRegistryReadTools("p1", "u1", { range: "30d" }).find(
+      (t) => t.name === "get_widget_data",
+    )!;
+    await tool.execute("id", { label: "x", widget_id: "w1" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/widgets/w1/data?range=30d",
+    );
+    await tool.execute("id", { label: "x", widget_id: "w1", range: "1h" });
+    expect(String(impl.mock.calls[1]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/widgets/w1/data?range=1h",
+    );
+    expect(tool.description).toContain("the window the user is looking at on the page (30d)");
+    expect(tool.description).not.toContain("site's default");
+  });
+
+  it("puts the widget's dashboard URL in a widget data read, on the browser-reachable origin", async () => {
+    const before = { ...process.env };
+    process.env.TRACEROOT_UI_URL = "http://web:3000";
+    process.env.TRACEROOT_PUBLIC_UI_URL = "https://app.test";
+    try {
+      stubFetch({
+        widget: { id: "w1", dashboard_id: "d1", title: "p95", type: "query" },
+        window: {},
+        status: "ok",
+        columns: ["value"],
+        rows: [[1]],
+      });
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_widget_data")!;
+      const result = await tool.execute("id", { label: "x", widget_id: "w1" });
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain("URL: https://app.test/projects/p1/dashboard/d1");
+      expect(text).not.toContain("web:3000");
+    } finally {
+      process.env.TRACEROOT_UI_URL = before.TRACEROOT_UI_URL;
+      process.env.TRACEROOT_PUBLIC_UI_URL = before.TRACEROOT_PUBLIC_UI_URL;
+      if (before.TRACEROOT_UI_URL === undefined) delete process.env.TRACEROOT_UI_URL;
+      if (before.TRACEROOT_PUBLIC_UI_URL === undefined) delete process.env.TRACEROOT_PUBLIC_UI_URL;
+    }
   });
 
   it("run_widget_query POSTs the spec and window to the internal query route", async () => {
@@ -518,6 +593,8 @@ describe("createTools", () => {
     "get_dashboard",
     "run_widget_query",
     "get_dashboard_data",
+    "get_widget",
+    "get_widget_data",
     "list_alerts",
     "get_alert",
   ];

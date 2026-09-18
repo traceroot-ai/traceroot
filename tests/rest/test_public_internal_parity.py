@@ -33,6 +33,12 @@ BINDINGS = {
     "/api/v1/public/dashboards/{dashboard_id}/data": (
         "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}/data"
     ),
+    "/api/v1/public/widgets/{widget_id}": (
+        "/api/v1/internal/projects/{project_id}/widgets/{widget_id}"
+    ),
+    "/api/v1/public/widgets/{widget_id}/data": (
+        "/api/v1/internal/projects/{project_id}/widgets/{widget_id}/data"
+    ),
     "/api/v1/public/alerts": "/api/v1/internal/projects/{project_id}/alerts",
     "/api/v1/public/alerts/{alert_id}": "/api/v1/internal/projects/{project_id}/alerts/{alert_id}",
 }

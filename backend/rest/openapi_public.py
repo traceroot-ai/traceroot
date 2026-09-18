@@ -149,6 +149,17 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
     if dashboard_data_op is not None:
         dashboard_data_op["responses"].setdefault("404", _error_response("Dashboard not found"))
 
+    # Widget read error contract (matches the route code): the widget is
+    # resolved through the caller's project, so a foreign id is the same 404
+    # as an unknown one; ambiguity fails closed as the shared 503.
+    for path in (
+        "/api/v1/public/widgets/{widget_id}",
+        "/api/v1/public/widgets/{widget_id}/data",
+    ):
+        op = schema["paths"].get(path, {}).get("get")
+        if op is not None:
+            op["responses"].setdefault("404", _error_response("Widget not found"))
+
     # Alert read error contract (matches the route code): the proxy passes the
     # internal route's 404 through; ambiguity fails closed as the shared 503.
     alert_get_op = schema["paths"].get("/api/v1/public/alerts/{alert_id}", {}).get("get")
@@ -529,6 +540,37 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "skipped for a trace feed (read those with list_traces and the "
             "feed's filters), or error with a reason. Every figure you report "
             "must come from these rows, and name the window it was answered for."
+        ),
+        "enabled": True,
+    },
+    "get_widget": {
+        "name": "get_widget",
+        "description": (
+            "Fetch one saved widget's definition by id: its title, type, the "
+            "query spec exactly as stored (what get_widget_data runs), display "
+            "config, timestamps, and the id and name of the dashboard it sits "
+            "on. Resolve a widget id from get_dashboard (which lists a "
+            "dashboard's widgets) — never guess an id. For what the widget "
+            "shows, use get_widget_data."
+        ),
+        "enabled": True,
+    },
+    "get_widget_data": {
+        "name": "get_widget_data",
+        "description": (
+            "Answer one saved widget for a window — the way to say what a "
+            "widget shows without re-sending its spec. Prefer this over "
+            "run_widget_query whenever the widget already exists on a "
+            "dashboard; run_widget_query is for a spec that is saved nowhere. "
+            "Takes a widget id plus a window like run_widget_query (range "
+            "preset or explicit start_time/end_time; neither means the site's "
+            "default). The answer carries a status: ok with every row the "
+            "engine returns (a series comes back whole; no row cap), skipped "
+            "for a trace feed or legacy detector widget (read those with "
+            "list_traces and the feed's filters), or error with a reason when "
+            "the stored spec no longer runs. Every figure you report must come "
+            "from these rows, and name the window it was answered for — the "
+            "response echoes it and says when retention clamped it."
         ),
         "enabled": True,
     },

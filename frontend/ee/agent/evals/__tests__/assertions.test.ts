@@ -505,6 +505,11 @@ describe("expectPageWindow", () => {
     expect(() => expectPageWindow(turns, "14d")).not.toThrow();
   });
 
+  it("checks the saved-widget read's window too", () => {
+    const turns = [turn({ toolCalls: [call("get_widget_data", { range: "1d" })] })];
+    expect(() => expectPageWindow(turns, "14d")).toThrow(/get_widget_data asked for range "1d"/);
+  });
+
   it("fails when a read chose a different range", () => {
     const turns = [turn({ toolCalls: [call("run_widget_query", { range: "1d" })] })];
     expect(() => expectPageWindow(turns, "14d")).toThrow(/asked for range "1d"/);

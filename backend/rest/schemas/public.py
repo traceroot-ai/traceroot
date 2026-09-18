@@ -307,6 +307,56 @@ class DashboardDataResponse(BaseModel):
     failed: int
 
 
+class WidgetDetail(DashboardWidgetItem):
+    """One saved widget, as stored, with the dashboard it belongs to.
+
+    ``spec`` is exactly what the create parsed (defaults filled, unknown keys
+    stripped), so what a caller reads is what the engine runs. ``dashboard_id``
+    and ``dashboard_name`` let a caller holding only a widget id climb to the
+    dashboard without a second read. Widgets record no creator.
+    """
+
+    dashboard_id: str
+    dashboard_name: str
+    display_config: Any
+    update_time: datetime
+
+
+class WidgetRef(BaseModel):
+    """The identity of the widget a data read answered, with its dashboard."""
+
+    id: str
+    dashboard_id: str
+    title: str
+    type: str
+
+
+class WidgetDataResponse(BaseModel):
+    """One saved widget answered for one window.
+
+    The per-widget answer of a dashboard data read, addressed by widget id:
+    ``status`` says what happened — ``ok`` carries the engine's columns/rows/
+    meta; ``skipped`` is a feed or legacy detector widget (a trace list, not
+    an aggregate — read those with ``list_traces`` and the feed's filters);
+    ``error`` carries a short reason and no rows when the stored spec no
+    longer validates or the engine rejects it — so a broken widget is still a
+    200 a script can branch on. One widget has no fan-out to protect, so the
+    rows follow ``run_widget_query``: a series comes back whole and every
+    other display returns what the engine returns. ``truncated`` is kept for
+    parity with the dashboard read and is always false here. ``window`` is
+    the window the rows were answered for — the one to name with any figure.
+    """
+
+    widget: WidgetRef
+    window: QueryWindow
+    status: Literal["ok", "skipped", "error"]
+    columns: list[str] | None = None
+    rows: list[list[Any]] | None = None
+    meta: dict[str, Any] | None = None
+    truncated: bool = False
+    error: str | None = None
+
+
 class PublicDashboardListResponse(BaseModel):
     """The project's dashboards for the public API.
 

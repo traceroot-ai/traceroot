@@ -20,6 +20,10 @@ export const INTERNAL_BINDINGS: Readonly<Record<string, string>> = {
   get_dashboard: "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}",
   get_dashboard_data: "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}/data",
   run_widget_query: "/api/v1/projects/{project_id}/widgets/query",
+  // The saved-widget reads live beside the dashboard mirror, on the same
+  // secret-only /internal prefix.
+  get_widget: "/api/v1/internal/projects/{project_id}/widgets/{widget_id}",
+  get_widget_data: "/api/v1/internal/projects/{project_id}/widgets/{widget_id}/data",
   list_alerts: "/api/v1/internal/projects/{project_id}/alerts",
   get_alert: "/api/v1/internal/projects/{project_id}/alerts/{alert_id}",
 };

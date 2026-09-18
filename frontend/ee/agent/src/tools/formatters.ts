@@ -345,6 +345,12 @@ interface RowsOptions {
   truncated?: boolean;
   /** The window the rows were answered for; names a number tile's range and marks a still-open last bucket. */
   window?: { start_time?: string; end_time?: string };
+  /**
+   * Rows a non-series display keeps before "… N more rows not shown". Defaults
+   * to a short list (an ad hoc query or a dashboard tile wants the shape);
+   * Infinity keeps every row and leaves the byte budget as the only bound.
+   */
+  maxRows?: number;
 }
 
 /**
@@ -536,7 +542,7 @@ export function formatRows(
     return `${columns[0]}${range}: ${formatNumber(only)}`;
   }
   if (isTimeSeries(columns, meta, rows)) return formatSeries(columns, rows, meta, options);
-  const shown = rows.slice(0, WIDGET_ROW_CAP);
+  const shown = rows.slice(0, options.maxRows ?? WIDGET_ROW_CAP);
   const lines = shown.map(
     (r) => `  ${r.map((v, i) => (i === 0 ? String(v ?? "—") : formatNumber(v))).join("  |  ")}`,
   );
@@ -565,8 +571,8 @@ export interface DashboardDataOptions {
   dashboardUrl?: (dashboardId: string) => string;
 }
 
-const OVER_BUDGET_NOTE =
-  "  rows not included: the dashboard read is over its text budget — run this widget's spec with run_widget_query";
+const overBudgetNote = (widgetId: unknown) =>
+  `  rows not included: the dashboard read is over its text budget — get_widget_data with widget_id ${widgetId ?? "?"} answers this one alone`;
 
 /**
  * The text the model sees for a get_dashboard_data result: the counts and
@@ -614,20 +620,20 @@ export function formatDashboardData(data: unknown, options: DashboardDataOptions
       { truncated: w.truncated === true, window },
     );
     const capped = w.truncated
-      ? "\n  (rows capped by the server — run this widget's spec with run_widget_query for every row)"
+      ? `\n  (rows capped by the server — get_widget_data with widget_id ${w.id ?? "?"} returns every row)`
       : "";
-    return { title, body: `${rows}${capped}`, fixed: false };
+    return { title, body: `${rows}${capped}`, note: overBudgetNote(w.id), fixed: false };
   });
   const bytes = (text: string) => Buffer.byteLength(text, "utf-8");
   // The floor every widget costs whatever happens: its title with its
   // one-line status, or its title with the over-budget note. Bodies are then
   // swapped in for notes, in order, while the whole text still fits.
-  const floor = (b: { title: string; body: string; fixed: boolean }) =>
-    b.fixed ? `${b.title}\n${b.body}` : `${b.title}\n${OVER_BUDGET_NOTE}`;
+  const floor = (b: { title: string; body: string; note?: string; fixed: boolean }) =>
+    b.fixed ? `${b.title}\n${b.body}` : `${b.title}\n${b.note}`;
   let used = bytes([...head, ...blocks.map(floor)].join("\n"));
   const rendered = blocks.map((b) => {
     if (b.fixed) return floor(b);
-    const delta = bytes(b.body) - bytes(OVER_BUDGET_NOTE);
+    const delta = bytes(b.body) - bytes(b.note ?? "");
     // A body no longer than the note always fits; it is the note's replacement.
     if (delta <= 0 || used + delta <= DASHBOARD_DATA_BUDGET_BYTES) {
       used += delta;
@@ -638,7 +644,66 @@ export function formatDashboardData(data: unknown, options: DashboardDataOptions
   const text = [...head, ...rendered].join("\n");
   const bounded = truncateHead(text, { maxBytes: DASHBOARD_DATA_BUDGET_BYTES });
   return bounded.truncated
-    ? `${bounded.content}\n… output truncated at ${DASHBOARD_DATA_BUDGET_BYTES} bytes; read the dashboard with get_dashboard for a widget's spec, then run_widget_query for that widget`
+    ? `${bounded.content}\n… output truncated at ${DASHBOARD_DATA_BUDGET_BYTES} bytes; read the dashboard with get_dashboard for a widget's id, then get_widget_data for that widget`
+    : bounded.content;
+}
+
+// ── saved-widget reads ───────────────────────────────────────────────────────
+
+/** Render a widget detail response: the definition as stored, with its dashboard. */
+export function formatWidgetDetail(data: unknown): string {
+  const w = (data ?? {}) as any;
+  const spec = w.spec != null ? truncate(JSON.stringify(w.spec), 1000) : "(none)";
+  const display =
+    w.display_config != null ? truncate(JSON.stringify(w.display_config), 500) : "(none)";
+  return [
+    `Widget: ${w.id ?? "?"} | ${w.title || "(untitled)"} | type: ${w.type ?? "unknown"}`,
+    `Dashboard: ${w.dashboard_id ?? "?"} | ${w.dashboard_name || "(unnamed)"}`,
+    `Created ${w.create_time ?? "unknown"} | updated ${w.update_time ?? "unknown"}`,
+    `Spec: ${spec}`,
+    `Display config: ${display}`,
+  ].join("\n");
+}
+
+/**
+ * The text the model sees for a get_widget_data result: the widget, its
+ * dashboard and the window first, then the answer under its status — the
+ * same per-widget body a dashboard read renders, for one widget. The rows
+ * are already summarized by shape; the byte budget is the backstop for a
+ * table of very wide keys.
+ */
+export function formatWidgetData(data: unknown, options: DashboardDataOptions = {}): string {
+  const d = (data ?? {}) as any;
+  const widget = d.widget ?? {};
+  const window = d.window as RowsOptions["window"];
+  const url =
+    typeof widget.dashboard_id === "string" && options.dashboardUrl
+      ? [`URL: ${options.dashboardUrl(widget.dashboard_id)}`]
+      : [];
+  const head = [
+    `Widget: ${widget.id ?? "?"} | ${widget.title || "(untitled)"} | ${widget.type ?? "unknown"} | ${d.status ?? "unknown"}`,
+    `Dashboard: ${widget.dashboard_id ?? "?"}`,
+    ...url,
+    formatWindow(d.window),
+  ];
+  const body =
+    d.status === "skipped"
+      ? "  feed — not summarized; read it with list_traces and the feed's filters"
+      : d.status === "error"
+        ? `  error: ${d.error ?? "unknown"}`
+        : formatRows(
+            Array.isArray(d.columns) ? d.columns : [],
+            Array.isArray(d.rows) ? d.rows : [],
+            d.meta ?? undefined,
+            // The single-widget read exists to return every row the engine
+            // did; the byte budget below is its only bound.
+            { truncated: d.truncated === true, window, maxRows: Infinity },
+          );
+  const bounded = truncateHead([...head, body].join("\n"), {
+    maxBytes: DASHBOARD_DATA_BUDGET_BYTES,
+  });
+  return bounded.truncated
+    ? `${bounded.content}\n… output truncated at ${DASHBOARD_DATA_BUDGET_BYTES} bytes; ask for a narrower window or fewer groups`
     : bounded.content;
 }
 

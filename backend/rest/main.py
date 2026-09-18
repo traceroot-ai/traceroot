@@ -30,6 +30,7 @@ from rest.routers.internal import router as internal_router
 from rest.routers.live import router as live_router
 from rest.routers.project_alerts import router as project_alerts_router
 from rest.routers.project_dashboards import router as project_dashboards_router
+from rest.routers.project_widgets import router as project_widgets_router
 from rest.routers.public.account_read import router as public_account_read_router
 from rest.routers.public.account_write import router as public_account_write_router
 from rest.routers.public.alerts_read import router as public_alerts_read_router
@@ -45,6 +46,7 @@ from rest.routers.public.traces import router as public_traces_router
 from rest.routers.public.traces_read import router as public_traces_read_router
 from rest.routers.public.whoami import router as public_whoami_router
 from rest.routers.public.widgets_query import router as public_widgets_query_router
+from rest.routers.public.widgets_read import router as public_widgets_read_router
 from rest.routers.sessions import router as sessions_router
 from rest.routers.traces import router as traces_router
 from rest.routers.users import router as users_router
@@ -133,6 +135,7 @@ app.include_router(public_sql_router, prefix="/api/v1")
 app.include_router(public_detectors_read_router, prefix="/api/v1")
 app.include_router(public_dashboards_read_router, prefix="/api/v1")
 app.include_router(public_widgets_query_router, prefix="/api/v1")
+app.include_router(public_widgets_read_router, prefix="/api/v1")
 app.include_router(public_alerts_read_router, prefix="/api/v1")
 
 # Public offline-eval API (dataset authoring + run reporting). Thin authenticated
@@ -150,11 +153,12 @@ app.include_router(public_project_write_router, prefix="/api/v1")
 app.include_router(public_alerts_write_router, prefix="/api/v1")
 
 # Internal API for worker/service communication (protected by secret).
-# project_dashboards and project_alerts are the agent's read mirrors — they
-# live on the /api/v1/internal prefix the ingress fixed-404s, never the
-# ALB-routed /api/v1/projects surface.
+# project_dashboards, project_widgets and project_alerts are the agent's read
+# mirrors — they live on the /api/v1/internal prefix the ingress fixed-404s,
+# never the ALB-routed /api/v1/projects surface.
 app.include_router(internal_router, prefix="/api/v1")
 app.include_router(project_dashboards_router, prefix="/api/v1")
+app.include_router(project_widgets_router, prefix="/api/v1")
 app.include_router(project_alerts_router, prefix="/api/v1")
 
 
