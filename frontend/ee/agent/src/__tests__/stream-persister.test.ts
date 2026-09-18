@@ -17,17 +17,26 @@ const thinkingDelta = (delta: string): AgentEvent =>
     assistantMessageEvent: { type: "thinking_delta", delta } as never,
   }) as AgentEvent;
 
-const toolStart = (id: string, args: Record<string, unknown> = {}): AgentEvent => ({
+const toolStart = (
+  id: string,
+  args: Record<string, unknown> = {},
+  toolName = "create_dashboard",
+): AgentEvent => ({
   type: "tool_execution_start",
   toolCallId: id,
-  toolName: "get_traces",
+  toolName,
   args,
 });
 
-const toolEnd = (id: string, result: unknown = "ok", isError = false): AgentEvent => ({
+const toolEnd = (
+  id: string,
+  result: unknown = "ok",
+  isError = false,
+  toolName = "create_dashboard",
+): AgentEvent => ({
   type: "tool_execution_end",
   toolCallId: id,
-  toolName: "get_traces",
+  toolName,
   result,
   isError,
 });
@@ -96,17 +105,20 @@ describe("StreamPersister", () => {
 
   it("records tool args from start and result from end in metadata", async () => {
     const { persister, calls } = makePersister();
-    persister.onEvent(toolStart("t1", { query: "errors" }));
-    persister.onEvent(toolEnd("t1", { rows: [] }, true));
+    // download_traces is capture-policy-allowlisted, so its result is kept
+    // (redacted, bounded, structured) rather than withheld.
+    persister.onEvent(toolStart("t1", { query: "errors" }, "download_traces"));
+    persister.onEvent(toolEnd("t1", { rows: [] }, true, "download_traces"));
     await persister.finish();
 
     expect(calls).toHaveLength(1);
     expect(calls[0].role).toBe("tool_step");
-    expect(calls[0].metadata).toEqual({
+    expect(calls[0].metadata).toMatchObject({
       toolCallId: "t1",
-      toolName: "get_traces",
+      toolName: "download_traces",
       args: { query: "errors" },
       result: { rows: [] },
+      outputBytes: 11,
       isError: true,
     });
   });
@@ -326,7 +338,7 @@ describe("StreamPersister", () => {
     expect(calls[0].metadata).toBeUndefined();
   });
 
-  it("replaces oversized tool args and result values with a truncation marker", async () => {
+  it("bounds oversized tool args and result values, keeping their small siblings", async () => {
     const big = "x".repeat(10 * 1024);
     const { persister, calls } = makePersister();
     persister.onEvent(toolStart("t1", { query: big, small: "kept" }));
@@ -343,14 +355,16 @@ describe("StreamPersister", () => {
       args: { query: unknown; small: unknown };
       result: { content: unknown; details: unknown };
     };
-    // the oversized string is replaced by a detectable marker
-    expect(md.args.query).toMatchObject({ truncated: true, bytes: expect.any(Number) });
-    expect((md.args.query as { preview: string }).preview).toBe("x".repeat(256));
-    expect((md.args.query as { bytes: number }).bytes).toBeGreaterThanOrEqual(10 * 1024);
+    // the oversized string is cut (byte-safe, marker at the end) and the row says so
+    expect(typeof md.args.query).toBe("string");
+    expect((md.args.query as string).length).toBeLessThan(10 * 1024);
+    expect((md.args.query as string).endsWith("…")).toBe(true);
+    expect(calls[0].metadata).toMatchObject({ truncated: true, outputBytes: expect.any(Number) });
     // sibling small values survive untouched
     expect(md.args.small).toBe("kept");
     // result: the large content is capped, the small structured details are not
-    expect(md.result.content).toMatchObject({ truncated: true });
+    expect(typeof md.result.content).toBe("string");
+    expect((md.result.content as string).length).toBeLessThan(10 * 1024);
     expect(md.result.details).toEqual({ resourceType: "dashboard", resourceId: "d1" });
   });
 
@@ -385,5 +399,70 @@ describe("StreamPersister", () => {
     expect(calls).toEqual(["tool_step"]);
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+
+  it("withholds bash output but keeps its size; keeps download_traces output", async () => {
+    const calls: AppendCall[] = [];
+    const p = new StreamPersister(async (role, content, metadata) => {
+      calls.push({ role, content, metadata });
+    });
+    p.onEvent({
+      type: "tool_execution_start",
+      toolCallId: "1",
+      toolName: "bash",
+      args: { command: "cat secrets" },
+    });
+    p.onEvent({
+      type: "tool_execution_end",
+      toolCallId: "1",
+      toolName: "bash",
+      result: "ghp_" + "x".repeat(40),
+      isError: false,
+    });
+    p.onEvent({
+      type: "tool_execution_start",
+      toolCallId: "2",
+      toolName: "download_traces",
+      args: {},
+    });
+    p.onEvent({
+      type: "tool_execution_end",
+      toolCallId: "2",
+      toolName: "download_traces",
+      result: '{"spans":[]}',
+      isError: false,
+    });
+    await p.finish();
+    const bash = calls.find((c) => c.metadata?.toolName === "bash")!.metadata!;
+    expect(bash.result).toBeUndefined();
+    expect(bash.outputBytes).toBe(44);
+    expect(bash.withheld).toBe("not-allowlisted");
+    const dl = calls.find((c) => c.metadata?.toolName === "download_traces")!.metadata!;
+    expect(dl.result).toBe('{"spans":[]}');
+  });
+
+  it("charges captured bytes to a shared budget when one is passed", async () => {
+    // The agent shares one accumulator between the SDK's span capture and the
+    // persisted rows so both stop capturing together; a budget of the
+    // persister's own would double the effective run cap.
+    // Room for exactly the empty args object (2 bytes: `{}`) plus the six
+    // result bytes, so the charge lands on the run cap.
+    const state = { spentBytes: 262_144 - 8 };
+    const p = new StreamPersister(async () => {}, { state });
+    p.onEvent(toolStart("1", {}, "download_traces"));
+    p.onEvent(toolEnd("1", "abcdef", false, "download_traces"));
+    await p.finish();
+    expect(state.spentBytes).toBe(262_144);
+  });
+
+  it("keeps a budget of its own by default", async () => {
+    const calls: AppendCall[] = [];
+    const p = new StreamPersister(async (role, content, metadata) => {
+      calls.push({ role, content, metadata });
+    });
+    p.onEvent(toolStart("1", {}, "download_traces"));
+    p.onEvent(toolEnd("1", "abcdef", false, "download_traces"));
+    await p.finish();
+    expect(calls[0].metadata).toMatchObject({ result: "abcdef", outputBytes: 6 });
   });
 });

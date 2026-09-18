@@ -1,4 +1,4 @@
-import { prisma } from "@traceroot/core";
+import { prisma, type TurnKind } from "@traceroot/core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type {
   AssistantMessage,
@@ -25,6 +25,26 @@ export interface TokenUsageData {
   // final segment's metadata (no dedicated column), not aggregated for billing.
   totalTokens?: number;
 }
+
+export interface TurnAttribution {
+  turnKind: TurnKind;
+  /**
+   * Who sent a follow-up in an RCA session. The session is the system's
+   * (`user_id` null), so this is the only record of the author; it is kept
+   * on the user row's metadata (`initiatorUserId`) — no column until
+   * something reads it. A chat session's author is the session's user.
+   */
+  initiatorUserId?: string | null;
+}
+
+/** `kind` is kept one release for old readers; derived from turnKind at write time. */
+const LEGACY_KIND: Record<TurnKind, string> = {
+  rca_execution: "rca",
+  rca_followup: "rca",
+  chat: "chat",
+  detector: "detector",
+  digest: "digest-summary",
+};
 
 /** Upper bound on one restored tool record's serialized text — a record is a summary, never a payload dump. */
 const TOOL_RECORD_CHAR_CAP = 600;
@@ -122,8 +142,17 @@ function boundedOutcome(meta: Record<string, unknown>): string {
  */
 function toolOutcome(meta: Record<string, unknown>): Record<string, unknown> {
   const isError = meta.isError === true;
+  // The capture policy keeps a text result as text: report it as the outcome.
+  if (typeof meta.result === "string") {
+    return {
+      status: isError ? "failed" : "completed",
+      ...(meta.result ? { result: clip(meta.result, RESULT_SNIPPET_CHARS) } : {}),
+    };
+  }
   const result = isTruncatedMarker(meta.result) ? undefined : asRecord(meta.result);
   if (result === undefined) {
+    // Withheld by the capture policy (shell, file and git output is not
+    // stored) or absent: the row carries the size and the error flag only.
     return { status: isError ? "failed" : "unknown", note: "the result was not persisted" };
   }
 
@@ -330,33 +359,39 @@ export class SessionManager {
    * Like Mom's sessionManager.appendMessage() — persists to DB.
    *
    * `workspaceId` and `kind` are required on every AIMessage row (see schema).
-   * We derive both from the parent AISession: `kind = "chat"` for user sessions
-   * (userId set), `kind = "rca"` for system sessions (userId null). This
-   * mirrors the existing convention in createSession.
+   * `kind` is derived from the turn's attribution (see LEGACY_KIND) and kept
+   * one release for old readers. The attribution is decided once per turn by
+   * the route and passed to every row the turn produces — there is no
+   * fallback here, so a row can never be attributed differently from the turn
+   * it belongs to. Returns the created row so callers (e.g. the turn-trace
+   * wrapper) can key off its id.
    */
   async appendMessage(
     role: string,
     content: string,
+    attribution: TurnAttribution,
     metadata?: Record<string, unknown>,
     tokenUsage?: TokenUsageData,
-  ): Promise<void> {
+  ): Promise<Awaited<ReturnType<typeof prisma.aIMessage.create>>> {
     const session = await prisma.aISession.findUnique({
       where: { id: this.sessionId },
-      select: { workspaceId: true, userId: true },
+      select: { workspaceId: true },
     });
     if (!session) {
       throw new Error(`AISession not found: ${this.sessionId}`);
     }
-    const kind = session.userId === null ? "rca" : "chat";
 
-    await prisma.aIMessage.create({
+    return prisma.aIMessage.create({
       data: {
         sessionId: this.sessionId,
         workspaceId: session.workspaceId,
-        kind,
+        kind: LEGACY_KIND[attribution.turnKind],
+        turnKind: attribution.turnKind,
         role,
         content,
-        metadata: metadata as any,
+        metadata: (role === "user" && attribution.initiatorUserId
+          ? { ...metadata, initiatorUserId: attribution.initiatorUserId }
+          : metadata) as any,
         ...(tokenUsage && {
           model: tokenUsage.model,
           provider: tokenUsage.provider,
@@ -379,6 +414,7 @@ export async function createSession(params: {
   workspaceId: string;
   userId?: string; // optional — null for system/RCA sessions
   title?: string;
+  executionId?: string; // the execution that opened this system session
 }) {
   return prisma.aISession.create({
     data: {
@@ -386,6 +422,10 @@ export async function createSession(params: {
       workspaceId: params.workspaceId,
       userId: params.userId ?? null,
       title: params.title,
+      // An execution link belongs to a system session only: the worker opens
+      // one per RCA attempt. A user's own chat never carries one, whatever
+      // the caller sent.
+      executionId: params.userId === undefined ? (params.executionId ?? null) : null,
     },
   });
 }
@@ -460,4 +500,26 @@ export async function updateSessionTitle(id: string, title: string) {
     where: { id },
     data: { title },
   });
+}
+
+/**
+ * Whether `executionId` names an execution in this project.
+ *
+ * A session's executionId becomes the attribution on every message in it, so an
+ * id from another project would attribute this project's turns to that one.
+ * The caller is trusted to reach the route, not to name an execution.
+ */
+export async function executionBelongsToProject(
+  // Structural, so a test can pass a stub. Deliberately loose on the argument
+  // and return types: Prisma's generated signature is far more specific than
+  // this call needs, and naming it here would couple the guard to the client.
+  db: { detectorRcaExecution: { findFirst: (args: never) => Promise<unknown> } },
+  executionId: string,
+  projectId: string,
+): Promise<boolean> {
+  const found = await db.detectorRcaExecution.findFirst({
+    where: { id: executionId, projectId },
+    select: { id: true },
+  } as never);
+  return found != null;
 }

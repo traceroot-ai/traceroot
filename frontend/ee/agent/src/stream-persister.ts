@@ -1,88 +1,18 @@
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import { applyCapturePolicy } from "@traceroot/core/capture-policy";
+import { agentCaptureInput } from "./capture-input.js";
 import type { TokenUsageData } from "./session.js";
 
-/** Signature of SessionManager.appendMessage — injected so the persister is testable. */
+/**
+ * How the persister writes a row — injected so it is testable. The route binds
+ * the turn's attribution into it; the persister never decides attribution.
+ */
 export type AppendMessageFn = (
   role: string,
   content: string,
   metadata?: Record<string, unknown>,
   tokenUsage?: TokenUsageData,
-) => Promise<void>;
-
-/**
- * Cap applied independently to each serialized value persisted into a tool
- * row's metadata (each args entry, each result field). getSessionMessages
- * ships every row to the browser, so unbounded tool payloads would bloat
- * reloads; small structured values (e.g. a result's `details`) stay intact
- * because siblings are capped independently.
- */
-export const METADATA_VALUE_BYTE_CAP = 8 * 1024;
-
-const TRUNCATION_PREVIEW_CHARS = 256;
-
-/**
- * Replaces a metadata value whose serialization exceeds
- * METADATA_VALUE_BYTE_CAP. Consumers detect truncation by `truncated: true`
- * where the original value would have been.
- */
-export interface TruncatedValue {
-  truncated: true;
-  /** Serialized UTF-8 byte length of the original value. */
-  bytes: number;
-  /** The first ~256 characters of the original (raw string, or its JSON). */
-  preview: string;
-}
-
-function safeStringify(value: unknown): string {
-  try {
-    return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
-  } catch {
-    return "[unserializable]";
-  }
-}
-
-function serializedBytes(value: unknown): number | null {
-  try {
-    const json = JSON.stringify(value);
-    return json === undefined ? 0 : Buffer.byteLength(json, "utf8");
-  } catch {
-    // circular or otherwise unserializable — the row insert would choke on it
-    return null;
-  }
-}
-
-function truncationMarker(value: unknown, bytes: number): TruncatedValue {
-  return {
-    truncated: true,
-    bytes,
-    preview: safeStringify(value).slice(0, TRUNCATION_PREVIEW_CHARS),
-  };
-}
-
-/**
- * Bound a metadata value to METADATA_VALUE_BYTE_CAP. An oversized object or
- * array first has each entry bounded independently — so one huge field (a
- * verbose result `content`) is replaced while small siblings (structured
- * `details`) survive verbatim — and is replaced whole only if it still
- * exceeds the cap afterwards.
- */
-function boundMetadataValue(value: unknown): unknown {
-  const bytes = serializedBytes(value);
-  if (bytes === null) return truncationMarker(value, 0);
-  if (bytes <= METADATA_VALUE_BYTE_CAP) return value;
-
-  let bounded: unknown = value;
-  if (Array.isArray(value)) {
-    bounded = value.map(boundMetadataValue);
-  } else if (typeof value === "object" && value !== null) {
-    bounded = Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, boundMetadataValue(v)]),
-    );
-  }
-  const boundedBytes = serializedBytes(bounded);
-  if (boundedBytes !== null && boundedBytes <= METADATA_VALUE_BYTE_CAP) return bounded;
-  return truncationMarker(value, bytes);
-}
+) => Promise<unknown>;
 
 /**
  * Mirrors a run's agent events into durable AIMessage rows so reloaded
@@ -94,7 +24,11 @@ function boundMetadataValue(value: unknown): unknown {
  *   captured at start and the result/isError from end — rows land in
  *   tool_execution_start order (what the live panel showed), not completion
  *   order, so parallel tool calls do not reorder on reload;
- * - oversized args/result values are bounded (see METADATA_VALUE_BYTE_CAP);
+ * - args and results go through the capture policy (@traceroot/core/capture-policy):
+ *   redacted, allow-listed output kept, bounded per step and per run; a
+ *   structured value is capped leaf by leaf so a result's small `details`
+ *   stay intact beside a large `content`, and what is cut is marked on the
+ *   row (`truncated`, `withheld`, `outputBytes`);
  * - thinking deltas go to segment metadata, never into content;
  * - a failed run persists its error message as `runError` on the final
  *   segment's metadata, so reload shows the failure the live stream showed;
@@ -104,6 +38,16 @@ function boundMetadataValue(value: unknown): unknown {
  * fire-and-forget writes could land out of order and scramble history. A
  * failed insert is logged and skipped — later rows still persist.
  */
+export interface StreamPersisterOptions {
+  /**
+   * The capture-policy budget to charge (see applyCapturePolicy). Pass the
+   * run's own accumulator — the one the SDK's captureToolIo hook charges for
+   * spans — so rows and spans stop capturing together instead of each getting
+   * a full budget. Omitted, the persister keeps a budget of its own.
+   */
+  state?: { spentBytes: number };
+}
+
 export class StreamPersister {
   private chain: Promise<void> = Promise.resolve();
   private text = "";
@@ -113,12 +57,18 @@ export class StreamPersister {
   private produced = false;
   /** args by toolCallId, captured at tool_execution_start (end events lack args) */
   private pendingToolArgs = new Map<string, Record<string, unknown>>();
+  private readonly captureState: { spentBytes: number };
   /** toolCallIds in tool_execution_start order — the order rows must persist in */
   private toolStartOrder: string[] = [];
   /** finished tool rows buffered until every earlier-started tool has finished */
   private completedToolRows = new Map<string, Record<string, unknown>>();
 
-  constructor(private readonly append: AppendMessageFn) {}
+  constructor(
+    private readonly append: AppendMessageFn,
+    options: StreamPersisterOptions = {},
+  ) {
+    this.captureState = options.state ?? { spentBytes: 0 };
+  }
 
   onEvent(event: AgentEvent): void {
     if (event.type === "message_update") {
@@ -154,11 +104,18 @@ export class StreamPersister {
     if (event.type === "tool_execution_end") {
       const args = this.pendingToolArgs.get(event.toolCallId) ?? {};
       this.pendingToolArgs.delete(event.toolCallId);
+      const captured = applyCapturePolicy(
+        agentCaptureInput(event.toolName, args, event.result),
+        this.captureState,
+      );
       this.completedToolRows.set(event.toolCallId, {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        args: boundMetadataValue(args),
-        result: boundMetadataValue(event.result),
+        args: captured.args,
+        ...(captured.result !== undefined ? { result: captured.result } : {}),
+        outputBytes: captured.outputBytes,
+        ...(captured.truncated ? { truncated: true } : {}),
+        ...(captured.withheld ? { withheld: captured.withheld } : {}),
         isError: event.isError,
       });
       this.flushCompletedToolRows();
@@ -249,7 +206,9 @@ export class StreamPersister {
     tokenUsage?: TokenUsageData,
   ): void {
     this.chain = this.chain
-      .then(() => this.append(role, content, metadata, tokenUsage))
+      .then(async () => {
+        await this.append(role, content, metadata, tokenUsage);
+      })
       .catch((error) => {
         console.error(`[Agent] Failed to persist ${role} message:`, error);
       });

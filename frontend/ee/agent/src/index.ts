@@ -9,6 +9,8 @@ import {
   listSessions,
   deleteSession,
   updateSessionTitle,
+  executionBelongsToProject,
+  type TurnAttribution,
 } from "./session.js";
 import {
   getOrCreateAgent,
@@ -77,13 +79,30 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
   const userId = c.req.header("x-user-id") || undefined;
   const workspaceId = c.req.header("x-workspace-id") || "";
-  const body = await c.req.json<{ title?: string }>();
+  const body = await c.req.json<{ title?: string; executionId?: unknown }>();
+
+  // Every message in this session reaches its execution through the session's
+  // executionId, so an id from another project would attribute this project's
+  // turns to that one. The caller is trusted to reach the route, not to name
+  // an execution: confirm it exists under this project before storing it. A
+  // malformed id is rejected here rather than surfacing later as an FK error
+  // on the session's first message — and rather than being dropped: a caller
+  // that sends an execution id of the wrong shape (a number, "") has a bug,
+  // and silently creating an unattributed session would hide it.
+  const { executionId } = body;
+  if (executionId !== undefined && (typeof executionId !== "string" || executionId.trim() === "")) {
+    return c.json({ error: "executionId must be a non-empty string" }, 400);
+  }
+  if (executionId && !(await executionBelongsToProject(prisma, executionId, projectId))) {
+    return c.json({ error: "executionId does not belong to this project" }, 400);
+  }
 
   const session = await createSession({
     projectId,
     workspaceId,
     userId, // undefined → stored as null for system/RCA sessions
     title: body.title,
+    executionId,
   });
   return c.json(session, 201);
 });
@@ -245,6 +264,18 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     return c.json({ error: "a run is already in progress for this session" }, 409);
   }
 
+  // Attribution is computed once per turn and applied to every row it
+  // produces (the user message, and every assistant/tool_step row the
+  // persister writes below) so a turn reads as one attributed unit.
+  // A follow-up's author is recorded (the RCA session has no user of its
+  // own); a chat turn's author is the session's user, so nothing is repeated.
+  const attribution: TurnAttribution =
+    ownedSession.userId === null
+      ? userId
+        ? { turnKind: "rca_followup", initiatorUserId: userId }
+        : { turnKind: "rca_execution" }
+      : { turnKind: "chat" };
+
   let agent: Agent;
   let sessionManager: SessionManager;
   try {
@@ -262,8 +293,8 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
     console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
-    // Persist user message to DB via SessionManager
-    await sessionManager.appendMessage("user", body.message);
+    // Persist user message to DB via SessionManager, attributed to this turn
+    await sessionManager.appendMessage("user", body.message, attribution);
 
     // Auto-generate session title from first user message (we already have
     // the session loaded above for the auth check — reuse it).
@@ -289,6 +320,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
       channelUserId: userId,
       isByok: body.source === ModelSource.BYOK,
       sessionManager,
+      attribution,
     }),
   );
 });
