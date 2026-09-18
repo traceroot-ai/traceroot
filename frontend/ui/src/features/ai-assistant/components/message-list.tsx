@@ -393,8 +393,6 @@ function ToolStepItem({
             )}
           </>
         )}
-        {step.status === "done" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />}
-        {step.status === "error" && <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />}
         <span className="shrink-0 whitespace-nowrap italic text-muted-foreground/80">
           {formatToolName(step.toolName)}
         </span>
