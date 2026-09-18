@@ -27,10 +27,12 @@ describe("ConditionSection", () => {
       operator: ">" as const,
       threshold: "5",
       window: "10m" as const,
+      noDataMode: "HOLD" as const,
       renotify: { mode: "OFF" } as AlertRenotify,
       onOperatorChange: vi.fn(),
       onThresholdChange: vi.fn(),
       onWindowChange: vi.fn(),
+      onNoDataModeChange: vi.fn(),
       onRenotifyChange: vi.fn(),
       ...overrides,
     };
@@ -60,6 +62,14 @@ describe("ConditionSection", () => {
     expect(screen.getByRole("option", { name: "Last 10m" })).toBeTruthy();
     fireEvent.click(screen.getByRole("option", { name: "Last 30m" }));
     expect(props.onWindowChange).toHaveBeenCalledWith("30m");
+  });
+
+  it("shows the rule's no-data mode and emits the chosen one", () => {
+    const props = renderSection({ noDataMode: "ZERO" });
+    expect(screen.getByLabelText("no data mode").textContent).toContain("Treat as zero");
+    openSelect("no data mode");
+    fireEvent.click(screen.getByRole("option", { name: "Notify when data stops" }));
+    expect(props.onNoDataModeChange).toHaveBeenCalledWith("NOTIFY");
   });
 
   it("switching renotify on emits EVERY with the default interval", () => {
@@ -107,10 +117,12 @@ describe("ConditionSection", () => {
           operator=">"
           threshold="5"
           window="10m"
+          noDataMode="HOLD"
           renotify={{ mode: "EVERY", intervalMinutes: 45 }}
           onOperatorChange={vi.fn()}
           onThresholdChange={vi.fn()}
           onWindowChange={vi.fn()}
+          onNoDataModeChange={vi.fn()}
           onRenotifyChange={vi.fn()}
         />
       </form>,

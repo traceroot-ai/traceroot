@@ -13,12 +13,15 @@ import { ALERT_WINDOWS, type AlertWindow } from "@traceroot/core";
 import { cn } from "@/lib/utils";
 import { FieldLabel, SectionBox } from "@/features/dashboards/components/SectionBox";
 import {
+  ALERT_NO_DATA_MODES,
+  ALERT_NO_DATA_MODE_LABELS,
   ALERT_OPERATORS,
   ALERT_OPERATOR_LABELS,
   ALERT_RENOTIFY_MAX_MINUTES,
   ALERT_RENOTIFY_MIN_MINUTES,
   DEFAULT_ALERT_RENOTIFY_INTERVAL_MINUTES,
   clampRenotifyInterval,
+  type AlertNoDataMode,
   type AlertOperator,
   type AlertRenotify,
 } from "../rule-model";
@@ -81,10 +84,12 @@ interface ConditionSectionProps {
   operator: AlertOperator;
   threshold: string;
   window: AlertWindow;
+  noDataMode: AlertNoDataMode;
   renotify: AlertRenotify;
   onOperatorChange: (operator: AlertOperator) => void;
   onThresholdChange: (threshold: string) => void;
   onWindowChange: (window: AlertWindow) => void;
+  onNoDataModeChange: (noDataMode: AlertNoDataMode) => void;
   onRenotifyChange: (renotify: AlertRenotify) => void;
 }
 
@@ -96,15 +101,20 @@ interface ConditionSectionProps {
  * token is a lookback, and a cadence label would promise a notification rate
  * this field does not control. Renotify is the field that does, hence its place
  * here rather than in the notifications section.
+ *
+ * The no-data mode decides what an empty window means, which only this section's
+ * window defines. NOTIFY is the mode for sources whose silence is the incident.
  */
 export function ConditionSection({
   operator,
   threshold,
   window,
+  noDataMode,
   renotify,
   onOperatorChange,
   onThresholdChange,
   onWindowChange,
+  onNoDataModeChange,
   onRenotifyChange,
 }: ConditionSectionProps) {
   return (
@@ -146,6 +156,24 @@ export function ConditionSection({
             {(Object.keys(ALERT_WINDOWS) as AlertWindow[]).map((w) => (
               <SelectItem key={w} value={w} className="text-[12px]">
                 {`Last ${w}`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="p-3">
+        <FieldLabel>When a window has no data</FieldLabel>
+        <Select
+          value={noDataMode}
+          onValueChange={(mode) => onNoDataModeChange(mode as AlertNoDataMode)}
+        >
+          <SelectTrigger className={CONTROL_SIZE} aria-label="no data mode">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ALERT_NO_DATA_MODES.map((mode) => (
+              <SelectItem key={mode} value={mode} className="text-[12px]">
+                {ALERT_NO_DATA_MODE_LABELS[mode]}
               </SelectItem>
             ))}
           </SelectContent>
