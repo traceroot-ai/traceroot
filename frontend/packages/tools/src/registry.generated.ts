@@ -856,6 +856,25 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_sql_schema",
+    description:
+      "List the tables and columns available to run_sql, with their types. Read this before writing a query: it is the whole surface a query may reference.",
+    method: "get",
+    path: "/api/v1/public/sql/schema",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_trace",
     description:
       "Fetch one trace with its span tree. Defaults to the lightweight skeleton projection; pass fields=full for per-span input/output/metadata.",
@@ -1432,6 +1451,49 @@ export const REGISTRY: readonly RegistryEntry[] = [
       properties: {},
       required: [],
       additionalProperties: false,
+    },
+  },
+  {
+    name: "run_sql",
+    description:
+      "Run one read-only SQL query over the project's own spans and traces and return the rows. Use get_sql_schema first to see the columns available; the query may only read the curated spans and traces tables, and results are capped and may be truncated.",
+    method: "post",
+    path: "/api/v1/public/sql",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+        max_rows: {
+          maximum: 1000000,
+          minimum: 1,
+          type: "integer",
+          description: "Rows to return, clamped down to the server ceiling",
+        },
+        parameters: {
+          additionalProperties: true,
+          maxProperties: 100,
+          type: "object",
+          description: "Values for {name:Type} placeholders in the query",
+        },
+        query: {
+          description: "A single read-only SELECT over the public schema",
+          maxLength: 65536,
+          minLength: 1,
+          type: "string",
+        },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    bodyParams: ["max_rows", "parameters", "query"],
+    policy: {
+      approvalClass: "none",
+      minRole: "VIEWER",
+      tenancy: "project",
     },
   },
   {

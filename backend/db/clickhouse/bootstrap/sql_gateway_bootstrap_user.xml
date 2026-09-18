@@ -1,0 +1,52 @@
+<!--
+  Defines `sql_gateway_bootstrap`: the only account that holds access management.
+  Mounted into /etc/clickhouse-server/users.d/.
+
+  WHY A SEPARATE IDENTITY, rather than granting the application account.
+
+  The SQL gateway needs an account that can CREATE USER (to provision
+  sql_gateway_writer and sql_gateway_ro) and SET DEFINER (the curated views are
+  created with an explicit `DEFINER = sql_gateway_writer`). Both privileges arrive
+  together with access_management.
+
+  CLICKHOUSE_USER is the account the application runs as: rest, worker, billing and
+  detector all authenticate with it in docker-compose.prod.yml. Granting it access
+  management would mean a compromise of any one of those services could create
+  further accounts and grant them anything, which is persistence well beyond the
+  read and DDL access those services need. So the privilege lives on an account that
+  only the one shot provisioning and migration containers ever use.
+
+  The password comes from the environment via `from_env`, so it is never written
+  into this file: the dev stack supplies a weak known default, and
+  docker-compose.prod.yml refuses to start without a real one.
+
+  Cloud deployments do not use this file. The chart provisions the gateway accounts,
+  and the bundled ClickHouse admin already holds these privileges.
+
+  Note for editors: XML forbids a double hyphen inside a comment, so this block
+  avoids them. A decorative underline here is what stopped the server booting once.
+-->
+<clickhouse>
+    <users>
+        <sql_gateway_bootstrap>
+            <password from_env="SQL_GATEWAY_BOOTSTRAP_PASSWORD"/>
+            <access_management>1</access_management>
+            <!--
+              Private ranges only. This account can create users and grant privileges,
+              so it must not be reachable from anywhere the compose network is exposed.
+              The ranges below cover the Docker bridge (172.16/12 by default) and the
+              loopback used when the stack is driven from the host; they deliberately
+              exclude the public internet, which `::/0` did not.
+            -->
+            <networks>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+                <ip>10.0.0.0/8</ip>
+                <ip>172.16.0.0/12</ip>
+                <ip>192.168.0.0/16</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+        </sql_gateway_bootstrap>
+    </users>
+</clickhouse>

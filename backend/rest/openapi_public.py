@@ -25,7 +25,11 @@ TITLE = "TraceRoot Public API"
 
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 _BEARER_SCHEME = {"type": "http", "scheme": "bearer"}
-_ERROR_SCHEMA = {"type": "object", "properties": {"detail": {"type": "string"}}}
+#: The canonical envelope, by reference. Inline, these responses generated an
+#: anonymous type per operation, so a client branching on an error saw one shape
+#: for the statuses a route declares itself and another for the two added here.
+#: ErrorResponse is the same object and also marks ``detail`` required.
+_ERROR_SCHEMA = {"$ref": "#/components/schemas/ErrorResponse"}
 
 
 def _error_response(description: str) -> dict[str, Any]:
@@ -370,6 +374,29 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
     },
     "ingest_traces": {"enabled": False},
+    "run_sql": {
+        "name": "run_sql",
+        "description": (
+            "Run one read-only SQL query over the project's own spans and traces "
+            "and return the rows. Use get_sql_schema first to see the columns "
+            "available; the query may only read the curated spans and traces "
+            "tables, and results are capped and may be truncated."
+        ),
+        "enabled": True,
+        # A read that happens to arrive by POST, because the query travels in the
+        # body. VIEWER and no approval match the other read operations; the
+        # method is what forces a policy entry here at all.
+        "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
+    },
+    "get_sql_schema": {
+        "name": "get_sql_schema",
+        "description": (
+            "List the tables and columns available to run_sql, with their types. "
+            "Read this before writing a query: it is the whole surface a query "
+            "may reference."
+        ),
+        "enabled": True,
+    },
     "list_traces": {
         "name": "list_traces",
         "description": (

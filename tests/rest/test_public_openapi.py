@@ -344,6 +344,8 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/traces/filter-values/{field}": {"get": "list_trace_filter_values"},
     "/api/v1/public/traces/{trace_id}": {"get": "get_trace"},
     "/api/v1/public/traces/{trace_id}/export": {"get": "export_trace"},
+    "/api/v1/public/sql": {"post": "run_sql"},
+    "/api/v1/public/sql/schema": {"get": "get_sql_schema"},
     "/api/v1/public/whoami": {"get": "whoami"},
     "/api/v1/public/evaluation-runs": {"post": "register_run"},
     "/api/v1/public/evaluation-runs/{run_id}/results": {"post": "upsert_result"},
@@ -428,6 +430,8 @@ def test_x_tool_enabled_set_and_shape():
         "create_alert",
         "run_widget_query",
         "get_dashboard_data",
+        "run_sql",
+        "get_sql_schema",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"

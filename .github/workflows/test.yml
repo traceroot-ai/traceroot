@@ -71,6 +71,53 @@ jobs:
           path: coverage-backend.xml
 
   # ---------------------------------------------------------------------------
+  # SQL gateway against a live ClickHouse  (tests/integration/)
+  # ---------------------------------------------------------------------------
+  # The suite skips without a server, so in backend-tests it proves nothing. This job
+  # gives it one: the same major version the compose stack defaults to, with an admin
+  # that can create the gateway's accounts and set its views' DEFINER.
+  sql-gateway-integration:
+    name: SQL Gateway Integration
+    runs-on: ubuntu-24.04
+    needs: [lint]
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.2
+        env:
+          CLICKHOUSE_USER: it
+          CLICKHOUSE_PASSWORD: it
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run SQL gateway integration tests
+        timeout-minutes: 10
+        env:
+          SQL_GATEWAY_IT_CLICKHOUSE_HOST: localhost
+          SQL_GATEWAY_IT_CLICKHOUSE_PORT: "8123"
+          SQL_GATEWAY_IT_CLICKHOUSE_USER: it
+          SQL_GATEWAY_IT_CLICKHOUSE_PASSWORD: it
+          SQL_GATEWAY_IT_REQUIRED: "1"
+        run: uv run pytest tests/integration -m integration
+
+  # ---------------------------------------------------------------------------
   # Frontend unit tests  (frontend/)
   # ---------------------------------------------------------------------------
   frontend-tests:
