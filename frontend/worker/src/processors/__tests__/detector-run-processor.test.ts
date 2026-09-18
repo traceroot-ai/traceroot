@@ -436,12 +436,10 @@ describe("processTrace — self-trace emission", () => {
     expect(mockWithSelfTrace).toHaveBeenCalledTimes(1);
     const meta = mockWithSelfTrace.mock.calls[0][0];
     expect(meta.projectId).toBe("p1");
-    expect(meta.scannedTraceId).toBe("t1");
-    expect(meta.detectorId).toBe("d1");
-    expect(meta.detectorName).toBe("Slow");
-    // Dashless 32-hex — the same shape as a trace id, and the self-trace's
-    // trace_id verbatim.
-    expect(meta.runId).toMatch(/^[0-9a-f]{32}$/);
+    expect(meta.name).toBe("detector-run: Slow");
+    expect(meta.metadata).toEqual({ detectorId: "d1", detectorName: "Slow", scannedTraceId: "t1" });
+    // Dashless 32-hex — the run id verbatim, forced as the self-trace's trace_id.
+    expect(meta.traceId).toMatch(/^[0-9a-f]{32}$/);
     // The eval genuinely ran inside the wrapper.
     expect(mockRunDetection).toHaveBeenCalledTimes(1);
     expect(mockWriteRun).toHaveBeenCalledWith(expect.objectContaining({ selfTraced: true }));
