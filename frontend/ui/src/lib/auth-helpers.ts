@@ -143,33 +143,24 @@ export async function requireProjectAccess(
 }
 
 /**
- * Verify the internal API secret on server-to-server calls.
+ * Verify internal API secret for Python backend calls.
  *
- * Two credentials are accepted, as on the REST side: the platform secret
- * (INTERNAL_API_SECRET: Python backend, worker) and the agent service's own
- * (INTERNAL_API_SECRET_AGENT), which it sends on every internal call so it
- * never has to hold the platform one. Same privilege either way; the split is
- * what lets the agent secret be rotated alone. The agent secret is optional
- * here — blank means only the platform secret is accepted.
+ * One credential for every internal caller — the Python backend, the worker
+ * and the agent service, whose tools call this app for GitHub App tokens.
  *
  * Compared in constant time (crypto.timingSafeEqual) so response timing cannot
- * be used to recover a secret byte-by-byte. Both sides are hashed first so
+ * be used to recover the secret byte-by-byte. Both sides are hashed first so
  * the compared buffers always have equal length — timingSafeEqual throws on a
  * length mismatch, and any length-dependent early exit would leak the secret's
  * length. Fails closed on a missing header or a blank configured secret (env
- * validation already rejects a blank platform secret at boot; guarded here anyway).
+ * validation already rejects the latter at boot; guarded here anyway).
  */
 export function verifyInternalSecret(request: Request): boolean {
   const provided = request.headers.get("X-Internal-Secret");
-  if (!provided) {
+  const expected = env.INTERNAL_API_SECRET;
+  if (!provided || !expected) {
     return false;
   }
-  return [env.INTERNAL_API_SECRET, env.INTERNAL_API_SECRET_AGENT].some(
-    (expected) => !!expected && digestsMatch(provided, expected),
-  );
-}
-
-function digestsMatch(provided: string, expected: string): boolean {
   return timingSafeEqual(
     createHash("sha256").update(provided).digest(),
     createHash("sha256").update(expected).digest(),

@@ -19,10 +19,7 @@ import { createRegistryReadTools } from "../registry-tools.js";
 describe("createRegistryReadTools", () => {
   beforeEach(() => {
     process.env.BACKEND_INTERNAL_URL = "http://fastapi.test";
-    // The agent's own credential — the platform secret is deliberately unset:
-    // every internal call the tools make must carry the agent one.
-    process.env.INTERNAL_API_SECRET_AGENT = "s3cret";
-    delete process.env.INTERNAL_API_SECRET;
+    process.env.INTERNAL_API_SECRET = "s3cret";
   });
   afterEach(() => vi.unstubAllGlobals());
 

@@ -27,6 +27,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/traces/{trace_id}/detector-runs"),
     ("GET", "/api/v1/internal/detector-window-summary"),
     ("POST", "/api/v1/internal/traces"),
+    ("POST", "/api/v1/internal/traces/agent"),
     # Alerts (#1889): the worker asks REST to evaluate a rule's measure over a window.
     ("POST", "/api/v1/internal/alert-evaluate"),
     # Dashboard mirror for the agent (be0f0f29): read-only listing and detail,
@@ -53,8 +54,7 @@ def test_internal_route_table_is_exactly_the_expected_set():
 
 def test_every_internal_route_requires_the_internal_secret():
     # route.dependant covers both attachment styles: router-level
-    # `dependencies=[Depends(...)]` and a signature parameter such as the ingest
-    # route's `caller: Annotated[InternalCaller, Depends(verify_internal_secret)]`.
+    # `dependencies=[Depends(...)]` and a signature parameter.
     for route in _internal_routes():
         calls = [d.call for d in route.dependant.dependencies]
         assert verify_internal_secret in calls, f"{sorted(route.methods)} {route.path}"
