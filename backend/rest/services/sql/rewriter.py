@@ -240,10 +240,18 @@ def _extract_time_bounds(
 
     starts: list[exp.Expression] = []
     ends: list[exp.Expression] = []
+    consumed: set[int] = set()
 
-    def keep(side: list[exp.Expression], value: exp.Expression, *, exclusive: bool = False) -> None:
+    def keep(
+        side: list[exp.Expression],
+        value: exp.Expression,
+        column_node: exp.Expression,
+        *,
+        exclusive: bool = False,
+    ) -> None:
         if _is_constant_bound(value):
             side.append(_as_bound(_next_millisecond(value) if exclusive else value))
+            consumed.add(id(column_node))
 
     def visit(node: exp.Expression) -> None:
         if isinstance(node, exp.And):
@@ -255,36 +263,54 @@ def _extract_time_bounds(
             return
         # col >= X, or the mirrored X <= col
         if isinstance(node, exp.GTE) and _is_time_column(node.this, column, aliases, qualified):
-            keep(starts, node.expression)
+            keep(starts, node.expression, node.this)
         elif isinstance(node, exp.LTE) and _is_time_column(
             node.expression, column, aliases, qualified
         ):
-            keep(starts, node.this)
+            keep(starts, node.this, node.expression)
         # col < X, or the mirrored X > col
         elif isinstance(node, exp.LT) and _is_time_column(node.this, column, aliases, qualified):
-            keep(ends, node.expression)
+            keep(ends, node.expression, node.this)
         elif isinstance(node, exp.GT) and _is_time_column(
             node.expression, column, aliases, qualified
         ):
-            keep(ends, node.this)
+            keep(ends, node.this, node.expression)
         # col > X, or the mirrored X < col. The view's lower bound is inclusive,
         # so an exclusive one becomes the next millisecond.
         elif isinstance(node, exp.GT) and _is_time_column(node.this, column, aliases, qualified):
-            keep(starts, node.expression, exclusive=True)
+            keep(starts, node.expression, node.this, exclusive=True)
         elif isinstance(node, exp.LT) and _is_time_column(
             node.expression, column, aliases, qualified
         ):
-            keep(starts, node.this, exclusive=True)
+            keep(starts, node.this, node.expression, exclusive=True)
         # col <= X, or the mirrored X >= col. The view's upper bound is exclusive
         # and subtracts the millisecond back off, so this lands on exactly X.
         elif isinstance(node, exp.LTE) and _is_time_column(node.this, column, aliases, qualified):
-            keep(ends, node.expression, exclusive=True)
+            keep(ends, node.expression, node.this, exclusive=True)
         elif isinstance(node, exp.GTE) and _is_time_column(
             node.expression, column, aliases, qualified
         ):
-            keep(ends, node.this, exclusive=True)
+            keep(ends, node.this, node.expression, exclusive=True)
 
     visit(where)
+
+    # Every mention of the time column in this WHERE has to have become a bound.
+    # One that did not is a filter the view cannot be told about, so the view
+    # resolves each row over a wider window than the caller asked for and the
+    # caller's own filter then drops whichever version won. That is the dedup
+    # hazard described above, and it is silent: the row is simply absent, and
+    # measured on staging a window spelled with toDateTime() around the column
+    # returned nothing where the same window compared directly returned a row.
+    # Refusing costs a caller one rewrite and says what to write instead.
+    for node in where.walk():
+        if _is_time_column(node, column, aliases, qualified) and id(node) not in consumed:
+            raise SqlValidationError(
+                "Query filters on a time column in a form that cannot be scoped. "
+                "Compare the column directly, as in "
+                "`span_start_time >= X AND span_start_time < Y`, rather than wrapping "
+                "it in a function or placing it under OR."
+            )
+
     return _narrowest(starts, "greatest"), _narrowest(ends, "least")
 
 

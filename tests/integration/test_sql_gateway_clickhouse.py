@@ -447,6 +447,29 @@ SPLIT_WINDOW = [
 ]
 
 
+def test_a_window_the_rewriter_cannot_mirror_is_refused_not_answered_wrongly(gateway):
+    """The live version of why the refusal exists.
+
+    ``sem-dedup`` has two versions five minutes apart. Bounded exactly, the window
+    resolves it among the versions inside itself and returns v1. Wrapped in a
+    function the bound never reaches the view, so the dedup picks v2 and the
+    caller's own predicate drops it: the row is gone with no error. Refusing is
+    what makes that outcome unreachable, so this asserts the refusal rather than
+    the wrong answer it replaces.
+    """
+    direct = "span_start_time >= '2026-09-02 10:00:00' AND span_start_time < '2026-09-02 10:02:30'"
+    assert _values(_rows(gateway, f"SELECT span_id FROM spans WHERE {direct}", PROJECT_SEM)) == {
+        "sem-dedup"
+    }
+
+    wrapped = (
+        "toDateTime(span_start_time) >= toDateTime('2026-09-02 10:00:00') "
+        "AND toDateTime(span_start_time) < toDateTime('2026-09-02 10:02:30')"
+    )
+    with pytest.raises(SqlValidationError, match="cannot be scoped"):
+        _rows(gateway, f"SELECT span_id FROM spans WHERE {wrapped}", PROJECT_SEM)
+
+
 @pytest.mark.parametrize("label,predicate", SPLIT_WINDOW, ids=[c[0] for c in SPLIT_WINDOW])
 def test_a_window_spelled_either_way_resolves_the_same_row(gateway, label, predicate):
     """The reason ``>`` and ``<=`` are mapped rather than read as no bound.
@@ -491,9 +514,12 @@ def test_bounded_query_matches_its_unbounded_form(gateway, label, sql):
     ],
     ids=["column reference bound", "scalar subquery bound"],
 )
-def test_non_constant_bounds_still_run(gateway, sql):
-    bounded = _values(_rows(gateway, sql, PROJECT_A))
-    assert bounded and bounded == _values(_rows(gateway, sql, PROJECT_A, open_bounds=True))
+def test_a_non_constant_bound_is_refused(gateway, sql):
+    # These used to run with that side left open, which agreed with the open-bounds
+    # form and so looked correct. It is only wrong where a row has versions that
+    # straddle the window, and then it is wrong silently.
+    with pytest.raises(SqlValidationError, match="cannot be scoped"):
+        _rows(gateway, sql, PROJECT_A)
 
 
 # ---------------------------------------------------------------------------

@@ -241,8 +241,10 @@ UNPARSEABLE = [
         "not-a-number",
     ),
     (
+        # Not a time column: a function around one of those is refused by the
+        # rewriter before execution, so it could never reach the error table.
         "a date that is not one",
-        "SELECT count() FROM spans WHERE toDate(span_start_time) > {p:Date}",
+        "SELECT count() FROM spans WHERE toDate(name) > {p:Date}",
         "nope",
     ),
 ]
@@ -251,17 +253,15 @@ UNPARSEABLE = [
 #: A literal the caller wrote, refused by the type it is converted to. Run live
 #: because the codes differ per conversion (6, 38, 41 on 25.2) and a fake would
 #: only prove the table matches itself.
+# None of these wrap a *time* column. A function around one of those is refused by
+# the rewriter before execution, so it never reaches the error table at all.
 BAD_LITERALS = [
     # The shape that found this: toDateTime parses seconds, not fractions.
     (
         "a timestamp with fractional seconds",
-        "SELECT count() FROM spans WHERE "
-        "toDateTime(span_start_time) >= toDateTime('2026-09-01 00:00:00.000')",
+        "SELECT toDateTime('2026-09-01 00:00:00.000') FROM spans LIMIT 1",
     ),
-    (
-        "a date that is not one",
-        "SELECT count() FROM spans WHERE toDate(span_start_time) >= toDate('nonsense')",
-    ),
+    ("a date that is not one", "SELECT toDate('nonsense') FROM spans LIMIT 1"),
     ("a number that is not one", "SELECT count() FROM spans WHERE duration_ms > toInt64('abc')"),
 ]
 
