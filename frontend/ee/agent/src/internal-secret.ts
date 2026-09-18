@@ -1,14 +1,15 @@
 /**
- * The agent service's one internal credential.
+ * The internal credential the agent service presents on server-to-server calls.
  *
- * REST and the UI accept two internal secrets: the platform one
- * (`INTERNAL_API_SECRET`: worker, Next.js server) and this one. Their privilege
- * is the same; what differs is the `source` the trace ingest route stamps, so
- * a process holding only the agent secret can neither forge a detector trace
- * nor be affected by a platform-secret rotation (design: agent-self-trace,
- * decision 2). That holds only while the agent sends this secret on every
- * internal call, hence one accessor rather than six env reads.
+ * One value for every internal caller (worker, Next.js server, this service).
+ * A trace's `source` is decided by the ingest path the agent posts to
+ * (`/api/v1/internal/traces/agent`), not by which credential authenticated —
+ * the label separates reading and billing, not privilege, so a second secret
+ * to configure and rotate bought nothing (design: decision 2).
+ *
+ * One accessor rather than an env read per call site, so the value every tool
+ * sends is the one the self-trace exporter sends.
  */
 export function agentInternalSecret(): string {
-  return process.env.INTERNAL_API_SECRET_AGENT || "";
+  return process.env.INTERNAL_API_SECRET || "";
 }
