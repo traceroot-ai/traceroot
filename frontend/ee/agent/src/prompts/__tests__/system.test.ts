@@ -51,8 +51,8 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("propose\ncreate_alert (it asks the user to confirm)");
     expect(prompt).toContain("latency is milliseconds, so 2 seconds is a threshold of 2000");
     expect(prompt).toContain("never idempotent");
-    // The confirmation paragraph names the alert create beside the others.
-    expect(prompt).toContain("create_detector, create_alert, and other writes");
+    // The confirmation paragraph covers the alert create with the other writes.
+    expect(prompt).toContain("the create_, update_ and delete_ tools and set_alert_status");
     expect(prompt).toContain("use list_alerts, then get_alert");
   });
 
@@ -80,7 +80,7 @@ describe("getSystemPrompt", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
     expect(prompt).toContain("## Write Confirmations");
     expect(prompt).toContain("NOT executed");
-    expect(prompt).toContain("nothing was created or written");
+    expect(prompt).toContain("nothing was created, changed or deleted");
     expect(prompt).toContain("acknowledge the skip and continue without retrying");
     expect(prompt).toContain("propose the same tool call again with those changes applied");
     expect(prompt).toContain("Never claim a skipped or revised call succeeded");
@@ -239,6 +239,54 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("the only dashboard when there is just");
     expect(prompt).toContain("when the project has none, propose create_dashboard");
     expect(prompt).toContain("the confirmation card is where the user redirects or skips it");
+  });
+
+  it("describes the edit and delete tools and prefers set_alert_status for pause and resume", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain(
+      "### Editing and Deleting: update_detector, update_dashboard, update_widget,",
+    );
+    expect(prompt).toContain(
+      "update_alert, set_alert_status, delete_detector, delete_dashboard, delete_widget",
+    );
+    expect(prompt).toContain("and delete_alert");
+    expect(prompt).toContain("To pause or resume an alert use set_alert_status");
+    expect(prompt).toContain("never update_alert");
+  });
+
+  it("makes the agent read the resource before it proposes an edit or a delete", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain(
+      "Before proposing an edit or a delete, read the resource (get_detector, get_dashboard,",
+    );
+    expect(prompt).toContain("get_widget or get_alert) so the proposal names its current values");
+    expect(prompt).toContain("Resolve every id from a list or a read; never guess one");
+  });
+
+  it("limits an edit to the fields the user asked to change, with null as the clear", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain("Send only the fields the user asked to change");
+    expect(prompt).toContain("a field left out is untouched, and a null clears a nullable field");
+    expect(prompt).toContain("Never re-send the whole resource");
+  });
+
+  it("forbids deleting to work around an error or beyond what the user named, and requires a real reason", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain("Never delete to work around a validation error");
+    expect(prompt).toContain("never delete more than the user named");
+    expect(prompt).toContain("one delete call per resource the user named");
+    expect(prompt).toContain("Its reason must state the user's actual instruction");
+    expect(prompt).toContain("not a paraphrase of the action");
+    // A delete needs a person's approval, and skipping one is final.
+    expect(prompt).toContain("A delete asks the user to approve it");
+  });
+
+  it("names updates and deletes in the confirmation paragraph so their declines are honored too", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain(
+      "Write tools (the create_, update_ and delete_ tools and set_alert_status)",
+    );
+    expect(prompt).toContain("nothing was created, changed or deleted");
   });
 
   it("includes current date in UTC", () => {

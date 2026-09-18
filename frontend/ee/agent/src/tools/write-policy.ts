@@ -4,6 +4,8 @@ import {
   ParkRefusedError,
   pendingDecisions,
   revisionReason,
+  userSkipReason,
+  type ParkApprovalClass,
   type PendingDecisions,
 } from "../pending-decisions.js";
 
@@ -11,7 +13,7 @@ import {
 type PolicyCarrier = Pick<RegistryEntry, "name" | "policy">;
 
 export const APPROVAL_REQUIRED_REASON =
-  "This operation requires human approval, which is not yet available in this chat. It was not performed.";
+  "This operation requires a person's approval, and nobody is attending this session to give it. It was not performed.";
 
 export const CONFIRMATION_UNAVAILABLE_REASON =
   "This operation asks the user to confirm before it runs, and no confirmation flow is available here. It was not performed.";
@@ -27,19 +29,26 @@ export interface WritePolicyHookOptions {
  * Build a beforeToolCall hook enforcing the registry's write policies.
  *
  * Policy gate: only tools whose registry entry carries `approvalClass:
- * "none"` may execute unconditionally. `"confirm"` writes PARK: in an
- * attended session (the live run's channel carries a userId) the hook emits
- * a `confirmation_pending` SSE event and waits for the user's decision —
- * create lets the call run unchanged, skip/revise decline it with a reason
- * the model narrates, and every release path (run error, run end, client
- * disconnect, session deletion, timeout) resolves the wait as a skip so a
- * parked call can never hold the turn open forever, and a park past the
- * registry's bounds fails closed with the reason. An unattended/system
- * session has nobody to ask, so confirm executes as "none"; a confirm call
- * with no live channel at all fails closed. Any other approval class
- * (including unknown future ones) is blocked as requiring approval. Tools
- * without a policy entry (read tools, sandbox tools, github tools — anything
- * not a registry write) proceed untouched. The hook never throws.
+ * "none"` may execute unconditionally. `"confirm"` writes (creates and
+ * updates) PARK: in an attended session (the live run's channel carries a
+ * userId) the hook emits a `confirmation_pending` SSE event and waits for
+ * the user's decision — create lets the call run unchanged, skip/revise
+ * decline it with a reason the model narrates, and every release path (run
+ * error, run end, client disconnect, session deletion, timeout) resolves the
+ * wait as a skip so a parked call can never hold the turn open forever, and
+ * a park past the registry's bounds fails closed with the reason. An
+ * unattended/system session has nobody to ask, so confirm executes as
+ * "none"; a confirm call with no live channel at all fails closed.
+ *
+ * `"approval"` writes (deletes) park the same way on an attended session,
+ * with the event marked so the panel draws the destructive card, and a
+ * revise settles as a skip — a delete is never re-proposed from typed
+ * changes. Everywhere else they fail closed: an unattended session, or no
+ * channel at all, blocks with the approval reason. An RCA or system session
+ * never deletes. Any other approval class (including unknown future ones)
+ * is blocked the same way. Tools without a policy entry (read tools,
+ * sandbox tools, github tools — anything not a registry write) proceed
+ * untouched. The hook never throws.
  */
 export function createWritePolicyHook(
   entries: readonly PolicyCarrier[] = REGISTRY,
@@ -57,26 +66,34 @@ export function createWritePolicyHook(
     if (policy === undefined || policy.approvalClass === "none") {
       return undefined;
     }
-    if (policy.approvalClass === "confirm") {
-      return awaitConfirmation(context, options);
+    if (policy.approvalClass === "confirm" || policy.approvalClass === "approval") {
+      return awaitDecision(context, options, policy.approvalClass);
     }
     return { block: true, reason: APPROVAL_REQUIRED_REASON };
   };
 }
 
-/** Park a confirm-class call until the user decides (see createWritePolicyHook). */
-async function awaitConfirmation(
+/** Park a confirm- or approval-class call until the user decides (see createWritePolicyHook). */
+async function awaitDecision(
   context: BeforeToolCallContext,
   options: WritePolicyHookOptions,
+  approvalClass: ParkApprovalClass,
 ): Promise<BeforeToolCallResult | undefined> {
   const decisions = options.decisions ?? pendingDecisions;
   const channel = options.sessionId ? decisions.channelFor(options.sessionId) : undefined;
   if (!channel) {
-    return { block: true, reason: CONFIRMATION_UNAVAILABLE_REASON };
+    return {
+      block: true,
+      reason:
+        approvalClass === "approval" ? APPROVAL_REQUIRED_REASON : CONFIRMATION_UNAVAILABLE_REASON,
+    };
   }
   if (!channel.userId) {
-    // Unattended/system session: nobody is there to confirm — run as "none".
-    return undefined;
+    // Unattended/system session: nobody is there to decide. A confirm runs
+    // as "none"; an approval (a delete) fails closed instead.
+    return approvalClass === "approval"
+      ? { block: true, reason: APPROVAL_REQUIRED_REASON }
+      : undefined;
   }
 
   const toolName = context.toolCall.name;
@@ -87,6 +104,7 @@ async function awaitConfirmation(
       toolCallId: context.toolCall.id,
       toolName,
       args: context.args,
+      approvalClass,
     });
   } catch (error) {
     // Over a parking bound: fail closed with the registry's own reason, so
@@ -102,6 +120,7 @@ async function awaitConfirmation(
       toolCallId: context.toolCall.id,
       toolName,
       args: context.args,
+      approvalClass,
     });
   } catch (error) {
     // The user can never see a card we failed to send — release the parked
@@ -115,7 +134,11 @@ async function awaitConfirmation(
     return undefined;
   }
   if (decision.action === "revise") {
-    return { block: true, reason: revisionReason(decision.text) };
+    // The registry already settles a revise on an approval park as a skip;
+    // this guard keeps the hook honest should a revise ever reach it.
+    return approvalClass === "approval"
+      ? { block: true, reason: userSkipReason(toolName) }
+      : { block: true, reason: revisionReason(decision.text) };
   }
   return { block: true, reason: decision.reason };
 }

@@ -222,7 +222,33 @@ describe("ResourceCard definition panel", () => {
     expect(definitionToggle("Error rate spike").getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("never badges a proposal: an alert that does not exist has no state", () => {
+  it("badges a proposal only when its model carries a state — an edit of a live alert", () => {
+    render(
+      <ResourceCard
+        proposed
+        model={model({
+          resourceType: "alert",
+          title: "p95 latency",
+          meta: ["Alert"],
+          badge: {
+            status: "ACTIVE",
+            severity: "ALERT",
+            lastError: null,
+            lastEvaluatedAt: "2026-09-17T09:05:00Z",
+            lastNotifyStatus: null,
+            lastNotifyError: null,
+          },
+          body: { kind: "changes", chips: ["threshold: 2000 → 3000"], preview: null },
+        })}
+      />,
+    );
+    // The alerts page's own label for a firing rule, in the footer.
+    expect(screen.getByText("Alert", { selector: "span" })).toBeTruthy();
+  });
+
+  it("never badges a create proposal: an alert that does not exist has no state", () => {
+    // pendingCardModel never sets a badge on a create; the card shows none
+    // without one, whatever the alert's future state might be.
     render(
       <ResourceCard
         proposed
@@ -230,14 +256,6 @@ describe("ResourceCard definition panel", () => {
           resourceType: "alert",
           title: "p95 latency over 2s",
           meta: ["Alert"],
-          badge: {
-            status: "ACTIVE",
-            severity: "OK",
-            lastError: null,
-            lastEvaluatedAt: null,
-            lastNotifyStatus: null,
-            lastNotifyError: null,
-          },
           body: { kind: "alert", chips: [], chart: null },
         })}
       />,
@@ -556,5 +574,158 @@ describe("ResourceCard body", () => {
       />,
     );
     expect(container.querySelectorAll("dl").length).toBe(0);
+  });
+});
+
+describe("ResourceCard edits and deletes", () => {
+  it("shows an edit's change chips in the body, open from the start, under its preview", async () => {
+    render(
+      <ResourceCard
+        proposed
+        model={model({
+          title: "Tokens by model",
+          meta: ["Widget", "Last 7 days"],
+          definitionOpen: true,
+          body: {
+            kind: "changes",
+            chips: [
+              "title: Tokens → Tokens by model",
+              "spec: view spans · sum(total_tokens) · line",
+            ],
+            preview: { kind: "widget", chart: CHART },
+          },
+        })}
+      />,
+    );
+    // The preview loads through next/dynamic, so it lands a tick later.
+    expect((await screen.findByTestId("preview")).textContent).toBe("p1/w1/line/7d");
+    expect(screen.getByText("title: Tokens → Tokens by model")).toBeTruthy();
+    expect(screen.getByText("spec: view spans · sum(total_tokens) · line")).toBeTruthy();
+    expect(screen.getByText("Proposed · Widget · Last 7 days")).toBeTruthy();
+  });
+
+  it("previews a detector's new prompt and an alert's edited rule the same way the creates do", async () => {
+    const { unmount } = render(
+      <ResourceCard
+        model={model({
+          resourceType: "detector",
+          title: "Timeouts",
+          meta: ["Detector"],
+          body: {
+            kind: "changes",
+            chips: ["prompt: replaced"],
+            preview: { kind: "prompt", prompt: { kind: "custom", text: "Flag slow traces." } },
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText("Flag slow traces.")).toBeTruthy();
+    unmount();
+
+    render(
+      <ResourceCard
+        model={model({
+          resourceType: "alert",
+          title: "p95 latency",
+          meta: ["Alert"],
+          body: {
+            kind: "changes",
+            chips: ["threshold: 2000 → 3000"],
+            preview: {
+              kind: "alert",
+              chart: {
+                projectId: "p1",
+                view: "SPANS",
+                measure: "latency",
+                aggregation: "p95",
+                window: "10m",
+                operator: ">",
+                threshold: 3000,
+                filters: [],
+                range: DEFAULT_DATE_FILTER,
+              },
+            },
+          },
+        })}
+      />,
+    );
+    expect((await screen.findByTestId("alert-preview")).textContent).toBe(
+      `p1/p95(latency)/>3000/${DEFAULT_DATE_FILTER.id}`,
+    );
+  });
+
+  it("offers to hide a chart preview on an edit, like a create's", () => {
+    render(
+      <ResourceCard
+        model={model({
+          body: { kind: "changes", chips: [], preview: { kind: "widget", chart: CHART } },
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Hide preview" }));
+    expect(screen.queryByTestId("preview")).toBeNull();
+  });
+
+  it("renders a delete proposal destructively: the reason quoted as the body, the cascade, the chips", () => {
+    const { container } = render(
+      <ResourceCard
+        proposed
+        model={model({
+          resourceType: "dashboard",
+          title: "Test alpha",
+          meta: ["Dashboard"],
+          destructive: true,
+          definitionOpen: true,
+          body: {
+            kind: "delete",
+            reason: "the user asked to clean up the test dashboards",
+            cascade: "and its 4 widgets",
+            chips: ["view spans"],
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText("“the user asked to clean up the test dashboards”")).toBeTruthy();
+    expect(screen.getByText("and its 4 widgets")).toBeTruthy();
+    expect(screen.getByText("view spans")).toBeTruthy();
+    expect(screen.getByText("Proposed · Dashboard")).toBeTruthy();
+    expect(container.firstElementChild?.className).toContain("border-destructive");
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("labels an update receipt Updated and a delete receipt Deleted, with no destructive border", () => {
+    const { container, unmount } = render(
+      <ResourceCard
+        model={model({
+          outcome: "updated",
+          href: "/projects/p1/dashboard/db1",
+          body: { kind: "changes", chips: ["title: Errors"], preview: null },
+        })}
+      />,
+    );
+    expect(screen.getByText("Updated")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open widget" })).toBeTruthy();
+    expect(container.firstElementChild?.className).not.toContain("border-destructive");
+    unmount();
+
+    render(
+      <ResourceCard
+        model={model({
+          outcome: "deleted",
+          body: { kind: "delete", reason: "duplicate", cascade: null, chips: [] },
+        })}
+      />,
+    );
+    expect(screen.getByText("Deleted")).toBeTruthy();
+    expect(screen.getByText("“duplicate”")).toBeTruthy();
+    expect(screen.queryByText("Reused")).toBeNull();
+  });
+
+  it("keeps an edit with no chips and no preview on its footer alone", () => {
+    const { container } = render(
+      <ResourceCard model={model({ body: { kind: "changes", chips: [], preview: null } })} />,
+    );
+    expect(container.querySelectorAll(".border-t").length).toBe(0);
+    expect(screen.queryByRole("button", { name: "Hide preview" })).toBeNull();
   });
 });

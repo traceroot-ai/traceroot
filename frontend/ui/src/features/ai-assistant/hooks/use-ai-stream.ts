@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { proposalDeclined } from "../utils/proposal-declined";
-import type { AIMessage } from "../types";
+import type { AIMessage, PendingConfirmation } from "../types";
 
 /** Generate a UUID that works in both secure (HTTPS) and insecure (HTTP) contexts. */
 function generateId(): string {
@@ -48,6 +48,11 @@ interface SessionRun {
    *  from then on. A run that merely finished deregisters itself without it,
    *  so its final updates (freezing its bubble) still count. */
   stopped: boolean;
+  /** Resolves once the run is over — finished, superseded or aborted — for a
+   *  caller that must not open the session's next turn while this one is
+   *  live. */
+  settled: Promise<void>;
+  settle: () => void;
 }
 
 /**
@@ -111,6 +116,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
     runsRef.current.delete(sessionId);
     run.reader?.cancel().catch(() => {});
     run.abortController.abort();
+    run.settle();
   }, []);
 
   const clearStreamingFlag = useCallback((sessionId: string) => {
@@ -230,6 +236,18 @@ export function useAIStream(options?: UseAIStreamOptions) {
    */
   const isSessionStreaming = useCallback((sessionId: string) => runsRef.current.has(sessionId), []);
 
+  /**
+   * Resolves once no run owns the session: at once when none does, otherwise
+   * when the live one finishes, is superseded, or is aborted. The service
+   * admits one run per session, so a caller with a message that must follow
+   * the current run — rather than be refused by it — waits on this.
+   */
+  const runSettled = useCallback(
+    (sessionId: string): Promise<void> =>
+      runsRef.current.get(sessionId)?.settled ?? Promise.resolve(),
+    [],
+  );
+
   /** Drop a session entirely (delete): cancel its run and forget its bucket. */
   const removeSession = useCallback(
     (sessionId: string) => {
@@ -269,7 +287,11 @@ export function useAIStream(options?: UseAIStreamOptions) {
       stopRun(sessionId);
 
       const abortController = new AbortController();
-      const run: SessionRun = { abortController, reader: null, stopped: false };
+      let settle!: () => void;
+      const settled = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+      const run: SessionRun = { abortController, reader: null, stopped: false, settled, settle };
       runsRef.current.set(sessionId, run);
 
       // Void once stopRun has marked this run stopped — superseded/aborted
@@ -505,14 +527,23 @@ export function useAIStream(options?: UseAIStreamOptions) {
                   safeUpdate((prev) => [...prev, toolStepMsg]);
                 }
 
-                // A confirm-class write was parked: mark its tool step pending
-                // so the panel can offer the decision. The step normally exists
+                // A confirm- or approval-class write was parked: mark its tool
+                // step pending so the panel can offer the decision. The step normally exists
                 // already (tool_execution_start precedes the park); if the
                 // start event was missed, the entry is appended whole. Keyed by
                 // toolCallId, a superseding event replaces the pending entry in
                 // place — one call can never show two pending cards.
                 if (eventData.type === "confirmation_pending") {
-                  const pending = { decisionId: eventData.decisionId };
+                  // The class decides the card and what a reply does; only
+                  // the two known values are carried, so a future one cannot
+                  // reach the composer as a string it never checks.
+                  const approvalClass = eventData.approvalClass;
+                  const pending: PendingConfirmation = {
+                    decisionId: eventData.decisionId,
+                    ...(approvalClass === "confirm" || approvalClass === "approval"
+                      ? { approvalClass }
+                      : {}),
+                  };
                   safeUpdate((prev) => {
                     if (prev.some((m) => m.id === eventData.toolCallId)) {
                       return prev.map((m) =>
@@ -611,6 +642,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
           runsRef.current.delete(sessionId);
           clearStreamingFlag(sessionId);
         }
+        run.settle();
       }
     },
     [stopRun, updateBucket, clearStreamingFlag],
@@ -632,6 +664,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
     messagesBySession,
     streamingSessions,
     isSessionStreaming,
+    runSettled,
     sendMessage,
     setSessionMessages,
     sessionWriteEpoch,

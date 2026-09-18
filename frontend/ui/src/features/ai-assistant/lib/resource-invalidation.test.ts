@@ -107,3 +107,74 @@ describe("invalidationKeysForResult", () => {
     ).toEqual([["workspaces"]]);
   });
 });
+
+describe("invalidationKeysForResult — updates and deletes", () => {
+  const updated = (details: Record<string, unknown>) => ({
+    content: [],
+    details: { kind: "resource_updated", changed: ["name"], ...details },
+  });
+  const deleted = (details: Record<string, unknown>) => ({
+    content: [],
+    details: { kind: "resource_deleted", reason: "asked to", ...details },
+  });
+
+  it("stales the same keys for an updated resource as for a created one", () => {
+    expect(
+      invalidationKeysForResult(
+        updated({ resourceType: "dashboard", resourceId: "db1", projectId: "p1" }),
+      ),
+    ).toEqual([
+      ["dashboards", "p1"],
+      ["dashboard", "p1", "db1"],
+    ]);
+    expect(
+      invalidationKeysForResult(
+        updated({ resourceType: "widget", resourceId: "w1", projectId: "p1", dashboardId: "db1" }),
+      ),
+    ).toEqual([
+      ["dashboards", "p1"],
+      ["dashboard", "p1", "db1"],
+    ]);
+    expect(
+      invalidationKeysForResult(updated({ resourceType: "detector", resourceId: "d1" })),
+    ).toEqual([["detectors"]]);
+    expect(
+      invalidationKeysForResult(updated({ resourceType: "alert", resourceId: "al1" })),
+    ).toEqual([["alerts"]]);
+  });
+
+  it("stales every dashboard of the project for a deleted widget, whose dashboard the receipt never names", () => {
+    expect(
+      invalidationKeysForResult(
+        deleted({ resourceType: "widget", resourceId: "w1", projectId: "p1" }),
+      ),
+    ).toEqual([
+      ["dashboards", "p1"],
+      ["dashboard", "p1"],
+    ]);
+  });
+
+  it("stales the list and the row for a deleted dashboard, detector or alert", () => {
+    expect(
+      invalidationKeysForResult(
+        deleted({ resourceType: "dashboard", resourceId: "db1", projectId: "p1" }),
+      ),
+    ).toEqual([
+      ["dashboards", "p1"],
+      ["dashboard", "p1", "db1"],
+    ]);
+    expect(
+      invalidationKeysForResult(deleted({ resourceType: "detector", resourceId: "d1" })),
+    ).toEqual([["detectors"]]);
+    expect(
+      invalidationKeysForResult(deleted({ resourceType: "alert", resourceId: "al1" })),
+    ).toEqual([["alerts"]]);
+  });
+
+  it("yields nothing for a malformed update or delete receipt", () => {
+    expect(invalidationKeysForResult(updated({ resourceType: "alert" }))).toEqual([]);
+    expect(
+      invalidationKeysForResult({ details: { kind: "resource_deleted", resourceType: "alert" } }),
+    ).toEqual([]);
+  });
+});

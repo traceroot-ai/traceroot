@@ -15,10 +15,17 @@ const widgetFindFirstMock = vi.fn();
 const widgetCreateMock = vi.fn();
 const widgetUpdateMock = vi.fn();
 const widgetDeleteMock = vi.fn();
+const widgetCountMock = vi.fn();
+const auditCreateMock = vi.fn();
 const queryRawMock = vi.fn();
 
+// The mutating handlers delegate to the write services, which run their own
+// tenancy check and audit inside a transaction on this same client.
 vi.mock("@traceroot/core", () => {
+  const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
   const client = {
+    project: { findUnique: async () => ({ workspaceId: "ws-1", deleteTime: null }) },
+    workspaceMember: { findUnique: async () => ({ role: "MEMBER" }) },
     dashboard: {
       findFirst: (...args: unknown[]) => dashboardFindFirstMock(...args),
       count: (...args: unknown[]) => dashboardCountMock(...args),
@@ -30,13 +37,20 @@ vi.mock("@traceroot/core", () => {
       create: (...args: unknown[]) => widgetCreateMock(...args),
       update: (...args: unknown[]) => widgetUpdateMock(...args),
       delete: (...args: unknown[]) => widgetDeleteMock(...args),
+      count: (...args: unknown[]) => widgetCountMock(...args),
     },
-    // Widget creation locks the dashboard row and rewrites its layout in one
-    // transaction; the mock runs the callback on this same client.
+    auditLog: { create: (...args: unknown[]) => auditCreateMock(...args) },
+    // Widget creation and deletion lock the dashboard row and rewrite its
+    // layout in one transaction; the mock runs the callback on this same client.
     $queryRaw: (...args: unknown[]) => queryRawMock(...args),
     $transaction: (fn: (tx: unknown) => unknown) => fn(client),
   };
-  return { Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" }, prisma: client };
+  return {
+    Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
+    hasMinRole: (userRole: string, minRole: string) =>
+      ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
+    prisma: client,
+  };
 });
 
 const requireAuthMock = vi.fn();
@@ -88,7 +102,13 @@ const fakeWidget = {
   dashboardId: "dash-1",
   title: "My Widget",
   type: "query",
-  spec: { sql: "SELECT 1" },
+  spec: {
+    view: "spans",
+    filters: [],
+    metric: { measure: "count", agg: "count" },
+    breakdown: null,
+    display: { type: "number" },
+  },
   displayConfig: {},
 };
 
@@ -104,6 +124,9 @@ beforeEach(() => {
   widgetCreateMock.mockReset();
   widgetUpdateMock.mockReset();
   widgetDeleteMock.mockReset();
+  widgetCountMock.mockReset();
+  widgetCountMock.mockResolvedValue(0);
+  auditCreateMock.mockReset();
   queryRawMock.mockReset();
   queryRawMock.mockResolvedValue([{ layout: [] }]);
   requireAuthMock.mockReset();
@@ -193,6 +216,30 @@ describe("PATCH /dashboards/[dashboardId]", () => {
     expect(dashboardUpdateMock).not.toHaveBeenCalled();
   });
 
+  it("answers a patch that changes nothing with 200 and no write, no audit", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await PATCH(
+      makeRequest({ name: "My Dashboard", layout: [] }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(200);
+    expect(dashboardUpdateMock).not.toHaveBeenCalled();
+    expect(auditCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("records the edit on the audit log under the ui transport", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    dashboardUpdateMock.mockResolvedValue({ ...fakeDashboard, name: "Renamed" });
+    await PATCH(makeRequest({ name: "Renamed" }), makeParams());
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "update_dashboard",
+        transport: "ui",
+        summary: { changed: ["name"] },
+      }),
+    });
+  });
+
   it("returns 400 for non-object body (array)", async () => {
     const req = { json: async () => ["a", "b"] } as unknown as Parameters<typeof PATCH>[0];
     const res = (await PATCH(req, makeParams())) as MockResponse;
@@ -274,6 +321,17 @@ describe("DELETE /dashboards/[dashboardId]", () => {
     const where = (call[0] as { where: Record<string, unknown> }).where;
     expect(where.id).toBe("dash-1");
     expect(where.projectId).toBe("proj-1");
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "delete_dashboard",
+        transport: "ui",
+        summary: {
+          name: "My Dashboard",
+          reason: "Deleted from the web app",
+          cascaded: { widgets: 0 },
+        },
+      }),
+    });
   });
 
   it("returns 404 when dashboard not found in project", async () => {

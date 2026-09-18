@@ -352,24 +352,26 @@ def _widget_query_spec_variants(schemas: dict[str, Any]) -> list[dict[str, Any]]
 
 
 def _apply_widget_spec_vocabulary(schema: dict[str, Any]) -> None:
-    """Replace ``CreateWidgetRequest.spec``'s ``WidgetSpec`` branch with the
-    per-view variants from :func:`_widget_query_spec_variants`; the trace_feed
-    branch keeps its ``$ref``. The ``WidgetSpec`` component itself stays in the
-    document even though the union no longer references it: the frontend
-    widget-spec-parity test anchors on it to guard the pydantic/zod mirror.
+    """Replace the widget create and update bodies' ``spec`` ``WidgetSpec``
+    branch with the per-view variants from :func:`_widget_query_spec_variants`;
+    the trace_feed branch keeps its ``$ref``. The ``WidgetSpec`` component
+    itself stays in the document even though the unions no longer reference
+    it: the frontend widget-spec-parity test anchors on it to guard the
+    pydantic/zod mirror.
 
     Args:
         schema (dict[str, Any]): The public-only OpenAPI document; mutated in
-            place. No-op if the request schema is absent.
+            place. A request schema that is absent is skipped.
     """
     schemas = (schema.get("components") or {}).get("schemas", {})
-    request = schemas.get("CreateWidgetRequest")
-    if request is None:
-        return
-    request["properties"]["spec"]["anyOf"] = [
-        *_widget_query_spec_variants(schemas),
-        {"$ref": "#/components/schemas/TraceFeedSpec"},
-    ]
+    for name in ("CreateWidgetRequest", "UpdateWidgetRequest"):
+        request = schemas.get(name)
+        if request is None:
+            continue
+        request["properties"]["spec"]["anyOf"] = [
+            *_widget_query_spec_variants(schemas),
+            {"$ref": "#/components/schemas/TraceFeedSpec"},
+        ]
 
 
 # Agent/CLI-facing tool curation, keyed by operationId. Reviewed in the same PR
@@ -680,6 +682,179 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
         "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     },
+    # Edits are PATCH: a field left out is untouched, an explicit null clears a
+    # nullable field. Updates take the creates' confirm class; deletes take
+    # approval, which parks on a destructive card attended and is blocked
+    # unattended. Role floors follow the cookie routes: renaming a workspace
+    # or changing a project's retention is administrative (ADMIN), the four
+    # project resources take MEMBER.
+    "update_workspace": {
+        "name": "update_workspace",
+        "description": (
+            "Rename a workspace the logged-in user administers. Fields left out "
+            "are untouched. The response lists the fields that actually changed; "
+            "a name the caller already uses for another workspace is a conflict."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "ADMIN", "tenancy": "account"},
+    },
+    "update_project": {
+        "name": "update_project",
+        "description": (
+            "Edit a project's name (or, via the API, its trace retention). "
+            "Fields left out are untouched; a null trace_ttl_days returns "
+            "retention to the plan default. Requires ADMIN in the workspace. "
+            "The response lists the fields that actually changed."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "ADMIN", "tenancy": "workspace"},
+        # API/CLI-visible but hidden from the agent, as on create: no UI form
+        # exposes the field, so the model shouldn't interrogate users about it.
+        "agentHiddenParams": ["trace_ttl_days"],
+    },
+    "update_detector": {
+        "name": "update_detector",
+        "description": (
+            "Edit a detector: name, prompt, enabled (the pause switch), "
+            "sample_rate, enable_rca, output_schema, trigger_conditions, or the "
+            "detection model settings. Send only the fields the user asked to "
+            "change — fields left out are untouched, and a null detection_model/"
+            "detection_provider/detection_source clears it. output_schema and "
+            "trigger_conditions replace the whole array; [] removes the trigger. "
+            "The template cannot change. Read the detector first so the "
+            "proposal names its current values; the response lists the fields "
+            "that actually changed."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "update_dashboard": {
+        "name": "update_dashboard",
+        "description": (
+            "Rename a dashboard or change its description. Fields left out are "
+            "untouched; a null description clears it. Tile layout is not "
+            "editable here. The response lists the fields that actually changed."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "update_widget": {
+        "name": "update_widget",
+        "description": (
+            "Edit a widget's title, spec, or display_config. Fields left out are "
+            "untouched; a sent spec replaces the whole spec and must be in the "
+            "dialect of the widget's existing type (query: view/filters/metric/"
+            "breakdown/display; trace_feed: predicate filters + limit) — the "
+            "type itself cannot change. A null display_config resets it. Read "
+            "the widget's dashboard first so the new spec starts from the "
+            "current one; the spec schema enumerates the only available views, "
+            "metrics, filter operators, and display types. The response lists "
+            "the fields that actually changed."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "update_alert": {
+        "name": "update_alert",
+        "description": (
+            "Edit an alert's rule: name, view, measure, aggregation, filters, "
+            "window, threshold_operator, threshold, renotify, no_data_mode. "
+            "Fields left out are untouched; the patch is validated against the "
+            "stored rule, so an aggregation edit must fit the stored measure. "
+            "Any edit to an evaluated field (everything but name) resets the "
+            "alert's evaluation state and clears any open page — the response "
+            "reports state_reset and page_cleared, and lists the fields that "
+            "actually changed. To pause or resume, use set_alert_status instead."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "set_alert_status": {
+        "name": "set_alert_status",
+        "description": (
+            "Pause (PAUSED) or resume (ACTIVE) an alert without touching its "
+            "rule — prefer this over update_alert for pause and resume. Pausing "
+            "keeps the severity the alert stopped at; resuming is a cold start "
+            "(evaluation state reset, due now). PARKED is the evaluator's "
+            "verdict and cannot be requested; pausing a parked alert is a "
+            "conflict, resume it to run it again. Setting the status the alert "
+            "already has changes nothing."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "delete_workspace": {
+        "name": "delete_workspace",
+        "description": (
+            "Permanently delete a workspace and everything in it: every "
+            "project, its access keys, memberships and invites. Requires ADMIN, "
+            "the workspace's current name typed as confirmation, and a reason "
+            "(3-500 characters) that is recorded on the audit row. The caller's "
+            "only workspace cannot be deleted. Not reversible."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "ADMIN", "tenancy": "account"},
+    },
+    "delete_project": {
+        "name": "delete_project",
+        "description": (
+            "Delete a project: it drops out of every list and read and its API "
+            "keys stop authenticating (its data stays for the retention window). "
+            "Requires ADMIN in the workspace and a reason (3-500 characters) "
+            "that is recorded on the audit row."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "ADMIN", "tenancy": "workspace"},
+    },
+    "delete_detector": {
+        "name": "delete_detector",
+        "description": (
+            "Permanently delete a detector; its existing findings stay readable. "
+            "Requires a reason (3-500 characters) stating why — the user's "
+            "actual instruction, recorded on the audit row. Resolve the id by "
+            "listing the project's detectors and matching the name; never delete "
+            "more than the user named."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "delete_dashboard": {
+        "name": "delete_dashboard",
+        "description": (
+            "Permanently delete a dashboard together with its widgets. A "
+            "project's last dashboard cannot be deleted. Requires a reason "
+            "(3-500 characters) stating why — the user's actual instruction, "
+            "recorded on the audit row. Resolve the id by listing the project's "
+            "dashboards and matching the name; never delete more than the user "
+            "named."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "delete_widget": {
+        "name": "delete_widget",
+        "description": (
+            "Permanently delete one widget from its dashboard (its layout slot "
+            "is removed with it). Requires a reason (3-500 characters) stating "
+            "why — the user's actual instruction, recorded on the audit row. "
+            "Resolve the id from the dashboard's detail; never delete more than "
+            "the user named."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "delete_alert": {
+        "name": "delete_alert",
+        "description": (
+            "Permanently delete an alert. An open page is discarded, not "
+            "resolved (the response says when one was). Requires a reason "
+            "(3-500 characters) stating why — the user's actual instruction, "
+            "recorded on the audit row. Resolve the id by listing the project's "
+            "alerts and matching the name; never delete more than the user named."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "MEMBER", "tenancy": "project"},
+    },
     "list_workspaces": {
         "name": "list_workspaces",
         "description": (
@@ -711,8 +886,8 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
 #   "confirm"  — an attended surface shows the proposal and waits for the
 #                user's yes; an unattended surface executes as if "none".
 #                A taste gate, not a security control.
-#   "approval" — reserved for destructive ops (future deletes); fail-closed
-#                everywhere today.
+#   "approval" — destructive ops (deletes). Each surface decides how to
+#                honor it; a surface that has not implemented it fails closed.
 _POLICY_VALUES: dict[str, tuple[str, ...]] = {
     "approvalClass": ("none", "confirm", "approval"),
     "minRole": ("VIEWER", "MEMBER", "ADMIN"),

@@ -1,22 +1,9 @@
 import { NextRequest } from "next/server";
-import { Prisma } from "@prisma/client";
-import { canonicalizeAlertFilters, prisma, Role, type AlertFilter } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
-import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
-import {
-  alertUpdateSchema,
-  firstIssueMessage,
-  isAggregationValidForMeasure,
-  isMeasureValidForView,
-  toAlertFilters,
-} from "../schema";
+import { parseJsonObject, readDeleteReason, requireProjectAuth } from "@/lib/route-helpers";
+import { deleteAlert, updateAlert } from "@/lib/write-services/alerts";
 import { alertSelect, serializeAlert } from "../serialize";
-import {
-  alertStateReset,
-  hasRuleChanged,
-  toRuleSnapshot,
-  type AlertRuleSnapshot,
-} from "../rule-state";
 
 type RouteParams = { params: Promise<{ projectId: string; alertId: string }> };
 
@@ -34,6 +21,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   return successResponse({ alert: await serializeAlert(alert) });
 }
 
+// Thin adapters over the write service, which owns the merged-rule
+// validation, the cold start on a rule change, the parked re-arm, the diff
+// and the audit row.
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
@@ -42,140 +32,29 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const parsed = await parseJsonObject(req);
   if (parsed.error) return parsed.error;
 
-  const result = alertUpdateSchema.safeParse(parsed.body);
-  if (!result.success) return errorResponse(firstIssueMessage(result.error), 400);
-  const update = result.data;
-
-  const canonicalFilters: AlertFilter[] | undefined =
-    update.filters === undefined
-      ? undefined
-      : canonicalizeAlertFilters(toAlertFilters(update.filters));
-
-  const data: Prisma.AlertUpdateManyMutationInput = {};
-  if (update.name !== undefined) data.name = update.name;
-  if (update.view !== undefined) data.view = update.view;
-  if (update.measure !== undefined) data.measure = update.measure;
-  if (update.aggregation !== undefined) data.aggregation = update.aggregation;
-  if (canonicalFilters !== undefined) {
-    data.filters = canonicalFilters as unknown as Prisma.InputJsonValue;
-  }
-  if (update.window !== undefined) data.window = update.window;
-  if (update.thresholdOperator !== undefined) data.thresholdOperator = update.thresholdOperator;
-  if (update.threshold !== undefined) data.threshold = update.threshold;
-  if (update.renotify !== undefined) data.renotify = update.renotify as Prisma.InputJsonValue;
-  if (update.noDataMode !== undefined) data.noDataMode = update.noDataMode;
-  if (Object.keys(data).length === 0) return errorResponse("No fields to update", 400);
-
-  const existing = await prisma.alert.findFirst({
-    where: { id: alertId, projectId },
-    select: alertSelect,
+  const result = await updateAlert({
+    actorUserId: auth.user.id,
+    projectId,
+    alertId,
+    patch: parsed.body,
+    provenance: { transport: "ui" },
   });
-  if (!existing) return errorResponse("Alert not found", 404);
-
-  // Merged with the stored rule: an aggregation-only edit still has to hold
-  // against the stored measure, and a filters-only edit against both.
-  const view = update.view ?? existing.view;
-  const measure = update.measure ?? existing.measure;
-  const aggregation = update.aggregation ?? existing.aggregation;
-  const filters = canonicalFilters ?? (existing.filters as unknown as AlertFilter[]);
-  const rewritesQuery =
-    update.view !== undefined ||
-    update.measure !== undefined ||
-    update.aggregation !== undefined ||
-    update.filters !== undefined;
-  if (rewritesQuery) {
-    if (!isMeasureValidForView(view, measure)) {
-      return errorResponse("Invalid measure for view", 400);
-    }
-    if (!isAggregationValidForMeasure(view, measure, aggregation, filters)) {
-      return errorResponse("Invalid aggregation for measure", 400);
-    }
-  }
-
-  const nextRule: Partial<AlertRuleSnapshot> = {
-    view: update.view,
-    measure: update.measure,
-    aggregation: update.aggregation,
-    filters: canonicalFilters,
-    window: update.window,
-    thresholdOperator: update.thresholdOperator,
-    threshold: update.threshold,
-    noDataMode: update.noDataMode,
-  };
-  const rewritesRule = hasRuleChanged(toRuleSnapshot(existing), nextRule);
-  if (rewritesRule) {
-    Object.assign(data, alertStateReset());
-  }
-
-  // The edit is how a parked rule re-arms: parking is a verdict about the
-  // stored settings, and this is the write that replaces them. `renotify`
-  // counts even though it is not part of the evaluated rule — a renotify the
-  // worker cannot parse parks the rule too, and this write is a well-formed
-  // one. A name-only edit changes nothing the evaluator refused, so it leaves
-  // the rule parked rather than re-arming it for one more identical failure.
-  //
-  // Guarded by a status CAS in the write itself, not by `existing.status`: a
-  // concurrent tick can park the rule after `existing` was read here, and the
-  // commit has to catch that at write time or a rule this very edit fixes is
-  // left parked on a stale read.
-  const reArmsParked = rewritesRule || update.renotify !== undefined;
-  const reArmFields = { status: "ACTIVE" as const, ...alertStateReset() };
-  const tryReArm = () =>
-    prisma.alert.updateMany({
-      where: { id: alertId, projectId, status: "PARKED" },
-      data: { ...data, ...reArmFields },
-    });
-
-  let count = reArmsParked ? (await tryReArm()).count : 0;
-
-  // Scoped write rather than a write on `id` alone: the project scope is the
-  // tenancy check, so it belongs on the statement that mutates. Falls back to
-  // it whenever the re-arm CAS above did not apply: the row was not actually
-  // PARKED at that check, so this edit's ordinary fields still have to land.
-  if (count !== 1) {
-    // An edit that would re-arm a parked rule also has to void the claim a tick
-    // may still hold on the row, in this same write. A rule rewrite already does
-    // through `alertStateReset`; a renotify-only edit does not reset state, so
-    // without this a park still in flight from that claim matches the old
-    // `lastClaimedAt` after this returns and parks the rule this edit repaired.
-    // `nextRunAt` moves with it, because the voided claim's evaluation will not
-    // write back and the next tick should redo it rather than wait the cadence.
-    const fallback = reArmsParked ? { ...data, lastClaimedAt: null, nextRunAt: new Date() } : data;
-    ({ count } = await prisma.alert.updateMany({
-      where: { id: alertId, projectId },
-      data: fallback,
-    }));
-    // A tick can still park the rule in the gap between the check above and
-    // this write landing (the fallback has no status guard, so it would
-    // otherwise commit the fix and leave the row parked). One retry closes
-    // that: it costs nothing when nothing raced, and a further adversarial
-    // interleaving past this is a rule that stays parked until an explicit
-    // Resume, not a wrong or corrupted write.
-    if (reArmsParked && count > 0) {
-      await prisma.alert.updateMany({
-        where: { id: alertId, projectId, status: "PARKED" },
-        data: reArmFields,
-      });
-    }
-  }
-  if (count === 0) return errorResponse("Alert not found", 404);
-
-  const alert = await prisma.alert.findFirst({
-    where: { id: alertId, projectId },
-    select: alertSelect,
-  });
-  if (!alert) return errorResponse("Alert not found", 404);
-
-  return successResponse({ alert: await serializeAlert(alert) });
+  if (!result.ok) return errorResponse(result.error, result.status);
+  return successResponse({ alert: result.data });
 }
 
-export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+export async function DELETE(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, alertId } = auth.params;
 
-  const { count } = await prisma.alert.deleteMany({ where: { id: alertId, projectId } });
-  if (count === 0) return errorResponse("Alert not found", 404);
-
+  const result = await deleteAlert({
+    actorUserId: auth.user.id,
+    projectId,
+    alertId,
+    reason: await readDeleteReason(req),
+    provenance: { transport: "ui" },
+  });
+  if (!result.ok) return errorResponse(result.error, result.status);
   return successResponse({ success: true });
 }

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as api from "@/features/dashboards/api";
 import { MessageList } from "./message-list";
+import { knownResources } from "../lib/resource-card";
 import type { AIMessage, ToolCallStep } from "../types";
 
 vi.mock("@/lib/auth-client", () => ({
@@ -524,6 +525,66 @@ describe("MessageList pending confirmation entries", () => {
       <MessageList messages={[toolEntry(decided)]} sessionStreaming projectId="p1" />,
     );
     expect(container.querySelector(".animate-spin")).not.toBeNull();
+  });
+
+  it("names a pending edit by what the transcript already knows the resource as", () => {
+    const receipt: ToolCallStep = {
+      toolCallId: "tc0",
+      toolName: "create_detector",
+      args: { name: "Timeouts", template: "failure", sample_rate: 100 },
+      status: "done",
+      result: {
+        details: {
+          kind: "resource_created",
+          resourceType: "detector",
+          resourceId: "d1",
+          created: true,
+          projectId: "p1",
+          name: "Timeouts",
+        },
+      },
+    };
+    const edit: ToolCallStep = {
+      toolCallId: "tc1",
+      toolName: "update_detector",
+      args: { detector_id: "d1", sample_rate: 25 },
+      status: "running",
+      pending: { decisionId: "d1" },
+    };
+    const messages = [toolEntry(receipt), toolEntry(edit)];
+    render(<MessageList messages={messages} known={knownResources(messages)} projectId="p1" />);
+
+    // The edit card carries the detector's name and the before → after chip.
+    expect(screen.getAllByText("Timeouts").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("sample rate: 100 → 25")).toBeTruthy();
+    expect(screen.getByText(/^Proposed · Detector/)).toBeTruthy();
+  });
+
+  it("names a pending edit by its id when no known resources were handed down", () => {
+    const edit: ToolCallStep = {
+      toolCallId: "tc1",
+      toolName: "update_detector",
+      args: { detector_id: "d1", sample_rate: 25 },
+      status: "running",
+      pending: { decisionId: "d1" },
+    };
+    render(<MessageList messages={[toolEntry(edit)]} projectId="p1" />);
+    expect(screen.getByText("d1")).toBeTruthy();
+    expect(screen.getByText("sample rate: 25")).toBeTruthy();
+  });
+
+  it("renders a pending delete as the destructive card with its reason", () => {
+    const step: ToolCallStep = {
+      toolCallId: "tc2",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "the user asked to remove the duplicate" },
+      status: "running",
+      pending: { decisionId: "d2", approvalClass: "approval" },
+    };
+    const { container } = render(<MessageList messages={[toolEntry(step)]} projectId="p1" />);
+    expect(screen.getByText("“the user asked to remove the duplicate”")).toBeTruthy();
+    expect(container.querySelector(".border-destructive")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
   });
 
   it("keeps the plain tool line for a pending tool it has no card for", () => {

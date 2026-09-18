@@ -120,6 +120,7 @@ export function AiAssistantPanel({
     modelSelection,
     hasPendingDecision,
     pendingDecision,
+    known,
     setHistoryOpen,
     setModelSelection,
     handleSend,
@@ -256,6 +257,7 @@ export function AiAssistantPanel({
           </div>
         ) : (
           <MessageList
+            known={known}
             messages={messages}
             sessionStreaming={isStreaming}
             // The sheet below mounts only with a projectId; without one the
@@ -286,8 +288,13 @@ export function AiAssistantPanel({
           onModelChange={setModelSelection}
           disabled={!projectId || !hasModels}
           workspaceId={workspaceId}
-          // While a proposal awaits a decision, a typed reply revises it.
-          placeholder={hasPendingDecision ? "Reply to revise" : undefined}
+          // While a proposal awaits a decision, a typed reply revises it —
+          // except a delete, which a reply skips; the bar says so instead.
+          placeholder={
+            hasPendingDecision && pendingDecision?.approvalClass !== "approval"
+              ? "Reply to revise"
+              : undefined
+          }
           actions={
             isStreaming && (
               <button

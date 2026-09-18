@@ -25,15 +25,23 @@ export const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
 };
 
 // Entries are stored as JSON and only the placement keys are meaningful; the
-// same shape the dashboard PATCH route accepts.
-function asPlacement(value: unknown): WidgetPlacement | null {
+// same shape the dashboard PATCH route accepts. The widget id is read on its
+// own so an entry can be attributed to its widget even when its coordinates
+// are not renderable.
+function entryWidgetId(value: unknown): string | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const id = (value as Record<string, unknown>).i;
+  return typeof id === "string" ? id : null;
+}
+
+function asPlacement(value: unknown): WidgetPlacement | null {
+  const i = entryWidgetId(value);
+  if (i === null) return null;
   const entry = value as Record<string, unknown>;
-  if (typeof entry.i !== "string") return null;
   const coords = (["x", "y", "w", "h"] as const).map((k) => entry[k]);
   if (!coords.every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0)) return null;
   const [x, y, w, h] = coords as number[];
-  return { i: entry.i, x, y, w, h };
+  return { i, x, y, w, h };
 }
 
 const overlaps = (a: WidgetPlacement, b: WidgetPlacement) =>
@@ -74,4 +82,26 @@ export function appendWidgetPlacement(
     (candidate) => !entries.some((entry) => overlaps(candidate, entry)),
   );
   return [...entries, slot ?? { i: widget.id, x: 0, y: bottom, w, h }];
+}
+
+/**
+ * Drop a deleted widget's entry from a dashboard layout.
+ *
+ * Args:
+ *   layout: The dashboard's stored layout, as read from the JSON column.
+ *   widgetId: The widget whose entry goes.
+ *
+ * Returns:
+ *   The layout to store, or null if the widget had no entry, so the caller
+ *   can skip the write. Malformed entries are dropped along the way, as the
+ *   append does: the layout is being rewritten anyway. The widget's own entry
+ *   counts as present even when malformed, so a broken entry is never left
+ *   behind for a widget that no longer exists.
+ */
+export function removeWidgetPlacement(layout: unknown, widgetId: string): WidgetPlacement[] | null {
+  const raw = Array.isArray(layout) ? layout : [];
+  if (!raw.some((entry) => entryWidgetId(entry) === widgetId)) return null;
+  return raw
+    .map(asPlacement)
+    .filter((entry): entry is WidgetPlacement => entry !== null && entry.i !== widgetId);
 }

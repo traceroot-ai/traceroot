@@ -64,3 +64,35 @@ describe("PendingResourceCard", () => {
     expect(screen.getByText("Proposed · Dashboard")).toBeTruthy();
   });
 });
+
+describe("PendingResourceCard — a proposed delete", () => {
+  it("renders the destructive card with the reason, marked proposed and with nothing to open", () => {
+    const { container } = render(
+      <PendingResourceCard
+        model={{
+          resourceType: "detector",
+          resourceId: "tc3",
+          created: true,
+          title: "Timeouts",
+          meta: ["Detector", "Failure"],
+          href: null,
+          destructive: true,
+          definitionOpen: true,
+          body: {
+            kind: "delete",
+            reason: "the user asked to remove it",
+            cascade: null,
+            chips: ["sample 25%"],
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText("Timeouts")).toBeTruthy();
+    expect(screen.getByText("“the user asked to remove it”")).toBeTruthy();
+    expect(screen.getByText("sample 25%")).toBeTruthy();
+    expect(screen.getByText("Proposed · Detector · Failure")).toBeTruthy();
+    expect(container.firstElementChild?.className).toContain("border-destructive");
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("button", { name: /delete|skip/i })).toBeNull();
+  });
+});

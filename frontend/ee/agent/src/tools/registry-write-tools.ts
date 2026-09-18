@@ -12,8 +12,10 @@ import { publicUiUrl } from "./origins.js";
 /**
  * Per-tool execution shape the registry cannot express: how each public
  * snake_case field maps onto the internal write route's camelCase body, and
- * how the route's `{ created, <resource>: {...} }` response reads back.
- * The model-visible schema and policy still come from the registry entry.
+ * how the route's response reads back — `{ created, <resource> }` on a
+ * create, `{ updated, changed, <resource> }` on an update, and
+ * `{ deleted, reason, <resource> }` on a delete. The model-visible schema,
+ * the HTTP method and the policy still come from the registry entry.
  */
 interface WriteToolSpec {
   /**
@@ -83,6 +85,47 @@ export interface ResourceCreatedDetails {
   alertState?: AlertState;
 }
 
+/**
+ * The receipt of an update: which public fields actually changed (empty when
+ * the patch matched the stored values and nothing was written) and, on the
+ * alert routes, whether the edit reset the rule's evaluation state and
+ * cleared an open page.
+ */
+export interface ResourceUpdatedDetails {
+  kind: "resource_updated";
+  resourceType: "detector" | "dashboard" | "widget" | "alert";
+  resourceId: string;
+  name?: string;
+  changed: string[];
+  stateReset?: boolean;
+  pageCleared?: boolean;
+  projectId?: string;
+  dashboardId?: string;
+  alertState?: AlertState;
+}
+
+/**
+ * The receipt of a delete: the resource that is gone, the reason the model
+ * gave (the user's instruction, as recorded on the audit row), what was
+ * removed with it, and for an alert whether an open page went with it.
+ */
+export interface ResourceDeletedDetails {
+  kind: "resource_deleted";
+  resourceType: "detector" | "dashboard" | "widget" | "alert";
+  resourceId: string;
+  name?: string;
+  reason: string;
+  cascaded?: Record<string, number>;
+  pageCleared?: boolean;
+  projectId?: string;
+}
+
+/** Every structured receipt a write tool can attach to its result. */
+export type WriteToolDetails =
+  | ResourceCreatedDetails
+  | ResourceUpdatedDetails
+  | ResourceDeletedDetails;
+
 /** The fields the alerts feature's badge resolves a display state from. */
 export interface AlertState {
   status: string;
@@ -134,9 +177,14 @@ function filtersBody(value: unknown): unknown {
   });
 }
 
-// No create_workspace / create_project here: the agent's tenancy is force-
-// injected from its session, so a workspace or project it created could never
-// be targeted by any later call — structural creates are CLI/API surface.
+function alertPageUrl(projectId: string, alertId: string): string {
+  return `${publicUiUrl()}/projects/${projectId}/alerts/${alertId}`;
+}
+
+// No workspace or project writes here: the agent's tenancy is force-injected
+// from its session, so a workspace or project it created could never be
+// targeted by any later call, and editing or deleting the scope it runs in
+// is an administrative act — structural writes are CLI/API surface.
 const WRITE_TOOL_SPECS: Readonly<Record<string, WriteToolSpec>> = {
   create_detector: {
     fieldMap: {
@@ -214,7 +262,78 @@ const WRITE_TOOL_SPECS: Readonly<Record<string, WriteToolSpec>> = {
     bodyDefaults: { filters: [] },
     resourceKey: "alert",
     displayNameKey: "name",
-    pageUrl: (projectId, alertId) => `${publicUiUrl()}/projects/${projectId}/alerts/${alertId}`,
+    pageUrl: alertPageUrl,
+  },
+  // Updates: the same field maps as the creates, minus the immutable fields
+  // (a detector's template, a widget's type and dashboard). No bodyDefaults —
+  // on a PATCH a defaulted field would be an edit the user never asked for.
+  update_detector: {
+    fieldMap: {
+      name: "name",
+      prompt: "prompt",
+      enabled: "enabled",
+      sample_rate: "sampleRate",
+      enable_rca: "enableRca",
+      output_schema: "outputSchema",
+      trigger_conditions: "triggerConditions",
+      detection_source: "detectionSource",
+      detection_model: "detectionModel",
+      detection_provider: "detectionProvider",
+    },
+    resourceKey: "detector",
+    displayNameKey: "name",
+  },
+  update_dashboard: {
+    fieldMap: { name: "name", description: "description" },
+    resourceKey: "dashboard",
+    displayNameKey: "name",
+  },
+  update_widget: {
+    fieldMap: { title: "title", spec: "spec", display_config: "displayConfig" },
+    resourceKey: "widget",
+    displayNameKey: "title",
+  },
+  update_alert: {
+    fieldMap: {
+      name: "name",
+      view: "view",
+      measure: "measure",
+      aggregation: "aggregation",
+      filters: "filters",
+      window: "window",
+      threshold_operator: "thresholdOperator",
+      threshold: "threshold",
+      renotify: "renotify",
+      no_data_mode: "noDataMode",
+    },
+    valueMap: { renotify: renotifyBody, filters: filtersBody },
+    resourceKey: "alert",
+    displayNameKey: "name",
+    pageUrl: alertPageUrl,
+  },
+  set_alert_status: {
+    fieldMap: { status: "status" },
+    resourceKey: "alert",
+    displayNameKey: "name",
+    pageUrl: alertPageUrl,
+  },
+  // Deletes: the only body field is the reason; the id travels in the path.
+  delete_detector: {
+    fieldMap: { reason: "reason" },
+    resourceKey: "detector",
+    displayNameKey: "name",
+  },
+  delete_dashboard: {
+    fieldMap: { reason: "reason" },
+    resourceKey: "dashboard",
+    displayNameKey: "name",
+  },
+  delete_widget: { fieldMap: { reason: "reason" }, resourceKey: "widget", displayNameKey: "title" },
+  delete_alert: {
+    fieldMap: { reason: "reason" },
+    resourceKey: "alert",
+    displayNameKey: "name",
+    pageUrl: alertPageUrl,
   },
 };
 
@@ -249,24 +368,48 @@ function humanizeName(name: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** A receipt for a payload the tool cannot read a resource out of: verbatim, never guessed. */
+function verbatim(result: unknown): { text: string; details: undefined } {
+  return { text: JSON.stringify(result, null, 2), details: undefined };
+}
+
+/**
+ * The resource a write route's payload carries under the spec's key, with
+ * its id and display name — or null when the shape is not the expected one.
+ * A delete receipt names every resource `name` (a widget's is its title);
+ * the other routes echo the row, which names a widget by `title`.
+ */
+function resourceOf(
+  spec: WriteToolSpec,
+  payload: Record<string, unknown>,
+): { resource: Record<string, unknown>; id: string; displayName: string } | null {
+  const resource = payload[spec.resourceKey];
+  if (typeof resource !== "object" || resource === null) return null;
+  const row = resource as Record<string, unknown>;
+  const id = row.id;
+  const displayName = row[spec.displayNameKey] ?? row.name;
+  if (typeof id !== "string" || typeof displayName !== "string") return null;
+  return { resource: row, id, displayName };
+}
+
+function capitalize(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
 /**
  * "Created detector "latency" (id d1)" / already-exists variant, plus the
  * structured details the UI consumes. `tenancyIds` is the ambient projectId
  * the tool injected into the write.
  */
-function buildWriteSuccess(
+function buildCreateSuccess(
   spec: WriteToolSpec,
   tenancyIds: { projectId: string },
   result: unknown,
 ): { text: string; details: ResourceCreatedDetails | undefined } {
   const payload = result as Record<string, unknown>;
-  const resource = payload[spec.resourceKey] as Record<string, unknown> | undefined;
-  const id = resource?.id;
-  const displayName = resource?.[spec.displayNameKey];
-  if (typeof id !== "string" || typeof displayName !== "string") {
-    // Unexpected payload shape: show it verbatim rather than guessing.
-    return { text: JSON.stringify(result, null, 2), details: undefined };
-  }
+  const found = resourceOf(spec, payload);
+  if (found === null) return verbatim(result);
+  const { resource, id, displayName } = found;
   const created = payload.created !== false;
   const details: ResourceCreatedDetails = {
     kind: "resource_created",
@@ -277,10 +420,10 @@ function buildWriteSuccess(
     ...tenancyIds,
   };
   // Widgets live under a dashboard; the route echoes which one.
-  if (typeof resource?.dashboardId === "string") {
+  if (typeof resource.dashboardId === "string") {
     details.dashboardId = resource.dashboardId;
   }
-  if (spec.resourceKey === "alert" && resource !== undefined) {
+  if (spec.resourceKey === "alert") {
     const alertState = alertStateOf(resource);
     if (alertState !== undefined) details.alertState = alertState;
   }
@@ -299,9 +442,119 @@ function buildWriteSuccess(
     const link = spec.pageUrl ? ` — ${spec.pageUrl(tenancyIds.projectId, id)}` : "";
     return { text: `Created ${spec.resourceKey} "${displayName}" (id ${id})${link}`, details };
   }
-  const capitalized = spec.resourceKey.charAt(0).toUpperCase() + spec.resourceKey.slice(1);
   return {
-    text: `${capitalized} "${displayName}" already exists (id ${id}) — reusing it`,
+    text: `${capitalize(spec.resourceKey)} "${displayName}" already exists (id ${id}) — reusing it`,
+    details,
+  };
+}
+
+/** The public field names an update route reports as changed, or null for a malformed list. */
+function changedFields(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.every((field): field is string => typeof field === "string") ? value : null;
+}
+
+/**
+ * "Updated detector "Timeouts" (id d1) — changed: name, sample_rate", the
+ * unchanged variant when nothing differed, and for an alert what the edit
+ * did to its evaluation state — plus the structured details.
+ */
+function buildUpdateSuccess(
+  spec: WriteToolSpec,
+  tenancyIds: { projectId: string },
+  result: unknown,
+): { text: string; details: ResourceUpdatedDetails | undefined } {
+  const payload = result as Record<string, unknown>;
+  const found = resourceOf(spec, payload);
+  const changed = changedFields(payload.changed);
+  if (found === null || changed === null) return verbatim(result);
+  const { resource, id, displayName } = found;
+  const details: ResourceUpdatedDetails = {
+    kind: "resource_updated",
+    resourceType: spec.resourceKey,
+    resourceId: id,
+    name: displayName,
+    changed,
+    ...tenancyIds,
+  };
+  if (typeof payload.stateReset === "boolean") details.stateReset = payload.stateReset;
+  if (typeof payload.pageCleared === "boolean") details.pageCleared = payload.pageCleared;
+  if (typeof resource.dashboardId === "string") details.dashboardId = resource.dashboardId;
+  if (spec.resourceKey === "alert") {
+    const alertState = alertStateOf(resource);
+    if (alertState !== undefined) details.alertState = alertState;
+  }
+  if (changed.length === 0) {
+    return {
+      text:
+        `${capitalize(spec.resourceKey)} "${displayName}" (id ${id}) is unchanged — the values ` +
+        "already matched, nothing was written",
+      details,
+    };
+  }
+  const effects: string[] = [];
+  if (details.stateReset === true) effects.push("its evaluation state was reset");
+  if (details.pageCleared === true) effects.push("the open page was cleared");
+  const effect = effects.length === 0 ? "" : `; ${effects.join(" and ")}`;
+  const link = spec.pageUrl ? ` — ${spec.pageUrl(tenancyIds.projectId, id)}` : "";
+  return {
+    text:
+      `Updated ${spec.resourceKey} "${displayName}" (id ${id}) — changed: ${changed.join(", ")}` +
+      `${effect}${link}`,
+    details,
+  };
+}
+
+/**
+ * "and its 4 widgets": what a delete removed along with the resource. A zero
+ * count is no cascade — the dashboard route always reports one, and "and its
+ * 0 widgets" would be parroted by the model.
+ */
+function cascadeWords(cascaded: Record<string, number>): string {
+  const parts = Object.entries(cascaded)
+    .filter(([, count]) => count > 0)
+    .map(([what, count]) => `${count} ${count === 1 ? what.replace(/s$/, "") : what}`);
+  return parts.length === 0 ? "" : ` and its ${parts.join(", ")}`;
+}
+
+/** A `{widgets: 4}` cascade count, or undefined for anything else. */
+function cascadedOf(value: unknown): Record<string, number> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    (entry): entry is [string, number] => typeof entry[1] === "number",
+  );
+  return Object.fromEntries(entries);
+}
+
+/**
+ * "Deleted widget "Errors" (id w1) — reason: …", with what cascaded and
+ * whether an alert's open page went with it — plus the structured details.
+ */
+function buildDeleteSuccess(
+  spec: WriteToolSpec,
+  tenancyIds: { projectId: string },
+  result: unknown,
+): { text: string; details: ResourceDeletedDetails | undefined } {
+  const payload = result as Record<string, unknown>;
+  const found = resourceOf(spec, payload);
+  if (found === null || typeof payload.reason !== "string") return verbatim(result);
+  const { id, displayName } = found;
+  const details: ResourceDeletedDetails = {
+    kind: "resource_deleted",
+    resourceType: spec.resourceKey,
+    resourceId: id,
+    name: displayName,
+    reason: payload.reason,
+    ...tenancyIds,
+  };
+  const cascaded = cascadedOf(payload.cascaded);
+  if (cascaded !== undefined) details.cascaded = cascaded;
+  if (typeof payload.pageCleared === "boolean") details.pageCleared = payload.pageCleared;
+  const cleared = details.pageCleared === true ? "; its open page was cleared" : "";
+  return {
+    text:
+      `Deleted ${spec.resourceKey} "${displayName}" (id ${id})` +
+      `${cascadeWords(cascaded ?? {})} — reason: ${payload.reason}${cleared}`,
     details,
   };
 }
@@ -328,8 +581,13 @@ function apiErrorMessage(error: ApiError): string {
  * shared registry (minus the ambient tenancy field the factory injects), but
  * execution binds directly to the internal Next-app write routes — the same
  * snake→camel edge translation the public API route performs, plus the
- * trusted actor/provenance fields. Deliberately not routed through
- * dispatch(): its path/query/body partitioning is public-API-specific.
+ * trusted actor/provenance fields. A create POSTs a flat body; an update
+ * PATCHes with the resource id filled into the binding's `{id}` segment
+ * from the model's `<resource>_id` argument, forwarding an explicit null so
+ * a nullable field can be cleared (an unset field stays out, as everywhere);
+ * a delete DELETEs the same path with the envelope and the model's reason
+ * as the JSON body. Deliberately not routed through dispatch(): its
+ * path/query/body partitioning is public-API-specific.
  */
 export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions): AgentTool<any>[] {
   const { client, actorUserId, agentSessionId, projectId } = opts;
@@ -337,7 +595,14 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
   const bind = (name: string): AgentTool<any> => {
     const entry = requireWriteEntry(name);
     const spec = WRITE_TOOL_SPECS[name];
-    const path = INTERNAL_WRITE_BINDINGS[name];
+    const template = INTERNAL_WRITE_BINDINGS[name];
+    const method = entry.method;
+    // An update or delete names its resource in the path; the id argument
+    // is the registry's `<resource>_id`, and it never enters the body.
+    const idField = method === "post" ? null : `${spec.resourceKey}_id`;
+    if (idField !== null && !(idField in entry.inputSchema.properties)) {
+      throw new Error(`${name}: registry entry has no ${idField} parameter for the path`);
+    }
 
     // The ambient project is injected, never model-supplied. Only project-
     // tenancy writes are bound here (see WRITE_TOOL_SPECS): fail loud at
@@ -358,7 +623,7 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
     // Fail loud at wiring time if the generated registry gains a field the
     // explicit body map doesn't know how to translate.
     for (const field of Object.keys(entry.inputSchema.properties)) {
-      if (modelVisible(field) && !(field in spec.fieldMap)) {
+      if (modelVisible(field) && field !== idField && !(field in spec.fieldMap)) {
         throw new Error(`${name}: unmapped registry field: ${field}`);
       }
     }
@@ -385,8 +650,27 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
         _toolCallId,
         rawParams,
         signal,
-      ): Promise<AgentToolResult<ResourceCreatedDetails | undefined>> => {
+      ): Promise<AgentToolResult<WriteToolDetails | undefined>> => {
         const { label: _label, ...params } = (rawParams ?? {}) as Record<string, unknown>;
+        // pi validates the id's type, not its length: an empty string would
+        // hit the collection route instead of a resource. Refuse it here, as
+        // tool text the model can act on, before anything reaches the wire.
+        const resourceId = idField === null ? null : params[idField];
+        if (idField !== null && (typeof resourceId !== "string" || resourceId === "")) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error calling ${entry.name}: ${idField} must be a non-empty string`,
+              },
+            ],
+            details: undefined,
+          };
+        }
+        const path =
+          typeof resourceId === "string"
+            ? template.replace("{id}", encodeURIComponent(resourceId))
+            : template;
         const body: Record<string, unknown> = {
           actorUserId,
           transport: "agent",
@@ -401,15 +685,23 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
           }
           const value = params[field];
           // Unset optionals stay out of the body entirely — the internal zod
-          // distinguishes absent from null in places, and absent is always safe.
-          if (value !== undefined && value !== null) {
-            const reshape = spec.valueMap?.[field];
-            body[bodyKey] = reshape === undefined ? value : reshape(value);
+          // distinguishes absent from null in places, and absent is always
+          // safe. On a create a null is dropped the same way; on an update it
+          // is forwarded, because there null means "clear this field".
+          if (value === undefined || (value === null && method !== "patch")) {
+            continue;
           }
+          const reshape = spec.valueMap?.[field];
+          body[bodyKey] = reshape === undefined || value === null ? value : reshape(value);
         }
         try {
-          const result = await client.request("post", path, { body, signal });
-          const { text, details } = buildWriteSuccess(spec, tenancyBody, result);
+          const result = await client.request(method, path, { body, signal });
+          const { text, details } =
+            method === "post"
+              ? buildCreateSuccess(spec, tenancyBody, result)
+              : method === "patch"
+                ? buildUpdateSuccess(spec, tenancyBody, result)
+                : buildDeleteSuccess(spec, tenancyBody, result);
           return { content: [{ type: "text", text }], details };
         } catch (error) {
           // Deliberate divergence from the runtime's throw-on-failure contract:
@@ -435,5 +727,14 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
     bind("create_dashboard"),
     bind("create_widget"),
     bind("create_alert"),
+    bind("update_detector"),
+    bind("update_dashboard"),
+    bind("update_widget"),
+    bind("update_alert"),
+    bind("set_alert_status"),
+    bind("delete_detector"),
+    bind("delete_dashboard"),
+    bind("delete_widget"),
+    bind("delete_alert"),
   ];
 }

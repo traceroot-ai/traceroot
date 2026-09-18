@@ -260,6 +260,63 @@ export function onlyToolCall(turns: TurnTranscript[], name: string): EvalToolCal
   return calls[0]!;
 }
 
+/** A check on one argument's value, for values a scenario cannot pin literally. */
+export type ArgPredicate = (value: unknown) => boolean;
+
+/** What a scenario expects an argument to be: a literal, or a predicate over the value. */
+export type ExpectedArg = ArgPredicate | string | number | boolean | null | object;
+
+/**
+ * The call carried exactly `expected`'s fields — the tool's own `label` aside
+ * — and nothing else. An edit that re-sends a field the user never asked to
+ * change, or a delete that carries a stray field, fails here by name; a
+ * value fails against its literal, or against a predicate for values a
+ * scenario cannot pin (a reason the model words itself).
+ */
+export function expectExactArgs(call: EvalToolCall, expected: Record<string, ExpectedArg>): void {
+  const sent = Object.keys(call.args).filter((field) => field !== "label");
+  const unexpected = sent.filter((field) => !(field in expected)).sort();
+  expectThat(
+    unexpected.length === 0,
+    `${call.name} sent unexpected field${unexpected.length === 1 ? "" : "s"} ${unexpected.join(", ")}; only the fields the user asked to change may travel`,
+  );
+  const missing = Object.keys(expected).filter((field) => !sent.includes(field));
+  expectThat(missing.length === 0, `${call.name} is missing ${missing.join(", ")}`);
+  for (const [field, want] of Object.entries(expected)) {
+    const value = call.args[field];
+    if (typeof want === "function") {
+      expectThat(
+        (want as ArgPredicate)(value),
+        `${call.name} sent ${field} ${JSON.stringify(value)}, which is not the value asked for`,
+      );
+    } else {
+      expectThat(
+        JSON.stringify(value) === JSON.stringify(want),
+        `${call.name} sent ${field} ${JSON.stringify(value)}; expected ${JSON.stringify(want)}`,
+      );
+    }
+  }
+}
+
+/**
+ * The resource id each clean `name` call created, keyed by its tool call id,
+ * read off the receipt details the write tools attach to their results.
+ * The only place the id of a resource a later turn edited or deleted exists,
+ * since the after-rows no longer carry a deleted one.
+ */
+export function createdIds(turns: TurnTranscript[], name: string): Map<string, string> {
+  const ids = new Map<string, string>();
+  for (const result of toolResultsNamed(turns, name)) {
+    if (result.isError) continue;
+    const details = (result.result as { details?: { kind?: unknown; resourceId?: unknown } } | null)
+      ?.details;
+    if (details?.kind === "resource_created" && typeof details.resourceId === "string") {
+      ids.set(result.toolCallId, details.resourceId);
+    }
+  }
+  return ids;
+}
+
 /** The user-visible answer text across a scenario's turns. */
 export function assistantText(turns: TurnTranscript[]): string {
   return turns.map((turn) => turn.assistantText).join("\n");

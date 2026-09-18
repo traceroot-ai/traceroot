@@ -1,16 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { findFirst, update } = vi.hoisted(() => ({
+const { findFirst, update, updateMany, auditCreate } = vi.hoisted(() => ({
   findFirst: vi.fn(),
   update: vi.fn(),
+  updateMany: vi.fn(),
+  auditCreate: vi.fn(),
 }));
 
+// The mutating handlers delegate to the write service, which runs its own
+// tenancy check and audit inside a transaction on this same client.
 vi.mock("@traceroot/core", async (orig) => {
   const actual = await (orig() as Promise<Record<string, unknown>>);
-  return {
-    ...actual,
-    prisma: { project: { findFirst, update } },
+  const client = {
+    // The GET reads with findFirst; the service's tenancy gate with findUnique.
+    project: { findFirst, findUnique: findFirst, update, updateMany },
+    workspaceMember: { findUnique: async () => ({ role: "ADMIN" }) },
+    auditLog: { create: auditCreate },
+    $transaction: (fn: (tx: unknown) => unknown) => fn(client),
   };
+  return { ...actual, prisma: client };
 });
 
 // Auth/access helpers. The real module pulls in env-validated auth config, so
@@ -29,12 +37,14 @@ vi.mock("@/lib/auth-helpers", async () => {
   };
 });
 
-import { GET, PATCH } from "./route";
+import { GET, PATCH, DELETE } from "./route";
+
+const routeParams = { params: Promise.resolve({ workspaceId: "w1", projectId: "p1" }) } as never;
 
 function patch(body: unknown) {
   return PATCH(
     new Request("http://t/api", { method: "PATCH", body: JSON.stringify(body) }) as never,
-    { params: Promise.resolve({ workspaceId: "w1", projectId: "p1" }) } as never,
+    routeParams,
   );
 }
 
@@ -49,10 +59,45 @@ function get() {
 
 describe("project PATCH alert_window", () => {
   beforeEach(() => {
-    findFirst.mockReset().mockResolvedValue({ id: "p1", name: "Proj" });
+    findFirst
+      .mockReset()
+      .mockResolvedValue({ id: "p1", name: "Proj", workspaceId: "w1", deleteTime: null });
     update
       .mockReset()
       .mockResolvedValue({ id: "p1", alertConfig: { emailAddresses: [], alertWindow: "1h" } });
+    auditCreate.mockReset();
+  });
+
+  it("scopes the project read to the workspace in the path", async () => {
+    findFirst.mockResolvedValue(null);
+    const res = await patch({ alert_window: "1h" });
+    expect(res.status).toBe(404);
+    expect(findFirst.mock.calls[0][0].where).toEqual({ id: "p1", workspaceId: "w1" });
+  });
+
+  it("rejects an empty body with 400 instead of stamping updateTime alone", async () => {
+    const res = await patch({});
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("No fields to update");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("answers a patch that changes nothing with 200 and no write, no audit", async () => {
+    const res = await patch({ name: "Proj" });
+    expect(res.status).toBe(200);
+    expect(update).not.toHaveBeenCalled();
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+
+  it("records the edit on the audit log under the ui transport", async () => {
+    await patch({ alert_window: "1h" });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "update_project",
+        transport: "ui",
+        summary: { changed: ["alert_window"] },
+      }),
+    });
   });
 
   it("rejects an unknown window token with 400", async () => {
@@ -96,7 +141,9 @@ describe("project PATCH alert_window", () => {
 
 describe("project PATCH rename collisions", () => {
   beforeEach(() => {
-    findFirst.mockReset().mockResolvedValue({ id: "p1", name: "Proj" });
+    findFirst
+      .mockReset()
+      .mockResolvedValue({ id: "p1", name: "Proj", workspaceId: "w1", deleteTime: null });
     update.mockReset();
   });
 
@@ -128,5 +175,45 @@ describe("project PATCH rename collisions", () => {
     await expect(patch({ alert_emails: ["a@example.com"] })).rejects.toMatchObject({
       code: "P2002",
     });
+  });
+});
+
+describe("project DELETE", () => {
+  beforeEach(() => {
+    findFirst
+      .mockReset()
+      .mockResolvedValue({ id: "p1", name: "Proj", workspaceId: "w1", deleteTime: null });
+    updateMany.mockReset().mockResolvedValue({ count: 1 });
+    auditCreate.mockReset();
+  });
+
+  it("soft-deletes through the service and records the reason on the audit log", async () => {
+    const res = await DELETE(
+      new Request("http://t/api", { method: "DELETE" }) as never,
+      routeParams,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ deleted: true });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "p1", deleteTime: null },
+      data: { deleteTime: expect.any(Date), updateTime: expect.any(Date) },
+    });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "delete_project",
+        transport: "ui",
+        summary: { name: "Proj", reason: "Deleted from the web app" },
+      }),
+    });
+  });
+
+  it("404s a project outside the workspace or already deleted", async () => {
+    findFirst.mockResolvedValue(null);
+    const res = await DELETE(
+      new Request("http://t/api", { method: "DELETE" }) as never,
+      routeParams,
+    );
+    expect(res.status).toBe(404);
+    expect(updateMany).not.toHaveBeenCalled();
   });
 });

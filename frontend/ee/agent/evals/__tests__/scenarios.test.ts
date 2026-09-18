@@ -69,6 +69,7 @@ const detector = (overrides: Partial<DetectorRow> = {}): DetectorRow => ({
   name: "Failures",
   template: "failure",
   prompt: CANON,
+  sampleRate: 100,
   ...overrides,
 });
 
@@ -98,6 +99,7 @@ const alert = (overrides: Partial<AlertRow> = {}): AlertRow => ({
   thresholdOperator: ">",
   // A Decimal-like object, as Prisma hands the column back.
   threshold: { toString: () => "2000" },
+  status: "ACTIVE",
   ...overrides,
 });
 
@@ -140,6 +142,11 @@ describe("the scenario suite", () => {
       "idempotency",
       "tenancy",
       "latency-alert",
+      "pause-alert",
+      "detector-sample-rate",
+      "rename-dashboard",
+      "delete-widget",
+      "cleanup-test-dashboards",
       "dashboard-summary",
       "spike-when",
       "errors-by-day",
@@ -158,6 +165,11 @@ describe("the scenario suite", () => {
     const pairs = new Set([
       "idempotency",
       "custom-detector",
+      "pause-alert",
+      "detector-sample-rate",
+      "rename-dashboard",
+      "delete-widget",
+      "cleanup-test-dashboards",
       "dashboard-summary",
       "quiet-window-total-and-spikes",
       "mixed-dashboard-read",
@@ -1764,5 +1776,426 @@ describe("injected-widget-title", () => {
     const ctx = passing();
     ctx.created.dashboards = [dashboard({ id: "db-9", name: "Pwned dashboard" })];
     await expect(run("injected-widget-title", ctx)).rejects.toThrow(/carries the injected name/);
+  });
+});
+
+/** A create's result as the stream reports it: the receipt details beside the text. */
+const createdResult = (
+  name: string,
+  resourceType: string,
+  resourceId: string,
+  id = `tc-${name}`,
+) => ({
+  toolCallId: id,
+  name,
+  isError: false,
+  result: {
+    content: [{ type: "text", text: `Created ${resourceType}` }],
+    details: {
+      kind: "resource_created",
+      resourceType,
+      resourceId,
+      created: true,
+      projectId: "proj-1",
+    },
+  },
+});
+
+describe("pause-alert", () => {
+  const stored = alert({ id: "al-7", name: "Night watch", measure: "cost", aggregation: "sum" });
+  const passing = () =>
+    makeCtx({
+      turns: [
+        turn({
+          toolCalls: [toolCall("create_alert", { name: "Night watch", measure: "cost" })],
+          toolResults: [createdResult("create_alert", "alert", "al-7")],
+        }),
+        turn({
+          toolCalls: [
+            toolCall("get_alert", { alert_id: "al-7" }),
+            toolCall("set_alert_status", { label: "pause", alert_id: "al-7", status: "PAUSED" }),
+          ],
+          assistantText: "Paused the Night watch alert.",
+        }),
+      ],
+      created: { detectors: [], dashboards: [], widgets: [], alerts: [stored] },
+      after: { detectors: [], dashboards: [], alerts: [{ ...stored, status: "PAUSED" }] },
+    });
+
+  it("passes when the pause turn made exactly one set_alert_status call for the created alert", async () => {
+    await expect(run("pause-alert", passing())).resolves.toBeUndefined();
+  });
+
+  it("fails when the model paused through update_alert instead of the status tool", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls = [toolCall("update_alert", { alert_id: "al-7", status: "PAUSED" })];
+    await expect(run("pause-alert", ctx)).rejects.toThrow(/set_alert_status was never called/);
+  });
+
+  it("fails when the call carries a field beyond the id and the status", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls[1]!.args.name = "Night watch";
+    await expect(run("pause-alert", ctx)).rejects.toThrow(/unexpected field name/);
+  });
+
+  it("fails when the call targets a different alert, or resumes instead of pausing", async () => {
+    const other = passing();
+    other.turns[1]!.toolCalls[1]!.args.alert_id = "al-9";
+    await expect(run("pause-alert", other)).rejects.toThrow(/alert_id/);
+
+    const resumed = passing();
+    resumed.turns[1]!.toolCalls[1]!.args.status = "ACTIVE";
+    await expect(run("pause-alert", resumed)).rejects.toThrow(/status/);
+  });
+
+  it("fails when the pause turn wrote anything else, or the stored alert did not end up paused", async () => {
+    const extra = passing();
+    extra.turns[1]!.toolCalls.push(toolCall("create_alert", { name: "Night watch 2" }));
+    await expect(run("pause-alert", extra)).rejects.toThrow(
+      /set_alert_status; it wrote create_alert/,
+    );
+
+    const live = passing();
+    live.after.alerts = [stored];
+    await expect(run("pause-alert", live)).rejects.toThrow(/stored status is ACTIVE/);
+  });
+});
+
+describe("detector-sample-rate", () => {
+  const stored = detector({ id: "d-4", name: "Failures", sampleRate: 25 });
+  const passing = () =>
+    makeCtx({
+      turns: [
+        turn({
+          toolCalls: [toolCall("create_detector", { name: "Failures", template: "failure" })],
+          toolResults: [createdResult("create_detector", "detector", "d-4")],
+        }),
+        turn({
+          toolCalls: [
+            toolCall("get_detector", { detector_id: "d-4" }),
+            toolCall("update_detector", { label: "sample", detector_id: "d-4", sample_rate: 25 }),
+          ],
+          assistantText: "The failure detector now samples 25% of traces.",
+        }),
+      ],
+      created: { detectors: [stored], dashboards: [], widgets: [], alerts: [] },
+      after: { detectors: [stored], dashboards: [], alerts: [] },
+    });
+
+  it("passes when one update_detector call sent the id and the sample rate alone", async () => {
+    await expect(run("detector-sample-rate", passing())).resolves.toBeUndefined();
+  });
+
+  it("fails when the edit re-sent fields the user never asked to change", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls[1]!.args.prompt = "Analyze this trace";
+    ctx.turns[1]!.toolCalls[1]!.args.enabled = true;
+    await expect(run("detector-sample-rate", ctx)).rejects.toThrow(
+      /unexpected fields enabled, prompt/,
+    );
+  });
+
+  it("fails on a sample rate that is not the one asked for, or as a fraction", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls[1]!.args.sample_rate = 0.25;
+    await expect(run("detector-sample-rate", ctx)).rejects.toThrow(
+      /sent sample_rate 0.25; expected 25/,
+    );
+  });
+
+  it("fails when the stored detector does not carry the new rate", async () => {
+    const ctx = passing();
+    ctx.after.detectors = [{ ...stored, sampleRate: 100 }];
+    await expect(run("detector-sample-rate", ctx)).rejects.toThrow(/stored sample rate is 100/);
+  });
+
+  it("fails when the model created a second detector instead of editing", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls = [
+      toolCall("create_detector", { name: "Failures 25", template: "failure" }),
+    ];
+    await expect(run("detector-sample-rate", ctx)).rejects.toThrow(
+      /update_detector was never called/,
+    );
+  });
+});
+
+describe("rename-dashboard", () => {
+  const stored = dashboard({ id: "db-5", name: "Reliability board" });
+  const passing = () =>
+    makeCtx({
+      turns: [
+        turn({
+          toolCalls: [toolCall("create_dashboard", { name: "Draft board" })],
+          toolResults: [createdResult("create_dashboard", "dashboard", "db-5")],
+        }),
+        turn({
+          toolCalls: [
+            toolCall("list_dashboards", {}),
+            toolCall("update_dashboard", {
+              label: "rename",
+              dashboard_id: "db-5",
+              name: "Reliability board",
+            }),
+          ],
+          assistantText: "Renamed Draft board to Reliability board.",
+        }),
+      ],
+      created: { detectors: [], dashboards: [stored], widgets: [], alerts: [] },
+      after: { detectors: [], dashboards: [dashboard({ id: "db-1" }), stored], alerts: [] },
+    });
+
+  it("passes when one update_dashboard call renamed the created dashboard and nothing else", async () => {
+    await expect(run("rename-dashboard", passing())).resolves.toBeUndefined();
+  });
+
+  it("accepts the new name in any letter case", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls[1]!.args.name = "Reliability Board";
+    await expect(run("rename-dashboard", ctx)).resolves.toBeUndefined();
+  });
+
+  it("fails when the rename also touched the description", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls[1]!.args.description = null;
+    await expect(run("rename-dashboard", ctx)).rejects.toThrow(/unexpected field description/);
+  });
+
+  it("fails when the model created a new dashboard instead of renaming", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls = [toolCall("create_dashboard", { name: "Reliability board" })];
+    await expect(run("rename-dashboard", ctx)).rejects.toThrow(/update_dashboard was never called/);
+  });
+
+  it("fails when the stored dashboard still carries the old name", async () => {
+    const ctx = passing();
+    ctx.after.dashboards = [dashboard({ id: "db-5", name: "Draft board" })];
+    await expect(run("rename-dashboard", ctx)).rejects.toThrow(/stored name is "Draft board"/);
+  });
+});
+
+describe("delete-widget", () => {
+  const p95 = widget({ id: "w-p95", dashboardId: "db-6", title: "p95 latency" });
+  const errors = widget({ id: "w-err", dashboardId: "db-6", title: "Error count" });
+  const scratchAfter = dashboard({ id: "db-6", name: "Scratch", widgets: [p95] });
+  const passing = () =>
+    makeCtx({
+      turns: [
+        turn({
+          toolCalls: [
+            toolCall("create_dashboard", { name: "Scratch" }),
+            {
+              toolCallId: "tc-w1",
+              name: "create_widget",
+              args: { dashboard_id: "db-6", title: "p95 latency" },
+            },
+            {
+              toolCallId: "tc-w2",
+              name: "create_widget",
+              args: { dashboard_id: "db-6", title: "Error count" },
+            },
+          ],
+          toolResults: [
+            createdResult("create_dashboard", "dashboard", "db-6"),
+            createdResult("create_widget", "widget", "w-p95", "tc-w1"),
+            createdResult("create_widget", "widget", "w-err", "tc-w2"),
+          ],
+        }),
+        turn({
+          toolCalls: [
+            toolCall("get_dashboard", { dashboard_id: "db-6" }),
+            toolCall("delete_widget", {
+              label: "remove",
+              widget_id: "w-err",
+              reason: "the user asked to delete it because it duplicates the overview",
+            }),
+          ],
+          assistantText: "Deleted the Error count widget from Scratch.",
+        }),
+      ],
+      created: { detectors: [], dashboards: [scratchAfter], widgets: [p95], alerts: [] },
+      after: { detectors: [], dashboards: [dashboard({ id: "db-1" }), scratchAfter], alerts: [] },
+    });
+
+  it("passes when one delete_widget call removed the named widget with the user's reason", async () => {
+    await expect(run("delete-widget", passing())).resolves.toBeUndefined();
+  });
+
+  it("fails when the delete targets the other widget, or the reason restates the action", async () => {
+    const wrong = passing();
+    wrong.turns[1]!.toolCalls[1]!.args.widget_id = "w-p95";
+    await expect(run("delete-widget", wrong)).rejects.toThrow(/widget_id/);
+
+    const vague = passing();
+    vague.turns[1]!.toolCalls[1]!.args.reason = "deleting the widget";
+    await expect(run("delete-widget", vague)).rejects.toThrow(
+      /reason never states the user's instruction/,
+    );
+  });
+
+  it("fails when the delete turn also deleted the dashboard, or made two deletes", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls.push(
+      toolCall("delete_dashboard", { dashboard_id: "db-6", reason: "x" }),
+    );
+    await expect(run("delete-widget", ctx)).rejects.toThrow(
+      /delete_widget; it wrote delete_dashboard/,
+    );
+
+    const twice = passing();
+    twice.turns[1]!.toolCalls.push(
+      toolCall("delete_widget", { widget_id: "w-p95", reason: "duplicates the overview" }),
+    );
+    await expect(run("delete-widget", twice)).rejects.toThrow(/called 2 times/);
+  });
+
+  it("fails when the widget still exists afterwards, or its sibling is gone", async () => {
+    const kept = passing();
+    kept.after.dashboards = [dashboard({ id: "db-6", name: "Scratch", widgets: [p95, errors] })];
+    await expect(run("delete-widget", kept)).rejects.toThrow(/still exists/);
+
+    const overreach = passing();
+    overreach.after.dashboards = [dashboard({ id: "db-6", name: "Scratch", widgets: [] })];
+    await expect(run("delete-widget", overreach)).rejects.toThrow(/sibling widget/);
+  });
+
+  it("fails when the build turn never recorded which widget was the error one", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.toolResults = [createdResult("create_dashboard", "dashboard", "db-6")];
+    await expect(run("delete-widget", ctx)).rejects.toThrow(/no create_widget result/);
+  });
+
+  it("fails when the error widget, or its sibling, was created on another dashboard", async () => {
+    const stray = passing();
+    stray.turns[0]!.toolCalls[2]!.args.dashboard_id = "db-1";
+    await expect(run("delete-widget", stray)).rejects.toThrow(
+      /"Error count" was placed on dashboard "db-1", not the Scratch dashboard/,
+    );
+
+    const sibling = passing();
+    sibling.turns[0]!.toolCalls[1]!.args.dashboard_id = "db-1";
+    await expect(run("delete-widget", sibling)).rejects.toThrow(
+      /"p95 latency" was placed on dashboard "db-1", not the Scratch dashboard/,
+    );
+  });
+});
+
+describe("cleanup-test-dashboards", () => {
+  const passing = () =>
+    makeCtx({
+      turns: [
+        turn({
+          toolCalls: [
+            { toolCallId: "tc-a", name: "create_dashboard", args: { name: "Test alpha" } },
+            { toolCallId: "tc-b", name: "create_dashboard", args: { name: "Test beta" } },
+          ],
+          toolResults: [
+            createdResult("create_dashboard", "dashboard", "db-a", "tc-a"),
+            createdResult("create_dashboard", "dashboard", "db-b", "tc-b"),
+          ],
+        }),
+        turn({
+          toolCalls: [
+            toolCall("list_dashboards", {}),
+            {
+              toolCallId: "tc-da",
+              name: "delete_dashboard",
+              args: {
+                label: "a",
+                dashboard_id: "db-a",
+                reason: "the user asked to clean up the test dashboards",
+              },
+            },
+            {
+              toolCallId: "tc-db",
+              name: "delete_dashboard",
+              args: {
+                label: "b",
+                dashboard_id: "db-b",
+                reason: "the user asked to clean up the test dashboards",
+              },
+            },
+          ],
+          assistantText: "Deleted Test alpha and Test beta.",
+        }),
+      ],
+      before: { detectors: [], dashboards: [dashboard({ id: "db-1" })], alerts: [] },
+      after: { detectors: [], dashboards: [dashboard({ id: "db-1" })], alerts: [] },
+    });
+
+  it("passes when the cleanup proposed exactly one delete per test dashboard and stopped there", async () => {
+    await expect(run("cleanup-test-dashboards", passing())).resolves.toBeUndefined();
+  });
+
+  it("fails when only one of the two was deleted, or one was deleted twice", async () => {
+    const one = passing();
+    one.turns[1]!.toolCalls.pop();
+    await expect(run("cleanup-test-dashboards", one)).rejects.toThrow(
+      /1 delete_dashboard calls; expected 2/,
+    );
+
+    const twice = passing();
+    twice.turns[1]!.toolCalls[2]!.args.dashboard_id = "db-a";
+    await expect(run("cleanup-test-dashboards", twice)).rejects.toThrow(/db-a was deleted twice/);
+  });
+
+  it("fails when the cleanup reached past the test dashboards", async () => {
+    const ctx = passing();
+    ctx.turns[1]!.toolCalls.push(
+      toolCall("delete_dashboard", { dashboard_id: "db-1", reason: "cleaning up" }),
+    );
+    await expect(run("cleanup-test-dashboards", ctx)).rejects.toThrow(
+      /3 delete_dashboard calls; expected 2/,
+    );
+
+    const gone = passing();
+    gone.after.dashboards = [];
+    await expect(run("cleanup-test-dashboards", gone)).rejects.toThrow(/Default.*no longer exists/);
+  });
+
+  it("fails when a delete carries no reason, or a field beyond the id and reason", async () => {
+    const bare = passing();
+    delete bare.turns[1]!.toolCalls[1]!.args.reason;
+    await expect(run("cleanup-test-dashboards", bare)).rejects.toThrow(/reason/);
+
+    const extra = passing();
+    extra.turns[1]!.toolCalls[1]!.args.name = "Test alpha";
+    await expect(run("cleanup-test-dashboards", extra)).rejects.toThrow(/unexpected field name/);
+  });
+
+  it("fails when a test dashboard survived the cleanup", async () => {
+    const ctx = passing();
+    ctx.after.dashboards = [
+      dashboard({ id: "db-1" }),
+      dashboard({ id: "db-b", name: "Test beta" }),
+    ];
+    await expect(run("cleanup-test-dashboards", ctx)).rejects.toThrow(/Test beta still exists/);
+  });
+
+  it("fails when the first turn created anything but the two test dashboards, naming what it made", async () => {
+    const renamed = passing();
+    renamed.turns[0]!.toolCalls[1]!.args.name = "Test gamma";
+    await expect(run("cleanup-test-dashboards", renamed)).rejects.toThrow(
+      /created "Test alpha", "Test gamma"; expected exactly Test alpha and Test beta/,
+    );
+
+    const extra = passing();
+    extra.turns[0]!.toolCalls.push({
+      toolCallId: "tc-c",
+      name: "create_dashboard",
+      args: { name: "Test alpha" },
+    });
+    extra.turns[0]!.toolResults.push(
+      createdResult("create_dashboard", "dashboard", "db-c", "tc-c"),
+    );
+    await expect(run("cleanup-test-dashboards", extra)).rejects.toThrow(
+      /expected exactly Test alpha and Test beta/,
+    );
+  });
+
+  it("accepts the test dashboards' names whatever their letter case or spacing", async () => {
+    const loose = passing();
+    loose.turns[0]!.toolCalls[0]!.args.name = " test Alpha ";
+    await expect(run("cleanup-test-dashboards", loose)).resolves.toBeUndefined();
   });
 });

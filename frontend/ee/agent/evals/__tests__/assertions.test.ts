@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EvalAssertionError,
   WRITE_TOOL_NAMES,
+  createdIds,
+  expectExactArgs,
   alertThreshold,
   assistantText,
   dateMentionPattern,
@@ -35,6 +37,7 @@ const alertRow = (overrides: Partial<AlertRow> = {}): AlertRow => ({
   window: "10m",
   thresholdOperator: ">",
   threshold: 2000,
+  status: "ACTIVE",
   ...overrides,
 });
 
@@ -180,7 +183,7 @@ describe("alertThreshold", () => {
 
 describe("newRows", () => {
   const before: ProjectRows = {
-    detectors: [{ id: "d-1", name: "old", template: "failure", prompt: "p" }],
+    detectors: [{ id: "d-1", name: "old", template: "failure", prompt: "p", sampleRate: 100 }],
     dashboards: [
       {
         id: "db-1",
@@ -196,7 +199,7 @@ describe("newRows", () => {
     const after: ProjectRows = {
       detectors: [
         ...before.detectors,
-        { id: "d-2", name: "new", template: "failure", prompt: "p" },
+        { id: "d-2", name: "new", template: "failure", prompt: "p", sampleRate: 100 },
       ],
       dashboards: [...before.dashboards, { id: "db-2", name: "Latency", layout: [], widgets: [] }],
       alerts: [...before.alerts, alertRow({ id: "al-2", name: "new" })],
@@ -451,6 +454,80 @@ describe("noUnsourcedFigures share scoping", () => {
       /no tool result contained: 12/,
     );
     expect(() => noUnsourcedFigures([turn("a 3:1 split, 6.7x more", ["value: 1"])])).not.toThrow();
+  });
+});
+
+describe("expectExactArgs", () => {
+  const call = (args: Record<string, unknown>) => ({ toolCallId: "tc", name: "update_x", args });
+
+  it("passes when the args carry exactly the expected fields (plus the label) with matching values", () => {
+    expect(() =>
+      expectExactArgs(call({ label: "l", detector_id: "d1", sample_rate: 25 }), {
+        detector_id: "d1",
+        sample_rate: 25,
+      }),
+    ).not.toThrow();
+  });
+
+  it("accepts a predicate for a value the scenario cannot pin literally", () => {
+    expect(() =>
+      expectExactArgs(call({ widget_id: "w1", reason: "because" }), {
+        widget_id: "w1",
+        reason: (value) => typeof value === "string" && value.length > 3,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      expectExactArgs(call({ widget_id: "w1", reason: "no" }), {
+        widget_id: "w1",
+        reason: (value) => typeof value === "string" && value.length > 3,
+      }),
+    ).toThrow(/update_x sent reason "no"/);
+  });
+
+  it("names every unexpected field, and every expected one that is missing", () => {
+    expect(() =>
+      expectExactArgs(call({ detector_id: "d1", prompt: "p", enabled: true }), {
+        detector_id: "d1",
+        sample_rate: 25,
+      }),
+    ).toThrow(/unexpected fields enabled, prompt/);
+    expect(() =>
+      expectExactArgs(call({ detector_id: "d1" }), { detector_id: "d1", sample_rate: 25 }),
+    ).toThrow(/missing sample_rate/);
+  });
+
+  it("reports a value that differs from the literal expected", () => {
+    expect(() =>
+      expectExactArgs(call({ alert_id: "al-1", status: "ACTIVE" }), {
+        alert_id: "al-1",
+        status: "PAUSED",
+      }),
+    ).toThrow(/update_x sent status "ACTIVE"; expected "PAUSED"/);
+  });
+});
+
+describe("createdIds", () => {
+  it("reads the resource ids off a turn's create results, keyed by tool call", () => {
+    const t = turn({
+      toolResults: [
+        {
+          toolCallId: "tc-1",
+          name: "create_widget",
+          isError: false,
+          result: {
+            details: { kind: "resource_created", resourceType: "widget", resourceId: "w1" },
+          },
+        },
+        {
+          toolCallId: "tc-2",
+          name: "create_widget",
+          isError: true,
+          result: { content: [{ type: "text", text: "Error" }] },
+        },
+        { toolCallId: "tc-3", name: "list_dashboards", isError: false, result: "rows" },
+      ],
+    });
+    expect(createdIds([t], "create_widget")).toEqual(new Map([["tc-1", "w1"]]));
   });
 });
 

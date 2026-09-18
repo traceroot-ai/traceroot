@@ -22,6 +22,9 @@ vi.mock("@traceroot/core", () => {
     Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
     hasMinRole: (userRole: string, minRole: string) =>
       ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
+    // Imported by the update service that shares this module.
+    DEFAULT_ALERT_WINDOW: "10m",
+    isAlertWindow: (value: string) => ["10m", "30m", "1h"].includes(value),
   };
 });
 import { createProject } from "./projects";

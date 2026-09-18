@@ -10,6 +10,10 @@ export interface PendingConfirmation {
   /** The parked decision's id — what the decisions endpoint is called with.
    *  A superseding confirmation_pending event replaces it in place. */
   decisionId: string;
+  /** "approval" on a delete: the destructive card, whose only answers are
+   *  its button and skip — a typed reply skips it. Absent means confirm,
+   *  except on a delete, which the panel treats as approval regardless. */
+  approvalClass?: "confirm" | "approval";
 }
 
 export interface ToolCallStep {
