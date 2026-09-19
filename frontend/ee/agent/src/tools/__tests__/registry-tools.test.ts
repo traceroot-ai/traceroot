@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Executor } from "../../executors/interface.js";
 import {
+  formatAlertDetail,
+  formatAlertList,
   formatDashboardDetail,
   formatDashboardList,
   formatDetectorDetail,
@@ -27,7 +29,7 @@ describe("createRegistryReadTools", () => {
     return impl;
   }
 
-  it("exposes exactly the ten internally-bound read tools", () => {
+  it("exposes exactly the sixteen internally-bound read tools", () => {
     const names = createRegistryReadTools("p1", "u1").map((t) => t.name);
     expect(names).toEqual([
       "list_traces",
@@ -40,7 +42,220 @@ describe("createRegistryReadTools", () => {
       "get_finding_by_trace",
       "list_dashboards",
       "get_dashboard",
+      "run_widget_query",
+      "get_dashboard_data",
+      "get_widget",
+      "get_widget_data",
+      "list_alerts",
+      "get_alert",
     ]);
+  });
+
+  it("get_widget GETs the internal widget route and renders the definition", async () => {
+    const impl = stubFetch({
+      id: "w1",
+      dashboard_id: "d1",
+      dashboard_name: "Latency",
+      title: "p95",
+      type: "query",
+      spec: { view: "spans" },
+      display_config: {},
+      create_time: "2026-08-01T00:00:00Z",
+      update_time: "2026-08-02T00:00:00Z",
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_widget")!;
+    const result = await tool.execute("id", { label: "x", widget_id: "w1" });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/internal/projects/p1/widgets/w1");
+    expect((init as RequestInit).method ?? "GET").toBe("GET");
+    expect((result.content[0] as { text: string }).text).toContain(
+      "Widget: w1 | p95 | type: query\nDashboard: d1 | Latency",
+    );
+  });
+
+  it("get_widget_data GETs the internal data route with the window as query params", async () => {
+    const impl = stubFetch({ widget: {}, window: {}, status: "ok", columns: [], rows: [] });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_widget_data")!;
+    await tool.execute("id", { label: "x", widget_id: "w1", range: "7d" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/widgets/w1/data?range=7d",
+    );
+  });
+
+  it("get_widget_data defaults to the page's window, and a window the model names wins", async () => {
+    const impl = stubFetch({ widget: {}, window: {}, status: "ok", columns: [], rows: [] });
+    const tool = createRegistryReadTools("p1", "u1", { range: "30d" }).find(
+      (t) => t.name === "get_widget_data",
+    )!;
+    await tool.execute("id", { label: "x", widget_id: "w1" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/widgets/w1/data?range=30d",
+    );
+    await tool.execute("id", { label: "x", widget_id: "w1", range: "1h" });
+    expect(String(impl.mock.calls[1]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/widgets/w1/data?range=1h",
+    );
+    expect(tool.description).toContain("the window the user is looking at on the page (30d)");
+    expect(tool.description).not.toContain("site's default");
+  });
+
+  it("puts the widget's dashboard URL in a widget data read, on the browser-reachable origin", async () => {
+    const before = { ...process.env };
+    process.env.TRACEROOT_UI_URL = "http://web:3000";
+    process.env.TRACEROOT_PUBLIC_UI_URL = "https://app.test";
+    try {
+      stubFetch({
+        widget: { id: "w1", dashboard_id: "d1", title: "p95", type: "query" },
+        window: {},
+        status: "ok",
+        columns: ["value"],
+        rows: [[1]],
+      });
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_widget_data")!;
+      const result = await tool.execute("id", { label: "x", widget_id: "w1" });
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain("URL: https://app.test/projects/p1/dashboard/d1");
+      expect(text).not.toContain("web:3000");
+    } finally {
+      process.env.TRACEROOT_UI_URL = before.TRACEROOT_UI_URL;
+      process.env.TRACEROOT_PUBLIC_UI_URL = before.TRACEROOT_PUBLIC_UI_URL;
+      if (before.TRACEROOT_UI_URL === undefined) delete process.env.TRACEROOT_UI_URL;
+      if (before.TRACEROOT_PUBLIC_UI_URL === undefined) delete process.env.TRACEROOT_PUBLIC_UI_URL;
+    }
+  });
+
+  it("run_widget_query POSTs the spec and window to the internal query route", async () => {
+    const impl = stubFetch({ columns: [], rows: [], meta: {}, window: {} });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "run_widget_query")!;
+    await tool.execute("id", { label: "x", spec: { view: "spans" }, range: "7d" });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/widgets/query");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      spec: { view: "spans" },
+      range: "7d",
+    });
+    expect((init as RequestInit).headers).toMatchObject({
+      "X-Internal-Secret": "s3cret",
+      "x-user-id": "u1",
+    });
+  });
+
+  it("get_dashboard_data GETs the internal data route with the window as query params", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard_data")!;
+    await tool.execute("id", { label: "x", dashboard_id: "d1", range: "7d" });
+    const [url] = impl.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/dashboards/d1/data?range=7d",
+    );
+  });
+
+  it("puts the dashboard's page URL in a dashboard read, on the browser-reachable origin", async () => {
+    // In a compose deployment the service reaches the web app as http://web:3000,
+    // which a browser cannot; the link must use the public origin instead.
+    const before = { ...process.env };
+    process.env.TRACEROOT_UI_URL = "http://web:3000";
+    process.env.TRACEROOT_PUBLIC_UI_URL = "https://app.test";
+    try {
+      stubFetch({ dashboard: { id: "d1", name: "Latency" }, window: {}, widgets: [] });
+      const tool = createRegistryReadTools("p1", "u1").find(
+        (t) => t.name === "get_dashboard_data",
+      )!;
+      const result = await tool.execute("id", { label: "x", dashboard_id: "d1" });
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain("URL: https://app.test/projects/p1/dashboard/d1");
+      expect(text).not.toContain("web:3000");
+    } finally {
+      process.env.TRACEROOT_UI_URL = before.TRACEROOT_UI_URL;
+      process.env.TRACEROOT_PUBLIC_UI_URL = before.TRACEROOT_PUBLIC_UI_URL;
+      if (before.TRACEROOT_UI_URL === undefined) delete process.env.TRACEROOT_UI_URL;
+      if (before.TRACEROOT_PUBLIC_UI_URL === undefined) delete process.env.TRACEROOT_PUBLIC_UI_URL;
+    }
+  });
+
+  it("defaults both data reads to the page's window when the model names none", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tools = createRegistryReadTools("p1", "u1", { range: "30d" });
+    await tools
+      .find((t) => t.name === "get_dashboard_data")!
+      .execute("id", { label: "x", dashboard_id: "d1" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/dashboards/d1/data?range=30d",
+    );
+    await tools
+      .find((t) => t.name === "run_widget_query")!
+      .execute("id", { label: "x", spec: { view: "spans" } });
+    expect(JSON.parse((impl.mock.calls[1]![1] as RequestInit).body as string)).toEqual({
+      spec: { view: "spans" },
+      range: "30d",
+    });
+  });
+
+  it("a window the model names wins over the page's, even when the page's is custom bounds", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tools = createRegistryReadTools("p1", "u1", {
+      start_time: "2026-09-01T00:00:00Z",
+      end_time: "2026-09-02T00:00:00Z",
+    });
+    await tools
+      .find((t) => t.name === "get_dashboard_data")!
+      .execute("id", { label: "x", dashboard_id: "d1", range: "1h" });
+    // Only the model's range: merging the page's bounds under it would be a request the server rejects.
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/dashboards/d1/data?range=1h",
+    );
+  });
+
+  it("tells the model an omitted window means the page's, not the site default", () => {
+    for (const name of ["run_widget_query", "get_dashboard_data"]) {
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      expect(tool.description).toContain("the window the user is looking at on the page");
+      expect(tool.description).not.toContain("site's default");
+    }
+  });
+
+  it("names the page's actual range in that text, so the default is not invisible", () => {
+    for (const name of ["run_widget_query", "get_dashboard_data"]) {
+      const preset = createRegistryReadTools("p1", "u1", { range: "14d" }).find(
+        (t) => t.name === name,
+      )!;
+      expect(preset.description).toContain("looking at on the page (14d)");
+      expect(
+        (preset.parameters.properties.range as { description?: string }).description,
+      ).toContain("looking at on the page (14d)");
+
+      const custom = createRegistryReadTools("p1", "u1", {
+        start_time: "2026-08-25T00:00:00Z",
+        end_time: "2026-09-08T00:00:00Z",
+      }).find((t) => t.name === name)!;
+      expect(custom.description).toContain(
+        "on the page (2026-08-25T00:00:00Z → 2026-09-08T00:00:00Z)",
+      );
+
+      // No page window: the phrase stands alone, with no empty parentheses.
+      const none = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      expect(none.description).toContain("looking at on the page");
+      expect(none.description).not.toContain("page (");
+    }
+  });
+
+  it("says the same on the range parameter itself, so the schema cannot contradict the description", () => {
+    for (const name of ["run_widget_query", "get_dashboard_data"]) {
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      const range = tool.parameters.properties.range as { description?: string };
+      expect(range.description).toContain("the window the user is looking at");
+      expect(range.description ?? "").not.toMatch(/site.s default/);
+    }
+  });
+
+  it("sends no window at all when the page gave none and the model named none", async () => {
+    const impl = stubFetch({ dashboard: {}, window: {}, widgets: [] });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard_data")!;
+    await tool.execute("id", { label: "x", dashboard_id: "d1" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/dashboards/d1/data",
+    );
   });
 
   it("hides the fixed project_id from every tool's model-facing schema", () => {
@@ -276,6 +491,82 @@ describe("createRegistryReadTools", () => {
     expect(result.content[0]!.text).toContain("Cost over time");
   });
 
+  it("list_alerts hits the internal alerts route with paging and runs the formatter", async () => {
+    const impl = stubFetch({
+      data: [
+        {
+          id: "alr-1",
+          name: "p95 latency",
+          measure: "latency",
+          aggregation: "p95",
+          window: "10m",
+          threshold_operator: ">",
+          threshold: 2000,
+          status: "ACTIVE",
+          severity: "OK",
+          creator: "Ada Lovelace",
+        },
+      ],
+      meta: { page: 0, limit: 50, total: 1, capacity: { used: 1, max: 100 } },
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "list_alerts")!;
+    const result = await tool.execute("id", { label: "x", search_query: "latency", limit: 5 });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/alerts?limit=5&search_query=latency",
+    );
+    expect((init as RequestInit).headers).toMatchObject({
+      "X-Internal-Secret": "s3cret",
+      "x-user-id": "u1",
+    });
+    // Exact rendering is owned by the formatter tests; this proves dispatch + formatter wiring.
+    expect(result.content[0]!.text).toContain("Found 1 alerts");
+    expect(result.content[0]!.text).toContain("alr-1");
+    // The panel's list card reads the compact projection, not the prose.
+    expect(result.details).toMatchObject({
+      kind: "alert_list",
+      total: 1,
+      capacity: { used: 1, max: 100 },
+      alerts: [{ id: "alr-1", name: "p95 latency", measure: "latency", threshold: 2000 }],
+    });
+  });
+
+  it("get_alert hits the internal alert route and renders the rule", async () => {
+    const impl = stubFetch({
+      id: "alr-1",
+      name: "p95 latency",
+      view: "SPANS",
+      measure: "latency",
+      aggregation: "p95",
+      filters: [],
+      window: "10m",
+      threshold_operator: ">",
+      threshold: 2000,
+      renotify: { mode: "OFF" },
+      no_data_mode: "HOLD",
+      status: "ACTIVE",
+      severity: "OK",
+      creator: "Ada Lovelace",
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_alert")!;
+    const result = await tool.execute("id", { label: "x", alert_id: "alr-1" });
+    const [url] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/internal/projects/p1/alerts/alr-1");
+    expect(result.content[0]!.text).toContain("Alert: alr-1");
+    expect(result.content[0]!.text).toContain("p95(latency) over 10m > 2000");
+    expect(result.details).toMatchObject({
+      kind: "alert_detail",
+      alert: { id: "alr-1", name: "p95 latency", renotify: { mode: "OFF" }, no_data_mode: "HOLD" },
+    });
+  });
+
+  it("carries no details on the reads that have no card", async () => {
+    stubFetch({ data: [], meta: { page: 0, limit: 50, total: 0 } });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "list_detectors")!;
+    const result = await tool.execute("id", { label: "x" });
+    expect(result.details).toBeUndefined();
+  });
+
   it("returns HTTP failures as tool text instead of throwing", async () => {
     vi.stubGlobal(
       "fetch",
@@ -289,32 +580,85 @@ describe("createRegistryReadTools", () => {
 });
 
 describe("createTools", () => {
-  it("wires the registry read tools alongside the download, github, and sandbox tools", () => {
+  const READ_TOOL_NAMES = [
+    "list_traces",
+    "list_sessions",
+    "get_session",
+    "list_detectors",
+    "get_detector",
+    "list_findings",
+    "get_finding",
+    "get_finding_by_trace",
+    "list_dashboards",
+    "get_dashboard",
+    "run_widget_query",
+    "get_dashboard_data",
+    "get_widget",
+    "get_widget_data",
+    "list_alerts",
+    "get_alert",
+  ];
+  const WRITE_TOOL_NAMES = [
+    "create_detector",
+    "create_dashboard",
+    "create_widget",
+    "create_alert",
+    "update_detector",
+    "update_dashboard",
+    "update_widget",
+    "update_alert",
+    "set_alert_status",
+    "delete_detector",
+    "delete_dashboard",
+    "delete_widget",
+    "delete_alert",
+  ];
+  const OTHER_TOOL_NAMES = [
+    "list_detector_models",
+    "download_traces",
+    "download_session",
+    "check_github_access",
+    "git_clone",
+    "bash",
+    "read",
+    "write",
+  ];
+
+  it("wires read, write, download, github, and sandbox tools for a user session", () => {
     const tools = createTools({
       projectId: "p1",
       userId: "u1",
       workspaceId: "w1",
+      agentSessionId: "s1",
       executor: {} as Executor,
     });
     expect(tools.map((t) => t.name)).toEqual([
-      "list_traces",
-      "list_sessions",
-      "get_session",
-      "list_detectors",
-      "get_detector",
-      "list_findings",
-      "get_finding",
-      "get_finding_by_trace",
-      "list_dashboards",
-      "get_dashboard",
-      "download_traces",
-      "download_session",
-      "check_github_access",
-      "git_clone",
-      "bash",
-      "read",
-      "write",
+      ...READ_TOOL_NAMES,
+      ...WRITE_TOOL_NAMES,
+      ...OTHER_TOOL_NAMES,
     ]);
+  });
+
+  it("omits the write tools when there is no acting user (system/RCA sessions)", () => {
+    const tools = createTools({
+      projectId: "p1",
+      userId: "",
+      workspaceId: "w1",
+      agentSessionId: "s1",
+      executor: {} as Executor,
+    });
+    expect(tools.map((t) => t.name)).toEqual([...READ_TOOL_NAMES, ...OTHER_TOOL_NAMES]);
+  });
+
+  it("omits the write tools when session provenance is missing", () => {
+    const tools = createTools({
+      projectId: "p1",
+      userId: "u1",
+      workspaceId: "w1",
+      agentSessionId: "",
+      executor: {} as Executor,
+    });
+    expect(tools.map((t) => t.name)).toEqual([...READ_TOOL_NAMES, ...OTHER_TOOL_NAMES]);
   });
 });
 
@@ -450,6 +794,112 @@ describe("formatters", () => {
     });
     expect(text).toContain("Description: (none)");
     expect(text).toContain("Widgets: (none — add one with create_widget)");
+  });
+
+  it("formatAlertList renders rule lines, capacity, and the empty state", () => {
+    expect(formatAlertList({})).toBe("No alerts found in this project.");
+    // A search that matched nothing still reports how full the project is.
+    expect(formatAlertList({ data: [], meta: { capacity: { used: 3, max: 100 } } })).toBe(
+      "No alerts found in this project.\nCapacity: 3/100 alerts used",
+    );
+    expect(
+      formatAlertList({
+        data: [
+          {
+            id: "alr-1",
+            name: "p95 latency",
+            measure: "latency",
+            aggregation: "p95",
+            window: "10m",
+            threshold_operator: ">",
+            threshold: 2000,
+            status: "ACTIVE",
+            severity: "OK",
+            creator: "Ada Lovelace",
+            last_evaluated_at: "2026-09-11T20:10:00Z",
+            last_notify_status: "SENT",
+            last_notify_at: "2026-09-11T20:00:00Z",
+            last_error: null,
+          },
+          {
+            id: "alr-2",
+            name: "",
+            measure: "error_count",
+            aggregation: "sum",
+            window: "1h",
+            threshold_operator: ">=",
+            threshold: 5,
+            status: "PAUSED",
+            severity: "ALERT",
+            creator: null,
+            last_error: "e".repeat(250),
+          },
+        ],
+        meta: { total: 7, capacity: { used: 7, max: 100 } },
+      }),
+    ).toBe(
+      "Found 2 alerts (7 total, showing 2):\n" +
+        "- alr-1 | p95 latency | p95(latency) over 10m > 2000 | ACTIVE/OK | evaluated 2026-09-11T20:10:00Z | notify: SENT at 2026-09-11T20:00:00Z | by Ada Lovelace\n" +
+        `- alr-2 | (unnamed) | sum(error_count) over 1h >= 5 | PAUSED/ALERT | evaluated never | by unknown | last error: ${"e".repeat(200)}\n` +
+        "Capacity: 7/100 alerts used",
+    );
+  });
+
+  it("formatAlertDetail renders the rule, filters, state, and error lines", () => {
+    expect(
+      formatAlertDetail({
+        id: "alr-1",
+        name: "p95 latency",
+        view: "SPANS",
+        measure: "latency",
+        aggregation: "p95",
+        filters: [{ field: "model_name", op: "=", value: "gpt-5" }],
+        window: "10m",
+        threshold_operator: ">",
+        threshold: 2000,
+        renotify: { mode: "EVERY", interval_minutes: 60 },
+        no_data_mode: "HOLD",
+        status: "ACTIVE",
+        severity: "ALERT",
+        severity_changed_at: "2026-09-11T20:00:00Z",
+        alerted_at: "2026-09-11T20:00:00Z",
+        last_evaluated_at: "2026-09-11T20:10:00Z",
+        last_error: "query timed out",
+        last_error_at: "2026-09-11T19:00:00Z",
+        last_notify_status: "FAILED",
+        last_notify_error: "channel missing",
+        last_notify_at: "2026-09-11T20:00:00Z",
+        creator: "Ada Lovelace",
+        create_time: "2026-08-01T00:00:00Z",
+        update_time: "2026-08-02T00:00:00Z",
+      }),
+    ).toBe(
+      "Alert: alr-1 | p95 latency\n" +
+        "Rule: p95(latency) over 10m > 2000 on SPANS | no-data: HOLD | renotify: every 60 min\n" +
+        'Filters: [{"field":"model_name","op":"=","value":"gpt-5"}]\n' +
+        "State: ACTIVE | severity: ALERT (since 2026-09-11T20:00:00Z) | alerted 2026-09-11T20:00:00Z | last evaluated 2026-09-11T20:10:00Z\n" +
+        "Created by Ada Lovelace | created 2026-08-01T00:00:00Z | updated 2026-08-02T00:00:00Z\n" +
+        "Last error: query timed out (2026-09-11T19:00:00Z)\n" +
+        "Last notification: FAILED at 2026-09-11T20:00:00Z — channel missing",
+    );
+  });
+
+  it("formatAlertDetail states missing pieces explicitly", () => {
+    const text = formatAlertDetail({
+      id: "alr-2",
+      name: "",
+      filters: [],
+      renotify: { mode: "OFF" },
+      status: "PAUSED",
+      severity: "UNKNOWN",
+    });
+    expect(text).toContain("Alert: alr-2 | (unnamed)");
+    expect(text).toContain("renotify: off");
+    expect(text).toContain("Filters: (none)");
+    expect(text).toContain("alerted never | last evaluated never");
+    expect(text).toContain("Created by unknown");
+    expect(text).not.toContain("Last error");
+    expect(text).not.toContain("Last notification");
   });
 
   it("formatDetectorList renders rows and reports the empty state", () => {

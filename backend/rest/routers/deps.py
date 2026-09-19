@@ -1,6 +1,5 @@
 """FastAPI dependencies for authentication (via Next.js internal API)."""
 
-import hmac
 import logging
 from typing import Annotated
 
@@ -12,6 +11,7 @@ from rest.rate_limit import (
     mark_request_rate_limit_exempt,
     set_rate_limit_identity,
 )
+from rest.routers.internal.auth import has_internal_secret
 from shared.config import settings
 from shared.enums import MemberRole
 
@@ -47,10 +47,11 @@ async def get_project_access(
 
     Auth modes:
     - x-user-id: User's unique ID (from session) — normal user-initiated requests.
-    - X-Internal-Secret: Shared secret — for trusted server-to-server calls
-      (e.g. the agent service running a system-initiated RCA session that has no
-      associated user). Bypasses the Next.js per-user access check; the agent
-      service is itself trusted to scope access correctly.
+    - X-Internal-Secret: The internal secret, for trusted server-to-server
+      calls — the worker, the Next.js server, and the agent service running a
+      system-initiated RCA session that has no associated user, whose tools
+      read traces through this route. Bypasses the Next.js per-user access
+      check; internal callers are themselves trusted to scope access correctly.
 
     Raises 401 if neither auth mode succeeds, 403 if no access, 404 if project
     not found.
@@ -60,12 +61,10 @@ async def get_project_access(
     clear_request_rate_limit_exempt()
 
     # System bypass: agent service / worker calling on behalf of the system.
-    # Constant-time compare to avoid leaking the secret via response timing.
-    if (
-        x_internal_secret
-        and settings.internal_api_secret
-        and hmac.compare_digest(x_internal_secret, settings.internal_api_secret)
-    ):
+    # has_internal_secret() owns the comparison (constant time, a blank secret
+    # never matching) so this route and the internal router cannot drift apart
+    # on what counts as internal traffic.
+    if has_internal_secret(x_internal_secret):
         # Trusted internal traffic is not rate limited (system-controlled volume)
         # and exempt from retention gating (enterprise-equivalent access).
         mark_request_rate_limit_exempt()

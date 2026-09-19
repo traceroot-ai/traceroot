@@ -206,8 +206,8 @@ describe("GET .../runs — RCA status enrichment", () => {
       backendResponse({ data: [run("f1"), run("f2"), run("f3")], meta: {} }),
     );
     rcaFindManyMock.mockResolvedValue([
-      { findingId: "f1", status: "done" },
-      { findingId: "f3", status: "failed" },
+      { findingId: "f1", status: "done", executions: [] },
+      { findingId: "f3", status: "failed", executions: [] },
     ]);
 
     const res = await GET(makeRequest(), makeParams());
@@ -224,7 +224,7 @@ describe("GET .../runs — RCA status enrichment", () => {
 
   it("leaves runs that never triggered (null finding_id) untouched", async () => {
     backendFetchMock.mockResolvedValue(backendResponse({ data: [run("f1"), run(null)], meta: {} }));
-    rcaFindManyMock.mockResolvedValue([{ findingId: "f1", status: "done" }]);
+    rcaFindManyMock.mockResolvedValue([{ findingId: "f1", status: "done", executions: [] }]);
 
     const res = await GET(makeRequest(), makeParams());
     const body = (await res.json()) as { data: Array<Record<string, unknown>> };
@@ -257,6 +257,73 @@ describe("GET .../runs — RCA status enrichment", () => {
     const res = await GET(makeRequest(), makeParams());
     expect(await res.json()).toBeNull();
     expect(rcaFindManyMock).not.toHaveBeenCalled();
+  });
+
+  it("attaches the execution's agent trace id/status alongside rca_status", async () => {
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [run("f1"), run("f2")], meta: {} }));
+    rcaFindManyMock.mockResolvedValue([
+      {
+        findingId: "f1",
+        status: "done",
+        executions: [{ traceId: "f1f1", traceStatus: "available" }],
+      },
+      { findingId: "f2", status: "pending", executions: [] },
+    ]);
+
+    const res = await GET(makeRequest(), makeParams());
+    const body = (await res.json()) as {
+      data: Array<{ execution_trace_id: unknown; execution_trace_status: unknown }>;
+    };
+
+    expect(rcaFindManyMock.mock.calls[0][0]).toMatchObject({
+      select: { executions: { orderBy: { attempt: "desc" } } },
+    });
+    expect(body.data[0].execution_trace_id).toBe("f1f1");
+    expect(body.data[0].execution_trace_status).toBe("available");
+    // No execution row (legacy RCA) -> both fields null, not absent.
+    expect(body.data[1].execution_trace_id).toBeNull();
+    expect(body.data[1].execution_trace_status).toBeNull();
+  });
+
+  it("keeps linking the last available trace while a retry is pending, and falls back to the current attempt otherwise", async () => {
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [run("f1"), run("f2")], meta: {} }));
+    // Rows arrive newest attempt first (the route orders by attempt desc).
+    rcaFindManyMock.mockResolvedValue([
+      {
+        findingId: "f1",
+        status: "running",
+        executions: [
+          { traceId: "f1-attempt2", traceStatus: "pending" },
+          { traceId: "f1-attempt1", traceStatus: "available" },
+        ],
+      },
+      {
+        findingId: "f2",
+        status: "running",
+        executions: [
+          { traceId: "f2-attempt2", traceStatus: "pending" },
+          { traceId: "f2-attempt1", traceStatus: "failed" },
+        ],
+      },
+    ]);
+
+    const res = await GET(makeRequest(), makeParams());
+    const body = (await res.json()) as {
+      data: Array<{
+        rca_status: unknown;
+        execution_trace_id: unknown;
+        execution_trace_status: unknown;
+      }>;
+    };
+
+    // Status is the RCA row's (current attempt); the trace is attempt 1's, the
+    // one that can actually be opened while attempt 2 is still exporting.
+    expect(body.data[0].rca_status).toBe("running");
+    expect(body.data[0].execution_trace_id).toBe("f1-attempt1");
+    expect(body.data[0].execution_trace_status).toBe("available");
+    // No attempt has an available trace: the current attempt's status shows.
+    expect(body.data[1].execution_trace_id).toBe("f2-attempt2");
+    expect(body.data[1].execution_trace_status).toBe("pending");
   });
 
   it("returns triggered runs WITHOUT rca_status when the lookup fails (absent, not Skipped)", async () => {

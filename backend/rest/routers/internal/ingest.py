@@ -1,4 +1,4 @@
-"""Internal OTLP trace ingest (detector self-traces)."""
+"""Internal OTLP trace ingest (internal self-traces: detector, agent)."""
 
 import gzip
 import logging
@@ -21,6 +21,13 @@ router = APIRouter()
 _TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 
+# Which source each internal path stores its records under. Fixed on the
+# server and chosen by the path the caller reached: no header and no payload
+# field can change it, and the two internal writers are told apart without a
+# second credential to configure and rotate (design: decision 2).
+_PLATFORM_SOURCE = "detector"
+_AGENT_SOURCE = "agent"
+
 
 @router.post("/traces", dependencies=[Depends(verify_internal_secret)])
 async def ingest_internal_traces(
@@ -30,16 +37,16 @@ async def ingest_internal_traces(
     ),
     x_project_id: Annotated[str | None, Header()] = None,
 ) -> dict:
-    """Ingest detector self-traces (OTLP protobuf) directly into ClickHouse.
+    """Ingest the platform's self-traces as OTLP protobuf into ClickHouse (source `detector`).
 
     Trusted, internal-only counterpart of the public OTLP ingest: the worker
-    posts here with the shared secret, spans run through the detector-only
+    posts here with the internal secret, spans run through the internal-only
     multi-project wrapper (which calls the same transform as customer traffic,
     once per project group), and the rows are inserted in-process — no S3 hop and
     no detection enqueue, so a detector can never scan its own emission. Spans are inserted before the trace row
     so a partial failure cannot leave a trace row that points at missing
-    spans. Every record is force-stamped source='detector' regardless of
-    payload content.
+    spans. Every record is force-stamped with this path's source, regardless of
+    payload content; the agent service posts to `/traces/agent` instead.
 
     Project attribution is per-span and primary: the worker serves every
     project off one queue, so each span carries its own
@@ -65,8 +72,20 @@ async def ingest_internal_traces(
             fallback, a trace id that is not exactly 32 lowercase hex chars,
             or a span/parent id that is present but not exactly 16.
     """
-    fallback_project_id = x_project_id or project_id
+    return await _ingest(request, x_project_id or project_id, _PLATFORM_SOURCE)
 
+
+async def _ingest(request: Request, fallback_project_id: str | None, source: str) -> dict:
+    """Decode, validate, stamp `source` and insert one internal OTLP batch.
+
+    Args:
+        request (Request): Raw request; body is OTLP protobuf, optionally gzip-compressed.
+        fallback_project_id (str | None): Project for spans without a per-span attribute.
+        source (str): The value every record is stored under — the route's, never the payload's.
+
+    Returns:
+        dict: ``{"ok": True}`` on success.
+    """
     body = await request.body()
     if not body:
         raise HTTPException(status_code=400, detail="Empty request body")
@@ -110,15 +129,46 @@ async def ingest_internal_traces(
                 status_code=400, detail="parent_span_id must be 16 hex chars when present"
             )
 
-    # This route only ever carries detector self-traces, so the marker is a property
-    # of the route, not of the payload: stamp it rather than trusting what was sent.
-    # This is the ONLY place a non-'user' source is written — the transform never sets
-    # one — so a payload that omits or misstates the attribute still lands classified
-    # correctly, and no tenant-supplied value can reach the column.
+    # The marker is a property of WHICH PATH was called, never of the payload:
+    # the transform never sets one, and this is the only place a non-'user'
+    # source is written.
     for record in (*traces, *spans):
-        record["source"] = "detector"
+        record["source"] = source
 
     ch = get_clickhouse_client()
     ch.insert_spans_batch(spans)
     ch.insert_traces_batch(traces)
     return {"ok": True}
+
+
+@router.post("/traces/agent", dependencies=[Depends(verify_internal_secret)])
+async def ingest_agent_traces(
+    request: Request,
+    project_id: str | None = Query(
+        default=None, description="Fallback project for spans without a per-span attribute"
+    ),
+    x_project_id: Annotated[str | None, Header()] = None,
+) -> dict:
+    """The same ingest for the agent service's runs, stored under source `agent`.
+
+    A path rather than a parameter, so the label stays the server's: a caller
+    reaches one path or the other, and nothing it sends can relabel what it
+    wrote. Both paths sit behind the same internal secret — `source` separates
+    reading and billing, not privilege, and any process that can reach one path
+    can reach the other.
+
+    Args:
+        request (Request): Raw request; body is OTLP protobuf, optionally
+            gzip-compressed (Content-Encoding: gzip).
+        project_id (str | None): Fallback project for spans without a per-span
+            attribute, as a query parameter.
+        x_project_id (str | None): Same, as the X-Project-Id header; it wins
+            when both are given.
+
+    Returns:
+        dict: ``{"ok": True}`` on success.
+
+    Raises:
+        HTTPException: As `ingest_internal_traces`.
+    """
+    return await _ingest(request, x_project_id or project_id, _AGENT_SOURCE)

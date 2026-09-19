@@ -1,15 +1,18 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
+import { PendingDecisionBar } from "./pending-decision-bar";
 import { SessionHistory } from "./session-history";
+import { AgentTraceSheet } from "./agent-trace-sheet";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
+import { useRetention } from "@/lib/hooks/use-retention";
 
 interface AiAssistantPanelProps {
   projectId?: string;
@@ -85,6 +88,12 @@ export function AiAssistantPanel({
   // workspaceId from project (only available on project pages)
   const workspaceId = project?.workspace_id;
 
+  // The plan's retention window, passed to the transcript so a range left in
+  // storage by a workspace that has since downgraded is neither charted nor
+  // labeled on a card. (It reuses the project query above; with no project
+  // there is no plan to look up, and nothing is clamped.)
+  const { retentionDays } = useRetention(projectId ?? "");
+
   // Check if any models are available (system or BYOK)
   const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],
@@ -109,9 +118,13 @@ export function AiAssistantPanel({
     historyOpen,
     currentSessionId,
     modelSelection,
+    hasPendingDecision,
+    pendingDecision,
+    known,
     setHistoryOpen,
     setModelSelection,
     handleSend,
+    handleDecision,
     handleAbort,
     handleNewSession,
     handleClose,
@@ -119,6 +132,11 @@ export function AiAssistantPanel({
     handleSelectSession,
     handleDeleteSession,
   } = useAiChatContext();
+
+  // Per-step "Open span" into the turn's trace (Task 17). useAiChatContext() doesn't
+  // carry projectId — this component already receives it as its own prop, so
+  // that's what the sheet is given.
+  const [openTrace, setOpenTrace] = useState<{ traceId: string; spanId?: string } | null>(null);
 
   // Clicking X explicitly ends the conversation: abort any in-flight stream,
   // clear messages, drop the session id. Matches the upstream pre-decoupling
@@ -238,7 +256,29 @@ export function AiAssistantPanel({
             <div className="m-auto py-6">{emptyState}</div>
           </div>
         ) : (
-          <MessageList messages={messages} sessionStreaming={isStreaming} />
+          <MessageList
+            known={known}
+            messages={messages}
+            sessionStreaming={isStreaming}
+            // The sheet below mounts only with a projectId; without one the
+            // links would open nothing.
+            onOpenTrace={
+              projectId ? (traceId, spanId) => setOpenTrace({ traceId, spanId }) : undefined
+            }
+            projectId={projectId}
+            retentionDays={projectId ? retentionDays : undefined}
+          />
+        )}
+
+        {/* A parked proposal is decided here, at the composer, not on its
+            card: create/skip are the reply. Keyed by the decision so a
+            superseding proposal re-arms the buttons in place. */}
+        {pendingDecision !== null && (
+          <PendingDecisionBar
+            key={pendingDecision.decisionId}
+            decision={pendingDecision}
+            onDecide={handleDecision}
+          />
         )}
 
         {/* Input */}
@@ -248,6 +288,13 @@ export function AiAssistantPanel({
           onModelChange={setModelSelection}
           disabled={!projectId || !hasModels}
           workspaceId={workspaceId}
+          // While a proposal awaits a decision, a typed reply revises it —
+          // except a delete, which a reply skips; the bar says so instead.
+          placeholder={
+            hasPendingDecision && pendingDecision?.approvalClass !== "approval"
+              ? "Reply to revise"
+              : undefined
+          }
           actions={
             isStreaming && (
               <button
@@ -262,6 +309,14 @@ export function AiAssistantPanel({
           }
         />
       </div>
+      {projectId && (
+        <AgentTraceSheet
+          projectId={projectId}
+          traceId={openTrace?.traceId ?? null}
+          spanId={openTrace?.spanId}
+          onClose={() => setOpenTrace(null)}
+        />
+      )}
     </div>
   );
 }

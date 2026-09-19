@@ -11,7 +11,9 @@ export interface PiToolResultContent {
 
 export interface PiToolResult {
   content: PiToolResultContent[];
-  details: undefined;
+  /** Structured data beside the text, for a surface that renders results
+   *  (the chat panel's cards); undefined unless the binding asked for it. */
+  details: unknown;
 }
 
 /**
@@ -42,6 +44,32 @@ export interface ToPiAgentToolOptions {
   fixedArgs?: Record<string, unknown>;
   /** Renders the API result for the model; defaults to pretty-printed JSON. */
   formatResult?: (result: unknown) => string;
+  /**
+   * Structured details surfaced beside the text on a successful call, for a
+   * surface that renders results rather than reading them — the model sees
+   * only the text. Forwarded and persisted verbatim, so keep it a compact
+   * projection of the payload, not the payload itself.
+   */
+  details?: (result: unknown) => unknown;
+  /**
+   * Replaces the registry entry's description for this surface. The entry's
+   * text is written for the public API and CLI; a surface that changes a
+   * default (the in-app agent's page window) must tell the model the truth
+   * that applies to it, and the description sits closer to the call than
+   * the system prompt does.
+   */
+  description?: string;
+  /**
+   * Values for params the model omits, read on every call. Unlike fixedArgs
+   * these stay in the model's schema and lose to a value the model supplies:
+   * the page's selected time range is the motivating case — the agent should
+   * query the window the user is looking at unless they named another.
+   * A function of the model's own (visible) args, so a default can stand
+   * down when the model addressed the same concern another way — a page
+   * window with explicit bounds must not be merged under a range the model
+   * named. Read on every call because the window changes per message.
+   */
+  defaults?: (supplied: Readonly<Record<string, unknown>>) => Record<string, unknown>;
 }
 
 /** "list_traces" -> "List traces" for the tool's human-readable label. */
@@ -57,7 +85,15 @@ function humanizeName(name: string): string {
  * content.
  */
 export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOptions): PiAgentTool {
-  const { client, pathOverride, fixedArgs = {}, formatResult } = options;
+  const {
+    client,
+    pathOverride,
+    fixedArgs = {},
+    formatResult,
+    details,
+    defaults,
+    description,
+  } = options;
 
   // The registry keeps agentHiddenParams in inputSchema/bodyParams for full
   // API/CLI parity and leaves the stripping to consumers — this adapter is the
@@ -83,7 +119,7 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
   return {
     name: entry.name,
     label: humanizeName(entry.name),
-    description: entry.description,
+    description: description ?? entry.description,
     parameters: { type: "object", properties, required, additionalProperties: false },
     execute: async (_toolCallId, rawParams, signal): Promise<PiToolResult> => {
       const { label: _label, ...params } = (rawParams ?? {}) as Record<string, unknown>;
@@ -92,11 +128,18 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
       for (const name of hidden) {
         delete params[name];
       }
-      const args = { ...params, ...fixedArgs };
+      // Defaults under the model's args, fixedArgs over them; a param the
+      // model sent as undefined counts as omitted.
+      const supplied = Object.fromEntries(
+        Object.entries(params).filter(([, value]) => value !== undefined),
+      );
       try {
+        // Inside the boundary: a defaults callback that throws is reported to
+        // the model like any other failure, not surfaced as a rejected call.
+        const args = { ...(defaults?.(supplied) ?? {}), ...supplied, ...fixedArgs };
         const result = await dispatch(entry, args, client, { pathOverride, signal });
         const text = formatResult ? formatResult(result) : JSON.stringify(result, null, 2);
-        return { content: [{ type: "text", text }], details: undefined };
+        return { content: [{ type: "text", text }], details: details?.(result) };
       } catch (error) {
         // Deliberate divergence from the runtime's throw-on-failure contract:
         // errors are returned as tool-result text so the model can read the

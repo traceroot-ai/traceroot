@@ -10,17 +10,33 @@ vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-secret" } }));
 const widgetFindFirstMock = vi.fn();
 const widgetUpdateMock = vi.fn();
 const widgetDeleteMock = vi.fn();
+const dashboardUpdateMock = vi.fn();
+const auditCreateMock = vi.fn();
 
-vi.mock("@traceroot/core", () => ({
-  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
-  prisma: {
+// The handlers delegate to the write service, which runs its own tenancy
+// check and audit inside a transaction on this same client.
+vi.mock("@traceroot/core", () => {
+  const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
+  const client = {
+    project: { findUnique: async () => ({ workspaceId: "ws-1", deleteTime: null }) },
+    workspaceMember: { findUnique: async () => ({ role: "MEMBER" }) },
     widget: {
       findFirst: (...args: unknown[]) => widgetFindFirstMock(...args),
       update: (...args: unknown[]) => widgetUpdateMock(...args),
       delete: (...args: unknown[]) => widgetDeleteMock(...args),
     },
-  },
-}));
+    dashboard: { update: (...args: unknown[]) => dashboardUpdateMock(...args) },
+    auditLog: { create: (...args: unknown[]) => auditCreateMock(...args) },
+    $queryRaw: async () => [{ layout: [{ i: "widget-1", x: 0, y: 0, w: 6, h: 4 }] }],
+    $transaction: (fn: (tx: unknown) => unknown) => fn(client),
+  };
+  return {
+    Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
+    hasMinRole: (userRole: string, minRole: string) =>
+      ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
+    prisma: client,
+  };
+});
 
 const requireAuthMock = vi.fn();
 const requireProjectAccessMock = vi.fn();
@@ -57,12 +73,21 @@ function makeParams(projectId = "proj-1", dashboardId = "dash-1", widgetId = "wi
   return { params: Promise.resolve({ projectId, dashboardId, widgetId }) };
 }
 
+// A stored spec in the canonical query dialect, as the write service stores it.
+const storedSpec = {
+  view: "spans",
+  filters: [],
+  metric: { measure: "count", agg: "count" },
+  breakdown: null,
+  display: { type: "number" },
+};
+
 const fakeWidget = {
   id: "widget-1",
   dashboardId: "dash-1",
   title: "My Widget",
   type: "query",
-  spec: { view: "spans" },
+  spec: storedSpec,
   displayConfig: {},
 };
 
@@ -70,6 +95,8 @@ beforeEach(() => {
   widgetFindFirstMock.mockReset();
   widgetUpdateMock.mockReset();
   widgetDeleteMock.mockReset();
+  dashboardUpdateMock.mockReset();
+  auditCreateMock.mockReset();
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   // Default: authenticated with project access.
@@ -180,11 +207,35 @@ describe("PATCH /dashboards/[dashboardId]/widgets/[widgetId]", () => {
     expect(widgetUpdateMock).not.toHaveBeenCalled();
   });
 
-  it("returns 400 for an invalid displayConfig (null)", async () => {
-    widgetFindFirstMock.mockResolvedValue(fakeWidget);
+  it("resets displayConfig to {} on null", async () => {
+    widgetFindFirstMock.mockResolvedValue({ ...fakeWidget, displayConfig: { type: "bar" } });
+    widgetUpdateMock.mockResolvedValue({ ...fakeWidget, displayConfig: {} });
     const res = (await PATCH(makeRequest({ displayConfig: null }), makeParams())) as MockResponse;
+    expect(res.status).toBe(200);
+    const [call] = widgetUpdateMock.mock.calls;
+    expect((call[0] as { data: Record<string, unknown> }).data).toEqual({ displayConfig: {} });
+  });
+
+  it("validates the spec against the stored type, refusing a foreign dialect", async () => {
+    widgetFindFirstMock.mockResolvedValue(fakeWidget);
+    const res = (await PATCH(
+      makeRequest({ spec: { filters: [{ field: "errors", op: "gt", value: 0 }] } }),
+      makeParams(),
+    )) as MockResponse;
     expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(
+      /^spec is not a valid widget spec: /,
+    );
     expect(widgetUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("answers a patch that changes nothing with 200 and no write", async () => {
+    widgetFindFirstMock.mockResolvedValue(fakeWidget);
+    const res = (await PATCH(makeRequest({ title: "My Widget" }), makeParams())) as MockResponse;
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { widget: { title: string } }).widget.title).toBe("My Widget");
+    expect(widgetUpdateMock).not.toHaveBeenCalled();
+    expect(auditCreateMock).not.toHaveBeenCalled();
   });
 
   it("updates title only and returns 200", async () => {
@@ -202,12 +253,12 @@ describe("PATCH /dashboards/[dashboardId]/widgets/[widgetId]", () => {
     expect(data).toEqual({ title: "Updated" });
   });
 
-  it("updates spec only, leaving other fields untouched in the update payload", async () => {
+  it("updates spec only, storing the parsed shape and leaving other fields untouched", async () => {
     widgetFindFirstMock.mockResolvedValue(fakeWidget);
-    const newSpec = { view: "traces" };
+    const newSpec = { ...storedSpec, view: "traces" };
     widgetUpdateMock.mockResolvedValue({ ...fakeWidget, spec: newSpec });
 
-    await PATCH(makeRequest({ spec: newSpec }), makeParams());
+    await PATCH(makeRequest({ spec: { ...newSpec, extraneous: "x" } }), makeParams());
 
     const [call] = widgetUpdateMock.mock.calls;
     const data = (call[0] as { data: Record<string, unknown> }).data;
@@ -230,8 +281,9 @@ describe("PATCH /dashboards/[dashboardId]/widgets/[widgetId]", () => {
     widgetFindFirstMock.mockResolvedValue(fakeWidget);
     widgetUpdateMock.mockResolvedValue({ ...fakeWidget, title: "Both" });
 
+    const newSpec = { ...storedSpec, view: "traces" };
     await PATCH(
-      makeRequest({ title: "Both", spec: { view: "spans" }, displayConfig: { type: "line" } }),
+      makeRequest({ title: "Both", spec: newSpec, displayConfig: { type: "line" } }),
       makeParams(),
     );
 
@@ -239,7 +291,7 @@ describe("PATCH /dashboards/[dashboardId]/widgets/[widgetId]", () => {
     const data = (call[0] as { data: Record<string, unknown> }).data;
     expect(data).toEqual({
       title: "Both",
-      spec: { view: "spans" },
+      spec: newSpec,
       displayConfig: { type: "line" },
     });
   });
@@ -293,5 +345,29 @@ describe("DELETE /dashboards/[dashboardId]/widgets/[widgetId]", () => {
     expect(body.deleted).toBe(true);
 
     expect(widgetDeleteMock).toHaveBeenCalledWith({ where: { id: "widget-1" } });
+    // The widget's placement goes with it, so the grid never carries a tile
+    // that no longer exists.
+    expect(dashboardUpdateMock).toHaveBeenCalledWith({
+      where: { id: "dash-1" },
+      data: { layout: [] },
+    });
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "delete_widget",
+        transport: "ui",
+        summary: { name: "My Widget", reason: "Deleted from the web app" },
+      }),
+    });
+  });
+
+  it("records the reason the web app sends when it sends one", async () => {
+    widgetFindFirstMock.mockResolvedValue(fakeWidget);
+    widgetDeleteMock.mockResolvedValue({});
+    await DELETE(makeRequest({ reason: "no longer needed" }), makeParams());
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        summary: { name: "My Widget", reason: "no longer needed" },
+      }),
+    });
   });
 });

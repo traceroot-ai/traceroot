@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma, Role } from "@traceroot/core";
+import { prisma, Role, detectorModelProblem, listWorkspaceModels } from "@traceroot/core";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
@@ -65,6 +65,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const { projectId } = await params;
   const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
+  const { workspaceId } = accessResult.project;
 
   let body: unknown;
   try {
@@ -143,6 +144,20 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     typeof detectionModel === "string" && detectionModel ? detectionModel : null;
   const resolvedProvider =
     typeof detectionProvider === "string" && detectionProvider ? detectionProvider : null;
+  // The same check the write service makes: a model the workspace cannot run
+  // is refused here rather than on the detector's first evaluation. The
+  // picker only offers listed models, so this guards a hand-built request.
+  if (resolvedModel || sourceStr === "byok") {
+    const problem = detectorModelProblem(
+      {
+        detectionSource: sourceStr,
+        detectionModel: resolvedModel,
+        detectionProvider: resolvedProvider,
+      },
+      await listWorkspaceModels(workspaceId),
+    );
+    if (problem !== null) return errorResponse(problem, 400);
+  }
 
   // enableRca: optional boolean, defaults true (RCA on). Reject non-booleans
   // so "false"/0 can't silently coerce.

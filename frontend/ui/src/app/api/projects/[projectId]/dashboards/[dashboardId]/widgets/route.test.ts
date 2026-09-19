@@ -8,19 +8,40 @@ vi.mock("next/server", () => ({ NextRequest: class {} }));
 vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-secret" } }));
 
 const dashboardFindFirstMock = vi.fn();
+const dashboardUpdateMock = vi.fn();
 const widgetCreateMock = vi.fn();
+const queryRawMock = vi.fn();
+const transactionMock = vi.fn();
+// Any write that reaches the root client instead of the transaction.
+const outsideTransactionMock = vi.fn();
 
-vi.mock("@traceroot/core", () => ({
-  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
-  prisma: {
+vi.mock("@traceroot/core", () => {
+  // The transaction client is a DIFFERENT object from `prisma`, and only it
+  // carries the write spies. A write issued outside the transaction lands on
+  // outsideTransactionMock instead, so dropping the $transaction wrapper
+  // fails this suite rather than silently releasing the row lock at
+  // autocommit — which is the whole point of taking the lock.
+  const tx = {
+    dashboard: { update: (...args: unknown[]) => dashboardUpdateMock(...args) },
+    widget: { create: (...args: unknown[]) => widgetCreateMock(...args) },
+    $queryRaw: (...args: unknown[]) => queryRawMock(...args),
+  };
+  const client = {
     dashboard: {
       findFirst: (...args: unknown[]) => dashboardFindFirstMock(...args),
+      update: (...args: unknown[]) => outsideTransactionMock("dashboard.update", ...args),
     },
     widget: {
-      create: (...args: unknown[]) => widgetCreateMock(...args),
+      create: (...args: unknown[]) => outsideTransactionMock("widget.create", ...args),
     },
-  },
-}));
+    $queryRaw: (...args: unknown[]) => outsideTransactionMock("$queryRaw", ...args),
+    $transaction: (fn: (tx: unknown) => unknown) => {
+      transactionMock();
+      return fn(tx);
+    },
+  };
+  return { Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" }, prisma: client };
+});
 
 const requireAuthMock = vi.fn();
 const requireProjectAccessMock = vi.fn();
@@ -37,6 +58,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   }),
 }));
 
+import { WIDGET_TYPES } from "@/features/dashboards/types";
 import { POST } from "./route";
 
 function makeRequest(body?: unknown) {
@@ -77,7 +99,13 @@ const fakeWidget = {
 
 beforeEach(() => {
   dashboardFindFirstMock.mockReset();
+  dashboardUpdateMock.mockReset();
   widgetCreateMock.mockReset();
+  queryRawMock.mockReset();
+  transactionMock.mockReset();
+  outsideTransactionMock.mockReset();
+  // Default: the locking read finds an empty layout.
+  queryRawMock.mockResolvedValue([{ layout: [] }]);
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   // Default: authenticated with project access.
@@ -267,6 +295,176 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     expect(data.spec).toEqual({ view: "spans" });
     // displayConfig defaults to {} when omitted.
     expect(data.displayConfig).toEqual({});
+  });
+
+  it("gives the created widget a placement in the dashboard layout", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+
+    const res = (await POST(
+      makeRequest({ title: "My Widget", type: "query", spec: { view: "spans" } }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(201);
+    expect(dashboardUpdateMock).toHaveBeenCalledWith({
+      where: { id: "dash-1" },
+      data: { layout: [{ i: "widget-1", x: 0, y: 0, w: 6, h: 4 }] },
+    });
+  });
+
+  it("packs the placement beside the tile already on the bottom row", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue({ ...fakeWidget, type: "trace_feed" });
+    queryRawMock.mockResolvedValue([{ layout: [{ i: "w0", x: 0, y: 4, w: 6, h: 4 }] }]);
+
+    await POST(makeRequest({ title: "W", type: "trace_feed", spec: {} }), makeParams());
+    expect(dashboardUpdateMock).toHaveBeenCalledWith({
+      where: { id: "dash-1" },
+      data: {
+        layout: [
+          { i: "w0", x: 0, y: 4, w: 6, h: 4 },
+          { i: "widget-1", x: 6, y: 4, w: 6, h: 6 },
+        ],
+      },
+    });
+  });
+
+  it("locks the dashboard row before the widget insert and the layout read", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+
+    await POST(makeRequest({ title: "W", type: "query", spec: {} }), makeParams());
+    const [strings, ...values] = queryRawMock.mock.calls[0] as [string[], ...unknown[]];
+    const sql = strings.join("?");
+    expect(sql).toMatch(
+      /SELECT layout FROM dashboards WHERE id = \? AND project_id = \? FOR UPDATE/,
+    );
+    expect(sql).not.toContain("dash-1");
+    expect(sql).not.toContain("proj-1");
+    expect(values).toEqual(["dash-1", "proj-1"]);
+    expect(queryRawMock.mock.invocationCallOrder[0]).toBeLessThan(
+      widgetCreateMock.mock.invocationCallOrder[0],
+    );
+    expect(widgetCreateMock.mock.invocationCallOrder[0]).toBeLessThan(
+      dashboardUpdateMock.mock.invocationCallOrder[0],
+    );
+  });
+
+  // Same vocabulary gate as the API/agent write path: a spec naming fields the
+  // registry doesn't know stores fine and then fails at query time forever.
+  it("rejects a query spec the field registry doesn't know, listing the valid options", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await POST(
+      makeRequest({
+        title: "W",
+        type: "query",
+        spec: {
+          view: "spans",
+          filters: [],
+          metric: { measure: "spans", agg: "count" },
+          breakdown: null,
+          display: { type: "number" },
+        },
+      }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/^unknown measure "spans" for view "spans" — valid measures: /);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it("answers 400, not 500, for a measure named after an inherited property", async () => {
+    // The registry used to be indexed with the caller's name, so "toString"
+    // resolved to Object.prototype's method and the next access threw.
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await POST(
+      makeRequest({
+        title: "W",
+        type: "query",
+        spec: {
+          view: "spans",
+          filters: [],
+          metric: { measure: "toString", agg: "count" },
+          breakdown: null,
+          display: { type: "number" },
+        },
+      }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/^unknown measure "toString" for view "spans" — valid measures: /);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("stores a builder-shaped query spec the registry knows", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+    const spec = {
+      view: "spans",
+      filters: [{ field: "span_kind", op: "=", value: "LLM" }],
+      metric: { measure: "duration_ms", agg: "p95" },
+      breakdown: "model_name",
+      display: { type: "bar" },
+    };
+    const res = (await POST(
+      makeRequest({ title: "W", type: "query", spec }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(201);
+    // Stored as sent — the route validates the vocabulary without rewriting.
+    const data = (widgetCreateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+    expect(data.spec).toEqual(spec);
+  });
+
+  it("leaves trace_feed specs to their own validation", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+    const res = (await POST(
+      makeRequest({ title: "W", type: "trace_feed", spec: { metric: { measure: "spans" } } }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(201);
+  });
+
+  it("runs the lock, the insert and the layout write in one transaction", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+
+    await POST(makeRequest({ title: "W", type: "query", spec: {} }), makeParams());
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    // Every write went through the transaction client, none to the root one:
+    // a lock taken outside the transaction is released at autocommit and
+    // serializes nothing.
+    expect(outsideTransactionMock).not.toHaveBeenCalled();
+    expect(queryRawMock).toHaveBeenCalledTimes(1);
+    expect(widgetCreateMock).toHaveBeenCalledTimes(1);
+    expect(dashboardUpdateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a type outside the shared widget-type list, naming the allowed ones", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await POST(
+      makeRequest({ title: "W", type: "detector", spec: {} }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe(`type must be one of ${WIDGET_TYPES.join(", ")}`);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("neither locks nor rewrites the layout when the body is rejected", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await POST(
+      makeRequest({ title: "W", type: "bad_type", spec: {} }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    expect(queryRawMock).not.toHaveBeenCalled();
+    expect(dashboardUpdateMock).not.toHaveBeenCalled();
   });
 
   it("persists a provided displayConfig as-is", async () => {

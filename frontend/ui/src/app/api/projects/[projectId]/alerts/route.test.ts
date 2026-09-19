@@ -48,6 +48,13 @@ function matches(row: AlertRowStub, where: Where): boolean {
   if (typeof where.id === "string" && row.id !== where.id) return false;
   if (typeof where.projectId === "string" && row.projectId !== where.projectId) return false;
   if (typeof where.status === "string" && row.status !== where.status) return false;
+  // The worker's writes are a CAS on the claim token it stamped, so a race test
+  // is only honest if a voided claim actually stops matching.
+  const claim = where.lastClaimedAt;
+  if (claim instanceof Date && row.lastClaimedAt?.getTime() !== claim.getTime()) return false;
+  // The resume matches on a set of stopped statuses, not one spelling.
+  const status = where.status as { in?: string[] } | undefined;
+  if (Array.isArray(status?.in) && !status.in.includes(row.status)) return false;
   const name = where.name as { contains?: string } | undefined;
   if (name?.contains !== undefined && !row.name.toLowerCase().includes(name.contains.toLowerCase()))
     return false;
@@ -90,23 +97,33 @@ const alertCreate = vi.fn(async ({ data }: { data: Where }) => {
 
 vi.mock("next/server", () => ({ NextRequest: class {} }));
 
+const auditCreate = vi.fn(async () => ({}));
+
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
-  return {
-    ...actual,
-    prisma: {
-      alert: {
-        findFirst: alertFindFirst,
-        findMany: alertFindMany,
-        count: alertCount,
-        create: alertCreate,
-        updateMany: alertUpdateMany,
-        deleteMany: alertDeleteMany,
-      },
-      user: { findMany: async () => [{ id: "user-1", name: "Ada", email: "ada@example.com" }] },
-      $transaction: (operations: Promise<unknown>[]) => Promise.all(operations),
+  // The mutating handlers delegate to the write service, which runs its own
+  // tenancy check, its writes and the creator lookup inside a transaction on
+  // this same client; the list handler still batches plain operations.
+  const client = {
+    alert: {
+      findFirst: alertFindFirst,
+      findMany: alertFindMany,
+      count: alertCount,
+      create: alertCreate,
+      updateMany: alertUpdateMany,
+      deleteMany: alertDeleteMany,
     },
+    project: { findUnique: async () => ({ workspaceId: "ws-1", deleteTime: null }) },
+    workspaceMember: { findUnique: async () => ({ role: "MEMBER" }) },
+    user: {
+      findMany: async () => [{ id: "user-1", name: "Ada", email: "ada@example.com" }],
+      findUnique: async () => ({ name: "Ada", email: "ada@example.com" }),
+    },
+    auditLog: { create: auditCreate },
+    $transaction: (operations: Promise<unknown>[] | ((tx: unknown) => unknown)) =>
+      typeof operations === "function" ? operations(client) : Promise.all(operations),
   };
+  return { ...actual, prisma: client };
 });
 
 const requireAuthMock = vi.fn();
@@ -217,6 +234,19 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
     expect(store.get("alert-1")?.severity).toBe("ALERT");
     expect(store.get("alert-1")?.lastClaimedAt).not.toBeNull();
     expect(alertUpdateMany.mock.calls[0][0].where).toEqual({ id: "alert-1", projectId: "proj-1" });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "update_alert",
+        transport: "ui",
+        summary: { changed: ["name"] },
+      }),
+    });
+  });
+
+  it("answers a patch that changes nothing with 200 and no write, no audit", async () => {
+    expect((await patch({ name: "P95 latency", threshold: 500 })).status).toBe(200);
+    expect(alertUpdateMany).not.toHaveBeenCalled();
+    expect(auditCreate).not.toHaveBeenCalled();
   });
 
   it("resets the alert to a cold start when the rule itself changed", async () => {
@@ -246,6 +276,115 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
     expect(row?.lastClaimedAt).toBeNull();
     expect(row?.nextRunAt).toBeInstanceOf(Date);
     expect((await patch({ noDataMode: "SILENT" })).status).toBe(400);
+  });
+
+  describe("a parked rule re-arms on the edit that replaces what it was parked on", () => {
+    beforeEach(() => {
+      store.set("alert-1", alertRow({ status: "PARKED" }));
+    });
+
+    it("starts the rule again, cold, when the edit rewrites the rule", async () => {
+      expect((await patch({ threshold: 999 })).status).toBe(200);
+      const row = store.get("alert-1");
+
+      expect(row?.status).toBe("ACTIVE");
+      expect(row?.severity).toBe("UNKNOWN");
+      expect(row?.lastClaimedAt).toBeNull();
+      expect(row?.nextRunAt).toBeInstanceOf(Date);
+    });
+
+    it("counts a renotify edit, which the evaluated rule does not include", async () => {
+      // A renotify the worker cannot parse parks the rule too, and this write
+      // replaces it with one the schema validated.
+      expect((await patch({ renotify: { mode: "OFF" } })).status).toBe(200);
+
+      expect(store.get("alert-1")?.status).toBe("ACTIVE");
+    });
+
+    it("leaves it parked on a rename, which changes nothing the evaluator refused", async () => {
+      expect((await patch({ name: "Renamed" })).status).toBe(200);
+      const row = store.get("alert-1");
+
+      expect(row?.status).toBe("PARKED");
+      expect(row?.name).toBe("Renamed");
+    });
+
+    it("voids a claim still in flight, so a delayed park cannot re-park a renotify repair", async () => {
+      // claim -> PATCH -> delayed park. A tick claimed the row while it was ACTIVE
+      // and is still on its way to parking it; the owner's renotify fix lands
+      // first. The re-arm CAS misses (not PARKED yet) and the fallback applies.
+      const claimStamp = new Date("2026-08-12T10:30:00.000Z");
+      store.set("alert-1", alertRow({ status: "ACTIVE", lastClaimedAt: claimStamp }));
+
+      expect((await patch({ renotify: { mode: "OFF" } })).status).toBe(200);
+
+      // The worker's park, arriving after the PATCH returned, under the CAS
+      // `parkAlertRule` writes with.
+      const parked = await alertUpdateMany({
+        where: { id: "alert-1", status: "ACTIVE", lastClaimedAt: claimStamp },
+        data: { status: "PARKED" },
+      });
+
+      expect(parked.count).toBe(0);
+      const row = store.get("alert-1");
+      expect(row?.status).toBe("ACTIVE");
+      expect(row?.renotify).toEqual({ mode: "OFF" });
+      expect(row?.lastClaimedAt).toBeNull();
+      // The voided evaluation is redone on the next tick instead of waiting.
+      expect(row?.nextRunAt?.getTime()).toBeGreaterThan(baseAlertRow.nextRunAt!.getTime());
+      // Renotify is not the evaluated rule: the severity it stood at is kept,
+      // or a firing rule would page again from a cold start.
+      expect(row?.severity).toBe("ALERT");
+      expect(row?.alertedAt).toEqual(baseAlertRow.alertedAt);
+    });
+
+    it("re-arms on the current status, not the one read before a concurrent tick parked it", async () => {
+      // The row was ACTIVE when this handler read `existing`; a tick's own
+      // park write lands in between, and the fixing edit still has to catch it
+      // at commit time rather than trust the stale read.
+      store.set("alert-1", alertRow({ status: "ACTIVE" }));
+      alertFindFirst.mockImplementationOnce(async () => {
+        const stale = { ...store.get("alert-1")! };
+        store.set("alert-1", { ...stale, status: "PARKED" });
+        return stale;
+      });
+
+      expect((await patch({ threshold: 999 })).status).toBe(200);
+      const row = store.get("alert-1");
+
+      expect(row?.status).toBe("ACTIVE");
+      expect(row?.threshold).toBe(999);
+      expect(row?.severity).toBe("UNKNOWN");
+      expect(row?.lastClaimedAt).toBeNull();
+    });
+
+    it("retries the CAS once when a tick parks the rule between the check and the fallback write", async () => {
+      // The first CAS legitimately finds the row ACTIVE (not PARKED) and
+      // falls through to the plain write, which has no status guard of its
+      // own; a tick lands its own park in that exact gap. Without the retry
+      // the fallback would commit the fix and still leave the row parked.
+      store.set("alert-1", alertRow({ status: "ACTIVE" }));
+
+      // `Once`, not a persistent override: this is the request's first
+      // `updateMany` call (the CAS check), and everything after it, including
+      // the rest of this same request, falls back to the shared
+      // implementation untouched. A persistent override here would outlive
+      // the test, since the file's `beforeEach` only clears call history.
+      alertUpdateMany.mockImplementationOnce(async ({ where, data }) => {
+        const rows = rowsMatching(where);
+        for (const row of rows) store.set(row.id, { ...row, ...data });
+        const current = store.get("alert-1")!;
+        store.set("alert-1", { ...current, status: "PARKED" });
+        return { count: rows.length };
+      });
+
+      expect((await patch({ threshold: 999 })).status).toBe(200);
+      const row = store.get("alert-1");
+
+      expect(row?.status).toBe("ACTIVE");
+      expect(row?.threshold).toBe(999);
+      expect(row?.severity).toBe("UNKNOWN");
+    });
   });
 
   it("rejects an empty update rather than issuing a no-op write", async () => {
@@ -304,7 +443,13 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]/pause", () => {
     expect((await pause("PAUSED")).status).toBe(200);
     expect(store.get("alert-1")?.status).toBe("PAUSED");
     expect(store.get("alert-1")?.severity).toBe("ALERT");
-    expect(alertUpdateMany.mock.calls[0][0].where).toEqual({ id: "alert-1", projectId: "proj-1" });
+    // A rule can only be paused from ACTIVE: PARKED is the evaluator's verdict
+    // and is not a client's to relabel, and a repeat pause is a no-op.
+    expect(alertUpdateMany.mock.calls[0][0].where).toEqual({
+      id: "alert-1",
+      projectId: "proj-1",
+      status: "ACTIVE",
+    });
   });
 
   it("resumes as a cold start, because the paused gap was never evaluated", async () => {
@@ -322,8 +467,23 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]/pause", () => {
     expect(alertUpdateMany.mock.calls[0][0].where).toEqual({
       id: "alert-1",
       projectId: "proj-1",
-      status: "PAUSED",
+      status: { in: ["PAUSED", "PARKED"] },
     });
+  });
+
+  it("resumes a parked rule the same way, as the operator's retry of it", async () => {
+    // The rule stopped on settings the evaluator refused. Starting it again is
+    // allowed and honest: if the settings are still unevaluable the next tick
+    // parks it again, with the reason.
+    store.set("alert-1", alertRow({ status: "PARKED" }));
+
+    expect((await pause("ACTIVE")).status).toBe(200);
+    const row = store.get("alert-1");
+
+    expect(row?.status).toBe("ACTIVE");
+    expect(row?.severity).toBe("UNKNOWN");
+    expect(row?.lastClaimedAt).toBeNull();
+    expect(row?.nextRunAt).toBeInstanceOf(Date);
   });
 
   it("leaves a rule that is already active exactly as it was", async () => {
@@ -347,17 +507,44 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]/pause", () => {
     expect(store.get("other-1")?.severity).toBe("ALERT");
   });
 
-  it("rejects a status outside the pair", async () => {
+  it("refuses to pause a parked rule, keeping PARKED the evaluator's verdict", async () => {
+    // Pausing it would relabel the evaluator's verdict as a stop the owner chose
+    // and hide the reason the rule gives for not running. Resuming is the only
+    // way out, and the next tick re-parks it if the settings are still unreadable.
+    store.set("alert-1", alertRow({ status: "PARKED" }));
+
+    expect((await pause("PAUSED")).status).toBe(409);
+    expect(store.get("alert-1")?.status).toBe("PARKED");
+  });
+
+  it("keeps a repeated pause a no-op rather than a 404", async () => {
+    store.set("alert-1", alertRow({ status: "PAUSED" }));
+
+    expect((await pause("PAUSED")).status).toBe(200);
+    expect(store.get("alert-1")?.status).toBe("PAUSED");
+  });
+
+  it("rejects a status outside the settable pair, PARKED included", async () => {
     expect((await pause("DELETED")).status).toBe(400);
+    // Parking is the evaluator's verdict about the stored rule: a client that
+    // could ask for it could stop a rule that still runs.
+    expect((await pause("PARKED")).status).toBe(400);
     expect(alertUpdateMany).not.toHaveBeenCalled();
   });
 });
 
 describe("DELETE /api/projects/[projectId]/alerts/[alertId]", () => {
-  it("deletes through a project-scoped statement", async () => {
+  it("deletes through a project-scoped statement and records the reason on the audit log", async () => {
     expect((await remove()).status).toBe(200);
     expect(store.has("alert-1")).toBe(false);
     expect(alertDeleteMany.mock.calls[0][0].where).toEqual({ id: "alert-1", projectId: "proj-1" });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "delete_alert",
+        transport: "ui",
+        summary: { name: "P95 latency", reason: "Deleted from the web app", pageCleared: true },
+      }),
+    });
   });
 
   it("404s on an id that does not exist at all", async () => {

@@ -15,10 +15,17 @@ const widgetFindFirstMock = vi.fn();
 const widgetCreateMock = vi.fn();
 const widgetUpdateMock = vi.fn();
 const widgetDeleteMock = vi.fn();
+const widgetCountMock = vi.fn();
+const auditCreateMock = vi.fn();
+const queryRawMock = vi.fn();
 
-vi.mock("@traceroot/core", () => ({
-  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
-  prisma: {
+// The mutating handlers delegate to the write services, which run their own
+// tenancy check and audit inside a transaction on this same client.
+vi.mock("@traceroot/core", () => {
+  const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
+  const client = {
+    project: { findUnique: async () => ({ workspaceId: "ws-1", deleteTime: null }) },
+    workspaceMember: { findUnique: async () => ({ role: "MEMBER" }) },
     dashboard: {
       findFirst: (...args: unknown[]) => dashboardFindFirstMock(...args),
       count: (...args: unknown[]) => dashboardCountMock(...args),
@@ -30,9 +37,21 @@ vi.mock("@traceroot/core", () => ({
       create: (...args: unknown[]) => widgetCreateMock(...args),
       update: (...args: unknown[]) => widgetUpdateMock(...args),
       delete: (...args: unknown[]) => widgetDeleteMock(...args),
+      count: (...args: unknown[]) => widgetCountMock(...args),
     },
-  },
-}));
+    auditLog: { create: (...args: unknown[]) => auditCreateMock(...args) },
+    // Widget creation and deletion lock the dashboard row and rewrite its
+    // layout in one transaction; the mock runs the callback on this same client.
+    $queryRaw: (...args: unknown[]) => queryRawMock(...args),
+    $transaction: (fn: (tx: unknown) => unknown) => fn(client),
+  };
+  return {
+    Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
+    hasMinRole: (userRole: string, minRole: string) =>
+      ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
+    prisma: client,
+  };
+});
 
 const requireAuthMock = vi.fn();
 const requireProjectAccessMock = vi.fn();
@@ -49,6 +68,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   }),
 }));
 
+import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
 import { GET, PATCH, DELETE } from "./route";
 import { POST as widgetPOST } from "./widgets/route";
 import { PATCH as widgetPATCH, DELETE as widgetDELETE } from "./widgets/[widgetId]/route";
@@ -82,7 +102,13 @@ const fakeWidget = {
   dashboardId: "dash-1",
   title: "My Widget",
   type: "query",
-  spec: { sql: "SELECT 1" },
+  spec: {
+    view: "spans",
+    filters: [],
+    metric: { measure: "count", agg: "count" },
+    breakdown: null,
+    display: { type: "number" },
+  },
   displayConfig: {},
 };
 
@@ -98,6 +124,11 @@ beforeEach(() => {
   widgetCreateMock.mockReset();
   widgetUpdateMock.mockReset();
   widgetDeleteMock.mockReset();
+  widgetCountMock.mockReset();
+  widgetCountMock.mockResolvedValue(0);
+  auditCreateMock.mockReset();
+  queryRawMock.mockReset();
+  queryRawMock.mockResolvedValue([{ layout: [] }]);
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   // Default: authenticated with project access.
@@ -185,6 +216,30 @@ describe("PATCH /dashboards/[dashboardId]", () => {
     expect(dashboardUpdateMock).not.toHaveBeenCalled();
   });
 
+  it("answers a patch that changes nothing with 200 and no write, no audit", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await PATCH(
+      makeRequest({ name: "My Dashboard", layout: [] }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(200);
+    expect(dashboardUpdateMock).not.toHaveBeenCalled();
+    expect(auditCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("records the edit on the audit log under the ui transport", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    dashboardUpdateMock.mockResolvedValue({ ...fakeDashboard, name: "Renamed" });
+    await PATCH(makeRequest({ name: "Renamed" }), makeParams());
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "update_dashboard",
+        transport: "ui",
+        summary: { changed: ["name"] },
+      }),
+    });
+  });
+
   it("returns 400 for non-object body (array)", async () => {
     const req = { json: async () => ["a", "b"] } as unknown as Parameters<typeof PATCH>[0];
     const res = (await PATCH(req, makeParams())) as MockResponse;
@@ -266,6 +321,17 @@ describe("DELETE /dashboards/[dashboardId]", () => {
     const where = (call[0] as { where: Record<string, unknown> }).where;
     expect(where.id).toBe("dash-1");
     expect(where.projectId).toBe("proj-1");
+    expect(auditCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "delete_dashboard",
+        transport: "ui",
+        summary: {
+          name: "My Dashboard",
+          reason: "Deleted from the web app",
+          cascaded: { widgets: 0 },
+        },
+      }),
+    });
   });
 
   it("returns 404 when dashboard not found in project", async () => {
@@ -313,6 +379,12 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     const body = (await res.json()) as { widget: typeof fakeWidget };
     expect(body.widget).toEqual(fakeWidget);
     expect(widgetCreateMock).toHaveBeenCalledTimes(1);
+    // The created row must also land in the dashboard's stored layout —
+    // without an entry the grid falls back to its unpersisted client
+    // placement, which is the defect auto-placement exists to fix.
+    const [update] = dashboardUpdateMock.mock.calls;
+    const layout = (update[0] as { data: { layout: { i: string }[] } }).data.layout;
+    expect(layout.map((entry) => entry.i)).toContain(fakeWidget.id);
   });
 
   it("returns 400 for an invalid widget type", async () => {
@@ -530,6 +602,8 @@ describe("mutation hardening", () => {
   it("gates mutations on MEMBER role but leaves GET viewer-accessible", async () => {
     dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
     dashboardUpdateMock.mockResolvedValue(fakeDashboard);
+    // The widget POST places the created row in the layout, so it needs one.
+    widgetCreateMock.mockResolvedValue(fakeWidget);
 
     await GET(makeRequest(), makeParams());
     expect(requireProjectAccessMock).toHaveBeenLastCalledWith("user-1", "proj-1", undefined);
@@ -569,6 +643,20 @@ describe("mutation hardening", () => {
       makeParams(),
     )) as MockResponse;
     expect(ok.status).toBe(200);
+  });
+
+  it("accepts and stores auto-placed entries verbatim", async () => {
+    // Auto-placement writes straight to the dashboard row, so PATCH is the
+    // contract those entries have to keep satisfying once a member drags them.
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    dashboardUpdateMock.mockResolvedValue(fakeDashboard);
+    const first = appendWidgetPlacement([], { id: "w1", type: "query" });
+    const layout = appendWidgetPlacement(first, { id: "w2", type: "trace_feed" });
+
+    const res = (await PATCH(makeRequest({ layout }), makeParams())) as MockResponse;
+    expect(res.status).toBe(200);
+    const [call] = dashboardUpdateMock.mock.calls;
+    expect((call[0] as { data: { layout: unknown } }).data.layout).toEqual(layout);
   });
 
   it("rejects negative coordinates and strips unknown keys from layout entries", async () => {

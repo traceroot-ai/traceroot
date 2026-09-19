@@ -34,7 +34,13 @@ export interface ApiClientOptions {
   timeoutMs?: number;
 }
 
-/** Minimal HTTP client the dispatcher calls registry entries through. */
+/**
+ * Minimal HTTP client the dispatcher calls registry entries through. Every
+ * method shares one path: the verb is uppercased, a body (when given) is
+ * JSON-serialized, and a success is always a 200 with a JSON body — the
+ * public API answers a DELETE with a JSON receipt, so a 204 No Content is not
+ * a supported success shape and would fail to parse here.
+ */
 export class ApiClient {
   private readonly options: ApiClientOptions;
 

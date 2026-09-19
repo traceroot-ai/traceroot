@@ -275,6 +275,42 @@ def test_dashboard_read_routes_document_error_responses():
     assert responses["404"]["description"] == "Dashboard not found"
 
 
+def test_dashboard_data_route_documents_not_found_like_its_sibling():
+    """The data read passes the dashboard's 404 through, so its contract says so."""
+    paths = _schema()["paths"]
+    responses = paths["/api/v1/public/dashboards/{dashboard_id}/data"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "404", "422", "503"}
+    assert responses["404"]["description"] == "Dashboard not found"
+
+
+def test_widget_read_routes_document_not_found_like_the_dashboard_reads():
+    """Both widget reads pass the widget's 404 through, so their contracts say so."""
+    paths = _schema()["paths"]
+    detail = paths["/api/v1/public/widgets/{widget_id}"]["get"]["responses"]
+    assert set(detail) >= {"200", "401", "404", "503"}
+    assert detail["404"]["description"] == "Widget not found"
+    data = paths["/api/v1/public/widgets/{widget_id}/data"]["get"]["responses"]
+    assert set(data) >= {"200", "401", "404", "422", "503"}
+    assert data["404"]["description"] == "Widget not found"
+
+
+def test_widget_read_tools_steer_the_model_to_the_saved_widget():
+    """get_widget_data is the saved widget answered for a window: the model is
+    told to prefer it over an ad hoc run_widget_query when the widget exists,
+    that feeds come back skipped, and that every figure names its window."""
+    paths = _schema()["paths"]
+    get_tool = paths["/api/v1/public/widgets/{widget_id}"]["get"]["x-tool"]
+    data_tool = paths["/api/v1/public/widgets/{widget_id}/data"]["get"]["x-tool"]
+    assert get_tool["enabled"] and data_tool["enabled"]
+    assert "policy" not in get_tool and "policy" not in data_tool
+    assert "definition" in get_tool["description"]
+    assert "get_widget_data" in get_tool["description"]
+    assert "saved" in data_tool["description"]
+    assert "run_widget_query" in data_tool["description"]
+    assert "list_traces" in data_tool["description"]
+    assert "name the window" in data_tool["description"]
+
+
 def test_dashboard_read_tools_steer_name_resolution():
     """Both dashboard read tools tell the model to resolve a dashboard by
     listing and matching its name — never to guess an id."""
@@ -288,25 +324,83 @@ def test_dashboard_read_tools_steer_name_resolution():
     assert "matching the name" in get_tool["description"]
 
 
+def test_alert_read_routes_document_error_responses():
+    paths = _schema()["paths"]
+    assert set(paths["/api/v1/public/alerts"]["get"]["responses"]) >= {"200", "401", "503"}
+    # The create documents the cap conflict beside the shared write errors.
+    write_responses = paths["/api/v1/public/alerts"]["post"]["responses"]
+    assert set(write_responses) >= {"200", "400", "401", "403", "404", "409", "503"}
+    assert "alert limit" in write_responses["409"]["description"]
+    responses = paths["/api/v1/public/alerts/{alert_id}"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "404", "503"}
+    assert responses["404"]["description"] == "Alert not found"
+
+
+def test_alert_read_tools_steer_name_resolution():
+    """Both alert read tools tell the model to resolve an alert by listing
+    and matching its name — never to guess an id."""
+    paths = _schema()["paths"]
+    list_tool = paths["/api/v1/public/alerts"]["get"]["x-tool"]
+    get_tool = paths["/api/v1/public/alerts/{alert_id}"]["get"]["x-tool"]
+    for tool in (list_tool, get_tool):
+        assert tool["enabled"]
+        assert "never guess" in tool["description"]
+    assert "match its name" in list_tool["description"]
+    assert "matching the name" in get_tool["description"]
+
+
 _METHODS = {"get", "post", "put", "patch", "delete"}
 
 EXPECTED_OPERATION_IDS = {
     "/api/v1/public/projects": {"get": "list_projects", "post": "create_project"},
+    "/api/v1/public/projects/{project_id}": {
+        "patch": "update_project",
+        "delete": "delete_project",
+    },
     "/api/v1/public/workspaces": {"get": "list_workspaces", "post": "create_workspace"},
+    "/api/v1/public/workspaces/{workspace_id}": {
+        "patch": "update_workspace",
+        "delete": "delete_workspace",
+    },
     "/api/v1/public/dashboards": {"get": "list_dashboards", "post": "create_dashboard"},
-    "/api/v1/public/dashboards/{dashboard_id}": {"get": "get_dashboard"},
+    "/api/v1/public/dashboards/{dashboard_id}": {
+        "get": "get_dashboard",
+        "patch": "update_dashboard",
+        "delete": "delete_dashboard",
+    },
+    "/api/v1/public/dashboards/{dashboard_id}/data": {"get": "get_dashboard_data"},
+    "/api/v1/public/alerts": {"get": "list_alerts", "post": "create_alert"},
+    "/api/v1/public/alerts/{alert_id}": {
+        "get": "get_alert",
+        "patch": "update_alert",
+        "delete": "delete_alert",
+    },
+    "/api/v1/public/alerts/{alert_id}/status": {"patch": "set_alert_status"},
     "/api/v1/public/widgets": {"post": "create_widget"},
+    "/api/v1/public/widgets/query": {"post": "run_widget_query"},
+    "/api/v1/public/widgets/{widget_id}": {
+        "get": "get_widget",
+        "patch": "update_widget",
+        "delete": "delete_widget",
+    },
+    "/api/v1/public/widgets/{widget_id}/data": {"get": "get_widget_data"},
     "/api/v1/public/detectors": {"get": "list_detectors", "post": "create_detector"},
     "/api/v1/public/detectors/findings": {"get": "list_findings"},
     "/api/v1/public/detectors/findings/{finding_id}": {"get": "get_finding"},
     "/api/v1/public/detectors/traces/{trace_id}/finding": {"get": "get_finding_by_trace"},
-    "/api/v1/public/detectors/{detector_id}": {"get": "get_detector"},
+    "/api/v1/public/detectors/{detector_id}": {
+        "get": "get_detector",
+        "patch": "update_detector",
+        "delete": "delete_detector",
+    },
     "/api/v1/public/sessions": {"get": "list_sessions"},
     "/api/v1/public/sessions/{session_id}": {"get": "get_session"},
     "/api/v1/public/traces": {"get": "list_traces", "post": "ingest_traces"},
     "/api/v1/public/traces/filter-values/{field}": {"get": "list_trace_filter_values"},
     "/api/v1/public/traces/{trace_id}": {"get": "get_trace"},
     "/api/v1/public/traces/{trace_id}/export": {"get": "export_trace"},
+    "/api/v1/public/sql": {"post": "run_sql"},
+    "/api/v1/public/sql/schema": {"get": "get_sql_schema"},
     "/api/v1/public/whoami": {"get": "whoami"},
     "/api/v1/public/evaluation-runs": {"post": "register_run"},
     "/api/v1/public/evaluation-runs/{run_id}/results": {"post": "upsert_result"},
@@ -379,6 +473,8 @@ def test_x_tool_enabled_set_and_shape():
         "get_finding_by_trace",
         "list_dashboards",
         "get_dashboard",
+        "list_alerts",
+        "get_alert",
         "list_workspaces",
         "list_projects",
         "create_workspace",
@@ -386,6 +482,26 @@ def test_x_tool_enabled_set_and_shape():
         "create_detector",
         "create_dashboard",
         "create_widget",
+        "create_alert",
+        "run_widget_query",
+        "get_dashboard_data",
+        "run_sql",
+        "get_sql_schema",
+        "get_widget",
+        "get_widget_data",
+        "update_workspace",
+        "update_project",
+        "update_detector",
+        "update_dashboard",
+        "update_widget",
+        "update_alert",
+        "set_alert_status",
+        "delete_workspace",
+        "delete_project",
+        "delete_detector",
+        "delete_dashboard",
+        "delete_widget",
+        "delete_alert",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
@@ -407,6 +523,11 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/detectors/traces/{trace_id}/finding",
     "/api/v1/public/dashboards",
     "/api/v1/public/dashboards/{dashboard_id}",
+    "/api/v1/public/dashboards/{dashboard_id}/data",
+    "/api/v1/public/widgets/{widget_id}",
+    "/api/v1/public/widgets/{widget_id}/data",
+    "/api/v1/public/alerts",
+    "/api/v1/public/alerts/{alert_id}",
 ]
 
 
@@ -545,7 +666,7 @@ def test_stale_curation_entry_fails_build():
 
 # --- Write-tool policy curation ----------------------------------------------
 
-_VALID_CREATE_POLICY = {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"}
+_VALID_WRITE_POLICY = {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"}
 
 
 def test_enabled_write_entry_missing_policy_fails_build(monkeypatch):
@@ -566,11 +687,28 @@ def test_enabled_write_entry_illegal_approval_class_fails_build(monkeypatch):
             "name": "create_project",
             "description": "Create a project.",
             "enabled": True,
-            "policy": {**_VALID_CREATE_POLICY, "approvalClass": "auto"},
+            "policy": {**_VALID_WRITE_POLICY, "approvalClass": "auto"},
         },
     )
     with pytest.raises(ValueError, match=r"create_project.*policy"):
         build_public_schema(app)
+
+
+@pytest.mark.parametrize("approval_class", ["none", "confirm", "approval"])
+def test_enabled_write_entry_accepts_every_legal_approval_class(monkeypatch, approval_class):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "create_project",
+        {
+            "name": "create_project",
+            "description": "Create a project.",
+            "enabled": True,
+            "policy": {**_VALID_WRITE_POLICY, "approvalClass": approval_class},
+        },
+    )
+    schema = build_public_schema(app)
+    tool = schema["paths"]["/api/v1/public/projects"]["post"]["x-tool"]
+    assert tool["policy"]["approvalClass"] == approval_class
 
 
 def test_enabled_write_entry_extra_policy_key_fails_build(monkeypatch):
@@ -581,7 +719,7 @@ def test_enabled_write_entry_extra_policy_key_fails_build(monkeypatch):
             "name": "create_project",
             "description": "Create a project.",
             "enabled": True,
-            "policy": {**_VALID_CREATE_POLICY, "rateLimit": "write"},
+            "policy": {**_VALID_WRITE_POLICY, "rateLimit": "write"},
         },
     )
     with pytest.raises(ValueError, match=r"create_project.*policy"):
@@ -598,7 +736,7 @@ def test_get_entry_carrying_policy_fails_build(monkeypatch):
             "name": "whoami",
             "description": "Identify the credential.",
             "enabled": True,
-            "policy": dict(_VALID_CREATE_POLICY),
+            "policy": dict(_VALID_WRITE_POLICY),
         },
     )
     with pytest.raises(ValueError, match=r"whoami.*policy"):
@@ -652,29 +790,34 @@ def test_agent_hidden_params_must_be_nonempty_string_list(monkeypatch, bad_value
         build_public_schema(app)
 
 
-# The five public creates, pinned to their exact write-tool policy. approvalClass
+# The six public creates, pinned to their exact write-tool policy. approvalClass
 # and minRole must match what the write service actually enforces; tenancy names
-# the scope the target resource lives in.
+# the scope the target resource lives in. Creates are "confirm": an attended
+# surface shows the proposal and waits for the user's yes.
 _CREATE_TOOL_POLICIES = {
     "create_workspace": (
         "/api/v1/public/workspaces",
-        {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "account"},
+        {"approvalClass": "confirm", "minRole": "VIEWER", "tenancy": "account"},
     ),
     "create_project": (
         "/api/v1/public/projects",
-        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"},
+        {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "workspace"},
     ),
     "create_detector": (
         "/api/v1/public/detectors",
-        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     ),
     "create_dashboard": (
         "/api/v1/public/dashboards",
-        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     ),
     "create_widget": (
         "/api/v1/public/widgets",
-        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "create_alert": (
+        "/api/v1/public/alerts",
+        {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     ),
 }
 
@@ -687,3 +830,321 @@ def test_create_ops_are_enabled_tools_with_pinned_policy(op_id):
     assert tool["name"] == op_id
     assert tool["description"], f"{op_id} needs an agent-facing description"
     assert tool["policy"] == policy
+
+
+# The thirteen edit operations, pinned to their exact write-tool policy. Role
+# floors follow the cookie routes (renaming a workspace or changing a project's
+# retention is administrative; the four project resources take MEMBER).
+# Updates are "confirm" like the creates; deletes are "approval" — the class
+# that parks on a destructive card attended and is blocked unattended.
+_CONFIRM = "confirm"
+_APPROVAL = "approval"
+_EDIT_TOOL_POLICIES = {
+    "update_workspace": (
+        "patch",
+        "/api/v1/public/workspaces/{workspace_id}",
+        {"approvalClass": _CONFIRM, "minRole": "ADMIN", "tenancy": "account"},
+    ),
+    "update_project": (
+        "patch",
+        "/api/v1/public/projects/{project_id}",
+        {"approvalClass": _CONFIRM, "minRole": "ADMIN", "tenancy": "workspace"},
+    ),
+    "update_detector": (
+        "patch",
+        "/api/v1/public/detectors/{detector_id}",
+        {"approvalClass": _CONFIRM, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "update_dashboard": (
+        "patch",
+        "/api/v1/public/dashboards/{dashboard_id}",
+        {"approvalClass": _CONFIRM, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "update_widget": (
+        "patch",
+        "/api/v1/public/widgets/{widget_id}",
+        {"approvalClass": _CONFIRM, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "update_alert": (
+        "patch",
+        "/api/v1/public/alerts/{alert_id}",
+        {"approvalClass": _CONFIRM, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "set_alert_status": (
+        "patch",
+        "/api/v1/public/alerts/{alert_id}/status",
+        {"approvalClass": _CONFIRM, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "delete_workspace": (
+        "delete",
+        "/api/v1/public/workspaces/{workspace_id}",
+        {"approvalClass": _APPROVAL, "minRole": "ADMIN", "tenancy": "account"},
+    ),
+    "delete_project": (
+        "delete",
+        "/api/v1/public/projects/{project_id}",
+        {"approvalClass": _APPROVAL, "minRole": "ADMIN", "tenancy": "workspace"},
+    ),
+    "delete_detector": (
+        "delete",
+        "/api/v1/public/detectors/{detector_id}",
+        {"approvalClass": _APPROVAL, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "delete_dashboard": (
+        "delete",
+        "/api/v1/public/dashboards/{dashboard_id}",
+        {"approvalClass": _APPROVAL, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "delete_widget": (
+        "delete",
+        "/api/v1/public/widgets/{widget_id}",
+        {"approvalClass": _APPROVAL, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "delete_alert": (
+        "delete",
+        "/api/v1/public/alerts/{alert_id}",
+        {"approvalClass": _APPROVAL, "minRole": "MEMBER", "tenancy": "project"},
+    ),
+}
+
+
+@pytest.mark.parametrize("op_id", sorted(_EDIT_TOOL_POLICIES))
+def test_edit_ops_are_enabled_tools_with_pinned_policy(op_id):
+    method, path, policy = _EDIT_TOOL_POLICIES[op_id]
+    op = _schema()["paths"][path][method]
+    tool = op["x-tool"]
+    assert tool["enabled"] is True
+    assert tool["name"] == op_id
+    assert tool["description"], f"{op_id} needs an agent-facing description"
+    assert tool["policy"] == policy
+    # The shared write error contract, on top of the bearer/503 every op has.
+    assert set(op["responses"]) >= {"200", "400", "401", "403", "404", "422", "503"}
+
+
+def test_update_project_hides_trace_ttl_days_from_the_agent_like_create():
+    tool = _schema()["paths"]["/api/v1/public/projects/{project_id}"]["patch"]["x-tool"]
+    assert tool["agentHiddenParams"] == ["trace_ttl_days"]
+    assert (
+        "agentHiddenParams"
+        not in _schema()["paths"]["/api/v1/public/projects/{project_id}"]["delete"]["x-tool"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "fragment"),
+    [
+        ("patch", "/api/v1/public/workspaces/{workspace_id}", "Name already in use"),
+        ("patch", "/api/v1/public/projects/{project_id}", "Name already in use"),
+        ("patch", "/api/v1/public/detectors/{detector_id}", "Name already in use"),
+        ("patch", "/api/v1/public/dashboards/{dashboard_id}", "Name already in use"),
+        ("patch", "/api/v1/public/alerts/{alert_id}/status", "parked"),
+        ("delete", "/api/v1/public/workspaces/{workspace_id}", "typed name"),
+        ("delete", "/api/v1/public/dashboards/{dashboard_id}", "last dashboard"),
+    ],
+)
+def test_edit_ops_document_their_409(method, path, fragment):
+    responses = _schema()["paths"][path][method]["responses"]
+    assert fragment in responses["409"]["description"]
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("patch", "/api/v1/public/widgets/{widget_id}"),
+        ("patch", "/api/v1/public/alerts/{alert_id}"),
+        ("delete", "/api/v1/public/projects/{project_id}"),
+        ("delete", "/api/v1/public/detectors/{detector_id}"),
+        ("delete", "/api/v1/public/widgets/{widget_id}"),
+        ("delete", "/api/v1/public/alerts/{alert_id}"),
+    ],
+)
+def test_edit_ops_without_a_conflict_do_not_document_a_409(method, path):
+    assert "409" not in _schema()["paths"][path][method]["responses"]
+
+
+def test_deletes_take_reason_and_tenancy_in_the_query_with_no_body():
+    """A DELETE has no request body: the tenancy and the required reason are
+    query parameters, which is what the registry generator dispatches."""
+    paths = _schema()["paths"]
+    expected_query = {
+        "/api/v1/public/workspaces/{workspace_id}": {"name", "reason"},
+        "/api/v1/public/projects/{project_id}": {"reason"},
+        "/api/v1/public/detectors/{detector_id}": {"project_id", "reason"},
+        "/api/v1/public/dashboards/{dashboard_id}": {"project_id", "reason"},
+        "/api/v1/public/widgets/{widget_id}": {"project_id", "reason"},
+        "/api/v1/public/alerts/{alert_id}": {"project_id", "reason"},
+    }
+    for path, names in expected_query.items():
+        op = paths[path]["delete"]
+        assert "requestBody" not in op, path
+        query = {p["name"]: p for p in op["parameters"] if p["in"] == "query"}
+        assert set(query) == names, path
+        assert all(p["required"] is True for p in query.values()), path
+        reason = query["reason"]["schema"]
+        assert reason["minLength"] == 3
+        assert reason["maxLength"] == 500
+
+
+def test_edit_tool_descriptions_state_the_patch_and_delete_semantics():
+    paths = _schema()["paths"]
+    for path, item in paths.items():
+        for method, op in item.items():
+            if method not in ("patch", "delete"):
+                continue
+            tool = op["x-tool"]
+            if tool["name"].startswith("update_"):
+                assert "untouched" in tool["description"], (method, path)
+            if method == "delete":
+                assert "reason" in tool["description"], (method, path)
+    status = paths["/api/v1/public/alerts/{alert_id}/status"]["patch"]["x-tool"]["description"]
+    assert "cold start" in status
+    assert "severity" in status
+    alert = paths["/api/v1/public/alerts/{alert_id}"]["patch"]["x-tool"]["description"]
+    assert "evaluation state" in alert
+    assert "page" in alert
+
+
+def test_update_bodies_forbid_unknown_keys_and_carry_no_defaults():
+    """Every PATCH body refuses unknown keys (an immutable field is a 422, not
+    a silent drop) and its optional fields declare no default, so the
+    generated tool schema cannot tempt a model into sending one."""
+    components = _schema()["components"]["schemas"]
+    for name in (
+        "UpdateWorkspaceRequest",
+        "UpdateProjectRequest",
+        "UpdateDetectorRequest",
+        "UpdateDashboardRequest",
+        "UpdateWidgetRequest",
+        "UpdateAlertRequest",
+        "AlertStatusRequest",
+    ):
+        body = components[name]
+        assert body["additionalProperties"] is False, name
+        for field, prop in body["properties"].items():
+            assert "default" not in prop, (name, field)
+    assert "template" not in components["UpdateDetectorRequest"]["properties"]
+    assert "type" not in components["UpdateWidgetRequest"]["properties"]
+    assert components["UpdateDetectorRequest"]["required"] == ["project_id"]
+    assert components["UpdateWorkspaceRequest"].get("required", []) == []
+
+
+def test_update_bodies_mark_only_the_nullable_fields_as_nullable():
+    """The null rule is visible in the schema: a nullable field is
+    ``anyOf [T, null]`` and a non-nullable one is a bare ``T``."""
+    components = _schema()["components"]["schemas"]
+
+    def nullable(model, field):
+        prop = components[model]["properties"][field]
+        return any(v.get("type") == "null" for v in prop.get("anyOf", []))
+
+    assert nullable("UpdateProjectRequest", "trace_ttl_days")
+    assert not nullable("UpdateProjectRequest", "name")
+    for field in ("detection_source", "detection_model", "detection_provider"):
+        assert nullable("UpdateDetectorRequest", field), field
+    for field in ("name", "prompt", "enabled", "sample_rate", "output_schema"):
+        assert not nullable("UpdateDetectorRequest", field), field
+    assert nullable("UpdateDashboardRequest", "description")
+    assert nullable("UpdateWidgetRequest", "display_config")
+    assert not nullable("UpdateWidgetRequest", "spec")
+    assert not any(
+        nullable("UpdateAlertRequest", f) for f in components["UpdateAlertRequest"]["properties"]
+    )
+
+
+# ── create_widget spec vocabulary (generated from the widget field registry) ──
+
+
+def _create_widget_spec_variants(schema):
+    spec = schema["components"]["schemas"]["CreateWidgetRequest"]["properties"]["spec"]
+    return spec["anyOf"]
+
+
+def test_update_widget_spec_carries_the_same_per_view_variants_as_create():
+    """The update body's spec union is specialized from the widget field
+    registry exactly like the create's, so both tools show the same vocabulary."""
+    schemas = _schema()["components"]["schemas"]
+    create = schemas["CreateWidgetRequest"]["properties"]["spec"]["anyOf"]
+    update = schemas["UpdateWidgetRequest"]["properties"]["spec"]["anyOf"]
+    assert update == create
+
+
+def test_create_widget_spec_has_per_view_variants_and_trace_feed_ref():
+    """The query dialect is one inline variant per registry view (keyed by a
+    ``view`` const) plus the untouched trace_feed $ref branch."""
+    variants = _create_widget_spec_variants(_schema())
+    consts = [
+        v["properties"]["view"]["const"]
+        for v in variants
+        if "properties" in v and "view" in v.get("properties", {})
+    ]
+    assert consts == ["spans", "traces"]
+    refs = [v["$ref"] for v in variants if "$ref" in v]
+    assert refs == ["#/components/schemas/TraceFeedSpec"]
+    assert len(variants) == 3
+
+
+def test_create_widget_spec_variants_carry_registry_enums():
+    """Measure, breakdown, and filter-field enums come from the widget field
+    registry, per view — never hand-listed."""
+    from rest.services.widget_registry import registry_schema
+
+    variants = _create_widget_spec_variants(_schema())
+    by_view = {
+        v["properties"]["view"]["const"]: v for v in variants if "view" in v.get("properties", {})
+    }
+    reg = registry_schema()
+    assert set(by_view) == set(reg)
+    for view_name, variant in by_view.items():
+        fields = reg[view_name]["fields"]
+        props = variant["properties"]
+        measures = [n for n, f in fields.items() if f["aggs"]]
+        assert props["metric"]["properties"]["measure"]["enum"] == measures
+        groupables = [n for n, f in fields.items() if f["groupable"]]
+        assert props["breakdown"]["enum"] == [*groupables, None]
+        filterables = [n for n, f in fields.items() if f["filterOps"]]
+        assert props["filters"]["items"]["properties"]["field"]["enum"] == filterables
+    # The enums must genuinely differ per view (error_count is traces-only), or
+    # the variants would be decoration rather than vocabulary.
+    spans_measures = by_view["spans"]["properties"]["metric"]["properties"]["measure"]["enum"]
+    traces_measures = by_view["traces"]["properties"]["metric"]["properties"]["measure"]["enum"]
+    assert "error_count" in traces_measures and "error_count" not in spans_measures
+
+
+def test_create_widget_spec_variants_declare_types_and_no_refs():
+    """The inline variants feed model tool schemas: every property carries an
+    explicit ``type`` and no ``$ref`` survives inside them."""
+
+    def walk_properties(node, path, missing):
+        for name, prop in (node.get("properties") or {}).items():
+            if not prop.get("type"):
+                missing.append(f"{path}.{name}")
+            walk_properties(prop, f"{path}.{name}", missing)
+            if isinstance(prop.get("items"), dict):
+                walk_properties(prop["items"], f"{path}.{name}.items", missing)
+
+    def contains_ref(node):
+        if isinstance(node, dict):
+            return "$ref" in node or any(contains_ref(v) for v in node.values())
+        if isinstance(node, list):
+            return any(contains_ref(v) for v in node)
+        return False
+
+    variants = _create_widget_spec_variants(_schema())
+    inline = [v for v in variants if "$ref" not in v]
+    assert len(inline) == 2
+    for variant in inline:
+        assert variant["type"] == "object"
+        assert variant["additionalProperties"] is False
+        assert not contains_ref(variant), "inline spec variant still contains a $ref"
+        missing: list[str] = []
+        walk_properties(variant, variant["properties"]["view"]["const"], missing)
+        assert missing == [], f"properties without a type: {missing}"
+
+
+def test_create_widget_spec_keeps_widget_spec_component_for_parity():
+    """The WidgetSpec component stays in the document even though the spec
+    union no longer references it: the frontend widget-spec-parity test anchors
+    on it to guard the pydantic/zod mirror."""
+    components = _schema()["components"]["schemas"]
+    for name in ("WidgetSpec", "WidgetFilter", "WidgetMetric", "WidgetDisplay"):
+        assert name in components
