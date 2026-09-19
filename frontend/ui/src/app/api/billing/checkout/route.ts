@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-import { prisma, getStripeOrThrow, getPlanConfig, PlanType } from "@traceroot/core";
+import {
+  prisma,
+  getStripeOrThrow,
+  getPlanConfig,
+  PlanType,
+  METERED_PRICE_ENV_VARS,
+} from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
@@ -58,12 +64,9 @@ export async function POST(req: NextRequest) {
     const lineItems: { price: string; quantity?: number }[] = [
       { price: planConfig.billingPriceId, quantity: 1 },
     ];
-    const meteredPriceIds: Array<[string, string | undefined]> = [
-      ["STRIPE_PRICE_ID_AI_USAGE", process.env.STRIPE_PRICE_ID_AI_USAGE],
-      ["STRIPE_PRICE_ID_RCA_USAGE", process.env.STRIPE_PRICE_ID_RCA_USAGE],
-      ["STRIPE_PRICE_ID_DETECTOR_USAGE", process.env.STRIPE_PRICE_ID_DETECTOR_USAGE],
-    ];
-    for (const [envName, priceId] of meteredPriceIds) {
+    // The same list findPlanItem excludes, so a meter added there is also added here.
+    for (const envName of METERED_PRICE_ENV_VARS) {
+      const priceId = process.env[envName];
       if (priceId) {
         lineItems.push({ price: priceId });
       } else {
