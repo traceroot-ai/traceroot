@@ -1,47 +1,56 @@
 "use client";
 
-import { FC } from "react";
+import { FC, ReactNode, SVGProps } from "react";
+import type { LLMAdapter } from "@traceroot/core/llm-providers";
 import { cn } from "@/lib/utils";
+
+// Provider brand marks adapted from @lobehub/icons (MIT, © LobeHub).
+// Each mark is the provider's own trademark and follows its brand guidelines.
+// Monochrome marks use `currentColor` so they stay legible on light and dark
+// backgrounds; only marks that are brand-colored by definition hardcode a fill.
 
 interface IconProps {
   className?: string;
 }
 
+type ProviderSvgProps = IconProps &
+  Pick<SVGProps<SVGSVGElement>, "fill" | "fillRule"> & {
+    children: ReactNode;
+  };
+
+/**
+ * Shared wrapper owning every attribute the brand marks have in common, so an
+ * icon component declares only its own paths, gradients and fills.
+ */
+const ProviderSvg: FC<ProviderSvgProps> = ({ className, children, ...svgProps }) => (
+  <svg
+    viewBox="0 0 24 24"
+    className={cn("h-4 w-4", className)}
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+    {...svgProps}
+  >
+    {children}
+  </svg>
+);
+
 // OpenAI spiral
 export const OpenAIIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-    fill="currentColor"
-    aria-hidden="true"
-  >
+  <ProviderSvg className={className} fill="currentColor">
     <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z" />
-  </svg>
+  </ProviderSvg>
 );
 
-// Anthropic "A" mark (from lmnr reference)
+// Anthropic "A" mark
 export const AnthropicIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-    fill="currentColor"
-    fillRule="evenodd"
-    aria-hidden="true"
-  >
+  <ProviderSvg className={className} fill="currentColor" fillRule="evenodd">
     <path d="M13.827 3.52h3.603L24 20h-3.603l-6.57-16.48zm-7.258 0h3.767L16.906 20h-3.674l-1.343-3.461H5.017l-1.344 3.46H0L6.57 3.522zm4.132 9.959L8.453 7.687 6.205 13.48H10.7z" />
-  </svg>
+  </ProviderSvg>
 );
 
-// Azure (multi-gradient, from lmnr reference)
+// Azure (multi-gradient)
 export const AzureIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-  >
+  <ProviderSvg className={className}>
     <path
       d="M7.242 1.613A1.11 1.11 0 018.295.857h6.977L8.03 22.316a1.11 1.11 0 01-1.052.755h-5.43a1.11 1.11 0 01-1.053-1.466L7.242 1.613z"
       fill="url(#azure-fill-0)"
@@ -96,40 +105,61 @@ export const AzureIcon: FC<IconProps> = ({ className }) => (
         <stop offset="1" stopColor="#2892DF" />
       </linearGradient>
     </defs>
-  </svg>
+  </ProviderSvg>
 );
 
-// Google Gemini (gradient gem, from lmnr reference)
-export const GoogleIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-  >
-    <defs>
-      <linearGradient id="gemini-gradient" x1="0%" x2="68.73%" y1="100%" y2="30.395%">
-        <stop offset="0%" stopColor="#1C7DFF" />
-        <stop offset="52.021%" stopColor="#1C69FF" />
-        <stop offset="100%" stopColor="#F0DCD6" />
-      </linearGradient>
-    </defs>
-    <path
-      d="M12 24A14.304 14.304 0 000 12 14.304 14.304 0 0012 0a14.305 14.305 0 0012 12 14.305 14.305 0 00-12 12"
-      fill="url(#gemini-gradient)"
-      fillRule="nonzero"
-    />
-  </svg>
-);
+// Google Gemini (four-colour spark)
+export const GoogleIcon: FC<IconProps> = ({ className }) => {
+  const spark =
+    "M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z";
+  return (
+    <ProviderSvg className={className}>
+      <path d={spark} fill="#3186FF" />
+      <path d={spark} fill="url(#gemini-fill-0)" />
+      <path d={spark} fill="url(#gemini-fill-1)" />
+      <path d={spark} fill="url(#gemini-fill-2)" />
+      <defs>
+        <linearGradient
+          gradientUnits="userSpaceOnUse"
+          id="gemini-fill-0"
+          x1="7"
+          x2="11"
+          y1="15.5"
+          y2="12"
+        >
+          <stop stopColor="#08B962" />
+          <stop offset="1" stopColor="#08B962" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient
+          gradientUnits="userSpaceOnUse"
+          id="gemini-fill-1"
+          x1="8"
+          x2="11.5"
+          y1="5.5"
+          y2="11"
+        >
+          <stop stopColor="#F94543" />
+          <stop offset="1" stopColor="#F94543" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient
+          gradientUnits="userSpaceOnUse"
+          id="gemini-fill-2"
+          x1="3.5"
+          x2="17.5"
+          y1="13.5"
+          y2="12"
+        >
+          <stop stopColor="#FABC12" />
+          <stop offset=".46" stopColor="#FABC12" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+    </ProviderSvg>
+  );
+};
 
-// AWS Bedrock (gradient, from lmnr reference)
+// AWS Bedrock (gradient)
 export const AWSIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-  >
+  <ProviderSvg className={className}>
     <defs>
       <linearGradient id="bedrock-gradient" x1="80%" x2="20%" y1="20%" y2="80%">
         <stop offset="0%" stopColor="#6350FB" />
@@ -142,87 +172,59 @@ export const AWSIcon: FC<IconProps> = ({ className }) => (
       fill="url(#bedrock-gradient)"
       fillRule="nonzero"
     />
-  </svg>
+  </ProviderSvg>
 );
 
-// DeepSeek (from lobehub/lobe-icons)
+// DeepSeek
 export const DeepSeekIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-  >
+  <ProviderSvg className={className}>
     <path
       d="M23.748 4.482c-.254-.124-.364.113-.512.234-.051.039-.094.09-.137.136-.372.397-.806.657-1.373.626-.829-.046-1.537.214-2.163.848-.133-.782-.575-1.248-1.247-1.548-.352-.156-.708-.311-.955-.65-.172-.241-.219-.51-.305-.774-.055-.16-.11-.323-.293-.35-.2-.031-.278.136-.356.276-.313.572-.434 1.202-.422 1.84.027 1.436.633 2.58 1.838 3.393.137.093.172.187.129.323-.082.28-.18.552-.266.833-.055.179-.137.217-.329.14a5.526 5.526 0 01-1.736-1.18c-.857-.828-1.631-1.742-2.597-2.458a11.365 11.365 0 00-.689-.471c-.985-.957.13-1.743.388-1.836.27-.098.093-.432-.779-.428-.872.004-1.67.295-2.687.684a3.055 3.055 0 01-.465.137 9.597 9.597 0 00-2.883-.102c-1.885.21-3.39 1.102-4.497 2.623C.082 8.606-.231 10.684.152 12.85c.403 2.284 1.569 4.175 3.36 5.653 1.858 1.533 3.997 2.284 6.438 2.14 1.482-.085 3.133-.284 4.994-1.86.47.234.962.327 1.78.397.63.059 1.236-.03 1.705-.128.735-.156.684-.837.419-.961-2.155-1.004-1.682-.595-2.113-.926 1.096-1.296 2.746-2.642 3.392-7.003.05-.347.007-.565 0-.845-.004-.17.035-.237.23-.256a4.173 4.173 0 001.545-.475c1.396-.763 1.96-2.015 2.093-3.517.02-.23-.004-.467-.247-.588zM11.581 18c-2.089-1.642-3.102-2.183-3.52-2.16-.392.024-.321.471-.235.763.09.288.207.486.371.739.114.167.192.416-.113.603-.673.416-1.842-.14-1.897-.167-1.361-.802-2.5-1.86-3.301-3.307-.774-1.393-1.224-2.887-1.298-4.482-.02-.386.093-.522.477-.592a4.696 4.696 0 011.529-.039c2.132.312 3.946 1.265 5.468 2.774.868.86 1.525 1.887 2.202 2.891.72 1.066 1.494 2.082 2.48 2.914.348.292.625.514.891.677-.802.09-2.14.11-3.054-.614zm1-6.44a.306.306 0 01.415-.287.302.302 0 01.2.288.306.306 0 01-.31.307.303.303 0 01-.304-.308zm3.11 1.596c-.2.081-.399.151-.59.16a1.245 1.245 0 01-.798-.254c-.274-.23-.47-.358-.552-.758a1.73 1.73 0 01.016-.588c.07-.327-.008-.537-.239-.727-.187-.156-.426-.199-.688-.199a.559.559 0 01-.254-.078c-.11-.054-.2-.19-.114-.358.028-.054.16-.186.192-.21.356-.202.767-.136 1.146.016.352.144.618.408 1.001.782.391.451.462.576.685.914.176.265.336.537.445.848.067.195-.019.354-.25.452z"
       fill="#4D6BFE"
     />
-  </svg>
+  </ProviderSvg>
 );
 
-// OpenRouter (from lobehub/lobe-icons)
+// OpenRouter
 export const OpenRouterIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-    fill="currentColor"
-    fillRule="evenodd"
-    aria-hidden="true"
-  >
+  <ProviderSvg className={className} fill="currentColor" fillRule="evenodd">
     <path d="M16.804 1.957l7.22 4.105v.087L16.73 10.21l.017-2.117-.821-.03c-1.059-.028-1.611.002-2.268.11-1.064.175-2.038.577-3.147 1.352L8.345 11.03c-.284.195-.495.336-.68.455l-.515.322-.397.234.385.23.53.338c.476.314 1.17.796 2.701 1.866 1.11.775 2.083 1.177 3.147 1.352l.3.045c.694.091 1.375.094 2.825.033l.022-2.159 7.22 4.105v.087L16.589 22l.014-1.862-.635.022c-1.386.042-2.137.002-3.138-.162-1.694-.28-3.26-.926-4.881-2.059l-2.158-1.5a21.997 21.997 0 00-.755-.498l-.467-.28a55.927 55.927 0 00-.76-.43C2.908 14.73.563 14.116 0 14.116V9.888l.14.004c.564-.007 2.91-.622 3.809-1.124l1.016-.58.438-.274c.428-.28 1.072-.726 2.686-1.853 1.621-1.133 3.186-1.78 4.881-2.059 1.152-.19 1.974-.213 3.814-.138l.02-1.907z" />
-  </svg>
+  </ProviderSvg>
 );
 
-// xAI / Grok (from lobehub/lobe-icons)
+// xAI / Grok — monochrome mark, inherits text colour so it stays legible on dark
 export const XAIIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-    fillRule="evenodd"
-    aria-hidden="true"
-  >
-    <path
-      d="M6.469 8.776L16.512 23h-4.464L2.005 8.776H6.47zm-.004 7.9l2.233 3.164L6.467 23H2l4.465-6.324zM22 2.582V23h-3.659V7.764L22 2.582zM22 1l-9.952 14.095-2.233-3.163L17.533 1H22z"
-      fill="#000"
-    />
-  </svg>
+  <ProviderSvg className={className} fill="currentColor" fillRule="evenodd">
+    <path d="M6.469 8.776L16.512 23h-4.464L2.005 8.776H6.47zm-.004 7.9l2.233 3.164L6.467 23H2l4.465-6.324zM22 2.582V23h-3.659V7.764L22 2.582zM22 1l-9.952 14.095-2.233-3.163L17.533 1H22z" />
+  </ProviderSvg>
 );
 
-// Moonshot AI (from lobehub/lobe-icons)
+// Moonshot AI — brand mark is white-on-black, so it carries its own tile
 export const MoonshotIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-  >
+  <ProviderSvg className={className}>
     <rect width="24" height="24" rx="4" fill="#000" />
     <g fill="#fff" fillRule="evenodd" transform="translate(3,3) scale(0.75)">
       <path d="M1.052 16.916l9.539 2.552a21.007 21.007 0 00.06 2.033l5.956 1.593a11.997 11.997 0 01-5.586.865l-.18-.016-.044-.004-.084-.009-.094-.01a11.605 11.605 0 01-.157-.02l-.107-.014-.11-.016a11.962 11.962 0 01-.32-.051l-.042-.008-.075-.013-.107-.02-.07-.015-.093-.019-.075-.016-.095-.02-.097-.023-.094-.022-.068-.017-.088-.022-.09-.024-.095-.025-.082-.023-.109-.03-.062-.02-.084-.025-.093-.028-.105-.034-.058-.019-.08-.026-.09-.031-.066-.024a6.293 6.293 0 01-.044-.015l-.068-.025-.101-.037-.057-.022-.08-.03-.087-.035-.088-.035-.079-.032-.095-.04-.063-.028-.063-.027a5.655 5.655 0 01-.041-.018l-.066-.03-.103-.047-.052-.024-.096-.046-.062-.03-.084-.04-.086-.044-.093-.047-.052-.027-.103-.055-.057-.03-.058-.032a6.49 6.49 0 01-.046-.026l-.094-.053-.06-.034-.051-.03-.072-.041-.082-.05-.093-.056-.052-.032-.084-.053-.061-.039-.079-.05-.07-.047-.053-.035a7.785 7.785 0 01-.054-.036l-.044-.03-.044-.03a6.066 6.066 0 01-.04-.028l-.057-.04-.076-.054-.069-.05-.074-.054-.056-.042-.076-.057-.076-.059-.086-.067-.045-.035-.064-.052-.074-.06-.089-.073-.046-.039-.046-.039a7.516 7.516 0 01-.043-.037l-.045-.04-.061-.053-.07-.062-.068-.06-.062-.058-.067-.062-.053-.05-.088-.084a13.28 13.28 0 01-.099-.097l-.029-.028-.041-.042-.069-.07-.05-.051-.05-.053a6.457 6.457 0 01-.168-.179l-.08-.088-.062-.07-.071-.08-.042-.049-.053-.062-.058-.068-.046-.056a7.175 7.175 0 01-.027-.033l-.045-.055-.066-.082-.041-.052-.05-.064-.02-.025a11.99 11.99 0 01-1.44-2.402zm-1.02-5.794l11.353 3.037a20.468 20.468 0 00-.469 2.011l10.817 2.894a12.076 12.076 0 01-1.845 2.005L.657 15.923l-.016-.046-.035-.104a11.965 11.965 0 01-.05-.153l-.007-.023a11.896 11.896 0 01-.207-.741l-.03-.126-.018-.08-.021-.097-.018-.081-.018-.09-.017-.084-.018-.094c-.026-.141-.05-.283-.071-.426l-.017-.118-.011-.083-.013-.102a12.01 12.01 0 01-.019-.161l-.005-.047a12.12 12.12 0 01-.034-2.145zm1.593-5.15l11.948 3.196c-.368.605-.705 1.231-1.01 1.875l11.295 3.022c-.142.82-.368 1.612-.668 2.365l-11.55-3.09L.124 10.26l.015-.1.008-.049.01-.067.015-.087.018-.098c.026-.148.056-.295.088-.442l.028-.124.02-.085.024-.097c.022-.09.045-.18.07-.268l.028-.102.023-.083.03-.1.025-.082.03-.096.026-.082.031-.095a11.896 11.896 0 011.01-2.232zm4.442-4.4L17.352 4.59a20.77 20.77 0 00-1.688 1.721l7.823 2.093c.267.852.442 1.744.513 2.665L2.106 5.213l.045-.065.027-.04.04-.055.046-.065.055-.076.054-.072.064-.086.05-.065.057-.073.055-.07.06-.074.055-.069.065-.077.054-.066.066-.077.053-.06.072-.082.053-.06.067-.074.054-.058.073-.078.058-.06.063-.067.168-.17.1-.098.059-.056.076-.071a12.084 12.084 0 012.272-1.677zM12.017 0h.097l.082.001.069.001.054.002.068.002.046.001.076.003.047.002.06.003.054.002.087.005.105.007.144.011.088.007.044.004.077.008.082.008.047.005.102.012.05.006.108.014.081.01.042.006.065.01.207.032.07.012.065.011.14.026.092.018.11.022.046.01.075.016.041.01L14.7.3l.042.01.065.015.049.012.071.017.096.024.112.03.113.03.113.032.05.015.07.02.078.024.073.023.05.016.05.016.076.025.099.033.102.036.048.017.064.023.093.034.11.041.116.045.1.04.047.02.06.024.041.018.063.026.04.018.057.025.11.048.1.046.074.035.075.036.06.028.092.046.091.045.102.052.053.028.049.026.046.024.06.033.041.022.052.029.088.05.106.06.087.051.057.034.053.032.096.059.088.055.098.062.036.024.064.041.084.056.04.027.062.042.062.043.023.017c.054.037.108.075.161.114l.083.06.065.048.056.043.086.065.082.064.04.03.05.041.086.069.079.065.085.071c.712.6 1.353 1.283 1.909 2.031L7.222.994l.062-.027.065-.028.081-.034.086-.035c.113-.045.227-.09.341-.131l.096-.035.093-.033.084-.03.096-.031c.087-.03.176-.058.264-.085l.091-.027.086-.025.102-.03.085-.023.1-.026L9.04.37l.09-.023.091-.022.095-.022.09-.02.098-.021.091-.02.095-.018.092-.018.1-.018.091-.016.098-.017.092-.014.097-.015.092-.013.102-.013.091-.012.105-.012.09-.01.105-.01c.093-.01.186-.018.28-.024l.106-.008.09-.005.11-.006.093-.004.1-.004.097-.002.099-.002.197-.002z" />
     </g>
-  </svg>
+  </ProviderSvg>
 );
 
-// Z.AI (from lobehub/lobe-icons — new 2025 rebrand)
+// Z.AI (2025 rebrand) — brand mark is white-on-dark, so it carries its own tile
 export const ZAIIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-    fillRule="evenodd"
-    aria-hidden="true"
-  >
+  <ProviderSvg className={className} fillRule="evenodd">
     <rect width="24" height="24" rx="4" fill="#1A1A2E" />
     <path
       d="M11.105 4L8.927 6.953H3.653L5.83 4h5.276zM19.254 17.048L17.078 20h-5.242l2.174-2.952h5.244zM20 4L9.264 20H4L14.736 4H20z"
       fill="white"
     />
-  </svg>
+  </ProviderSvg>
 );
 
-const PROVIDER_ICONS: Record<string, FC<IconProps>> = {
+/**
+ * Keyed by `LLMAdapter` so adding an adapter without an icon is a compile
+ * error rather than a silent fall-through to the letter-circle fallback.
+ */
+const PROVIDER_ICONS: Record<LLMAdapter, FC<IconProps>> = {
   openai: OpenAIIcon,
   anthropic: AnthropicIcon,
   azure: AzureIcon,
@@ -241,7 +243,9 @@ interface ProviderIconProps {
 }
 
 export function ProviderIcon({ adapter, className }: ProviderIconProps) {
-  const Icon = PROVIDER_ICONS[adapter.toLowerCase()];
+  // `adapter` is a free-form string at runtime (DB column, API payload), so the
+  // lookup stays widened and keeps its fallback for genuinely unknown values.
+  const Icon = (PROVIDER_ICONS as Record<string, FC<IconProps> | undefined>)[adapter.toLowerCase()];
 
   if (Icon) {
     return <Icon className={className} />;
