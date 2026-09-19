@@ -396,6 +396,43 @@ traceroot.initialize(integrations=[Integration.MISTRAL])`,
     },
   },
   {
+    id: "moonshot",
+    name: "Moonshot (Kimi)",
+    href: "https://traceroot.ai/docs/integrations/moonshot",
+    category: "provider",
+    logo: "/logo/integrations/moonshot.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot openai",
+        initSnippet: `import os
+import openai
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = openai.OpenAI(
+    api_key=os.environ["MOONSHOT_API_KEY"],
+    base_url="https://api.moonshot.ai/v1",
+)`,
+      },
+      typescript: {
+        installCommand: "npm install @traceroot-ai/traceroot openai",
+        initSnippet: `import OpenAI from "openai";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const openai = new OpenAI({
+  apiKey: process.env.MOONSHOT_API_KEY,
+  baseURL: "https://api.moonshot.ai/v1",
+});`,
+      },
+    },
+  },
+  {
     id: "openai",
     name: "OpenAI",
     href: "https://traceroot.ai/docs/integrations/openai",
@@ -457,6 +494,81 @@ TraceRoot.initialize({
 const openai = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
   baseURL: "https://openrouter.ai/api/v1",
+});`,
+      },
+    },
+  },
+  {
+    id: "xai",
+    name: "xAI",
+    href: "https://traceroot.ai/docs/integrations/xai",
+    category: "provider",
+    logo: "/logo/integrations/xai.svg",
+    logoDark: "/logo/integrations/xai-dark.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot openai",
+        initSnippet: `import os
+import openai
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = openai.OpenAI(
+    api_key=os.environ["XAI_API_KEY"],
+    base_url="https://api.x.ai/v1",
+)`,
+      },
+      typescript: {
+        installCommand: "npm install @traceroot-ai/traceroot openai",
+        initSnippet: `import OpenAI from "openai";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const openai = new OpenAI({
+  apiKey: process.env.XAI_API_KEY,
+  baseURL: "https://api.x.ai/v1",
+});`,
+      },
+    },
+  },
+  {
+    id: "zai",
+    name: "Z.AI (GLM)",
+    href: "https://traceroot.ai/docs/integrations/zai",
+    category: "provider",
+    logo: "/logo/integrations/zai.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot openai",
+        initSnippet: `import os
+import openai
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = openai.OpenAI(
+    api_key=os.environ["ZAI_API_KEY"],
+    base_url="https://open.bigmodel.cn/api/paas/v4",
+)`,
+      },
+      typescript: {
+        installCommand: "npm install @traceroot-ai/traceroot openai",
+        initSnippet: `import OpenAI from "openai";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const openai = new OpenAI({
+  apiKey: process.env.ZAI_API_KEY,
+  baseURL: "https://open.bigmodel.cn/api/paas/v4",
 });`,
       },
     },
