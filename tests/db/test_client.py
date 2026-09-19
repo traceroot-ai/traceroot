@@ -223,11 +223,12 @@ class TestInsertSpansBatch:
         assert _value(row, columns, "output_tokens") == 50
         assert _value(row, columns, "total_tokens") == 150
         assert "usage_details" in columns
+        assert "cost_details" in columns
         assert "environment" in columns
         assert row[columns.index("environment")] == "production"
         # 3 fixed breakdown columns collapsed into one usage_details map (net -2),
-        # then source, environment and is_evaluation added.
-        assert len(columns) == 27
+        # then source, cost_details, environment and is_evaluation added.
+        assert len(columns) == 28
         # Addressed by name, not position: `is_evaluation` extends the row, and a
         # positional assert would silently follow the wrong column.
         assert "is_evaluation" in columns
@@ -272,6 +273,7 @@ class TestInsertSpansBatch:
             "output_tokens",
             "total_tokens",
             "usage_details",
+            "cost_details",
             "input",
             "output",
             "metadata",

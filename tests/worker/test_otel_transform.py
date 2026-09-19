@@ -696,6 +696,66 @@ class TestTransformOtelToClickhouse:
         )
         assert spans[0]["cost"] == pytest.approx(expected)
 
+    def test_cost_details_stored_alongside_cost_and_reconciles(self):
+        """cost_details is computed at ingest from the same prices/buckets pair
+        as cost, so the two can never disagree later — the read path stops
+        recomputing the breakdown against whatever the catalogue says on a
+        given day."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-3-5-sonnet"),
+                        make_attr("gen_ai.usage.input_tokens", 1000),
+                        make_attr("gen_ai.usage.output_tokens", 200),
+                    ],
+                )
+            ],
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert "cost_details" in spans[0]
+        assert sum(spans[0]["cost_details"].values()) == pytest.approx(spans[0]["cost"])
+        assert spans[0]["cost_details"]["input_uncached_cost"] == pytest.approx(
+            1000 * prices["input"]
+        )
+        assert spans[0]["cost_details"]["output_cost"] == pytest.approx(200 * prices["output"])
+
+    def test_cost_details_absent_when_model_has_no_price(self):
+        """Symmetric with cost: a span with no resolvable price gets neither —
+        never a breakdown without a cost, or a cost without a breakdown."""
+        from unittest.mock import patch
+
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "mystery-model"),
+                        make_attr("gen_ai.usage.input_tokens", 1000),
+                        make_attr("gen_ai.usage.output_tokens", 200),
+                    ],
+                )
+            ],
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=None):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0].get("cost") is None
+        assert spans[0].get("cost_details") is None
+
     def test_vercel_agent_wrapper_raw_totals_not_double_counted(self):
         """The ai.generateText AGENT wrapper carries ai.usage.* GROSS totals that
         restate the SUM of its LLM doGenerate children (the SDK aggregates them

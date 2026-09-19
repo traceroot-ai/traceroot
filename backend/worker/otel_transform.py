@@ -972,6 +972,7 @@ def transform_otel_to_clickhouse(
                         # split always reconciles and matches what was priced (#958).
                         from worker.tokens.buckets import normalize_token_usage
                         from worker.tokens.pricing import (
+                            cost_breakdown_from_buckets,
                             cost_from_buckets,
                             get_model_price,
                         )
@@ -1017,9 +1018,18 @@ def transform_otel_to_clickhouse(
                             span_record["usage_details"]["cache_write_1h_tokens"] = (
                                 buckets.cache_write_1h
                             )
-                        cost = cost_from_buckets(get_model_price(model_name), buckets)
+                        # Price and breakdown come from the same prices/buckets pair, so
+                        # they never drift apart: the breakdown is stored alongside cost
+                        # instead of being recomputed on every read against whatever the
+                        # catalogue says later — a catalogue change after ingest
+                        # must not change what an already-recorded span reports.
+                        prices = get_model_price(model_name)
+                        cost = cost_from_buckets(prices, buckets)
                         if cost is not None:
                             span_record["cost"] = cost
+                            span_record["cost_details"] = cost_breakdown_from_buckets(
+                                prices, buckets
+                            )
                     elif (
                         not aggregate_wrapper
                         and span_kind == SpanKind.LLM
