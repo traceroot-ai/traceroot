@@ -47,7 +47,7 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
   let dashboards = await prisma.dashboard.findMany(listArgs(projectId));
 
   // Opening a customer's page must not create resources as a side effect.
-  if (dashboards.length === 0 && !supportRequest.getStore()) {
+  if (dashboards.length === 0 && !supportRequest.getStore()?.impersonation) {
     try {
       await seedDefaultDashboard(prisma, { projectId, actorUserId: user.id });
     } catch (e) {

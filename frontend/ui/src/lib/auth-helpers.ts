@@ -1,6 +1,5 @@
 import { createHash, timingSafeEqual } from "crypto";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
+import { getRequestSession } from "@/lib/request-session";
 import { NextResponse } from "next/server";
 import { prisma, type Role, hasMinRole } from "@traceroot/core";
 import { env } from "@/env";
@@ -23,9 +22,7 @@ export interface WorkspaceMembership {
  * Returns null if not authenticated.
  */
 export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  const session = await getRequestSession();
   if (!session?.user?.id) {
     return null;
   }

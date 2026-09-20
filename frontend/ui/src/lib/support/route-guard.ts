@@ -19,7 +19,10 @@ export function withImpersonationPolicy<C, R extends Response>(
 ) {
   return async (request: NextRequest, context?: C): Promise<R | NextResponse> => {
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.session.impersonatedBy) return handler(request, context as C);
+    if (!session?.session.impersonatedBy)
+      return supportRequest.run({ session, impersonation: null }, () =>
+        handler(request, context as C),
+      );
     const support = await impersonationContext(session.session);
     if (!support?.valid)
       return NextResponse.json(
@@ -45,7 +48,7 @@ export function withImpersonationPolicy<C, R extends Response>(
     const streaming = (response: Response) =>
       response.body && response.headers.get("content-type")?.includes("text/event-stream");
     if (isRead(request.method)) {
-      const response = await supportRequest.run({ sessionId: session.session.id }, () =>
+      const response = await supportRequest.run({ session, impersonation: support }, () =>
         handler(request, context as C),
       );
       return streaming(response)
@@ -84,7 +87,7 @@ export function withImpersonationPolicy<C, R extends Response>(
     });
     let response: R;
     try {
-      response = await supportRequest.run({ sessionId: session.session.id }, () =>
+      response = await supportRequest.run({ session, impersonation: support }, () =>
         handler(request, context as C),
       );
     } catch (error) {

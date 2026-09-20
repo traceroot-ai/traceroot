@@ -11,11 +11,15 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.session } } }));
+vi.mock("@/env", () => ({ env: {} }));
+vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 vi.mock("./session", () => ({ impersonationContext: mocks.context }));
 vi.mock("@traceroot/core", () => ({
   prisma: { auditLog: { create: mocks.create, update: mocks.update } },
 }));
 import { withImpersonationPolicy } from "./route-guard";
+import { requireAuth } from "@/lib/auth-helpers";
+import { supportRequest } from "./request-context";
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -31,6 +35,54 @@ beforeEach(() => {
   mocks.update.mockResolvedValue({});
 });
 describe("support policy", () => {
+  it.each(["ordinary", "impersonated", "anonymous"])(
+    "shares one session resolution with requireAuth for %s requests",
+    async (kind) => {
+      if (kind === "ordinary")
+        mocks.session.mockResolvedValue({ user: { id: "employee" }, session: { id: "login" } });
+      if (kind === "anonymous") mocks.session.mockResolvedValue(null);
+      const route = withImpersonationPolicy(async () => {
+        const first = await requireAuth();
+        const second = await requireAuth();
+        expect(second).toEqual(first);
+        expect(!!supportRequest.getStore()?.impersonation).toBe(kind === "impersonated");
+        return first.error ?? NextResponse.json({ id: first.user.id });
+      });
+      const response = await route(new NextRequest("http://localhost/api/workspaces"));
+      expect(response.status).toBe(kind === "anonymous" ? 401 : 200);
+      expect(mocks.session).toHaveBeenCalledTimes(1);
+      expect(supportRequest.getStore()).toBeUndefined();
+    },
+  );
+  it("isolates concurrent authenticated requests", async () => {
+    mocks.session.mockImplementation(async ({ headers }) => {
+      const id = headers.get("x-test-user");
+      return { user: { id }, session: { id } };
+    });
+    let release!: () => void;
+    const both = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered = 0;
+    const route = withImpersonationPolicy(async () => {
+      if (++entered === 2) release();
+      await both;
+      const result = await requireAuth();
+      return NextResponse.json({ id: result.user?.id });
+    });
+    const responses = await Promise.all(
+      ["alice", "bob"].map((id) =>
+        route(
+          new NextRequest("http://localhost/api/workspaces", { headers: { "x-test-user": id } }),
+        ),
+      ),
+    );
+    expect(await Promise.all(responses.map((response) => response.json()))).toEqual([
+      { id: "alice" },
+      { id: "bob" },
+    ]);
+    expect(mocks.session).toHaveBeenCalledTimes(2);
+  });
   it.each(["support", "admin"])("blocks all credential escapes for %s", (role) => {
     for (const [path, method] of [
       ["/api/github/token", "GET"],
