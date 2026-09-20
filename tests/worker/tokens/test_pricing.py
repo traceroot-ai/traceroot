@@ -578,6 +578,20 @@ class TestCalculateCost:
         cost_str = f"{result['cost']:.10f}"
         assert "999999" not in cost_str  # No floating-point weirdness
 
+    def test_cost_details_reconciles_to_cost(self):
+        """The text-estimation path has no cache visibility, but it must still
+        store a breakdown that reconciles with cost — the ingest-time
+        cost_details map, not a live recompute, is what the read path now
+        relies on for every priced span, estimated or not."""
+        result = calculate_cost("gpt-4o", "Hello world", "Hi there")
+        assert result["cost_details"] is not None
+        assert sum(result["cost_details"].values()) == pytest.approx(result["cost"])
+
+    def test_cost_details_none_for_unknown_model(self):
+        """Mirrors cost's own None-when-unpriced contract."""
+        result = calculate_cost("unknown-model", "Hello", "World")
+        assert result["cost_details"] is None
+
 
 # ---------------------------------------------------------------------------
 # Real-JSON tests — guard against pricing patterns drifting from real model IDs

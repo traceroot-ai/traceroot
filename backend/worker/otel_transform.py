@@ -1094,6 +1094,7 @@ def transform_otel_to_clickhouse(
                             span_record["total_tokens"] = usage["total_tokens"]
                         if usage["cost"] is not None:
                             span_record["cost"] = usage["cost"]
+                            span_record["cost_details"] = usage["cost_details"]
 
                 # Extract metadata
                 # Priority: explicit traceroot.span.metadata > remaining attributes.

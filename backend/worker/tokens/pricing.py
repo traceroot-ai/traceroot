@@ -198,18 +198,19 @@ def calculate_cost(
     model: str,
     input_text: str | None,
     output_text: str | None,
-) -> dict[str, int | float | None]:
+) -> dict[str, int | float | dict[str, float] | None]:
     """Calculate token usage and cost.
 
     Returns:
-        Dict with input_tokens, output_tokens, total_tokens, cost.
+        Dict with input_tokens, output_tokens, total_tokens, cost, cost_details.
         Returns empty values if model not found.
     """
-    result: dict[str, int | float | None] = {
+    result: dict[str, int | float | dict[str, float] | None] = {
         "input_tokens": None,
         "output_tokens": None,
         "total_tokens": None,
         "cost": None,
+        "cost_details": None,
     }
 
     if not model:
@@ -226,15 +227,16 @@ def calculate_cost(
     prices = get_model_price(model)
     if prices:
         # Text estimation has no cache visibility, so cache buckets are zero.
-        # Routing through cost_from_buckets keeps one cost formula across paths.
-        result["cost"] = cost_from_buckets(
-            prices,
-            TokenBuckets(
-                input_uncached=input_tokens,
-                output=output_tokens,
-                cache_read=0,
-                cache_write=0,
-            ),
+        # Routing through the same buckets/prices pair for both cost and its
+        # breakdown keeps one cost formula across paths and guarantees the two
+        # reconcile, same as the API-token ingest path.
+        buckets = TokenBuckets(
+            input_uncached=input_tokens,
+            output=output_tokens,
+            cache_read=0,
+            cache_write=0,
         )
+        result["cost"] = cost_from_buckets(prices, buckets)
+        result["cost_details"] = cost_breakdown_from_buckets(prices, buckets)
 
     return result
