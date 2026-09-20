@@ -84,6 +84,21 @@ it("keeps context details out of the banner", async () => {
   expect(screen.queryByTitle("Private ticket note")).toBeNull();
   expect(screen.queryByText(/Customer Workspace|Workspace:/)).toBeNull();
 });
+it("leaves fetch instrumentation installed before and after mount untouched", async () => {
+  const original = vi.fn(async () => Response.json({ impersonating: true, valid: true }));
+  vi.stubGlobal("fetch", original);
+  state.value = {
+    data: { session: { id: "customer", impersonatedBy: "staff" } },
+    isPending: false,
+  };
+  const view = render(<ImpersonationBanner />);
+  await waitFor(() => expect(original).toHaveBeenCalledOnce());
+  expect(window.fetch).toBe(original);
+  const instrumentation = vi.fn(original);
+  window.fetch = instrumentation;
+  view.unmount();
+  expect(window.fetch).toBe(instrumentation);
+});
 it("does not claim restoration when no employee session exists", async () => {
   vi.stubGlobal(
     "fetch",

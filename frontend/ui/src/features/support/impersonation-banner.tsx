@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { UserRoundSearch } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { DENIED_HEADER } from "@/lib/support/policy";
 import { cn } from "@/lib/utils";
 import { SUPPORT_ACTIVE_KEY, clearSupportMarkers, exitImpersonation } from "./exit";
 
@@ -16,29 +15,6 @@ type Context = {
 };
 
 const CONTEXT_REFRESH_MS = 60_000;
-const DENIAL_NOTICE_MS = 6_000;
-
-// Every write the policy refuses is reported here, whichever fetch wrapper the
-// feature used. Wrapping `window.fetch` only while a support session is active
-// is what lets one place cover all of them; feature code otherwise has no
-// consistent error surface (many mutations have no onError at all).
-function watchDeniedRequests(onDenied: (message: string) => void) {
-  const original = window.fetch;
-  window.fetch = async (...args) => {
-    const response = await original(...args);
-    if (response.status === 403 && response.headers.get(DENIED_HEADER)) {
-      response
-        .clone()
-        .json()
-        .then((body) => onDenied(body?.error ?? "Not allowed while impersonating"))
-        .catch(() => onDenied("Not allowed while impersonating"));
-    }
-    return response;
-  };
-  return () => {
-    window.fetch = original;
-  };
-}
 
 export function ImpersonationBanner({ collapsed = false }: { collapsed?: boolean }) {
   const { data, isPending } = authClient.useSession();
@@ -47,7 +23,6 @@ export function ImpersonationBanner({ collapsed = false }: { collapsed?: boolean
   const [active, setActive] = useState(false);
   const [restored, setRestored] = useState(false);
   const [error, setError] = useState("");
-  const [denied, setDenied] = useState("");
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(0);
   const impersonatedBy = data?.session?.impersonatedBy;
@@ -89,15 +64,6 @@ export function ImpersonationBanner({ collapsed = false }: { collapsed?: boolean
       window.removeEventListener("focus", update);
     };
   }, [impersonatedBy, pathname, isPending, data?.session?.id]);
-  useEffect(() => {
-    if (!active || restored) return;
-    return watchDeniedRequests(setDenied);
-  }, [active, restored]);
-  useEffect(() => {
-    if (!denied) return;
-    const timer = setTimeout(() => setDenied(""), DENIAL_NOTICE_MS);
-    return () => clearTimeout(timer);
-  }, [denied]);
   // The server already unwound this session (see /api/auth get-session): the
   // cookie now holds the employee login, so there is nothing left to exit.
   useEffect(() => {
@@ -119,7 +85,7 @@ export function ImpersonationBanner({ collapsed = false }: { collapsed?: boolean
     (!context.impersonating ||
       !context.valid ||
       (context.expiresAt && new Date(context.expiresAt).getTime() <= now));
-  const notice = error || denied;
+  const notice = error;
   const target = context?.targetEmail ?? data?.user.email ?? "customer";
   const ended = restored || !!expired;
   const label = ended ? "Support session ended" : notice || target;
