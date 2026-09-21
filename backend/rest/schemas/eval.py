@@ -105,6 +105,11 @@ JSON_SAFE_INT_MAX = 9_007_199_254_740_991
 # `"ge": 0` keywords instead of JSON Schema's `"minimum": 0`.
 #: ``z.number().int().nonnegative()``.
 JsonNonNegativeInt = Annotated[int, Field(ge=0, le=JSON_SAFE_INT_MAX), BeforeValidator(_json_int)]
+#: Postgres ``INTEGER``. The coverage counts are stored in int4 columns, so a larger
+#: value would pass validation and then fail the insert as a 500.
+PG_INT4_MAX = 2_147_483_647
+#: ``z.number().int().nonnegative().max(PG_INT4_MAX)`` — a count stored as ``INTEGER``.
+JsonNonNegativeInt4 = Annotated[int, Field(ge=0, le=PG_INT4_MAX), BeforeValidator(_json_int)]
 #: ``z.number().int()`` — a safe JSON integer, never a coerced string/boolean. Checked in
 #: the validator rather than with ``Field`` bounds, so the published schema stays as it is.
 JsonInt = Annotated[int, BeforeValidator(_json_safe_int)]
@@ -299,7 +304,7 @@ class RunSelection(BaseModel):
 
     mode: RunSelectionMode
     # How many cases this run set out to measure. mode="full" ⇒ the whole version.
-    selected_case_count: JsonNonNegativeInt
+    selected_case_count: JsonNonNegativeInt4
     # The seed that made a ``sample`` reproducible. Absent for an unseeded sample, which
     # is legitimate — it simply cannot be reproduced. An opaque token, not a count, so it
     # is deliberately unconstrained in sign.
@@ -332,7 +337,7 @@ class RegisterRunRequest(BaseModel):
     # `selected / total`. Sent together with run_selection (see the model validator): a
     # selected count without a total is not displayable, and a total without a selection
     # says nothing about what the run actually measured.
-    dataset_case_count: JsonNonNegativeInt | None = None
+    dataset_case_count: JsonNonNegativeInt4 | None = None
     # The run's deliberate case selection. Omitted by an SDK older than this field, which
     # reads back as coverage UNKNOWN — never silently relabelled full, because full
     # coverage that cannot be proven must not be claimed.

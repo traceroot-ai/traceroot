@@ -616,6 +616,32 @@
             "selected_case_count": 20
           }
         }
+      },
+      {
+        "name": "coverage_dataset_case_count_beyond_int4",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 2147483648,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": 20
+          }
+        }
+      },
+      {
+        "name": "coverage_selected_case_count_beyond_int4",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 2147483647,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": 2147483648
+          }
+        }
       }
     ],
     "degraded": [

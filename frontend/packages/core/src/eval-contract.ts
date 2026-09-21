@@ -228,10 +228,16 @@ export type RunSelectionMode = (typeof RUN_SELECTION_MODES)[number];
  * future SDK sending a richer selection descriptor is not a 400 that loses the whole
  * run. The top-level request stays `.strict()`.
  */
+/**
+ * Postgres `INTEGER`. The coverage counts are stored in int4 columns, so a larger value
+ * would pass validation and then fail the insert as a 500.
+ */
+export const PG_INT4_MAX = 2_147_483_647;
+
 export const RunSelectionSchema = z.object({
   mode: RunSelectionModeSchema,
   /** How many cases this run set out to measure. `mode: "full"` ⇒ the whole version. */
-  selected_case_count: z.number().int().nonnegative(),
+  selected_case_count: z.number().int().nonnegative().max(PG_INT4_MAX),
   /**
    * The seed that made a `sample` reproducible. Absent for an unseeded sample, which
    * is legitimate — it simply cannot be reproduced. An opaque token, not a count, so
@@ -292,7 +298,7 @@ export const RegisterRunRequestSchema = z
      * below): a selected count without a total is not displayable, and a total
      * without a selection says nothing about what the run actually measured.
      */
-    dataset_case_count: z.number().int().nonnegative().nullable().optional(),
+    dataset_case_count: z.number().int().nonnegative().max(PG_INT4_MAX).nullable().optional(),
     /**
      * The run's deliberate case selection. Omitted by an SDK older than this field,
      * which reads back as coverage UNKNOWN — never silently relabelled full, because

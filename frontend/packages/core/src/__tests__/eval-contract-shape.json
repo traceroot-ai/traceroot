@@ -232,7 +232,8 @@
           "type": "integer",
           "minimum": 0,
           "required": true,
-          "nullable": false
+          "nullable": false,
+          "maximum": 2147483647
         },
         "sample_seed": {
           "type": "integer",
@@ -322,7 +323,8 @@
           "type": "integer",
           "minimum": 0,
           "required": false,
-          "nullable": true
+          "nullable": true,
+          "maximum": 2147483647
         },
         "run_selection": {
           "type": "RunSelection",
