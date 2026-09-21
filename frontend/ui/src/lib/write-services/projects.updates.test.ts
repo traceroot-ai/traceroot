@@ -7,6 +7,7 @@ const { tx, root, order } = vi.hoisted(() => ({
   tx: {
     workspaceMember: { findUnique: vi.fn() },
     project: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    modelProvider: { findUnique: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   root: { auditLog: { create: vi.fn() } },
@@ -72,7 +73,7 @@ const prismaError = (code: string, target?: unknown) =>
 
 beforeEach(() => {
   order.length = 0;
-  for (const model of [tx.workspaceMember, tx.project, tx.auditLog]) {
+  for (const model of [tx.workspaceMember, tx.project, tx.modelProvider, tx.auditLog]) {
     for (const fn of Object.values(model)) fn.mockReset();
   }
   tx.project.findUnique.mockResolvedValue(storedProject);
@@ -175,6 +176,49 @@ describe("updateProject", () => {
     mockAccess();
     expect(await runUpdate(patch)).toEqual({ ok: false, status: 400, error });
     expect(tx.project.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a decision model as the RCA model when saved, before RCA runs", async () => {
+    mockAccess();
+    expect(await runUpdate({ rcaModel: "jev-1.13.0", rcaSource: "byok" })).toEqual({
+      ok: false,
+      status: 400,
+      error: "rcaModel cannot be a decision model, which only runs detectors",
+    });
+    expect(tx.project.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a TypeSafe provider as the RCA provider, looked up in the project's workspace", async () => {
+    mockAccess();
+    tx.modelProvider.findUnique.mockResolvedValue({ adapter: "typesafe" });
+    expect(
+      await runUpdate({ rcaModel: "gpt-4o", rcaProvider: "my-typesafe", rcaSource: "byok" }),
+    ).toEqual({
+      ok: false,
+      status: 400,
+      error:
+        "rcaProvider cannot be a decision-model provider (TypeSafe), which only runs detectors",
+    });
+    expect(tx.modelProvider.findUnique).toHaveBeenCalledWith({
+      where: { workspaceId_provider: { workspaceId: "w1", provider: "my-typesafe" } },
+      select: { adapter: true },
+    });
+    expect(tx.project.update).not.toHaveBeenCalled();
+  });
+
+  it("checks the stored source when the patch leaves it out", async () => {
+    mockAccess();
+    tx.project.findUnique.mockResolvedValue({ ...storedProject, rcaSource: "byok" });
+    tx.modelProvider.findUnique.mockResolvedValue({ adapter: "typesafe" });
+    expect((await runUpdate({ rcaProvider: "my-typesafe" })).ok).toBe(false);
+    expect(tx.project.update).not.toHaveBeenCalled();
+  });
+
+  it("does not look a system provider name up as a BYOK row", async () => {
+    mockAccess();
+    const r = await runUpdate({ rcaProvider: "Anthropic", rcaSource: "system" });
+    expect(r.ok).toBe(true);
+    expect(tx.modelProvider.findUnique).not.toHaveBeenCalled();
   });
 
   it("answers a patch equal to the stored row as a no-op: no write, no audit", async () => {

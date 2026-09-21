@@ -17,6 +17,7 @@ export const LLMAdapter = {
   XAI: "xai",
   MOONSHOT: "moonshot",
   ZAI: "zai",
+  TYPESAFE: "typesafe",
 } as const;
 export type LLMAdapter = (typeof LLMAdapter)[keyof typeof LLMAdapter];
 
@@ -44,6 +45,7 @@ export const ADAPTER_DEFAULT_BASE_URL: Record<string, string> = {
   xai: "https://api.x.ai/v1",
   moonshot: "https://api.moonshot.ai/v1",
   zai: "https://open.bigmodel.cn/api/paas/v4",
+  typesafe: "https://api.typesafe.ai/v1",
 };
 
 // API protocol per adapter — used to build fallback model objects for BYOK models
@@ -225,6 +227,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "glm-4.5-air", label: "glm-4.5-air" },
     { id: "glm-4.5-flash", label: "glm-4.5-flash" },
   ],
+  typesafe: [{ id: "jev-1.13.0", label: "jev-1.13.0" }],
 };
 
 /**
@@ -319,6 +322,27 @@ export const ADAPTER_CONFIG: Record<
     requiresBaseUrl: false,
     credentialType: "api-key",
   },
+  typesafe: {
+    label: "TypeSafe AI",
+    requiresBaseUrl: false,
+    credentialType: "api-key",
+  },
 };
+
+// Decision adapters return typed answers with probabilities, not chat text, so
+// they are kept out of the pi-ai maps and only run as a detector backend.
+export function isDecisionAdapter(adapter: string | null | undefined): boolean {
+  return adapter === LLMAdapter.TYPESAFE;
+}
+
+const decisionModelIds = new Set<string>(
+  Object.entries(ADAPTER_MODELS)
+    .filter(([adapter]) => isDecisionAdapter(adapter))
+    .flatMap(([, models]) => models.map((m) => m.id)),
+);
+
+export function isDecisionModelId(modelId: string): boolean {
+  return decisionModelIds.has(modelId);
+}
 
 export const BEDROCK_USE_DEFAULT_CREDENTIALS = "__BEDROCK_DEFAULT_CREDENTIALS__";

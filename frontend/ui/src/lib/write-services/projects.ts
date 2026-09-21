@@ -11,7 +11,16 @@
  * the core is shared on purpose.
  */
 import type { DetectorAlertConfig, Project } from "@prisma/client";
-import { DEFAULT_ALERT_WINDOW, isAlertWindow, prisma, Role, hasMinRole } from "@traceroot/core";
+import {
+  DEFAULT_ALERT_WINDOW,
+  isAlertWindow,
+  isDecisionAdapter,
+  isDecisionModelId,
+  ModelSource,
+  prisma,
+  Role,
+  hasMinRole,
+} from "@traceroot/core";
 import { z } from "zod";
 import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
 import { seedDefaultDashboard } from "@/lib/dashboard-seed";
@@ -173,6 +182,9 @@ export interface ProjectPatch {
 const nameMessage = "name must be a non-empty string (max 100 chars)";
 const ttlMessage = "traceTtlDays must be an integer between 1 and 365";
 const alertEmailsMessage = "alertEmails must be a list of email addresses (max 50)";
+const decisionRcaModelMessage = "rcaModel cannot be a decision model, which only runs detectors";
+const decisionRcaProviderMessage =
+  "rcaProvider cannot be a decision-model provider (TypeSafe), which only runs detectors";
 
 const boundedText = (field: string, max: number) => {
   const message = `${field} must be a non-empty string (max ${max} chars)`;
@@ -286,6 +298,28 @@ export async function updateProject(input: {
       const patch = { ...parsed.data, name: parsed.data.name?.trim() };
       if (definedKeys(patch).length === 0) {
         return { result: { ok: false, status: 400, error: NO_FIELDS_MESSAGE } };
+      }
+      // A decision model (Jev) only judges detectors and the RCA resolver
+      // rejects it, so refuse it when the setting is saved, not when RCA runs.
+      if (patch.rcaModel && isDecisionModelId(patch.rcaModel)) {
+        return { result: { ok: false, status: 400, error: decisionRcaModelMessage } };
+      }
+      // RCA reads rcaProvider as a BYOK row only when the source is BYOK; a
+      // system source names a system provider, which is never a decision one.
+      const rcaSource = patch.rcaSource !== undefined ? patch.rcaSource : existing.rcaSource;
+      if (patch.rcaProvider && rcaSource === ModelSource.BYOK) {
+        const provider = await tx.modelProvider.findUnique({
+          where: {
+            workspaceId_provider: {
+              workspaceId: existing.workspaceId,
+              provider: patch.rcaProvider,
+            },
+          },
+          select: { adapter: true },
+        });
+        if (isDecisionAdapter(provider?.adapter)) {
+          return { result: { ok: false, status: 400, error: decisionRcaProviderMessage } };
+        }
       }
 
       const current = toProjectRecord(existing);

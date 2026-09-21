@@ -248,4 +248,46 @@ describe("AiAssistantPanel", () => {
     expect(sheet.getAttribute("data-trace-id")).toBe("trace-1");
     expect(sheet.getAttribute("data-span-id")).toBe("span-t1");
   });
+
+  describe("decision models (TypeSafe)", () => {
+    const jevOnly = () => ({
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "TypeSafe AI",
+          adapter: "typesafe",
+          source: "byok" as const,
+          models: [{ id: "jev-latest", label: "jev-latest", supported: false }],
+        },
+      ],
+    });
+
+    it("shows the no-models gate for a TypeSafe-only workspace", () => {
+      mocks.projectData = { workspace_id: "ws-abc" };
+      mocks.llmModels = jevOnly();
+
+      render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+      expect(screen.getByText("No LLM models available")).not.toBeNull();
+    });
+
+    it("does not warn that a decision model is unsupported", () => {
+      mocks.projectData = { workspace_id: "ws-abc" };
+      mocks.llmModels = {
+        ...jevOnly(),
+        systemModels: [
+          {
+            provider: "anthropic",
+            adapter: "anthropic",
+            source: "system",
+            models: [{ id: "claude-4", label: "Claude 4" }],
+          },
+        ],
+      };
+
+      render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+      expect(screen.queryByText(/Unsupported model/)).toBeNull();
+    });
+  });
 });
