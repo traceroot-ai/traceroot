@@ -416,6 +416,7 @@ export default function TracesPage() {
         onOpenChange={retention.closePricing}
         workspaceId={retention.workspaceId}
         currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+        hasSubscription={retention.hasSubscription}
       />
     </div>
   );
