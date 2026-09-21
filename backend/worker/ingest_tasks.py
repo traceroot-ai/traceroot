@@ -172,6 +172,21 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
     return result
 
 
+# The metric columns are Postgres INTEGER. A value outside that range raises inside the
+# batch's transaction and rolls back every trace's cost and stamp with it, so the same
+# rows fail again on every tick. One bad span is enough: a start time of 0 puts
+# llm_duration_ms near 1.7e12.
+_PG_INT4_MAX = 2_147_483_647
+
+
+def _int4_or_none(value: int, column: str) -> int | None:
+    """Return ``value`` if it fits a Postgres INTEGER, else None (stored as NULL)."""
+    if 0 <= value <= _PG_INT4_MAX:
+        return value
+    logger.warning("eval cost derivation: %s is out of INTEGER range, storing NULL", column)
+    return None
+
+
 _PG_POOL = None
 _PG_POOL_LOCK = threading.Lock()
 
@@ -272,11 +287,11 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                         " WHERE project_id = %s AND trace_id = %s",
                         (
                             m.cost,
-                            m.prompt_tokens,
-                            m.completion_tokens,
-                            m.total_tokens,
-                            m.llm_calls,
-                            m.llm_duration_ms,
+                            _int4_or_none(m.prompt_tokens, "prompt_tokens"),
+                            _int4_or_none(m.completion_tokens, "completion_tokens"),
+                            _int4_or_none(m.total_tokens, "total_tokens"),
+                            _int4_or_none(m.llm_calls, "llm_calls"),
+                            _int4_or_none(m.llm_duration_ms, "llm_duration_ms"),
                             project_id,
                             trace_id,
                         ),

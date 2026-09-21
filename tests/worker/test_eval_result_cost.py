@@ -22,6 +22,7 @@ import pytest
 
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.ingest_tasks import (
+    _int4_or_none,
     _task_metrics_by_trace,
     _update_eval_result_costs,
     process_s3_traces,
@@ -308,6 +309,57 @@ class TestWriteIsUnconditional:
         )
         assert len(updates) == 1
         assert updates[0][0][1][:6] == (pytest.approx(0.0), 0, 0, 0, 0, 0)
+
+
+class TestOutOfRangeMetricsCannotPoisonTheBatch:
+    """The metric columns are Postgres INTEGER. One out-of-range value would raise inside
+    the batch transaction and roll back every trace's cost and stamp with it, so the same
+    rows would fail again on every tick. It is stored as NULL instead."""
+
+    def _run(self, rows, trace_ids):
+        ch = MagicMock()
+        ch.query.return_value.result_rows = rows
+        conn, cur = MagicMock(), MagicMock()
+        cur.fetchall.return_value = [(t,) for t in trace_ids]
+        conn.cursor.return_value.__enter__.return_value = cur
+        with patch("psycopg2.connect", return_value=conn):
+            _update_eval_result_costs("proj-1", set(trace_ids), ch)
+        return cur
+
+    def test_an_out_of_range_duration_is_stored_as_null_and_the_rest_still_writes(self):
+        # A span stamped with a 1970 start time: about 1.7e12 ms of "LLM time".
+        cur = self._run(
+            [
+                _row("root", None, "EVALUATION", None, trace="bad"),
+                _row(
+                    "llm",
+                    "root",
+                    "LLM",
+                    0.10,
+                    tokens=(18, 29, 47),
+                    ms=1_700_000_000_000,
+                    trace="bad",
+                ),
+                _row("root", None, "EVALUATION", None, trace="ok"),
+                _row("llm", "root", "LLM", 0.20, tokens=(1, 2, 3), ms=40, trace="ok"),
+            ],
+            ["bad", "ok"],
+        )
+        writes = {
+            c[0][1][-1]: c[0][1][:6] for c in cur.execute.call_args_list if "NULLIF" in c[0][0]
+        }
+        assert writes["bad"] == (pytest.approx(0.10), 18, 29, 47, 1, None)
+        assert writes["ok"] == (pytest.approx(0.20), 1, 2, 3, 1, 40)
+        # Both traces are still stamped, so neither is re-swept forever.
+        stamps = [c for c in cur.execute.call_args_list if "cost_derived_at = now()" in c[0][0]]
+        assert len(stamps) == 1
+        assert set(stamps[0][0][1][1]) == {"bad", "ok"}
+
+    def test_the_bound_is_postgres_integer(self):
+        assert _int4_or_none(0, "llm_calls") == 0
+        assert _int4_or_none(2_147_483_647, "llm_calls") == 2_147_483_647
+        assert _int4_or_none(2_147_483_648, "llm_calls") is None
+        assert _int4_or_none(-1, "llm_calls") is None
 
 
 class TestOrdinaryIngestDoesNotTouchPostgres:
