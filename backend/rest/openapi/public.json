@@ -4120,7 +4120,7 @@
           "dataset_case_count": {
             "anyOf": [
               {
-                "maximum": 9007199254740991.0,
+                "maximum": 2147483647.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -4348,7 +4348,7 @@
             "title": "Sample Seed"
           },
           "selected_case_count": {
-            "maximum": 9007199254740991.0,
+            "maximum": 2147483647.0,
             "minimum": 0.0,
             "title": "Selected Case Count",
             "type": "integer"
