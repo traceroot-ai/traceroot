@@ -37,7 +37,14 @@ field added or re-bounded on one layer only fails without needing a fixture for 
 import json
 from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, BeforeValidator, Field, ValidationInfo, field_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 # --- JSON-strict scalars ----------------------------------------------------
 #
@@ -151,6 +158,9 @@ MetricUnit = Literal["$", "tok", "ms", "count"]
 ScorerType = Literal["llm_judge", "code"]
 ScorerOutputType = Literal["score", "classification"]
 ScorerLanguage = Literal["python", "typescript"]
+#: How a run chose its cases. Mirrors the SDK runner's own
+#: ``evaluation_started.run_mode`` vocabulary, so nothing needs translating.
+RunSelectionMode = Literal["full", "first", "sample"]
 
 
 class ErrorResponse(BaseModel):
@@ -272,6 +282,30 @@ class ScoreInput(BaseModel):
     error: str | None = Field(default=None, max_length=5000)
 
 
+# --- Dataset coverage -------------------------------------------------------
+
+
+class RunSelection(BaseModel):
+    """The run's DELIBERATE case selection out of the pinned dataset version.
+
+    A ``--first 20`` or ``--sample 20 --seed 7`` run is otherwise wire-indistinguishable
+    from a full 500-case run, which understates per-case averages by the coverage ratio,
+    lets two subsets present themselves as an authoritative comparison, and makes a
+    deliberate subset look like an API truncation.
+
+    Plain (non-strict) like ``ScorerRef``: unknown nested keys are ignored, so a future
+    SDK sending a richer selection descriptor is not a 400 that loses the whole run.
+    """
+
+    mode: RunSelectionMode
+    # How many cases this run set out to measure. mode="full" ⇒ the whole version.
+    selected_case_count: JsonNonNegativeInt
+    # The seed that made a ``sample`` reproducible. Absent for an unseeded sample, which
+    # is legitimate — it simply cannot be reproduced. An opaque token, not a count, so it
+    # is deliberately unconstrained in sign.
+    sample_seed: JsonInt | None = None
+
+
 # --- (a) Register / start a run ---------------------------------------------
 
 
@@ -294,6 +328,15 @@ class RegisterRunRequest(BaseModel):
     client_run_id: str | None = Field(default=None, min_length=1, max_length=128)
     baseline_run_id: str | None = Field(default=None, min_length=1, max_length=64)
     case_count: JsonNonNegativeInt | None = None
+    # The pinned dataset version's TRUE size, so a selection can be read as
+    # `selected / total`. Sent together with run_selection (see the model validator): a
+    # selected count without a total is not displayable, and a total without a selection
+    # says nothing about what the run actually measured.
+    dataset_case_count: JsonNonNegativeInt | None = None
+    # The run's deliberate case selection. Omitted by an SDK older than this field, which
+    # reads back as coverage UNKNOWN — never silently relabelled full, because full
+    # coverage that cannot be proven must not be claimed.
+    run_selection: RunSelection | None = None
     # Free-form run metadata — arbitrary user key/values, kept verbatim.
     metadata: dict[str, Any] | None = None
 
@@ -301,6 +344,53 @@ class RegisterRunRequest(BaseModel):
     @classmethod
     def _check_metadata_size(cls, v: Any) -> Any:
         return _check_json_size(v, EVAL_METADATA_MAX, "metadata")
+
+    @model_validator(mode="after")
+    def _check_coverage(self) -> "RegisterRunRequest":
+        """Mirror of the Zod ``superRefine`` on the same fields.
+
+        Coverage is atomic: a run either declares its selection completely or not at all.
+        Anything in between is a state no surface could render honestly, so it is rejected
+        at the contract rather than persisted and guessed at downstream. Both layers must
+        reach the same verdict — ``eval-contract-parity-fixtures.json`` asserts it.
+        """
+        selection = self.run_selection
+        dataset_case_count = self.dataset_case_count
+
+        if selection is not None and dataset_case_count is None:
+            raise ValueError(
+                "run_selection requires dataset_case_count (a selection needs a total)"
+            )
+        if selection is None and dataset_case_count is not None:
+            raise ValueError(
+                "dataset_case_count requires run_selection (a total needs a selection)"
+            )
+        if selection is not None and dataset_case_count is not None:
+            if selection.selected_case_count > dataset_case_count:
+                raise ValueError("selected_case_count cannot exceed dataset_case_count")
+            # A full run measures every case there is; anything else is a subset and must
+            # say so, or it would render as "Full dataset" over a partial result set.
+            if selection.mode == "full" and selection.selected_case_count != dataset_case_count:
+                raise ValueError(
+                    'mode "full" requires selected_case_count to equal dataset_case_count'
+                )
+        # A seed is only meaningful for a sample — carrying one on a full or first-N run
+        # would imply a reproducible randomisation that never happened.
+        if (
+            selection is not None
+            and selection.sample_seed is not None
+            and selection.mode != "sample"
+        ):
+            raise ValueError('sample_seed is only valid when mode is "sample"')
+        # Two denominators that disagree: whichever one a surface picked, the other would
+        # make it wrong. The legacy field stays accepted, but never in contradiction.
+        if (
+            selection is not None
+            and self.case_count is not None
+            and self.case_count != selection.selected_case_count
+        ):
+            raise ValueError("case_count contradicts run_selection.selected_case_count")
+        return self
 
 
 class RegisterRunResponse(BaseModel):
