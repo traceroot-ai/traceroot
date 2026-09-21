@@ -74,6 +74,9 @@ describe("billing worker entrypoint", () => {
     expect(syncStandardPrices).toHaveBeenCalled();
     expect(cronSchedule).toHaveBeenCalledWith("5 * * * *", expect.any(Function));
     await vi.waitFor(() => expect(runStartupBillingPass).toHaveBeenCalled());
+    expect(cronSchedule.mock.invocationCallOrder[0]).toBeLessThan(
+      runStartupBillingPass.mock.invocationCallOrder[0],
+    );
   });
 
   it("runs the scheduled billing job when the cron callback fires", async () => {
