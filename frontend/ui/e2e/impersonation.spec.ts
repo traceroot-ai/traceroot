@@ -1,13 +1,6 @@
 import { test, expect, type BrowserContext, type APIRequestContext } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { createHmac, randomUUID } from "node:crypto";
-import { resolve } from "node:path";
-
-// Opt in when updating the committed review images from the tested UI.
-const screenshotPath = (name: string, fallback: string) =>
-  process.env.UPDATE_SUPPORT_SCREENSHOTS === "1"
-    ? resolve(process.cwd(), "../../docs/images/impersonation", name)
-    : fallback;
 
 // Intentionally localhost-only: fixtures must never touch a remote tenant.
 const database = new URL(process.env.DATABASE_URL!);
@@ -168,7 +161,7 @@ test("support UI: browse, search, reason, banner, exit and audit", async ({ page
   await expect(customerRow.getByRole("cell").nth(2)).toHaveText(ids.customer);
   await expect(customerRow.getByRole("cell").nth(0).getByRole("button")).toHaveCount(0);
   await page.screenshot({
-    path: screenshotPath("users.png", "/tmp/impersonation-user-columns.png"),
+    path: "/tmp/impersonation-user-columns.png",
     fullPage: true,
   });
   await expect(page.getByRole("columnheader", { name: "User ID", exact: true })).toBeVisible();
@@ -180,7 +173,7 @@ test("support UI: browse, search, reason, banner, exit and audit", async ({ page
   await expect(page.getByRole("dialog")).toHaveAccessibleDescription(emails.customer);
   await expect(page.getByRole("dialog").getByText(/Read-only:|Read \+ write:/)).toHaveCount(0);
   await page.screenshot({
-    path: screenshotPath("start-session.png", "/tmp/impersonation-simple-dialog.png"),
+    path: "/tmp/impersonation-simple-dialog.png",
     fullPage: true,
   });
   await expect(page.getByText("Maximum 2 hours", { exact: false })).toHaveCount(0);
@@ -195,7 +188,7 @@ test("support UI: browse, search, reason, banner, exit and audit", async ({ page
     .getByRole("status")
     .filter({ has: page.getByRole("button", { name: "Stop", exact: true }) })
     .screenshot({
-      path: screenshotPath("banner.png", "/tmp/impersonation-sidebar-strip.png"),
+      path: "/tmp/impersonation-sidebar-strip.png",
     });
   await expect(page.getByText("Read-only", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Reason:", { exact: false })).toHaveCount(0);
@@ -462,7 +455,7 @@ test("admin UI grants access with the staff role selector", async ({ page, conte
   await setRole("No Access");
   await expect(employeeAccess).toHaveText("No Access");
   await page.screenshot({
-    path: screenshotPath("staff-access.png", "/tmp/impersonation-staff-access-select.png"),
+    path: "/tmp/impersonation-staff-access-select.png",
     fullPage: true,
   });
   await expect(page.getByText(emails.employee, { exact: true })).toBeVisible();
