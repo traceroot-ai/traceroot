@@ -5,6 +5,7 @@ import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-h
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
 import { countResultStatuses, excludedSummary } from "@/lib/eval/result-status-counts";
+import { toRunCoverage } from "@/lib/eval/coverage";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -306,7 +307,8 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
     // reported a cost — never a misleading 0.
     const cost = sumOrNull(groups.map((g) => g._sum.cost));
     const caseDurationMs = sumOrNull(groups.map((g) => g._sum.durationMs));
-    // `sampleSeed` is a BIGINT, which JSON cannot serialize, so it stays off the row.
+    // `sampleSeed` is a BIGINT, which JSON cannot serialize; the seed reaches the client
+    // through `coverage` below, as a number.
     const { sampleSeed: _seed, ...runFields } = r;
     return {
       ...runFields,
@@ -321,6 +323,10 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
       baselineComparable: comparison.trustworthy,
       errorCount: r.taskErrorCount + r.scorerErrorCount,
       elapsedMs: caseDurationMs,
+      // Which slice of the dataset this run measured — derived once here rather than
+      // by each client, so the list, the detail page and the comparison cannot end up
+      // describing the same run differently.
+      coverage: toRunCoverage(r),
       ...statusCounts,
       excludedSummary: excludedSummary(statusCounts.erroredCount, statusCounts.notScoredCount),
     };

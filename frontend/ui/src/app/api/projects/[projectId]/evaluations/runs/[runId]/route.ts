@@ -10,6 +10,7 @@ import {
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
 import { countResultStatuses } from "@/lib/eval/result-status-counts";
+import { toRunCoverage } from "@/lib/eval/coverage";
 
 type RouteParams = { params: Promise<{ projectId: string; runId: string }> };
 
@@ -127,7 +128,8 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
     _sum: { durationMs: true, cost: true },
   });
 
-  // `sampleSeed` is a BIGINT, which JSON cannot serialize, so it stays off the run.
+  // `sampleSeed` is a BIGINT, which JSON cannot serialize; the seed reaches the client
+  // through `coverage` below, as a number.
   const { results: _omit, sampleSeed: _seed, ...runFields } = run;
   return successResponse({
     run: {
@@ -140,6 +142,9 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
       changeFromBaseline: null,
       baselineComparable: comparison.trustworthy,
       errorCount: run.taskErrorCount + run.scorerErrorCount,
+      // Which slice of the dataset this run measured. Derived from the one shared
+      // helper the list and comparison surfaces use, so they cannot disagree.
+      coverage: toRunCoverage(run),
       elapsedMs: resultAgg._sum.durationMs,
       // Summed per-case cost — the runs list computes it the same way. Overrides any
       // stored run.cost (there is none), so the headline stat matches the case rows.

@@ -3,6 +3,7 @@
  * as ISO strings over JSON, so these mirror the Prisma rows with string dates.
  */
 import type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
+import type { RunCoverage } from "@/lib/eval/coverage";
 
 export type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
 
@@ -139,6 +140,13 @@ export interface RunRow {
   status: EvalRunStatus;
   baselineRunId: string | null;
   caseCount: number;
+  /**
+   * Which slice of the pinned dataset version this run measured. Derived server-side
+   * from the run's stored selection so every surface reads it identically; `unknown`
+   * for a run that predates coverage or an SDK that does not report it, and never
+   * silently promoted to `full`.
+   */
+  coverage: RunCoverage;
   scoredCount: number;
   taskErrorCount: number;
   scorerErrorCount: number;
