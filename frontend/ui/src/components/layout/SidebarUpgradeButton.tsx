@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
-import { PlanType } from "@traceroot/core";
+import { toPlanType } from "@traceroot/core";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/features/projects/hooks";
@@ -57,7 +57,7 @@ export function SidebarUpgradeButton({
         open={showPricingDialog}
         onOpenChange={setShowPricingDialog}
         workspaceId={workspaceId}
-        currentPlan={(workspace?.billingPlan as PlanType) || PlanType.FREE}
+        currentPlan={toPlanType(workspace?.billingPlan)}
         hasSubscription={!!workspace?.billingSubscriptionId}
       />
     </>

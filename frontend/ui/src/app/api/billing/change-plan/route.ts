@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-import { prisma, getStripeOrThrow, getPlanConfig, isUpgrade, PlanType } from "@traceroot/core";
+import {
+  prisma,
+  getStripeOrThrow,
+  getPlanConfig,
+  isUpgrade,
+  toPlanType,
+  PlanType,
+} from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,18 +32,27 @@ export async function POST(req: NextRequest) {
     }
 
     const stripe = getStripeOrThrow();
-    const currentPlan = workspace.billingPlan as PlanType;
+    // Narrowed rather than cast: billingPlan is free-form TEXT, and an
+    // unrecognized value left getPlanOrder undefined, which made isUpgrade
+    // false and sent every change down the downgrade branch below. A
+    // recognized plan is returned unchanged, so nothing moves for valid data.
+    const currentPlan = toPlanType(workspace.billingPlan);
 
     console.log("Change plan request:", {
       currentPlan,
+      storedPlan: workspace.billingPlan,
       newPlan,
       isUpgradeResult: isUpgrade(currentPlan, newPlan as PlanType),
       subscriptionId: workspace.billingSubscriptionId,
       newPriceId: newPlanConfig.billingPriceId,
     });
 
-    // Case 0: Same plan, nothing to do
-    if (currentPlan === newPlan) {
+    // Case 0: Same plan, nothing to do. Compared against the stored value, not
+    // the narrowed one — for a recognized plan the two are identical, but a
+    // workspace whose stored plan is unrecognized may still hold a live paid
+    // subscription, and answering "already on this plan" to its downgrade-to-
+    // free request would leave that subscription running.
+    if (workspace.billingPlan === newPlan) {
       return NextResponse.json({ success: true, message: "Already on this plan" });
     }
 

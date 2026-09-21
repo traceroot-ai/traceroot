@@ -16,7 +16,7 @@ import { DateFilterSelect } from "@/components/date-filter-select";
 import { useUrlDateFilter } from "@/lib/hooks/use-url-date-filter";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
-import { PlanType } from "@traceroot/core";
+import { toPlanType } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 
 export default function DashboardDetailPage() {
@@ -198,7 +198,7 @@ export default function DashboardDetailPage() {
         open={retention.showPricing}
         onOpenChange={retention.closePricing}
         workspaceId={retention.workspaceId}
-        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+        currentPlan={toPlanType(retention.billingPlan)}
       />
     </div>
   );
