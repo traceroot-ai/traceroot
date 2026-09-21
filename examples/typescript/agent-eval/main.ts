@@ -3,18 +3,32 @@
  *
  * Run: `cp .env.example .env`, `pnpm install`, `pnpm start`.
  * With no TRACEROOT_API_KEY set the run stays local and reports nowhere.
+ *
+ * Pick the agent's model with AGENT_PROVIDER and the judge's with JUDGE_PROVIDER. You need
+ * a key only for what you pick, and Jev can only judge: it returns typed answers, not text,
+ * so the agent always runs on openai or anthropic.
  */
 
 import 'dotenv/config';
 
 import { TraceRoot, Dataset, evaluate, Scorer, type ScorerContext } from '@traceroot-ai/traceroot';
 
-import { runAgent, agentModelId, type AgentResult } from './agent';
+import { runAgent, agentProvider, agentModelId, type AgentResult } from './agent';
 import { dataset, mentions } from './dataset';
 
 // No TraceRoot key (or the unedited .env.example placeholder)? Run fully local.
 const apiKey = (process.env.TRACEROOT_API_KEY ?? '').trim();
 const LOCAL = apiKey === '' || apiKey === 'your_traceroot_api_key_here';
+
+const JUDGE_MODELS = { openai: 'gpt-4o-mini', anthropic: 'claude-opus-5' } as const;
+type JudgeProvider = keyof typeof JUDGE_MODELS;
+
+const AGENT = agentProvider();
+const judge = process.env.JUDGE_PROVIDER?.trim() || AGENT;
+if (!Object.hasOwn(JUDGE_MODELS, judge)) {
+  throw new Error(`JUDGE_PROVIDER must be openai or anthropic, got "${judge}"`);
+}
+const JUDGE = judge as JudgeProvider;
 
 // Initialize TraceRoot (traces the agent's AI SDK calls + reports the run) only when a
 // real key is present; in local mode it stays off so a keyless clone emits/exports nothing.
@@ -61,7 +75,7 @@ const reportsExpectedFacts = Scorer.code(
 
 const answerIsGrounded = Scorer.llmJudge({
   name: 'answer_is_grounded',
-  model: 'gpt-4o-mini',
+  model: JUDGE_MODELS[JUDGE],
   messages: [
     {
       role: 'system',
@@ -79,6 +93,10 @@ const answerIsGrounded = Scorer.llmJudge({
 // ── Run ─────────────────────────────────────────────────────────────────────
 
 async function main() {
+  console.log(
+    `[agent: ${AGENT}/${agentModelId()} | judge: ${JUDGE}/${JUDGE_MODELS[JUDGE]} | ` +
+      `reporting: ${LOCAL ? 'local' : 'traceroot'}]\n`,
+  );
   try {
     const result = await evaluate({
       name: 'Agent tool eval',
