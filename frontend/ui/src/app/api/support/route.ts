@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { auth } from "@/lib/auth";
+import { env } from "@/env";
 import { isStaff } from "@/lib/support/policy";
 import { impersonationContext } from "@/lib/support/session";
 import { z } from "zod";
@@ -111,7 +112,9 @@ export async function POST(request: NextRequest) {
   const actor = await employee(request);
   if (!actor || actor.role !== "admin") return missing();
   const origin = request.headers.get("origin");
-  if (!origin || origin !== new URL(request.url).origin)
+  // Behind TLS termination request.url can contain the internal listener host.
+  // Trust deployment configuration, never caller-controlled forwarding headers.
+  if (!origin || origin !== new URL(env.BETTER_AUTH_URL).origin)
     return Response.json({ error: "Invalid origin" }, { status: 403 });
   const parsed = grantSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success)

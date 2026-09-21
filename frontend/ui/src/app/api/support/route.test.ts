@@ -1,5 +1,8 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
+const config = vi.hoisted(() => ({ BETTER_AUTH_URL: "http://localhost" }));
+vi.mock("@/env", () => ({ env: config }));
+
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   actor: vi.fn(),
@@ -48,6 +51,7 @@ function request(email: string, role: "support" | "admin" | null = "support") {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  config.BETTER_AUTH_URL = "http://localhost";
   mocks.getSession.mockResolvedValue({ session: {}, user: { id: actor.id } });
   mocks.actor.mockResolvedValue(actor);
   mocks.transaction.mockImplementation(async (callback) =>
@@ -102,6 +106,52 @@ it("rejects ambiguous case-insensitive email matches", async () => {
   expect(await response.json()).toEqual({ error: "Email matches more than one account" });
   expect(mocks.update).not.toHaveBeenCalled();
   expect(mocks.audit).not.toHaveBeenCalled();
+});
+
+it.each(["support", "admin", null] as const)(
+  "accepts proxied staging role change to %s",
+  async (role) => {
+    config.BETTER_AUTH_URL = "https://staging.traceroot.ai";
+    const previous = { ...target, role: role === null ? "support" : null };
+    mocks.exact.mockResolvedValue(previous);
+    mocks.byId.mockReset().mockResolvedValueOnce(actor).mockResolvedValueOnce(previous);
+    const response = await POST(
+      new Request("http://0.0.0.0:3000/api/support", {
+        method: "POST",
+        headers: { origin: "https://staging.traceroot.ai", "content-type": "application/json" },
+        body: JSON.stringify({ email: target.email, role }),
+      }) as Parameters<typeof POST>[0],
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.transaction).toHaveBeenCalledOnce();
+    expect(mocks.update).toHaveBeenCalledWith({ where: { id: target.id }, data: { role } });
+    expect(mocks.audit).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([
+  null,
+  "null",
+  "https://evil.example",
+  "http://0.0.0.0:3000",
+  "http://staging.traceroot.ai",
+  "https://staging.traceroot.ai.evil.example",
+])("rejects untrusted origin %s even with spoofed forwarding headers", async (origin) => {
+  config.BETTER_AUTH_URL = "https://staging.traceroot.ai";
+  const response = await POST(
+    new Request("http://0.0.0.0:3000/api/support", {
+      method: "POST",
+      headers: {
+        ...(origin === null ? {} : { origin }),
+        "x-forwarded-host": origin ?? "",
+        host: "evil.example",
+        "x-forwarded-proto": "https",
+      },
+      body: JSON.stringify({ email: target.email, role: null }),
+    }) as Parameters<typeof POST>[0],
+  );
+  expect(response.status).toBe(403);
+  expect(mocks.transaction).not.toHaveBeenCalled();
 });
 
 it("rejects cross-origin role changes before opening a transaction", async () => {
