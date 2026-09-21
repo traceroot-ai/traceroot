@@ -50,6 +50,10 @@ function resultRow(over: Record<string, unknown> = {}) {
       startedAt: new Date("2026-07-21T00:00:00Z"),
       datasetVersionId: "dv1",
       caseCount: 3,
+      datasetCaseCount: 10,
+      selectionMode: "first",
+      selectedCaseCount: 3,
+      sampleSeed: null,
       evaluation: { name: "ticket-routing" },
     },
     ...over,
@@ -87,8 +91,33 @@ it("flattens each result into a run row with the run's identity, version, score 
     status: "passed",
     change: "improved",
     caseCount: 3,
+    coverage: { mode: "first", datasetCaseCount: 10, selectedCaseCount: 3, sampleSeed: null },
     cost: 0.03,
     elapsedMs: 1500,
+  });
+});
+
+it("reads a run that reported no selection as coverage unknown, never as full", async () => {
+  // Every row written before coverage existed looks like this. The panel must not
+  // imply the run measured the whole dataset just because nothing said otherwise.
+  prismaMock.evaluationResult.findMany.mockResolvedValue([
+    resultRow({
+      run: {
+        ...resultRow().run,
+        datasetCaseCount: null,
+        selectionMode: null,
+        selectedCaseCount: null,
+        sampleSeed: null,
+      },
+    }),
+  ]);
+
+  const res = await GET({} as never, params);
+  expect((await rows(res))[0].coverage).toEqual({
+    mode: "unknown",
+    datasetCaseCount: null,
+    selectedCaseCount: null,
+    sampleSeed: null,
   });
 });
 

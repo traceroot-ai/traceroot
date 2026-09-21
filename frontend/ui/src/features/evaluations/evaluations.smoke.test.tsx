@@ -50,6 +50,13 @@ const RUN = {
   status: "completed_with_errors",
   baselineRunId: "run0",
   caseCount: 24,
+  // A full-dataset run: the 24 selected cases ARE the pinned version's 24.
+  coverage: {
+    mode: "full",
+    datasetCaseCount: 24,
+    selectedCaseCount: 24,
+    sampleSeed: null,
+  },
   scoredCount: 22,
   taskErrorCount: 1,
   scorerErrorCount: 1,
@@ -159,12 +166,26 @@ const RUN_OLDER = {
   completedAt: "2026-07-16T10:30:00Z",
   changeFromBaseline: null,
   baselineRunId: null,
+  // A deliberate first-N subset, so the list fixture covers both coverage shapes.
+  coverage: { mode: "first", datasetCaseCount: 24, selectedCaseCount: 6, sampleSeed: null },
+};
+
+/** A run written before coverage existed: nothing was reported about what it measured. */
+const RUN_LEGACY = {
+  ...RUN,
+  id: "run_legacy",
+  runNumber: 25,
+  candidateVersion: "git:9999999",
+  startedAt: "2026-07-15T10:24:00Z",
+  completedAt: "2026-07-15T10:30:00Z",
+  baselineRunId: null,
+  coverage: { mode: "unknown", datasetCaseCount: null, selectedCaseCount: null, sampleSeed: null },
 };
 
 function payloadFor(url: string): unknown {
   if (url.includes("/evaluations/runs/run1")) return { run: RUN, results: [RESULT] };
   if (url.includes("/evaluations/runs"))
-    return { data: [RUN, RUN_OLDER], meta: { page: 0, limit: 50, total: 2 } };
+    return { data: [RUN, RUN_OLDER, RUN_LEGACY], meta: { page: 0, limit: 50, total: 3 } };
   if (url.includes("/evaluations/scorers"))
     return {
       data: [
@@ -304,6 +325,74 @@ describe("real Datasets + Evaluations views render server data", () => {
     mount(<EvaluationsView projectId="p1" />);
     expect(await screen.findByText(/No evaluation runs yet/)).toBeDefined();
     expect(screen.queryByRole("button", { name: /Run evaluation/ })).toBeNull();
+  });
+
+  describe("dataset coverage", () => {
+    it("shows selected / total per run, and a dash when nothing was reported", async () => {
+      mount(<EvaluationsView projectId="p1" />);
+      // Full run: all 24 of 24. Subset: 6 of 24. Legacy: nothing to show.
+      expect(await screen.findByText("24 / 24")).toBeDefined();
+      expect(screen.getByText("6 / 24")).toBeDefined();
+      expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    });
+
+    it("marks a subset run and an unknown-coverage run, and leaves a full run unmarked", async () => {
+      mount(<EvaluationsView projectId="p1" />);
+      await screen.findByText("24 / 24");
+      // The marker is what stops a subset's aggregates reading as a whole-dataset result.
+      expect(screen.getAllByLabelText("subset run")).toHaveLength(1);
+      expect(screen.getAllByLabelText("coverage unknown")).toHaveLength(1);
+    });
+  });
+
+  describe("run detail coverage", () => {
+    it("labels a full run explicitly rather than saying nothing", async () => {
+      // Silence on a full run is indistinguishable from silence on an unreported one,
+      // so the label is shown either way.
+      mount(<RunDetailView projectId="p1" runId="run1" />);
+      expect(await screen.findByText("Full dataset · 24 cases")).toBeDefined();
+      expect(screen.queryByText(/not final/)).toBeNull();
+    });
+
+    it("labels a subset run non-final with its selected / total", async () => {
+      global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
+        ok: true,
+        status: 200,
+        json: async () =>
+          String(url).includes("/evaluations/runs/run1")
+            ? {
+                run: {
+                  ...RUN,
+                  coverage: {
+                    mode: "sample",
+                    datasetCaseCount: 500,
+                    selectedCaseCount: 20,
+                    sampleSeed: 7,
+                  },
+                },
+                results: [RESULT],
+              }
+            : payloadFor(String(url)),
+      })) as unknown as typeof fetch;
+      mount(<RunDetailView projectId="p1" runId="run1" />);
+      expect(await screen.findByText("Subset · 20 of 500 cases · sample · seed 7")).toBeDefined();
+      expect(screen.getByText(/not final/)).toBeDefined();
+    });
+
+    it("says so plainly when a run never reported its coverage, without calling it non-final", async () => {
+      global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
+        ok: true,
+        status: 200,
+        json: async () =>
+          String(url).includes("/evaluations/runs/run1")
+            ? { run: { ...RUN, coverage: RUN_LEGACY.coverage }, results: [RESULT] }
+            : payloadFor(String(url)),
+      })) as unknown as typeof fetch;
+      mount(<RunDetailView projectId="p1" runId="run1" />);
+      expect(await screen.findByText("Coverage unknown")).toBeDefined();
+      // Unknown coverage is information, not a downgrade: every run recorded today is here.
+      expect(screen.queryByText(/not final/)).toBeNull();
+    });
   });
 
   it("run-centric table shows both runs by run number + candidate version", async () => {

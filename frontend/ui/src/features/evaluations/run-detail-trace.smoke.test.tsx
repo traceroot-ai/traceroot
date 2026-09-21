@@ -63,6 +63,7 @@ const RUN = {
   status: "completed",
   baselineRunId: null,
   caseCount: 1,
+  coverage: { mode: "full", datasetCaseCount: 1, selectedCaseCount: 1, sampleSeed: null },
   scoredCount: 1,
   taskErrorCount: 0,
   scorerErrorCount: 0,

@@ -19,10 +19,12 @@ import { DateFilterSelect } from "@/components/date-filter-select";
 import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
 import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useEvaluationRuns, useDeleteRuns } from "../hooks";
 import { DeleteRunDialog } from "../components/delete-run-dialog";
+import { CoverageCell } from "../components/coverage";
 import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus, type RunRow } from "../types";
 
 // The Evaluations page is one flat table of immutable runs. Scorers live in the
@@ -43,7 +45,7 @@ export function RunStatusBadge({ status }: { status: EvalRunStatus }) {
   return <Badge variant={STATUS_VARIANT[status]}>{EVAL_RUN_STATUS_LABEL[status]}</Badge>;
 }
 
-const RUNS_COLUMN_COUNT = 10;
+const RUNS_COLUMN_COUNT = 11;
 // Matches the route's default `limit` (runs/route.ts) so the page-count math lines
 // up with what the server actually returns per page.
 const RUNS_PAGE_LIMIT = 50;
@@ -134,6 +136,9 @@ function RunTableRow({
           {r.datasetName}
         </Link>{" "}
         {datasetVersion && <span className="font-mono text-[11px]">{datasetVersion}</span>}
+      </Td>
+      <Td className="text-right tabular-nums text-muted-foreground">
+        <CoverageCell coverage={r.coverage} />
       </Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(r.cost)}</Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(avgCost)}</Td>
@@ -323,59 +328,66 @@ function RunsTab({ projectId }: { projectId: string }) {
       </SearchFilterBar>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <Table>
-          <THead>
-            <TRHead>
-              <Th className="w-[36px]">
-                <Checkbox
-                  checked={allSelected}
-                  indeterminate={selectedIds.size > 0 && !allSelected}
-                  onCheckedChange={toggleAll}
-                  aria-label="Select all runs"
-                />
-              </Th>
-              <Th className="w-[150px]">Timestamp</Th>
-              <Th>Evaluation Name</Th>
-              <Th>Run Name</Th>
-              <Th>Dataset</Th>
-              <Th className="w-[100px] text-right">Cost</Th>
-              <Th className="w-[100px] text-right">Avg Cost</Th>
-              <Th className="w-[90px] text-right">Duration</Th>
-              <Th className="w-[100px] text-right">Avg Duration</Th>
-              <Th className="w-[70px] text-right">Actions</Th>
-            </TRHead>
-          </THead>
-          <TBody>
-            {isLoading ? (
-              <Cell colSpan={RUNS_COLUMN_COUNT}>
-                <EmptyState>Loading runs...</EmptyState>
-              </Cell>
-            ) : error ? (
-              <Cell colSpan={RUNS_COLUMN_COUNT}>
-                <EmptyState>Error loading runs</EmptyState>
-              </Cell>
-            ) : runs.length === 0 ? (
-              <Cell colSpan={RUNS_COLUMN_COUNT}>
-                <EmptyState>
-                  {filtered
-                    ? "No runs match these filters."
-                    : "No evaluation runs yet. Report a run from your SDK and it appears here."}
-                </EmptyState>
-              </Cell>
-            ) : (
-              runs.map((r) => (
-                <RunTableRow
-                  key={r.id}
-                  run={r}
-                  projectId={projectId}
-                  onDelete={() => setDeleteRun(r)}
-                  selected={selectedIds.has(r.id)}
-                  onToggleSelect={() => toggleSelect(r.id)}
-                />
-              ))
-            )}
-          </TBody>
-        </Table>
+        {/* Coverage cells reveal the full label on hover; Radix needs one provider
+            above them, matching the comparison view's delay. */}
+        <TooltipProvider delayDuration={400}>
+          <Table>
+            <THead>
+              <TRHead>
+                <Th className="w-[36px]">
+                  <Checkbox
+                    checked={allSelected}
+                    indeterminate={selectedIds.size > 0 && !allSelected}
+                    onCheckedChange={toggleAll}
+                    aria-label="Select all runs"
+                  />
+                </Th>
+                <Th className="w-[150px]">Timestamp</Th>
+                <Th>Evaluation Name</Th>
+                <Th>Run Name</Th>
+                <Th>Dataset</Th>
+                {/* Selected / total. A run that measured a slice must say so here, beside
+                    the aggregates that describe only that slice. */}
+                <Th className="w-[90px] text-right">Cases</Th>
+                <Th className="w-[100px] text-right">Cost</Th>
+                <Th className="w-[100px] text-right">Avg Cost</Th>
+                <Th className="w-[90px] text-right">Duration</Th>
+                <Th className="w-[100px] text-right">Avg Duration</Th>
+                <Th className="w-[70px] text-right">Actions</Th>
+              </TRHead>
+            </THead>
+            <TBody>
+              {isLoading ? (
+                <Cell colSpan={RUNS_COLUMN_COUNT}>
+                  <EmptyState>Loading runs...</EmptyState>
+                </Cell>
+              ) : error ? (
+                <Cell colSpan={RUNS_COLUMN_COUNT}>
+                  <EmptyState>Error loading runs</EmptyState>
+                </Cell>
+              ) : runs.length === 0 ? (
+                <Cell colSpan={RUNS_COLUMN_COUNT}>
+                  <EmptyState>
+                    {filtered
+                      ? "No runs match these filters."
+                      : "No evaluation runs yet. Report a run from your SDK and it appears here."}
+                  </EmptyState>
+                </Cell>
+              ) : (
+                runs.map((r) => (
+                  <RunTableRow
+                    key={r.id}
+                    run={r}
+                    projectId={projectId}
+                    onDelete={() => setDeleteRun(r)}
+                    selected={selectedIds.has(r.id)}
+                    onToggleSelect={() => toggleSelect(r.id)}
+                  />
+                ))
+              )}
+            </TBody>
+          </Table>
+        </TooltipProvider>
       </div>
 
       {!isLoading && !error && total > 0 && (

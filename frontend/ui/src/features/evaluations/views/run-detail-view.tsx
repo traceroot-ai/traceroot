@@ -17,6 +17,9 @@ import { cn } from "@/lib/utils";
 import { useEvaluationRun } from "../hooks";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
 import type { ResultRow, RunDetail, ScoreRow } from "../types";
+import type { RunCoverage } from "@/lib/eval/coverage";
+import { CoverageBadge } from "../components/coverage";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /** Case/run duration; "Unknown" when unmeasured (never 0s). */
 function fmtDurationMs(ms: number | null | undefined): string {
@@ -249,6 +252,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             <ResultsSection
+              coverage={data.run.coverage}
               results={results}
               onOpen={setOpenResultId}
               openResultId={openResultId}
@@ -393,10 +397,12 @@ function PendingTracePanel({
 
 function ResultsSection({
   results,
+  coverage,
   onOpen,
   openResultId,
 }: {
   results: ResultRow[];
+  coverage: RunCoverage;
   onOpen: (id: string) => void;
   openResultId: string | null;
 }) {
@@ -427,94 +433,108 @@ function ResultsSection({
   const columnCount = 5 + scorerNames.length;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Just a search over the run's per-case results — no headline metrics,
+    // The coverage badge reveals its reason on hover; Radix needs one provider above it.
+    <TooltipProvider delayDuration={400}>
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* Just a search over the run's per-case results — no headline metrics,
           status filters, pass-rate summary, or worst-regression sort. A run has
           many scores; the per-case rows speak for themselves, like a trace's spans. */}
-      <SearchFilterBar
-        searchInput={
-          <div className="relative min-w-[10rem] max-w-md flex-1">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="Search..."
-              className="h-7 pl-8 text-[12px]"
-            />
-          </div>
-        }
-      />
+        <SearchFilterBar
+          searchInput={
+            <div className="relative min-w-[10rem] max-w-md flex-1">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                placeholder="Search..."
+                className="h-7 pl-8 text-[12px]"
+              />
+            </div>
+          }
+        />
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        <Table>
-          <THead>
-            <TRHead>
-              <Th className="min-w-[200px]">Input</Th>
-              <Th className="min-w-[200px]">Output</Th>
-              <Th className="min-w-[180px]">Expected</Th>
-              {/* One column per scorer (e.g. no_conclusion, covers_both_cities). */}
-              {scorerNames.map((name) => (
-                <Th key={name} className="w-[130px] whitespace-nowrap text-right font-mono">
-                  {name}
-                </Th>
-              ))}
-              <Th className="w-[90px] text-right">Duration</Th>
-              <Th className="w-[90px] text-right">Cost</Th>
-            </TRHead>
-          </THead>
-          <TBody>
-            {visible.length === 0 ? (
-              <tr>
-                <td colSpan={columnCount}>
-                  <p className="px-4 py-12 text-center text-[12px] text-muted-foreground">
-                    {results.length === 0
-                      ? "No per-case results reported for this run yet."
-                      : "No results match this filter."}
-                  </p>
-                </td>
-              </tr>
-            ) : (
-              visible.map((result) => (
-                <TR
-                  key={result.id}
-                  interactive
-                  selected={result.id === openResultId}
-                  onClick={() => onOpen(result.id)}
-                >
-                  <Td className="max-w-[260px] truncate">{result.input}</Td>
-                  <Td className="max-w-[260px]">
-                    <span className="block truncate">
-                      {result.candidateOutput ?? (
-                        <span className="text-muted-foreground">No output</span>
-                      )}
-                    </span>
-                  </Td>
-                  <Td className="max-w-[220px] truncate text-muted-foreground">
-                    {result.expectedOutput ?? "—"}
-                  </Td>
-                  {scorerNames.map((name) => {
-                    const s = scoreFor(result, name);
-                    return (
-                      <Td
-                        key={name}
-                        className="whitespace-nowrap text-right text-[11px] tabular-nums"
-                      >
-                        {s ? scoreValue(s) : <span className="text-muted-foreground">—</span>}
-                      </Td>
-                    );
-                  })}
-                  <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
-                    {fmtDurationMs(result.durationMs)}
-                  </Td>
-                  <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
-                    {result.cost === null ? "—" : `$${result.cost.toFixed(4)}`}
-                  </Td>
-                </TR>
-              ))
-            )}
-          </TBody>
-        </Table>
+        {/* Shown for EVERY run, including a full one: a reader who only ever sees a label
+          on subsets cannot tell "this run covered everything" from "nobody recorded what
+          it covered", which is the ambiguity coverage exists to remove. One line, beside
+          the results it qualifies — this page deliberately has no stat tiles. */}
+        <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
+          <CoverageBadge coverage={coverage} />
+          <span className="text-[11px] text-muted-foreground">
+            {results.length} {results.length === 1 ? "result" : "results"} reported
+          </span>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto">
+          <Table>
+            <THead>
+              <TRHead>
+                <Th className="min-w-[200px]">Input</Th>
+                <Th className="min-w-[200px]">Output</Th>
+                <Th className="min-w-[180px]">Expected</Th>
+                {/* One column per scorer (e.g. no_conclusion, covers_both_cities). */}
+                {scorerNames.map((name) => (
+                  <Th key={name} className="w-[130px] whitespace-nowrap text-right font-mono">
+                    {name}
+                  </Th>
+                ))}
+                <Th className="w-[90px] text-right">Duration</Th>
+                <Th className="w-[90px] text-right">Cost</Th>
+              </TRHead>
+            </THead>
+            <TBody>
+              {visible.length === 0 ? (
+                <tr>
+                  <td colSpan={columnCount}>
+                    <p className="px-4 py-12 text-center text-[12px] text-muted-foreground">
+                      {results.length === 0
+                        ? "No per-case results reported for this run yet."
+                        : "No results match this filter."}
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                visible.map((result) => (
+                  <TR
+                    key={result.id}
+                    interactive
+                    selected={result.id === openResultId}
+                    onClick={() => onOpen(result.id)}
+                  >
+                    <Td className="max-w-[260px] truncate">{result.input}</Td>
+                    <Td className="max-w-[260px]">
+                      <span className="block truncate">
+                        {result.candidateOutput ?? (
+                          <span className="text-muted-foreground">No output</span>
+                        )}
+                      </span>
+                    </Td>
+                    <Td className="max-w-[220px] truncate text-muted-foreground">
+                      {result.expectedOutput ?? "—"}
+                    </Td>
+                    {scorerNames.map((name) => {
+                      const s = scoreFor(result, name);
+                      return (
+                        <Td
+                          key={name}
+                          className="whitespace-nowrap text-right text-[11px] tabular-nums"
+                        >
+                          {s ? scoreValue(s) : <span className="text-muted-foreground">—</span>}
+                        </Td>
+                      );
+                    })}
+                    <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
+                      {fmtDurationMs(result.durationMs)}
+                    </Td>
+                    <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
+                      {result.cost === null ? "—" : `$${result.cost.toFixed(4)}`}
+                    </Td>
+                  </TR>
+                ))
+              )}
+            </TBody>
+          </Table>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }
