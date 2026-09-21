@@ -593,12 +593,12 @@ describe("ModelSelector", () => {
           value={{ model: "", provider: "", source: "system", adapter: "" }}
           onChange={mocks.onChange}
           workspaceId="workspace-1"
-          defaultModelId="claude-4"
           allowDecisionModels
         />,
       );
 
-      expect(mocks.onChange).not.toHaveBeenCalled();
+      expect(mocks.onChange).toHaveBeenCalledTimes(1);
+      expect(mocks.onChange).toHaveBeenCalledWith(expect.objectContaining({ model: "claude-4" }));
       fireEvent.click(screen.getByRole("button"));
       fireEvent.click(screen.getByText("jev-1.13.0"));
       expect(mocks.onChange).toHaveBeenCalledWith({

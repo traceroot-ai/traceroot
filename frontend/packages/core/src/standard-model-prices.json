@@ -1257,7 +1257,7 @@
   {
     "id": "tr-jev-1-13-0",
     "modelName": "jev-1.13.0",
-    "matchPattern": "(?i)^jev-.*$",
+    "matchPattern": "(?i)^jev-1\\.13\\.0(-[\\w-]+)?$",
     "provider": "typesafe",
     "prices": {
       "input": 0.000000042,
