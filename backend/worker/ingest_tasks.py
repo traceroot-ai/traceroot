@@ -96,12 +96,19 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
     different number from the system under test's. Summing the trace naively would
     silently bill the candidate for grading itself.
 
+    Calls, tokens and LLM time come from LLM spans with no LLM-kind descendant, so each
+    model call is counted once. Two instrumentors on one call (LangChain's ChatOpenAI span
+    around the OpenAI client's span) nest one LLM span in another with the same tokens, and
+    an LLM-kind step wrapper (``agent_step``) spans several calls. Counting every LLM span
+    would count both of those twice. Cost is summed as before.
+
     ``rows`` are ``(trace_id, span_id, parent_span_id, span_kind, cost, input_tokens,
-    output_tokens, total_tokens, span_start_time, span_end_time)``. Cost and token counts
-    are set only on LLM leaf spans (otel_transform), so a trace with no model call folds
-    to all-zero — which the writer turns back into NULL.
+    output_tokens, total_tokens, span_start_time, span_end_time)``. A trace with no model
+    call folds to all-zero, which the writer turns back into NULL.
     """
-    per_trace: dict[str, dict] = defaultdict(lambda: {"children": defaultdict(list), "spans": {}})
+    per_trace: dict[str, dict] = defaultdict(
+        lambda: {"children": defaultdict(list), "parents": {}, "spans": {}}
+    )
     for (
         trace_id,
         span_id,
@@ -126,6 +133,7 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
         }
         if parent_span_id:
             t["children"][parent_span_id].append(span_id)
+            t["parents"][span_id] = parent_span_id
 
     result: dict[str, TaskMetrics] = {}
     for trace_id, t in per_trace.items():
@@ -137,6 +145,17 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
                 continue
             excluded.add(sid)
             stack.extend(t["children"].get(sid, ()))
+
+        # Every span with a counted LLM span somewhere beneath it. An LLM span in this set
+        # wraps a call that is already counted, so it is not a call of its own.
+        wraps_llm: set[str] = set()
+        for sid, sp in t["spans"].items():
+            if sid in excluded or sp["kind"] != SpanKind.LLM:
+                continue
+            parent = t["parents"].get(sid)
+            while parent is not None and parent not in wraps_llm:
+                wraps_llm.add(parent)
+                parent = t["parents"].get(parent)
 
         cost = 0.0
         prompt_tokens = completion_tokens = total_tokens = 0
@@ -150,7 +169,7 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
             # Token counts and call/latency accounting are LLM-span facts. Keying them on
             # span_kind rather than "has tokens" keeps llm_calls honest for a model call
             # whose provider reported no usage.
-            if sp["kind"] != SpanKind.LLM:
+            if sp["kind"] != SpanKind.LLM or sid in wraps_llm:
                 continue
             llm_calls += 1
             prompt_tokens += int(sp["input_tokens"] or 0)

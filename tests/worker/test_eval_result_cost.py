@@ -230,6 +230,79 @@ class TestLlmMetricsShareTheExclusion:
         assert (m.total_tokens, m.llm_calls, m.llm_duration_ms) == (0, 0, 0)
 
 
+class TestEachModelCallIsCountedOnce:
+    """Calls, tokens and LLM time come from LLM spans with no LLM-kind descendant.
+    Two instrumentors on one call, or an LLM-kind step wrapper around several calls, nest
+    LLM spans in each other; counting every LLM span counts those calls twice."""
+
+    def _metrics(self, rows):
+        return _task_metrics_by_trace(rows)[T]
+
+    def test_two_instrumentors_on_one_call_count_as_one_call(self):
+        # LangChain's ChatOpenAI span around the OpenAI client's span, same usage on both.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", None, tokens=(18, 29, 47), ms=1100),
+                _row("client", "chain", "LLM", None, tokens=(18, 29, 47), ms=1060),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (18, 29, 47)
+        assert m.llm_duration_ms == 1060
+
+    def test_an_llm_kind_step_wrapper_counts_its_calls_not_itself(self):
+        # An agent_step wrapper classified LLM spans 30 s around five 5 s model calls.
+        calls = [
+            _row(f"call-{i}", "step", "LLM", None, tokens=(10, 5, 15), ms=5000) for i in range(5)
+        ]
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("step", "root", "LLM", None, ms=30_000),
+                *calls,
+            ]
+        )
+        assert m.llm_calls == 5
+        assert m.total_tokens == 75
+        assert m.llm_duration_ms == 25_000
+
+    def test_a_call_below_a_tool_still_hides_the_llm_span_above_it(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("outer", "root", "LLM", None, ms=900),
+                _row("tool", "outer", "TOOL", None, ms=500),
+                _row("inner", "tool", "LLM", None, tokens=(1, 2, 3), ms=400),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert m.llm_duration_ms == 400
+
+    def test_a_judge_call_under_a_scorer_does_not_hide_a_candidate_call(self):
+        # The scorer subtree is excluded before the nesting is worked out.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task-llm", "root", "LLM", None, tokens=(5, 5, 10), ms=10),
+                _row("scorer", "task-llm", "SCORER", None),
+                _row("judge-llm", "scorer", "LLM", None, tokens=(99, 99, 198), ms=9999),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert m.total_tokens == 10
+
+    def test_cost_is_still_summed_over_every_priced_span(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", 0.10),
+                _row("client", "chain", "LLM", 0.10),
+            ]
+        )
+        assert m.cost == pytest.approx(0.20)
+
+
 class TestWriteIsUnconditional:
     """`if cost <= 0: continue` froze an over-report permanently. Under
     BatchSpanProcessor a parent exports after its children, so a scorer's LLM child can
