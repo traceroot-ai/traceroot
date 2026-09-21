@@ -40,7 +40,7 @@ describe("SignInClient", () => {
   it("carries the callback to the sign-up link so a new user finishes the round-trip", () => {
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
 
-    render(<SignInClient googleAuthConfigured={false} />);
+    render(<SignInClient enabledProviders={{ google: false, github: false }} />);
     const link = screen.getByRole("link", { name: "Sign up" });
     expect(link.getAttribute("href")).toBe(
       `/auth/sign-up?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
@@ -48,7 +48,7 @@ describe("SignInClient", () => {
   });
 
   it("uses a bare sign-up link when there is no callback", () => {
-    render(<SignInClient googleAuthConfigured={false} />);
+    render(<SignInClient enabledProviders={{ google: false, github: false }} />);
     const link = screen.getByRole("link", { name: "Sign up" });
     expect(link.getAttribute("href")).toBe("/auth/sign-up");
   });
@@ -56,7 +56,7 @@ describe("SignInClient", () => {
   it("drops a foreign callback rather than forwarding it to sign-up", () => {
     setParams({ callbackUrl: "https://evil.example.com/steal" });
 
-    render(<SignInClient googleAuthConfigured={false} />);
+    render(<SignInClient enabledProviders={{ google: false, github: false }} />);
     const link = screen.getByRole("link", { name: "Sign up" });
     // safeCallbackUrl collapses the off-origin value to the "/" fallback, which
     // is treated as "no real callback" — so the link stays bare.
