@@ -134,6 +134,8 @@ const RUN = {
   scorerErrorCount: 0,
   erroredCount: 0,
   notScoredCount: 0,
+  resultCount: 3,
+  resultsTruncated: false,
   scorers: [{ name: "routing-accuracy", version: "v3" }],
   model: null,
   metadata: null,

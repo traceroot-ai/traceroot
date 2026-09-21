@@ -128,6 +128,11 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
     _sum: { durationMs: true, cost: true },
   });
 
+  // The run's TRUE result count, from the same grouped aggregate as the status counts
+  // (never the capped page above) — the only honest basis for deciding whether this
+  // response was truncated.
+  const resultCount = statusGroups.reduce((n, g) => n + g._count._all, 0);
+
   // `sampleSeed` is a BIGINT, which JSON cannot serialize; the seed reaches the client
   // through `coverage` below, as a number.
   const { results: _omit, sampleSeed: _seed, ...runFields } = run;
@@ -150,10 +155,23 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
       // stored run.cost (there is none), so the headline stat matches the case rows.
       cost: resultAgg._sum.cost,
       ...countResultStatuses(statusGroups.map((g) => ({ status: g.status, count: g._count._all }))),
+      resultCount,
       comparison,
-      // True when `results` (and the comparison derived from it) is a partial view —
-      // the run has more cases than the cap above.
-      resultsTruncated: run.caseCount > run.results.length,
+      /**
+       * True when THIS RESPONSE was capped by MAX_RUN_DETAIL_RESULTS — the run has more
+       * result rows than were returned, so `results` and the comparison derived from it
+       * are a partial view of what exists.
+       *
+       * Deliberately compares the returned page against the run's REAL result count, not
+       * against its declared `caseCount`. Those are different facts and were being
+       * conflated: a `--first 20` run whose stored caseCount is 500 has 20 complete
+       * results and nothing truncated, yet `caseCount > results.length` reported
+       * truncation and the compare banner blamed an API limit for a deliberate
+       * `--first`. Coverage answers "which cases did this run measure"; this answers
+       * "did we hand you all the rows it produced". Conversely a run whose SDK sent
+       * case_count = 20 could exceed the cap and have its truncation go unreported.
+       */
+      resultsTruncated: resultCount > run.results.length,
     },
     results,
   });

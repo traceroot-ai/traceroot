@@ -69,6 +69,8 @@ const RUN = {
   scorerErrorCount: 0,
   erroredCount: 0,
   notScoredCount: 0,
+  resultCount: 1,
+  resultsTruncated: false,
   scorers: [{ name: "routing-accuracy", version: "v3" }],
   model: null,
   startedAt: "2026-07-17T10:24:00Z",
