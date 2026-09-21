@@ -503,7 +503,16 @@ describe("scorer manifest", () => {
 });
 
 describe("dataset coverage", () => {
+  // A 500-case version of ds1 to declare coverage against: the server checks a declared
+  // total against the pinned version's real size.
+  beforeEach(() => {
+    db.rows.datasetVersion.push({ id: "dv500", datasetId: "ds1", projectId: PROJECT_ID });
+    for (let i = 0; i < 500; i++) {
+      db.rows.testCase.push({ id: `tc500_${i}`, datasetVersionId: "dv500" });
+    }
+  });
   const coverage = (mode: string, selected: number, extra: Record<string, unknown> = {}) => ({
+    dataset_version_id: "dv500",
     dataset_case_count: 500,
     run_selection: { mode, selected_case_count: selected, ...extra },
   });
@@ -566,6 +575,39 @@ describe("dataset coverage", () => {
   it("keeps an explicit case_count ahead of the selected count", async () => {
     await POST(post(body({ ...coverage("first", 20), case_count: 20 })));
     expect(stored().caseCount).toBe(20);
+  });
+
+  it("rejects a declared total that is not the pinned version's size, naming both", async () => {
+    // The SDK counted a stale or cut-short local list. Stored as declared, the run would
+    // read "Full dataset · 499 cases" against a version it never covered.
+    const res = await POST(
+      post(
+        body({
+          dataset_version_id: "dv500",
+          dataset_case_count: 499,
+          run_selection: { mode: "full", selected_case_count: 499 },
+        }),
+      ),
+    );
+    expect(res.status).toBe(400);
+    const { error } = await res.json();
+    expect(error).toContain("dataset_case_count is 499");
+    expect(error).toContain("dv500 has 500 cases");
+    expect(db.rows.evaluationRun).toHaveLength(0);
+  });
+
+  it("rejects a mismatched total on the current version too, when none is pinned", async () => {
+    // dv1, the current version, has two cases.
+    const res = await POST(
+      post(
+        body({
+          dataset_case_count: 500,
+          run_selection: { mode: "first", selected_case_count: 20 },
+        }),
+      ),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("dv1 has 2 cases");
   });
 
   it("rejects a half-declared coverage block at the schema", async () => {

@@ -129,6 +129,24 @@ async function registerRun(
   });
   if (!version) return { httpError: { message: "Dataset version not found", status: 400 } };
 
+  // A declared total must be the pinned version's real size. It is the denominator every
+  // coverage label and "full dataset" verdict rests on, and it is the one coverage fact
+  // the server can check for itself. Trusting it would store a run that counted a stale,
+  // filtered or truncated local list as "full" against a version it never covered.
+  if (req.dataset_case_count != null) {
+    const versionCaseCount = await tx.testCase.count({ where: { datasetVersionId: versionId } });
+    if (req.dataset_case_count !== versionCaseCount) {
+      return {
+        httpError: {
+          message:
+            `dataset_case_count is ${req.dataset_case_count}, but dataset version ` +
+            `${versionId} has ${versionCaseCount} cases`,
+          status: 400,
+        },
+      };
+    }
+  }
+
   if (req.baseline_run_id) {
     const baseline = await tx.evaluationRun.findFirst({
       where: { id: req.baseline_run_id, projectId },
