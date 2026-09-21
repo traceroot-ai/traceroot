@@ -10,8 +10,9 @@ import {
   isSystemModelId,
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
-import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID, isDecisionAdapter } from "@traceroot/core/llm-providers";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
+import { runJevDetection } from "./jev-eval.js";
 
 export interface DetectorConfig {
   id: string;
@@ -21,6 +22,7 @@ export interface DetectorConfig {
   detectionModel?: string | null;
   detectionProvider?: string | null;
   detectionSource?: "system" | "byok" | null;
+  template?: string | null;
 }
 
 export interface EvalResult {
@@ -159,6 +161,19 @@ export async function runDetectionForTrace(params: {
         `BYOK provider "${detector.detectionProvider}" not found or disabled in workspace settings`,
         source,
       );
+    }
+    // A decision-model provider (TypeSafe) is judged by Jev, not a chat LLM.
+    if (isDecisionAdapter(providerConfig.adapter)) {
+      try {
+        return await runJevDetection({
+          spansJsonl,
+          detector,
+          providerConfig,
+          timeoutMs: parseDetectorEvalTimeoutMs(process.env.DETECTOR_EVAL_TIMEOUT_MS),
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err), source);
+      }
     }
   }
 

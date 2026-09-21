@@ -203,6 +203,7 @@ async function runSingleDetector(params: {
     detectionModel: string | null;
     detectionProvider: string | null;
     detectionSource: "system" | "byok" | null;
+    template: string | null;
   };
   traceId: string;
   projectId: string;
@@ -243,6 +244,7 @@ async function runSingleDetector(params: {
           detectionModel: detector.detectionModel,
           detectionProvider: detector.detectionProvider,
           detectionSource: detector.detectionSource,
+          template: detector.template,
         },
         workspaceId,
       }),
@@ -411,6 +413,7 @@ async function evaluateTrace(
           detectionModel: detector.detectionModel,
           detectionProvider: detector.detectionProvider,
           detectionSource: detector.detectionSource as "system" | "byok" | null,
+          template: detector.template,
         },
         traceId,
         projectId,

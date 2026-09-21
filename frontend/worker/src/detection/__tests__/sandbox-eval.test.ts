@@ -24,6 +24,10 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
+const { mockRunJevDetection } = vi.hoisted(() => ({ mockRunJevDetection: vi.fn() }));
+
+vi.mock("../jev-eval.js", () => ({ runJevDetection: mockRunJevDetection }));
+
 vi.mock("@traceroot/core/model-resolver", () => ({
   resolvePiModel: mockResolvePiModel,
   fetchProviderConfig: mockFetchProviderConfig,
@@ -291,6 +295,68 @@ describe("runDetectionForTrace", () => {
     expect(result.identified).toBe(false);
     expect(result.error).toMatch(/not found or disabled/i);
     expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("judges a TypeSafe BYOK detector with Jev, never resolving a chat model", async () => {
+    const typesafeConfig = { adapter: "typesafe", key: "ts-key", baseUrl: null, config: null };
+    const jevResult = { identified: true, summary: "Jev: tool_error (P=0.91)", data: {} };
+    mockFetchProviderConfig.mockResolvedValueOnce(typesafeConfig);
+    mockRunJevDetection.mockResolvedValueOnce(jevResult);
+    vi.stubEnv("DETECTOR_EVAL_TIMEOUT_MS", "12345");
+
+    const detector = {
+      ...DETECTOR,
+      detectionSource: "byok" as const,
+      detectionProvider: "my-typesafe",
+      detectionModel: "jev-1.13.0",
+    };
+    try {
+      const result = await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector,
+        workspaceId: "ws-1",
+      });
+
+      expect(result).toBe(jevResult);
+      expect(mockRunJevDetection).toHaveBeenCalledWith({
+        spansJsonl: "{}",
+        detector,
+        providerConfig: typesafeConfig,
+        timeoutMs: 12345,
+      });
+      expect(mockResolvePiModel).not.toHaveBeenCalled();
+      expect(mockComplete).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("turns a Jev failure into an error result with the thrown message", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "typesafe",
+      key: "ts-key",
+      baseUrl: null,
+      config: null,
+    });
+    mockRunJevDetection.mockRejectedValueOnce(
+      new Error("TypeSafe systemone returned 401: authentication_error"),
+    );
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: "byok",
+        detectionProvider: "my-typesafe",
+        detectionModel: "jev-1.13.0",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe("TypeSafe systemone returned 401: authentication_error");
   });
 
   it("always passes toolChoice='auto' regardless of protocol", async () => {
