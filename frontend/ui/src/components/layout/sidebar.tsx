@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
@@ -27,6 +28,22 @@ import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
 import { SidebarUpgradeButton } from "@/components/layout/SidebarUpgradeButton";
 import { clientEnv } from "@/env.client";
 
+// When collapsed, nav labels live in Radix tooltips opened with zero delay
+// (delayDuration={0}). Radix tracks pointer-hover on a trigger continuously, so
+// collapsing the sidebar can pop a label open with no fresh hover — either the
+// trigger the cursor already sat on carries its hover across the toggle, or the
+// width animation sweeps a trigger under a stationary cursor (issue #1503). Both
+// are guarded by a short "settling" window opened on every collapse toggle, during
+// which the zero delay is suspended.
+//
+// Kept a touch longer than the frame's width transition (duration-200 → 200ms) so
+// the sweep is fully covered before zero-delay hovers are re-enabled.
+const COLLAPSE_SETTLE_MS = 250;
+// A delay no real hover waits out — effectively disables tooltip opening while
+// expanded and during the settling window, without unmounting the always-on
+// triggers or the collapse animation.
+const TOOLTIP_OPEN_DISABLED_MS = 100_000;
+
 function getInitials(name?: string | null, email?: string | null): string {
   if (name) {
     const parts = name.trim().split(/\s+/);
@@ -52,6 +69,17 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   const { theme, setTheme } = useTheme();
   const params = useParams<{ projectId?: string; workspaceId?: string }>();
 
+  // Guard label tooltips from flashing open when the sidebar collapses (#1503).
+  // `isSettling` is true for one width-transition after every collapse toggle;
+  // while set, the zero-delay tooltip opening is suspended (see delayDuration
+  // below) so no label appears without a fresh, post-collapse hover.
+  const [isSettling, setIsSettling] = useState(false);
+  useEffect(() => {
+    setIsSettling(true);
+    const timer = setTimeout(() => setIsSettling(false), COLLAPSE_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [collapsed]);
+
   // Don't show sidebar on auth pages
   if (pathname.startsWith("/auth/")) {
     return null;
@@ -74,8 +102,13 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       : null;
 
   return (
-    <TooltipProvider delayDuration={0}>
+    // Instant (zero-delay) tooltips only once the sidebar is collapsed AND the
+    // collapse animation has settled. While expanded, or during the settling
+    // window, opening is effectively disabled so a stationary cursor can't reveal
+    // a label without a fresh hover (#1503).
+    <TooltipProvider delayDuration={collapsed && !isSettling ? 0 : TOOLTIP_OPEN_DISABLED_MS}>
       <div
+        data-collapse-settling={isSettling ? "true" : undefined}
         className={cn(
           "flex h-screen shrink-0 flex-col border-r bg-background transition-all duration-200",
           collapsed ? "w-14" : "w-48",
