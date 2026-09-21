@@ -69,8 +69,12 @@ const callsExpectedTools = Scorer.code(
   (ctx: ScorerContext) => {
     const expected = (ctx.expected as Expected).tools;
     const used = new Set((ctx.output as AgentResult).toolsUsed ?? []);
-    if (expected.length === 0) return 1.0;
-    return expected.filter((t) => used.has(t)).length / expected.length;
+    const missing = expected.filter((t) => !used.has(t));
+    return {
+      name: 'calls_expected_tools',
+      value: expected.length === 0 ? 1.0 : (expected.length - missing.length) / expected.length,
+      comment: missing.length ? `missing: ${missing.join(', ')}` : 'all expected tools called',
+    };
   },
 );
 
@@ -85,8 +89,12 @@ const reportsExpectedFacts = Scorer.code(
   (ctx: ScorerContext) => {
     const facts = (ctx.expected as Expected).facts;
     const answer = (ctx.output as AgentResult).answer ?? '';
-    if (facts.length === 0) return 1.0;
-    return facts.filter((f) => mentions(answer, f)).length / facts.length;
+    const missing = facts.filter((f) => !mentions(answer, f));
+    return {
+      name: 'reports_expected_facts',
+      value: facts.length === 0 ? 1.0 : (facts.length - missing.length) / facts.length,
+      comment: missing.length ? `missing: ${missing.join(', ')}` : 'all expected numbers present',
+    };
   },
 );
 
@@ -189,6 +197,7 @@ async function main() {
       candidateVersion: agentModelId(),
       evaluationKey: 'agent-tool-eval',
       local: LOCAL,
+      metadata: { agentProvider: AGENT, judgeProvider: JUDGE },
     });
     console.log(result.summary());
 
