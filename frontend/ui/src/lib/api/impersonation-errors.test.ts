@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, ImpersonationError, throwIfImpersonationDenied } from "./errors";
 import { fetchNextApi } from "./client";
-import { fetchSlackConnection, sendSlackTestMessage } from "@/lib/slack";
+import {
+  fetchSlackConnection,
+  sendSlackTestMessage,
+  fetchSlackChannels,
+  saveSlackChannel,
+  disconnectSlack,
+} from "@/lib/slack";
 
 vi.mock("@/lib/auth-client", () => ({ authClient: {} }));
 afterEach(() => vi.unstubAllGlobals());
@@ -17,6 +23,21 @@ function response(message: string, marker?: string, status = 403) {
 }
 
 describe("impersonation-only error messages", () => {
+  it.each([
+    () => fetchSlackChannels("ws"),
+    () => saveSlackChannel("ws", "channel", "general"),
+    () => disconnectSlack("ws"),
+  ])("retains impersonation errors across Slack management requests", async (request) => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          response("Integration authorization is unavailable while impersonating", "policy"),
+        ),
+    );
+    await expect(request()).rejects.toBeInstanceOf(ImpersonationError);
+  });
   it.each([
     ["Credentials are unavailable while impersonating", "API keys cannot be viewed or managed"],
     ["Provider credentials are unavailable while impersonating", "Providers cannot be added"],

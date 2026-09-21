@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ImpersonationError } from "@/lib/api/errors";
 
@@ -78,6 +78,35 @@ afterEach(() => {
 });
 
 describe("ModelProvidersTab - Test Connection error display", () => {
+  it("explains a delete denial and clears it on dismissal", async () => {
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "provider-1",
+          adapter: "openai",
+          provider: "OpenAI",
+          keyPreview: "sk-...",
+          customModels: [],
+          enabled: true,
+        },
+      ],
+    });
+    mocks.deleteModelProvider.mockRejectedValue(
+      new ImpersonationError("Providers cannot be deleted while impersonating."),
+    );
+    renderTab();
+    await screen.findByRole("button", { name: "Edit" });
+    const open = () =>
+      fireEvent.click(within(screen.getAllByRole("row")[1]).getAllByRole("button").at(-1)!);
+    open();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("while impersonating");
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    open();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
   it("shows an impersonation restriction, not a connection failure", async () => {
     const message = "Providers cannot be tested while impersonating, including as an admin.";
     mocks.testModelProvider.mockRejectedValue(new ImpersonationError(message));
