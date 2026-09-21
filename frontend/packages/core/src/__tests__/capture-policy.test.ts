@@ -107,13 +107,11 @@ describe("redactSecrets", () => {
       "AAAA",
       armor("END", "RSA PRIVATE KEY"),
     ].join("\n");
-    expect(redactSecrets(`cert:\n${key}\nend`)).toBe(
-      "cert:\n-----BEGIN PRIVATE KEY-----[REDACTED]-----END PRIVATE KEY-----\nend",
-    );
+    // Expected output also avoids literal armor: scanners can match across assertions.
+    const redacted = `${armor("BEGIN", "PRIVATE KEY")}[REDACTED]${armor("END", "PRIVATE KEY")}`;
+    expect(redactSecrets(`cert:\n${key}\nend`)).toBe(`cert:\n${redacted}\nend`);
     const truncated = [armor("BEGIN", "PRIVATE KEY"), "MIIEow", "cut off"].join("\n");
-    expect(redactSecrets(truncated)).toBe(
-      "-----BEGIN PRIVATE KEY-----[REDACTED]-----END PRIVATE KEY-----",
-    );
+    expect(redactSecrets(truncated)).toBe(redacted);
   });
 });
 
