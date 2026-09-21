@@ -145,4 +145,28 @@ describe("tracedSystemOne inside a self-trace scope", () => {
     await withSelfTrace(META, () => tracedSystemOne(TRACE_META, call));
     expect(systemOneSpan()!.attributes["traceroot.llm.model"]).toBe("jev-1.13.1");
   });
+
+  it("marks a thrown call as errored and rethrows", async () => {
+    call.mockRejectedValue(new Error("TypeSafe returned 401"));
+    const run = await withSelfTrace(META, () => tracedSystemOne(TRACE_META, call));
+    expect(run.ok).toBe(false);
+
+    const span = systemOneSpan()!;
+    expect(span.status.code).toBe(SpanStatusCode.ERROR);
+    expect(span.status.message).toBe("TypeSafe returned 401");
+  });
+
+  it("degrades to an untraced call when the questions cannot be serialized", async () => {
+    // A BigInt makes JSON.stringify throw; span setup is best-effort, so the
+    // call still returns its result and never throws into the detector run.
+    const unserializable = { ...TRACE_META, questions: { gate: { type: "noul", x: 10n } } };
+    let result: unknown;
+    const run = await withSelfTrace(META, async () => {
+      result = await tracedSystemOne(unserializable as never, call);
+      return "ok";
+    });
+    expect(run.ok).toBe(true);
+    expect(result).toBe(RESULT);
+    expect(systemOneSpan()).toBeUndefined();
+  });
 });
