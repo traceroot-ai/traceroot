@@ -307,12 +307,14 @@ export async function updateProject(input: {
       // RCA reads rcaProvider as a BYOK row only when the source is BYOK; a
       // system source names a system provider, which is never a decision one.
       const rcaSource = patch.rcaSource !== undefined ? patch.rcaSource : existing.rcaSource;
-      if (patch.rcaProvider && rcaSource === ModelSource.BYOK) {
+      const rcaProvider =
+        patch.rcaProvider !== undefined ? patch.rcaProvider : existing.rcaProvider;
+      if (rcaProvider && rcaSource === ModelSource.BYOK) {
         const provider = await tx.modelProvider.findUnique({
           where: {
             workspaceId_provider: {
               workspaceId: existing.workspaceId,
-              provider: patch.rcaProvider,
+              provider: rcaProvider,
             },
           },
           select: { adapter: true },
