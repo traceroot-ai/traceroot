@@ -354,12 +354,26 @@ describe("SDK reporting: run provenance is gone (SDK-agnostic identity)", () => 
 });
 
 describe("SDK reporting: dataset coverage round-trip", () => {
+  // A 500-case version to declare coverage against: registration checks a declared total
+  // against the pinned version's real size.
+  beforeEach(() => {
+    fakePrisma.datasetVersion.rows.push({ id: "dv500", datasetId: "ds1", projectId: PROJECT_ID });
+    for (let i = 0; i < 500; i++) {
+      fakePrisma.testCase.rows.push({
+        id: `tc500row${i}`,
+        testCaseId: `case500-${i}`,
+        datasetVersionId: "dv500",
+        projectId: PROJECT_ID,
+      });
+    }
+  });
   const register = (extra: Record<string, unknown>) =>
     registerRun(
       req({
         evaluation_name: "Billing routing",
         dataset_id: "ds1",
         candidate_version: "git:abc123",
+        ...("run_selection" in extra ? { dataset_version_id: "dv500" } : {}),
         ...extra,
       }),
     );
