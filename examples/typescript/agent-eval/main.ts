@@ -9,7 +9,7 @@ import 'dotenv/config';
 
 import { TraceRoot, Dataset, evaluate, Scorer, type ScorerContext } from '@traceroot-ai/traceroot';
 
-import { runAgent, type AgentResult } from './agent';
+import { runAgent, agentModelId, type AgentResult } from './agent';
 import { dataset, mentions } from './dataset';
 
 // No TraceRoot key (or the unedited .env.example placeholder)? Run fully local.
@@ -85,7 +85,7 @@ async function main() {
       dataset: dataset(),
       task: (input) => runAgent(input as { question: string }),
       scorers: [callsExpectedTools, reportsExpectedFacts, answerIsGrounded],
-      candidateVersion: 'gpt-4o-mini',
+      candidateVersion: agentModelId(),
       evaluationKey: 'agent-tool-eval',
       local: LOCAL,
     });

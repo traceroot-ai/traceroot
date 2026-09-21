@@ -7,8 +7,11 @@
     "agent": "tsx agent.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.0",
     "@ai-sdk/openai": "^3.0.0",
+    "@anthropic-ai/sdk": "^0.127.0",
     "@traceroot-ai/traceroot": "^0.3.0",
+    "@typesafe-ai/sdk": "^0.6.0",
     "ai": "^6.0.0",
     "dotenv": "^16.0.0",
     "openai": "^6.0.0",
