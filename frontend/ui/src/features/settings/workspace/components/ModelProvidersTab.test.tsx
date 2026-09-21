@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ImpersonationError } from "@/lib/api/errors";
 
 const mocks = vi.hoisted(() => ({
   getModelProviders: vi.fn(),
@@ -77,6 +78,19 @@ afterEach(() => {
 });
 
 describe("ModelProvidersTab - Test Connection error display", () => {
+  it("shows an impersonation restriction, not a connection failure", async () => {
+    const message = "Providers cannot be tested while impersonating, including as an admin.";
+    mocks.testModelProvider.mockRejectedValue(new ImpersonationError(message));
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: /add provider/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /adapter/i }), {
+      target: { value: "openai" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("sk-..."), { target: { value: "k" } });
+    fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(screen.queryByText("Connection failed")).toBeNull();
+  });
   it("renders the error in its own block below the button on failure, not inline", async () => {
     mocks.testModelProvider.mockResolvedValue({ success: false, error: "Invalid API key" });
     renderTab();
