@@ -61,7 +61,14 @@ const result = (
   comparison: null,
 });
 
-const runDetail = (id: string, runNumber: number, ver: string) => ({
+const FULL_COVERAGE = {
+  mode: "full",
+  datasetCaseCount: 2,
+  selectedCaseCount: 2,
+  sampleSeed: null,
+} as const;
+
+const runDetail = (id: string, runNumber: number, ver: string, over: object = {}) => ({
   id,
   runNumber,
   candidateVersion: ver,
@@ -72,6 +79,13 @@ const runDetail = (id: string, runNumber: number, ver: string) => ({
   datasetVersionId: "dv1",
   datasetVersionLabel: "v3",
   status: "completed",
+  caseCount: 2,
+  resultCount: 2,
+  // Both runs measured the whole (2-case) dataset and nothing was capped, so the
+  // default fixture carries no banner — the tests below add one deliberately.
+  coverage: FULL_COVERAGE,
+  resultsTruncated: false,
+  ...over,
 });
 
 // Two shared rows; ticket-05 routes billing (opus) vs account_management (sonnet).
@@ -180,6 +194,60 @@ describe("CompareRunsView — N-run diff table", () => {
     // Rows are not interactive (drill-in postponed): no trace panel exists to open.
     fireEvent.click(screen.getByText(/double-charged and I want a refund/));
     expect(screen.queryByTestId("trace-panel")).toBeNull();
+  });
+
+  describe("coverage vs truncation", () => {
+    /** Re-point the hook at a fixture whose sonnet run is overridden. */
+    const withSonnetRun = (over: object) => {
+      hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+        ids.map((id) => ({
+          data: id === "sonnet" ? { ...SONNET, run: { ...SONNET.run, ...over } } : RESP[id],
+          isLoading: false,
+          isError: false,
+        })),
+      );
+    };
+
+    it("says nothing when both runs covered the whole dataset and nothing was capped", () => {
+      mount();
+      expect(screen.queryByText(/exploratory/)).toBeNull();
+      expect(screen.queryByText(/API limit/)).toBeNull();
+    });
+
+    it("calls a subset comparison exploratory, and never blames the API for it", () => {
+      // The user chose 20 of 500. Nothing was lost in transit, so the old "(API limit)"
+      // wording was simply wrong — and two runs measuring the same subset still only
+      // agree about that subset.
+      withSonnetRun({
+        coverage: { mode: "first", datasetCaseCount: 500, selectedCaseCount: 20, sampleSeed: null },
+      });
+      mount();
+      expect(screen.getByText(/exploratory/)).toBeTruthy();
+      expect(screen.getByText(/Subset · 20 of 500 cases · first/)).toBeTruthy();
+      expect(screen.queryByText(/API limit/)).toBeNull();
+    });
+
+    it("leaves a run whose coverage was never reported unflagged, as every run today is", () => {
+      withSonnetRun({
+        coverage: {
+          mode: "unknown",
+          datasetCaseCount: null,
+          selectedCaseCount: null,
+          sampleSeed: null,
+        },
+      });
+      mount();
+      expect(screen.queryByText(/exploratory/)).toBeNull();
+    });
+
+    it("blames the API cap only when the API actually capped the response", () => {
+      withSonnetRun({ resultsTruncated: true });
+      mount();
+      expect(screen.getByText(/API limit/)).toBeTruthy();
+      // A full run that was merely capped is still a whole-dataset run, so it does not
+      // also earn the exploratory banner.
+      expect(screen.queryByText(/exploratory/)).toBeNull();
+    });
   });
 
   it("guards against comparing runs on different datasets", () => {

@@ -65,6 +65,10 @@ const RUN = {
   // emits both counts unconditionally, so real fixtures must carry them.
   erroredCount: 1,
   notScoredCount: 1,
+  // 22 + 0 + 1 + 1 — the results this run actually reported.
+  resultCount: 24,
+  // Nothing was capped: all 24 rows came back.
+  resultsTruncated: false,
   cost: 0.264,
   scorers: [{ name: "routing-accuracy", version: "v3" }],
   startedAt: "2026-07-17T10:24:00Z",

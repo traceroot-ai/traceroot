@@ -181,6 +181,18 @@ export interface RunDetail extends RunRow {
   elapsedMs: number | null;
   /** The backend-derived run-level comparison (single source of truth). */
   comparison: RunComparison;
+  /**
+   * How many result rows this run actually has. Distinct from `caseCount`, which is
+   * what the run DECLARED; `resultsTruncated` is judged against this.
+   */
+  resultCount: number;
+  /**
+   * True when the API capped `results` — the run produced more rows than were
+   * returned, so the table and the comparison derived from it are a partial view.
+   * Strictly about the RESPONSE: a deliberately-subsetted run is complete and reports
+   * false here; its slice is described by `coverage` instead.
+   */
+  resultsTruncated: boolean;
 }
 
 export interface RunDetailResponse {
