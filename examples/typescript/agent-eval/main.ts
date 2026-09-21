@@ -11,7 +11,9 @@
 
 import 'dotenv/config';
 
-import { TraceRoot, Dataset, evaluate, Scorer, type ScorerContext } from '@traceroot-ai/traceroot';
+import { TraceRoot, Dataset, evaluate, observe, Scorer, type ScorerContext } from '@traceroot-ai/traceroot';
+import { trace } from '@opentelemetry/api';
+import { TypeSafeClient, choice, type JsonValue } from '@typesafe-ai/sdk';
 
 import { runAgent, agentProvider, agentModelId, type AgentResult } from './agent';
 import { dataset, mentions } from './dataset';
@@ -20,19 +22,34 @@ import { dataset, mentions } from './dataset';
 const apiKey = (process.env.TRACEROOT_API_KEY ?? '').trim();
 const LOCAL = apiKey === '' || apiKey === 'your_traceroot_api_key_here';
 
-const JUDGE_MODELS = { openai: 'gpt-4o-mini', anthropic: 'claude-opus-5' } as const;
+// Jev is pinned to a release (not jev-latest) so runs stay reproducible.
+const JUDGE_MODELS = {
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-opus-5',
+  jev: 'jev-1.13.0',
+} as const;
 type JudgeProvider = keyof typeof JUDGE_MODELS;
 
 const AGENT = agentProvider();
 const judge = process.env.JUDGE_PROVIDER?.trim() || AGENT;
 if (!Object.hasOwn(JUDGE_MODELS, judge)) {
-  throw new Error(`JUDGE_PROVIDER must be openai or anthropic, got "${judge}"`);
+  throw new Error(`JUDGE_PROVIDER must be openai, anthropic or jev, got "${judge}"`);
 }
 const JUDGE = judge as JudgeProvider;
+
+// Checked with the other config, before anything starts up: the placeholder key
+// constructs a client fine and then 401s on every case.
+const typesafeKey = (process.env.TYPESAFE_API_KEY ?? '').trim();
+if (JUDGE === 'jev' && (typesafeKey === '' || typesafeKey === 'your_typesafe_api_key_here')) {
+  throw new Error('JUDGE_PROVIDER=jev needs a real TYPESAFE_API_KEY (see .env.example)');
+}
 
 // Initialize TraceRoot (traces the agent's AI SDK calls + reports the run) only when a
 // real key is present; in local mode it stays off so a keyless clone emits/exports nothing.
 if (!LOCAL) TraceRoot.initialize();
+
+// Jev client, only for the Jev judge. Reads TYPESAFE_API_KEY.
+const jev = JUDGE === 'jev' ? new TypeSafeClient() : null;
 
 interface Expected {
   tools: string[];
@@ -90,6 +107,68 @@ const answerIsGrounded = Scorer.llmJudge({
   threshold: 1.0,
 });
 
+// Did the answer say what the tools said? Catches a wrong price, another ticker's
+// price, or "up" when the stock fell. Exact numbers stay in reports_expected_facts.
+const answerSupportedByTools = Scorer.code(
+  {
+    name: 'answer_supported_by_tools',
+    key: 'answer_supported_by_tools',
+    valueType: 'categorical',
+    outputType: 'classification',
+    metadata: { model: JUDGE_MODELS.jev },
+  },
+  async (ctx: ScorerContext) => {
+    const output = ctx.output as AgentResult;
+    // Only what the question reads: Jev loses accuracy on state it does not need.
+    const toolResults = output.toolResults.map((r) =>
+      r.error ? { tool: r.tool, error: r.error } : { tool: r.tool, result: r.output },
+    );
+    const { answers, model, usage } = await observe(
+      { name: 'jev:answer_supported_by_tools', type: 'llm', metadata: { model: JUDGE_MODELS.jev } },
+      async () => {
+        const response = await jev!.systemOne({
+          model: JUDGE_MODELS.jev,
+          state: {
+            question: (ctx.input as { question: string }).question,
+            // The tools take and return plain JSON.
+            tool_results: toolResults as unknown as JsonValue[],
+            answer: output.answer ?? '',
+          },
+          questions: {
+            support: choice('How does `answer` relate to `tool_results`?', {
+              supports: 'The answer only states values and facts that appear in the tool results.',
+              contradicts:
+                'The answer states something the tool results show is wrong, such as a ' +
+                "different price, another ticker's price, or the wrong direction of change.",
+              not_in_tools: 'The answer states something the tool results do not contain.',
+              states_nothing:
+                'The answer states no concrete values at all: it hedges, refuses, or is empty.',
+            }),
+          },
+        });
+        // What the backend prices a call by. Cost also needs a price for this model
+        // id on the server; without one, model and tokens still land and cost stays empty.
+        const span = trace.getActiveSpan();
+        span?.setAttribute('traceroot.llm.model', response.model);
+        span?.setAttribute('gen_ai.usage.input_tokens', response.usage.input_tokens);
+        span?.setAttribute('gen_ai.usage.output_tokens', response.usage.output_tokens);
+        return response;
+      },
+    );
+    const a = answers.support;
+    const probabilities = Object.entries(a.probabilities)
+      .sort(([, p], [, q]) => q - p)
+      .map(([label, p]) => `${label} ${p.toFixed(2)}`)
+      .join(', ');
+    return {
+      name: 'answer_supported_by_tools',
+      value: a.choice,
+      comment: `confidence ${a.confidence.toFixed(2)} · ${probabilities}`,
+      metadata: { model, inputTokens: usage.input_tokens, outputTokens: usage.output_tokens },
+    };
+  },
+);
+
 // ── Run ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -102,7 +181,11 @@ async function main() {
       name: 'Agent tool eval',
       dataset: dataset(),
       task: (input) => runAgent(input as { question: string }),
-      scorers: [callsExpectedTools, reportsExpectedFacts, answerIsGrounded],
+      scorers: [
+        callsExpectedTools,
+        reportsExpectedFacts,
+        ...(JUDGE === 'jev' ? [answerSupportedByTools] : [answerIsGrounded]),
+      ],
       candidateVersion: agentModelId(),
       evaluationKey: 'agent-tool-eval',
       local: LOCAL,

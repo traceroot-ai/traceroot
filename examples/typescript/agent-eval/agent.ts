@@ -78,9 +78,18 @@ export function agentProvider(): AgentProvider {
 
 export const agentModelId = () => AGENT_MODELS[agentProvider()];
 
+export interface ToolResult {
+  tool: string;
+  input: unknown;
+  output?: unknown;
+  /** Set instead of `output` when the tool threw. */
+  error?: string;
+}
+
 export interface AgentResult {
   answer: string;
   toolsUsed: string[];
+  toolResults: ToolResult[];
   steps: number;
 }
 
@@ -136,15 +145,29 @@ export async function runAgent(input: {
 
   // Collect the tools called across every step, de-duplicated in call order.
   const toolsUsed: string[] = [];
+  const toolResults: ToolResult[] = [];
   for (const step of result.steps) {
     for (const call of step.toolCalls) {
       if (!toolsUsed.includes(call.toolName)) {
         toolsUsed.push(call.toolName);
       }
     }
+    // Failed calls count too, or a scorer reads a tool that threw as one never called.
+    for (const part of step.content) {
+      if (part.type === 'tool-result') {
+        toolResults.push({ tool: part.toolName, input: part.input, output: part.output });
+      } else if (part.type === 'tool-error') {
+        toolResults.push({ tool: part.toolName, input: part.input, error: String(part.error) });
+      }
+    }
   }
 
-  return { answer: result.text, toolsUsed, steps: result.steps.length };
+  return {
+    answer: result.text,
+    toolsUsed,
+    toolResults,
+    steps: result.steps.length,
+  };
 }
 
 // ---------------------------------------------------------------------------
