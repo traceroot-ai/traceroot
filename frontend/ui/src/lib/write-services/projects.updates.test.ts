@@ -214,6 +214,27 @@ describe("updateProject", () => {
     expect(tx.project.update).not.toHaveBeenCalled();
   });
 
+  it("checks the stored provider when the patch only switches the source to BYOK", async () => {
+    mockAccess();
+    tx.project.findUnique.mockResolvedValue({
+      ...storedProject,
+      rcaProvider: "my-typesafe",
+      rcaSource: "system",
+    });
+    tx.modelProvider.findUnique.mockResolvedValue({ adapter: "typesafe" });
+    expect(await runUpdate({ rcaSource: "byok" })).toEqual({
+      ok: false,
+      status: 400,
+      error:
+        "rcaProvider cannot be a decision-model provider (TypeSafe), which only runs detectors",
+    });
+    expect(tx.modelProvider.findUnique).toHaveBeenCalledWith({
+      where: { workspaceId_provider: { workspaceId: "w1", provider: "my-typesafe" } },
+      select: { adapter: true },
+    });
+    expect(tx.project.update).not.toHaveBeenCalled();
+  });
+
   it("does not look a system provider name up as a BYOK row", async () => {
     mockAccess();
     const r = await runUpdate({ rcaProvider: "Anthropic", rcaSource: "system" });
