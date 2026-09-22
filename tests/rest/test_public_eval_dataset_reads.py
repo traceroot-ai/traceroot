@@ -253,6 +253,44 @@ def test_dataset_reads_fail_closed_on_an_unexpected_status_or_an_off_contract_bo
     assert resp.json()["detail"] == "Evaluation service error"
 
 
+def _version_reads(version_number):
+    version = {**VERSIONS_BODY["versions"][0], "version_number": version_number}
+    return [
+        ("/api/v1/public/datasets/refunds/versions", {**VERSIONS_BODY, "versions": [version]}),
+        (
+            "/api/v1/public/dataset-versions/dv_3",
+            {**VERSION_BODY, "version_number": version_number},
+        ),
+    ]
+
+
+@respx.mock
+@pytest.mark.parametrize("version_number", ["3", True])
+def test_version_reads_fail_closed_on_a_version_number_the_contract_rejects(version_number):
+    """A numeric string or a boolean isn't an integer to the Zod contract, so the gateway
+    must not coerce it into a successful answer."""
+    _mock_key_auth()
+    client = _client()
+    for path, body in _version_reads(version_number):
+        _mock_internal(body)
+        resp = client.get(path, headers=KEY_HEADER)
+        assert resp.status_code == 503, path
+        assert resp.json()["detail"] == "Evaluation service error"
+
+
+@respx.mock
+def test_version_reads_accept_an_integral_float_version_number():
+    _mock_key_auth()
+    client = _client()
+    for path, body in _version_reads(3.0):
+        _mock_internal(body)
+        resp = client.get(path, headers=KEY_HEADER)
+        assert resp.status_code == 200, path
+        payload = resp.json()
+        version = payload["versions"][0] if "versions" in payload else payload
+        assert version["version_number"] == 3
+
+
 @respx.mock
 def test_dataset_reads_reject_out_of_range_pages_before_any_read():
     _mock_key_auth()

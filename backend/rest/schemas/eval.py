@@ -90,6 +90,8 @@ JSON_SAFE_INT_MAX = 9_007_199_254_740_991
 # `"ge": 0` keywords instead of JSON Schema's `"minimum": 0`.
 #: ``z.number().int().nonnegative()``.
 JsonNonNegativeInt = Annotated[int, Field(ge=0, le=JSON_SAFE_INT_MAX), BeforeValidator(_json_int)]
+#: ``z.number().int()`` — a JSON integer, never a coerced string/boolean.
+JsonInt = Annotated[int, BeforeValidator(_json_int)]
 #: ``z.number().nonnegative()``.
 JsonNonNegativeFloat = Annotated[float, Field(ge=0), BeforeValidator(_json_number)]
 
@@ -342,7 +344,7 @@ class ListDatasetsResponse(BaseModel):
 
 class PublicDatasetVersion(BaseModel):
     dataset_version_id: str
-    version_number: int
+    version_number: JsonInt
     label: str | None
     note: str | None
     case_count: JsonNonNegativeInt
@@ -377,7 +379,7 @@ class GetDatasetVersionResponse(BaseModel):
 
     dataset_version_id: str
     dataset_id: str
-    version_number: int
+    version_number: JsonInt
     label: str | None
     items: list[PublicTestCase]
     next_cursor: str | None
