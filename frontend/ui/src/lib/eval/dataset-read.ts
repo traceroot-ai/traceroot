@@ -16,6 +16,9 @@ import { resolvePublicDataset, TEST_CASE_ORDER } from "@/lib/eval/versions";
 
 export const DATASET_LIST_DEFAULT_LIMIT = 50;
 export const DATASET_LIST_MAX_LIMIT = 200;
+// A version's cases page at a larger size than the catalog lists when a caller pages.
+export const VERSION_CASES_DEFAULT_LIMIT = 200;
+export const VERSION_CASES_MAX_LIMIT = 1000;
 
 type Body = Record<string, unknown>;
 
@@ -152,24 +155,46 @@ export async function listDatasetVersionsPage(input: {
   return { ok: true, body: { versions, next_cursor: hasMore ? page[page.length - 1].id : null } };
 }
 
-/** One immutable version plus all of its test cases: the snapshot a client runs against. */
-export async function getDatasetVersion(input: {
+/**
+ * One immutable version plus its test cases: the whole set, or a page of it.
+ *
+ * Paging is opt-in. A request that names neither `limit` nor `cursor` gets every case with
+ * `next_cursor: null`, exactly as this read always answered: the released SDKs pull the
+ * snapshot they will run with ONE request and never follow a cursor, so a default page
+ * would silently hand them a truncated dataset and a wrong case count. Passing `limit`
+ * (as the tools and the CLI are told to) pages, because a version's case set is unbounded
+ * in practice — each publish carries every earlier case forward.
+ */
+export async function getDatasetVersionPage(input: {
   projectId: string;
   versionId: string;
+  limit: unknown;
+  cursor: string | null;
 }): Promise<EvalReadResult<Body>> {
+  const { projectId, cursor } = input;
+  const whole =
+    (input.limit === null || input.limit === undefined || input.limit === "") && !cursor;
+  const limit = whole
+    ? null
+    : clampLimit(input.limit, VERSION_CASES_DEFAULT_LIMIT, VERSION_CASES_MAX_LIMIT);
+
   const version = await prisma.datasetVersion.findFirst({
-    where: { id: input.versionId, projectId: input.projectId },
+    where: { id: input.versionId, projectId },
     include: { dataset: { select: { clientDatasetId: true } } },
   });
   if (!version) return { ok: false, status: 404, error: "Dataset version not found" };
 
-  // Pulling the same version twice must yield the same order, and create_time alone does
-  // not: Postgres' CURRENT_TIMESTAMP default is the transaction start time, so every case a
-  // publish writes shares one value, and among ties the row order is whatever the plan
-  // happens to produce. testCaseId is unique within a version, so it makes the order total.
+  // Cases are fetched separately now that they are paged. Pulling the same version twice
+  // must yield the same order, and create_time alone does not: Postgres' CURRENT_TIMESTAMP
+  // default is the transaction start time, so every case a publish writes shares one
+  // value, and among ties the row order is whatever the plan happens to produce.
+  // testCaseId is unique within a version, so it makes the order total — which is also
+  // what makes cursor paging over this set stable rather than able to skip or repeat.
   const rows = await prisma.testCase.findMany({
-    where: { datasetVersionId: version.id, projectId: input.projectId },
+    where: { datasetVersionId: version.id, projectId },
     orderBy: TEST_CASE_ORDER,
+    ...(limit === null ? {} : { take: limit + 1 }),
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     select: {
       id: true,
       testCaseId: true,
@@ -181,6 +206,9 @@ export async function getDatasetVersion(input: {
     },
   });
 
+  const hasMore = limit !== null && rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+
   return {
     ok: true,
     body: {
@@ -190,7 +218,7 @@ export async function getDatasetVersion(input: {
       label: version.label,
       // input/expected are returned as NATIVE JSON values (decoded from the stored
       // JSON-encoded text). Legacy plain-text rows fall back to the raw string.
-      items: rows.map((t) => ({
+      items: page.map((t) => ({
         test_case_id: t.testCaseId,
         input: decodeJsonValue(t.input),
         expected: t.expected === null ? null : decodeJsonValue(t.expected),
@@ -198,6 +226,9 @@ export async function getDatasetVersion(input: {
         source_trace_id: t.sourceTraceId,
         source_span_id: t.sourceSpanId,
       })),
+      // An opaque row id, like every other cursor on this surface. Null at the end, so a
+      // client loops until it is null rather than comparing counts.
+      next_cursor: hasMore ? page[page.length - 1].id : null,
     },
   };
 }

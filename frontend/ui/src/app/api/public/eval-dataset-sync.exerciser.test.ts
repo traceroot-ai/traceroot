@@ -497,3 +497,99 @@ describe("B1: cancelled run status", () => {
     expect(run.completedAt).toBeInstanceOf(Date);
   });
 });
+
+describe("a version's cases are paged, and the page size is capped server-side", () => {
+  /** Publish `n` cases into one version and return its id. */
+  async function publishCases(n: number): Promise<string> {
+    fakePrisma.dataset.rows.push({
+      id: "ds_big",
+      clientDatasetId: "ds_big",
+      projectId: PROJECT_ID,
+      name: "big",
+    });
+    const res = await publishVersion(
+      req({
+        base_version_id: null,
+        changes: Array.from({ length: n }, (_, i) => ({
+          op: "upsert",
+          test_case_id: `tc_${String(i).padStart(4, "0")}`,
+          input: `case ${i}`,
+        })),
+      }),
+      dsParams("ds_big"),
+    );
+    expect(res.status).toBe(201);
+    return (await readJson(res)).dataset_version_id as string;
+  }
+
+  it("returns a bounded page and a cursor that walks the rest", async () => {
+    const versionId = await publishCases(7);
+
+    const first = await readJson(await readVersion(getReq("?limit=3"), versionParams(versionId)));
+    expect((first.items as unknown[]).length).toBe(3);
+    expect(first.next_cursor).toBeTruthy();
+
+    const second = await readJson(
+      await readVersion(getReq(`?limit=3&cursor=${first.next_cursor}`), versionParams(versionId)),
+    );
+    expect((second.items as unknown[]).length).toBe(3);
+
+    const third = await readJson(
+      await readVersion(getReq(`?limit=3&cursor=${second.next_cursor}`), versionParams(versionId)),
+    );
+    expect((third.items as unknown[]).length).toBe(1);
+    // Null at the end, so a client loops until it is null rather than counting.
+    expect(third.next_cursor).toBeNull();
+
+    // The three pages are the whole set, in order, with nothing repeated or skipped —
+    // which is the property the total ordering exists to guarantee.
+    const ids = [first, second, third].flatMap((p) =>
+      (p.items as Array<Record<string, unknown>>).map((i) => i.test_case_id as string),
+    );
+    expect(ids).toEqual([...ids].sort());
+    expect(new Set(ids).size).toBe(7);
+  });
+
+  it("clamps an absurd limit at the control plane (the gateway rejects it first)", async () => {
+    // This is the BACKSTOP, not the published contract. Through the gateway an
+    // out-of-range limit is a 422 — asserted in tests/rest/test_public_eval_gateway.py,
+    // matching every other public paged read. This layer only guarantees that a request
+    // which somehow bypasses the gateway still cannot pull an unbounded body.
+    const versionId = await publishCases(5);
+    const body = await readJson(
+      await readVersion(getReq("?limit=999999"), versionParams(versionId)),
+    );
+    expect((body.items as unknown[]).length).toBe(5);
+    expect(body.next_cursor).toBeNull();
+  });
+
+  it("returns the whole version when neither limit nor cursor is given", async () => {
+    // The released SDKs pull a snapshot with ONE request and never follow next_cursor. A
+    // default page here would silently hand them the first 200 cases as the whole dataset.
+    const versionId = await publishCases(250);
+    const body = await readJson(await readVersion(getReq(""), versionParams(versionId)));
+    expect((body.items as unknown[]).length).toBe(250);
+    expect(body.next_cursor).toBeNull();
+  });
+
+  it("pages at the default size once the caller pages at all", async () => {
+    const versionId = await publishCases(250);
+    const first = await readJson(await readVersion(getReq("?limit=abc"), versionParams(versionId)));
+    expect((first.items as unknown[]).length).toBe(200);
+    expect(first.next_cursor).toBeTruthy();
+    // A cursor alone is paging too: it continues at the default size.
+    const rest = await readJson(
+      await readVersion(getReq(`?cursor=${first.next_cursor}`), versionParams(versionId)),
+    );
+    expect((rest.items as unknown[]).length).toBe(50);
+    expect(rest.next_cursor).toBeNull();
+  });
+
+  it("defaults to a bounded page when limit is nonsense", async () => {
+    const versionId = await publishCases(3);
+    for (const q of ["?limit=0", "?limit=-4", "?limit=abc"]) {
+      const body = await readJson(await readVersion(getReq(q), versionParams(versionId)));
+      expect((body.items as unknown[]).length).toBe(3);
+    }
+  });
+});

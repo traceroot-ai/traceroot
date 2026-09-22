@@ -3,7 +3,7 @@ import { z } from "zod";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
 import {
   getDatasetDetail,
-  getDatasetVersion,
+  getDatasetVersionPage,
   listDatasetsPage,
   listDatasetVersionsPage,
 } from "@/lib/eval/dataset-read";
@@ -35,6 +35,8 @@ const datasetVersionRead = z.object({
   read: z.literal("dataset_version"),
   projectId,
   versionId: z.string("versionId is required").min(1, "versionId is required"),
+  limit,
+  cursor,
 });
 
 // One route for the evaluation reads, told apart by `read`.
@@ -95,7 +97,12 @@ export async function POST(request: NextRequest) {
       );
     case "dataset_version":
       return evalReadResponse(
-        await getDatasetVersion({ projectId: read.projectId, versionId: read.versionId }),
+        await getDatasetVersionPage({
+          projectId: read.projectId,
+          versionId: read.versionId,
+          limit: read.limit,
+          cursor: read.cursor ?? null,
+        }),
       );
   }
 }

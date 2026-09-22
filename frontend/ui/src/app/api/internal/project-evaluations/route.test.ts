@@ -17,7 +17,7 @@ const datasetReads = vi.hoisted(() => ({
   listDatasetsPage: vi.fn(),
   getDatasetDetail: vi.fn(),
   listDatasetVersionsPage: vi.fn(),
-  getDatasetVersion: vi.fn(),
+  getDatasetVersionPage: vi.fn(),
 }));
 vi.mock("@/lib/eval/dataset-read", () => datasetReads);
 
@@ -134,12 +134,16 @@ describe("POST /api/internal/project-evaluations", () => {
       });
     });
 
-    it("reads one version's cases inside the given project", async () => {
-      await POST(makeRequest({ read: "dataset_version", projectId: "proj-1", versionId: "dv_1" }));
+    it("reads one version's page of cases", async () => {
+      await POST(
+        makeRequest({ read: "dataset_version", projectId: "proj-1", versionId: "dv_1", limit: 20 }),
+      );
 
-      expect(datasetReads.getDatasetVersion).toHaveBeenCalledWith({
+      expect(datasetReads.getDatasetVersionPage).toHaveBeenCalledWith({
         projectId: "proj-1",
         versionId: "dv_1",
+        limit: 20,
+        cursor: null,
       });
     });
 
