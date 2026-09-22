@@ -229,6 +229,30 @@
     }
   },
   {
+    "id": "tr-gpt-6-sol",
+    "modelName": "gpt-6-sol",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6-sol)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.00001,
+      "cacheRead": 0.0000002,
+      "cacheWrite": 0.0000025
+    }
+  },
+  {
+    "id": "tr-gpt-6-luna",
+    "modelName": "gpt-6-luna",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-6-luna)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000001,
+      "output": 0.0000005,
+      "cacheRead": 0.00000001,
+      "cacheWrite": 0.000000125
+    }
+  },
+  {
     "id": "tr-gpt-5-5",
     "modelName": "gpt-5.5",
     "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.5)(-[\\d-]+)?$",

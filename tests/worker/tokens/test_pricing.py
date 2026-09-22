@@ -99,6 +99,14 @@ OPENAI_MODEL_CASES = [
     ("openai/gpt-6-astra", "gpt-6-astra"),
     ("azure/gpt-6-astra", "gpt-6-astra"),
     ("gpt-6-astra-2026-07-09", "gpt-6-astra"),
+    ("gpt-6-sol", "gpt-6-sol"),
+    ("openai/gpt-6-sol", "gpt-6-sol"),
+    ("azure/gpt-6-sol", "gpt-6-sol"),
+    ("gpt-6-sol-2026-09-22", "gpt-6-sol"),
+    ("gpt-6-luna", "gpt-6-luna"),
+    ("openai/gpt-6-luna", "gpt-6-luna"),
+    ("azure/gpt-6-luna", "gpt-6-luna"),
+    ("gpt-6-luna-2026-09-22", "gpt-6-luna"),
     ("gpt-5.5", "gpt-5.5"),
     ("openai/gpt-5.5", "gpt-5.5"),
     ("azure/gpt-5.5", "gpt-5.5"),
@@ -379,6 +387,28 @@ class TestGpt6AstraPublishedPrices:
         assert entry["prices"]["output"] == pytest.approx(5e-05)  # $50 / 1M tokens
         assert entry["prices"]["cacheRead"] == pytest.approx(1e-06)  # $1 / 1M tokens
         assert entry["prices"]["cacheWrite"] == pytest.approx(1.25e-05)  # $12.50 / 1M tokens
+
+
+class TestGpt6SolPublishedPrices:
+    """Assert the absolute, provider-published rate directly."""
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gpt-6-sol")
+        assert entry["prices"]["input"] == pytest.approx(2e-06)  # $2 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(1e-05)  # $10 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(2e-07)  # $0.20 / 1M tokens
+        assert entry["prices"]["cacheWrite"] == pytest.approx(2.5e-06)  # $2.50 / 1M tokens
+
+
+class TestGpt6LunaPublishedPrices:
+    """Assert the absolute, provider-published rate directly."""
+
+    def test_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gpt-6-luna")
+        assert entry["prices"]["input"] == pytest.approx(1e-07)  # $0.10 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(5e-07)  # $0.50 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(1e-08)  # $0.01 / 1M tokens
+        assert entry["prices"]["cacheWrite"] == pytest.approx(1.25e-07)  # $0.125 / 1M tokens
 
 
 class TestGeminiModelIds:

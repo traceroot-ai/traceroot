@@ -175,6 +175,15 @@ describe("ADAPTER_MODELS", () => {
       label: "grok-4.6",
     });
   });
+
+  it("includes the GPT-6 family in the OpenAI model list", () => {
+    const openaiModels = ADAPTER_MODELS["openai"];
+    expect(openaiModels).toBeDefined();
+
+    for (const id of ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]) {
+      expect(openaiModels).toContainEqual({ id, label: id });
+    }
+  });
 });
 
 describe("docs stay in sync with SYSTEM_MODELS", () => {
