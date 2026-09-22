@@ -301,6 +301,28 @@ def test_internal_mirror_never_resolves_the_callers_plan(monkeypatch):
     assert access.call_count == 0
 
 
+def test_internal_mirror_takes_no_project_access_dependency():
+    """The internal secret short-circuits get_project_access without an HTTP call, so the
+    behaviour test above cannot see it being added. Check the route's dependency tree."""
+    from fastapi.routing import APIRoute
+
+    from rest.routers.deps import get_project_access
+
+    route = next(
+        r
+        for r in app.routes
+        if isinstance(r, APIRoute)
+        and r.path == "/api/v1/internal/projects/{project_id}/evaluation-runs/{run_id}"
+    )
+    calls = []
+    pending = list(route.dependant.dependencies)
+    while pending:
+        dependency = pending.pop()
+        calls.append(dependency.call)
+        pending.extend(dependency.dependencies)
+    assert get_project_access not in calls
+
+
 def test_evaluation_mirror_is_off_the_public_project_surface():
     """The run read must not be mounted at `/api/v1/projects/...`, whose access check
     trusts a caller-supplied x-user-id. Only the internal prefix may serve it."""

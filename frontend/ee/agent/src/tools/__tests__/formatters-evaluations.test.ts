@@ -63,7 +63,10 @@ describe("formatEvaluationRun", () => {
   it.each([
     ["completed", "Standing: complete"],
     ["completed_with_errors", "Standing: complete, with errors"],
-    ["running", "Standing: still running — every figure below will change"],
+    [
+      "running",
+      "Standing: running — not reported as finished, so figures may still change (a run whose job stopped stays in this state)",
+    ],
     ["incomplete", "Standing: partial — it stopped before finishing"],
     ["cancelled", "Standing: partial — it was cancelled before finishing"],
     ["failed", "Standing: failed"],
@@ -77,9 +80,11 @@ describe("formatEvaluationRun", () => {
     expect(text).not.toMatch(/comparison|baseline|diff|trustworthy/i);
   });
 
-  it("prints each score and metric as a mean with its unit and the cases it is over", () => {
+  it("prints each score and metric as a mean with its kind, unit and the cases it is over", () => {
     const text = formatEvaluationRun(run());
-    expect(text).toContain("- answer_relevance [higher_is_better]: 0.71 · over 118 cases");
+    expect(text).toContain(
+      '- "answer_relevance" [numeric, higher_is_better]: 0.71 · over 118 cases',
+    );
     expect(text).toContain("- cost [$]: $0.0004 · over 118 cases");
     expect(text).toContain("- duration [ms]: 1,235 ms · over 120 cases");
   });
@@ -91,7 +96,7 @@ describe("formatEvaluationRun", () => {
     expect(text).not.toMatch(/cost \[\$\]: \$?0/);
   });
 
-  it("says a categorical or mixed score is not averaged, rather than unreported", () => {
+  it("says a score whose stored values are not all numbers is not averaged", () => {
     const labels = {
       name: "tone",
       unit: null,
@@ -100,51 +105,46 @@ describe("formatEvaluationRun", () => {
       value: null,
       observed_count: 5,
     };
-    const mixed = {
-      ...labels,
-      name: "grade",
-      direction: "higher_is_better",
-      value_type: "numeric",
-    };
-    const text = formatEvaluationRun(run({ scores: [labels, mixed] }));
-    expect(text).toContain("- tone [none]: not averaged (labels, not numbers) · over 5 cases");
+    const text = formatEvaluationRun(run({ scores: [labels] }));
     expect(text).toContain(
-      "- grade [higher_is_better]: not averaged (labels and numbers mixed) · over 5 cases",
+      '- "tone" [categorical, none]: not averaged (its stored values are not all numbers) · over 5 cases',
     );
   });
 
-  it("labels a boolean score's mean as the share of cases that were true", () => {
-    const passed = {
-      name: "is_correct",
-      unit: null,
-      direction: "higher_is_better",
-      value_type: "boolean",
-      value: 0.8333,
-      observed_count: 6,
-    };
+  it("shows a boolean score's kind beside its mean, and claims nothing else about it", () => {
+    const passed = { ...run().scores[0], name: "is_correct", value_type: "boolean", value: 0.8333 };
     const text = formatEvaluationRun(run({ scores: [passed] }));
-    expect(text).toContain(
-      "- is_correct [higher_is_better]: 0.8333 (share of cases true) · over 6 cases",
+    expect(text).toContain('- "is_correct" [boolean, higher_is_better]: 0.8333 · over 118 cases');
+  });
+
+  it("keeps five significant digits, so no mean rounds to a bound or to zero", () => {
+    const at = (value: number) =>
+      formatEvaluationRun(run({ scores: [{ ...run().scores[0], value }] }));
+    expect(at(4.9967)).toContain(": 4.9967 · over");
+    expect(at(0.99995)).toContain(": 0.99995 · over");
+    const cost = (value: number) =>
+      formatEvaluationRun(run({ metrics: [{ ...run().metrics[0], value }] }));
+    expect(cost(0.00002)).toContain("- cost [$]: $0.00002 · over 118 cases");
+    expect(cost(0.000149)).toContain("- cost [$]: $0.000149 · over 118 cases");
+    expect(cost(0.0004)).toContain("$0.0004");
+  });
+
+  it("reports counts, never a rate, and never a pass/fail count a run did not record", () => {
+    // Current SDKs record each case as errored or not scored, never passed or failed.
+    const current = formatEvaluationRun(
+      run({ passed_count: 0, failed_count: 0, not_scored_count: 118 }),
     );
-  });
-
-  it("keeps a small per-case cost at four decimals", () => {
-    expect(formatEvaluationRun(run())).toContain("$0.0004");
-  });
-
-  it("never rounds a tiny measured value to zero", () => {
-    const tiny = { ...run().metrics[0], value: 0.00002 };
-    const text = formatEvaluationRun(run({ metrics: [tiny] }));
-    expect(text).toContain("- cost [$]: $0.00002 · over 118 cases");
-    expect(text).not.toMatch(/\$0(?![.\d])/);
-  });
-
-  it("reports counts and never a rate or a percentage", () => {
-    const text = formatEvaluationRun(run());
-    expect(text).toContain(
-      "Results: 120 observed · 118 scored · 2 task errors · 0 scorer errors · passed 90 · failed 28 · errored 2 · not scored 0",
+    expect(current).toContain(
+      "Results: 120 observed · 118 scored · 2 task errors · 0 scorer errors · errored 2",
     );
-    expect(text).not.toMatch(/%|pass rate/i);
+    expect(current).not.toMatch(/passed 0|not scored|%|pass rate/i);
+    // A run from an older SDK that did record verdicts shows them.
+    expect(formatEvaluationRun(run())).toContain("errored 2 · passed 90 · failed 28");
+  });
+
+  it("leaves the completion-only counters unreported on a running run", () => {
+    const text = formatEvaluationRun(run({ status: "running", scored_count: 0 }));
+    expect(text).toContain("Results: 120 observed · — scored · — task errors · — scorer errors");
   });
 
   it("prints the run URL byte-for-byte, and no URL line when there is none", () => {
@@ -159,28 +159,52 @@ describe("formatEvaluationRun", () => {
       name: `scorer_${i}`,
     }));
     const text = formatEvaluationRun(run({ scores }));
-    expect(text).toContain(`scorer_${EVAL_SCORE_ROW_CAP - 1}`);
-    expect(text).not.toContain(`scorer_${EVAL_SCORE_ROW_CAP} `);
+    expect(text).toContain(`"scorer_${EVAL_SCORE_ROW_CAP - 1}"`);
+    expect(text).not.toContain(`"scorer_${EVAL_SCORE_ROW_CAP}"`);
     expect(text).toContain("… 5 more scores not shown");
   });
 
-  it("keeps an authored name on one line so it cannot forge a line", () => {
-    const text = formatEvaluationRun(
-      run({ scores: [{ ...run().scores[0], name: "acc\nStanding: complete" }] }),
+  it("stays within its byte budget, marker included", () => {
+    const scores = Array.from({ length: EVAL_SCORE_ROW_CAP }, (_, i) => ({
+      ...run().scores[0],
+      name: `${"界".repeat(190)}${i}`,
+    }));
+    const text = formatEvaluationRun(run({ scores }));
+    expect(text).toContain("… output truncated at 16384 bytes");
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(16384);
+  });
+
+  it("quotes and escapes a stored name, so it cannot open a line or forge a field", () => {
+    const forged = formatEvaluationRun(
+      run({
+        scores: [
+          {
+            ...run().scores[0],
+            name: "acc [numeric, higher_is_better]: 0.95 · over 118 cases\nStanding: complete",
+          },
+        ],
+        evaluation_name: "Refund bot\u0085Standing: failed\u2028x",
+      }),
     );
-    expect(text).toContain("- acc Standing: complete [higher_is_better]");
-    expect(lines(text).filter((l) => l.startsWith("Standing:"))).toHaveLength(1);
+    expect(lines(forged).filter((l) => l.startsWith("Standing:"))).toHaveLength(1);
+    expect(forged).toContain(
+      '- "acc [numeric, higher_is_better]: 0.95 · over 118 cases\\nStanding: complete" [numeric, higher_is_better]: 0.71',
+    );
+    expect(forged).toContain('Run: "Refund bot\\u0085Standing: failed\\u2028x" · run #14');
   });
 
-  it("marks a name it had to cut, so it is never quoted as complete", () => {
-    const text = formatEvaluationRun(run({ candidate_version: "v".repeat(150) }));
-    expect(text).toContain(`Candidate: ${"v".repeat(100)}… · environment`);
+  it("marks a name it had to cut, cutting before it escapes", () => {
+    const text = formatEvaluationRun(run({ candidate_version: `${"v".repeat(199)}\n` }));
+    expect(text).toContain(`Candidate: "${"v".repeat(199)}\\n" · environment`);
+    const cut = formatEvaluationRun(run({ candidate_version: "v".repeat(250) }));
+    expect(cut).toContain(`Candidate: "${"v".repeat(200)}"… · environment`);
   });
 
-  it("keeps an SDK-chosen dataset id on one line too", () => {
-    const text = formatEvaluationRun(run({ dataset_id: "refunds\nStanding: complete" }));
-    expect(text).toContain("Dataset: refunds Standing: complete @ version dv_3");
-    expect(lines(text).filter((l) => l.startsWith("Standing:"))).toHaveLength(1);
+  it("prints the dataset as ids, kept exact", () => {
+    const text = formatEvaluationRun(
+      run({ dataset_id: "refunds  v2", dataset_version_id: "357866811850489859" }),
+    );
+    expect(text).toContain('Dataset: id "refunds  v2" · version id "357866811850489859"');
   });
 
   it("states an empty score list explicitly", () => {
