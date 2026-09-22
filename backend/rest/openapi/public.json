@@ -10178,7 +10178,9 @@
           "Offline Eval (Public)"
         ],
         "x-tool": {
-          "enabled": false
+          "description": "Read one evaluation run's summary: its status, result counts, and per-scorer scores plus per-case cost and duration as means, each with the number of results it was averaged over.",
+          "enabled": true,
+          "name": "read_evaluation_run"
         }
       }
     },

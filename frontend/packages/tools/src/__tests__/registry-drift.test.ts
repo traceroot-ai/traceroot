@@ -53,6 +53,7 @@ describe("committed registry", () => {
       "list_trace_filter_values",
       "list_traces",
       "list_workspaces",
+      "read_evaluation_run",
       "run_sql",
       "run_widget_query",
       "set_alert_status",

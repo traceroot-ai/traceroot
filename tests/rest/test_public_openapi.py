@@ -293,6 +293,7 @@ def test_read_run_publishes_the_run_summary_only():
         ("run_id", "path"),
         ("project_id", "query"),
     ]
+    assert "baseline" not in op["x-tool"]["description"]
 
     components = schema["components"]["schemas"]
     assert "comparison" not in components["ReadRunResponse"]["properties"]
@@ -529,7 +530,6 @@ def test_x_tool_enabled_set_and_shape():
         "register_run",
         "upsert_result",
         "complete_run",
-        "read_run",
     }
     assert set(enabled) == {
         "whoami",
@@ -579,6 +579,7 @@ def test_x_tool_enabled_set_and_shape():
         "get_dataset_version",
         "list_dataset_versions",
         "list_datasets",
+        "read_evaluation_run",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"

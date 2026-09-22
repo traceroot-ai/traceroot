@@ -1830,6 +1830,28 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "read_evaluation_run",
+    description:
+      "Read one evaluation run's summary: its status, result counts, and per-scorer scores plus per-case cost and duration as means, each with the number of results it was averaged over.",
+    method: "get",
+    path: "/api/v1/public/evaluation-runs/{run_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        run_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["run_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "run_sql",
     description:
       "Run one read-only SQL query over the project's own spans and traces and return the rows. Use get_sql_schema first to see the columns available; the query may only read the curated spans and traces tables, and results are capped and may be truncated.",
