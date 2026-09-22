@@ -108,3 +108,98 @@ it("retains expired audit timestamps after Better Auth deletes the session", asy
     data: { expiresAt: expired, endedAt: expired, endReason: "expired" },
   });
 });
+
+it.each(["admin", "support"])(
+  "starts an audited %s session and binds its restore cookie",
+  async (role) => {
+    const actor = { id: "staff", email: "staff@traceroot.ai", role };
+    const target = { id: "customer", email: "customer@example.com", role: null, name: null };
+    mocks.current.mockResolvedValue({ user: actor, session: { token: "original-token" } });
+    const create = vi.fn(async ({ data }) => data);
+    const audit = vi.fn();
+    mocks.transaction.mockImplementation(async (fn) =>
+      fn({
+        $queryRaw: vi.fn(),
+        user: { findUnique: vi.fn().mockResolvedValueOnce(actor).mockResolvedValueOnce(target) },
+        session: { create },
+        auditLog: { create: audit },
+      }),
+    );
+    const context = {
+      ...ctx(),
+      body: { userId: target.id, reason: "ticket" },
+      setSignedCookie: vi.fn(),
+    };
+    await supportPlugin().endpoints.supportStart(context as never);
+    const data = create.mock.calls[0][0].data;
+    expect(data).toMatchObject({ userId: target.id, impersonatedBy: actor.id });
+    expect(context.setSignedCookie).toHaveBeenCalledWith(
+      "support_original",
+      `original-token:${data.id}`,
+      "test",
+      undefined,
+    );
+    expect(audit).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "impersonation.started",
+        actorUserId: actor.id,
+        targetUserId: target.id,
+        summary: { reason: "ticket", mode: role === "admin" ? "read-write" : "read-only" },
+      }),
+    });
+    expect(mocks.set).toHaveBeenCalledWith(
+      context,
+      { session: data, user: { ...target, name: target.email } },
+      false,
+    );
+  },
+);
+
+it.each([null, { session: { impersonatedBy: "staff" } }])(
+  "rejects starting without an original employee session",
+  async (current) => {
+    mocks.current.mockResolvedValue(current);
+    await expect(supportPlugin().endpoints.supportStart(ctx() as never)).rejects.toThrow(
+      "Use your employee session",
+    );
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["admin", "support"])(
+  "audits denial of a %s target without creating a session",
+  async (role) => {
+    const actor = { id: "staff", email: "staff@traceroot.ai", role: "admin" };
+    const create = vi.fn();
+    const audit = vi.fn();
+    mocks.current.mockResolvedValue({ user: actor, session: {} });
+    mocks.transaction.mockImplementation(async (fn) =>
+      fn({
+        $queryRaw: vi.fn(),
+        user: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValueOnce(actor)
+            .mockResolvedValueOnce({ id: "other-staff", role }),
+        },
+        session: { create },
+        auditLog: { create: audit },
+      }),
+    );
+    await expect(
+      supportPlugin().endpoints.supportStart({
+        ...ctx(),
+        body: { userId: "other-staff", reason: "" },
+      } as never),
+    ).rejects.toThrow("cannot be impersonated");
+    expect(create).not.toHaveBeenCalled();
+    expect(audit).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operation: "impersonation.denied",
+        targetUserId: "other-staff",
+        summary: { reason: null },
+      }),
+    });
+    expect(mocks.set).not.toHaveBeenCalled();
+  },
+);
