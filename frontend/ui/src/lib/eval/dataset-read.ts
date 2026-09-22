@@ -32,9 +32,12 @@ type Body = Record<string, unknown>;
 const INVALID_CURSOR = { ok: false, status: 400, error: "Invalid cursor" } as const;
 
 /**
- * A page size from a query string or a JSON number, clamped rather than rejected, so no
- * read can return an unbounded page. Never below 1: a fraction such as 0.5 would floor to
- * an empty page that still claims a next page.
+ * A page size from a query string or a JSON number, clamped rather than rejected.
+ *
+ * The PUBLISHED bound is the gateway's, which rejects an out-of-range value with 422. This
+ * clamp is the backstop for a request that reaches the control plane without passing the
+ * gateway, so neither layer can return an unbounded body. Never below 1: a fraction such
+ * as 0.5 would floor to an empty page that still claims a next page.
  */
 export function clampLimit(raw: unknown, fallback: number, max: number): number {
   const n = Number(raw);

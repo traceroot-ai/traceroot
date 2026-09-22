@@ -288,6 +288,80 @@ export const RegisterRunResponseSchema = z.object({
 });
 export type RegisterRunResponse = z.infer<typeof RegisterRunResponseSchema>;
 
+// ---------------------------------------------------------------------------
+// Dataset reads (public: an API key, or a user login plus project_id)
+// ---------------------------------------------------------------------------
+
+/**
+ * A dataset as the public API describes it.
+ *
+ * `dataset_id` is the id a CLIENT addresses the dataset by — its own
+ * `client_dataset_id` when it created the dataset, or the row id for one authored in the
+ * UI. `key` is the pre-image of that id, returned so a pulled dataset recovers its key
+ * when key and name differ.
+ *
+ * No case count: no dataset read computes one, and deriving it here would need an N+1
+ * over versions. It lives on a version, where it is one grouped aggregate.
+ */
+export const PublicDatasetSchema = z.object({
+  dataset_id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  current_dataset_version_id: z.string().nullable(),
+  key: z.string().nullable(),
+});
+
+export const ListDatasetsResponseSchema = z.object({
+  datasets: z.array(PublicDatasetSchema),
+  /** Opaque row id. Null at the end, so a client loops until null rather than counting. */
+  next_cursor: z.string().nullable(),
+});
+
+// A single-dataset read returns exactly `PublicDataset` — no wrapper, no cursor. There is
+// deliberately no alias export for it: registering one Zod object under two ids makes the
+// generated `$ref` depend on registration order, so the one name is the contract.
+
+export const PublicDatasetVersionSchema = z.object({
+  dataset_version_id: z.string(),
+  version_number: z.number().int(),
+  label: z.string().nullable(),
+  note: z.string().nullable(),
+  case_count: z.number().int().nonnegative(),
+  created_at: z.string(),
+  /** Whether this version is the dataset's currently-published one. */
+  is_current: z.boolean(),
+});
+
+export const ListDatasetVersionsResponseSchema = z.object({
+  versions: z.array(PublicDatasetVersionSchema),
+  next_cursor: z.string().nullable(),
+});
+
+/**
+ * One test case in a version snapshot. `input` and `expected` are NATIVE JSON values —
+ * an object stays an object, a JSON-looking string stays a string — which is why they are
+ * `unknown` rather than `string`.
+ */
+export const PublicTestCaseSchema = z.object({
+  test_case_id: z.string(),
+  input: z.unknown(),
+  expected: z.unknown(),
+  metadata: z.unknown(),
+  /** Provenance when the case was captured from a trace. Null is normal, not an error. */
+  source_trace_id: z.string().nullable(),
+  source_span_id: z.string().nullable(),
+});
+
+/** A version snapshot: the version's identity plus a PAGE of its cases. */
+export const GetDatasetVersionResponseSchema = z.object({
+  dataset_version_id: z.string(),
+  dataset_id: z.string(),
+  version_number: z.number().int(),
+  label: z.string().nullable(),
+  items: z.array(PublicTestCaseSchema),
+  next_cursor: z.string().nullable(),
+});
+
 /**
  * Upsert one test-case result. Idempotent on (`run_id`, `test_case_id`).
  * `trace_id` may be null now and set on a later call (out-of-order arrival).

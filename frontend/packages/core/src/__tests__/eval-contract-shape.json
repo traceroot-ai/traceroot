@@ -338,6 +338,192 @@
         }
       }
     },
+    "PublicDataset": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "dataset_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "description": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "current_dataset_version_id": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "key": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "ListDatasetsResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "datasets": {
+          "type": "array",
+          "items": {
+            "type": "PublicDataset"
+          },
+          "required": true,
+          "nullable": false
+        },
+        "next_cursor": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "PublicDatasetVersion": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "dataset_version_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "version_number": {
+          "type": "integer",
+          "required": true,
+          "nullable": false
+        },
+        "label": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "note": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "case_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "created_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "is_current": {
+          "type": "boolean",
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "ListDatasetVersionsResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "versions": {
+          "type": "array",
+          "items": {
+            "type": "PublicDatasetVersion"
+          },
+          "required": true,
+          "nullable": false
+        },
+        "next_cursor": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "PublicTestCase": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "test_case_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "input": {
+          "type": "any",
+          "required": true,
+          "nullable": false
+        },
+        "expected": {
+          "type": "any",
+          "required": true,
+          "nullable": false
+        },
+        "metadata": {
+          "type": "any",
+          "required": true,
+          "nullable": false
+        },
+        "source_trace_id": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "source_span_id": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "GetDatasetVersionResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "dataset_version_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "dataset_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "version_number": {
+          "type": "integer",
+          "required": true,
+          "nullable": false
+        },
+        "label": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "PublicTestCase"
+          },
+          "required": true,
+          "nullable": false
+        },
+        "next_cursor": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
     "UpsertResultRequest": {
       "kind": "object",
       "unknown_keys": "forbid",

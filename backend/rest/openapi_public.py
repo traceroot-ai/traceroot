@@ -598,6 +598,12 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
     },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
+    # Dataset reads are published so a generated client can bind them. Exposing them as
+    # registry tools is a separate step; the dataset writes stay off the registry entirely.
+    "list_datasets": {"enabled": False},
+    "get_dataset": {"enabled": False},
+    "list_dataset_versions": {"enabled": False},
+    "get_dataset_version": {"enabled": False},
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
     "complete_run": {"enabled": False},
