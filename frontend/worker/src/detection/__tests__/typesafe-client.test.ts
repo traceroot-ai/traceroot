@@ -35,6 +35,10 @@ const OK_BODY = {
   usage: { input_tokens: 810, output_tokens: 63 },
 };
 
+/** Fixed clock, so an HTTP-date retry-after is an exact distance away. */
+const NOW = new Date("2026-01-01T00:00:00.000Z");
+const HTTP_DATE_IN_2S = new Date(NOW.getTime() + 2_000).toUTCString();
+
 function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}) {
   return new Response(typeof body === "string" ? body : JSON.stringify(body), {
     status,
@@ -235,6 +239,44 @@ describe("callSystemOne (stubbed fetch)", () => {
       const err = await p;
       expect(err.message).toBe("TypeSafe systemone returned 529: overloaded");
       expect(fetchMock).toHaveBeenCalledTimes(MAX_RETRIES + 1);
+    });
+
+    const delayCases: Array<[string, Record<string, string>, number]> = [
+      ["an HTTP-date retry-after", { "retry-after": HTTP_DATE_IN_2S }, 2_000],
+      ["an unparseable retry-after", { "retry-after": "in a bit" }, 500],
+      ["a negative retry-after-ms", { "retry-after-ms": "-250" }, 500],
+      ["a non-numeric retry-after-ms", { "retry-after-ms": "later" }, 500],
+      ["no retry headers at all", {}, 500],
+    ];
+
+    it.each(delayCases)("waits for %s before retrying", async (_name, headers, expectedMs) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(NOW);
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse(429, {}, headers))
+        .mockResolvedValueOnce(jsonResponse(200, OK_BODY));
+      const p = call();
+      await vi.advanceTimersByTimeAsync(expectedMs - 1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await p).model).toBe("jev-1.13.0");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("doubles the header-less backoff between retries: 500ms, then 1s", async () => {
+      vi.useFakeTimers();
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse(429, {}))
+        .mockResolvedValueOnce(jsonResponse(429, {}))
+        .mockResolvedValueOnce(jsonResponse(200, OK_BODY));
+      const p = call();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await p).model).toBe("jev-1.13.0");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it("does not wait past the deadline: a retry-after longer than the budget fails now", async () => {
