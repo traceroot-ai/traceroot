@@ -49,6 +49,10 @@ describe("createRegistryReadTools", () => {
       "list_alerts",
       "get_alert",
       "get_evaluation_run",
+      "list_datasets",
+      "get_dataset",
+      "list_dataset_versions",
+      "get_dataset_version",
     ]);
   });
 
@@ -597,6 +601,68 @@ describe("createRegistryReadTools", () => {
     expect(Object.keys(properties).sort()).toEqual(["label", "run_id"]);
   });
 
+  it.each([
+    [
+      "list_datasets",
+      { limit: 5, name: "refunds" },
+      "http://fastapi.test/api/v1/internal/projects/p1/datasets?limit=5&name=refunds",
+    ],
+    [
+      "get_dataset",
+      { dataset_id: "ds_1" },
+      "http://fastapi.test/api/v1/internal/projects/p1/datasets/ds_1",
+    ],
+    [
+      "list_dataset_versions",
+      { dataset_id: "ds_1", limit: 5 },
+      "http://fastapi.test/api/v1/internal/projects/p1/datasets/ds_1/versions?limit=5",
+    ],
+    [
+      "get_dataset_version",
+      { version_id: "dv_1" },
+      "http://fastapi.test/api/v1/internal/projects/p1/dataset-versions/dv_1?limit=20",
+    ],
+  ])("%s hits its internal dataset route", async (name, args, expected) => {
+    const impl = stubFetch({});
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+    await tool.execute("id", { label: "x", ...args });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe(expected);
+    expect((init as RequestInit).headers).toMatchObject({
+      "X-Internal-Secret": "s3cret",
+      "x-user-id": "u1",
+    });
+  });
+
+  it("pins a version read to the cases the formatter shows, whatever the model sends", async () => {
+    const impl = stubFetch({});
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dataset_version")!;
+    await tool.execute("id", { label: "x", version_id: "dv_1", limit: 500, cursor: "guessed" });
+    const [url] = impl.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/dataset-versions/dv_1?limit=20",
+    );
+  });
+
+  it.each(["list_datasets", "list_dataset_versions", "get_dataset_version"])(
+    "%s offers the model no cursor, so v0.5 reads the first page only",
+    (name) => {
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
+      expect(properties).not.toHaveProperty("cursor");
+      expect(tool.description).not.toContain("next_cursor");
+    },
+  );
+
+  it("offers get_dataset_version no page size either, and says it reads the first cases", () => {
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dataset_version")!;
+    const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
+    expect(Object.keys(properties).sort()).toEqual(["label", "version_id"]);
+    expect(tool.description).toContain("Returns the version's first 20 cases");
+    // The registry's own paging advice names params this surface pins, so none of it survives.
+    expect(tool.description).not.toMatch(/next_cursor|pass limit|whole version/);
+  });
+
   it("returns HTTP failures as tool text instead of throwing", async () => {
     vi.stubGlobal(
       "fetch",
@@ -628,6 +694,10 @@ describe("createTools", () => {
     "list_alerts",
     "get_alert",
     "get_evaluation_run",
+    "list_datasets",
+    "get_dataset",
+    "list_dataset_versions",
+    "get_dataset_version",
   ];
   const WRITE_TOOL_NAMES = [
     "create_detector",
