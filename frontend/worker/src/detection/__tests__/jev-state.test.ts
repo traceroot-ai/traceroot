@@ -146,6 +146,19 @@ describe("buildJevState reduction", () => {
     expect(stats.final_chars).toBeLessThanOrEqual(12_000);
   });
 
+  it("truncates a huge status_message at the same cap as inputs", () => {
+    const rows = [row({ status: "ERROR", status_message: "s".repeat(50_000) })];
+    const { state, stats } = buildJevState(jsonl(rows), { budgetChars: 12_000 });
+    const [span] = traceOf(state).spans;
+    expect(stats.input_cap_chars).toBe(8_000);
+    expect(stats.truncated_status_messages).toBe(1);
+    expect(stats.truncated_inputs).toBe(0);
+    expect(stats.dropped_metadata).toBe(0);
+    expect(stats.omitted_spans).toBe(0);
+    expect(span.status_message).toBe(`${"s".repeat(8_000)}\u2026[truncated 42000 chars]`);
+    expect(stats.final_chars).toBeLessThanOrEqual(12_000);
+  });
+
   it("drops metadata once the tightest input cap is not enough", () => {
     const bigMeta = JSON.stringify({ blob: "m".repeat(3_000) });
     const rows = [row({ metadata: bigMeta }), row({ span_id: "s2", metadata: bigMeta })];

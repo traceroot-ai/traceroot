@@ -4,9 +4,10 @@
  * Jev reads real structure instead of escaped text.
  *
  * Jev's limit is in tokens, so the state is held to a character budget by a
- * deterministic reduction: truncate inputs, drop metadata, truncate outputs
- * (head and tail), then drop middle spans behind an `omitted_spans` marker. A
- * state still over budget throws; the caller fails the run.
+ * deterministic reduction: truncate inputs and status messages, drop metadata,
+ * truncate outputs (head and tail), then drop middle spans behind an
+ * `omitted_spans` marker. A state still over budget throws; the caller fails
+ * the run.
  */
 
 import type { JsonValue } from "./typesafe-client.js";
@@ -62,6 +63,7 @@ interface Reduction {
   spans: SpanState[];
   step: Step | null;
   truncatedInputs: number;
+  truncatedStatusMessages: number;
   truncatedOutputs: number;
 }
 
@@ -107,6 +109,7 @@ function truncate(value: JsonValue, cap: number, keepTail: boolean): JsonValue {
 
 function applyReductions(spans: SpanState[], step: Step): Reduction {
   let truncatedInputs = 0;
+  let truncatedStatusMessages = 0;
   let truncatedOutputs = 0;
   const reduced = spans.map((span) => {
     const out: SpanState = { ...span };
@@ -114,6 +117,11 @@ function applyReductions(spans: SpanState[], step: Step): Reduction {
       const before = out.input;
       out.input = truncate(before, step.inputCap, false);
       if (out.input !== before) truncatedInputs++;
+    }
+    if (out.status_message !== undefined) {
+      const before = out.status_message;
+      out.status_message = truncate(before, step.inputCap, false);
+      if (out.status_message !== before) truncatedStatusMessages++;
     }
     if (step.dropMetadata) {
       for (const column of METADATA_COLUMNS) delete out[column];
@@ -125,7 +133,7 @@ function applyReductions(spans: SpanState[], step: Step): Reduction {
     }
     return out;
   });
-  return { spans: reduced, step, truncatedInputs, truncatedOutputs };
+  return { spans: reduced, step, truncatedInputs, truncatedStatusMessages, truncatedOutputs };
 }
 
 function wrap(traceId: string | null, spanCount: number, spans: JsonValue[]): JsonValue {
@@ -166,6 +174,7 @@ export function buildJevState(spansJsonl: string, opts?: { budgetChars?: number 
     kept_spans: spanCount - omittedSpans,
     omitted_spans: omittedSpans,
     truncated_inputs: r.truncatedInputs,
+    truncated_status_messages: r.truncatedStatusMessages,
     input_cap_chars: r.step?.inputCap ?? 0,
     dropped_metadata: r.step?.dropMetadata ? 1 : 0,
     truncated_outputs: r.truncatedOutputs,
@@ -176,7 +185,13 @@ export function buildJevState(spansJsonl: string, opts?: { budgetChars?: number 
     budget_chars: budget,
   });
 
-  let last: Reduction = { spans, step: null, truncatedInputs: 0, truncatedOutputs: 0 };
+  let last: Reduction = {
+    spans,
+    step: null,
+    truncatedInputs: 0,
+    truncatedStatusMessages: 0,
+    truncatedOutputs: 0,
+  };
   if (originalChars <= budget) {
     return { state: wrap(traceId, spanCount, spans), stats: stats(originalChars, last, 0) };
   }
@@ -216,6 +231,7 @@ export function buildJevState(spansJsonl: string, opts?: { budgetChars?: number 
   throw new Error(
     `Jev state does not fit the ${budget}-char budget: ` +
       `${originalChars} chars across ${spanCount} spans, still over budget after truncating ` +
-      `inputs, dropping metadata, truncating outputs and keeping only the first span`,
+      `inputs and status messages, dropping metadata, truncating outputs and keeping only the ` +
+      `first span`,
   );
 }
