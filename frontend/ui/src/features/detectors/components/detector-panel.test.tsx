@@ -160,6 +160,12 @@ describe("DetectorPanel", () => {
     expect(mocks.selectorProps?.defaultModelId).toBe(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
   });
 
+  it("lets the detector picker offer decision models (TypeSafe)", () => {
+    mocks.detector = baseDetector;
+    renderPanel();
+    expect(mocks.selectorProps?.allowDecisionModels).toBe(true);
+  });
+
   it("clears the form and disables Save while the loaded detector does not match the id", () => {
     mocks.detector = baseDetector;
     renderPanel("det-2");
