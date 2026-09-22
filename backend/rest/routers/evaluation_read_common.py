@@ -18,6 +18,7 @@ import logging
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
+from pydantic_core import PydanticSerializationError
 
 from rest.routers.internal_read_proxy import post_internal_read, service_error
 from rest.schemas.eval import (
@@ -51,16 +52,21 @@ async def _read(payload: dict[str, Any], model: type[_Model], what: str) -> _Mod
 
     Raises:
         HTTPException: 400/403/404 passed through; 503 (fail closed) on any upstream
-            ambiguity, including a body outside the contract.
+            ambiguity, including a body outside the contract or one JSON can't carry.
     """
     data = await post_internal_read(
         _INTERNAL_PATH, payload, service=_SERVICE, timeout=_TIMEOUT_SECONDS
     )
     try:
-        return model.model_validate(data)
-    except ValidationError as e:
+        validated = model.model_validate(data)
+        # Serialized here too: a string JSON output can't carry (a lone UTF-16 surrogate in
+        # stored case text) must fail closed now, not escape as a 500 once the response is
+        # being written.
+        validated.model_dump_json()
+    except (ValidationError, PydanticSerializationError) as e:
         logger.error(f"Evaluation service returned {what} outside the contract")
         raise service_error(_SERVICE) from e
+    return validated
 
 
 async def list_datasets_page(
