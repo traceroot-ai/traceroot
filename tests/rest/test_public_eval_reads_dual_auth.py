@@ -46,13 +46,14 @@ DATASET = {
     "description": None,
     "current_dataset_version_id": "dv_3",
     "key": "refunds",
+    "updated_at": "2026-09-14T00:00:00.000Z",
 }
 # (path, the read the internal route is asked for, a body inside the contract)
 READS = [
     (
         "/api/v1/public/datasets",
         "datasets",
-        {"datasets": [{**DATASET, "updated_at": "2026-09-14T00:00:00.000Z"}], "next_cursor": None},
+        {"datasets": [DATASET], "next_cursor": None},
     ),
     ("/api/v1/public/datasets/refunds", "dataset", DATASET),
     (
@@ -101,10 +102,11 @@ def _with_project(path: str, project_id: str) -> str:
 def test_a_signed_in_user_reads_their_project(path, read, body):
     _mock_user()
     internal = respx.post(INTERNAL_URL).mock(return_value=Response(200, json=body))
-    resp = _client().get(_with_project(path, "proj-A"), headers=USER_HEADER)
+    # The caller names one project; the introspection resolves the credential to proj-A.
+    # The read must use what the credential resolved, never the caller's own value.
+    resp = _client().get(_with_project(path, "proj-requested"), headers=USER_HEADER)
     assert resp.status_code == 200
     sent = json.loads(internal.calls.last.request.content)
-    # Scoped to the project the credential resolved, not to anything else the caller sent.
     assert sent["read"] == read
     assert sent["projectId"] == "proj-A"
 

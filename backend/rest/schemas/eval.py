@@ -330,6 +330,8 @@ class PublicDataset(BaseModel):
     description: str | None
     current_dataset_version_id: str | None
     key: str | None
+    # When the dataset row last changed (ISO 8601).
+    updated_at: str
 
 
 class ListDatasetsResponse(BaseModel):

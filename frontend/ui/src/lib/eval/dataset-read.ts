@@ -113,12 +113,15 @@ export async function getDatasetDetail(input: {
   return {
     ok: true,
     body: {
-      dataset_id: input.datasetId,
+      // The canonical id, as the list and version reads report it: a dataset addressed by
+      // its row id still answers with the SDK's own id when it has one.
+      dataset_id: dataset.clientDatasetId ?? dataset.id,
       name: dataset.name,
       description: dataset.description,
       current_dataset_version_id: dataset.currentVersionId,
       // The pre-image of dataset_id, so a pulled dataset recovers its key (key != name).
       key: dataset.key,
+      updated_at: dataset.updateTime.toISOString(),
     },
   };
 }

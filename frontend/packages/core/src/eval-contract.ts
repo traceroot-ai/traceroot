@@ -309,6 +309,8 @@ export const PublicDatasetSchema = z.object({
   description: z.string().nullable(),
   current_dataset_version_id: z.string().nullable(),
   key: z.string().nullable(),
+  /** When the dataset row last changed (ISO 8601). */
+  updated_at: z.string(),
 });
 
 export const ListDatasetsResponseSchema = z.object({

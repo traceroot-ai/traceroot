@@ -499,7 +499,11 @@ describe("B1: cancelled run status", () => {
 });
 
 describe("a version's cases are paged, and the page size is capped server-side", () => {
-  /** Publish `n` cases into one version and return its id. */
+  /**
+   * Publish `n` cases into one version and return its id. A publish carries at most 1000
+   * changes and each version carries the previous one's cases forward, so a larger set is
+   * built from successive publishes and the last version holds all of them.
+   */
   async function publishCases(n: number): Promise<string> {
     fakePrisma.dataset.rows.push({
       id: "ds_big",
@@ -507,19 +511,23 @@ describe("a version's cases are paged, and the page size is capped server-side",
       projectId: PROJECT_ID,
       name: "big",
     });
-    const res = await publishVersion(
-      req({
-        base_version_id: null,
-        changes: Array.from({ length: n }, (_, i) => ({
-          op: "upsert",
-          test_case_id: `tc_${String(i).padStart(4, "0")}`,
-          input: `case ${i}`,
-        })),
-      }),
-      dsParams("ds_big"),
-    );
-    expect(res.status).toBe(201);
-    return (await readJson(res)).dataset_version_id as string;
+    let versionId: string | null = null;
+    for (let start = 0; start < n; start += 1000) {
+      const res = await publishVersion(
+        req({
+          base_version_id: versionId,
+          changes: Array.from({ length: Math.min(1000, n - start) }, (_, j) => ({
+            op: "upsert",
+            test_case_id: `tc_${String(start + j).padStart(4, "0")}`,
+            input: `case ${start + j}`,
+          })),
+        }),
+        dsParams("ds_big"),
+      );
+      expect(res.status).toBe(201);
+      versionId = (await readJson(res)).dataset_version_id as string;
+    }
+    return versionId as string;
   }
 
   it("returns a bounded page and a cursor that walks the rest", async () => {
@@ -555,12 +563,13 @@ describe("a version's cases are paged, and the page size is capped server-side",
     // out-of-range limit is a 422 — asserted in tests/rest/test_public_eval_gateway.py,
     // matching every other public paged read. This layer only guarantees that a request
     // which somehow bypasses the gateway still cannot pull an unbounded body.
-    const versionId = await publishCases(5);
+    // More cases than the cap, so an unclamped read would return all 1001 and no cursor.
+    const versionId = await publishCases(1001);
     const body = await readJson(
       await readVersion(getReq("?limit=999999"), versionParams(versionId)),
     );
-    expect((body.items as unknown[]).length).toBe(5);
-    expect(body.next_cursor).toBeNull();
+    expect((body.items as unknown[]).length).toBe(1000);
+    expect(body.next_cursor).toBeTruthy();
   });
 
   it("reads a fractional limit as a page of one, not an empty page that claims more", async () => {
@@ -582,16 +591,17 @@ describe("a version's cases are paged, and the page size is capped server-side",
   });
 
   it("pages at the default size once the caller pages at all", async () => {
-    const versionId = await publishCases(250);
+    // More than two default pages, so each page's size is the bound and not a remainder.
+    const versionId = await publishCases(450);
     const first = await readJson(await readVersion(getReq("?limit=abc"), versionParams(versionId)));
     expect((first.items as unknown[]).length).toBe(200);
     expect(first.next_cursor).toBeTruthy();
-    // A cursor alone is paging too: it continues at the default size.
-    const rest = await readJson(
+    // A cursor alone is paging too: it continues at the default size of 200.
+    const second = await readJson(
       await readVersion(getReq(`?cursor=${first.next_cursor}`), versionParams(versionId)),
     );
-    expect((rest.items as unknown[]).length).toBe(50);
-    expect(rest.next_cursor).toBeNull();
+    expect((second.items as unknown[]).length).toBe(200);
+    expect(second.next_cursor).toBeTruthy();
   });
 
   it("defaults to a bounded page when limit is nonsense", async () => {

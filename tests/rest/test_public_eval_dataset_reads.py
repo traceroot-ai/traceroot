@@ -38,10 +38,12 @@ DATASET = {
     "description": None,
     "current_dataset_version_id": "dv_3",
     "key": "refunds",
+    "updated_at": "2026-09-14T00:00:00.000Z",
 }
 
 LIST_BODY = {
-    "datasets": [{**DATASET, "updated_at": "2026-09-14T00:00:00.000Z"}],
+    # One field the contract doesn't have, to prove the typed boundary drops it.
+    "datasets": [{**DATASET, "row_version": 7}],
     "next_cursor": "row_9",
 }
 
@@ -113,7 +115,7 @@ def test_list_datasets_sends_the_default_page_and_drops_fields_outside_the_contr
     internal = _mock_internal(LIST_BODY)
     resp = _client().get("/api/v1/public/datasets", headers=KEY_HEADER)
     assert resp.status_code == 200
-    # The contract never had updated_at; the typed boundary does not publish it.
+    # A field outside the contract is dropped at the typed boundary; updated_at is kept.
     assert resp.json() == {"datasets": [DATASET], "next_cursor": "row_9"}
     assert _sent(internal) == {"read": "datasets", "projectId": "proj-A", "limit": 50}
 

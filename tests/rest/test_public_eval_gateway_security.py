@@ -221,13 +221,20 @@ class TestRateLimiting:
         its own dependency; every other route, including each catch-all, stays on the
         API-key one.
         """
+        # The typed reads are the published GET routes: the catch-alls are hidden, and the
+        # typed writes are POSTs. Derived from the routes rather than listed, so the set
+        # can't name a route that doesn't exist, and a read added later is covered.
         typed_reads = {
+            route.endpoint.__name__
+            for route in _eval_routes()
+            if route.include_in_schema and route.methods == {"GET"}
+        }
+        assert {
             "list_datasets",
             "get_dataset",
             "list_dataset_versions",
             "get_dataset_version",
-            "read_run",
-        }
+        } <= typed_reads, typed_reads
         for route in _eval_routes():
             calls = [d.call for d in route.dependant.dependencies]
             if route.endpoint.__name__ in typed_reads:

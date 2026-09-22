@@ -285,6 +285,17 @@ _EVAL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     422: {"model": ErrorResponse, "description": "Validation error"},
 }
 
+# The reads take no body, so they can never be too large. What they can do is refuse a
+# signed-in user who isn't a member of the project (403) and hit the rate limit (429).
+# 401 and 503 are added to every public operation by the schema builder.
+_EVAL_READ_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": ErrorResponse, "description": "Invalid request"},
+    403: {"model": ErrorResponse, "description": "No access to this project"},
+    404: {"model": ErrorResponse, "description": "Not found"},
+    422: {"model": ErrorResponse, "description": "Validation error"},
+    429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
+}
+
 
 # --- Dataset reads (typed + published; the writes stay on the catch-alls) ---
 #
@@ -299,7 +310,7 @@ _EVAL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     "/datasets",
     operation_id="list_datasets",
     response_model=ListDatasetsResponse,
-    responses=_EVAL_ERROR_RESPONSES,
+    responses=_EVAL_READ_RESPONSES,
     summary="List the project's evaluation datasets",
 )
 @limiter.shared_limit(
@@ -325,7 +336,7 @@ async def list_datasets(
     "/datasets/{dataset_id}",
     operation_id="get_dataset",
     response_model=PublicDataset,
-    responses=_EVAL_ERROR_RESPONSES,
+    responses=_EVAL_READ_RESPONSES,
     summary="Read one evaluation dataset",
 )
 @limiter.shared_limit(
@@ -342,7 +353,7 @@ async def get_dataset(
     "/datasets/{dataset_id}/versions",
     operation_id="list_dataset_versions",
     response_model=ListDatasetVersionsResponse,
-    responses=_EVAL_ERROR_RESPONSES,
+    responses=_EVAL_READ_RESPONSES,
     summary="List a dataset's published versions",
 )
 @limiter.shared_limit(
@@ -366,7 +377,7 @@ async def list_dataset_versions(
     "/dataset-versions/{version_id}",
     operation_id="get_dataset_version",
     response_model=GetDatasetVersionResponse,
-    responses=_EVAL_ERROR_RESPONSES,
+    responses=_EVAL_READ_RESPONSES,
     summary="Read one dataset version and a page of its test cases",
 )
 @limiter.shared_limit(

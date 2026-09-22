@@ -623,8 +623,9 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "name": "list_dataset_versions",
         "description": (
             "List a dataset's published versions, newest first, each with its case count "
-            "and whether it is the current one. Versions are immutable snapshots; editing "
-            "a dataset publishes a new one rather than changing an old one."
+            "and whether it is the current one. Versions are immutable snapshots: editing a "
+            "dataset's test cases publishes a new version rather than changing an old one, "
+            "while renaming a dataset or changing its description publishes nothing."
         ),
         "enabled": True,
     },

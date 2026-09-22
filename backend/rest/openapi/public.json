@@ -3039,6 +3039,10 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
           }
         },
         "required": [
@@ -3046,7 +3050,8 @@
           "name",
           "description",
           "current_dataset_version_id",
-          "key"
+          "key",
+          "updated_at"
         ],
         "title": "PublicDataset",
         "type": "object"
@@ -8150,6 +8155,16 @@
             },
             "description": "Authentication failed"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -8160,16 +8175,6 @@
             },
             "description": "Not found"
           },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request body too large"
-          },
           "422": {
             "content": {
               "application/json": {
@@ -8179,6 +8184,16 @@
               }
             },
             "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
           },
           "503": {
             "content": {
@@ -8316,6 +8331,16 @@
             },
             "description": "Authentication failed"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -8326,16 +8351,6 @@
             },
             "description": "Not found"
           },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request body too large"
-          },
           "422": {
             "content": {
               "application/json": {
@@ -8345,6 +8360,16 @@
               }
             },
             "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
           },
           "503": {
             "content": {
@@ -8437,6 +8462,16 @@
             },
             "description": "Authentication failed"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -8447,16 +8482,6 @@
             },
             "description": "Not found"
           },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request body too large"
-          },
           "422": {
             "content": {
               "application/json": {
@@ -8466,6 +8491,16 @@
               }
             },
             "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
           },
           "503": {
             "content": {
@@ -8592,6 +8627,16 @@
             },
             "description": "Authentication failed"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -8602,16 +8647,6 @@
             },
             "description": "Not found"
           },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request body too large"
-          },
           "422": {
             "content": {
               "application/json": {
@@ -8621,6 +8656,16 @@
               }
             },
             "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
           },
           "503": {
             "content": {
@@ -8643,7 +8688,7 @@
           "Offline Eval (Public)"
         ],
         "x-tool": {
-          "description": "List a dataset's published versions, newest first, each with its case count and whether it is the current one. Versions are immutable snapshots; editing a dataset publishes a new one rather than changing an old one.",
+          "description": "List a dataset's published versions, newest first, each with its case count and whether it is the current one. Versions are immutable snapshots: editing a dataset's test cases publishes a new version rather than changing an old one, while renaming a dataset or changing its description publishes nothing.",
           "enabled": true,
           "name": "list_dataset_versions"
         }

@@ -366,6 +366,11 @@
           "type": "string",
           "required": true,
           "nullable": true
+        },
+        "updated_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
         }
       }
     },

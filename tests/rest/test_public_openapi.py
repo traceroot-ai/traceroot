@@ -275,6 +275,21 @@ def test_untyped_dataset_catch_alls_stay_hidden():
     }
 
 
+def test_dataset_reads_document_the_errors_a_read_can_return():
+    """A read can be refused for a project the caller can't see (403) or rate-limited
+    (429). It takes no body, so a 413 would be a false promise."""
+    paths = _schema()["paths"]
+    for path in (
+        "/api/v1/public/datasets",
+        "/api/v1/public/datasets/{dataset_id}",
+        "/api/v1/public/datasets/{dataset_id}/versions",
+        "/api/v1/public/dataset-versions/{version_id}",
+    ):
+        responses = paths[path]["get"]["responses"]
+        assert {"401", "403", "404", "422", "429", "503"} <= set(responses), path
+        assert "413" not in responses, path
+
+
 def test_session_read_routes_document_error_responses():
     paths = _schema()["paths"]
     assert set(paths["/api/v1/public/sessions"]["get"]["responses"]) >= {"200", "401", "500"}
