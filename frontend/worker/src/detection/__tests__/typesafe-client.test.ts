@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { callSystemOne, MAX_RETRIES, type SystemOneQuestion } from "../typesafe-client.js";
+import {
+  callSystemOne,
+  usageFromError,
+  MAX_RETRIES,
+  type SystemOneQuestion,
+} from "../typesafe-client.js";
 
 const API_KEY = "ts-test-secret-key";
 const BASE_URL = "https://api.typesafe.ai/v1";
@@ -168,6 +173,22 @@ describe("callSystemOne (stubbed fetch)", () => {
       expect(err.message).toMatch(/malformed response/);
       expect(err.message).toMatch(message);
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("usage on a rejected 200", () => {
+    it("attaches the billed tokens to the malformed-response error", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, withAnswers({ gate: { type: "noul", noul: 1.2 } })),
+      );
+      const err = await callError();
+      expect(err.message).toMatch(/malformed response/);
+      expect(usageFromError(err)).toEqual({ inputTokens: 810, outputTokens: 63 });
+    });
+
+    it("has no usage to bill when the body carried none", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, withAnswers({}, { usage: undefined })));
+      expect(usageFromError(await callError())).toBeNull();
     });
   });
 

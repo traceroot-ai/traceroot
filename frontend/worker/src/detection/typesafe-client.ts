@@ -129,6 +129,18 @@ export async function callSystemOne<Q extends SystemOneQuestions>(
   }
 }
 
+/**
+ * Tokens TypeSafe billed for a response we rejected, or null when the failure
+ * happened before any usage could be read.
+ */
+export function usageFromError(err: unknown): SystemOneResult["usage"] | null {
+  const usage = err instanceof Error ? (err as { usage?: unknown }).usage : undefined;
+  if (!isRecord(usage) || !isTokenCount(usage.inputTokens) || !isTokenCount(usage.outputTokens)) {
+    return null;
+  }
+  return { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens };
+}
+
 function statusError(status: number, rawBody: string): Error {
   const detail = describeDetail(rawBody);
   const message = `TypeSafe systemone returned ${status}${detail ? `: ${detail}` : ""}`;
@@ -221,31 +233,38 @@ function parseResult<Q extends SystemOneQuestions>(text: string, questions: Q): 
   if (!isRecord(parsed)) throw malformed("body is not an object");
   if (!isRecord(parsed.answers)) throw malformed("missing answers");
 
-  const answers: Record<string, SystemOneAnswer> = {};
-  for (const [name, question] of Object.entries(questions)) {
-    const raw = parsed.answers[name];
-    if (!isRecord(raw)) throw malformed(`question "${name}" was not answered`);
-    if (raw.type !== question.type) {
-      throw malformed(`answer "${name}" has type ${String(raw.type)}, expected ${question.type}`);
-    }
-    answers[name] =
-      question.type === "noul"
-        ? parseNoul(name, raw)
-        : parseChoice(name, raw, Object.keys(question.criteria));
-  }
-
+  // Usage is read before the answers are checked: TypeSafe bills a 200 whose
+  // answers we then reject, so the error has to carry the tokens to bill.
   const usage = parsed.usage;
   if (!isRecord(usage) || !isTokenCount(usage.input_tokens) || !isTokenCount(usage.output_tokens)) {
     throw malformed("missing or invalid usage");
   }
-  if (parsed.model !== undefined && parsed.model !== null && typeof parsed.model !== "string") {
-    throw malformed("model is not a string");
+  const billed = { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens };
+
+  const answers: Record<string, SystemOneAnswer> = {};
+  try {
+    for (const [name, question] of Object.entries(questions)) {
+      const raw = parsed.answers[name];
+      if (!isRecord(raw)) throw malformed(`question "${name}" was not answered`);
+      if (raw.type !== question.type) {
+        throw malformed(`answer "${name}" has type ${String(raw.type)}, expected ${question.type}`);
+      }
+      answers[name] =
+        question.type === "noul"
+          ? parseNoul(name, raw)
+          : parseChoice(name, raw, Object.keys(question.criteria));
+    }
+    if (parsed.model !== undefined && parsed.model !== null && typeof parsed.model !== "string") {
+      throw malformed("model is not a string");
+    }
+  } catch (err) {
+    throw err instanceof Error ? Object.assign(err, { usage: billed }) : err;
   }
 
   return {
     // Each answer was checked above against its question's type.
     answers: answers as SystemOneResult<Q>["answers"],
-    usage: { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens },
+    usage: billed,
     model: typeof parsed.model === "string" ? parsed.model : null,
   };
 }
