@@ -224,6 +224,7 @@ describe("INTERNAL_BINDINGS", () => {
       get_widget_data: "/api/v1/internal/projects/{project_id}/widgets/{widget_id}/data",
       list_alerts: "/api/v1/internal/projects/{project_id}/alerts",
       get_alert: "/api/v1/internal/projects/{project_id}/alerts/{alert_id}",
+      read_evaluation_run: "/api/v1/internal/projects/{project_id}/evaluation-runs/{run_id}",
     });
   });
 });
