@@ -190,6 +190,13 @@ describe("callSystemOne (stubbed fetch)", () => {
       fetchMock.mockResolvedValue(jsonResponse(200, withAnswers({}, { usage: undefined })));
       expect(usageFromError(await callError())).toBeNull();
     });
+
+    it("attaches the billed tokens when the body carried no answers at all", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, { model: "jev-1.13.0", usage: OK_BODY.usage }));
+      const err = await callError();
+      expect(err.message).toMatch(/missing answers/);
+      expect(usageFromError(err)).toEqual({ inputTokens: 810, outputTokens: 63 });
+    });
   });
 
   describe("terminal errors", () => {

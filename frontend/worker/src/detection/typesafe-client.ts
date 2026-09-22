@@ -231,7 +231,6 @@ function parseResult<Q extends SystemOneQuestions>(text: string, questions: Q): 
     throw malformed("body is not JSON");
   }
   if (!isRecord(parsed)) throw malformed("body is not an object");
-  if (!isRecord(parsed.answers)) throw malformed("missing answers");
 
   // Usage is read before the answers are checked: TypeSafe bills a 200 whose
   // answers we then reject, so the error has to carry the tokens to bill.
@@ -243,6 +242,7 @@ function parseResult<Q extends SystemOneQuestions>(text: string, questions: Q): 
 
   const answers: Record<string, SystemOneAnswer> = {};
   try {
+    if (!isRecord(parsed.answers)) throw malformed("missing answers");
     for (const [name, question] of Object.entries(questions)) {
       const raw = parsed.answers[name];
       if (!isRecord(raw)) throw malformed(`question "${name}" was not answered`);
