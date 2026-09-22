@@ -218,11 +218,18 @@ async function runSingleDetector(params: {
   // degrades selfTraced to false.
   const run = await withSelfTrace(
     {
-      runId,
+      // The run id is already dashless 32-hex; the self-trace's trace_id is
+      // the run id verbatim.
+      traceId: runId.replaceAll("-", ""),
       projectId,
-      detectorId: detector.id,
-      detectorName: detector.name,
-      scannedTraceId: traceId,
+      // The trace record inherits this name, so both the trace node and the
+      // root row read "which detector's run" at a glance.
+      name: `detector-run: ${detector.name}`,
+      metadata: {
+        detectorId: detector.id,
+        detectorName: detector.name,
+        scannedTraceId: traceId,
+      },
     },
     () =>
       runDetectionForTrace({
@@ -429,6 +436,7 @@ async function evaluateTrace(
         workspaceId,
         sessionId: null,
         kind: "detector",
+        turnKind: "detector" as const,
         role: "assistant",
         content: "", // detector scans don't have a chat-like content payload
         model: u.inferenceModel,
@@ -514,11 +522,17 @@ async function evaluateTrace(
   const rcaFindings: DetectorRcaFinding[] = buildRcaFindings(triggered);
 
   if (shouldRunRca(triggered, detectors)) {
+    // `update` never touches lifecycle status on an existing row: with the
+    // deterministic jobId below and `removeOnComplete: 100`, a re-detection
+    // over an already-completed finding can dedupe against the retained
+    // completed job and never run — resetting status to "pending" here would
+    // then leave the finding stuck at "pending" forever over a done result. A
+    // new attempt's own markFindingRunningIfLatest is what sets "running".
     await prisma.detectorRca
       .upsert({
         where: { findingId },
         create: { findingId, projectId, status: "pending" },
-        update: { projectId, status: "pending" },
+        update: { projectId },
       })
       .catch((e) =>
         console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),

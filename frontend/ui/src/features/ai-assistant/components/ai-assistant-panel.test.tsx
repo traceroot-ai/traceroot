@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import type { PendingDecision } from "../hooks/use-ai-chat";
 
 const mocks = vi.hoisted(() => ({
   projectData: undefined as { workspace_id: string } | undefined,
@@ -23,6 +24,9 @@ const mocks = vi.hoisted(() => ({
   onClose: vi.fn(),
   messages: [] as Array<{ id: string; role: string; content: string }>,
   isStreaming: false,
+  hasPendingDecision: false,
+  pendingDecision: null as PendingDecision | null,
+  handleDecision: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -42,6 +46,9 @@ vi.mock("./ai-chat-context", () => ({
   useAiChatContext: () => ({
     messages: mocks.messages,
     isStreaming: mocks.isStreaming,
+    hasPendingDecision: mocks.hasPendingDecision,
+    pendingDecision: mocks.pendingDecision,
+    handleDecision: mocks.handleDecision,
     sessions: [],
     historyOpen: false,
     currentSessionId: null,
@@ -58,9 +65,32 @@ vi.mock("./ai-chat-context", () => ({
   }),
 }));
 
-vi.mock("./message-list", () => ({ MessageList: () => null }));
-vi.mock("./message-input", () => ({ MessageInput: () => null }));
+// The list's "Open span" is the only caller that passes a span id; the stub
+// exposes that call so the test can drive it without rendering a tool step.
+vi.mock("./message-list", () => ({
+  MessageList: (props: { onOpenTrace?: (traceId: string, spanId?: string) => void }) => (
+    <button
+      type="button"
+      data-testid="open-span"
+      onClick={() => props.onOpenTrace?.("trace-1", "span-t1")}
+    />
+  ),
+}));
+vi.mock("./message-input", () => ({
+  MessageInput: ({ placeholder }: { placeholder?: string }) => (
+    <div data-testid="message-input">{placeholder ?? ""}</div>
+  ),
+}));
 vi.mock("./session-history", () => ({ SessionHistory: () => null }));
+vi.mock("./agent-trace-sheet", () => ({
+  AgentTraceSheet: (props: { traceId: string | null; spanId?: string }) => (
+    <div
+      data-testid="trace-sheet"
+      data-trace-id={props.traceId ?? ""}
+      data-span-id={props.spanId ?? ""}
+    />
+  ),
+}));
 
 import { AiAssistantPanel } from "./ai-assistant-panel";
 
@@ -70,6 +100,9 @@ afterEach(() => {
   mocks.llmModels = undefined;
   mocks.messages = [];
   mocks.isStreaming = false;
+  mocks.hasPendingDecision = false;
+  mocks.pendingDecision = null;
+  mocks.handleDecision.mockReset();
   mocks.onClose.mockReset();
 });
 
@@ -122,6 +155,72 @@ describe("AiAssistantPanel", () => {
     expect(screen.queryByText("greeting")).toBeNull();
   });
 
+  it("hints that a reply revises while a decision is pending", () => {
+    mocks.hasPendingDecision = true;
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.getByTestId("message-input").textContent).toBe("Reply to revise");
+  });
+
+  it("does not hint at revising while a delete is pending — a reply skips it", () => {
+    mocks.hasPendingDecision = true;
+    mocks.pendingDecision = {
+      toolCallId: "tc1",
+      decisionId: "d1",
+      resourceType: "widget",
+      title: "Errors",
+      action: "delete",
+      approvalClass: "approval",
+    };
+    mocks.handleDecision.mockResolvedValue(true);
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.getByTestId("message-input").textContent).toBe("");
+    expect(screen.getByRole("button", { name: "Delete widget" })).toBeTruthy();
+  });
+
+  it("keeps the default placeholder when nothing is pending", () => {
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.getByTestId("message-input").textContent).toBe("");
+  });
+
+  it("puts the approval bar for a parked proposal directly above the composer", () => {
+    mocks.hasPendingDecision = true;
+    mocks.pendingDecision = {
+      toolCallId: "tc1",
+      decisionId: "d1",
+      resourceType: "widget",
+      title: "Tokens by model",
+      action: "create",
+      approvalClass: "confirm",
+    };
+    mocks.handleDecision.mockResolvedValue(true);
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    const create = screen.getByRole("button", { name: "Create widget" });
+    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
+    const input = screen.getByTestId("message-input");
+    expect(create.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(create);
+    expect(mocks.handleDecision).toHaveBeenCalledExactlyOnceWith({
+      toolCallId: "tc1",
+      decisionId: "d1",
+      action: "create",
+    });
+  });
+
+  it("shows no approval bar when nothing is parked", () => {
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.queryByRole("button", { name: /^Create / })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+  });
+
   it("lets the no-models gate win over the emptyState", () => {
     mocks.projectData = { workspace_id: "ws-abc" };
     mocks.llmModels = { systemModels: [], byokProviders: [] };
@@ -136,5 +235,17 @@ describe("AiAssistantPanel", () => {
 
     expect(screen.getByText("No LLM models available")).not.toBeNull();
     expect(screen.queryByText("greeting")).toBeNull();
+  });
+
+  it("opens the sheet on the step's trace and span when a tool step's 'Open span' is clicked", () => {
+    mocks.messages = [{ id: "m1", role: "user", content: "hi" }];
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    const sheet = screen.getByTestId("trace-sheet");
+    expect(sheet.getAttribute("data-trace-id")).toBe("");
+    fireEvent.click(screen.getByTestId("open-span"));
+    expect(sheet.getAttribute("data-trace-id")).toBe("trace-1");
+    expect(sheet.getAttribute("data-span-id")).toBe("span-t1");
   });
 });

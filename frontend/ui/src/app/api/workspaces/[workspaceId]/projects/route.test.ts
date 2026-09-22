@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 type MockResponse = { status: number; json: () => Promise<unknown> };
 
 vi.mock("next/server", () => ({
@@ -13,12 +18,19 @@ vi.mock("next/server", () => ({
 }));
 
 const projectCreateMock = vi.fn();
-vi.mock("@traceroot/core", () => ({
-  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
-  prisma: {
-    project: { create: (...args: unknown[]) => projectCreateMock(...args) },
-  },
-}));
+vi.mock("@traceroot/core", () => {
+  const project = { create: (...args: unknown[]) => projectCreateMock(...args) };
+  return {
+    Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
+    prisma: {
+      project,
+      // The route creates the project and seeds its Default dashboard in one
+      // transaction; the seed itself is covered by its own tests.
+      $transaction: (fn: (tx: unknown) => unknown) => fn({ project }),
+    },
+  };
+});
+vi.mock("@/lib/dashboard-seed", () => ({ seedDefaultDashboard: vi.fn() }));
 
 const requireAuthMock = vi.fn();
 const requireWorkspaceMembershipMock = vi.fn();

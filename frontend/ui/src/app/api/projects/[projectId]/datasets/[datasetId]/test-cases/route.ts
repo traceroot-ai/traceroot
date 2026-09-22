@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, CreateTestCaseRequestSchema } from "@traceroot/core";
 import {
@@ -21,7 +22,7 @@ type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> }
 // dataset version so any run that pinned an earlier snapshot is untouched. If the
 // same source span already exists in the current version, returns that case
 // instead of silently duplicating it.
-export async function POST(req: NextRequest, { params }: RouteParams) {
+async function handlePOST(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, datasetId } = await params;
@@ -133,3 +134,4 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     throw err;
   }
 }
+export const POST = withImpersonationPolicy(handlePOST);

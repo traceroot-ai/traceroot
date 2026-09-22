@@ -10,6 +10,22 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./rca-executions": {
+      "types": "./src/rca-executions.ts",
+      "default": "./src/rca-executions.ts"
+    },
+    "./capture-policy": {
+      "types": "./src/lib/capture-policy.ts",
+      "default": "./src/lib/capture-policy.ts"
+    },
+    "./capture-note": {
+      "types": "./src/lib/capture-note.ts",
+      "default": "./src/lib/capture-note.ts"
+    },
+    "./public-error": {
+      "types": "./src/lib/public-error.ts",
+      "default": "./src/lib/public-error.ts"
+    },
     "./llm-providers": {
       "types": "./src/llm-providers.ts",
       "default": "./src/llm-providers.ts"

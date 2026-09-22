@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ImpersonationError } from "@/lib/api/errors";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Loader2, CheckCircle2, XCircle, ArrowUpRight, X } from "lucide-react";
 import { ProviderIcon } from "@/components/icons/provider-icons";
@@ -126,8 +127,9 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     onError: (err) =>
       setTestResult({
         success: false,
-        error: "Connection failed",
-        detail: err instanceof Error ? err.message : undefined,
+        error: err instanceof ImpersonationError ? err.message : "Connection failed",
+        detail:
+          err instanceof Error && !(err instanceof ImpersonationError) ? err.message : undefined,
       }),
   });
 
@@ -386,7 +388,12 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                         <Button variant="ghost" size="sm" onClick={() => openEditDialog(p)}>
                           Edit
                         </Button>
-                        <DeleteIconButton onClick={() => setDeleteTarget(p)} />
+                        <DeleteIconButton
+                          onClick={() => {
+                            deleteMutation.reset();
+                            setDeleteTarget(p);
+                          }}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -682,7 +689,15 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+            deleteMutation.reset();
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Provider</DialogTitle>
@@ -691,6 +706,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               will no longer be available.
             </DialogDescription>
           </DialogHeader>
+          {deleteMutation.error instanceof ImpersonationError && (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteMutation.error.message}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>
               Cancel

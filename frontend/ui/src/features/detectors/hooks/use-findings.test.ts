@@ -3,7 +3,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
-import { describeRcaStatus, selfTraceId, useRuns, useTraceDetectorRuns } from "./use-findings";
+import {
+  agentTraceId,
+  describeRcaStatus,
+  selfTraceId,
+  useRuns,
+  useTraceDetectorRuns,
+} from "./use-findings";
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -111,6 +117,25 @@ describe("useTraceDetectorRuns — per-trace runs fetch", () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error?.message).toContain("404");
+  });
+});
+
+describe("agentTraceId — the openable analysis trace behind a finding", () => {
+  const id = "e".repeat(32);
+
+  it("returns the execution's trace id once its export landed", () => {
+    expect(agentTraceId({ execution_trace_id: id, execution_trace_status: "available" })).toBe(id);
+  });
+
+  it("returns null while the export is pending, failed, or was disabled", () => {
+    for (const status of ["pending", "failed", "disabled"] as const) {
+      expect(agentTraceId({ execution_trace_id: id, execution_trace_status: status })).toBeNull();
+    }
+  });
+
+  it("returns null for an un-enriched or legacy run, never a guessed id", () => {
+    expect(agentTraceId({})).toBeNull();
+    expect(agentTraceId({ execution_trace_id: null, execution_trace_status: null })).toBeNull();
   });
 });
 

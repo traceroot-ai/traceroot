@@ -1,0 +1,570 @@
+{
+  "spans": {
+    "fields": {
+      "cache_read_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Cache read tokens",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "cache_write_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Cache write tokens",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "cost": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Cost",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "count": {
+        "aggs": [
+          "count"
+        ],
+        "filterOps": [],
+        "groupable": false,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Count",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "duration_ms": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Duration",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "environment": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Environment",
+        "requiresKey": false,
+        "type": "string"
+      },
+      "input_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Input tokens",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "is_root": {
+        "aggs": [],
+        "filterOps": [
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": false,
+        "inBuilder": false,
+        "label": "Root span",
+        "requiresKey": false,
+        "type": "string"
+      },
+      "metadata": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": false,
+        "histogrammable": false,
+        "inBuilder": false,
+        "label": "Metadata",
+        "requiresKey": true,
+        "type": "string"
+      },
+      "model_name": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Model",
+        "requiresKey": false,
+        "type": "string"
+      },
+      "name": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Span name",
+        "requiresKey": false,
+        "type": "string"
+      },
+      "output_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Output tokens",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "span_kind": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Span kind",
+        "requiresKey": false,
+        "type": "string"
+      },
+      "status": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": false,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Status",
+        "requiresKey": false,
+        "type": "string"
+      },
+      "tokens_per_second": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p75",
+          "p90",
+          "p95",
+          "p99",
+          "uniq"
+        ],
+        "filterOps": [],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": false,
+        "label": "Tokens per second",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "total_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Total tokens",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "trace_id": {
+        "aggs": [
+          "count",
+          "uniq"
+        ],
+        "filterOps": [],
+        "groupable": false,
+        "histogrammable": false,
+        "inBuilder": false,
+        "label": "Trace ID",
+        "requiresKey": false,
+        "type": "string"
+      }
+    }
+  },
+  "traces": {
+    "fields": {
+      "cache_read_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Cache read tokens",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "cache_write_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Cache write tokens",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "cost": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Cost",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "count": {
+        "aggs": [
+          "count"
+        ],
+        "filterOps": [],
+        "groupable": false,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Count",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "duration_ms": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Latency",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "environment": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Environment",
+        "requiresKey": false,
+        "type": "string"
+      },
+      "error_count": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Errors",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "input_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Input tokens",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "name": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Trace name",
+        "requiresKey": false,
+        "type": "string"
+      },
+      "output_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Output tokens",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "session_id": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Session",
+        "requiresKey": false,
+        "type": "string"
+      },
+      "total_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "inBuilder": true,
+        "label": "Tokens",
+        "requiresKey": false,
+        "type": "number"
+      },
+      "user_id": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "User",
+        "requiresKey": false,
+        "type": "string"
+      }
+    }
+  }
+}

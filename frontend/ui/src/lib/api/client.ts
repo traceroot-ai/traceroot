@@ -4,7 +4,7 @@
 import { authClient } from "@/lib/auth-client";
 import { clientEnv } from "@/env.client";
 
-import { ApiError } from "./errors";
+import { ApiError, throwIfImpersonationDenied } from "./errors";
 
 // Re-export: the class lives in the dependency-free errors module, but most
 // callers already import it from the client — keep both paths working.
@@ -26,6 +26,7 @@ export async function fetchNextApi<T>(endpoint: string, options: RequestInit = {
   });
 
   if (!response.ok) {
+    await throwIfImpersonationDenied(response);
     const error = await response.json().catch(() => ({ error: "Unknown error" }));
     throw new ApiError(response.status, error.error || `API error: ${response.status}`);
   }
@@ -69,6 +70,7 @@ export async function fetchTraceApi<T>(
 
   const response = await fetch(`${TRACE_API_BASE}${endpoint}`, {
     ...options,
+    credentials: "include",
     headers: {
       ...headers,
       ...options.headers,

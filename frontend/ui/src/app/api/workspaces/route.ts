@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
@@ -9,7 +10,7 @@ const createWorkspaceSchema = z.object({
 });
 
 // GET /api/workspaces - List workspaces the user belongs to
-export async function GET() {
+async function handleGET() {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -46,7 +47,7 @@ export async function GET() {
 }
 
 // POST /api/workspaces - Create a new workspace
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -110,3 +111,5 @@ export async function POST(request: NextRequest) {
     { status: 201 },
   );
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

@@ -38,3 +38,18 @@ SPAN_TREE_ATTRIBUTES = (SPAN_PATH, SPAN_IDS_PATH, SPAN_STARTS_PATH)
 Not the same as what the trace-detail read returns: that returns only the
 attributes the client actually consumes.
 """
+
+TRUNCATED = "traceroot.truncated"
+"""Set by a sender whose capture cut the content it recorded on this span."""
+
+CAPTURE_BUDGET_EXCEEDED = "traceroot.capture_budget_exceeded"
+"""Set by a sender that withheld this span's content: the run's capture budget was spent."""
+
+CAPTURE_MARKER_ATTRIBUTES = (TRUNCATED, CAPTURE_BUDGET_EXCEEDED)
+"""Why a span's recorded content is not the whole of it — preserved into `metadata`.
+
+Ingest keeps these next to a span's user metadata for the same reason it keeps
+the tree paths: they are the sender's account of its own capture, and a reader
+who cannot see them reads a cut value as the whole one. The agent self-trace
+sets them (design B7/B8); any sender may.
+"""

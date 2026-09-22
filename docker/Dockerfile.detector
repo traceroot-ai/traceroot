@@ -37,7 +37,7 @@ RUN cd packages/core && npx prisma generate \
 # `.js` with explicit relative-import extensions, so no tsconfig patching is needed.
 RUN cd packages/core && \
     pnpm build && \
-    node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':{types:'./dist/index.d.ts',import:'./dist/index.js'},'./model-resolver':{types:'./dist/model-resolver.d.ts',import:'./dist/model-resolver.js'},'./llm-providers':{types:'./dist/llm-providers.d.ts',import:'./dist/llm-providers.js'}}; fs.writeFileSync('package.json',JSON.stringify(p,null,2))"
+    node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.main='./dist/index.js'; const src=k=>{const d=p.exports[k]; const f=(typeof d==='string'?d:(d.default||d.import||d.types)).replace(/^\.\/src\//,'').replace(/\.ts$/,''); return f;}; p.exports=Object.fromEntries(Object.keys(p.exports).map(k=>[k,{types:'./dist/'+src(k)+'.d.ts',import:'./dist/'+src(k)+'.js'}])); fs.writeFileSync('package.json',JSON.stringify(p,null,2))"
 # Build slack package (also ESM) — patch package.json to point at dist/ so the
 # worker's import resolves to compiled JS at runtime.
 RUN cd packages/slack && \
@@ -48,7 +48,10 @@ RUN cd worker && pnpm build
 FROM node:24-alpine AS runner
 WORKDIR /app
 
-RUN apk add --no-cache openssl && \
+# Runtime images start from a freshly upgraded base and drop npm, which is
+# not used at runtime but ships its own bundled dependencies.
+RUN apk upgrade --no-cache && apk add --no-cache openssl && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx && \
     addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 detectorjs
 

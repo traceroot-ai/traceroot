@@ -1,8 +1,13 @@
 {
   "name": "@traceroot-ai/tools",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "TraceRoot tool registry: generated from the public OpenAPI schema; one definition per tool, dispatched generically by the CLI, MCP, and agent surfaces.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/traceroot-ai/traceroot.git",
+    "directory": "frontend/packages/tools"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

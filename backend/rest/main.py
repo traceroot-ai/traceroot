@@ -28,17 +28,25 @@ from rest.routers.dashboards import router as dashboards_router
 from rest.routers.detectors import router as detectors_router
 from rest.routers.internal import router as internal_router
 from rest.routers.live import router as live_router
+from rest.routers.project_alerts import router as project_alerts_router
 from rest.routers.project_dashboards import router as project_dashboards_router
+from rest.routers.project_widgets import router as project_widgets_router
 from rest.routers.public.account_read import router as public_account_read_router
 from rest.routers.public.account_write import router as public_account_write_router
+from rest.routers.public.alerts_read import router as public_alerts_read_router
+from rest.routers.public.alerts_write import router as public_alerts_write_router
 from rest.routers.public.dashboards_read import router as public_dashboards_read_router
 from rest.routers.public.detectors_read import router as public_detectors_read_router
 from rest.routers.public.eval import router as public_eval_router
 from rest.routers.public.project_write import router as public_project_write_router
 from rest.routers.public.sessions_read import router as public_sessions_read_router
+from rest.routers.public.sql import SqlBodyLimitMiddleware
+from rest.routers.public.sql import router as public_sql_router
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.public.traces_read import router as public_traces_read_router
 from rest.routers.public.whoami import router as public_whoami_router
+from rest.routers.public.widgets_query import router as public_widgets_query_router
+from rest.routers.public.widgets_read import router as public_widgets_read_router
 from rest.routers.sessions import router as sessions_router
 from rest.routers.traces import router as traces_router
 from rest.routers.users import router as users_router
@@ -55,6 +63,9 @@ app = FastAPI(
 # CORS remains the outermost middleware and its headers apply to every
 # response, including gzipped ones.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+# One route reads a caller-authored query, and its field limits only apply once
+# the body has been read and parsed. This bounds the body itself.
+app.add_middleware(SqlBodyLimitMiddleware, path=f"{PUBLIC_PREFIX}sql")
 
 # Rate limiting. Enforcement + X-RateLimit-* headers are handled by the
 # per-route @limiter decorators (see rest.rate_limit); SlowAPIMiddleware is
@@ -120,8 +131,12 @@ app.include_router(public_traces_router, prefix="/api/v1")
 app.include_router(public_whoami_router, prefix="/api/v1")
 app.include_router(public_traces_read_router, prefix="/api/v1")
 app.include_router(public_sessions_read_router, prefix="/api/v1")
+app.include_router(public_sql_router, prefix="/api/v1")
 app.include_router(public_detectors_read_router, prefix="/api/v1")
 app.include_router(public_dashboards_read_router, prefix="/api/v1")
+app.include_router(public_widgets_query_router, prefix="/api/v1")
+app.include_router(public_widgets_read_router, prefix="/api/v1")
+app.include_router(public_alerts_read_router, prefix="/api/v1")
 
 # Public offline-eval API (dataset authoring + run reporting). Thin authenticated
 # proxy to the Next.js control-plane routes so the SDK stays single-host.
@@ -131,17 +146,20 @@ app.include_router(public_eval_router, prefix="/api/v1")
 app.include_router(public_account_read_router, prefix="/api/v1")
 
 # Public write API for user credentials: thin proxies to the Next.js internal
-# write routes (workspace/project account-scope, detector/dashboard/widget
-# project-scope in the body)
+# write routes (workspace/project account-scope, detector/dashboard/widget/
+# alert project-scope in the body)
 app.include_router(public_account_write_router, prefix="/api/v1")
 app.include_router(public_project_write_router, prefix="/api/v1")
+app.include_router(public_alerts_write_router, prefix="/api/v1")
 
 # Internal API for worker/service communication (protected by secret).
-# project_dashboards is the agent's catalog mirror — it lives on the
-# /api/v1/internal prefix the ingress fixed-404s, never the ALB-routed
-# /api/v1/projects surface.
+# project_dashboards, project_widgets and project_alerts are the agent's read
+# mirrors — they live on the /api/v1/internal prefix the ingress fixed-404s,
+# never the ALB-routed /api/v1/projects surface.
 app.include_router(internal_router, prefix="/api/v1")
 app.include_router(project_dashboards_router, prefix="/api/v1")
+app.include_router(project_widgets_router, prefix="/api/v1")
+app.include_router(project_alerts_router, prefix="/api/v1")
 
 
 @app.get("/health", response_model=HealthResponse)

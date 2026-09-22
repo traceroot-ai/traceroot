@@ -208,7 +208,10 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   // tiered-rate concept, so adding a single flat rate would be wrong for
   // large prompts. Flagged in the PR for a maintainer call on whether to
   // add it back and how to handle the tiered rate.
-  xai: [{ id: "grok-4.20", label: "grok-4.20" }],
+  xai: [
+    { id: "grok-4.6", label: "grok-4.6" },
+    { id: "grok-4.20", label: "grok-4.20" },
+  ],
   // kimi-k2.5 and kimi-k2-thinking removed (#2175): both retired by
   // Moonshot and neither ever had a catalogue price entry.
   moonshot: [
