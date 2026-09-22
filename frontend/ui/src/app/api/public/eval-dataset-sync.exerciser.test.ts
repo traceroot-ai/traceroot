@@ -563,6 +563,15 @@ describe("a version's cases are paged, and the page size is capped server-side",
     expect(body.next_cursor).toBeNull();
   });
 
+  it("reads a fractional limit as a page of one, not an empty page that claims more", async () => {
+    const versionId = await publishCases(3);
+    const res = await readVersion(getReq("?limit=0.5"), versionParams(versionId));
+    expect(res.status).toBe(200);
+    const body = await readJson(res);
+    expect((body.items as unknown[]).length).toBe(1);
+    expect(body.next_cursor).toBeTruthy();
+  });
+
   it("returns the whole version when neither limit nor cursor is given", async () => {
     // The released SDKs pull a snapshot with ONE request and never follow next_cursor. A
     // default page here would silently hand them the first 200 cases as the whole dataset.

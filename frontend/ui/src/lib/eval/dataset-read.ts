@@ -33,12 +33,13 @@ const INVALID_CURSOR = { ok: false, status: 400, error: "Invalid cursor" } as co
 
 /**
  * A page size from a query string or a JSON number, clamped rather than rejected, so no
- * read can return an unbounded page.
+ * read can return an unbounded page. Never below 1: a fraction such as 0.5 would floor to
+ * an empty page that still claims a next page.
  */
 export function clampLimit(raw: unknown, fallback: number, max: number): number {
   const n = Number(raw);
   if (raw === null || raw === undefined || !Number.isFinite(n) || n <= 0) return fallback;
-  return Math.min(Math.floor(n), max);
+  return Math.max(1, Math.min(Math.floor(n), max));
 }
 
 /** List the project's datasets, newest first. The cursor is an opaque dataset row id. */
