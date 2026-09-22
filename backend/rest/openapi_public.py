@@ -642,6 +642,9 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
     "complete_run": {"enabled": False},
+    # The run read is published so a generated client can bind it; exposing it as a tool is
+    # a separate step.
+    "read_run": {"enabled": False},
     # Account-tenancy ops have no membership to gate; minRole VIEWER is the no-role-floor convention.
     "create_workspace": {
         "name": "create_workspace",

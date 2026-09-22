@@ -266,13 +266,49 @@ def test_untyped_dataset_catch_alls_stay_hidden():
         "/api/v1/public/dataset-versions/{version_id}": {"get"},
     }, dataset_paths
     # The additive per-scorer scores / human-score run subpaths also stay hidden:
-    # only the three explicit reporting paths are published under evaluation-runs.
+    # only the explicitly-typed reporting paths are published under evaluation-runs —
+    # the three write shapes plus the run-summary read.
     eval_paths = {p for p in paths if p.startswith("/api/v1/public/evaluation-runs")}
     assert eval_paths == {
         "/api/v1/public/evaluation-runs",
+        "/api/v1/public/evaluation-runs/{run_id}",
         "/api/v1/public/evaluation-runs/{run_id}/results",
         "/api/v1/public/evaluation-runs/{run_id}/complete",
     }
+    # The read is GET-only and the bare-run shape publishes no other verb: the catch-all
+    # still carries the untyped POST subpaths, and must not leak them into the schema.
+    assert set(paths["/api/v1/public/evaluation-runs/{run_id}"]) == {"get"}
+
+
+def test_read_run_publishes_the_run_summary_only():
+    """The run read answers "what did this run do", and nothing about another run.
+
+    Comparing two runs is its own operation with its own trust rules, so the read takes
+    the run id (and the dual credential's project) alone, returns no `comparison` block,
+    and each score or metric is the run's own mean with its denominator.
+    """
+    schema = _schema()
+    op = schema["paths"]["/api/v1/public/evaluation-runs/{run_id}"]["get"]
+    assert [(p["name"], p["in"]) for p in op.get("parameters", [])] == [
+        ("run_id", "path"),
+        ("project_id", "query"),
+    ]
+
+    components = schema["components"]["schemas"]
+    assert "comparison" not in components["ReadRunResponse"]["properties"]
+    assert "RunComparisonRead" not in components
+    item = components["RunMetricItem"]
+    assert set(item["properties"]) == {
+        "name",
+        "unit",
+        "direction",
+        "value_type",
+        "value",
+        "observed_count",
+    }
+    assert {"value_type", "observed_count"} <= set(item["required"])
+    # The null semantics reach the published contract, not just a source comment.
+    assert "categorical" in item["properties"]["value"]["description"]
 
 
 def test_dataset_reads_document_the_errors_a_read_can_return():
@@ -438,6 +474,7 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/datasets/{dataset_id}/versions": {"get": "list_dataset_versions"},
     "/api/v1/public/dataset-versions/{version_id}": {"get": "get_dataset_version"},
     "/api/v1/public/evaluation-runs": {"post": "register_run"},
+    "/api/v1/public/evaluation-runs/{run_id}": {"get": "read_run"},
     "/api/v1/public/evaluation-runs/{run_id}/results": {"post": "upsert_result"},
     "/api/v1/public/evaluation-runs/{run_id}/complete": {"post": "complete_run"},
 }
@@ -492,6 +529,7 @@ def test_x_tool_enabled_set_and_shape():
         "register_run",
         "upsert_result",
         "complete_run",
+        "read_run",
     }
     assert set(enabled) == {
         "whoami",
@@ -571,6 +609,7 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/datasets/{dataset_id}",
     "/api/v1/public/datasets/{dataset_id}/versions",
     "/api/v1/public/dataset-versions/{version_id}",
+    "/api/v1/public/evaluation-runs/{run_id}",
 ]
 
 

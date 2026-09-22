@@ -1,7 +1,7 @@
-"""The four dataset reads accept a user login as well as an API key.
+"""The five evaluation reads accept a user login as well as an API key.
 
-These exercise the REAL ``authenticate_public_caller`` dependency through the four dataset
-reads, mocking the introspection routes and the internal
+These exercise the REAL ``authenticate_public_caller`` dependency through the run read
+and the four dataset reads, mocking the introspection routes and the internal
 ``project-evaluations`` route with ``respx``. A user who signed in with the CLI has no
 API key, only a session credential and a selected project, so without the dual
 credential every CLI read command would fail for them. The reporting writes stay on
@@ -48,8 +48,36 @@ DATASET = {
     "key": "refunds",
     "updated_at": "2026-09-14T00:00:00.000Z",
 }
+SUMMARY = {
+    "evaluation_run_id": "run1",
+    "evaluation_id": "eval1",
+    "evaluation_name": "Billing routing",
+    "evaluation_key": "billing-routing",
+    "run_number": 2,
+    "candidate_version": "sonnet",
+    "environment": "evaluation",
+    "status": "completed",
+    "started_at": "2026-09-14T00:00:00.000Z",
+    "completed_at": "2026-09-14T00:00:05.000Z",
+    "dataset_id": "refunds",
+    "dataset_version_id": "dv_3",
+    "run_path": "/projects/proj-A/evaluations/run1",
+    "run_url": "http://localhost:3000/projects/proj-A/evaluations/run1",
+    "result_count": 2,
+    "scored_count": 2,
+    "task_error_count": 0,
+    "scorer_error_count": 0,
+    "passed_count": 0,
+    "failed_count": 0,
+    "errored_count": 0,
+    "not_scored_count": 0,
+    "scores": [],
+    "metrics": [],
+}
+
 # (path, the read the internal route is asked for, a body inside the contract)
 READS = [
+    ("/api/v1/public/evaluation-runs/run1", "run", SUMMARY),
     (
         "/api/v1/public/datasets",
         "datasets",
@@ -134,6 +162,7 @@ def test_a_user_without_a_project_is_told_to_pick_one(path):
 @pytest.mark.parametrize(
     ("path", "error"),
     [
+        ("/api/v1/public/evaluation-runs/theirs", "Evaluation run not found"),
         ("/api/v1/public/datasets/theirs", "Dataset not found"),
         ("/api/v1/public/dataset-versions/theirs", "Dataset version not found"),
     ],

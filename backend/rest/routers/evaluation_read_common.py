@@ -25,6 +25,7 @@ from rest.schemas.eval import (
     ListDatasetsResponse,
     ListDatasetVersionsResponse,
     PublicDataset,
+    ReadRunResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,9 +34,38 @@ _Model = TypeVar("_Model", bound=BaseModel)
 
 _SERVICE = "Evaluation"
 _INTERNAL_PATH = "/api/internal/project-evaluations"
-# These reads can touch many rows: an unpaged version read returns every case. The gateway's forward allowed 30 s for
+# These reads can touch many rows: a run summary folds every one of the run's results,
+# and an unpaged version read returns every case. The gateway's forward allowed 30 s for
 # the same work, so keep that bound rather than the catalog reads' 10 s.
 _TIMEOUT_SECONDS = 30.0
+
+
+async def read_run_summary(project_id: str, run_id: str) -> ReadRunResponse:
+    """Read one run's own summary via the internal route.
+
+    Args:
+        project_id (str): The project the caller's credential resolved to.
+        run_id (str): The run to read.
+
+    Returns:
+        ReadRunResponse: The run's status, result counts, and per-score and
+            per-metric means over its own results.
+
+    Raises:
+        HTTPException: 404 passed through when the run is not in the project,
+            403 when it is outside the project's retention window; 503 (fail
+            closed) on any upstream ambiguity, including a body that does not
+            match the contract.
+    """
+    payload: dict[str, Any] = {"read": "run", "projectId": project_id, "runId": run_id}
+    data = await post_internal_read(
+        _INTERNAL_PATH, payload, service=_SERVICE, timeout=_TIMEOUT_SECONDS
+    )
+    try:
+        return ReadRunResponse.model_validate(data)
+    except ValidationError as e:
+        logger.error("Evaluation service returned a run summary outside the contract")
+        raise service_error(_SERVICE) from e
 
 
 async def _read(payload: dict[str, Any], model: type[_Model], what: str) -> _Model:
