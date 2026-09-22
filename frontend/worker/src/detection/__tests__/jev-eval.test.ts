@@ -79,8 +79,7 @@ describe("runJevDetection", () => {
     expect(result.identified).toBe(true);
     expect(result.error).toBeUndefined();
     expect(result.summary).toBe(
-      "Jev: tool_error (P=0.91, label confidence 0.88); next: timeout (0.06); " +
-        "no written rationale — verify against the trace.",
+      "Tool error (91% likely); runner-up: timeout (6%); no written rationale.",
     );
     expect(result.data).toEqual({
       category: "tool_error",
@@ -133,11 +132,11 @@ describe("runJevDetection", () => {
     expect(result.identified).toBe(true);
     expect(result.data.category).toBeNull();
     expect(result.summary).toBe(
-      "Jev: problem found (P=0.60), category unclear; no written rationale — verify against the trace.",
+      "Problem found (60% likely), category unclear; no written rationale.",
     );
   });
 
-  it("omits the label confidence when the named category is not the label's choice", async () => {
+  it("names the most likely category even when the label's choice is another", async () => {
     const body = answers(0.9, FAILURE_PROBS);
     body.answers.label.choice = "timeout";
     mockCallSystemOne.mockResolvedValueOnce(body);
@@ -146,7 +145,7 @@ describe("runJevDetection", () => {
 
     expect(result.data.category).toBe("tool_error");
     expect(result.summary).toBe(
-      "Jev: tool_error (P=0.91); next: timeout (0.06); no written rationale — verify against the trace.",
+      "Tool error (91% likely); runner-up: timeout (6%); no written rationale.",
     );
   });
 
@@ -157,8 +156,8 @@ describe("runJevDetection", () => {
     const result = await run();
 
     expect(result.data.category).toBe("other");
-    expect(result.summary).toMatch(
-      /^Jev: unlisted problem \(P=0\.86, .*; next: tool_error \(0\.10\)/,
+    expect(result.summary).toBe(
+      "Unlisted problem (86% likely); runner-up: tool error (10%); no written rationale.",
     );
   });
 
@@ -168,8 +167,6 @@ describe("runJevDetection", () => {
     const result = await run({ detector: { ...DETECTOR, template: "blank" } });
 
     expect(Object.keys(sentOptions().questions.label.criteria)).toEqual(["problem", "none"]);
-    expect(result.summary).toBe(
-      "Jev: problem (P=0.75, label confidence 0.75); no written rationale — verify against the trace.",
-    );
+    expect(result.summary).toBe("Problem (75% likely); no written rationale.");
   });
 });

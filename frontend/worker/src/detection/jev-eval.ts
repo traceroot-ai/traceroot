@@ -21,9 +21,19 @@ import { tracedSystemOne } from "./traced-system-one.js";
 export const JEV_DEFAULT_MODEL_ID = ADAPTER_MODELS[LLMAdapter.TYPESAFE]![0].id;
 export const JEV_GATE_THRESHOLD = 0.5;
 const OTHER_LABEL = "unlisted problem";
+const NO_RATIONALE = "; no written rationale.";
 
+/** Category ids are snake_case words, so reading them out needs no label map. */
 function displayCategory(name: string): string {
-  return name === JEV_OTHER ? OTHER_LABEL : name;
+  return name === JEV_OTHER ? OTHER_LABEL : name.replace(/_/g, " ");
+}
+
+function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function percent(p: number): string {
+  return `${Math.round(p * 100)}%`;
 }
 
 /** Non-`none` options, most likely first; ties keep the order they were asked in. */
@@ -78,17 +88,15 @@ export async function runJevDetection(params: {
   const next = ranked[1];
   // The gate fired but the label picked none: name no category.
   const unclear = label.choice === JEV_NONE;
-  const confidence =
-    top.name === label.choice ? `, label confidence ${label.confidence.toFixed(2)}` : "";
 
+  // Rendered verbatim in the findings table, which truncates at 100 characters.
   const summary = !identified
-    ? `Jev: no problem found (P=${gate.toFixed(2)} that the trace exhibits one).`
+    ? `No problem found (${percent(gate)} chance of one).`
     : unclear
-      ? `Jev: problem found (P=${gate.toFixed(2)}), category unclear` +
-        "; no written rationale — verify against the trace."
-      : `Jev: ${displayCategory(top.name)} (P=${top.p.toFixed(2)}${confidence})` +
-        (next ? `; next: ${displayCategory(next.name)} (${next.p.toFixed(2)})` : "") +
-        "; no written rationale — verify against the trace.";
+      ? `Problem found (${percent(gate)} likely), category unclear` + NO_RATIONALE
+      : `${sentenceCase(displayCategory(top.name))} (${percent(top.p)} likely)` +
+        (next ? `; runner-up: ${displayCategory(next.name)} (${percent(next.p)})` : "") +
+        NO_RATIONALE;
 
   return {
     identified,
