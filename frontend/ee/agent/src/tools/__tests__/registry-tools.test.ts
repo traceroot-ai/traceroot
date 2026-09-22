@@ -604,60 +604,86 @@ describe("createRegistryReadTools", () => {
   it.each([
     [
       "list_datasets",
-      { limit: 5, name: "refunds" },
-      "http://fastapi.test/api/v1/internal/projects/p1/datasets?limit=5&name=refunds",
+      { name: "refunds" },
+      { datasets: [{ dataset_id: "ds_1", name: "Refunds", current_dataset_version_id: "dv_3" }] },
+      "http://fastapi.test/api/v1/internal/projects/p1/datasets?limit=200&name=refunds",
+      '- "ds_1" | "Refunds" | current version: "dv_3"',
     ],
     [
       "get_dataset",
       { dataset_id: "ds_1" },
+      { dataset_id: "ds_1", name: "Refunds", current_dataset_version_id: "dv_3" },
       "http://fastapi.test/api/v1/internal/projects/p1/datasets/ds_1",
+      'Dataset: "ds_1" | "Refunds"',
     ],
     [
       "list_dataset_versions",
-      { dataset_id: "ds_1", limit: 5 },
-      "http://fastapi.test/api/v1/internal/projects/p1/datasets/ds_1/versions?limit=5",
+      { dataset_id: "ds_1" },
+      { versions: [{ dataset_version_id: "dv_3", version_number: 3, is_current: true }] },
+      "http://fastapi.test/api/v1/internal/projects/p1/datasets/ds_1/versions?limit=200",
+      '- "dv_3" | v3 (current)',
     ],
     [
       "get_dataset_version",
       { version_id: "dv_1" },
+      { dataset_version_id: "dv_1", dataset_id: "ds_1", version_number: 1, items: [] },
+      "http://fastapi.test/api/v1/internal/projects/p1/dataset-versions/dv_1?limit=20",
+      'Dataset version: "dv_1" | dataset "ds_1"',
+    ],
+  ])(
+    "%s hits its internal dataset route and renders its own result",
+    async (name, args, body, url, text) => {
+      const impl = stubFetch(body);
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      const result = await tool.execute("id", { label: "x", ...args });
+      const [called, init] = impl.mock.calls[0]!;
+      expect(String(called)).toBe(url);
+      expect((init as RequestInit).headers).toMatchObject({
+        "X-Internal-Secret": "s3cret",
+        "x-user-id": "u1",
+      });
+      expect(result.content[0]!.text).toContain(text);
+    },
+  );
+
+  it.each([
+    ["list_datasets", "http://fastapi.test/api/v1/internal/projects/p1/datasets?limit=200"],
+    [
+      "list_dataset_versions",
+      "http://fastapi.test/api/v1/internal/projects/p1/datasets/ds_1/versions?limit=200",
+    ],
+    [
+      "get_dataset_version",
       "http://fastapi.test/api/v1/internal/projects/p1/dataset-versions/dv_1?limit=20",
     ],
-  ])("%s hits its internal dataset route", async (name, args, expected) => {
+  ])("%s pins its page, whatever the model sends", async (name, url) => {
     const impl = stubFetch({});
     const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
-    await tool.execute("id", { label: "x", ...args });
-    const [url, init] = impl.mock.calls[0]!;
-    expect(String(url)).toBe(expected);
-    expect((init as RequestInit).headers).toMatchObject({
-      "X-Internal-Secret": "s3cret",
-      "x-user-id": "u1",
+    await tool.execute("id", {
+      label: "x",
+      dataset_id: "ds_1",
+      version_id: "dv_1",
+      limit: 5,
+      cursor: "guessed",
     });
-  });
-
-  it("pins a version read to the cases the formatter shows, whatever the model sends", async () => {
-    const impl = stubFetch({});
-    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dataset_version")!;
-    await tool.execute("id", { label: "x", version_id: "dv_1", limit: 500, cursor: "guessed" });
-    const [url] = impl.mock.calls[0]!;
-    expect(String(url)).toBe(
-      "http://fastapi.test/api/v1/internal/projects/p1/dataset-versions/dv_1?limit=20",
-    );
+    expect(String(impl.mock.calls[0]![0])).toBe(url);
   });
 
   it.each(["list_datasets", "list_dataset_versions", "get_dataset_version"])(
-    "%s offers the model no cursor, so v0.5 reads the first page only",
+    "%s offers the model no cursor and no page size, so it reads the first page only",
     (name) => {
       const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
       const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
       expect(properties).not.toHaveProperty("cursor");
-      expect(tool.description).not.toContain("next_cursor");
+      expect(properties).not.toHaveProperty("limit");
     },
   );
 
-  it("offers get_dataset_version no page size either, and says it reads the first cases", () => {
+  it("describes get_dataset_version by what it does, keeping the rest of the registry text", () => {
     const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dataset_version")!;
     const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
     expect(Object.keys(properties).sort()).toEqual(["label", "version_id"]);
+    expect(tool.description).toContain("Read one immutable dataset version and its test cases");
     expect(tool.description).toContain("Returns the version's first 20 cases");
     // The registry's own paging advice names params this surface pins, so none of it survives.
     expect(tool.description).not.toMatch(/next_cursor|pass limit|whole version/);

@@ -308,6 +308,10 @@ def test_dataset_reads_reject_out_of_range_pages_before_any_read():
 
 # ── internal project-scoped mirrors (the in-app agent's dispatch path) ───────
 
+# The mirrors are secret-only: the good path sends the secret and nothing else, so a
+# regression that also demanded a user header would fail here.
+SECRET_ONLY = {"X-Internal-Secret": "test-secret"}
+
 MIRRORS = [
     (
         "/api/v1/internal/projects/proj-A/datasets?limit=5&name=refund",
@@ -347,7 +351,7 @@ def test_internal_mirror_reads_like_the_public_route(monkeypatch, path, body, pa
 
     monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
     internal = _mock_internal(body)
-    resp = _client().get(path, headers=SECRET_HEADER)
+    resp = _client().get(path, headers=SECRET_ONLY)
     assert resp.status_code == 200
     assert _sent(internal) == payload
 
@@ -360,7 +364,7 @@ def test_version_mirror_reads_the_whole_version_when_limit_is_omitted(monkeypatc
     monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
     internal = _mock_internal(VERSION_BODY)
     resp = _client().get(
-        "/api/v1/internal/projects/proj-A/dataset-versions/dv_3", headers=SECRET_HEADER
+        "/api/v1/internal/projects/proj-A/dataset-versions/dv_3", headers=SECRET_ONLY
     )
     assert resp.status_code == 200
     assert _sent(internal) == {
