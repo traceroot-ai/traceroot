@@ -137,7 +137,8 @@ function statusError(status: number, rawBody: string): Error {
 
 /**
  * Short description of TypeSafe's error envelope: `detail` is either
- * `{error_type, message?}` (400/401) or a pydantic error array (422).
+ * `{error_type, message?}` (400/401), a pydantic error array (422) or a
+ * plain string (404 and other framework-level errors).
  */
 function describeDetail(rawBody: string): string | null {
   let parsed: unknown;
@@ -163,6 +164,7 @@ function describeDetail(rawBody: string): string | null {
       .filter((m): m is string => m !== null);
     return msgs.length ? msgs.join("; ").slice(0, 500) : null;
   }
+  if (typeof detail === "string" && detail.trim()) return detail.trim().slice(0, 200);
   return null;
 }
 
