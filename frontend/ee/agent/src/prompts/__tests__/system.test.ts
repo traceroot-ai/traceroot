@@ -180,6 +180,24 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("ask which one they want before creating");
   });
 
+  it("describes the evaluation run read as one run's own summary", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain("### Evaluation Runs: read_evaluation_run");
+    expect(prompt).toContain("never guess an id — ask for the run, or its link");
+    expect(prompt).toContain("Start with where the run stands");
+    expect(prompt).toContain("never compute a pass rate or a percentage");
+    // v0.5 has no comparison: the prompt must not invent one or send the model after a baseline.
+    expect(prompt).toContain("No tool compares two runs");
+    expect(prompt).toContain("never subtract one run's figures from another's");
+    expect(prompt).not.toMatch(/baseline=|trust state|trustworthy/);
+    // The figures and links rules name the run read, so its numbers and its URL are allowed.
+    expect(prompt).toContain(
+      "and from read_evaluation_run for evaluation scores and result counts",
+    );
+    expect(prompt).toContain("a run read its\nrun URL");
+    expect(prompt).toContain("4d. If the question is about an evaluation run");
+  });
+
   it("forbids assembling links from ids", () => {
     const prompt = getSystemPrompt({ projectId: "p1" });
     expect(prompt).toContain("Link only to a URL a tool result contained");
