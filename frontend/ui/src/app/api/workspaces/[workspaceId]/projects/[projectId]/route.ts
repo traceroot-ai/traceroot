@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Role, DEFAULT_ALERT_WINDOW } from "@traceroot/core";
 import {
@@ -12,7 +13,7 @@ import { deleteProject, updateProject, type ProjectPatch } from "@/lib/write-ser
 type RouteParams = { params: Promise<{ workspaceId: string; projectId: string }> };
 
 // GET /api/workspaces/[workspaceId]/projects/[projectId] - Get project details
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId, projectId } = await params;
 
   const authResult = await requireAuth();
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 // tenancy scoping to the path's workspace, the ADMIN floor, the diff and the
 // audit row. The body's snake_case keys are mapped onto the service's fields;
 // an absent key stays absent, so it is left untouched.
-export async function PATCH(request: NextRequest, { params }: RouteParams) {
+async function handlePATCH(request: NextRequest, { params }: RouteParams) {
   const { workspaceId, projectId } = await params;
 
   const authResult = await requireAuth();
@@ -127,7 +128,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/workspaces/[workspaceId]/projects/[projectId] - Soft delete project (ADMIN+)
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   const { workspaceId, projectId } = await params;
 
   const authResult = await requireAuth();
@@ -148,3 +149,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   return NextResponse.json({ deleted: true }, { status: 200 });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

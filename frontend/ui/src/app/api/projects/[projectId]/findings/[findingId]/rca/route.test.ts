@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
+// Policy behavior is covered by the shared guard tests and impersonation E2E.
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: async () => ({ user: { id: "u1" } }),
   requireProjectAccess: async () => ({ project: { id: "p1", workspaceId: "w1" } }),

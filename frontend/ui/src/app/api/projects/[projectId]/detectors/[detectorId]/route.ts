@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import { readDeleteReason } from "@/lib/route-helpers";
@@ -12,7 +13,7 @@ import {
 type RouteParams = { params: Promise<{ projectId: string; detectorId: string }> };
 
 // GET /api/projects/[projectId]/detectors/[detectorId] - Get a single detector
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -37,7 +38,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 // A thin adapter over the write service, which owns the per-field rules, the
 // trigger registry check, the diff and the audit row; template is immutable
 // and the service drops it.
-export async function PATCH(req: NextRequest, { params }: RouteParams) {
+async function handlePATCH(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -65,7 +66,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/projects/[projectId]/detectors/[detectorId] - Delete a detector
-export async function DELETE(req: NextRequest, { params }: RouteParams) {
+async function handleDELETE(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -84,3 +85,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
   if (!result.ok) return errorResponse(result.error, result.status);
   return successResponse({ deleted: true });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

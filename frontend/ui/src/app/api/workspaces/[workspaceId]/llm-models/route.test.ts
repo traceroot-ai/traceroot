@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Policy behavior is covered by the shared guard tests and impersonation E2E.
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 vi.mock("next/server", () => ({ NextRequest: class {} }));
 
 const listWorkspaceModelsMock = vi.fn();

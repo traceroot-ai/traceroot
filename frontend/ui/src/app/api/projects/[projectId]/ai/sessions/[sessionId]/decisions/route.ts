@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { requireAuth, requireProjectAccess } from "@/lib/auth-helpers";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
@@ -10,7 +11,7 @@ type RouteParams = { params: Promise<{ projectId: string; sessionId: string }> }
 // service. The service's status codes pass through untouched: the panel needs
 // 409 (already decided) and 404 (unknown or expired decision) to resolve a
 // pending card without erroring the transcript.
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -49,3 +50,5 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+export const POST = withImpersonationPolicy(handlePOST);

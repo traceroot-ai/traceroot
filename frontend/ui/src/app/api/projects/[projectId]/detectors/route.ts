@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, detectorModelProblem, listWorkspaceModels } from "@traceroot/core";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
@@ -15,7 +16,7 @@ type RouteParams = { params: Promise<{ projectId: string }> };
 // GET /api/projects/[projectId]/detectors - List detectors for the project.
 // Supports `search_query` (substring on name/template/prompt), `page`, `limit`.
 // Returns `{ data, meta }` to match the rest of the list endpoints.
-export async function GET(req: NextRequest, { params }: RouteParams) {
+async function handleGET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/projects/[projectId]/detectors - Create a new detector
-export async function POST(req: NextRequest, { params }: RouteParams) {
+async function handlePOST(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -206,3 +207,5 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   return successResponse({ detector }, 201);
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

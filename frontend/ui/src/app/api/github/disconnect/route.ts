@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@traceroot/core";
 import { errorResponse, requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
@@ -6,7 +7,7 @@ import { GITHUB_INSTALLATION_ID_COOKIE } from "@traceroot/github";
 // POST /api/github/disconnect?workspaceId=...&installationId=...
 // Removes a single installation if installationId is given, otherwise removes
 // all installations for the workspace. Requires workspace membership.
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -40,3 +41,4 @@ export async function POST(request: NextRequest) {
   });
   return response;
 }
+export const POST = withImpersonationPolicy(handlePOST);
