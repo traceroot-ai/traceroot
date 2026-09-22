@@ -265,10 +265,10 @@ def _version_reads(version_number):
 
 
 @respx.mock
-@pytest.mark.parametrize("version_number", ["3", True])
+@pytest.mark.parametrize("version_number", ["3", True, 2**53, -(2**53)])
 def test_version_reads_fail_closed_on_a_version_number_the_contract_rejects(version_number):
-    """A numeric string or a boolean isn't an integer to the Zod contract, so the gateway
-    must not coerce it into a successful answer."""
+    """A numeric string, a boolean, or an integer past 2^53 - 1 isn't a safe integer to the
+    Zod contract, so the gateway must not pass it on as a successful answer."""
     _mock_key_auth()
     client = _client()
     for path, body in _version_reads(version_number):

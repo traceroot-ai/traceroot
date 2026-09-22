@@ -70,6 +70,14 @@ def _json_int(v: Any) -> Any:
     return v
 
 
+def _json_safe_int(v: Any) -> Any:
+    """As ``_json_int``, and within ``Number.isSafeInteger`` as ``z.number().int()`` requires."""
+    v = _json_int(v)
+    if isinstance(v, int) and not -JSON_SAFE_INT_MAX <= v <= JSON_SAFE_INT_MAX:
+        raise ValueError("must be a safe integer (beyond 2^53 - 1 a JSON client loses precision)")
+    return v
+
+
 def _json_bool(v: Any) -> Any:
     """Reject the values ``z.boolean()`` rejects: everything that is not a JSON boolean."""
     if not isinstance(v, bool):
@@ -90,8 +98,9 @@ JSON_SAFE_INT_MAX = 9_007_199_254_740_991
 # `"ge": 0` keywords instead of JSON Schema's `"minimum": 0`.
 #: ``z.number().int().nonnegative()``.
 JsonNonNegativeInt = Annotated[int, Field(ge=0, le=JSON_SAFE_INT_MAX), BeforeValidator(_json_int)]
-#: ``z.number().int()`` — a JSON integer, never a coerced string/boolean.
-JsonInt = Annotated[int, BeforeValidator(_json_int)]
+#: ``z.number().int()`` — a safe JSON integer, never a coerced string/boolean. Checked in
+#: the validator rather than with ``Field`` bounds, so the published schema stays as it is.
+JsonInt = Annotated[int, BeforeValidator(_json_safe_int)]
 #: ``z.number().nonnegative()``.
 JsonNonNegativeFloat = Annotated[float, Field(ge=0), BeforeValidator(_json_number)]
 
