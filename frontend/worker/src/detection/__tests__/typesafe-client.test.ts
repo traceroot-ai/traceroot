@@ -191,6 +191,13 @@ describe("callSystemOne (stubbed fetch)", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it("a plain-string detail is kept in the message", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(404, { detail: "Not Found" }));
+      const err = await callError();
+      expect(err.message).toBe("TypeSafe systemone returned 404: Not Found");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it.each([500, 404])("%i is terminal, never retried", async (status) => {
       fetchMock.mockResolvedValue(jsonResponse(status, "upstream broke"));
       const err = await callError();
@@ -226,7 +233,7 @@ describe("callSystemOne (stubbed fetch)", () => {
       const p = callError();
       await vi.runAllTimersAsync();
       const err = await p;
-      expect(err.message).toContain("returned 529");
+      expect(err.message).toBe("TypeSafe systemone returned 529: overloaded");
       expect(fetchMock).toHaveBeenCalledTimes(MAX_RETRIES + 1);
     });
 
@@ -234,7 +241,7 @@ describe("callSystemOne (stubbed fetch)", () => {
       vi.useFakeTimers();
       fetchMock.mockResolvedValue(jsonResponse(429, {}, { "retry-after": "120" }));
       const err = await callError({ deadlineMs: 60_000 });
-      expect(err.message).toContain("returned 429");
+      expect(err.message).toBe("TypeSafe systemone returned 429");
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
