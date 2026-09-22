@@ -1,64 +1,25 @@
 import { NextResponse } from "next/server";
 import { prisma, type Prisma, PublicUpsertDatasetRequestSchema } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
+import { listDatasetsPage } from "@/lib/eval/dataset-read";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
-
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
-
-function parseLimit(raw: string | null): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIMIT;
-  return Math.min(Math.floor(n), MAX_LIMIT);
-}
+import { evalReadResponse } from "@/lib/eval/read-result";
 
 // GET /api/public/datasets?limit=&cursor=&name= — list datasets (A1). Cursor is an
-// opaque dataset id; results are newest-first with a null next_cursor at the end.
+// opaque dataset id; results are newest-first with a null next_cursor at the end. The
+// read itself is shared with the internal route (`listDatasetsPage`).
 export async function GET(request: Request) {
   const auth = await requireApiKeyProject(request);
   if (auth.error) return auth.error;
-  const { projectId } = auth;
-
   const url = new URL(request.url);
-  const limit = parseLimit(url.searchParams.get("limit"));
-  const cursor = url.searchParams.get("cursor");
-  const name = url.searchParams.get("name")?.trim();
-
-  const rows = await prisma.dataset.findMany({
-    where: {
-      projectId,
-      ...(name ? { name: { contains: name, mode: "insensitive" as Prisma.QueryMode } } : {}),
-    },
-    orderBy: { id: "desc" },
-    take: limit + 1,
-    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    select: {
-      id: true,
-      clientDatasetId: true,
-      key: true,
-      name: true,
-      description: true,
-      currentVersionId: true,
-      updateTime: true,
-    },
-  });
-
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
-  return NextResponse.json({
-    datasets: page.map((d) => ({
-      // The id the SDK addresses this dataset by: its own, or the row id for a
-      // dataset created in the UI. next_cursor stays an opaque row id.
-      dataset_id: d.clientDatasetId ?? d.id,
-      name: d.name,
-      description: d.description,
-      current_dataset_version_id: d.currentVersionId,
-      // The pre-image of dataset_id, so the SDK recovers its key when key != name.
-      key: d.key,
-      updated_at: d.updateTime.toISOString(),
-    })),
-    next_cursor: hasMore ? page[page.length - 1].id : null,
-  });
+  return evalReadResponse(
+    await listDatasetsPage({
+      projectId: auth.projectId,
+      limit: url.searchParams.get("limit"),
+      cursor: url.searchParams.get("cursor"),
+      name: url.searchParams.get("name"),
+    }),
+  );
 }
 
 // POST /api/public/datasets — upsert a dataset by its client-generated id (A2).

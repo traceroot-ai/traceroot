@@ -1,31 +1,20 @@
 import { NextResponse } from "next/server";
 import { prisma, Prisma, PublicUpdateDatasetRequestSchema } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
+import { getDatasetDetail } from "@/lib/eval/dataset-read";
+import { evalReadResponse } from "@/lib/eval/read-result";
 import { resolvePublicDataset } from "@/lib/eval/versions";
 
 type RouteParams = { params: Promise<{ datasetId: string }> };
 
 // GET /api/public/datasets/[datasetId] — SDK fetches a dataset by stable id and
-// learns its current published version to pin (API-key auth, snake_case body).
-// `datasetId` is the SDK's own project-scoped id, so another tenant using the same
-// id reaches its own dataset and never this one.
+// learns its current published version to pin (API-key auth, snake_case body). The read
+// is shared with the internal route (`getDatasetDetail`).
 export async function GET(request: Request, { params }: RouteParams) {
   const auth = await requireApiKeyProject(request);
   if (auth.error) return auth.error;
-  const { projectId } = auth;
   const { datasetId } = await params;
-
-  const dataset = await resolvePublicDataset(prisma, projectId, datasetId);
-  if (!dataset) return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
-
-  return NextResponse.json({
-    dataset_id: datasetId,
-    name: dataset.name,
-    description: dataset.description,
-    current_dataset_version_id: dataset.currentVersionId,
-    // The pre-image of dataset_id, so a pulled dataset recovers its key (key != name).
-    key: dataset.key,
-  });
+  return evalReadResponse(await getDatasetDetail({ projectId: auth.projectId, datasetId }));
 }
 
 // PATCH /api/public/datasets/[datasetId] — dataset metadata only (A3). Never
