@@ -25,6 +25,7 @@ const ADAPTER_VALUES = [
   LLMAdapter.XAI,
   LLMAdapter.MOONSHOT,
   LLMAdapter.ZAI,
+  LLMAdapter.TYPESAFE,
 ] as const;
 
 const testSchema = z.object({
@@ -276,6 +277,18 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       case "zai": {
         const zaiBase = adapterBaseUrl(adapter, baseUrl);
         const check = await checkEndpoint(`${zaiBase}/models`, {
+          Authorization: `Bearer ${apiKey}`,
+        });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
+        break;
+      }
+
+      case "typesafe": {
+        // GET /models answers 401 for a bad key. Only the status is checked: the
+        // list names aliases (jev-latest), not every version /systemone accepts.
+        const typesafeBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${typesafeBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)

@@ -7,6 +7,7 @@ import {
   LLMAdapter,
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
   defaultApiProtocol,
+  isDecisionModelId,
 } from "../llm-providers.ts";
 
 describe("defaultApiProtocol", () => {
@@ -24,6 +25,15 @@ describe("defaultApiProtocol", () => {
 
   it("is empty for an unknown adapter", () => {
     expect(defaultApiProtocol("nope", "x")).toBe("");
+  });
+});
+
+describe("isDecisionModelId", () => {
+  it("owns only the decision adapters' catalog ids, not other jev- ids or chat model ids", () => {
+    expect(isDecisionModelId("jev-1.13.0")).toBe(true);
+    expect(isDecisionModelId("jev-latest")).toBe(false);
+    expect(isDecisionModelId("jev-custom")).toBe(false);
+    expect(isDecisionModelId("gpt-4o")).toBe(false);
   });
 });
 

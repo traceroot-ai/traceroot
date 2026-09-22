@@ -822,6 +822,69 @@ class TestGrok46ModelIds:
         assert result["cost"] > 0
 
 
+# ---------------------------------------------------------------------------
+# TypeSafe Jev. The pattern pins a literal dotted version and allows only a
+# suffix after it, so it must not spill onto other jev-* ids.
+# ---------------------------------------------------------------------------
+
+
+JEV_CASES = [
+    ("jev-1.13.0", "jev-1.13.0"),
+    ("jev-1.13.0-preview", "jev-1.13.0"),
+]
+
+# ids the jev-1.13.0 pattern must leave alone: a future major and the floating
+# alias, neither of which bills at the 1.13.0 rate.
+JEV_NON_MATCHES = [
+    "jev-2.0",
+    "jev-latest",
+]
+
+
+class TestJevModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", JEV_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    @pytest.mark.parametrize("model_id,expected_name", JEV_CASES)
+    def test_matches_exactly_one_entry(self, real_cache, model_id, expected_name):
+        matching = [
+            e["model_name"]
+            for e in real_cache
+            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+        ]
+        assert matching == [expected_name], (
+            f"{model_id} must match exactly the {expected_name} pattern, got {matching}"
+        )
+
+    @pytest.mark.parametrize("model_id", JEV_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, model_id):
+        # Asserted against the jev-1.13.0 pattern itself rather than get_model_price, so
+        # the guard keeps its meaning once these ids gain priced entries of their own.
+        entry = next(e for e in real_cache if e["model_name"] == "jev-1.13.0")
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the jev-1.13.0 pattern must not absorb {model_id}"
+        )
+
+    def test_absolute_rates(self):
+        # The id-matching tests pass against any price table, so pin the published
+        # rates. Jev returns a judgment, not text, so TypeSafe bills no output tokens.
+        entry = next((e for e in _standard_price_entries() if e["modelName"] == "jev-1.13.0"), None)
+        assert entry is not None, "jev-1.13.0 missing from standard-model-prices.json"
+        prices = entry["prices"]
+        assert prices["input"] == pytest.approx(4.2e-08)  # $0.042 / MTok
+        assert prices["output"] == 0
+        assert prices["cacheRead"] is None
+        assert prices["cacheWrite"] is None
+
+
 def test_cost_from_buckets_prices_each_bucket_once():
     from worker.tokens.buckets import TokenBuckets
     from worker.tokens.pricing import cost_from_buckets
