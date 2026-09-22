@@ -593,3 +593,53 @@ describe("a version's cases are paged, and the page size is capped server-side",
     }
   });
 });
+
+describe("a cursor that is not in the set being paged is refused, never read as the end", () => {
+  async function publish(datasetId: string, n: number, key = API_KEY): Promise<string> {
+    await upsertDataset(req({ dataset_id: datasetId, name: datasetId }, key));
+    const res = await publishVersion(
+      req(
+        {
+          base_version_id: null,
+          changes: Array.from({ length: n }, (_, i) => ({
+            op: "upsert",
+            test_case_id: `${datasetId}_tc_${i}`,
+            input: `case ${i}`,
+          })),
+        },
+        key,
+      ),
+      dsParams(datasetId),
+    );
+    expect(res.status).toBe(201);
+    return (await readJson(res)).dataset_version_id as string;
+  }
+
+  it("refuses another version's case cursor, and a stale one, on the version read", async () => {
+    const a = await publish("ds_a", 3);
+    const b = await publish("ds_b", 3);
+    const pageA = await readJson(await readVersion(getReq("?limit=1"), versionParams(a)));
+    expect(pageA.next_cursor).toBeTruthy();
+
+    for (const cursor of [pageA.next_cursor as string, "row_that_never_existed"]) {
+      const res = await readVersion(getReq(`?limit=1&cursor=${cursor}`), versionParams(b));
+      expect(res.status).toBe(400);
+      expect((await readJson(res)).error).toBe("Invalid cursor");
+    }
+  });
+
+  it("refuses another project's dataset as a cursor on the dataset list", async () => {
+    await publish("ds_mine", 1);
+    await publish("ds_theirs", 1, OTHER_KEY);
+    const theirs = fakePrisma.dataset.rows.find((d) => d.clientDatasetId === "ds_theirs")!;
+    const res = await listDatasets(getReq(`?limit=1&cursor=${theirs.id}`));
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses another dataset's version as a cursor on the version list", async () => {
+    await publish("ds_a", 1);
+    const otherVersion = await publish("ds_b", 1);
+    const res = await listVersions(getReq(`?limit=1&cursor=${otherVersion}`), dsParams("ds_a"));
+    expect(res.status).toBe(400);
+  });
+});

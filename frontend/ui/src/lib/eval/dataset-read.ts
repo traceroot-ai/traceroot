@@ -23,6 +23,15 @@ export const VERSION_CASES_MAX_LIMIT = 1000;
 type Body = Record<string, unknown>;
 
 /**
+ * A cursor that names no row in the set being paged. Prisma treats a cursor as a position
+ * in the ordering, not a membership test, so a stale, mistyped or foreign cursor would
+ * otherwise answer with an empty last page (or a page from the wrong place) that looks
+ * exactly like the end of the data. A client paging to completion would stop early and
+ * keep a partial set.
+ */
+const INVALID_CURSOR = { ok: false, status: 400, error: "Invalid cursor" } as const;
+
+/**
  * A page size from a query string or a JSON number, clamped rather than rejected, so no
  * read can return an unbounded page.
  */
@@ -42,6 +51,9 @@ export async function listDatasetsPage(input: {
   const { projectId, cursor } = input;
   const limit = clampLimit(input.limit, DATASET_LIST_DEFAULT_LIMIT, DATASET_LIST_MAX_LIMIT);
   const name = input.name?.trim();
+  if (cursor && !(await prisma.dataset.findFirst({ where: { id: cursor, projectId } }))) {
+    return INVALID_CURSOR;
+  }
 
   const rows = await prisma.dataset.findMany({
     where: {
@@ -118,6 +130,14 @@ export async function listDatasetVersionsPage(input: {
   const dataset = await resolvePublicDataset(prisma, projectId, input.datasetId);
   if (!dataset) return { ok: false, status: 404, error: "Dataset not found" };
   const limit = clampLimit(input.limit, DATASET_LIST_DEFAULT_LIMIT, DATASET_LIST_MAX_LIMIT);
+  if (
+    cursor &&
+    !(await prisma.datasetVersion.findFirst({
+      where: { id: cursor, datasetId: dataset.id, projectId },
+    }))
+  ) {
+    return INVALID_CURSOR;
+  }
 
   const rows = await prisma.datasetVersion.findMany({
     where: { datasetId: dataset.id, projectId },
@@ -183,6 +203,14 @@ export async function getDatasetVersionPage(input: {
     include: { dataset: { select: { clientDatasetId: true } } },
   });
   if (!version) return { ok: false, status: 404, error: "Dataset version not found" };
+  if (
+    cursor &&
+    !(await prisma.testCase.findFirst({
+      where: { id: cursor, datasetVersionId: version.id, projectId },
+    }))
+  ) {
+    return INVALID_CURSOR;
+  }
 
   // Cases are fetched separately now that they are paged. Pulling the same version twice
   // must yield the same order, and create_time alone does not: Postgres' CURRENT_TIMESTAMP
