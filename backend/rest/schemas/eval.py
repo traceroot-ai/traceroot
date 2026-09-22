@@ -137,6 +137,8 @@ EvalResultStatus = Literal["passed", "failed", "errored", "not_scored"]
 ResultChange = Literal["improved", "regressed", "unchanged"]
 ScorerValueType = Literal["numeric", "boolean", "categorical"]
 ScorerDirection = Literal["higher_is_better", "lower_is_better", "none"]
+#: Server-supplied metric units, so formatting is not reinvented per client.
+MetricUnit = Literal["$", "tok", "ms", "count"]
 ScorerType = Literal["llm_judge", "code"]
 ScorerOutputType = Literal["score", "classification"]
 ScorerLanguage = Literal["python", "typescript"]
@@ -383,6 +385,77 @@ class GetDatasetVersionResponse(BaseModel):
     label: str | None
     items: list[PublicTestCase]
     next_cursor: str | None
+
+
+# --- (a2) Read a run's summary ----------------------------------------------
+
+
+class RunMetricItem(BaseModel):
+    """One score or one derived metric. Identical shape for both: they differ in
+    PROVENANCE (a scorer reported it vs the platform derived it from the trace), not in
+    structure, and a client renders them the same way.
+
+    ``value`` is the run's own mean over ``observed_count`` results, and null rather than
+    0 when nothing was observed — "no data" and "measured zero" are different facts and
+    must stay distinguishable.
+    """
+
+    name: str
+    # Server-supplied so formatting is not reinvented per client. Null for a score: a
+    # [0,1] score is a CONVENTION, not a unit.
+    unit: MetricUnit | None = None
+    direction: ScorerDirection
+    value_type: ScorerValueType = Field(
+        description=(
+            "The scorer's declared kind, else the kind it stored. Every derived metric is numeric."
+        )
+    )
+    value: JsonFloat | None = Field(
+        default=None,
+        description=(
+            "The run's own mean over observed_count results. Null when nothing was observed, "
+            "and always for a categorical score or one that stored labels and numbers together."
+        ),
+    )
+    observed_count: JsonNonNegativeInt = Field(
+        description="How many results reported a usable value for this score or metric."
+    )
+
+
+class ReadRunResponse(BaseModel):
+    """A run's SUMMARY — deliberately no per-case rows, so the payload is bounded by
+    scorer count rather than case count and needs no truncation flag."""
+
+    evaluation_run_id: str
+    evaluation_id: str
+    evaluation_name: str
+    evaluation_key: str | None = None
+    run_number: int
+    candidate_version: str
+    environment: str
+    status: EvalRunStatus
+    started_at: str
+    completed_at: str | None = None
+    dataset_id: str
+    dataset_version_id: str
+    # UI-relative path; the backend owns the route shape. Prefer run_url for a printed
+    # link — joining this to a client's own host only resolves on a shared origin.
+    run_path: str
+    # Absolute clickable URL, returned so a client never RECONSTRUCTS one: the run and
+    # compare pages are client-side routes whose only builders live in the browser UI.
+    run_url: str
+    # The OBSERVED population — every result the run reported, and a different fact
+    # from the run's DECLARED case_count.
+    result_count: JsonNonNegativeInt
+    scored_count: JsonNonNegativeInt
+    task_error_count: JsonNonNegativeInt
+    scorer_error_count: JsonNonNegativeInt
+    passed_count: JsonNonNegativeInt
+    failed_count: JsonNonNegativeInt
+    errored_count: JsonNonNegativeInt
+    not_scored_count: JsonNonNegativeInt
+    scores: list[RunMetricItem] = Field(default_factory=list)
+    metrics: list[RunMetricItem] = Field(default_factory=list)
 
 
 # --- (b) Upsert one test-case result with scores ----------------------------

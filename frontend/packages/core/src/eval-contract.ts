@@ -364,6 +364,88 @@ export const GetDatasetVersionResponseSchema = z.object({
   next_cursor: z.string().nullable(),
 });
 
+// ---------------------------------------------------------------------------
+// Run summary read (public: an API key, or a user login plus project_id)
+// ---------------------------------------------------------------------------
+
+/** Server-supplied units, so formatting is not reinvented per client. */
+export const METRIC_UNITS = ["$", "tok", "ms", "count"] as const;
+export const MetricUnitSchema = z.enum(METRIC_UNITS);
+
+/**
+ * One score or one derived metric — identical shape for both. They differ in
+ * PROVENANCE (a scorer reported it vs the platform derived it from the trace), not in
+ * structure. `value` is the run's own mean over `observed_count` results, and null rather
+ * than 0 when nothing was observed: "no data" and "measured zero" are different facts and
+ * must stay distinguishable.
+ */
+export const RunMetricItemSchema = z.object({
+  name: z.string(),
+  /** Null for a score: a [0,1] score is a CONVENTION, not a unit. */
+  unit: MetricUnitSchema.nullable().optional(),
+  direction: ScorerDirectionSchema,
+  value_type: ScorerValueTypeSchema.describe(
+    "The scorer's declared kind, else the kind it stored. Every derived metric is numeric.",
+  ),
+  value: z
+    .number()
+    .nullable()
+    .optional()
+    .describe(
+      "The run's own mean over observed_count results. Null when nothing was observed, and " +
+        "always for a categorical score or one that stored labels and numbers together.",
+    ),
+  observed_count: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe("How many results reported a usable value for this score or metric."),
+});
+
+/**
+ * A run's SUMMARY. Deliberately no per-case rows, so the payload is bounded by scorer
+ * count rather than case count and needs no truncation flag.
+ */
+export const ReadRunResponseSchema = z.object({
+  evaluation_run_id: z.string(),
+  evaluation_id: z.string(),
+  evaluation_name: z.string(),
+  evaluation_key: z.string().nullable().optional(),
+  run_number: z.number().int(),
+  candidate_version: z.string(),
+  environment: z.string(),
+  status: EvalRunStatusSchema,
+  started_at: z.string(),
+  completed_at: z.string().nullable().optional(),
+  dataset_id: z.string(),
+  dataset_version_id: z.string(),
+  /**
+   * UI-relative path to the run. The backend owns the route shape; prefer `run_url` for
+   * a printed link, since joining this to a client's own host only resolves when the API
+   * and UI share an origin.
+   */
+  run_path: z.string(),
+  /**
+   * Absolute, clickable run URL. Returned so a client never RECONSTRUCTS one: the compare
+   * and detail routes are client-side pages whose only builders live in the browser UI,
+   * so a reconstructed link would invent a contract and would need a projectId the caller
+   * is never given.
+   */
+  run_url: z.string(),
+  /** The OBSERVED population — every result the run reported. */
+  result_count: z.number().int().nonnegative(),
+  scored_count: z.number().int().nonnegative(),
+  task_error_count: z.number().int().nonnegative(),
+  scorer_error_count: z.number().int().nonnegative(),
+  passed_count: z.number().int().nonnegative(),
+  failed_count: z.number().int().nonnegative(),
+  errored_count: z.number().int().nonnegative(),
+  not_scored_count: z.number().int().nonnegative(),
+  scores: z.array(RunMetricItemSchema).default([]),
+  metrics: z.array(RunMetricItemSchema).default([]),
+});
+export type ReadRunResponse = z.infer<typeof ReadRunResponseSchema>;
+
 /**
  * Upsert one test-case result. Idempotent on (`run_id`, `test_case_id`).
  * `trace_id` may be null now and set on a later call (out-of-order arrival).

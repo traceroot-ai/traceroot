@@ -529,6 +529,196 @@
         }
       }
     },
+    "RunMetricItem": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "unit": {
+          "type": "enum",
+          "enum": ["$", "tok", "ms", "count"],
+          "required": false,
+          "nullable": true
+        },
+        "direction": {
+          "type": "enum",
+          "enum": ["higher_is_better", "lower_is_better", "none"],
+          "required": true,
+          "nullable": false
+        },
+        "value_type": {
+          "type": "enum",
+          "enum": ["numeric", "boolean", "categorical"],
+          "required": true,
+          "nullable": false
+        },
+        "value": {
+          "type": "number",
+          "required": false,
+          "nullable": true
+        },
+        "observed_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "ReadRunResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluation_run_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_name": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_key": {
+          "type": "string",
+          "required": false,
+          "nullable": true
+        },
+        "run_number": {
+          "type": "integer",
+          "required": true,
+          "nullable": false
+        },
+        "candidate_version": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "environment": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "status": {
+          "type": "enum",
+          "enum": [
+            "running",
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "incomplete",
+            "cancelled"
+          ],
+          "required": true,
+          "nullable": false
+        },
+        "started_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "completed_at": {
+          "type": "string",
+          "required": false,
+          "nullable": true
+        },
+        "dataset_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "dataset_version_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_path": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_url": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "result_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "scored_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "task_error_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "scorer_error_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "passed_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "failed_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "errored_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "not_scored_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "scores": {
+          "type": "array",
+          "items": {
+            "type": "RunMetricItem"
+          },
+          "required": false,
+          "nullable": false,
+          "default": []
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "type": "RunMetricItem"
+          },
+          "required": false,
+          "nullable": false,
+          "default": []
+        }
+      }
+    },
     "UpsertResultRequest": {
       "kind": "object",
       "unknown_keys": "forbid",
