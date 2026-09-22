@@ -15,6 +15,13 @@ describe("runLink", () => {
     });
   });
 
+  it("never puts credentials from the configured origin into the link", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://ops:s3cret@app.example.com");
+    const { run_url } = runLink("p1", "r1");
+    expect(run_url).toBe("https://app.example.com/projects/p1/evaluations/r1");
+    expect(run_url).not.toContain("s3cret");
+  });
+
   it("falls back to the default origin when none is configured", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
     expect(appBaseUrl()).toBe("http://localhost:3000");

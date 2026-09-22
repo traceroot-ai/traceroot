@@ -430,7 +430,7 @@ class ReadRunResponse(BaseModel):
     evaluation_id: str
     evaluation_name: str
     evaluation_key: str | None = None
-    run_number: int
+    run_number: JsonInt
     candidate_version: str
     environment: str
     status: EvalRunStatus

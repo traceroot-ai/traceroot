@@ -222,6 +222,8 @@ def test_read_run_is_503_on_a_body_outside_the_contract():
         [SUMMARY],
         {"evaluation_run_id": "run1"},
         {**SUMMARY, "status": "exploded"},
+        {**SUMMARY, "run_number": "14"},
+        {**SUMMARY, "run_number": True},
         {**SUMMARY, "scores": [{"name": "acc", "direction": "sideways"}]},
     ):
         _mock_internal(body)

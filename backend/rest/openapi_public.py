@@ -649,9 +649,12 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "read_run": {
         "name": "read_evaluation_run",
         "description": (
-            "Read one evaluation run's summary: its status, result counts, and per-scorer "
-            "scores plus per-case cost and duration as means, each with the number of "
-            "results it was averaged over."
+            "Read one evaluation run's summary: its status, result counts, per-scorer "
+            "scores, and mean cost and duration per case. Each score and metric carries "
+            "observed_count, the number of results it was taken over. A numeric score's "
+            "value is its mean and a boolean score's is its pass rate. A categorical or "
+            "mixed-type score, or one no result reported, has a null value: it has no "
+            "mean, and is not a score of 0."
         ),
         "enabled": True,
     },

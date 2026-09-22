@@ -25,7 +25,12 @@ export function appBaseUrl(): string {
     const url = new URL(configured);
     // Only a web origin can host the dashboard. A value like `mailto:` parses as a URL but
     // cannot resolve a path against it, so it would fail every register and read.
-    if (url.protocol === "http:" || url.protocol === "https:") return url.toString();
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      // The link is printed into CI logs, so credentials in the configured URL never ride along.
+      url.username = "";
+      url.password = "";
+      return url.toString();
+    }
   } catch {
     // Not a URL at all: handled below, the same way.
   }
