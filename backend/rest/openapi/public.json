@@ -3746,16 +3746,30 @@
             "type": "string"
           },
           "scored_count": {
-            "maximum": 9007199254740991.0,
-            "minimum": 0.0,
-            "title": "Scored Count",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored Count"
           },
           "scorer_error_count": {
-            "maximum": 9007199254740991.0,
-            "minimum": 0.0,
-            "title": "Scorer Error Count",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorer Error Count"
           },
           "scores": {
             "items": {
@@ -3781,10 +3795,17 @@
             "type": "string"
           },
           "task_error_count": {
-            "maximum": 9007199254740991.0,
-            "minimum": 0.0,
-            "title": "Task Error Count",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Error Count"
           }
         },
         "required": [
@@ -10178,7 +10199,7 @@
           "Offline Eval (Public)"
         ],
         "x-tool": {
-          "description": "Read one evaluation run's summary: its status, result counts, per-scorer scores, and mean cost and duration per case. Each score and metric carries observed_count, the number of results it was taken over. A numeric score's value is its mean and a boolean score's is its pass rate. A categorical or mixed-type score, or one no result reported, has a null value: it has no mean, and is not a score of 0.",
+          "description": "Read one evaluation run's summary: its status, result counts, per-scorer scores, and mean cost and duration per case. scored_count, task_error_count and scorer_error_count are null until the run completes. A case is errored or not_scored; passed and failed are older statuses, so passed_count and failed_count are usually 0. Each score and metric carries observed_count, the number of results it was taken over. A numeric score's value is its mean and a boolean score's is its pass rate. A categorical or mixed-type score, or one no result reported, has a null value: it has no mean, and is not a score of 0.",
           "enabled": true,
           "name": "read_evaluation_run"
         }

@@ -447,9 +447,13 @@ class ReadRunResponse(BaseModel):
     # The OBSERVED population — every result the run reported, and a different fact
     # from the run's DECLARED case_count.
     result_count: JsonNonNegativeInt
-    scored_count: JsonNonNegativeInt
-    task_error_count: JsonNonNegativeInt
-    scorer_error_count: JsonNonNegativeInt
+    # The SDK reports these three when the run completes. Null until then, so a count
+    # nobody has reported yet isn't read as a real 0.
+    scored_count: JsonNonNegativeInt | None
+    task_error_count: JsonNonNegativeInt | None
+    scorer_error_count: JsonNonNegativeInt | None
+    # A case is errored or not_scored; passed and failed are older statuses, so these two
+    # are usually 0. A scorer's own pass rate is in ``scores``.
     passed_count: JsonNonNegativeInt
     failed_count: JsonNonNegativeInt
     errored_count: JsonNonNegativeInt

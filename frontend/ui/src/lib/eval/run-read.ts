@@ -194,6 +194,9 @@ export async function readRunSummary(input: {
     }),
   ]);
 
+  // The SDK reports these three counts when the run completes; until then the row holds
+  // their default 0, which a client would read as a real count.
+  const reported = run.status !== "running";
   const statusRows = byStatus.map((g) => ({ status: g.status, count: g._count._all }));
   const statusCounts = countResultStatuses(statusRows);
   // The shared fold counts only the statuses current SDKs write (errored / not_scored).
@@ -226,9 +229,9 @@ export async function readRunSummary(input: {
     // run's DECLARED case_count. Each mean below carries its own `observed_count`, because a
     // scorer that errored on some cases averaged over fewer than this.
     result_count: statusRows.reduce((n, g) => n + g.count, 0),
-    scored_count: run.scoredCount,
-    task_error_count: run.taskErrorCount,
-    scorer_error_count: run.scorerErrorCount,
+    scored_count: reported ? run.scoredCount : null,
+    task_error_count: reported ? run.taskErrorCount : null,
+    scorer_error_count: reported ? run.scorerErrorCount : null,
     passed_count: countOf("passed"),
     failed_count: countOf("failed"),
     errored_count: statusCounts.erroredCount,

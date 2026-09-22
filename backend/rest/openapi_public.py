@@ -650,7 +650,10 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "name": "read_evaluation_run",
         "description": (
             "Read one evaluation run's summary: its status, result counts, per-scorer "
-            "scores, and mean cost and duration per case. Each score and metric carries "
+            "scores, and mean cost and duration per case. scored_count, task_error_count "
+            "and scorer_error_count are null until the run completes. A case is errored "
+            "or not_scored; passed and failed are older statuses, so passed_count and "
+            "failed_count are usually 0. Each score and metric carries "
             "observed_count, the number of results it was taken over. A numeric score's "
             "value is its mean and a boolean score's is its pass rate. A categorical or "
             "mixed-type score, or one no result reported, has a null value: it has no "

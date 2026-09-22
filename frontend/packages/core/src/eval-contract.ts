@@ -434,9 +434,17 @@ export const ReadRunResponseSchema = z.object({
   run_url: z.string(),
   /** The OBSERVED population — every result the run reported. */
   result_count: z.number().int().nonnegative(),
-  scored_count: z.number().int().nonnegative(),
-  task_error_count: z.number().int().nonnegative(),
-  scorer_error_count: z.number().int().nonnegative(),
+  /**
+   * The SDK reports these three when the run completes. Null until then, so a count nobody
+   * has reported yet isn't read as a real 0.
+   */
+  scored_count: z.number().int().nonnegative().nullable(),
+  task_error_count: z.number().int().nonnegative().nullable(),
+  scorer_error_count: z.number().int().nonnegative().nullable(),
+  /**
+   * A case is errored or not_scored; passed and failed are older statuses, so these two
+   * are usually 0. A scorer's own pass rate is in `scores`.
+   */
   passed_count: z.number().int().nonnegative(),
   failed_count: z.number().int().nonnegative(),
   errored_count: z.number().int().nonnegative(),

@@ -109,6 +109,16 @@ def test_read_run_returns_the_summary_keyed_by_the_resolved_project():
 
 
 @respx.mock
+def test_read_run_passes_counts_not_yet_reported_through_as_null():
+    _mock_key_auth()
+    unreported = {"scored_count": None, "task_error_count": None, "scorer_error_count": None}
+    _mock_internal({**SUMMARY, "status": "running", "completed_at": None, **unreported})
+    resp = _client().get("/api/v1/public/evaluation-runs/run1", headers=KEY_HEADER)
+    assert resp.status_code == 200
+    assert {k: resp.json()[k] for k in unreported} == unreported
+
+
+@respx.mock
 def test_read_run_never_reaches_the_api_key_control_plane_route():
     """The read is served by the internal route; the forwarded API-key route is gone."""
     _mock_key_auth()

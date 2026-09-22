@@ -298,6 +298,17 @@ describe("response shape", () => {
     expect(byName(body.metrics).duration).toMatchObject({ value: 200, observed_count: 3 });
   });
 
+  it("leaves the counts the SDK reports at completion null while the run is running", async () => {
+    // The row holds 0 for these until /complete writes them; a 0 here would read as
+    // "nothing scored" on a run that simply hasn't finished.
+    const running = await readBody([run({ status: "running", completedAt: null })]);
+    expect(running.scored_count).toBeNull();
+    expect(running.task_error_count).toBeNull();
+    expect(running.scorer_error_count).toBeNull();
+    const done = await readBody([run()]);
+    expect([done.scored_count, done.task_error_count, done.scorer_error_count]).toEqual([2, 0, 0]);
+  });
+
   it("gives every score and metric exactly the published item fields", async () => {
     const body = await readBody([run()]);
     for (const item of [...body.scores, ...body.metrics]) {

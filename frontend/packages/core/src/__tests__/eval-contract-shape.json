@@ -661,19 +661,19 @@
           "type": "integer",
           "minimum": 0,
           "required": true,
-          "nullable": false
+          "nullable": true
         },
         "task_error_count": {
           "type": "integer",
           "minimum": 0,
           "required": true,
-          "nullable": false
+          "nullable": true
         },
         "scorer_error_count": {
           "type": "integer",
           "minimum": 0,
           "required": true,
-          "nullable": false
+          "nullable": true
         },
         "passed_count": {
           "type": "integer",
