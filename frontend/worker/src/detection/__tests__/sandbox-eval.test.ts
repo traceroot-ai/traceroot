@@ -26,7 +26,10 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
 
 const { mockRunJevDetection } = vi.hoisted(() => ({ mockRunJevDetection: vi.fn() }));
 
-vi.mock("../jev-eval.js", () => ({ runJevDetection: mockRunJevDetection }));
+vi.mock("../jev-eval.js", () => ({
+  runJevDetection: mockRunJevDetection,
+  JEV_DEFAULT_MODEL_ID: "jev-1.13.0",
+}));
 
 vi.mock("@traceroot/core/model-resolver", () => ({
   resolvePiModel: mockResolvePiModel,
@@ -357,6 +360,45 @@ describe("runDetectionForTrace", () => {
 
     expect(result.identified).toBe(false);
     expect(result.error).toBe("TypeSafe systemone returned 401: authentication_error");
+  });
+
+  it("bills the tokens TypeSafe charged when a 200 response fails validation", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "typesafe",
+      key: "ts-key",
+      baseUrl: null,
+      config: null,
+    });
+    // typesafe-client hangs the billed usage on the error it throws for a 200
+    // whose answers it rejects.
+    mockRunJevDetection.mockRejectedValueOnce(
+      Object.assign(new Error("TypeSafe returned a malformed response: missing answers"), {
+        usage: { inputTokens: 810, outputTokens: 63 },
+      }),
+    );
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: "byok",
+        detectionProvider: "my-typesafe",
+        detectionModel: "jev-1.13.0",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.error).toMatch(/malformed response/);
+    expect(result).toMatchObject({
+      identified: false,
+      inferenceCost: 0,
+      inferenceInputTokens: 810,
+      inferenceOutputTokens: 63,
+      inferenceSource: "byok",
+      inferenceModel: "jev-1.13.0",
+      inferenceProvider: "typesafe",
+    });
   });
 
   it("always passes toolChoice='auto' regardless of protocol", async () => {

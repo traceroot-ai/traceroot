@@ -10,9 +10,14 @@ import {
   isSystemModelId,
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
-import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID, isDecisionAdapter } from "@traceroot/core/llm-providers";
+import {
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  isDecisionAdapter,
+  LLMAdapter,
+} from "@traceroot/core/llm-providers";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
-import { runJevDetection } from "./jev-eval.js";
+import { runJevDetection, JEV_DEFAULT_MODEL_ID } from "./jev-eval.js";
+import { usageFromError } from "./typesafe-client.js";
 
 export interface DetectorConfig {
   id: string;
@@ -172,7 +177,19 @@ export async function runDetectionForTrace(params: {
           timeoutMs: parseDetectorEvalTimeoutMs(process.env.DETECTOR_EVAL_TIMEOUT_MS),
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err), source);
+        // TypeSafe bills a 200 whose answers we then reject, and the thrown
+        // error carries those tokens. Attribute them as the LLM path does, so
+        // the billed call still gets a usage row instead of being dropped.
+        const usage = usageFromError(err);
+        return errorResult(
+          err instanceof Error ? err.message : String(err),
+          source,
+          0,
+          usage?.inputTokens ?? 0,
+          usage?.outputTokens ?? 0,
+          usage ? detector.detectionModel || JEV_DEFAULT_MODEL_ID : null,
+          usage ? LLMAdapter.TYPESAFE : null,
+        );
       }
     }
   }
