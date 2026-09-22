@@ -12,8 +12,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
   evaluationRun: { findFirst: vi.fn() },
-  evaluationResult: { findMany: vi.fn(), groupBy: vi.fn(), aggregate: vi.fn() },
-  score: { findMany: vi.fn() },
+  evaluationResult: { groupBy: vi.fn(), aggregate: vi.fn() },
+  $queryRaw: vi.fn(),
   dataset: { findFirst: vi.fn() },
   project: { findUnique: vi.fn() },
 }));
@@ -68,8 +68,6 @@ beforeEach(() => {
   prismaMock.evaluationRun.findFirst.mockReset();
   prismaMock.project.findUnique.mockReset();
   prismaMock.dataset.findFirst.mockReset();
-  prismaMock.evaluationResult.findMany.mockReset();
-  prismaMock.evaluationResult.findMany.mockResolvedValue([]);
   prismaMock.evaluationResult.groupBy.mockReset();
   prismaMock.evaluationResult.groupBy.mockResolvedValue([]);
   prismaMock.evaluationResult.aggregate.mockReset();
@@ -77,8 +75,8 @@ beforeEach(() => {
     _avg: { durationMs: null, cost: null },
     _count: { durationMs: 0, cost: 0 },
   });
-  prismaMock.score.findMany.mockReset();
-  prismaMock.score.findMany.mockResolvedValue([]);
+  prismaMock.$queryRaw.mockReset();
+  prismaMock.$queryRaw.mockResolvedValue([]);
   prismaMock.dataset.findFirst.mockResolvedValue({ id: "ds1", clientDatasetId: null });
 });
 
@@ -88,7 +86,7 @@ describe("retention gate on the run-summary read", () => {
     expect(result).toEqual({ ok: false, status: 403, error: "Data outside retention window" });
     // One run lookup, and no results or dataset: a refusal reads nothing else.
     expect(prismaMock.evaluationRun.findFirst).toHaveBeenCalledTimes(1);
-    expect(prismaMock.evaluationResult.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.$queryRaw).not.toHaveBeenCalled();
     expect(prismaMock.evaluationResult.groupBy).not.toHaveBeenCalled();
     expect(prismaMock.evaluationResult.aggregate).not.toHaveBeenCalled();
     expect(prismaMock.dataset.findFirst).not.toHaveBeenCalled();

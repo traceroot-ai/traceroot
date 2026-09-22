@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ComparisonScore, ComparisonScorerMeta } from "./comparison";
-import { summarizeRun, type SummaryItem, type SummaryResult } from "./run-summary";
+import { ScoreSummarizer, summarizeRun, type SummaryItem, type SummaryResult } from "./run-summary";
 
 // ── builders ─────────────────────────────────────────────────────────────
 
@@ -249,6 +249,26 @@ describe("summarizeRun — scores", () => {
 });
 
 // ── derived metrics ──────────────────────────────────────────────────────
+
+describe("ScoreSummarizer — totals summed elsewhere", () => {
+  it("folds a scorer's totals into the same items as the rows they came from", () => {
+    const scorers = [meta("acc"), meta("exact")];
+    const rows = [
+      [score("acc", { numericValue: 1 }), score("exact", { boolValue: true })],
+      [score("acc", { numericValue: 0.5 }), score("exact", { boolValue: false })],
+      [score("acc", { error: "judge timed out" }), score("tone", { stringValue: "warm" })],
+    ];
+    const fromTotals = new ScoreSummarizer(scorers);
+    fromTotals.addTotals("acc", { sum: 1.5, numeric: 2, booleans: 0, labels: 0 });
+    fromTotals.addTotals("exact", { sum: 1, numeric: 2, booleans: 2, labels: 0 });
+    fromTotals.addTotals("tone", { sum: 0, numeric: 0, booleans: 0, labels: 1 });
+    const fromRows = summarizeRun(
+      scorers,
+      rows.map((scores) => result({ scores })),
+    ).scores;
+    expect(fromTotals.items()).toEqual(fromRows);
+  });
+});
 
 describe("summarizeRun — derived metrics", () => {
   it("averages each metric over the results that reported it, with its unit", () => {

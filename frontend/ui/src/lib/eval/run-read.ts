@@ -1,27 +1,11 @@
 import { PlanType, prisma, type EvalRunStatus, type ReadRunResponse } from "@traceroot/core";
-import type { ComparisonScore, ComparisonScorerMeta } from "@/lib/eval/comparison";
+import type { ComparisonScorerMeta } from "@/lib/eval/comparison";
 import { parseScorers } from "@/lib/eval/comparison-db";
 import type { EvalReadResult } from "@/lib/eval/read-result";
 import { countResultStatuses } from "@/lib/eval/result-status-counts";
 import { runLink } from "@/lib/eval/run-link";
 import { ScoreSummarizer, metricSummary, type SummaryItem } from "@/lib/eval/run-summary";
 import { isOutsideRetention } from "@/lib/server/retention";
-
-// Results are read a page at a time for their scores, so memory is bounded by the page,
-// not by how many cases the run has. Counts and the stored metrics are aggregated in the
-// database and never read row by row.
-const RESULT_PAGE_SIZE = 1000;
-
-// A score's value columns. No TEXT column is read: `error` is left out, and an errored row
-// is found by the query below without its text. Per-case TEXT such as `candidateOutput`
-// (up to 1 MB each) never appears in any query here.
-const SCORE_VALUE_SELECT = {
-  scorerName: true,
-  scorerVersion: true,
-  numericValue: true,
-  boolValue: true,
-  stringValue: true,
-} as const;
 
 const RUN_SELECT = {
   id: true,
@@ -59,57 +43,82 @@ function metricItem(m: SummaryItem): MetricItem {
   };
 }
 
+/** One scorer's totals over the run, as the query in `summarizeScores` returns them. */
+type ScorerTotalsRow = {
+  name: string;
+  sum: number | null;
+  numeric: bigint | number;
+  booleans: bigint | number;
+  labels: bigint | number;
+};
+
 /**
- * Fold a run's scores into per-scorer means, one page of results at a time.
+ * Fold a run's scores into per-scorer means in one aggregate query, so a read costs one
+ * statement however many results the run holds. The counts and stored metrics are
+ * aggregated in the database the same way, and no result is ever read row by row.
  *
- * Each page reads only the rows that carry a value. The rows that errored are fetched by
- * scorer and version alone and fed back in, because an errored row still counts as that
- * result's row for its scorer (it can be the declared version that wins).
+ * The query makes the summarizer's own pick, one row per result and scorer: the version the
+ * run declared, else the highest version. It then sums each scorer's values the way
+ * `readScore` reads a row: a boolean first, then a finite number, then a label. An errored
+ * row is still picked, since it can be the declared version that wins, but it adds nothing;
+ * a scorer only ever seen errored is still listed.
+ *
+ * No TEXT column is read. `error` is only tested for NULL, and per-case TEXT such as
+ * `candidate_output` (up to 1 MB each) never appears.
  */
 async function summarizeScores(
   runId: string,
   projectId: string,
   scorers: ComparisonScorerMeta[],
 ): Promise<SummaryItem[]> {
+  // A later declaration of a name wins, as in the summarizer; a blank version declares none.
+  const declared = [...new Map(scorers.map((s) => [s.name, s.version || null]))].map(
+    ([name, version]) => ({ name, version }),
+  );
+  const rows = await prisma.$queryRaw<ScorerTotalsRow[]>`
+    WITH declared AS (
+      SELECT d.name, d.version
+      FROM jsonb_to_recordset(${JSON.stringify(declared)}::jsonb) AS d(name text, version text)
+    ),
+    picked AS (
+      SELECT DISTINCT ON (s.result_id, s.scorer_name)
+        s.scorer_name,
+        s.error IS NOT NULL AS errored,
+        s.bool_value,
+        s.numeric_value IS NOT NULL AS has_number,
+        CASE WHEN s.numeric_value IN ('NaN', 'Infinity', '-Infinity') THEN NULL
+             ELSE s.numeric_value END AS finite_number,
+        s.string_value IS NOT NULL AS has_label
+      FROM scores s
+      JOIN evaluation_results r ON r.id = s.result_id
+      LEFT JOIN declared d ON d.name = s.scorer_name
+      WHERE r.run_id = ${runId} AND r.project_id = ${projectId}
+      ORDER BY s.result_id, s.scorer_name,
+        (s.scorer_version = d.version) DESC NULLS LAST,
+        s.scorer_version COLLATE "C" DESC
+    )
+    SELECT
+      scorer_name AS name,
+      SUM(CASE WHEN bool_value IS NOT NULL THEN bool_value::int ELSE finite_number END)
+        FILTER (WHERE NOT errored) AS sum,
+      COUNT(*) FILTER (
+        WHERE NOT errored AND (bool_value IS NOT NULL OR finite_number IS NOT NULL)
+      ) AS numeric,
+      COUNT(*) FILTER (WHERE NOT errored AND bool_value IS NOT NULL) AS booleans,
+      COUNT(*) FILTER (
+        WHERE NOT errored AND bool_value IS NULL AND NOT has_number AND has_label
+      ) AS labels
+    FROM picked
+    GROUP BY scorer_name`;
+
   const summarizer = new ScoreSummarizer(scorers);
-  let cursor: string | null = null;
-  for (;;) {
-    const page: Array<{ id: string; scores: Array<Omit<ComparisonScore, "error">> }> =
-      await prisma.evaluationResult.findMany({
-        where: { runId, projectId },
-        orderBy: { id: "asc" },
-        take: RESULT_PAGE_SIZE,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-        select: { id: true, scores: { where: { error: null }, select: SCORE_VALUE_SELECT } },
-      });
-    if (page.length === 0) break;
-
-    const errored = await prisma.score.findMany({
-      where: { resultId: { in: page.map((r) => r.id) }, error: { not: null } },
-      select: { resultId: true, scorerName: true, scorerVersion: true },
+  for (const r of rows) {
+    summarizer.addTotals(r.name, {
+      sum: r.sum ?? 0,
+      numeric: Number(r.numeric),
+      booleans: Number(r.booleans),
+      labels: Number(r.labels),
     });
-    const erroredByResult = new Map<string, ComparisonScore[]>();
-    for (const e of errored) {
-      const rows = erroredByResult.get(e.resultId) ?? [];
-      rows.push({
-        scorerName: e.scorerName,
-        scorerVersion: e.scorerVersion,
-        numericValue: null,
-        boolValue: null,
-        stringValue: null,
-        error: "errored",
-      });
-      erroredByResult.set(e.resultId, rows);
-    }
-    for (const r of page) {
-      summarizer.add([
-        ...r.scores.map((s) => ({ ...s, error: null })),
-        ...(erroredByResult.get(r.id) ?? []),
-      ]);
-    }
-
-    if (page.length < RESULT_PAGE_SIZE) break;
-    cursor = page[page.length - 1].id;
   }
   return summarizer.items();
 }

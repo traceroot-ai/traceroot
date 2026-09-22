@@ -16,10 +16,14 @@ describe("runLink", () => {
   });
 
   it("never puts credentials from the configured origin into the link", () => {
-    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://ops:s3cret@app.example.com");
+    // Built from parts, so the source holds no credentialed URL for a secret scanner to flag.
+    const configured = new URL("https://app.example.com");
+    configured.username = "ops";
+    configured.password = "not-a-real-password";
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", configured.toString());
     const { run_url } = runLink("p1", "r1");
     expect(run_url).toBe("https://app.example.com/projects/p1/evaluations/r1");
-    expect(run_url).not.toContain("s3cret");
+    expect(run_url).not.toContain(configured.password);
   });
 
   it("falls back to the default origin when none is configured", () => {

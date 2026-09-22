@@ -90,7 +90,8 @@ function pickRows(
   return picked;
 }
 
-type Acc = { sum: number; numeric: number; booleans: number; labels: number };
+/** A scorer's running totals: the sum of its usable values, and how many of each kind. */
+export type ScorerTotals = { sum: number; numeric: number; booleans: number; labels: number };
 
 /**
  * Folds score rows into per-scorer means one result at a time, so a caller can feed a large
@@ -102,7 +103,7 @@ type Acc = { sum: number; numeric: number; booleans: number; labels: number };
  */
 export class ScoreSummarizer {
   private readonly metaByName: Map<string, ComparisonScorerMeta>;
-  private readonly acc = new Map<string, Acc>();
+  private readonly acc = new Map<string, ScorerTotals>();
 
   constructor(private readonly scorers: readonly ComparisonScorerMeta[]) {
     this.metaByName = new Map(scorers.map((s) => [s.name, s]));
@@ -127,6 +128,20 @@ export class ScoreSummarizer {
       a.numeric += 1;
       if (v.valueType === "boolean") a.booleans += 1;
     }
+  }
+
+  /**
+   * Add one scorer's totals, summed elsewhere (the run read sums them in the database)
+   * over the same one-row-per-result pick that `add` makes.
+   */
+  addTotals(name: string, totals: ScorerTotals): void {
+    const a = this.acc.get(name) ?? { sum: 0, numeric: 0, booleans: 0, labels: 0 };
+    this.acc.set(name, {
+      sum: a.sum + totals.sum,
+      numeric: a.numeric + totals.numeric,
+      booleans: a.booleans + totals.booleans,
+      labels: a.labels + totals.labels,
+    });
   }
 
   /** One item per scorer. */

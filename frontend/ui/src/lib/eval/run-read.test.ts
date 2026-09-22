@@ -65,6 +65,7 @@ function run(over: Row = {}): Row {
 function db(rows: Row[]) {
   const calls: Row[] = [];
   const selects: Row[] = [];
+  const queries: Array<{ sql: string; values: unknown[] }> = [];
   const find = (id: string, projectId: string) =>
     rows.find((r) => r.id === id && r.projectId === projectId);
   const resultsOf = (where: Row): Row[] =>
@@ -75,6 +76,7 @@ function db(rows: Row[]) {
   return {
     calls,
     selects,
+    queries,
     client: {
       evaluationRun: {
         findFirst: async ({ where, select }: Row) => {
@@ -87,7 +89,7 @@ function db(rows: Row[]) {
         },
       },
       // Derived from each fixture's `results`, so the fixtures stay whole rows while the
-      // read aggregates in the database and pages the scores.
+      // read aggregates everything in the database.
       evaluationResult: {
         groupBy: async ({ where }: Row) => {
           const counts = new Map<string, number>();
@@ -111,34 +113,53 @@ function db(rows: Row[]) {
             _count: { durationMs: d.n, cost: c.n },
           };
         },
-        findMany: async ({ where, select, take, cursor }: Row) => {
-          selects.push({ results: select });
-          const all = resultsOf(where);
-          const from = cursor ? all.findIndex((r) => r.id === cursor.id) + 1 : 0;
-          return all.slice(from, from + take).map((r) => ({
-            id: r.id,
-            scores: r.scores
-              .filter((s: Row) => s.error == null)
-              .map(({ error: _error, ...value }: Row) => value),
-          }));
-        },
       },
-      score: {
-        findMany: async ({ where }: Row) =>
-          rows
-            .flatMap((run) =>
-              run.results.map((r: Row, i: number) => ({ ...r, id: r.id ?? `res_${i}` })),
+      // The read's score query, answered from the fixture rows: one row per result and
+      // scorer (the declared version, else the highest), then each scorer's sum and counts
+      // by kind, with the counts as bigints the way Postgres returns them.
+      $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        queries.push({ sql: strings.join("?"), values });
+        const [declaredJson, runId, projectId] = values as [string, string, string];
+        const declared = new Map(
+          (JSON.parse(declaredJson) as Row[]).map((d) => [d.name, d.version]),
+        );
+        const rank = (s: Row) => (s.scorerVersion === declared.get(s.scorerName) ? 1 : 0);
+        const totals = new Map<string, Row>();
+        for (const r of resultsOf({ runId, projectId })) {
+          const picked = new Map<string, Row>();
+          for (const s of r.scores) {
+            const cur = picked.get(s.scorerName);
+            if (
+              !cur ||
+              rank(s) > rank(cur) ||
+              (rank(s) === rank(cur) && s.scorerVersion > cur.scorerVersion)
             )
-            .filter((r: Row) => where.resultId.in.includes(r.id))
-            .flatMap((r: Row) =>
-              r.scores
-                .filter((s: Row) => s.error != null)
-                .map((s: Row) => ({
-                  resultId: r.id,
-                  scorerName: s.scorerName,
-                  scorerVersion: s.scorerVersion,
-                })),
-            ),
+              picked.set(s.scorerName, s);
+          }
+          for (const [name, s] of picked) {
+            const t = totals.get(name) ?? {
+              name,
+              sum: null,
+              numeric: BigInt(0),
+              booleans: BigInt(0),
+              labels: BigInt(0),
+            };
+            totals.set(name, t);
+            if (s.error != null) continue;
+            const x =
+              s.boolValue != null
+                ? Number(s.boolValue)
+                : Number.isFinite(s.numericValue)
+                  ? s.numericValue
+                  : null;
+            if (x != null) {
+              t.sum = (t.sum ?? 0) + x;
+              t.numeric += BigInt(1);
+              if (s.boolValue != null) t.booleans += BigInt(1);
+            } else if (s.numericValue == null && s.stringValue != null) t.labels += BigInt(1);
+          }
+        }
+        return [...totals.values()];
       },
       dataset: {
         // Keyed on the id as well as the project, so a lookup by the wrong id within the
@@ -293,36 +314,45 @@ describe("response shape", () => {
 });
 
 describe("query cost", () => {
-  it("reads scores a page at a time and still counts every result once", async () => {
-    // One more result than a page, so the read has to follow its cursor to a second page.
+  it("sums the scores in one query, scoped to the run and its project", async () => {
     const results = Array.from({ length: 1001 }, (_, i) => ({
       ...run().results[0],
-      id: `res_${String(i).padStart(5, "0")}`,
+      id: `res_${i}`,
       scores: [{ ...run().results[0].scores[0], numericValue: i % 2 }],
     }));
-    const body = await readBody([run({ results })]);
-    expect(body.result_count).toBe(1001);
-    expect(byName(body.scores).acc).toMatchObject({ observed_count: 1001, value: 500 / 1001 });
+    const d = db([run({ results })]);
+    holder.prisma = d.client;
+    const result = await readRunSummary({ projectId: OURS, runId: "run_1" });
+    if (!result.ok) throw new Error(`expected a body, got ${result.status}`);
+    // One statement however many results the run holds, never a page loop.
+    expect(d.queries).toHaveLength(1);
+    expect(d.queries[0].sql).toMatch(/r\.run_id = \? AND r\.project_id = \?/);
+    expect(d.queries[0].values).toEqual(expect.arrayContaining(["run_1", OURS]));
+    expect(byName((result.body as Row).scores).acc).toMatchObject({
+      observed_count: 1001,
+      value: 500 / 1001,
+    });
   });
 
-  it("never selects a per-case TEXT column: the summary is bounded by scorer count", async () => {
-    // The fake returns whole rows whatever is selected, so a response-level test cannot see
-    // a projection that reads a megabyte of text per case and throws it away. Pin the
-    // projection itself.
+  it("never reads a per-case TEXT column: the summary is bounded by scorer count", async () => {
+    // The fake answers whatever is asked, so a response-level test cannot see a query that
+    // reads a megabyte of text per case and throws it away. Pin the query itself.
     const d = db([run()]);
     holder.prisma = d.client;
     await readRunSummary({ projectId: OURS, runId: "run_1" });
-    const resultSelect = (d.selects.find((s) => s.results) as Row).results as Row;
+    const { sql } = d.queries[0];
     for (const column of [
-      "candidateOutput",
+      "candidate_output",
       "input",
-      "expectedOutput",
-      "baselineOutput",
-      "taskError",
+      "expected_output",
+      "baseline_output",
+      "task_error",
+      "explanation",
     ]) {
-      expect(resultSelect, column).not.toHaveProperty(column);
+      expect(sql, column).not.toMatch(new RegExp(`\\b${column}\\b`));
     }
-    // A score's error is TEXT too; the summary only needs to know a row errored.
-    expect(resultSelect.scores.select).not.toHaveProperty("error");
+    // A score's error is TEXT too; the summary only asks whether a row errored.
+    expect(sql.match(/\berror\b/g)).toEqual(["error"]);
+    expect(sql).toContain("s.error IS NOT NULL");
   });
 });
