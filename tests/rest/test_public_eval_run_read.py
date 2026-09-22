@@ -240,3 +240,72 @@ def test_read_run_is_503_on_a_body_outside_the_contract():
         resp = client.get("/api/v1/public/evaluation-runs/run1", headers=KEY_HEADER)
         assert resp.status_code == 503, body
         assert resp.json()["detail"] == "Evaluation service error"
+
+
+# ── internal project-scoped mirror (the in-app agent's dispatch path) ────────
+
+
+@respx.mock
+def test_internal_mirror_reads_like_the_public_route(monkeypatch):
+    """The mirror lives under `/api/v1/internal` (which the ingress fixed-404s off
+    the load balancer) and shares the public handler body, authenticated by the
+    trusted internal secret alone."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    internal = _mock_internal(SUMMARY)
+    resp = TestClient(app).get(
+        "/api/v1/internal/projects/proj-A/evaluation-runs/run1",
+        headers={"X-Internal-Secret": "test-secret", "x-user-id": "u1"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == SUMMARY
+    assert json.loads(internal.calls.last.request.content) == {
+        "read": "run",
+        "projectId": "proj-A",
+        "runId": "run1",
+    }
+
+
+@respx.mock
+def test_internal_mirror_rejects_a_caller_without_the_secret(monkeypatch):
+    """An x-user-id header alone buys nothing: the mirror is secret-only."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    internal = _mock_internal(SUMMARY)
+    resp = _client().get(
+        "/api/v1/internal/projects/proj-A/evaluation-runs/run1", headers={"x-user-id": "u1"}
+    )
+    assert resp.status_code == 403
+    assert internal.call_count == 0
+
+
+@respx.mock
+def test_internal_mirror_never_resolves_the_callers_plan(monkeypatch):
+    """No project-access lookup: the internal secret's enterprise grant never decides
+    retention. The window comes from the Next.js read, so its 403 passes through."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    access = respx.post(url__startswith=f"{BASE_URL}/api/internal/validate-").mock(
+        return_value=Response(200, json=KEY_OK_BODY)
+    )
+    _mock_internal({"error": "Data outside retention window"}, status_code=403)
+    resp = _client().get(
+        "/api/v1/internal/projects/proj-A/evaluation-runs/run1",
+        headers={"X-Internal-Secret": "test-secret", "x-user-id": "u1"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Data outside retention window"
+    assert access.call_count == 0
+
+
+def test_evaluation_mirror_is_off_the_public_project_surface():
+    """The run read must not be mounted at `/api/v1/projects/...`, whose access check
+    trusts a caller-supplied x-user-id. Only the internal prefix may serve it."""
+    from fastapi.routing import APIRoute
+
+    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    assert "/api/v1/projects/{project_id}/evaluation-runs/{run_id}" not in paths
+    assert "/api/v1/internal/projects/{project_id}/evaluation-runs/{run_id}" in paths
