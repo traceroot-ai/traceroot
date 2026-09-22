@@ -29,7 +29,7 @@ describe("createRegistryReadTools", () => {
     return impl;
   }
 
-  it("exposes exactly the sixteen internally-bound read tools", () => {
+  it("exposes exactly the internally-bound read tools", () => {
     const names = createRegistryReadTools("p1", "u1").map((t) => t.name);
     expect(names).toEqual([
       "list_traces",
@@ -48,6 +48,7 @@ describe("createRegistryReadTools", () => {
       "get_widget_data",
       "list_alerts",
       "get_alert",
+      "read_evaluation_run",
     ]);
   });
 
@@ -567,6 +568,35 @@ describe("createRegistryReadTools", () => {
     expect(result.details).toBeUndefined();
   });
 
+  it("read_evaluation_run hits the internal run route and runs the formatter", async () => {
+    const impl = stubFetch({
+      evaluation_run_id: "run_1",
+      evaluation_name: "Billing routing",
+      run_number: 14,
+      status: "completed",
+      scores: [],
+      metrics: [],
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "read_evaluation_run")!;
+    const result = await tool.execute("id", { label: "x", run_id: "run_1" });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/evaluation-runs/run_1",
+    );
+    expect((init as RequestInit).headers).toMatchObject({
+      "X-Internal-Secret": "s3cret",
+      "x-user-id": "u1",
+    });
+    expect(result.content[0]!.text.startsWith("Standing: complete")).toBe(true);
+    expect(result.content[0]!.text).toContain("run #14");
+  });
+
+  it("read_evaluation_run offers the model no baseline to pass", () => {
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "read_evaluation_run")!;
+    const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
+    expect(Object.keys(properties).sort()).toEqual(["label", "run_id"]);
+  });
+
   it("returns HTTP failures as tool text instead of throwing", async () => {
     vi.stubGlobal(
       "fetch",
@@ -597,6 +627,7 @@ describe("createTools", () => {
     "get_widget_data",
     "list_alerts",
     "get_alert",
+    "read_evaluation_run",
   ];
   const WRITE_TOOL_NAMES = [
     "create_detector",

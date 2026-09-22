@@ -15,6 +15,7 @@ import {
   formatDashboardList,
   formatDetectorDetail,
   formatDetectorList,
+  formatEvaluationRun,
   formatFindingDetail,
   formatFindingList,
   formatSessionDetail,
@@ -132,5 +133,6 @@ export function createRegistryReadTools(
     // badge without re-reading the model's prose.
     bind("list_alerts", formatAlertList, { details: alertListCardDetails }),
     bind("get_alert", formatAlertDetail, { details: alertDetailCardDetails }),
+    bind("read_evaluation_run", formatEvaluationRun),
   ];
 }

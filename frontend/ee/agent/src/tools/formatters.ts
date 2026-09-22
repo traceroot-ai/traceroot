@@ -776,3 +776,143 @@ export function formatAlertDetail(data: unknown): string {
   }
   return lines.join("\n");
 }
+
+// ---------------------------------------------------------------------------
+// Evaluations
+// ---------------------------------------------------------------------------
+
+/** A run can declare up to 200 scorers; the model needs the first screenful, then a count. */
+export const EVAL_SCORE_ROW_CAP = 40;
+
+const EVAL_RUN_BUDGET_BYTES = 16 * 1024;
+
+/**
+ * A name an SDK or a user wrote, kept to one line so it cannot forge a line of its own, and
+ * ending in … when cut, so a shortened value is never quoted as if it were complete.
+ */
+function oneLine(value: unknown, max: number): string {
+  const text = String(value ?? "").replace(/\s+/g, " ");
+  return text.length > max ? `${truncate(text, max)}…` : text;
+}
+
+/**
+ * A measure at the precision its size needs, as the CLI prints it: a per-case cost of
+ * $0.0004 must not round to 0, and a latency in the thousands needs no decimals.
+ */
+function formatMeasure(value: number): string {
+  const magnitude = Math.abs(value);
+  if (magnitude > 0 && magnitude < 0.0001) {
+    // Four decimals would round it to 0, and a measured value must never read as nothing.
+    return value.toLocaleString("en-US", { maximumSignificantDigits: 2 });
+  }
+  const digits = magnitude >= 1000 ? 0 : magnitude >= 1 ? 2 : 4;
+  return value.toLocaleString("en-US", { maximumFractionDigits: digits });
+}
+
+/** A value with its server-supplied unit, or — when nothing was reported (never 0). */
+function withUnit(value: unknown, unit: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const sign = value < 0 ? "-" : "";
+  const body = formatMeasure(Math.abs(value));
+  if (unit === "$") return `${sign}$${body}`;
+  if (typeof unit === "string" && unit !== "") return `${sign}${body} ${unit}`;
+  return `${sign}${body}`;
+}
+
+/** Whether the run is finished, in words: a running run's figures will still move. */
+function statusText(status: unknown): string {
+  switch (status) {
+    case "running":
+      return "still running — every figure below will change";
+    case "completed":
+      return "complete";
+    case "completed_with_errors":
+      return "complete, with errors";
+    case "failed":
+      return "failed";
+    case "incomplete":
+      return "partial — it stopped before finishing";
+    case "cancelled":
+      return "partial — it was cancelled before finishing";
+    default:
+      return `status ${oneLine(status ?? "unknown", 40)}`;
+  }
+}
+
+function count(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "—";
+}
+
+/**
+ * One score or metric: its mean and the number of cases it is over. The server leaves the
+ * mean null for a categorical score, whose labels have no mean, and for one that stored
+ * labels and numbers together; either is said in words rather than left looking unreported.
+ * A boolean score's mean is the share of scored cases that were true, and says so. A mean
+ * nothing reported prints as —, never 0.
+ */
+function meanText(item: any, unit: unknown): string {
+  const n = item.observed_count;
+  const over = typeof n === "number" ? ` · over ${n} case${n === 1 ? "" : "s"}` : "";
+  if (typeof item.value !== "number" && typeof n === "number" && n > 0) {
+    return item.value_type === "categorical"
+      ? `not averaged (labels, not numbers)${over}`
+      : `not averaged (labels and numbers mixed)${over}`;
+  }
+  const share = item.value_type === "boolean" && typeof item.value === "number";
+  return `${withUnit(item.value, unit)}${share ? " (share of cases true)" : ""}${over}`;
+}
+
+/**
+ * The text the model sees for a read_evaluation_run result: one run's own summary.
+ *
+ * It opens with where the run stands — complete, partial or still running — because every
+ * figure below is qualified by it. Counts are counts: nothing here divides one by another,
+ * so no pass rate or percentage can be quoted from this text as if the platform had
+ * computed it. A value the run did not report prints as —. There is no comparison: the
+ * read is one run's own summary.
+ */
+export function formatEvaluationRun(data: unknown): string {
+  const run = (data ?? {}) as any;
+  const lines: string[] = [
+    `Standing: ${statusText(run.status)}`,
+    `Run: ${oneLine(run.evaluation_name || "(unnamed)", 100)} · run #${count(run.run_number)} · id ${run.evaluation_run_id ?? "?"}`,
+  ];
+  // Printed verbatim when present, never composed from an id and a host.
+  if (typeof run.run_url === "string" && run.run_url !== "") {
+    lines.push(`URL: ${run.run_url}`);
+  }
+  lines.push(
+    `Candidate: ${oneLine(run.candidate_version ?? "—", 100)} · environment: ${oneLine(run.environment ?? "—", 60)} · started ${run.started_at ?? "—"} · completed ${run.completed_at ?? "—"}`,
+    // The dataset id is the one the SDK chose, so it is kept to one line like a name.
+    `Dataset: ${oneLine(run.dataset_id ?? "—", 64)} @ version ${run.dataset_version_id ?? "—"}`,
+    `Results: ${count(run.result_count)} observed · ${count(run.scored_count)} scored · ${count(run.task_error_count)} task errors · ${count(run.scorer_error_count)} scorer errors · passed ${count(run.passed_count)} · failed ${count(run.failed_count)} · errored ${count(run.errored_count)} · not scored ${count(run.not_scored_count)}`,
+  );
+
+  const scores: any[] = Array.isArray(run.scores) ? run.scores : [];
+  if (scores.length === 0) {
+    lines.push("Scores: none reported");
+  } else {
+    lines.push("Scores (mean per case over the cases each scorer scored; unitless):");
+    for (const s of scores.slice(0, EVAL_SCORE_ROW_CAP)) {
+      lines.push(`- ${oneLine(s.name, 100)} [${s.direction ?? "?"}]: ${meanText(s, null)}`);
+    }
+    if (scores.length > EVAL_SCORE_ROW_CAP) {
+      lines.push(`… ${scores.length - EVAL_SCORE_ROW_CAP} more scores not shown`);
+    }
+  }
+
+  const metrics: any[] = Array.isArray(run.metrics) ? run.metrics : [];
+  if (metrics.length > 0) {
+    lines.push("Metrics (mean per case over the cases that reported it):");
+    for (const m of metrics) {
+      lines.push(
+        `- ${oneLine(m.name, 100)}${m.unit ? ` [${m.unit}]` : ""}: ${meanText(m, m.unit)}`,
+      );
+    }
+  }
+
+  const bounded = truncateHead(lines.join("\n"), { maxBytes: EVAL_RUN_BUDGET_BYTES });
+  return bounded.truncated
+    ? `${bounded.content}\n… output truncated at ${EVAL_RUN_BUDGET_BYTES} bytes; open the run URL for the full table`
+    : bounded.content;
+}
