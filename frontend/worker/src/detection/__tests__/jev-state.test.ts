@@ -186,24 +186,28 @@ describe("buildJevState reduction", () => {
     const rows = Array.from({ length: 10 }, (_, i) =>
       row({ span_id: `s${i}`, name: `span-${i}`, output: JSON.stringify("o".repeat(400)) }),
     );
-    const { state, stats } = buildJevState(jsonl(rows), { budgetChars: 2_500 });
+    // The spans are uniform and cost 3,370 chars together once reduced, so this
+    // budget leaves room for exactly nine of them.
+    const { state, stats } = buildJevState(jsonl(rows), { budgetChars: 3_200 });
     const trace = traceOf(state);
     expect(trace.span_count).toBe(10);
-    const marker = trace.spans.find((s) => "omitted_spans" in s);
-    expect(marker).toEqual({ omitted_spans: stats.omitted_spans });
-    expect(stats.omitted_spans).toBeGreaterThan(0);
-    expect(stats.kept_spans + stats.omitted_spans).toBe(10);
-    const names = trace.spans.filter((s) => s !== marker).map((s) => s.name);
-    const head = Math.ceil(stats.kept_spans / 2);
-    const tail = stats.kept_spans - head;
-    expect(names).toEqual([
-      ...Array.from({ length: head }, (_, i) => `span-${i}`),
-      ...Array.from({ length: tail }, (_, i) => `span-${10 - tail + i}`),
+    expect(stats.kept_spans).toBe(9);
+    expect(stats.omitted_spans).toBe(1);
+    expect(trace.spans.map((s) => ("omitted_spans" in s ? s : s.name))).toEqual([
+      "span-0",
+      "span-1",
+      "span-2",
+      "span-3",
+      "span-4",
+      { omitted_spans: 1 },
+      "span-6",
+      "span-7",
+      "span-8",
+      "span-9",
     ]);
-    expect(trace.spans.indexOf(marker!)).toBe(head);
     // The incremental size arithmetic matches the real serialization.
     expect(stats.final_chars).toBe(JSON.stringify(state).length);
-    expect(stats.final_chars).toBeLessThanOrEqual(2_500);
+    expect(stats.final_chars).toBeLessThanOrEqual(3_200);
     // Span dropping only runs after the earlier stages.
     expect(stats.dropped_metadata).toBe(1);
   });
