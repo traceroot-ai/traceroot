@@ -8,6 +8,15 @@ import {
   listDatasetVersionsPage,
 } from "@/lib/eval/dataset-read";
 import { evalReadResponse } from "@/lib/eval/read-result";
+import { readRunSummary } from "@/lib/eval/run-read";
+
+const runRead = z.object({
+  read: z.literal("run"),
+  // The string-typed error covers missing/wrong-type input too, so the surfaced message is
+  // deterministic whether the field is absent or empty.
+  projectId: z.string("projectId is required").min(1, "projectId is required"),
+  runId: z.string("runId is required").min(1, "runId is required"),
+});
 
 const projectId = z.string("projectId is required").min(1, "projectId is required");
 const datasetId = z.string("datasetId is required").min(1, "datasetId is required");
@@ -39,8 +48,9 @@ const datasetVersionRead = z.object({
   cursor,
 });
 
-// One route for the evaluation reads, told apart by `read`.
+// One route for the evaluation catalog's reads, told apart by `read`.
 const projectEvaluationsSchema = z.discriminatedUnion("read", [
+  runRead,
   datasetsRead,
   datasetRead,
   datasetVersionsRead,
@@ -49,11 +59,12 @@ const projectEvaluationsSchema = z.discriminatedUnion("read", [
 
 // POST /api/internal/project-evaluations
 //
-// Serves the four dataset reads given a projectId the caller has ALREADY resolved from an
-// authenticated credential. Used by the Python backend for the public reads; trust is the
-// X-Internal-Secret plus the backend's verified project scope. Every lookup is scoped
-// through the project id, so another project's dataset simply isn't found (404). Never
-// log ids.
+// Serves the evaluation reads (`read_evaluation_run` and the four dataset reads) given a
+// projectId the caller has ALREADY resolved from an authenticated credential. Used by the
+// Python backend for the public reads; trust is the X-Internal-Secret plus the backend's
+// verified project scope. Every lookup is scoped through the project id, so another
+// project's run simply isn't found (404), and the retention window is resolved from the
+// project's own workspace inside the read, never from the caller. Never log ids.
 export async function POST(request: NextRequest) {
   if (!verifyInternalSecret(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -73,6 +84,10 @@ export async function POST(request: NextRequest) {
 
   const read = result.data;
   switch (read.read) {
+    case "run":
+      return evalReadResponse(
+        await readRunSummary({ projectId: read.projectId, runId: read.runId }),
+      );
     case "datasets":
       return evalReadResponse(
         await listDatasetsPage({
