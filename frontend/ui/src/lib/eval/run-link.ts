@@ -22,15 +22,19 @@ export function appBaseUrl(): string {
   const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (!configured) return DEFAULT_APP_BASE_URL;
   try {
-    return new URL(configured).toString();
+    const url = new URL(configured);
+    // Only a web origin can host the dashboard. A value like `mailto:` parses as a URL but
+    // cannot resolve a path against it, so it would fail every register and read.
+    if (url.protocol === "http:" || url.protocol === "https:") return url.toString();
   } catch {
-    // A misconfigured origin must not fail the request — the run itself is fine.
-    console.error(
-      `NEXT_PUBLIC_APP_URL is not a valid URL (${configured}); ` +
-        `falling back to ${DEFAULT_APP_BASE_URL} for run links`,
-    );
-    return DEFAULT_APP_BASE_URL;
+    // Not a URL at all: handled below, the same way.
   }
+  // A misconfigured origin must not fail the request — the run itself is fine.
+  console.error(
+    `NEXT_PUBLIC_APP_URL is not an http(s) URL (${configured}); ` +
+      `falling back to ${DEFAULT_APP_BASE_URL} for run links`,
+  );
+  return DEFAULT_APP_BASE_URL;
 }
 
 /** The run's UI-relative path + the absolute clickable URL for a client to print. */

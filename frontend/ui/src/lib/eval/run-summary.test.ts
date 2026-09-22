@@ -187,6 +187,18 @@ describe("summarizeRun — scores", () => {
     });
   });
 
+  it("gives no mean to a scorer that stored booleans beside plain numbers", () => {
+    // true/false averages as a pass rate and 0.4 as a score; mixing them yields neither.
+    const { scores } = summarizeRun(
+      [],
+      [
+        result({ scores: [score("grade", { boolValue: true })] }),
+        result({ scores: [score("grade", { numericValue: 0.4 })] }),
+      ],
+    );
+    expect(scores[0]).toMatchObject({ value: null, observedCount: 2 });
+  });
+
   it("gives no mean to a declared numeric scorer that also stored a label", () => {
     const { scores } = summarizeRun(
       [meta("acc", { valueType: "numeric" })],

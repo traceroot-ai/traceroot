@@ -312,7 +312,7 @@ def test_read_run_publishes_the_run_summary_only():
     assert "categorical" in item["properties"]["value"]["description"]
 
 
-def test_dataset_reads_document_the_errors_a_read_can_return():
+def test_eval_reads_document_the_errors_a_read_can_return():
     """A read can be refused for a project the caller can't see (403) or rate-limited
     (429). It takes no body, so a 413 would be a false promise."""
     paths = _schema()["paths"]
@@ -321,6 +321,7 @@ def test_dataset_reads_document_the_errors_a_read_can_return():
         "/api/v1/public/datasets/{dataset_id}",
         "/api/v1/public/datasets/{dataset_id}/versions",
         "/api/v1/public/dataset-versions/{version_id}",
+        "/api/v1/public/evaluation-runs/{run_id}",
     ):
         responses = paths[path]["get"]["responses"]
         assert {"401", "403", "404", "422", "429", "503"} <= set(responses), path

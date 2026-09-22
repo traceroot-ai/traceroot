@@ -1,30 +1,26 @@
 import { PlanType, prisma, type EvalRunStatus, type ReadRunResponse } from "@traceroot/core";
+import type { ComparisonScore, ComparisonScorerMeta } from "@/lib/eval/comparison";
 import { parseScorers } from "@/lib/eval/comparison-db";
 import type { EvalReadResult } from "@/lib/eval/read-result";
 import { countResultStatuses } from "@/lib/eval/result-status-counts";
 import { runLink } from "@/lib/eval/run-link";
-import { summarizeRun, type SummaryItem } from "@/lib/eval/run-summary";
+import { ScoreSummarizer, metricSummary, type SummaryItem } from "@/lib/eval/run-summary";
 import { isOutsideRetention } from "@/lib/server/retention";
 
-// The columns the SUMMARY needs, and nothing else.
-//
-// No TEXT column is selected. `candidateOutput` in particular is up to 1 MB per case, and
-// reading it here would mean on the order of a gigabyte of Postgres reads for a 5,000-case
-// run, to produce a few dozen floats. Input, expected and baseline output stay out too.
-const SUMMARY_RESULT_SELECT = {
-  status: true,
-  durationMs: true,
-  cost: true,
-  scores: {
-    select: {
-      scorerName: true,
-      scorerVersion: true,
-      numericValue: true,
-      boolValue: true,
-      stringValue: true,
-      error: true,
-    },
-  },
+// Results are read a page at a time for their scores, so memory is bounded by the page,
+// not by how many cases the run has. Counts and the stored metrics are aggregated in the
+// database and never read row by row.
+const RESULT_PAGE_SIZE = 1000;
+
+// A score's value columns. No TEXT column is read: `error` is left out, and an errored row
+// is found by the query below without its text. Per-case TEXT such as `candidateOutput`
+// (up to 1 MB each) never appears in any query here.
+const SCORE_VALUE_SELECT = {
+  scorerName: true,
+  scorerVersion: true,
+  numericValue: true,
+  boolValue: true,
+  stringValue: true,
 } as const;
 
 const RUN_SELECT = {
@@ -64,6 +60,61 @@ function metricItem(m: SummaryItem): MetricItem {
 }
 
 /**
+ * Fold a run's scores into per-scorer means, one page of results at a time.
+ *
+ * Each page reads only the rows that carry a value. The rows that errored are fetched by
+ * scorer and version alone and fed back in, because an errored row still counts as that
+ * result's row for its scorer (it can be the declared version that wins).
+ */
+async function summarizeScores(
+  runId: string,
+  projectId: string,
+  scorers: ComparisonScorerMeta[],
+): Promise<SummaryItem[]> {
+  const summarizer = new ScoreSummarizer(scorers);
+  let cursor: string | null = null;
+  for (;;) {
+    const page: Array<{ id: string; scores: Array<Omit<ComparisonScore, "error">> }> =
+      await prisma.evaluationResult.findMany({
+        where: { runId, projectId },
+        orderBy: { id: "asc" },
+        take: RESULT_PAGE_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: { id: true, scores: { where: { error: null }, select: SCORE_VALUE_SELECT } },
+      });
+    if (page.length === 0) break;
+
+    const errored = await prisma.score.findMany({
+      where: { resultId: { in: page.map((r) => r.id) }, error: { not: null } },
+      select: { resultId: true, scorerName: true, scorerVersion: true },
+    });
+    const erroredByResult = new Map<string, ComparisonScore[]>();
+    for (const e of errored) {
+      const rows = erroredByResult.get(e.resultId) ?? [];
+      rows.push({
+        scorerName: e.scorerName,
+        scorerVersion: e.scorerVersion,
+        numericValue: null,
+        boolValue: null,
+        stringValue: null,
+        error: "errored",
+      });
+      erroredByResult.set(e.resultId, rows);
+    }
+    for (const r of page) {
+      summarizer.add([
+        ...r.scores.map((s) => ({ ...s, error: null })),
+        ...(erroredByResult.get(r.id) ?? []),
+      ]);
+    }
+
+    if (page.length < RESULT_PAGE_SIZE) break;
+    cursor = page[page.length - 1].id;
+  }
+  return summarizer.items();
+}
+
+/**
  * Read one run's summary inside a project the caller has ALREADY resolved.
  *
  * Called by the secret-authed internal route the backend uses for every caller of the
@@ -85,12 +136,13 @@ export async function readRunSummary(input: {
 }): Promise<EvalReadResult<ReadRunResponse>> {
   const { projectId, runId } = input;
 
+  // The run's header only. Its results are read after the retention gate, so a refused
+  // run costs one small lookup, not a read of every result it holds.
   const run = await prisma.evaluationRun.findFirst({
     where: { id: runId, projectId },
     select: {
       ...RUN_SELECT,
       evaluation: { select: { name: true, evaluationKey: true } },
-      results: { select: SUMMARY_RESULT_SELECT },
     },
   });
   if (!run) return { ok: false, status: 404, error: "Evaluation run not found" };
@@ -118,18 +170,27 @@ export async function readRunSummary(input: {
     return { ok: false, status: 403, error: "Data outside retention window" };
   }
 
-  const summary = summarizeRun(parseScorers(run.scorers), run.results);
+  const where = { runId: run.id, projectId };
+  const [byStatus, stored, scores, dataset] = await Promise.all([
+    prisma.evaluationResult.groupBy({ by: ["status"], where, _count: { _all: true } }),
+    prisma.evaluationResult.aggregate({
+      where,
+      _avg: { durationMs: true, cost: true },
+      _count: { durationMs: true, cost: true },
+    }),
+    summarizeScores(run.id, projectId, parseScorers(run.scorers)),
+    prisma.dataset.findFirst({
+      where: { id: run.datasetId, projectId },
+      select: { clientDatasetId: true, id: true },
+    }),
+  ]);
 
-  const statusCounts = countResultStatuses(run.results.map((r) => ({ status: r.status })));
+  const statusRows = byStatus.map((g) => ({ status: g.status, count: g._count._all }));
+  const statusCounts = countResultStatuses(statusRows);
   // The shared fold counts only the statuses current SDKs write (errored / not_scored).
   // `passed` and `failed` stay valid on the wire for results from released SDK versions,
-  // so the read counts those rows itself rather than reporting them as absent.
-  const passedCount = run.results.filter((r) => r.status === "passed").length;
-  const failedCount = run.results.filter((r) => r.status === "failed").length;
-  const dataset = await prisma.dataset.findFirst({
-    where: { id: run.datasetId, projectId },
-    select: { clientDatasetId: true, id: true },
-  });
+  // so the read counts those groups itself rather than reporting them as absent.
+  const countOf = (status: string) => statusRows.find((g) => g.status === status)?.count ?? 0;
 
   // `satisfies` pins the body to the published contract: a field renamed or dropped here
   // fails to compile rather than silently diverging from the Zod/Pydantic/OpenAPI trio.
@@ -155,19 +216,22 @@ export async function readRunSummary(input: {
     // The observed population: every result this run reported, a different fact from the
     // run's DECLARED case_count. Each mean below carries its own `observed_count`, because a
     // scorer that errored on some cases averaged over fewer than this.
-    result_count: run.results.length,
+    result_count: statusRows.reduce((n, g) => n + g.count, 0),
     scored_count: run.scoredCount,
     task_error_count: run.taskErrorCount,
     scorer_error_count: run.scorerErrorCount,
-    passed_count: passedCount,
-    failed_count: failedCount,
+    passed_count: countOf("passed"),
+    failed_count: countOf("failed"),
     errored_count: statusCounts.erroredCount,
     not_scored_count: statusCounts.notScoredCount,
     // Two blocks, one item shape. They differ in PROVENANCE — a score is what a scorer
     // reported, a metric is what the platform derived from the trace — which stops being
     // answerable the moment someone names a scorer "cost".
-    scores: summary.scores.map(metricItem),
-    metrics: summary.metrics.map(metricItem),
+    scores: scores.map(metricItem),
+    metrics: [
+      metricSummary("duration", stored._avg.durationMs, stored._count.durationMs),
+      metricSummary("cost", stored._avg.cost, stored._count.cost),
+    ].map(metricItem),
   } satisfies ReadRunResponse;
 
   return { ok: true, body };

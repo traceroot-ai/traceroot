@@ -483,8 +483,12 @@ async def register_run(
     operation_id="read_run",
     response_model=ReadRunResponse,
     responses={
-        **_EVAL_ERROR_RESPONSES,
-        403: {"model": ErrorResponse, "description": "Outside the plan's retention window"},
+        **_EVAL_READ_RESPONSES,
+        403: {
+            "model": ErrorResponse,
+            "description": "No access to this project, or the run is outside the plan's "
+            "retention window",
+        },
     },
     summary="Read an evaluation run's summary",
 )

@@ -49,6 +49,8 @@ const RUN_METRICS = [
   unit: MetricUnit;
 }>;
 
+export type RunMetricKey = (typeof RUN_METRICS)[number]["key"];
+
 export interface SummaryItem {
   name: string;
   /** Null for a score: a [0,1] score is a CONVENTION, not a unit. */
@@ -88,24 +90,29 @@ function pickRows(
   return picked;
 }
 
-/**
- * Summarize one run. `scorers` is the run's declared manifest (`parseScorers`): those are
- * listed first, in declared order, even when nothing scored — an empty row is itself
- * information. Any other scorer the results carry follows, ordered by name, including one
- * that only ever errored.
- */
-export function summarizeRun(
-  scorers: readonly ComparisonScorerMeta[],
-  results: readonly SummaryResult[],
-): RunSummary {
-  const metaByName = new Map(scorers.map((s) => [s.name, s]));
+type Acc = { sum: number; numeric: number; booleans: number; labels: number };
 
-  type Acc = { sum: number; numeric: number; booleans: number; labels: number };
-  const acc = new Map<string, Acc>();
-  for (const r of results) {
-    for (const [name, score] of pickRows(r.scores, metaByName)) {
-      const a = acc.get(name) ?? { sum: 0, numeric: 0, booleans: 0, labels: 0 };
-      acc.set(name, a);
+/**
+ * Folds score rows into per-scorer means one result at a time, so a caller can feed a large
+ * run in pages and never hold all of it. `summarizeRun` is the whole-list form.
+ *
+ * `scorers` is the run's declared manifest (`parseScorers`): those are listed first, in
+ * declared order, even when nothing scored — an empty row is itself information. Any other
+ * scorer the results carry follows, ordered by name, including one that only ever errored.
+ */
+export class ScoreSummarizer {
+  private readonly metaByName: Map<string, ComparisonScorerMeta>;
+  private readonly acc = new Map<string, Acc>();
+
+  constructor(private readonly scorers: readonly ComparisonScorerMeta[]) {
+    this.metaByName = new Map(scorers.map((s) => [s.name, s]));
+  }
+
+  /** Add one result's score rows. */
+  add(scores: readonly ComparisonScore[]): void {
+    for (const [name, score] of pickRows(scores, this.metaByName)) {
+      const a = this.acc.get(name) ?? { sum: 0, numeric: 0, booleans: 0, labels: 0 };
+      this.acc.set(name, a);
       const v = readScore(score);
       // An errored or empty row is not an observation: it lowers no mean.
       if (v.kind !== "value") continue;
@@ -122,38 +129,69 @@ export function summarizeRun(
     }
   }
 
-  const declaredNames = scorers.map((s) => s.name);
-  const declared = new Set(declaredNames);
-  const undeclared = [...acc.keys()].filter((n) => !declared.has(n)).sort();
-  const scoreItems = [...new Set([...declaredNames, ...undeclared])].map((name): SummaryItem => {
-    const meta = metaByName.get(name);
-    const a = acc.get(name) ?? { sum: 0, numeric: 0, booleans: 0, labels: 0 };
-    const observed: ScorerValueType | null =
-      a.labels > 0
-        ? "categorical" // labels alone, or labels beside numbers: no single numeric reading
-        : a.numeric > 0
-          ? a.booleans === a.numeric
-            ? "boolean"
-            : "numeric"
-          : null;
-    const valueType = meta?.valueType ?? observed ?? "numeric";
-    // A mean only over values all of one numeric kind. A label among them means the
-    // instrument changed (the engine calls that type_mismatch), so no mean is honest.
-    const averaged = valueType !== "categorical" && a.labels === 0 && a.numeric > 0;
-    return {
-      name,
-      unit: null,
-      direction: meta?.direction ?? defaultDirection(valueType),
-      valueType,
-      value: averaged ? a.sum / a.numeric : null,
-      observedCount: a.numeric + a.labels,
-    };
-  });
+  /** One item per scorer. */
+  items(): SummaryItem[] {
+    const declaredNames = this.scorers.map((s) => s.name);
+    const declared = new Set(declaredNames);
+    const undeclared = [...this.acc.keys()].filter((n) => !declared.has(n)).sort();
+    return [...new Set([...declaredNames, ...undeclared])].map((name): SummaryItem => {
+      const meta = this.metaByName.get(name);
+      const a = this.acc.get(name) ?? { sum: 0, numeric: 0, booleans: 0, labels: 0 };
+      const observed: ScorerValueType | null =
+        a.labels > 0
+          ? "categorical" // labels alone, or labels beside numbers: no single numeric reading
+          : a.numeric > 0
+            ? a.booleans === a.numeric
+              ? "boolean"
+              : "numeric"
+            : null;
+      const valueType = meta?.valueType ?? observed ?? "numeric";
+      // A mean only over values all of ONE kind. A label among them, or booleans beside
+      // plain numbers, means the instrument changed (the engine calls that type_mismatch),
+      // so no single mean is honest.
+      const oneKind = a.labels === 0 && (a.booleans === 0 || a.booleans === a.numeric);
+      const averaged = valueType !== "categorical" && oneKind && a.numeric > 0;
+      return {
+        name,
+        unit: null,
+        direction: meta?.direction ?? defaultDirection(valueType),
+        valueType,
+        value: averaged ? a.sum / a.numeric : null,
+        observedCount: a.numeric + a.labels,
+      };
+    });
+  }
+}
+
+/** One stored metric's item, from its mean and how many results reported it. */
+export function metricSummary(
+  key: RunMetricKey,
+  mean: number | null,
+  observedCount: number,
+): SummaryItem {
+  const m = RUN_METRICS.find((x) => x.key === key)!;
+  return {
+    name: m.key,
+    unit: m.unit,
+    direction: "lower_is_better",
+    valueType: "numeric",
+    value: observedCount > 0 ? mean : null,
+    observedCount,
+  };
+}
+
+/** Summarize one run from its whole list of results. */
+export function summarizeRun(
+  scorers: readonly ComparisonScorerMeta[],
+  results: readonly SummaryResult[],
+): RunSummary {
+  const summarizer = new ScoreSummarizer(scorers);
+  for (const r of results) summarizer.add(r.scores);
 
   // Projected in RUN_METRICS order so a client renders a stable table. A metric nothing
   // reported still appears, with a null value — omitting it would look like the metric
   // does not exist.
-  const metricItems = RUN_METRICS.map((m): SummaryItem => {
+  const metrics = RUN_METRICS.map((m): SummaryItem => {
     let sum = 0;
     let n = 0;
     for (const r of results) {
@@ -162,15 +200,8 @@ export function summarizeRun(
       sum += x;
       n += 1;
     }
-    return {
-      name: m.key,
-      unit: m.unit,
-      direction: "lower_is_better",
-      valueType: "numeric",
-      value: n > 0 ? sum / n : null,
-      observedCount: n,
-    };
+    return metricSummary(m.key, n > 0 ? sum / n : null, n);
   });
 
-  return { scores: scoreItems, metrics: metricItems };
+  return { scores: summarizer.items(), metrics };
 }

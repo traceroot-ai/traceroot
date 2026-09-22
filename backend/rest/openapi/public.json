@@ -10125,7 +10125,7 @@
                 }
               }
             },
-            "description": "Outside the plan's retention window"
+            "description": "No access to this project, or the run is outside the plan's retention window"
           },
           "404": {
             "content": {
@@ -10137,16 +10137,6 @@
             },
             "description": "Not found"
           },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request body too large"
-          },
           "422": {
             "content": {
               "application/json": {
@@ -10156,6 +10146,16 @@
               }
             },
             "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
           },
           "503": {
             "content": {

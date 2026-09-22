@@ -12,6 +12,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
   evaluationRun: { findFirst: vi.fn() },
+  evaluationResult: { findMany: vi.fn(), groupBy: vi.fn(), aggregate: vi.fn() },
+  score: { findMany: vi.fn() },
   dataset: { findFirst: vi.fn() },
   project: { findUnique: vi.fn() },
 }));
@@ -66,6 +68,17 @@ beforeEach(() => {
   prismaMock.evaluationRun.findFirst.mockReset();
   prismaMock.project.findUnique.mockReset();
   prismaMock.dataset.findFirst.mockReset();
+  prismaMock.evaluationResult.findMany.mockReset();
+  prismaMock.evaluationResult.findMany.mockResolvedValue([]);
+  prismaMock.evaluationResult.groupBy.mockReset();
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([]);
+  prismaMock.evaluationResult.aggregate.mockReset();
+  prismaMock.evaluationResult.aggregate.mockResolvedValue({
+    _avg: { durationMs: null, cost: null },
+    _count: { durationMs: 0, cost: 0 },
+  });
+  prismaMock.score.findMany.mockReset();
+  prismaMock.score.findMany.mockResolvedValue([]);
   prismaMock.dataset.findFirst.mockResolvedValue({ id: "ds1", clientDatasetId: null });
 });
 
@@ -73,8 +86,11 @@ describe("retention gate on the run-summary read", () => {
   it("refuses an out-of-window run with 403 and does no further work", async () => {
     const result = await read("free", daysAgo(20));
     expect(result).toEqual({ ok: false, status: 403, error: "Data outside retention window" });
-    // One run lookup and no dataset: a refusal reads nothing else.
+    // One run lookup, and no results or dataset: a refusal reads nothing else.
     expect(prismaMock.evaluationRun.findFirst).toHaveBeenCalledTimes(1);
+    expect(prismaMock.evaluationResult.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.evaluationResult.groupBy).not.toHaveBeenCalled();
+    expect(prismaMock.evaluationResult.aggregate).not.toHaveBeenCalled();
     expect(prismaMock.dataset.findFirst).not.toHaveBeenCalled();
   });
 

@@ -65,6 +65,13 @@ function run(over: Row = {}): Row {
 function db(rows: Row[]) {
   const calls: Row[] = [];
   const selects: Row[] = [];
+  const find = (id: string, projectId: string) =>
+    rows.find((r) => r.id === id && r.projectId === projectId);
+  const resultsOf = (where: Row): Row[] =>
+    (find(where.runId, where.projectId)?.results ?? []).map((r: Row, i: number) => ({
+      ...r,
+      id: r.id ?? `res_${i}`,
+    }));
   return {
     calls,
     selects,
@@ -73,12 +80,71 @@ function db(rows: Row[]) {
         findFirst: async ({ where, select }: Row) => {
           calls.push(where);
           selects.push(select);
-          return rows.find((r) => r.id === where.id && r.projectId === where.projectId) ?? null;
+          const r = find(where.id, where.projectId);
+          if (!r) return null;
+          const { results: _results, ...header } = r;
+          return header;
         },
       },
+      // Derived from each fixture's `results`, so the fixtures stay whole rows while the
+      // read aggregates in the database and pages the scores.
+      evaluationResult: {
+        groupBy: async ({ where }: Row) => {
+          const counts = new Map<string, number>();
+          for (const r of resultsOf(where)) counts.set(r.status, (counts.get(r.status) ?? 0) + 1);
+          return [...counts].map(([status, n]) => ({ status, _count: { _all: n } }));
+        },
+        aggregate: async ({ where }: Row) => {
+          const stat = (field: string) => {
+            const xs = resultsOf(where)
+              .map((r) => r[field])
+              .filter((x) => x != null);
+            return {
+              avg: xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null,
+              n: xs.length,
+            };
+          };
+          const d = stat("durationMs");
+          const c = stat("cost");
+          return {
+            _avg: { durationMs: d.avg, cost: c.avg },
+            _count: { durationMs: d.n, cost: c.n },
+          };
+        },
+        findMany: async ({ where, select, take, cursor }: Row) => {
+          selects.push({ results: select });
+          const all = resultsOf(where);
+          const from = cursor ? all.findIndex((r) => r.id === cursor.id) + 1 : 0;
+          return all.slice(from, from + take).map((r) => ({
+            id: r.id,
+            scores: r.scores
+              .filter((s: Row) => s.error == null)
+              .map(({ error: _error, ...value }: Row) => value),
+          }));
+        },
+      },
+      score: {
+        findMany: async ({ where }: Row) =>
+          rows
+            .flatMap((run) =>
+              run.results.map((r: Row, i: number) => ({ ...r, id: r.id ?? `res_${i}` })),
+            )
+            .filter((r: Row) => where.resultId.in.includes(r.id))
+            .flatMap((r: Row) =>
+              r.scores
+                .filter((s: Row) => s.error != null)
+                .map((s: Row) => ({
+                  resultId: r.id,
+                  scorerName: s.scorerName,
+                  scorerVersion: s.scorerVersion,
+                })),
+            ),
+      },
       dataset: {
+        // Keyed on the id as well as the project, so a lookup by the wrong id within the
+        // project finds nothing, just as the real query would.
         findFirst: async ({ where }: Row) =>
-          where.projectId === OURS
+          where.projectId === OURS && where.id === "ds_internal"
             ? { id: "ds_internal", clientDatasetId: "ds_client_facing" }
             : null,
       },
@@ -227,6 +293,18 @@ describe("response shape", () => {
 });
 
 describe("query cost", () => {
+  it("reads scores a page at a time and still counts every result once", async () => {
+    // One more result than a page, so the read has to follow its cursor to a second page.
+    const results = Array.from({ length: 1001 }, (_, i) => ({
+      ...run().results[0],
+      id: `res_${String(i).padStart(5, "0")}`,
+      scores: [{ ...run().results[0].scores[0], numericValue: i % 2 }],
+    }));
+    const body = await readBody([run({ results })]);
+    expect(body.result_count).toBe(1001);
+    expect(byName(body.scores).acc).toMatchObject({ observed_count: 1001, value: 500 / 1001 });
+  });
+
   it("never selects a per-case TEXT column: the summary is bounded by scorer count", async () => {
     // The fake returns whole rows whatever is selected, so a response-level test cannot see
     // a projection that reads a megabyte of text per case and throws it away. Pin the
@@ -234,7 +312,7 @@ describe("query cost", () => {
     const d = db([run()]);
     holder.prisma = d.client;
     await readRunSummary({ projectId: OURS, runId: "run_1" });
-    const resultSelect = (d.selects[0] as Row).results.select as Row;
+    const resultSelect = (d.selects.find((s) => s.results) as Row).results as Row;
     for (const column of [
       "candidateOutput",
       "input",
@@ -244,5 +322,7 @@ describe("query cost", () => {
     ]) {
       expect(resultSelect, column).not.toHaveProperty(column);
     }
+    // A score's error is TEXT too; the summary only needs to know a row errored.
+    expect(resultSelect.scores.select).not.toHaveProperty("error");
   });
 });
