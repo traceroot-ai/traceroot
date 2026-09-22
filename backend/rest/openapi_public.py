@@ -598,12 +598,46 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
     },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
-    # Dataset reads are published so a generated client can bind them. Exposing them as
-    # registry tools is a separate step; the dataset writes stay off the registry entirely.
-    "list_datasets": {"enabled": False},
-    "get_dataset": {"enabled": False},
-    "list_dataset_versions": {"enabled": False},
-    "get_dataset_version": {"enabled": False},
+    # Dataset READS are tool-exposed; the dataset writes stay off the registry entirely.
+    # Not because the registry cannot carry a write (it can, behind an x-tool policy
+    # block), but because no policy decision has been made for dataset writes.
+    "list_datasets": {
+        "name": "list_datasets",
+        "description": (
+            "List the project's evaluation datasets, newest first, with each dataset's "
+            "current published version. Filter by a case-insensitive substring of the "
+            "name. Use this for discovery before reading a specific dataset."
+        ),
+        "enabled": True,
+    },
+    "get_dataset": {
+        "name": "get_dataset",
+        "description": (
+            "Read one evaluation dataset by id: its name, description, key, and current "
+            "published version. A dataset with no published version has none, and its "
+            "cases cannot be read until one exists."
+        ),
+        "enabled": True,
+    },
+    "list_dataset_versions": {
+        "name": "list_dataset_versions",
+        "description": (
+            "List a dataset's published versions, newest first, each with its case count "
+            "and whether it is the current one. Versions are immutable snapshots; editing "
+            "a dataset publishes a new one rather than changing an old one."
+        ),
+        "enabled": True,
+    },
+    "get_dataset_version": {
+        "name": "get_dataset_version",
+        "description": (
+            "Read one immutable dataset version and its test cases (input, expected, "
+            "metadata, and trace provenance where the case was captured from one). Always "
+            "pass limit (for example 20) and follow next_cursor until it is null: without "
+            "limit the whole version comes back in one response, which can be very large."
+        ),
+        "enabled": True,
+    },
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
     "complete_run": {"enabled": False},

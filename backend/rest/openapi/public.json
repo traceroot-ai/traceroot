@@ -8201,7 +8201,9 @@
           "Offline Eval (Public)"
         ],
         "x-tool": {
-          "enabled": false
+          "description": "Read one immutable dataset version and its test cases (input, expected, metadata, and trace provenance where the case was captured from one). Always pass limit (for example 20) and follow next_cursor until it is null: without limit the whole version comes back in one response, which can be very large.",
+          "enabled": true,
+          "name": "get_dataset_version"
         }
       }
     },
@@ -8365,7 +8367,9 @@
           "Offline Eval (Public)"
         ],
         "x-tool": {
-          "enabled": false
+          "description": "List the project's evaluation datasets, newest first, with each dataset's current published version. Filter by a case-insensitive substring of the name. Use this for discovery before reading a specific dataset.",
+          "enabled": true,
+          "name": "list_datasets"
         }
       }
     },
@@ -8484,7 +8488,9 @@
           "Offline Eval (Public)"
         ],
         "x-tool": {
-          "enabled": false
+          "description": "Read one evaluation dataset by id: its name, description, key, and current published version. A dataset with no published version has none, and its cases cannot be read until one exists.",
+          "enabled": true,
+          "name": "get_dataset"
         }
       }
     },
@@ -8637,7 +8643,9 @@
           "Offline Eval (Public)"
         ],
         "x-tool": {
-          "enabled": false
+          "description": "List a dataset's published versions, newest first, each with its case count and whether it is the current one. Versions are immutable snapshots; editing a dataset publishes a new one rather than changing an old one.",
+          "enabled": true,
+          "name": "list_dataset_versions"
         }
       }
     },
