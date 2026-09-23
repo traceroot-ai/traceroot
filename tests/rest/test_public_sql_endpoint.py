@@ -115,6 +115,33 @@ class TestSuccess:
         assert stub.calls[-1]["parameters"] == {"v": "x"}
         assert stub.calls[-1]["max_rows"] == 5
 
+    def test_an_empty_result_still_carries_its_columns(
+        self, stub: StubService, client: TestClient
+    ) -> None:
+        # A result with no rows describes itself through the projection, and a
+        # column the server cannot type comes back with a null type rather than
+        # being dropped: a CSV rendering of this answer still has its header row.
+        stub.result = SqlResult(
+            columns=[SqlColumn(name="name", type="String"), SqlColumn(name="hits", type=None)],
+            rows=[],
+            row_count=0,
+            truncated=False,
+            elapsed_ms=3,
+        )
+        resp = client.post(
+            "/api/v1/public/sql",
+            json={"query": "SELECT name, count() AS hits FROM spans GROUP BY name"},
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["columns"] == [
+            {"name": "name", "type": "String"},
+            {"name": "hits", "type": None},
+        ]
+        assert body["rows"] == []
+        assert body["row_count"] == 0
+
 
 # ---------------------------------------------------------------------------
 # The project comes from the credential, never from the request

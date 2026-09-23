@@ -4403,15 +4403,23 @@
         "type": "object"
       },
       "SqlColumn": {
-        "description": "One column of a result, named and typed as ClickHouse reported it.",
+        "description": "One column of a result, named and typed as ClickHouse reported it.\n\nA result with no rows carries no metadata from the driver, so its columns are\nnamed from the statement's own projection instead.",
         "properties": {
           "name": {
             "title": "Name",
             "type": "string"
           },
           "type": {
-            "title": "Type",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ClickHouse type name, null when the result carried no rows and so no metadata, and the curated schema does not type the expression on its own",
+            "title": "Type"
           }
         },
         "required": [
