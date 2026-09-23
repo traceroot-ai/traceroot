@@ -174,7 +174,9 @@ project, not that it does not exist.
 The result is one run's own summary. Start with where the run stands: complete, partial or
 running. A running run has not reported that it finished, so its figures may still change; say
 when it started, and never re-read it in a loop to wait for it.
-Report counts as the result gives them and never compute a pass rate or a percentage from them.
+Report counts as the result gives them and never compute a pass rate or a percentage from them. A
+score's mean stays a mean even when its kind is boolean: a mean of 1 says every case that scorer
+scored came out true, which is not the run's pass count, so never call a score a pass rate.
 Quote each score and metric as a mean per case, with its unit when it has one, never as a total. A
 run read has no totals, so never answer a run's total from a widget query. A value shown as — was
 not reported: say so, never 0. Its Dataset line gives ids, not names.
