@@ -223,3 +223,16 @@ describe("docs stay in sync with SYSTEM_MODELS", () => {
     },
   );
 });
+
+describe("docs stay in sync with the Anthropic BYOK catalogue", () => {
+  it("lists the curated models in dropdown order", () => {
+    const doc = readFileSync(
+      new URL("../../../../../docs/ai-agent/byok.mdx", import.meta.url),
+      "utf8",
+    );
+    const section = doc.split("## Anthropic BYOK Models")[1]?.split("\n## ")[0];
+    expect(section, "missing Anthropic BYOK Models section").toBeDefined();
+    const documentedIds = [...section!.matchAll(/^- `([^`]+)`/gm)].map((match) => match[1]);
+    expect(documentedIds).toEqual(ADAPTER_MODELS.anthropic!.map((model) => model.id));
+  });
+});

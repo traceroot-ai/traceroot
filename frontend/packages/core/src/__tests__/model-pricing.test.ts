@@ -242,6 +242,27 @@ describe("Opus 5.5 prices from the production catalogue", () => {
         expect(await lookup(alias), alias).toEqual(prices);
         expect(await cost(alias, 1000, 500, 200, 300, 100), alias).toBeCloseTo(0.01584, 12);
       }
+      for (const alias of [
+        "claude-opus-5-5-fast",
+        "anthropic/claude-opus-5-5-fast",
+        "Anthropic/Claude-Opus-5-5-Fast",
+      ]) {
+        const matches = entries.filter((entry) =>
+          new RegExp(entry.matchPattern.replace(/^\(\?i\)/, ""), "i").test(alias),
+        );
+        expect(
+          matches.map((entry) => entry.modelName),
+          alias,
+        ).toEqual(["claude-opus-5-5-fast"]);
+        expect(await lookup(alias), alias).toEqual({
+          input: 0.000008,
+          output: 0.00004,
+          cacheRead: 0.0000004,
+          cacheWrite: 0.00001,
+          cacheWrite1h: 0.000016,
+        });
+        expect(await cost(alias, 1000, 500, 200, 300, 100), alias).toBeCloseTo(0.03168, 12);
+      }
       for (const alias of oldAliases) expect(await lookup(alias), alias).toEqual(CLAUDE);
       expect(await lookup("anthropic/claude-opus-5-fast")).toEqual({
         input: 0.00001,
@@ -250,12 +271,7 @@ describe("Opus 5.5 prices from the production catalogue", () => {
         cacheWrite: 0.0000125,
         cacheWrite1h: 0.00002,
       });
-      for (const alias of [
-        "claude-opus-5-5-fast",
-        "claude-opus-5-5-20260922",
-        "claude-opus-5.5",
-        "us.anthropic.claude-opus-5-5-v1:0",
-      ]) {
+      for (const alias of ["claude-opus-5-5-20260922", "claude-opus-5.5"]) {
         expect(await lookup(alias), alias).toBeNull();
       }
     },

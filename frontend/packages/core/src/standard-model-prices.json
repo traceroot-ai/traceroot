@@ -26,6 +26,19 @@
     }
   },
   {
+    "id": "tr-claude-opus-5-5-fast",
+    "modelName": "claude-opus-5-5-fast",
+    "matchPattern": "(?i)^(anthropic\\/)?claude-opus-5-5-fast$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 8e-6,
+      "output": 4e-5,
+      "cacheRead": 4e-7,
+      "cacheWrite": 1e-5,
+      "cacheWrite1h": 1.6e-5
+    }
+  },
+  {
     "id": "tr-claude-opus-5-5",
     "modelName": "claude-opus-5-5",
     "matchPattern": "(?i)^(anthropic[/.])?claude-opus-5-5$",

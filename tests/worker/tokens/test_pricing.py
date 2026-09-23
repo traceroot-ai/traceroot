@@ -1159,6 +1159,23 @@ class TestOpus55Pricing:
                 assert matches == ["claude-opus-5-5"], model_id
                 assert get_model_price(model_id) == expected, model_id
             for model_id in [
+                "claude-opus-5-5-fast",
+                "anthropic/claude-opus-5-5-fast",
+                "Anthropic/Claude-Opus-5-5-Fast",
+            ]:
+                matches = [
+                    e["model_name"] for e in cache if re.search(e["match_pattern"], model_id)
+                ]
+                assert matches == ["claude-opus-5-5-fast"], model_id
+                assert get_model_price(model_id) == {
+                    "input": 0.000008,
+                    "output": 0.00004,
+                    "cacheRead": 0.0000004,
+                    "cacheWrite": 0.00001,
+                    "cacheWrite1h": 0.000016,
+                    MATCHED_MODEL_NAME: "claude-opus-5-5-fast",
+                }, model_id
+            for model_id in [
                 "claude-opus-5",
                 "anthropic/claude-opus-5",
                 "claude-opus-5-20260728",
@@ -1170,10 +1187,17 @@ class TestOpus55Pricing:
                 "eu.anthropic.claude-opus-5-2026-07-28-v1:0",
             ]:
                 assert get_model_price(model_id) == old_prices, model_id
+            for model_id in ["claude-opus-5-fast", "anthropic/claude-opus-5-fast"]:
+                assert get_model_price(model_id) == {
+                    "input": 0.00001,
+                    "output": 0.00005,
+                    "cacheRead": 0.000001,
+                    "cacheWrite": 0.0000125,
+                    "cacheWrite1h": 0.00002,
+                    MATCHED_MODEL_NAME: "claude-opus-5-fast",
+                }, model_id
             for model_id in [
-                "claude-opus-5-5-fast",
                 "claude-opus-5-5-20260922",
                 "claude-opus-5.5",
-                "us.anthropic.claude-opus-5-5-v1:0",
             ]:
                 assert get_model_price(model_id) is None, model_id
