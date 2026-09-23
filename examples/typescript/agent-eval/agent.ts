@@ -7,6 +7,7 @@
 
 import { generateText, tool, stepCountIs } from "ai";
 import { openai } from "@ai-sdk/openai";
+import { anthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 
 // Fixed prices — the ground truth the dataset is written against.
@@ -64,20 +65,48 @@ const SYSTEM_PROMPT =
   "from memory — always call the calculate tool. Report concrete numbers and keep " +
   "your answer concise.";
 
+const AGENT_MODELS = { openai: "gpt-4o-mini", anthropic: "claude-opus-5" } as const;
+export type AgentProvider = keyof typeof AGENT_MODELS;
+
+// Read lazily: the standalone run loads .env only after this module has loaded.
+export function agentProvider(): AgentProvider {
+  const p = process.env.AGENT_PROVIDER?.trim() || "openai";
+  if (!Object.hasOwn(AGENT_MODELS, p))
+    throw new Error(`AGENT_PROVIDER must be openai or anthropic, got "${p}"`);
+  return p as AgentProvider;
+}
+
+export const agentModelId = () => AGENT_MODELS[agentProvider()];
+
+export interface ToolResult {
+  tool: string;
+  input: unknown;
+  output?: unknown;
+  /** Set instead of `output` when the tool threw. */
+  error?: string;
+}
+
 export interface AgentResult {
   answer: string;
   toolsUsed: string[];
+  toolResults: ToolResult[];
   steps: number;
 }
 
 export async function runAgent(input: {
   question: string;
 }): Promise<AgentResult> {
+  const provider = agentProvider();
   const result = await generateText({
     // openai.chat → Chat Completions API (matches the sibling tracing examples).
-    model: openai.chat("gpt-4o-mini"),
+    model:
+      provider === "anthropic"
+        ? anthropic(AGENT_MODELS.anthropic)
+        : openai.chat(AGENT_MODELS.openai),
     // temperature 0 → the same question yields the same tool calls and answer.
-    temperature: 0,
+    // The Anthropic provider drops temperature for Opus 5 with a warning, so only
+    // the OpenAI path sets it.
+    ...(provider === "openai" && { temperature: 0 }),
     // Emit OpenTelemetry model/tool spans so TraceRoot captures the agent's
     // execution (matches the sibling `examples/typescript/vercel-ai` example).
     experimental_telemetry: { isEnabled: true },
@@ -116,15 +145,29 @@ export async function runAgent(input: {
 
   // Collect the tools called across every step, de-duplicated in call order.
   const toolsUsed: string[] = [];
+  const toolResults: ToolResult[] = [];
   for (const step of result.steps) {
     for (const call of step.toolCalls) {
       if (!toolsUsed.includes(call.toolName)) {
         toolsUsed.push(call.toolName);
       }
     }
+    // Failed calls count too, or a scorer reads a tool that threw as one never called.
+    for (const part of step.content) {
+      if (part.type === 'tool-result') {
+        toolResults.push({ tool: part.toolName, input: part.input, output: part.output });
+      } else if (part.type === 'tool-error') {
+        toolResults.push({ tool: part.toolName, input: part.input, error: String(part.error) });
+      }
+    }
   }
 
-  return { answer: result.text, toolsUsed, steps: result.steps.length };
+  return {
+    answer: result.text,
+    toolsUsed,
+    toolResults,
+    steps: result.steps.length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +177,7 @@ export async function runAgent(input: {
 // so importing this module (as `main.ts` does) never triggers a run — only
 // executing the file directly does.
 if (require.main === module) {
-  // Load OPENAI_API_KEY (and friends) from .env for the standalone run.
+  // Load OPENAI_API_KEY or ANTHROPIC_API_KEY (and friends) from .env for the standalone run.
   require("dotenv/config");
   runAgent({ question: "What is the current stock price of NVDA?" })
     .then((result) => console.log(JSON.stringify(result, null, 2)))
