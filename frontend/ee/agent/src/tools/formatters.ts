@@ -846,27 +846,48 @@ function withUnit(value: unknown, unit: unknown): string {
 }
 
 /**
- * Whether the run is finished, in words. Only the SDK's completion call ends a run, so a
- * run whose job died stays "running" for good; the line says so rather than promising
- * figures that will never arrive.
+ * Where a run stands, in the one or two words a list row has room for.
+ *
+ * One vocabulary for both evaluation surfaces: `statusText` below is this plus the qualifier a
+ * single run's summary has room for, so a listing and a run read can never come to disagree
+ * about what a status means.
  */
-function statusText(status: unknown): string {
+function standing(status: unknown): string {
   switch (status) {
     case "running":
-      return "running — not reported as finished, so figures may still change (a run whose job stopped stays in this state)";
+      return "running";
     case "completed":
       return "complete";
     case "completed_with_errors":
       return "complete, with errors";
     case "failed":
       return "failed";
+    // A run that stopped early and one that was stopped both read as partial in a list; which
+    // of the two it was is that run's own business, and the run read says which.
     case "incomplete":
-      return "partial — it stopped before finishing";
     case "cancelled":
-      return "partial — it was cancelled before finishing";
+      return "partial";
     default:
       return `status ${oneLine(status ?? "unknown", 40)}`;
   }
+}
+
+/** What a single run's summary adds to its standing, where there is room to say why it reads so. */
+const STANDING_NOTE: Readonly<Record<string, string>> = {
+  running:
+    "not reported as finished, so figures may still change (a run whose job stopped stays in this state)",
+  incomplete: "it stopped before finishing",
+  cancelled: "it was cancelled before finishing",
+};
+
+/**
+ * Whether the run is finished, in words. Only the SDK's completion call ends a run, so a
+ * run whose job died stays "running" for good; the line says so rather than promising
+ * figures that will never arrive.
+ */
+function statusText(status: unknown): string {
+  const note = typeof status === "string" ? STANDING_NOTE[status] : undefined;
+  return note === undefined ? standing(status) : `${standing(status)} — ${note}`;
 }
 
 function count(value: unknown): string {
@@ -1164,4 +1185,117 @@ export function formatDatasetVersionDetail(data: unknown): string {
     shown++;
   }
   return [versionLine, casesLine(shown, unread || shown < items.length), body].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Evaluation listings
+// ---------------------------------------------------------------------------
+
+/**
+ * The rows an evaluation listing asks for, and the most either one prints.
+ *
+ * Not the 200 the API will serve, as the dataset lists pin. A row here is wide — an evaluation
+ * carries a name, the key an SDK reports it under, a dataset id and its latest run; a run
+ * carries a candidate version and an environment on top of its identity — and 200 of them do
+ * not fit the byte budget, so pinning the maximum would fetch three screenfuls for the
+ * renderer to throw away and headline a page the model never sees. 50 is the API's own default
+ * page, and 50 of these rows fit inside the budget with room to spare, so what the read asks
+ * for and what the model reads are the same rows.
+ */
+export const EVAL_LIST_PAGE_SIZE = 50;
+
+/**
+ * A listing's headline, written from the rows PRINTED, not from the rows the read returned.
+ *
+ * Two things hold rows back: the read stops at the page it asked for, and the budget stops the
+ * renderer before the end of that page. Counting what arrived would headline a number the
+ * reader cannot see — "Found 50" over eleven rows of long names — and the correction would sit
+ * under the last row, where the eye lands last. Same reasoning as `casesLine`.
+ *
+ * `shown` of 0 means rows came back and none of them fit; an empty read is answered by its own
+ * formatter, which can say that a filter may be what emptied it.
+ */
+function listedLine(
+  noun: string,
+  whereTheRestIs: string,
+): (shown: number, withheld: boolean) => string {
+  return (shown, withheld) => {
+    if (shown === 0) return `No ${noun} would fit here; ${whereTheRestIs}.`;
+    return withheld
+      ? `Showing ${shown} ${noun} (newest first) — there are more ${noun} than this read can show; ${whereTheRestIs}.`
+      : `Found ${shown} ${noun} (newest first) — that is all of them.`;
+  };
+}
+
+/** An evaluation's most recent run as one clause, or why there is none. */
+function latestRunText(latest: unknown): string {
+  if (latest === null || typeof latest !== "object") {
+    return "latest: none — nothing has run it yet";
+  }
+  const r = latest as any;
+  return `latest: ${token(r.evaluation_run_id, 64)}, run #${count(r.run_number)}, ${standing(r.status)}, started ${r.started_at ?? "—"}`;
+}
+
+/**
+ * Render a list_evaluations result: one line per evaluation lineage, newest first.
+ *
+ * Identity and counts only. An evaluation has no headline score — scores belong to a run — so
+ * nothing here carries one, and the run count is the count the read gave, never a rate.
+ */
+export function formatEvaluationList(data: unknown): string {
+  const body = (data ?? {}) as any;
+  const evaluations: any[] = Array.isArray(body.evaluations) ? body.evaluations : [];
+  if (evaluations.length === 0) {
+    // The formatter never sees the arguments, so it cannot tell an empty project from a
+    // name filter that matched nothing, and says both.
+    return "No evaluations found. If a name filter was passed, nothing matched it: list without name to see the project's evaluations.";
+  }
+  const rows = evaluations.map((e: any) => {
+    const name = e.name ? token(e.name, 200) : "(unnamed)";
+    const runs = count(e.run_count);
+    return `- ${token(e.evaluation_id, 64)} | ${name} | key: ${token(e.evaluation_key, 200)} | dataset: ${token(e.dataset_id, 64)} | ${runs} runs | ${latestRunText(e.latest_run)}`;
+  });
+  return boundedList(
+    rows,
+    typeof body.next_cursor === "string" && body.next_cursor !== "",
+    listedLine("evaluations", "the Evaluations page in the app lists them all"),
+  );
+}
+
+/**
+ * Render a list_evaluation_runs result: one line per run, newest first.
+ *
+ * Identity and standing only — no counts, means, cost or duration, because those are
+ * aggregates over a run's results that get_evaluation_run answers one run at a time. A run
+ * that has not reported completion has no completion time, and prints — rather than a guess.
+ */
+export function formatEvaluationRunList(data: unknown): string {
+  const body = (data ?? {}) as any;
+  const runs: any[] = Array.isArray(body.runs) ? body.runs : [];
+  if (runs.length === 0) {
+    // As above: an empty project and a filter that matched nothing read the same here.
+    return "No evaluation runs found. If a filter was passed, nothing matched it: list without evaluation_id or status to see the project's runs.";
+  }
+  const rows = runs.map((r: any) => {
+    const name = r.evaluation_name ? token(r.evaluation_name, 200) : "(unnamed)";
+    return [
+      `- ${token(r.evaluation_run_id, 64)}`,
+      `run #${count(r.run_number)}`,
+      standing(r.status),
+      `evaluation: ${name}`,
+      `evaluation id: ${token(r.evaluation_id, 64)}`,
+      `key: ${token(r.evaluation_key, 200)}`,
+      `candidate: ${token(r.candidate_version, 200)}`,
+      `env: ${token(r.environment, 64)}`,
+      `dataset: ${token(r.dataset_id, 64)}`,
+      `dataset version: ${token(r.dataset_version_id, 64)}`,
+      `started ${r.started_at ?? "—"}`,
+      `completed ${r.completed_at ?? "—"}`,
+    ].join(" | ");
+  });
+  return boundedList(
+    rows,
+    typeof body.next_cursor === "string" && body.next_cursor !== "",
+    listedLine("runs", "the evaluation's page in the app lists them all"),
+  );
 }

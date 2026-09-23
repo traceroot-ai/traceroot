@@ -16,12 +16,15 @@ import {
   formatDetectorDetail,
   DATASET_CASE_ROW_CAP,
   DATASET_LIST_PAGE_SIZE,
+  EVAL_LIST_PAGE_SIZE,
   formatDatasetDetail,
   formatDatasetList,
   formatDatasetVersionDetail,
   formatDatasetVersionList,
   formatDetectorList,
+  formatEvaluationList,
   formatEvaluationRun,
+  formatEvaluationRunList,
   formatFindingDetail,
   formatFindingList,
   formatSessionDetail,
@@ -161,6 +164,18 @@ export function createRegistryReadTools(
     // badge without re-reading the model's prose.
     bind("list_alerts", formatAlertList, { details: alertListCardDetails }),
     bind("get_alert", formatAlertDetail, { details: alertDetailCardDetails }),
+    // The two listings are how an evaluation or a run is found at all — nothing else in chat
+    // hands over an id. Like the dataset lists they read the first page and go no further: the
+    // cursor is pinned off and hidden, so the model cannot page, nor guess a cursor that
+    // matches no row and reads back as an empty last page. The page size is pinned to the rows
+    // the renderer can actually print rather than to the API's maximum (see
+    // EVAL_LIST_PAGE_SIZE), so the read asks for exactly the rows the model will see.
+    bind("list_evaluations", formatEvaluationList, {
+      pinned: { ...FIRST_PAGE, limit: EVAL_LIST_PAGE_SIZE },
+    }),
+    bind("list_evaluation_runs", formatEvaluationRunList, {
+      pinned: { ...FIRST_PAGE, limit: EVAL_LIST_PAGE_SIZE },
+    }),
     bind("get_evaluation_run", formatEvaluationRun),
     // These reads return the first page of a list and no further, as the CLI does. The
     // cursor is pinned off and hidden, so the model cannot page, nor guess a cursor that

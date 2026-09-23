@@ -48,6 +48,8 @@ describe("createRegistryReadTools", () => {
       "get_widget_data",
       "list_alerts",
       "get_alert",
+      "list_evaluations",
+      "list_evaluation_runs",
       "get_evaluation_run",
       "list_datasets",
       "get_dataset",
@@ -601,6 +603,103 @@ describe("createRegistryReadTools", () => {
     expect(Object.keys(properties).sort()).toEqual(["label", "run_id"]);
   });
 
+  const EVALUATION_ROW = {
+    evaluation_id: "eval_1",
+    name: "Billing routing",
+    evaluation_key: "billing-routing",
+    dataset_id: "refunds",
+    run_count: 3,
+    latest_run: {
+      evaluation_run_id: "run_3",
+      run_number: 3,
+      status: "completed",
+      started_at: "2026-09-14T00:00:00.000Z",
+    },
+  };
+
+  const RUN_ROW = {
+    evaluation_run_id: "run_3",
+    evaluation_id: "eval_1",
+    evaluation_name: "Billing routing",
+    evaluation_key: "billing-routing",
+    run_number: 3,
+    candidate_version: "sonnet",
+    environment: "evaluation",
+    status: "running",
+    dataset_id: "refunds",
+    dataset_version_id: "dv_3",
+    started_at: "2026-09-14T00:00:00.000Z",
+    completed_at: null,
+  };
+
+  it.each([
+    [
+      "list_evaluations",
+      { name: "billing" },
+      { evaluations: [EVALUATION_ROW], next_cursor: null },
+      "http://fastapi.test/api/v1/internal/projects/p1/evaluations?limit=50&name=billing",
+      '- "eval_1" | "Billing routing" | key: "billing-routing" | dataset: "refunds" | 3 runs | latest: "run_3", run #3, complete, started 2026-09-14T00:00:00.000Z',
+    ],
+    [
+      "list_evaluation_runs",
+      { evaluation_id: "eval_1", status: "running" },
+      { runs: [RUN_ROW], next_cursor: null },
+      "http://fastapi.test/api/v1/internal/projects/p1/evaluation-runs?limit=50&evaluation_id=eval_1&status=running",
+      '- "run_3" | run #3 | running | evaluation: "Billing routing" | evaluation id: "eval_1" | key: "billing-routing" | candidate: "sonnet" | env: "evaluation" | dataset: "refunds" | dataset version: "dv_3" | started 2026-09-14T00:00:00.000Z | completed —',
+    ],
+  ])(
+    "%s hits its internal listing route and renders its own result",
+    async (name, args, body, url, text) => {
+      const impl = stubFetch(body);
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      const result = await tool.execute("id", { label: "x", ...args });
+      const [called, init] = impl.mock.calls[0]!;
+      expect(String(called)).toBe(url);
+      expect((init as RequestInit).headers).toMatchObject({
+        "X-Internal-Secret": "s3cret",
+        "x-user-id": "u1",
+      });
+      expect(result.content[0]!.text).toContain(text);
+    },
+  );
+
+  it.each([
+    ["list_evaluations", "http://fastapi.test/api/v1/internal/projects/p1/evaluations?limit=50"],
+    [
+      "list_evaluation_runs",
+      "http://fastapi.test/api/v1/internal/projects/p1/evaluation-runs?limit=50",
+    ],
+  ])("%s pins its page, whatever the model sends", async (name, url) => {
+    const impl = stubFetch({});
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+    await tool.execute("id", { label: "x", limit: 200, cursor: "guessed" });
+    expect(String(impl.mock.calls[0]![0])).toBe(url);
+  });
+
+  it.each(["list_evaluations", "list_evaluation_runs"])(
+    "%s offers the model no cursor and no page size, so it reads the first page only",
+    (name) => {
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
+      expect(properties).not.toHaveProperty("cursor");
+      expect(properties).not.toHaveProperty("limit");
+    },
+  );
+
+  it("leaves the listings' own filters with the model, so it can narrow a read", () => {
+    const tools = createRegistryReadTools("p1", "u1");
+    const evaluations = tools.find((t) => t.name === "list_evaluations")!;
+    const runs = tools.find((t) => t.name === "list_evaluation_runs")!;
+    expect(
+      Object.keys((evaluations.parameters as { properties: Record<string, unknown> }).properties),
+    ).toContain("name");
+    const runParams = Object.keys(
+      (runs.parameters as { properties: Record<string, unknown> }).properties,
+    );
+    expect(runParams).toContain("evaluation_id");
+    expect(runParams).toContain("status");
+  });
+
   it.each([
     [
       "list_datasets",
@@ -736,6 +835,8 @@ describe("createTools", () => {
     "get_widget_data",
     "list_alerts",
     "get_alert",
+    "list_evaluations",
+    "list_evaluation_runs",
     "get_evaluation_run",
     "list_datasets",
     "get_dataset",
