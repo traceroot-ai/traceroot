@@ -48,6 +48,8 @@ describe("committed registry", () => {
       "list_dataset_versions",
       "list_datasets",
       "list_detectors",
+      "list_evaluation_runs",
+      "list_evaluations",
       "list_findings",
       "list_projects",
       "list_sessions",
