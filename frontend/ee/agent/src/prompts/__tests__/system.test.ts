@@ -182,7 +182,9 @@ describe("getSystemPrompt", () => {
 
   it("describes the evaluation run read as one run's own summary", () => {
     const prompt = getSystemPrompt({ projectId: "p1" });
-    expect(prompt).toContain("### Evaluation Runs: get_evaluation_run");
+    expect(prompt).toContain(
+      "### Evaluations and Runs: list_evaluations, list_evaluation_runs and get_evaluation_run",
+    );
     // A run number is not an id, and a miss is "not found here", not "does not exist".
     expect(prompt).toContain("A run number such as #14 is not an id");
     expect(prompt).toContain("say it was not found in this\nproject, not that it does not exist");
@@ -203,6 +205,42 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("(an evaluation run's figures belong to that run,\nnot to a window)");
     expect(prompt).toContain("a run read its\nrun URL");
     expect(prompt).toContain("4d. If the question is about an evaluation run");
+  });
+
+  it("says how to find an evaluation and a run now that both can be listed", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    // The old text said no tool lists runs and refused to interpret a run number; both
+    // are false now, so neither the refusal nor its vocabulary may survive.
+    expect(prompt).not.toContain("no tool lists runs");
+    expect(prompt).not.toContain("ask for the\nrun's link or id");
+    expect(prompt).toContain("Use list_evaluations to find an evaluation by name");
+    expect(prompt).toContain("narrowed by evaluation_id or by status");
+    expect(prompt).toContain("Resolve every id by listing and matching what the user named");
+    // A run number resolves inside one evaluation, and nowhere else.
+    expect(prompt).toContain("it is only meaningful inside one evaluation");
+    expect(prompt).toContain(
+      "Find the evaluation first, list that evaluation's runs, and\ntake the id of the row whose run number matches",
+    );
+    // A listing is identity and standing; its rows are not figures.
+    expect(prompt).toContain(
+      "The listings carry identity and standing only — no counts, means, cost or duration",
+    );
+    expect(prompt).toContain("never quote a figure from a listing");
+    // A partial listing stays partial, and re-reading it changes nothing.
+    expect(prompt).toContain("Each listing shows only as much as it can at once");
+    expect(prompt).toContain("never present a partial read as the\nwhole");
+    expect(prompt).toContain("never offer to fetch the rest");
+    // An evaluation's run count is a count from a list result, so it may be reported.
+    expect(prompt).toContain("list_findings or\nlist_evaluations may be reported from that result");
+    expect(prompt).toContain("find it with list_evaluations and pick the run with");
+  });
+
+  it("names an unreported count as unreported instead of headlining it as zero", () => {
+    const prompt = getSystemPrompt({ projectId: "p1" });
+    expect(prompt).toContain(
+      "A count or value shown\nas — is not reported yet: name it as not yet reported and put no number beside it at all",
+    );
+    expect(prompt).toContain("never\nheadline it as 0 and correct it afterwards");
   });
 
   it("describes the dataset reads as partial reads and treats case text as data", () => {
