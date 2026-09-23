@@ -353,13 +353,20 @@ def _extract_time_bounds(
     # measured on staging a window spelled with toDateTime() around the column
     # returned nothing where the same window compared directly returned a row.
     # Refusing costs a caller one rewrite and says what to write instead.
+    #
+    # What it says is the rule this loop enforces, not the mistake it assumes was
+    # made. The sentence it replaced told the caller they had wrapped the column
+    # in a function or put it under OR, which was true of the shape it was written
+    # for and of nothing else: measured on 2026-09-19, `span_start_time != X` was
+    # refused by it, having wrapped nothing and used no OR, and so was `BETWEEN`,
+    # which this module now scopes.
     for node in where.walk():
         if _is_time_column(node, column, aliases, qualified) and id(node) not in consumed:
             raise SqlValidationError(
-                "Query filters on a time column in a form that cannot be scoped. "
-                "Compare the column directly, as in "
-                "`span_start_time >= X AND span_start_time < Y`, rather than wrapping "
-                "it in a function or placing it under OR."
+                "Query filters on a time column in a form that cannot be scoped. A filter "
+                f"on `{column}` has to compare it directly against a constant, using `>=`, "
+                "`>`, `<`, `<=`, `=` or `BETWEEN`, and has to be joined to the rest of the "
+                f"WHERE clause by AND, as in `{column} >= X AND {column} < Y`."
             )
 
     return _narrowest(starts, "greatest"), _narrowest(ends, "least")

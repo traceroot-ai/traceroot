@@ -872,6 +872,28 @@ class TestTimeRange:
         for leak in ("public_v1", "scope_project_id", PID):
             assert leak not in str(exc.value)
 
+    def test_the_refusal_names_the_comparisons_that_can_be_scoped(self) -> None:
+        # Pinned because the sentence this replaced described a rule the caller had
+        # not broken: `!=` wraps nothing in a function and sits under no OR, so a
+        # refusal naming those sends the caller off to rewrite something else.
+        with pytest.raises(SqlValidationError) as exc:
+            scope_and_render("SELECT count() FROM spans WHERE span_start_time != '2026-09-01'", PID)
+        message = str(exc.value)
+        for comparison in (">=", ">", "<", "<=", "=", "BETWEEN"):
+            assert comparison in message, comparison
+        assert "wrapping it in a function" not in message
+        assert "placing it under OR" not in message
+
+    def test_the_refusal_names_the_column_it_could_not_scope(self) -> None:
+        # Either table's clock can be filtered on, and a message that always named
+        # the spans column would point a traces caller at a line they never wrote.
+        with pytest.raises(SqlValidationError) as exc:
+            scope_and_render(
+                "SELECT count() FROM traces WHERE trace_start_time != '2026-09-01'", PID
+            )
+        assert "trace_start_time" in str(exc.value)
+        assert "span_start_time" not in str(exc.value)
+
     @pytest.mark.parametrize("label,sql", SCOPEABLE_STILL, ids=[s[0] for s in SCOPEABLE_STILL])
     def test_what_was_always_fine_is_still_fine(self, label: str, sql: str) -> None:
         # The refusal is scoped to the WHERE clause. Selecting, ordering or
