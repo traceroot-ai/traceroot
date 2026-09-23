@@ -475,7 +475,8 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/datasets/{dataset_id}": {"get": "get_dataset"},
     "/api/v1/public/datasets/{dataset_id}/versions": {"get": "list_dataset_versions"},
     "/api/v1/public/dataset-versions/{version_id}": {"get": "get_dataset_version"},
-    "/api/v1/public/evaluation-runs": {"post": "register_run"},
+    "/api/v1/public/evaluations": {"get": "list_evaluations"},
+    "/api/v1/public/evaluation-runs": {"get": "list_evaluation_runs", "post": "register_run"},
     "/api/v1/public/evaluation-runs/{run_id}": {"get": "read_run"},
     "/api/v1/public/evaluation-runs/{run_id}/results": {"post": "upsert_result"},
     "/api/v1/public/evaluation-runs/{run_id}/complete": {"post": "complete_run"},
@@ -531,6 +532,9 @@ def test_x_tool_enabled_set_and_shape():
         "register_run",
         "upsert_result",
         "complete_run",
+        # Published for a generated client; exposed as tools in the next commit.
+        "list_evaluations",
+        "list_evaluation_runs",
     }
     assert set(enabled) == {
         "whoami",

@@ -646,6 +646,10 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     # is bounded by scorer count rather than case count, and the route reads no per-case
     # TEXT and sits in the READ bucket, so an agent calling it in a loop cannot pull an
     # unbounded body.
+    # The listing reads are published so a generated client can bind them. Exposing them
+    # as registry tools is the next step.
+    "list_evaluations": {"enabled": False},
+    "list_evaluation_runs": {"enabled": False},
     "read_run": {
         "name": "get_evaluation_run",
         "description": (
