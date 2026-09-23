@@ -441,9 +441,24 @@ describe("formatDatasetVersionDetail", () => {
     expect(shown).toBeGreaterThan(0);
     expect(shown).toBeLessThan(DATASET_CASE_ROW_CAP);
     expect(lineStarts(text, "   metadata:")).toHaveLength(shown);
+    // The count leads with what was printed, so it can never name cases the reader
+    // cannot see — the number here is below the cap the read asked for.
     expect(text).toContain(
-      `… showing ${shown} of these ${DATASET_CASE_ROW_CAP} cases; the rest are not shown here`,
+      `Showing ${shown} of this version's cases — the rest are not readable here`,
     );
+    expect(text).not.toContain(`Showing ${DATASET_CASE_ROW_CAP} of this version's cases`);
+    expect(text).not.toContain("that is every case");
+  });
+
+  it("renders a case whose fields dwarf the budget, cut rather than dropped", () => {
+    // Values are cut to 200 characters before the budget is consulted, so a case block is
+    // always small enough to print: the count can say "every case" and mean it.
+    const huge = item(1, { input: "\u754c".repeat(20000), expected: "\u754c".repeat(20000) });
+    const text = formatDatasetVersionDetail({ ...version([huge]), next_cursor: null });
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(16384);
+    expect(text).toContain("Cases: 1 — that is every case in this version.");
+    expect(lineStarts(text, "#")).toHaveLength(1);
+    expect(text).toContain("\u2026");
   });
 
   it("shows at most the capped number of cases and never offers a way to page past them", () => {
@@ -452,7 +467,7 @@ describe("formatDatasetVersionDetail", () => {
     expect(text).toContain(`"tc_${DATASET_CASE_ROW_CAP - 1}"`);
     expect(text).not.toContain(`"tc_${DATASET_CASE_ROW_CAP}"`);
     expect(text).toContain(
-      `… showing ${DATASET_CASE_ROW_CAP} of these ${DATASET_CASE_ROW_CAP + 3} cases; the rest are not shown here`,
+      `Showing ${DATASET_CASE_ROW_CAP} of this version's cases — the rest are not readable here`,
     );
     expect(text).not.toMatch(/limit=|\bcursor\b/);
   });

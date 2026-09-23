@@ -1096,13 +1096,23 @@ export function formatDatasetVersionList(data: unknown): string {
  * user cannot turn — the model repeats this line to them, and a partial read read back as a
  * whole version is the one thing this line exists to prevent.
  */
-function casesLine(got: number, nextCursor: unknown): string {
-  if (typeof nextCursor === "string" && nextCursor !== "") {
-    return `Showing ${got} of this version's cases — the rest are not readable here; the dataset's page in the app shows every case.`;
+/**
+ * The cases line, written from what was PRINTED, not from what the read returned.
+ *
+ * Two things hold cases back: the read itself stops at the cases it asks for, and the
+ * budget stops the renderer before the end of them. Counting what arrived would headline
+ * a number the reader cannot see — "Cases: 20" over seven blocks on multibyte text — and
+ * the correction would sit below every case, where the eye lands last.
+ */
+function casesLine(shown: number, withheld: boolean): string {
+  if (shown === 0) {
+    return withheld
+      ? "No case would fit here; the dataset's page in the app shows every case."
+      : "This version has no cases.";
   }
-  return got === 0
-    ? "This version has no cases."
-    : `Cases: ${got} — that is every case in this version.`;
+  return withheld
+    ? `Showing ${shown} of this version's cases — the rest are not readable here; the dataset's page in the app shows every case.`
+    : `Cases: ${shown} — that is every case in this version.`;
 }
 
 /**
@@ -1117,17 +1127,16 @@ function casesLine(got: number, nextCursor: unknown): string {
 export function formatDatasetVersionDetail(data: unknown): string {
   const v = (data ?? {}) as any;
   const items: any[] = Array.isArray(v.items) ? v.items : [];
-  const head = [
-    `Dataset version: ${token(v.dataset_version_id, 64)} | dataset ${token(v.dataset_id, 64)} | v${count(v.version_number)} | label: ${token(v.label, 200)}`,
-    casesLine(items.length, v.next_cursor),
-  ];
+  const versionLine = `Dataset version: ${token(v.dataset_version_id, 64)} | dataset ${token(v.dataset_id, 64)} | v${count(v.version_number)} | label: ${token(v.label, 200)}`;
+  const unread = typeof v.next_cursor === "string" && v.next_cursor !== "";
   if (items.length === 0) {
-    return head.join("\n");
+    return [versionLine, casesLine(0, unread)].join("\n");
   }
   const bytes = (text: string) => new TextEncoder().encode(text).length;
-  const shortfall = (shown: number) =>
-    `… showing ${shown} of these ${items.length} cases; the rest are not shown here`;
-  let text = [...head, CASE_DATA_BANNER].join("\n");
+  // The cases line is written last, once the printed count is known, so room is kept for
+  // its longest form: every case printed and something still held back.
+  const reserved = bytes(`${casesLine(items.length, true)}\n`);
+  let body = CASE_DATA_BANNER;
   let shown = 0;
   for (const [i, t] of items.slice(0, DATASET_CASE_ROW_CAP).entries()) {
     const block = [
@@ -1136,11 +1145,10 @@ export function formatDatasetVersionDetail(data: unknown): string {
       `   expected: ${oneLineJson(t.expected, 200)}`,
       `   metadata: ${oneLineJson(t.metadata, 120)}`,
     ].join("\n");
-    const next = `${text}\n${block}`;
-    // Room is kept for the closing line, so adding it never breaks the budget.
-    if (bytes(next) + bytes(`\n${shortfall(items.length)}`) > EVAL_READ_BUDGET_BYTES) break;
-    text = next;
+    const next = `${body}\n${block}`;
+    if (bytes(versionLine) + 1 + reserved + bytes(next) > EVAL_READ_BUDGET_BYTES) break;
+    body = next;
     shown++;
   }
-  return shown < items.length ? `${text}\n${shortfall(shown)}` : text;
+  return [versionLine, casesLine(shown, unread || shown < items.length), body].join("\n");
 }
