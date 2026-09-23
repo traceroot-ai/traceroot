@@ -1392,6 +1392,94 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "list_evaluation_runs",
+    description:
+      "List evaluation runs, newest first, optionally one evaluation's (evaluation_id) or one status's. Each row is identity and outcome only: which run it is, what was evaluated, the dataset version it pinned, its status, and when it started and finished. A run's counts and per-scorer means come from get_evaluation_run. Use this to find a run id.",
+    method: "get",
+    path: "/api/v1/public/evaluation-runs",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Runs per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        evaluation_id: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Only this evaluation's runs",
+        },
+        status: {
+          enum: [
+            "running",
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "incomplete",
+            "cancelled",
+          ],
+          type: "string",
+          description: "Only runs in this status",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_evaluations",
+    description:
+      "List the project's evaluations, newest first: each one's name, the key an SDK reports it under, the dataset it runs against, how many runs it has, and its latest run. Filter by a case-insensitive substring of the name. An evaluation nothing has run yet has a null latest_run. Use this to find an evaluation before listing its runs.",
+    method: "get",
+    path: "/api/v1/public/evaluations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Evaluations per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        name: {
+          maxLength: 200,
+          minLength: 1,
+          type: "string",
+          description: "Case-insensitive substring of the name",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_findings",
     description:
       "List detector findings for the project, optionally filtered by detector (id, name, or template), trace id, or time range.",

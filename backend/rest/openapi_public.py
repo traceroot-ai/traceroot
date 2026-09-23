@@ -646,10 +646,28 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     # is bounded by scorer count rather than case count, and the route reads no per-case
     # TEXT and sits in the READ bucket, so an agent calling it in a loop cannot pull an
     # unbounded body.
-    # The listing reads are published so a generated client can bind them. Exposing them
-    # as registry tools is the next step.
-    "list_evaluations": {"enabled": False},
-    "list_evaluation_runs": {"enabled": False},
+    "list_evaluations": {
+        "name": "list_evaluations",
+        "description": (
+            "List the project's evaluations, newest first: each one's name, the key an SDK "
+            "reports it under, the dataset it runs against, how many runs it has, and its "
+            "latest run. Filter by a case-insensitive substring of the name. An evaluation "
+            "nothing has run yet has a null latest_run. Use this to find an evaluation "
+            "before listing its runs."
+        ),
+        "enabled": True,
+    },
+    "list_evaluation_runs": {
+        "name": "list_evaluation_runs",
+        "description": (
+            "List evaluation runs, newest first, optionally one evaluation's "
+            "(evaluation_id) or one status's. Each row is identity and outcome only: which "
+            "run it is, what was evaluated, the dataset version it pinned, its status, and "
+            "when it started and finished. A run's counts and per-scorer means come from "
+            "get_evaluation_run. Use this to find a run id."
+        ),
+        "enabled": True,
+    },
     "read_run": {
         "name": "get_evaluation_run",
         "description": (

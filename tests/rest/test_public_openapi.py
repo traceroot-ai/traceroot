@@ -532,9 +532,6 @@ def test_x_tool_enabled_set_and_shape():
         "register_run",
         "upsert_result",
         "complete_run",
-        # Published for a generated client; exposed as tools in the next commit.
-        "list_evaluations",
-        "list_evaluation_runs",
     }
     assert set(enabled) == {
         "whoami",
@@ -585,6 +582,8 @@ def test_x_tool_enabled_set_and_shape():
         "list_dataset_versions",
         "list_datasets",
         "get_evaluation_run",
+        "list_evaluations",
+        "list_evaluation_runs",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
