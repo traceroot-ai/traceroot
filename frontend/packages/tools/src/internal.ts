@@ -26,6 +26,8 @@ export const INTERNAL_BINDINGS: Readonly<Record<string, string>> = {
   get_widget_data: "/api/v1/internal/projects/{project_id}/widgets/{widget_id}/data",
   list_alerts: "/api/v1/internal/projects/{project_id}/alerts",
   get_alert: "/api/v1/internal/projects/{project_id}/alerts/{alert_id}",
+  list_evaluations: "/api/v1/internal/projects/{project_id}/evaluations",
+  list_evaluation_runs: "/api/v1/internal/projects/{project_id}/evaluation-runs",
   get_evaluation_run: "/api/v1/internal/projects/{project_id}/evaluation-runs/{run_id}",
   list_datasets: "/api/v1/internal/projects/{project_id}/datasets",
   get_dataset: "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}",
