@@ -232,7 +232,7 @@ describe("formatDatasetList", () => {
   it("lists datasets and says when more exist, without handing out a cursor", () => {
     const more = formatDatasetList({ datasets: [dataset], next_cursor: "row_9" });
     expect(more).toContain(
-      "Found 1 datasets (newest first) — there are more datasets than this read can show; the Datasets page in the app lists them all.",
+      "Showing 1 datasets (newest first) — there are more datasets than this read can show; the Datasets page in the app lists them all.",
     );
     expect(more).not.toContain("row_9");
     expect(more).toContain(
@@ -266,7 +266,12 @@ describe("formatDatasetList", () => {
     }));
     const text = formatDatasetList({ datasets: many, next_cursor: null });
     expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(16384);
-    expect(text).toContain("… output truncated at 16384 bytes; narrow the list with name");
+    // The headline counts the rows that were printed, so it can never name a dataset the
+    // reader cannot see, and there is no cut row to mark.
+    const shown = text.split("\n").filter((l) => l.startsWith("- ")).length;
+    expect(shown).toBeLessThan(many.length);
+    expect(text).toContain(`Showing ${shown} datasets (newest first) — there are more datasets`);
+    expect(text).not.toContain("output truncated");
   });
 
   it("quotes every stored field, so a name cannot pose as another field", () => {
@@ -316,9 +321,10 @@ describe("formatDatasetVersionList", () => {
     }));
     const text = formatDatasetVersionList({ versions, next_cursor: null });
     expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(16384);
-    expect(text).toContain(
-      "… output truncated at 16384 bytes; the newest versions are the ones shown",
-    );
+    const shown = text.split("\n").filter((l) => l.startsWith("- ")).length;
+    expect(shown).toBeLessThan(versions.length);
+    expect(text).toContain(`Showing ${shown} versions (newest first) — there are more versions`);
+    expect(text).not.toContain("output truncated");
   });
 
   it("marks the current version, quotes its ids, and keeps an absent label as a dash", () => {
@@ -348,7 +354,7 @@ describe("formatDatasetVersionList", () => {
       next_cursor: "row_9",
     });
     expect(text).toContain(
-      "Found 1 versions (newest first) — there are more versions than this read can show; the dataset's page in the app lists them all.",
+      "Showing 1 versions (newest first) — there are more versions than this read can show; the dataset's page in the app lists them all.",
     );
     expect(text).not.toContain("row_9");
   });

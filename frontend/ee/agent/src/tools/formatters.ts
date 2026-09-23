@@ -1019,10 +1019,31 @@ function oneLineJson(value: unknown, max: number): string {
 // way the model will repeat it to the user, who cannot see or turn the pages a read walks:
 // the facts stay, the paging vocabulary does not, and the only page named is one the user can
 // open in the app.
-function completeness(nextCursor: unknown, noun: string, whereTheRestIs: string): string {
-  return typeof nextCursor === "string" && nextCursor !== ""
-    ? `there are more ${noun} than this read can show; ${whereTheRestIs}`
-    : "that is all of them";
+/**
+ * A list rendered from whole rows, with its headline written last.
+ *
+ * `boundedText` cuts a finished string, so a headline written before the cut can name
+ * rows the reader never sees — "Found 200 datasets" over the forty that fit. Here rows
+ * are packed whole, room is reserved for the headline's longest form, and the count
+ * comes from what was printed. A row is `token`-bounded, so one can always fit.
+ */
+function boundedList(
+  rows: string[],
+  unread: boolean,
+  headline: (shown: number, withheld: boolean) => string,
+): string {
+  const bytes = (text: string) => new TextEncoder().encode(text).length;
+  const reserved = bytes(`${headline(rows.length, true)}\n`);
+  let body = "";
+  let shown = 0;
+  for (const row of rows) {
+    const next = shown === 0 ? row : `${body}\n${row}`;
+    if (reserved + bytes(next) > EVAL_READ_BUDGET_BYTES) break;
+    body = next;
+    shown++;
+  }
+  const line = headline(shown, unread || shown < rows.length);
+  return shown === 0 ? line : `${line}\n${body}`;
 }
 
 /** Render a list_datasets result: one line per dataset, and whether more exist. */
@@ -1042,15 +1063,11 @@ export function formatDatasetList(data: unknown): string {
     const description = d.description ? ` | ${token(d.description, 200)}` : "";
     return `- ${token(d.dataset_id, 64)} | ${name} | current version: ${current} | key: ${token(d.key, 200)}${description}`;
   });
-  const note = completeness(
-    body.next_cursor,
-    "datasets",
-    "the Datasets page in the app lists them all",
-  );
-  return boundedText(
-    `Found ${datasets.length} datasets (newest first) — ${note}.\n${lines.join("\n")}`,
-    EVAL_READ_BUDGET_BYTES,
-    "narrow the list with name",
+  const unread = typeof body.next_cursor === "string" && body.next_cursor !== "";
+  return boundedList(lines, unread, (shown, withheld) =>
+    withheld
+      ? `Showing ${shown} datasets (newest first) — there are more datasets than this read can show; the Datasets page in the app lists them all.`
+      : `Found ${shown} datasets (newest first) — that is all of them.`,
   );
 }
 
@@ -1078,15 +1095,11 @@ export function formatDatasetVersionList(data: unknown): string {
     const current = v.is_current ? " (current)" : "";
     return `- ${token(v.dataset_version_id, 64)} | v${count(v.version_number)}${current} | ${count(v.case_count)} cases | created ${v.created_at ?? "—"} | label: ${token(v.label, 200)} | note: ${token(v.note, 200)}`;
   });
-  const note = completeness(
-    body.next_cursor,
-    "versions",
-    "the dataset's page in the app lists them all",
-  );
-  return boundedText(
-    `Found ${versions.length} versions (newest first) — ${note}.\n${lines.join("\n")}`,
-    EVAL_READ_BUDGET_BYTES,
-    "the newest versions are the ones shown",
+  const unread = typeof body.next_cursor === "string" && body.next_cursor !== "";
+  return boundedList(lines, unread, (shown, withheld) =>
+    withheld
+      ? `Showing ${shown} versions (newest first) — there are more versions than this read can show; the dataset's page in the app lists them all.`
+      : `Found ${shown} versions (newest first) — that is all of them.`,
   );
 }
 
