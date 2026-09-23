@@ -253,6 +253,24 @@ def test_dataset_reads_fail_closed_on_an_unexpected_status_or_an_off_contract_bo
     assert resp.json()["detail"] == "Evaluation service error"
 
 
+@respx.mock
+def test_a_case_json_cannot_carry_fails_closed_instead_of_crashing():
+    """A lone UTF-16 surrogate in stored case text survives parsing but can't be written
+    back out as JSON, so the read fails closed as a 503 rather than a 500."""
+    _mock_key_auth()
+    item = {**VERSION_BODY["items"][0], "input": "ab\ud83d"}
+    respx.post(INTERNAL_URL).mock(
+        return_value=Response(
+            200,
+            text=json.dumps({**VERSION_BODY, "items": [item]}),
+            headers={"content-type": "application/json"},
+        )
+    )
+    resp = _client().get("/api/v1/public/dataset-versions/dv_3", headers=KEY_HEADER)
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "Evaluation service error"
+
+
 def _version_reads(version_number):
     version = {**VERSIONS_BODY["versions"][0], "version_number": version_number}
     return [
@@ -265,10 +283,10 @@ def _version_reads(version_number):
 
 
 @respx.mock
-@pytest.mark.parametrize("version_number", ["3", True])
+@pytest.mark.parametrize("version_number", ["3", True, 2**53, -(2**53)])
 def test_version_reads_fail_closed_on_a_version_number_the_contract_rejects(version_number):
-    """A numeric string or a boolean isn't an integer to the Zod contract, so the gateway
-    must not coerce it into a successful answer."""
+    """A numeric string, a boolean, or an integer past 2^53 - 1 isn't a safe integer to the
+    Zod contract, so the gateway must not pass it on as a successful answer."""
     _mock_key_auth()
     client = _client()
     for path, body in _version_reads(version_number):
