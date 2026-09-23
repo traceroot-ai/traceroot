@@ -48,7 +48,7 @@ describe("createRegistryReadTools", () => {
       "get_widget_data",
       "list_alerts",
       "get_alert",
-      "read_evaluation_run",
+      "get_evaluation_run",
     ]);
   });
 
@@ -568,7 +568,7 @@ describe("createRegistryReadTools", () => {
     expect(result.details).toBeUndefined();
   });
 
-  it("read_evaluation_run hits the internal run route and runs the formatter", async () => {
+  it("get_evaluation_run hits the internal run route and runs the formatter", async () => {
     const impl = stubFetch({
       evaluation_run_id: "run_1",
       evaluation_name: "Billing routing",
@@ -577,7 +577,7 @@ describe("createRegistryReadTools", () => {
       scores: [],
       metrics: [],
     });
-    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "read_evaluation_run")!;
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_evaluation_run")!;
     const result = await tool.execute("id", { label: "x", run_id: "run_1" });
     const [url, init] = impl.mock.calls[0]!;
     expect(String(url)).toBe(
@@ -591,8 +591,8 @@ describe("createRegistryReadTools", () => {
     expect(result.content[0]!.text).toContain("run #14");
   });
 
-  it("read_evaluation_run offers the model no baseline to pass", () => {
-    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "read_evaluation_run")!;
+  it("get_evaluation_run offers the model no baseline to pass", () => {
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_evaluation_run")!;
     const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
     expect(Object.keys(properties).sort()).toEqual(["label", "run_id"]);
   });
@@ -627,7 +627,7 @@ describe("createTools", () => {
     "get_widget_data",
     "list_alerts",
     "get_alert",
-    "read_evaluation_run",
+    "get_evaluation_run",
   ];
   const WRITE_TOOL_NAMES = [
     "create_detector",

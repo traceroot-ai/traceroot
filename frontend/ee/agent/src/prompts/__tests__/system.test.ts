@@ -182,7 +182,7 @@ describe("getSystemPrompt", () => {
 
   it("describes the evaluation run read as one run's own summary", () => {
     const prompt = getSystemPrompt({ projectId: "p1" });
-    expect(prompt).toContain("### Evaluation Runs: read_evaluation_run");
+    expect(prompt).toContain("### Evaluation Runs: get_evaluation_run");
     // A run number is not an id, and a miss is "not found here", not "does not exist".
     expect(prompt).toContain("A run number such as #14 is not an id");
     expect(prompt).toContain("say it was not found in this\nproject, not that it does not exist");
@@ -198,7 +198,7 @@ describe("getSystemPrompt", () => {
     // The figures and links rules name the run read, so its numbers and its URL are allowed,
     // and its figures are not tied to the page's window.
     expect(prompt).toContain(
-      "and from read_evaluation_run for an evaluation run's scores, cost and\nduration means, and result counts",
+      "and from get_evaluation_run for an evaluation run's scores, cost and\nduration means, and result counts",
     );
     expect(prompt).toContain("(an evaluation run's figures belong to that run,\nnot to a window)");
     expect(prompt).toContain("a run read its\nrun URL");

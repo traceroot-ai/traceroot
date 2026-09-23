@@ -913,7 +913,7 @@ function meanText(item: any, unit: unknown): string {
 }
 
 /**
- * The text the model sees for a read_evaluation_run result: one run's own summary.
+ * The text the model sees for a get_evaluation_run result: one run's own summary.
  *
  * It opens with where the run stands — complete, partial or running — because every
  * figure below is qualified by it. Counts are counts: nothing here divides one by another,
