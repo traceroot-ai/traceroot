@@ -1,4 +1,5 @@
-"""Evaluation read endpoints: the run summary and the dataset reads (internal, not public).
+"""Evaluation read endpoints: the listings, the run summary and the dataset reads
+(internal, not public).
 
 Thin internal mirrors of the public evaluation reads so the in-app agent's
 registry-bound tools can dispatch here with service auth. Payload shapes are
@@ -28,13 +29,18 @@ from rest.routers.evaluation_read_common import (
     get_dataset_version_page,
     list_dataset_versions_page,
     list_datasets_page,
+    list_evaluation_runs_page,
+    list_evaluations_page,
     read_run_summary,
 )
 from rest.routers.internal import verify_internal_secret
 from rest.schemas.eval import (
+    EvalRunStatus,
     GetDatasetVersionResponse,
     ListDatasetsResponse,
     ListDatasetVersionsResponse,
+    ListEvaluationRunsResponse,
+    ListEvaluationsResponse,
     PublicDataset,
     ReadRunResponse,
 )
@@ -44,6 +50,46 @@ router = APIRouter(
     tags=["internal"],
     dependencies=[Depends(verify_internal_secret)],
 )
+
+
+# The listing reads carry no retention gate on either surface, like the dataset reads
+# below: they report identity and standing, not the results a retention window bounds.
+# Registered before the run read so they win for their own exact paths.
+
+
+@router.get("/evaluations", response_model=ListEvaluationsResponse)
+async def list_evaluations(
+    project_id: str,
+    limit: int = Query(50, ge=1, le=200, description="Evaluations per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+    name: str | None = Query(
+        None, min_length=1, max_length=200, description="Case-insensitive substring of the name"
+    ),
+) -> ListEvaluationsResponse:
+    """List the project's evaluations, newest first, each with its run count and latest run."""
+    return await list_evaluations_page(project_id, limit, cursor, name)
+
+
+@router.get("/evaluation-runs", response_model=ListEvaluationRunsResponse)
+async def list_evaluation_runs(
+    project_id: str,
+    limit: int = Query(50, ge=1, le=200, description="Runs per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+    evaluation_id: str | None = Query(
+        None, min_length=1, max_length=64, description="Only this evaluation's runs"
+    ),
+    # Named `run_status` with a `status` alias exactly as the public twin is, so the
+    # parity test compares the same parameter on both surfaces.
+    run_status: EvalRunStatus | None = Query(
+        None, alias="status", description="Only runs in this status"
+    ),
+) -> ListEvaluationRunsResponse:
+    """List evaluation runs, newest first, optionally one evaluation's or one status's."""
+    return await list_evaluation_runs_page(project_id, limit, cursor, evaluation_id, run_status)
 
 
 @router.get("/evaluation-runs/{run_id}", response_model=ReadRunResponse)

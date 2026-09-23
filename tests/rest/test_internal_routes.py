@@ -43,8 +43,10 @@ EXPECTED_ROUTES = {
     # mounted from routers/project_alerts.py.
     ("GET", "/api/v1/internal/projects/{project_id}/alerts"),
     ("GET", "/api/v1/internal/projects/{project_id}/alerts/{alert_id}"),
-    # Evaluation mirrors for the agent: one run's summary, and the dataset reads,
-    # mounted from routers/project_evaluations.py.
+    # Evaluation mirrors for the agent: the two listings, one run's summary, and the
+    # dataset reads, mounted from routers/project_evaluations.py.
+    ("GET", "/api/v1/internal/projects/{project_id}/evaluations"),
+    ("GET", "/api/v1/internal/projects/{project_id}/evaluation-runs"),
     ("GET", "/api/v1/internal/projects/{project_id}/evaluation-runs/{run_id}"),
     ("GET", "/api/v1/internal/projects/{project_id}/datasets"),
     ("GET", "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}"),

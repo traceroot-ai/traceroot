@@ -245,3 +245,127 @@ def test_a_run_status_outside_the_published_set_fails_closed_rather_than_being_r
     resp = _client().get("/api/v1/public/evaluation-runs", headers=KEY_HEADER)
     assert resp.status_code == 503
     assert resp.json()["detail"] == "Evaluation service error"
+
+
+# ── internal project-scoped mirrors (the in-app agent's dispatch path) ───────
+
+# The mirrors are secret-only: the good path sends the secret and nothing else, so a
+# regression that also demanded a user header would fail here.
+SECRET_ONLY = {"X-Internal-Secret": "test-secret"}
+
+MIRRORS = [
+    (
+        "/api/v1/internal/projects/proj-A/evaluations?limit=5&name=billing",
+        EVALUATIONS_BODY,
+        {"read": "evaluations", "projectId": "proj-A", "limit": 5, "name": "billing"},
+    ),
+    (
+        "/api/v1/internal/projects/proj-A/evaluation-runs?evaluation_id=eval_1&status=running",
+        RUNS_BODY,
+        {
+            "read": "evaluation_runs",
+            "projectId": "proj-A",
+            "limit": 50,
+            "evaluationId": "eval_1",
+            "status": "running",
+        },
+    ),
+]
+
+
+@respx.mock
+@pytest.mark.parametrize(("path", "body", "payload"), MIRRORS)
+def test_internal_mirror_reads_like_the_public_route(monkeypatch, path, body, payload):
+    """Each mirror lives under `/api/v1/internal` (which the ingress fixed-404s) and
+    shares the public handler body, authenticated by the internal secret alone."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    internal = _mock_internal(body)
+    resp = _client().get(path, headers=SECRET_ONLY)
+    assert resp.status_code == 200
+    assert _sent(internal) == payload
+
+
+@respx.mock
+@pytest.mark.parametrize(("path", "body", "payload"), MIRRORS)
+def test_internal_mirror_rejects_a_caller_without_the_secret(monkeypatch, path, body, payload):
+    """An x-user-id header alone buys nothing: the mirrors are secret-only."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    internal = _mock_internal(body)
+    resp = _client().get(path, headers={"x-user-id": "u1"})
+    assert resp.status_code == 403
+    assert internal.call_count == 0
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/internal/projects/proj-A/evaluations?limit=201",
+        "/api/v1/internal/projects/proj-A/evaluation-runs?limit=0",
+        "/api/v1/internal/projects/proj-A/evaluation-runs?status=finished",
+        "/api/v1/internal/projects/proj-A/evaluations?cursor=",
+    ],
+)
+def test_internal_mirror_holds_the_public_bounds(monkeypatch, path):
+    """The mirrors carry the public routes' bounds, so the agent cannot ask for more."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    internal = _mock_internal(RUNS_BODY)
+    assert _client().get(path, headers=SECRET_ONLY).status_code == 422, path
+    assert internal.call_count == 0
+
+
+def _dependency_calls(dependant) -> set:
+    """Every dependency callable in a route's tree, nested ones included.
+
+    Args:
+        dependant: The route's ``Dependant``.
+
+    Returns:
+        set: The callables the route resolves before its handler runs.
+    """
+    calls = set()
+    for sub in dependant.dependencies:
+        if sub.call is not None:
+            calls.add(sub.call)
+        calls |= _dependency_calls(sub)
+    return calls
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/internal/projects/{project_id}/evaluations",
+        "/api/v1/internal/projects/{project_id}/evaluation-runs",
+    ],
+)
+def test_listing_mirrors_gate_on_the_secret_alone_with_no_project_access(path):
+    """`get_project_access` trusts a caller-supplied x-user-id, and its internal-secret
+    branch grants an enterprise plan. Neither mirror may reach it — the secret is the gate."""
+    from fastapi.routing import APIRoute
+
+    from rest.routers.deps import get_project_access
+    from rest.routers.internal.auth import verify_internal_secret
+
+    route = next(
+        r for r in app.routes if isinstance(r, APIRoute) and r.path == path and "GET" in r.methods
+    )
+    calls = _dependency_calls(route.dependant)
+    assert verify_internal_secret in calls
+    assert get_project_access not in calls
+
+
+def test_listing_mirrors_are_off_the_public_project_surface():
+    """The listings must not be mounted at `/api/v1/projects/...`, whose access check trusts
+    a caller-supplied x-user-id. Only the internal prefix may serve them."""
+    from fastapi.routing import APIRoute
+
+    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    for suffix in ("evaluations", "evaluation-runs"):
+        assert f"/api/v1/projects/{{project_id}}/{suffix}" not in paths
+        assert f"/api/v1/internal/projects/{{project_id}}/{suffix}" in paths
