@@ -2452,6 +2452,43 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "EvaluationLatestRun": {
+        "description": "An evaluation's most recent run, so a listing answers \"where does this stand?\".",
+        "properties": {
+          "evaluation_run_id": {
+            "title": "Evaluation Run Id",
+            "type": "string"
+          },
+          "run_number": {
+            "title": "Run Number",
+            "type": "integer"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "completed_with_errors",
+              "failed",
+              "incomplete",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_run_id",
+          "run_number",
+          "status",
+          "started_at"
+        ],
+        "title": "EvaluationLatestRun",
+        "type": "object"
+      },
       "ExportManifest": {
         "description": "manifest.json: index of the bundle's parts.",
         "properties": {
@@ -2881,6 +2918,62 @@
         "title": "ListDatasetsResponse",
         "type": "object"
       },
+      "ListEvaluationRunsResponse": {
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/PublicEvaluationRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs",
+          "next_cursor"
+        ],
+        "title": "ListEvaluationRunsResponse",
+        "type": "object"
+      },
+      "ListEvaluationsResponse": {
+        "properties": {
+          "evaluations": {
+            "items": {
+              "$ref": "#/components/schemas/PublicEvaluation"
+            },
+            "title": "Evaluations",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "evaluations",
+          "next_cursor"
+        ],
+        "title": "ListEvaluationsResponse",
+        "type": "object"
+      },
       "PaginationMeta": {
         "description": "Pagination metadata for list responses.",
         "properties": {
@@ -3134,6 +3227,147 @@
           "meta"
         ],
         "title": "PublicDetectorListResponse",
+        "type": "object"
+      },
+      "PublicEvaluation": {
+        "description": "One evaluation lineage: a stable purpose, re-run over time.\n\nIdentity and counts only. Scores belong to a run \u2014 a lineage has no single headline\nscore, and averaging across runs would invent one.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "evaluation_id": {
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "evaluation_key": {
+            "title": "Evaluation Key",
+            "type": "string"
+          },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvaluationLatestRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "run_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Run Count",
+            "type": "integer"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_id",
+          "name",
+          "evaluation_key",
+          "dataset_id",
+          "run_count",
+          "latest_run",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PublicEvaluation",
+        "type": "object"
+      },
+      "PublicEvaluationRun": {
+        "description": "One run as the LISTING reports it: identity, where it ran, and how it ended.\n\nNo counts, means, cost or duration. Those are aggregates over a run's results, so a page\nof runs would be a page of aggregate queries; the run read answers them one run at a\ntime.",
+        "properties": {
+          "candidate_version": {
+            "title": "Candidate Version",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "evaluation_id": {
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "evaluation_key": {
+            "title": "Evaluation Key",
+            "type": "string"
+          },
+          "evaluation_name": {
+            "title": "Evaluation Name",
+            "type": "string"
+          },
+          "evaluation_run_id": {
+            "title": "Evaluation Run Id",
+            "type": "string"
+          },
+          "run_number": {
+            "title": "Run Number",
+            "type": "integer"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "completed_with_errors",
+              "failed",
+              "incomplete",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_run_id",
+          "evaluation_id",
+          "evaluation_name",
+          "evaluation_key",
+          "run_number",
+          "candidate_version",
+          "environment",
+          "status",
+          "dataset_id",
+          "dataset_version_id",
+          "started_at",
+          "completed_at"
+        ],
+        "title": "PublicEvaluationRun",
         "type": "object"
       },
       "PublicFindingListResponse": {
@@ -9975,6 +10209,204 @@
       }
     },
     "/api/v1/public/evaluation-runs": {
+      "get": {
+        "description": "List evaluation runs, newest first, optionally one evaluation's or one status's.\n\nIdentity and status only: a run's counts and per-scorer means come from `read_run`, so\nlisting stays one query however many runs a page holds. `next_cursor` is null on the\nlast page.",
+        "operationId": "list_evaluation_runs",
+        "parameters": [
+          {
+            "description": "Runs per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Runs per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Only this evaluation's runs",
+            "in": "query",
+            "name": "evaluation_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this evaluation's runs",
+              "title": "Evaluation Id"
+            }
+          },
+          {
+            "description": "Only runs in this status",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "running",
+                    "completed",
+                    "completed_with_errors",
+                    "failed",
+                    "incomplete",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only runs in this status",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEvaluationRunsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List the project's evaluation runs",
+        "tags": [
+          "Offline Eval (Public)"
+        ],
+        "x-tool": {
+          "enabled": false
+        }
+      },
       "post": {
         "description": "Register/start a run. Idempotent on ``client_run_id`` within an evaluation.",
         "operationId": "register_run",
@@ -10419,6 +10851,180 @@
           }
         ],
         "summary": "Upsert one test-case result with scores",
+        "tags": [
+          "Offline Eval (Public)"
+        ],
+        "x-tool": {
+          "enabled": false
+        }
+      }
+    },
+    "/api/v1/public/evaluations": {
+      "get": {
+        "description": "List evaluations, newest first, each with its run count and latest run.\n\n`next_cursor` is null on the last page.",
+        "operationId": "list_evaluations",
+        "parameters": [
+          {
+            "description": "Evaluations per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Evaluations per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Case-insensitive substring of the name",
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive substring of the name",
+              "title": "Name"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEvaluationsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List the project's evaluations",
         "tags": [
           "Offline Eval (Public)"
         ],

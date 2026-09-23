@@ -62,6 +62,8 @@ from rest.routers.evaluation_read_common import (
     get_dataset_version_page,
     list_dataset_versions_page,
     list_datasets_page,
+    list_evaluation_runs_page,
+    list_evaluations_page,
     read_run_summary,
 )
 from rest.routers.public.deps import DualStampedAuth, KeyStampedAuth
@@ -69,9 +71,12 @@ from rest.schemas.eval import (
     CompleteRunRequest,
     CompleteRunResponse,
     ErrorResponse,
+    EvalRunStatus,
     GetDatasetVersionResponse,
     ListDatasetsResponse,
     ListDatasetVersionsResponse,
+    ListEvaluationRunsResponse,
+    ListEvaluationsResponse,
     PublicDataset,
     ReadRunResponse,
     RegisterRunRequest,
@@ -476,6 +481,78 @@ async def register_run(
 ) -> Response:
     """Register/start a run. Idempotent on ``client_run_id`` within an evaluation."""
     return await _forward(request, _upstream_path(request.method, "evaluation-runs"))
+
+
+# --- Evaluation listing reads (typed + published) ----------------------------
+#
+# `read_run` answers for ONE run, and nothing else public hands a caller a run id. These two
+# are what make it reachable from a terminal or a chat: the evaluations a project has, and
+# the runs of one of them. Identity and status only — a run's numbers are aggregates over
+# its results, which `read_run` answers one run at a time, so a page of runs stays one
+# query. Registered before the catch-all so they win for their exact paths.
+@router.get(
+    "/evaluations",
+    operation_id="list_evaluations",
+    response_model=ListEvaluationsResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="List the project's evaluations",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_evaluations(
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int = Query(50, ge=1, le=200, description="Evaluations per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+    name: str | None = Query(
+        None, min_length=1, max_length=200, description="Case-insensitive substring of the name"
+    ),
+) -> ListEvaluationsResponse:
+    """List evaluations, newest first, each with its run count and latest run.
+
+    `next_cursor` is null on the last page.
+    """
+    return await list_evaluations_page(auth.project_id, limit, cursor, name)
+
+
+@router.get(
+    "/evaluation-runs",
+    operation_id="list_evaluation_runs",
+    response_model=ListEvaluationRunsResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="List the project's evaluation runs",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_evaluation_runs(
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int = Query(50, ge=1, le=200, description="Runs per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+    evaluation_id: str | None = Query(
+        None, min_length=1, max_length=64, description="Only this evaluation's runs"
+    ),
+    run_status: EvalRunStatus | None = Query(
+        None, alias="status", description="Only runs in this status"
+    ),
+) -> ListEvaluationRunsResponse:
+    """List evaluation runs, newest first, optionally one evaluation's or one status's.
+
+    Identity and status only: a run's counts and per-scorer means come from `read_run`, so
+    listing stays one query however many runs a page holds. `next_cursor` is null on the
+    last page.
+    """
+    return await list_evaluation_runs_page(
+        auth.project_id, limit, cursor, evaluation_id, run_status
+    )
 
 
 @router.get(
