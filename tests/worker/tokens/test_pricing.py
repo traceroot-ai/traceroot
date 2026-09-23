@@ -1127,3 +1127,53 @@ def test_anthropic_entries_have_2x_input_1h_cache_rate():
             continue
         assert "cacheWrite1h" in prices, f"{entry['modelName']} missing cacheWrite1h"
         assert prices["cacheWrite1h"] == pytest.approx(prices["input"] * 2), entry["modelName"]
+
+
+class TestOpus55Pricing:
+    @pytest.mark.parametrize("order", ["catalogue", "reversed", "alphabetical"])
+    def test_prices_from_catalogue_are_independent_of_row_order(self, real_cache, order):
+        cache = list(real_cache)
+        if order == "reversed":
+            cache.reverse()
+        elif order == "alphabetical":
+            cache.sort(key=lambda entry: entry["model_name"])
+        expected = {
+            "input": 0.000004,
+            "output": 0.00002,
+            "cacheRead": 0.0000002,
+            "cacheWrite": 0.000005,
+            "cacheWrite1h": 0.000008,
+            MATCHED_MODEL_NAME: "claude-opus-5-5",
+        }
+        old_prices = next(e["prices"] for e in cache if e["model_name"] == "claude-opus-5")
+        with patch("worker.tokens.pricing._load_cache", lambda: cache):
+            for model_id in [
+                "claude-opus-5-5",
+                "anthropic/claude-opus-5-5",
+                "anthropic.claude-opus-5-5",
+                "Anthropic/Claude-Opus-5-5",
+            ]:
+                matches = [
+                    e["model_name"] for e in cache if re.search(e["match_pattern"], model_id)
+                ]
+                assert matches == ["claude-opus-5-5"], model_id
+                assert get_model_price(model_id) == expected, model_id
+            for model_id in [
+                "claude-opus-5",
+                "anthropic/claude-opus-5",
+                "claude-opus-5-20260728",
+                "claude-opus-5-2026-07-28",
+                "claude-opus-5@20260728",
+                "claude-5-opus@20260728",
+                "claude-opus-5[1m]",
+                "us.anthropic.claude-opus-5-20260728-v1:0",
+                "eu.anthropic.claude-opus-5-2026-07-28-v1:0",
+            ]:
+                assert get_model_price(model_id) == old_prices, model_id
+            for model_id in [
+                "claude-opus-5-5-fast",
+                "claude-opus-5-5-20260922",
+                "claude-opus-5.5",
+                "us.anthropic.claude-opus-5-5-v1:0",
+            ]:
+                assert get_model_price(model_id) is None, model_id

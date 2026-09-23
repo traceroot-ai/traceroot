@@ -38,6 +38,17 @@ describe("isDecisionModelId", () => {
 });
 
 describe("ADAPTER_MODELS", () => {
+  it("lists Opus 5.5 first for Anthropic BYOK without promoting a hosted default", () => {
+    expect(ADAPTER_MODELS.anthropic?.[0]).toEqual({
+      id: "claude-opus-5-5",
+      label: "claude-opus-5-5",
+    });
+    expect(defaultApiProtocol("anthropic", "claude-opus-5-5")).toBe("anthropic-messages");
+    expect(
+      SYSTEM_MODELS.flatMap((provider) => provider.models.map((model) => model.id)),
+    ).not.toContain("claude-opus-5-5");
+  });
+
   it("contains no duplicate model IDs within a single adapter", () => {
     for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
       if (!models) continue;

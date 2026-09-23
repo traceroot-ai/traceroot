@@ -28,6 +28,19 @@ afterEach(() => {
 });
 
 describe("listWorkspaceModels", () => {
+  it("recognizes configured Opus 5.5 without enabling system models", async () => {
+    const models = await listWorkspaceModels("w1", {
+      db: reader(
+        db([{ adapter: "anthropic", provider: "My Anthropic", customModels: ["claude-opus-5-5"] }]),
+      ),
+      env: {},
+    });
+    expect(models.systemModels).toEqual([]);
+    expect(models.byokProviders[0]?.models).toEqual([
+      { id: "claude-opus-5-5", label: "claude-opus-5-5", supported: true },
+    ]);
+  });
+
   it("lists a system provider only when the process holds its API key", async () => {
     const models = await listWorkspaceModels("w1", {
       db: reader(db([])),
