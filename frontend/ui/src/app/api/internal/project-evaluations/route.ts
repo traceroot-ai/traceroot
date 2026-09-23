@@ -59,7 +59,7 @@ const projectEvaluationsSchema = z.discriminatedUnion("read", [
 
 // POST /api/internal/project-evaluations
 //
-// Serves the evaluation reads (`read_evaluation_run` and the four dataset reads) given a
+// Serves the evaluation reads (`get_evaluation_run` and the four dataset reads) given a
 // projectId the caller has ALREADY resolved from an authenticated credential. Used by the
 // Python backend for the public reads; trust is the X-Internal-Secret plus the backend's
 // verified project scope. Every lookup is scoped through the project id, so another

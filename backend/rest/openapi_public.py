@@ -647,7 +647,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     # TEXT and sits in the READ bucket, so an agent calling it in a loop cannot pull an
     # unbounded body.
     "read_run": {
-        "name": "read_evaluation_run",
+        "name": "get_evaluation_run",
         "description": (
             "Read one evaluation run's summary: its status, result counts, per-scorer "
             "scores, and mean cost and duration per case. scored_count, task_error_count "

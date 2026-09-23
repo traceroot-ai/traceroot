@@ -580,7 +580,7 @@ def test_x_tool_enabled_set_and_shape():
         "get_dataset_version",
         "list_dataset_versions",
         "list_datasets",
-        "read_evaluation_run",
+        "get_evaluation_run",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
