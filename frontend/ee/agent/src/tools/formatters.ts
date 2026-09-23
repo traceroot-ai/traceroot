@@ -1013,16 +1013,19 @@ function oneLineJson(value: unknown, max: number): string {
   return `${cut}…`;
 }
 
-// These reads return the first page of a list and no further, as the CLI does. The note
-// says when more exist without handing the model a cursor, so a first page is never
-// passed off as the whole and the model is never sent paging through a large dataset.
-function pagingNote(nextCursor: unknown): string {
+// These reads return what one call serves and go no further, as the CLI does. The note says
+// when more exists without handing the model a cursor, so a partial read is never passed off
+// as the whole and the model is never sent paging through a large dataset. It is worded the
+// way the model will repeat it to the user, who cannot see or turn the pages a read walks:
+// the facts stay, the paging vocabulary does not, and the only page named is one the user can
+// open in the app.
+function completeness(nextCursor: unknown, noun: string, whereTheRestIs: string): string {
   return typeof nextCursor === "string" && nextCursor !== ""
-    ? "first page only; more exist that this read cannot show"
-    : "this is the last page";
+    ? `there are more ${noun} than this read can show; ${whereTheRestIs}`
+    : "that is all of them";
 }
 
-/** Render a list_datasets result: one line per dataset, and whether more pages exist. */
+/** Render a list_datasets result: one line per dataset, and whether more exist. */
 export function formatDatasetList(data: unknown): string {
   const body = (data ?? {}) as any;
   const datasets: any[] = Array.isArray(body.datasets) ? body.datasets : [];
@@ -1039,8 +1042,13 @@ export function formatDatasetList(data: unknown): string {
     const description = d.description ? ` | ${token(d.description, 200)}` : "";
     return `- ${token(d.dataset_id, 64)} | ${name} | current version: ${current} | key: ${token(d.key, 200)}${description}`;
   });
+  const note = completeness(
+    body.next_cursor,
+    "datasets",
+    "the Datasets page in the app lists them all",
+  );
   return boundedText(
-    `Found ${datasets.length} datasets (newest first; ${pagingNote(body.next_cursor)}):\n${lines.join("\n")}`,
+    `Found ${datasets.length} datasets (newest first) — ${note}.\n${lines.join("\n")}`,
     EVAL_READ_BUDGET_BYTES,
     "narrow the list with name",
   );
@@ -1070,35 +1078,55 @@ export function formatDatasetVersionList(data: unknown): string {
     const current = v.is_current ? " (current)" : "";
     return `- ${token(v.dataset_version_id, 64)} | v${count(v.version_number)}${current} | ${count(v.case_count)} cases | created ${v.created_at ?? "—"} | label: ${token(v.label, 200)} | note: ${token(v.note, 200)}`;
   });
+  const note = completeness(
+    body.next_cursor,
+    "versions",
+    "the dataset's page in the app lists them all",
+  );
   return boundedText(
-    `Found ${versions.length} versions (newest first; ${pagingNote(body.next_cursor)}):\n${lines.join("\n")}`,
+    `Found ${versions.length} versions (newest first) — ${note}.\n${lines.join("\n")}`,
     EVAL_READ_BUDGET_BYTES,
     "the newest versions are the ones shown",
   );
 }
 
 /**
- * Render a get_dataset_version result: the version, then a page of its cases.
+ * How many of the version's cases this read got. A read that got them all says so; one that
+ * did not says what it is missing and where the rest can be seen, without naming a page the
+ * user cannot turn — the model repeats this line to them, and a partial read read back as a
+ * whole version is the one thing this line exists to prevent.
+ */
+function casesLine(got: number, nextCursor: unknown): string {
+  if (typeof nextCursor === "string" && nextCursor !== "") {
+    return `Showing ${got} of this version's cases — the rest are not readable here; the dataset's page in the app shows every case.`;
+  }
+  return got === 0
+    ? "This version has no cases."
+    : `Cases: ${got} — that is every case in this version.`;
+}
+
+/**
+ * Render a get_dataset_version result: the version, then the cases this read got.
  *
  * Case inputs, expected outputs and metadata are content users stored, so each is one
  * JSON-escaped, truncated line under a banner that says so: a case cannot forge a line of
  * tool output, and a cut value is marked rather than quoted as complete. Cases are shown
  * whole or not at all within the byte budget, and the closing line says how many made it,
- * so no case is left half-printed behind a page count that claims more.
+ * so no case is left half-printed behind a count that claims more.
  */
 export function formatDatasetVersionDetail(data: unknown): string {
   const v = (data ?? {}) as any;
   const items: any[] = Array.isArray(v.items) ? v.items : [];
   const head = [
     `Dataset version: ${token(v.dataset_version_id, 64)} | dataset ${token(v.dataset_id, 64)} | v${count(v.version_number)} | label: ${token(v.label, 200)}`,
-    `Cases on this page: ${items.length}; ${pagingNote(v.next_cursor)}`,
+    casesLine(items.length, v.next_cursor),
   ];
   if (items.length === 0) {
-    return [...head, "No cases on this page."].join("\n");
+    return head.join("\n");
   }
   const bytes = (text: string) => new TextEncoder().encode(text).length;
   const shortfall = (shown: number) =>
-    `… showing ${shown} of ${items.length} cases on this page; the rest are not shown here`;
+    `… showing ${shown} of these ${items.length} cases; the rest are not shown here`;
   let text = [...head, CASE_DATA_BANNER].join("\n");
   let shown = 0;
   for (const [i, t] of items.slice(0, DATASET_CASE_ROW_CAP).entries()) {
