@@ -7,6 +7,7 @@ import {
   listDatasetsPage,
   listDatasetVersionsPage,
 } from "@/lib/eval/dataset-read";
+import { listEvaluationRunsPage, listEvaluationsPage } from "@/lib/eval/evaluation-read";
 import { evalReadResponse } from "@/lib/eval/read-result";
 import { readRunSummary } from "@/lib/eval/run-read";
 
@@ -48,6 +49,26 @@ const datasetVersionRead = z.object({
   cursor,
 });
 
+const evaluationsRead = z.object({
+  read: z.literal("evaluations"),
+  projectId,
+  limit,
+  cursor,
+  name: z.string("name must be a string").min(1, "name must be a string").optional(),
+});
+const evaluationRunsRead = z.object({
+  read: z.literal("evaluation_runs"),
+  projectId,
+  limit,
+  cursor,
+  evaluationId: z
+    .string("evaluationId must be a string")
+    .min(1, "evaluationId must be a string")
+    .optional(),
+  // Checked against the published statuses by the read itself, the same backstop as limit.
+  status: z.string("status must be a string").min(1, "status must be a string").optional(),
+});
+
 // One route for the evaluation catalog's reads, told apart by `read`.
 const projectEvaluationsSchema = z.discriminatedUnion("read", [
   runRead,
@@ -55,11 +76,14 @@ const projectEvaluationsSchema = z.discriminatedUnion("read", [
   datasetRead,
   datasetVersionsRead,
   datasetVersionRead,
+  evaluationsRead,
+  evaluationRunsRead,
 ]);
 
 // POST /api/internal/project-evaluations
 //
-// Serves the evaluation reads (`get_evaluation_run` and the four dataset reads) given a
+// Serves the evaluation reads (`get_evaluation_run`, the two listing reads and the four
+// dataset reads) given a
 // projectId the caller has ALREADY resolved from an authenticated credential. Used by the
 // Python backend for the public reads; trust is the X-Internal-Secret plus the backend's
 // verified project scope. Every lookup is scoped through the project id, so another
@@ -117,6 +141,25 @@ export async function POST(request: NextRequest) {
           versionId: read.versionId,
           limit: read.limit,
           cursor: read.cursor ?? null,
+        }),
+      );
+    case "evaluations":
+      return evalReadResponse(
+        await listEvaluationsPage({
+          projectId: read.projectId,
+          limit: read.limit,
+          cursor: read.cursor ?? null,
+          name: read.name ?? null,
+        }),
+      );
+    case "evaluation_runs":
+      return evalReadResponse(
+        await listEvaluationRunsPage({
+          projectId: read.projectId,
+          limit: read.limit,
+          cursor: read.cursor ?? null,
+          evaluationId: read.evaluationId ?? null,
+          status: read.status ?? null,
         }),
       );
   }

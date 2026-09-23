@@ -26,6 +26,12 @@ const datasetReads = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/eval/dataset-read", () => datasetReads);
 
+const evaluationReads = vi.hoisted(() => ({
+  listEvaluationsPage: vi.fn(),
+  listEvaluationRunsPage: vi.fn(),
+}));
+vi.mock("@/lib/eval/evaluation-read", () => evaluationReads);
+
 const verifyInternalSecretMock = vi.fn();
 vi.mock("@/lib/auth-helpers", () => ({
   verifyInternalSecret: (...args: unknown[]) => verifyInternalSecretMock(...args),
@@ -47,6 +53,10 @@ beforeEach(() => {
   for (const fn of Object.values(datasetReads)) {
     fn.mockReset();
     fn.mockResolvedValue({ ok: true, body: { ok: "dataset-read" } });
+  }
+  for (const fn of Object.values(evaluationReads)) {
+    fn.mockReset();
+    fn.mockResolvedValue({ ok: true, body: { ok: "evaluation-read" } });
   }
 });
 
@@ -224,6 +234,75 @@ describe("POST /api/internal/project-evaluations", () => {
 
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error });
+    });
+  });
+});
+
+describe("evaluation listing reads", () => {
+  it("lists evaluations with the page, cursor and name passed through", async () => {
+    const res = await POST(
+      makeRequest({
+        read: "evaluations",
+        projectId: "proj-1",
+        limit: 5,
+        cursor: "c1",
+        name: "triage",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: "evaluation-read" });
+    expect(evaluationReads.listEvaluationsPage).toHaveBeenCalledWith({
+      projectId: "proj-1",
+      limit: 5,
+      cursor: "c1",
+      name: "triage",
+    });
+  });
+
+  it("lists runs with the evaluation and status filters passed through", async () => {
+    await POST(
+      makeRequest({
+        read: "evaluation_runs",
+        projectId: "proj-1",
+        evaluationId: "eval-1",
+        status: "completed",
+        cursor: "c2",
+      }),
+    );
+
+    expect(evaluationReads.listEvaluationRunsPage).toHaveBeenCalledWith({
+      projectId: "proj-1",
+      limit: undefined,
+      cursor: "c2",
+      evaluationId: "eval-1",
+      status: "completed",
+    });
+  });
+
+  it("leaves every optional listing parameter to the read's defaults", async () => {
+    await POST(makeRequest({ read: "evaluation_runs", projectId: "proj-1" }));
+
+    expect(evaluationReads.listEvaluationRunsPage).toHaveBeenCalledWith({
+      projectId: "proj-1",
+      limit: undefined,
+      cursor: null,
+      evaluationId: null,
+      status: null,
+    });
+  });
+
+  it("drops a filter the listing read does not take", async () => {
+    await POST(
+      makeRequest({ read: "evaluation_runs", projectId: "proj-1", baselineRunId: "run-0" }),
+    );
+
+    expect(evaluationReads.listEvaluationRunsPage).toHaveBeenCalledWith({
+      projectId: "proj-1",
+      limit: undefined,
+      cursor: null,
+      evaluationId: null,
+      status: null,
     });
   });
 });
