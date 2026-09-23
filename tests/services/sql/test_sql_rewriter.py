@@ -552,6 +552,14 @@ UNSCOPEABLE_SHAPES = [
     ("under an OR", "WHERE span_start_time >= '2026-09-01' OR name = 'x'"),
     ("inside a NOT", "WHERE NOT (span_start_time >= '2026-09-01')"),
     ("compared to itself", "WHERE span_start_time >= span_start_time"),
+    ("a negated BETWEEN", "WHERE span_start_time NOT BETWEEN '2026-09-01' AND '2026-09-02'"),
+    (
+        "a BETWEEN under an OR",
+        "WHERE span_start_time BETWEEN '2026-09-01' AND '2026-09-02' OR name = 'x'",
+    ),
+    # It excludes an instant rather than bounding one, so there is no window to
+    # hand the view and nothing safe to expand it into.
+    ("an inequality", "WHERE span_start_time != '2026-09-01'"),
 ]
 
 SCOPEABLE_STILL = [
@@ -570,6 +578,52 @@ SCOPEABLE_STILL = [
     (
         "a relative window",
         "SELECT count() FROM spans WHERE span_start_time >= now() - INTERVAL 1 HOUR",
+    ),
+]
+
+# Sugar for a window the mapping already reads, and the pair of comparisons each
+# one expands to. Measured against production on 2026-09-19, the left column was
+# refused and the right column ran.
+EQUIVALENT_SPELLINGS = [
+    (
+        "BETWEEN",
+        "span_start_time BETWEEN '2026-09-01' AND '2026-09-02'",
+        "span_start_time >= '2026-09-01' AND span_start_time <= '2026-09-02'",
+    ),
+    (
+        "equality",
+        "span_start_time = '2026-09-01'",
+        "span_start_time >= '2026-09-01' AND span_start_time <= '2026-09-01'",
+    ),
+    (
+        "mirrored equality",
+        "'2026-09-01' = span_start_time",
+        "span_start_time >= '2026-09-01' AND span_start_time <= '2026-09-01'",
+    ),
+]
+
+# Sugar carrying a bound the view cannot take. In the BETWEEN cases the other
+# side is perfectly scopeable, which is what makes them the interesting ones: the
+# expansion has to account for each half separately or the good half answers for
+# the one that was left open. None of these mentions a second time column, so the
+# only thing that can refuse them is that accounting.
+SUGAR_WITH_AN_UNSCOPEABLE_BOUND = [
+    (
+        "BETWEEN whose upper bound is another column",
+        "SELECT count() FROM spans WHERE span_start_time BETWEEN '2026-09-01' AND span_end_time",
+    ),
+    (
+        "BETWEEN whose lower bound is another column",
+        "SELECT count() FROM spans WHERE span_start_time BETWEEN span_end_time AND '2026-09-02'",
+    ),
+    (
+        "BETWEEN whose lower bound is a subquery",
+        "SELECT count() FROM spans WHERE span_start_time BETWEEN"
+        " (SELECT min(span_end_time) FROM spans) AND '2026-09-02'",
+    ),
+    (
+        "equality against another column",
+        "SELECT count() FROM spans WHERE span_start_time = span_end_time",
     ),
 ]
 
@@ -673,6 +727,55 @@ class TestTimeRange:
         )
         assert self.SHIFT in exclusive and self.SHIFT not in inclusive
         assert "1900-01-01" not in exclusive and "2299-12-31" not in exclusive
+
+    @pytest.mark.parametrize(
+        ("label", "sugared", "expanded"),
+        EQUIVALENT_SPELLINGS,
+        ids=[e[0] for e in EQUIVALENT_SPELLINGS],
+    )
+    def test_sugar_reaches_the_view_as_the_window_it_expands_to(
+        self, label: str, sugared: str, expanded: str
+    ) -> None:
+        # Character for character, because the bounds decide which rows reach the
+        # dedup: two spellings of one window that disagreed there would answer
+        # differently, and the pair on the right is the spelling already measured
+        # against ClickHouse.
+        sugared_call = _view_call(
+            scope_and_render(f"SELECT count() FROM spans WHERE {sugared}", PID)[0],
+            "spans_public_v1",
+        )
+        expanded_call = _view_call(
+            scope_and_render(f"SELECT count() FROM spans WHERE {expanded}", PID)[0],
+            "spans_public_v1",
+        )
+        assert sugared_call == expanded_call, label
+        # Neither side fell back to a sentinel, which would prune nothing.
+        assert "1900-01-01" not in sugared_call and "2299-12-31" not in sugared_call
+
+    def test_the_callers_own_predicate_is_left_as_written(self) -> None:
+        # Only the copy read for bounds is expanded. The WHERE clause that filters
+        # is still the caller's, so rewriting it could only be a way to get it wrong.
+        rendered, _ = scope_and_render(
+            "SELECT count() FROM spans WHERE span_start_time BETWEEN '2026-09-01' AND '2026-09-02'",
+            PID,
+        )
+        assert "WHERE span_start_time BETWEEN '2026-09-01' AND '2026-09-02'" in rendered
+
+    @pytest.mark.parametrize(
+        "label,sql",
+        SUGAR_WITH_AN_UNSCOPEABLE_BOUND,
+        ids=[s[0] for s in SUGAR_WITH_AN_UNSCOPEABLE_BOUND],
+    )
+    def test_sugar_carrying_a_bound_the_view_cannot_take_refuses_the_query(
+        self, label: str, sql: str
+    ) -> None:
+        # The expansion gives each half its own column node so that each is
+        # accounted for separately. Sharing one node would let the mapped side
+        # answer for the side that stayed open, and the view would then resolve
+        # rows over a window wider than the caller asked for, which is the silent
+        # hazard the re-walk exists to prevent.
+        with pytest.raises(SqlValidationError, match="cannot be scoped"):
+            scope_and_render(sql, PID)
 
     def test_a_relative_exclusive_bound_is_shifted_without_being_evaluated(self) -> None:
         call = _view_call(

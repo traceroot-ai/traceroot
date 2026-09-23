@@ -206,6 +206,52 @@ def _narrowest(bounds: list[exp.Expression], func: str) -> exp.Expression | None
     return exp.Anonymous(this=func, expressions=[b.copy() for b in bounds])
 
 
+def _closed_range(
+    column_node: exp.Expression, low: exp.Expression, high: exp.Expression
+) -> exp.Expression:
+    """``column_node >= low AND column_node <= high``, every part a fresh copy."""
+    return exp.And(
+        this=exp.GTE(this=column_node.copy(), expression=low.copy()),
+        expression=exp.LTE(this=column_node.copy(), expression=high.copy()),
+    )
+
+
+def _desugar_equivalents(
+    where: exp.Expression, column: str, aliases: set[str], qualified: bool
+) -> exp.Expression:
+    """Expand ``BETWEEN`` and ``=`` on the time column into the pair of
+    comparisons each one means, on a copy of *where*.
+
+    Both are spellings of a window the extraction below already reads, so this
+    changes which queries are refused and nothing about the window a query that
+    already ran receives. ``BETWEEN x AND y`` is inclusive on both sides, and
+    ``col = x`` is the window that starts and ends at ``x``. Measured against
+    production on 2026-09-19, both shapes were refused while ``>= x AND <= y``,
+    which describes the same instants, ran and pruned to the same window.
+
+    The column node is copied into each half rather than shared between them.
+    Sharing it would give the two comparisons one identity, and the re-walk below
+    refuses on identity, so a consumed lower bound would be counted as covering
+    an upper bound that was never mapped: ``BETWEEN '2026-09-01' AND
+    span_end_time`` would run with its end left open, which is exactly the
+    widening this module refuses everywhere else.
+
+    ``!=`` is deliberately absent. It excludes an instant rather than bounding
+    one, so there is no window to hand the view and it stays refused.
+    """
+
+    def expand(node: exp.Expression) -> exp.Expression:
+        if isinstance(node, exp.Between) and _is_time_column(node.this, column, aliases, qualified):
+            return _closed_range(node.this, node.args["low"], node.args["high"])
+        if isinstance(node, exp.EQ):
+            for time_side, value in ((node.this, node.expression), (node.expression, node.this)):
+                if _is_time_column(time_side, column, aliases, qualified):
+                    return _closed_range(time_side, value, value)
+        return node
+
+    return where.transform(expand)
+
+
 def _extract_time_bounds(
     where: exp.Expression | None, column: str, aliases: set[str], qualified: bool
 ) -> tuple[exp.Expression | None, exp.Expression | None]:
@@ -222,6 +268,9 @@ def _extract_time_bounds(
     All four comparisons map onto the view's parameters. ``>=`` and ``<`` match
     them directly; ``>`` and ``<=`` are shifted by one millisecond, which is exact
     at any precision and needs no literal parsing. See ``_next_millisecond``.
+    ``BETWEEN`` and ``=`` are expanded into those comparisons first, on a copy,
+    so they reach the view as the window they already described. See
+    ``_desugar_equivalents``.
 
     Reading them as no bound instead is not the neutral choice it looks like, and
     that is the whole reason they are mapped. A side left open while the other is
@@ -237,6 +286,8 @@ def _extract_time_bounds(
     """
     if where is None:
         return None, None
+
+    where = _desugar_equivalents(where, column, aliases, qualified)
 
     starts: list[exp.Expression] = []
     ends: list[exp.Expression] = []
