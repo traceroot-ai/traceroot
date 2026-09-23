@@ -719,6 +719,199 @@
         }
       }
     },
+    "EvaluationLatestRun": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluation_run_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_number": {
+          "type": "integer",
+          "required": true,
+          "nullable": false
+        },
+        "status": {
+          "type": "enum",
+          "enum": [
+            "running",
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "incomplete",
+            "cancelled"
+          ],
+          "required": true,
+          "nullable": false
+        },
+        "started_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "PublicEvaluation": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluation_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_key": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "dataset_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false
+        },
+        "latest_run": {
+          "type": "EvaluationLatestRun",
+          "required": true,
+          "nullable": true
+        },
+        "created_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "updated_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "ListEvaluationsResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluations": {
+          "type": "array",
+          "items": {
+            "type": "PublicEvaluation"
+          },
+          "required": true,
+          "nullable": false
+        },
+        "next_cursor": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "PublicEvaluationRun": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluation_run_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_name": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_key": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_number": {
+          "type": "integer",
+          "required": true,
+          "nullable": false
+        },
+        "candidate_version": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "environment": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "status": {
+          "type": "enum",
+          "enum": [
+            "running",
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "incomplete",
+            "cancelled"
+          ],
+          "required": true,
+          "nullable": false
+        },
+        "dataset_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "dataset_version_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "started_at": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "completed_at": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
+    "ListEvaluationRunsResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "PublicEvaluationRun"
+          },
+          "required": true,
+          "nullable": false
+        },
+        "next_cursor": {
+          "type": "string",
+          "required": true,
+          "nullable": true
+        }
+      }
+    },
     "UpsertResultRequest": {
       "kind": "object",
       "unknown_keys": "forbid",
