@@ -689,6 +689,23 @@ describe("createRegistryReadTools", () => {
     expect(tool.description).not.toMatch(/next_cursor|pass limit|whole version/);
   });
 
+  it("fails loudly when the curation is reworded and the rewrite matches nothing", async () => {
+    // A reworded curation ("Provide a limit and follow the cursor") matches neither the
+    // rewrite nor the assertion above, so the paging advice would survive silently in a
+    // description whose paging params are pinned off.
+    const { REGISTRY } = await import("@traceroot-ai/tools");
+    const entry = REGISTRY.find((e) => e.name === "get_dataset_version")!;
+    const original = entry.description;
+    try {
+      (entry as { description: string }).description = "Read one version. Provide a limit.";
+      expect(() => createRegistryReadTools("p1", "u1")).toThrow(
+        /get_dataset_version: describe matched nothing/,
+      );
+    } finally {
+      (entry as { description: string }).description = original;
+    }
+  });
+
   it("returns HTTP failures as tool text instead of throwing", async () => {
     vi.stubGlobal(
       "fetch",

@@ -83,7 +83,13 @@ export function createRegistryReadTools(
         throw new Error(`${name}: pinned param "${key}" is not in the registry entry`);
       }
     }
+    // A describe that no longer matches the curation would leave the registry's own paging
+    // advice in a description whose paging params this surface pins off, telling the model
+    // to do what it cannot. Rewritten prose is a silent miss, so an unchanged text throws.
     const described = describe?.(entry.description) ?? entry.description;
+    if (describe !== undefined && described === entry.description) {
+      throw new Error(`${name}: describe matched nothing in the registry description`);
+    }
     // The registry text says an omitted window means the site's default; in
     // the chat it means the window the user is looking at. Said on the tool
     // and on the range parameter itself, so the schema cannot contradict it.
