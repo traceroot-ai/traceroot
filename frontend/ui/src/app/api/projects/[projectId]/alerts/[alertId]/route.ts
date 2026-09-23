@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
@@ -7,7 +8,7 @@ import { alertSelect, serializeAlert } from "../serialize";
 
 type RouteParams = { params: Promise<{ projectId: string; alertId: string }> };
 
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params);
   if (auth.error) return auth.error;
   const { projectId, alertId } = auth.params;
@@ -24,7 +25,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 // Thin adapters over the write service, which owns the merged-rule
 // validation, the cold start on a rule change, the parked re-arm, the diff
 // and the audit row.
-export async function PATCH(req: NextRequest, { params }: RouteParams) {
+async function handlePATCH(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, alertId } = auth.params;
@@ -43,7 +44,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   return successResponse({ alert: result.data });
 }
 
-export async function DELETE(req: NextRequest, { params }: RouteParams) {
+async function handleDELETE(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, alertId } = auth.params;
@@ -58,3 +59,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
   if (!result.ok) return errorResponse(result.error, result.status);
   return successResponse({ success: true });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

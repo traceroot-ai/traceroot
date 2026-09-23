@@ -102,6 +102,20 @@ describe("resolvePiModel", () => {
     }
   });
 
+  it("throws (instead of substituting a system model) for a decision adapter", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "typesafe",
+      key: "ts-secret-key",
+      baseUrl: null,
+      config: null,
+    };
+    expect(() => resolvePiModel(undefined, cfg)).toThrow(/decision model/i);
+  });
+
+  it("throws (instead of substituting a system model) for a decision model id with no BYOK row", () => {
+    expect(() => resolvePiModel("jev-1.13.0", null)).toThrow(/decision model/i);
+  });
+
   it("respects per-model modelProtocols override over adapter default", () => {
     // The escape hatch for OpenAI-compatible proxies that only speak chat completions.
     const cfg: ProviderModelConfig = {

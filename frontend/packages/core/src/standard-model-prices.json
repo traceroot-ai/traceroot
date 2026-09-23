@@ -1253,5 +1253,17 @@
       "cacheRead": 0.0000002,
       "cacheWrite": null
     }
+  },
+  {
+    "id": "tr-jev-1-13-0",
+    "modelName": "jev-1.13.0",
+    "matchPattern": "(?i)^jev-1\\.13\\.0(-[\\w-]+)?$",
+    "provider": "typesafe",
+    "prices": {
+      "input": 0.000000042,
+      "output": 0,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
   }
 ]

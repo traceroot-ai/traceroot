@@ -24,6 +24,13 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
+const { mockRunJevDetection } = vi.hoisted(() => ({ mockRunJevDetection: vi.fn() }));
+
+vi.mock("../jev-eval.js", () => ({
+  runJevDetection: mockRunJevDetection,
+  JEV_DEFAULT_MODEL_ID: "jev-1.13.0",
+}));
+
 vi.mock("@traceroot/core/model-resolver", () => ({
   resolvePiModel: mockResolvePiModel,
   fetchProviderConfig: mockFetchProviderConfig,
@@ -291,6 +298,107 @@ describe("runDetectionForTrace", () => {
     expect(result.identified).toBe(false);
     expect(result.error).toMatch(/not found or disabled/i);
     expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("judges a TypeSafe BYOK detector with Jev, never resolving a chat model", async () => {
+    const typesafeConfig = { adapter: "typesafe", key: "ts-key", baseUrl: null, config: null };
+    const jevResult = { identified: true, summary: "Jev: tool_error (P=0.91)", data: {} };
+    mockFetchProviderConfig.mockResolvedValueOnce(typesafeConfig);
+    mockRunJevDetection.mockResolvedValueOnce(jevResult);
+    vi.stubEnv("DETECTOR_EVAL_TIMEOUT_MS", "12345");
+
+    const detector = {
+      ...DETECTOR,
+      detectionSource: "byok" as const,
+      detectionProvider: "my-typesafe",
+      detectionModel: "jev-1.13.0",
+    };
+    try {
+      const result = await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector,
+        workspaceId: "ws-1",
+      });
+
+      expect(result).toBe(jevResult);
+      expect(mockRunJevDetection).toHaveBeenCalledWith({
+        spansJsonl: "{}",
+        detector,
+        providerConfig: typesafeConfig,
+        timeoutMs: 12345,
+      });
+      expect(mockResolvePiModel).not.toHaveBeenCalled();
+      expect(mockComplete).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("turns a Jev failure into an error result with the thrown message", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "typesafe",
+      key: "ts-key",
+      baseUrl: null,
+      config: null,
+    });
+    mockRunJevDetection.mockRejectedValueOnce(
+      new Error("TypeSafe systemone returned 401: authentication_error"),
+    );
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: "byok",
+        detectionProvider: "my-typesafe",
+        detectionModel: "jev-1.13.0",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe("TypeSafe systemone returned 401: authentication_error");
+  });
+
+  it("bills the tokens TypeSafe charged when a 200 response fails validation", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "typesafe",
+      key: "ts-key",
+      baseUrl: null,
+      config: null,
+    });
+    // typesafe-client hangs the billed usage on the error it throws for a 200
+    // whose answers it rejects.
+    mockRunJevDetection.mockRejectedValueOnce(
+      Object.assign(new Error("TypeSafe returned a malformed response: missing answers"), {
+        usage: { inputTokens: 810, outputTokens: 63 },
+      }),
+    );
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: "byok",
+        detectionProvider: "my-typesafe",
+        detectionModel: "jev-1.13.0",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.error).toMatch(/malformed response/);
+    expect(result).toMatchObject({
+      identified: false,
+      inferenceCost: 0,
+      inferenceInputTokens: 810,
+      inferenceOutputTokens: 63,
+      inferenceSource: "byok",
+      inferenceModel: "jev-1.13.0",
+      inferenceProvider: "typesafe",
+    });
   });
 
   it("always passes toolChoice='auto' regardless of protocol", async () => {

@@ -32,11 +32,12 @@ export async function resolveSessionFromToken(token: string): Promise<ResolvedSe
     select: {
       id: true,
       expiresAt: true,
+      impersonatedBy: true,
       user: { select: { id: true, email: true } },
     },
   });
 
-  if (!session || session.expiresAt.getTime() <= Date.now()) {
+  if (!session || session.impersonatedBy || session.expiresAt.getTime() <= Date.now()) {
     return null;
   }
 

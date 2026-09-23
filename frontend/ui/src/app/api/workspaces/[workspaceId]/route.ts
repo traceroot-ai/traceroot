@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import {
@@ -13,7 +14,7 @@ import { deleteWorkspace, updateWorkspace } from "@/lib/write-services/workspace
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
 // GET /api/workspaces/[workspaceId] - Get workspace details with projects
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 // PUT /api/workspaces/[workspaceId] - Update workspace (ADMIN+)
 // Still a PUT for the web app, but a thin adapter over the write service,
 // which owns the validation, the ADMIN floor, the diff and the audit row.
-export async function PUT(request: NextRequest, { params }: RouteParams) {
+async function handlePUT(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -107,7 +108,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 // app's dialog is the confirmation step on this surface and sends no body
 // today, so a missing name is filled in from the row; a body carrying
 // `name` (and `reason`) is honored when one arrives.
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -139,3 +140,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   return NextResponse.json({ deleted: true }, { status: 200 });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const PUT = withImpersonationPolicy(handlePUT);
+export const DELETE = withImpersonationPolicy(handleDELETE);
