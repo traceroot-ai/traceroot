@@ -7,6 +7,15 @@ Automatically capture agent runs, model calls, and tool executions from [Microso
 
 ## Setup
 
+Install TraceRoot with the Agent Framework extra:
+
+```bash
+pip install "traceroot[agent-framework]"
+```
+
+This extra installs the OpenInference instrumentor and requires OpenTelemetry
+1.39 or newer.
+
 ```python
 import traceroot
 from traceroot import Integration

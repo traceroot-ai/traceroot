@@ -7,7 +7,17 @@ Automatically capture agent loops, message histories, and tool executions within
 
 ## Setup
 
-To capture the complete picture—including both the agent orchestrations and the underlying token costs—we highly recommend initializing both the AutoGen integration and your specific LLM provider (e.g., Google GenAI, OpenAI, Anthropic).
+This integration instruments [AG2](https://github.com/ag2ai/ag2), the
+community-maintained continuation that provides the `autogen` package:
+
+```bash
+pip install traceroot ag2
+```
+
+Microsoft's newer `autogen-agentchat` package uses a different API and is not
+currently supported by this integration.
+
+To capture the complete picture—including both the agent orchestrations and the underlying token costs—we highly recommend initializing both the AG2 integration and your specific LLM provider (e.g., Google GenAI, OpenAI, Anthropic).
 
 ```python
 import traceroot
