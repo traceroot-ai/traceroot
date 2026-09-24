@@ -101,6 +101,16 @@ READS = [
             "next_cursor": None,
         },
     ),
+    (
+        "/api/v1/public/evaluations",
+        "evaluations",
+        {"evaluations": [], "next_cursor": None},
+    ),
+    (
+        "/api/v1/public/evaluation-runs",
+        "evaluation_runs",
+        {"runs": [], "next_cursor": None},
+    ),
 ]
 PATHS = [path for path, _, _ in READS]
 

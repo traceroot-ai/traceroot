@@ -396,6 +396,72 @@ class GetDatasetVersionResponse(BaseModel):
     next_cursor: str | None
 
 
+# --- (a3) List evaluations and their runs ------------------------------------
+
+
+class EvaluationLatestRun(BaseModel):
+    """An evaluation's most recent run, so a listing answers "where does this stand?"."""
+
+    evaluation_run_id: str
+    run_number: JsonInt
+    status: EvalRunStatus
+    started_at: str
+
+
+class PublicEvaluation(BaseModel):
+    """One evaluation lineage: a stable purpose, re-run over time.
+
+    Identity and counts only. Scores belong to a run — a lineage has no single headline
+    score, and averaging across runs would invent one.
+    """
+
+    evaluation_id: str
+    name: str
+    # The SDK's own key for the lineage: what it re-uses to report the next run.
+    evaluation_key: str
+    # The id a CLIENT addresses the dataset by, as every dataset read reports it.
+    dataset_id: str
+    run_count: JsonNonNegativeInt
+    # Null for a lineage nothing has run yet: an empty lineage is information, not an error.
+    latest_run: EvaluationLatestRun | None
+    created_at: str
+    updated_at: str
+
+
+class ListEvaluationsResponse(BaseModel):
+    evaluations: list[PublicEvaluation]
+    # Opaque row id. Null at the end, so a client loops until null rather than counting.
+    next_cursor: str | None
+
+
+class PublicEvaluationRun(BaseModel):
+    """One run as the LISTING reports it: identity, where it ran, and how it ended.
+
+    No counts, means, cost or duration. Those are aggregates over a run's results, so a page
+    of runs would be a page of aggregate queries; the run read answers them one run at a
+    time.
+    """
+
+    evaluation_run_id: str
+    evaluation_id: str
+    evaluation_name: str
+    evaluation_key: str
+    run_number: JsonInt
+    candidate_version: str
+    environment: str
+    status: EvalRunStatus
+    dataset_id: str
+    dataset_version_id: str
+    started_at: str
+    # Null while the run is still going, as on the run read.
+    completed_at: str | None
+
+
+class ListEvaluationRunsResponse(BaseModel):
+    runs: list[PublicEvaluationRun]
+    next_cursor: str | None
+
+
 # --- (a2) Read a run's summary ----------------------------------------------
 
 

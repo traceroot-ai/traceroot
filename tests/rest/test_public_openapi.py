@@ -475,7 +475,8 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/datasets/{dataset_id}": {"get": "get_dataset"},
     "/api/v1/public/datasets/{dataset_id}/versions": {"get": "list_dataset_versions"},
     "/api/v1/public/dataset-versions/{version_id}": {"get": "get_dataset_version"},
-    "/api/v1/public/evaluation-runs": {"post": "register_run"},
+    "/api/v1/public/evaluations": {"get": "list_evaluations"},
+    "/api/v1/public/evaluation-runs": {"get": "list_evaluation_runs", "post": "register_run"},
     "/api/v1/public/evaluation-runs/{run_id}": {"get": "read_run"},
     "/api/v1/public/evaluation-runs/{run_id}/results": {"post": "upsert_result"},
     "/api/v1/public/evaluation-runs/{run_id}/complete": {"post": "complete_run"},
@@ -581,6 +582,8 @@ def test_x_tool_enabled_set_and_shape():
         "list_dataset_versions",
         "list_datasets",
         "get_evaluation_run",
+        "list_evaluations",
+        "list_evaluation_runs",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
@@ -612,6 +615,8 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/datasets/{dataset_id}/versions",
     "/api/v1/public/dataset-versions/{version_id}",
     "/api/v1/public/evaluation-runs/{run_id}",
+    "/api/v1/public/evaluations",
+    "/api/v1/public/evaluation-runs",
 ]
 
 

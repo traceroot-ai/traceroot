@@ -406,6 +406,65 @@ export const RunMetricItemSchema = z.object({
  * A run's SUMMARY. Deliberately no per-case rows, so the payload is bounded by scorer
  * count rather than case count and needs no truncation flag.
  */
+/**
+ * An evaluation's most recent run, carried on the listing so "where does this stand?" is
+ * answered without a second call. Null for a lineage nothing has run yet.
+ */
+export const EvaluationLatestRunSchema = z.object({
+  evaluation_run_id: z.string(),
+  run_number: z.number().int(),
+  status: EvalRunStatusSchema,
+  started_at: z.string(),
+});
+
+/**
+ * One evaluation lineage: a stable purpose, re-run over time. Identity and counts only —
+ * scores belong to a run, and a lineage has no single headline score.
+ */
+export const PublicEvaluationSchema = z.object({
+  evaluation_id: z.string(),
+  name: z.string(),
+  /** The SDK's own key for the lineage: what it re-uses to report the next run. */
+  evaluation_key: z.string(),
+  /** The id a client addresses the dataset by, as every dataset read reports it. */
+  dataset_id: z.string(),
+  run_count: z.number().int().nonnegative(),
+  latest_run: EvaluationLatestRunSchema.nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export const ListEvaluationsResponseSchema = z.object({
+  evaluations: z.array(PublicEvaluationSchema),
+  next_cursor: z.string().nullable(),
+});
+
+/**
+ * One run as the LISTING reports it: identity, where it ran and how it ended. No counts,
+ * means, cost or duration — those are aggregates over the run's results, which the run
+ * read answers one run at a time so a page of runs stays one query.
+ */
+export const PublicEvaluationRunSchema = z.object({
+  evaluation_run_id: z.string(),
+  evaluation_id: z.string(),
+  evaluation_name: z.string(),
+  evaluation_key: z.string(),
+  run_number: z.number().int(),
+  candidate_version: z.string(),
+  environment: z.string(),
+  status: EvalRunStatusSchema,
+  dataset_id: z.string(),
+  dataset_version_id: z.string(),
+  started_at: z.string(),
+  /** Null while the run is still going, as on the run read. */
+  completed_at: z.string().nullable(),
+});
+
+export const ListEvaluationRunsResponseSchema = z.object({
+  runs: z.array(PublicEvaluationRunSchema),
+  next_cursor: z.string().nullable(),
+});
+
 export const ReadRunResponseSchema = z.object({
   evaluation_run_id: z.string(),
   evaluation_id: z.string(),
@@ -452,6 +511,10 @@ export const ReadRunResponseSchema = z.object({
   scores: z.array(RunMetricItemSchema).default([]),
   metrics: z.array(RunMetricItemSchema).default([]),
 });
+export type PublicEvaluation = z.infer<typeof PublicEvaluationSchema>;
+export type ListEvaluationsResponse = z.infer<typeof ListEvaluationsResponseSchema>;
+export type PublicEvaluationRun = z.infer<typeof PublicEvaluationRunSchema>;
+export type ListEvaluationRunsResponse = z.infer<typeof ListEvaluationRunsResponseSchema>;
 export type ReadRunResponse = z.infer<typeof ReadRunResponseSchema>;
 
 /**

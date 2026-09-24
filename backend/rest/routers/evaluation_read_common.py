@@ -25,6 +25,8 @@ from rest.schemas.eval import (
     GetDatasetVersionResponse,
     ListDatasetsResponse,
     ListDatasetVersionsResponse,
+    ListEvaluationRunsResponse,
+    ListEvaluationsResponse,
     PublicDataset,
     ReadRunResponse,
 )
@@ -119,6 +121,57 @@ async def list_datasets_page(
     if name:
         payload["name"] = name
     return await _read(payload, ListDatasetsResponse, "a dataset list")
+
+
+async def list_evaluations_page(
+    project_id: str, limit: int, cursor: str | None, name: str | None
+) -> ListEvaluationsResponse:
+    """List the project's evaluations, newest first, via the internal route.
+
+    Args:
+        project_id (str): The project the caller's credential resolved to.
+        limit (int): Evaluations per page (sent explicitly so both sides agree).
+        cursor (str | None): Opaque cursor from a previous page.
+        name (str | None): Case-insensitive substring of the evaluation name.
+
+    Returns:
+        ListEvaluationsResponse: One page of evaluations and the next cursor (null at the end).
+    """
+    payload: dict[str, Any] = {"read": "evaluations", "projectId": project_id, "limit": limit}
+    if cursor:
+        payload["cursor"] = cursor
+    if name:
+        payload["name"] = name
+    return await _read(payload, ListEvaluationsResponse, "an evaluation list")
+
+
+async def list_evaluation_runs_page(
+    project_id: str,
+    limit: int,
+    cursor: str | None,
+    evaluation_id: str | None,
+    status: str | None,
+) -> ListEvaluationRunsResponse:
+    """List the project's evaluation runs, newest first, via the internal route.
+
+    Args:
+        project_id (str): The project the caller's credential resolved to.
+        limit (int): Runs per page (sent explicitly so both sides agree).
+        cursor (str | None): Opaque cursor from a previous page.
+        evaluation_id (str | None): Only this evaluation's runs.
+        status (str | None): Only runs in this status.
+
+    Returns:
+        ListEvaluationRunsResponse: One page of runs and the next cursor (null at the end).
+    """
+    payload: dict[str, Any] = {"read": "evaluation_runs", "projectId": project_id, "limit": limit}
+    if cursor:
+        payload["cursor"] = cursor
+    if evaluation_id:
+        payload["evaluationId"] = evaluation_id
+    if status:
+        payload["status"] = status
+    return await _read(payload, ListEvaluationRunsResponse, "an evaluation run list")
 
 
 async def get_dataset_detail(project_id: str, dataset_id: str) -> PublicDataset:
