@@ -10,11 +10,16 @@ When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChai
     ```python
     import traceroot
     from traceroot import Integration
+    from openai import OpenAI
 
     traceroot.initialize(integrations=[Integration.OPENAI])
+    client = OpenAI()
 
     # All OpenAI calls are now automatically tracked — tokens, cost, model
-    client.chat.completions.create(...)
+    client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "Hello"}]
+    )
     ```
   </Tab>
   <Tab title="TypeScript">
@@ -23,9 +28,13 @@ When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChai
     import { TraceRoot } from '@traceroot-ai/traceroot';
 
     TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+    const client = new OpenAI();
 
     // All OpenAI calls are now automatically tracked — tokens, cost, model
-    await client.chat.completions.create({ ... });
+    await client.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: 'Hello' }],
+    });
     ```
   </Tab>
 </Tabs>
@@ -62,12 +71,22 @@ For custom or unsupported providers, report token usage manually:
     ```python
     from traceroot import observe, update_current_span
 
+    class MockLLM:
+        def generate(self, prompt):
+            class Response:
+                text = "mock response"
+                input_token_count = 10
+                output_token_count = 20
+            return Response()
+
+    my_llm = MockLLM()
+
     @observe(name="custom_llm", type="llm")
     def call_custom_llm(prompt: str):
         response = my_llm.generate(prompt)
 
         update_current_span(
-            model="my-custom-model",
+            model="claude-opus-5",
             usage={
                 "input_tokens": response.input_token_count,
                 "output_tokens": response.output_token_count,
@@ -81,16 +100,23 @@ For custom or unsupported providers, report token usage manually:
     ```typescript
     import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
 
+    const myLlm = {
+      generate: async (prompt: string) => ({
+        text: 'mock response',
+        inputTokenCount: 10,
+        outputTokenCount: 20,
+      }),
+    };
+
     const result = await observe({ name: 'custom_llm', type: 'llm' }, async () => {
+      const prompt = "hello";
       const response = await myLlm.generate(prompt);
 
       updateCurrentSpan({
-        metadata: {
-          model: 'my-custom-model',
-          usage: {
-            input_tokens: response.inputTokenCount,
-            output_tokens: response.outputTokenCount,
-          },
+        model: 'claude-opus-5',
+        usage: {
+          input: response.inputTokenCount,
+          output: response.outputTokenCount,
         },
       });
 
@@ -99,3 +125,9 @@ For custom or unsupported providers, report token usage manually:
     ```
   </Tab>
 </Tabs>
+
+<Note>
+  **Usage keys differ by language:**
+  In Python, use `input_tokens` and `output_tokens` (and `reasoning_tokens`, `cache_read_input_tokens`, etc).
+  In TypeScript, use `input`, `output`, `cacheRead`, `cacheWrite`, and `total`.
+</Note>
