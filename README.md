@@ -85,6 +85,10 @@ The fastest way to get started. Ample storage and LLM tokens for testing, no cre
   git clone https://github.com/traceroot-ai/traceroot.git
   cd traceroot
 
+  cp .env.example .env
+  # In .env, uncomment SQL_GATEWAY_BOOTSTRAP_PASSWORD and replace its value
+  # with a unique, strong secret.
+
   # Host everything in Docker
   make prod
   ```

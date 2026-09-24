@@ -85,6 +85,10 @@
   git clone https://github.com/traceroot-ai/traceroot.git
   cd traceroot
 
+  cp .env.example .env
+  # .env에서 SQL_GATEWAY_BOOTSTRAP_PASSWORD의 주석을 해제하고
+  # 고유하고 강력한 비밀 값으로 바꾸세요.
+
   # 전체 서비스를 Docker로 실행
   make prod
   ```

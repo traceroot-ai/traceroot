@@ -85,6 +85,10 @@
   git clone https://github.com/traceroot-ai/traceroot.git
   cd traceroot
 
+  cp .env.example .env
+  # 在 .env 中取消注释 SQL_GATEWAY_BOOTSTRAP_PASSWORD，
+  # 并将其替换为唯一的强密码。
+
   # 全部组件都跑在 Docker 中
   make prod
   ```
