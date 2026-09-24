@@ -13,20 +13,20 @@ Trace [Vercel AI SDK](https://ai-sdk.dev) calls — `generateText`, `streamText`
 
 ## Supported versions
 
-| AI SDK | Telemetry switch | Tested with |
-|--------|------------------|-------------|
-| **7.x** (npm `latest`) | `registerTelemetry(new OpenTelemetry())` once at startup. Telemetry is then on for every call. | `ai@7.0.113`, `@ai-sdk/otel@1.0.113`, `@traceroot-ai/traceroot@0.4.0` |
-| **6.x** (npm `ai-v6`) | `experimental_telemetry: { isEnabled: true }` on every call | `ai@6.0.290`, `@traceroot-ai/traceroot@0.4.0` |
+| AI SDK | Telemetry switch | Verified with (2026-09-23) |
+|--------|------------------|----------------------------|
+| **7.x** (npm `latest`) | `registerTelemetry(new OpenTelemetry())` once at startup. Telemetry is then on for every call. | `ai@7.0.113`, `@ai-sdk/otel@1.0.113`, `@ai-sdk/openai@4.0.74`, `@traceroot-ai/traceroot@0.4.0` |
+| **6.x** (npm `ai-v6`) | `experimental_telemetry: { isEnabled: true }` on every call | `ai@6.0.290`, `@ai-sdk/openai@3.0.117`, `@traceroot-ai/traceroot@0.4.0` |
 | 5.x (npm `ai-v5`) | `experimental_telemetry: { isEnabled: true }` on every call | Not tested. Same mechanism as 6.x |
 
-AI SDK 7 requires Node.js 22 or newer (its `engines` field). It ships as ES modules; `require()` from CommonJS still works on those Node versions. AI SDK 6 runs on Node.js 18 or newer.
+AI SDK 7 requires Node.js 22 or newer (its `engines` field) and ships as ES modules. AI SDK 6 with TraceRoot requires Node.js 20 or newer (TraceRoot's requirement). `@ai-sdk/otel` 1.0.N depends on exactly `ai` 7.0.N, so upgrade the two together; the provider package major must match `ai`'s major (`@ai-sdk/openai@^4` with `ai@^7`, `@ai-sdk/openai@^3` with `ai@^6`).
 
 ## Setup
 
 <Tabs>
   <Tab title="AI SDK 7">
     ```bash
-    npm install @traceroot-ai/traceroot@0.4.0 ai@7.0.113 @ai-sdk/otel@1.0.113 @ai-sdk/openai@4.0.74 zod@4.6.5
+    npm install @traceroot-ai/traceroot ai@^7 @ai-sdk/otel@^1 @ai-sdk/openai@^4 zod@^4
     ```
 
     Initialize TraceRoot and register the AI SDK's OpenTelemetry integration. Either order works, but both must run before your first model call:
@@ -48,7 +48,7 @@ AI SDK 7 requires Node.js 22 or newer (its `engines` field). It ships as ES modu
   </Tab>
   <Tab title="AI SDK 6">
     ```bash
-    npm install @traceroot-ai/traceroot@0.4.0 ai@6.0.290 @ai-sdk/openai@3.0.117 zod@4.6.5
+    npm install @traceroot-ai/traceroot ai@^6 @ai-sdk/openai@^3 zod@^4
     ```
 
     Initialize TraceRoot at your entry point, before any other OpenTelemetry SDK:
@@ -284,7 +284,7 @@ await TraceRoot.flush();
 
 ## Next.js
 
-Initialize from `instrumentation.ts` (project root, or `src/` if you use it) so TraceRoot is set up once, before any route runs. Verified with Next.js 16 and AI SDK 7; see Vercel's [telemetry docs](https://ai-sdk.dev/docs/ai-sdk-core/telemetry) for the AI SDK side:
+Initialize from `instrumentation.ts` (project root, or `src/` if you use it) so TraceRoot is set up once, before any route runs. Verified with Next.js 16.3 on AI SDK 7 and AI SDK 6; see Vercel's [telemetry docs](https://ai-sdk.dev/docs/ai-sdk-core/telemetry) for the AI SDK side:
 
 ```typescript
 export async function register() {
@@ -299,9 +299,9 @@ export async function register() {
 }
 ```
 
-For AI SDK 6, drop the `registerTelemetry` and `@ai-sdk/otel` lines and keep `experimental_telemetry` on each call.
+For AI SDK 6, keep only the `TraceRoot` import and `TraceRoot.initialize()` inside the `register()` function, and set `experimental_telemetry` on each call.
 
-Also mark the SDK as external in `next.config.ts`. Without this, Next.js bundles a second copy of `@traceroot-ai/traceroot` into each route, so `TraceRoot.flush()` called from a route handler is a no-op and spans only leave on the batch timer:
+Also mark the SDK as external in `next.config.ts`. Without this, route handlers get their own bundled copy of `@traceroot-ai/traceroot`: `TraceRoot.flush()` called from a route exports nothing and `TraceRoot.isTracingActive()` returns `false` there, and spans leave only when the batch timer fires. With the option, `flush()` exports immediately (verified on both AI SDK versions):
 
 ```typescript
 import type { NextConfig } from 'next';
