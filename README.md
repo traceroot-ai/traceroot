@@ -89,7 +89,8 @@ The fastest way to get started. Ample storage and LLM tokens for testing, no cre
   make prod
   ```
 
-- [Terraform (AWS)](./deploy/): Run TraceRoot on k8s with Helm and Terraform. This is for production hosting. Still in experimental stage.
+- [Helm chart](https://github.com/traceroot-ai/traceroot-k8s): Deploy TraceRoot to Kubernetes using your existing PostgreSQL, ClickHouse, Redis, and S3-compatible services.
+- [Terraform (AWS)](https://github.com/traceroot-ai/traceroot-terraform-aws): Provision the AWS infrastructure and install the TraceRoot Helm chart.
 
 ## Integrations
 
