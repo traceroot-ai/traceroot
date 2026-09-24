@@ -43,7 +43,7 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
     import traceroot
     from traceroot import Integration
     from openai import OpenAI
-    # from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file
+    # from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file (requires: pip install python-dotenv)
 
     # This single line instruments all OpenAI API calls
     traceroot.initialize(integrations=[Integration.OPENAI])
@@ -55,7 +55,7 @@ export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
     Add a single line at the start of your application to instrument all OpenAI API calls.
 
     ```typescript
-    // import 'dotenv/config';  // Uncomment if using a .env file
+    // import 'dotenv/config';  // Uncomment if using a .env file (requires: npm install dotenv)
     import OpenAI from 'openai';
     import { TraceRoot } from '@traceroot-ai/traceroot';
 
