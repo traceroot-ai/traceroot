@@ -11,8 +11,13 @@ vi.mock("next/server", () => ({
 }));
 
 // The reads themselves — project scoping, retention, the body — are pinned beside
-// the dataset reads. This suite pins what the route adds: the secret,
+// `readRunSummary` and the dataset reads. This suite pins what the route adds: the secret,
 // validation, and that each read's answer reaches the backend unchanged.
+const readRunSummaryMock = vi.fn();
+vi.mock("@/lib/eval/run-read", () => ({
+  readRunSummary: (...args: unknown[]) => readRunSummaryMock(...args),
+}));
+
 const datasetReads = vi.hoisted(() => ({
   listDatasetsPage: vi.fn(),
   getDatasetDetail: vi.fn(),
@@ -32,9 +37,13 @@ function makeRequest(body: unknown) {
   return { json: async () => body } as unknown as Parameters<typeof POST>[0];
 }
 
+const SUMMARY = { evaluation_run_id: "run-1", scores: [], metrics: [] };
+
 beforeEach(() => {
+  readRunSummaryMock.mockReset();
   verifyInternalSecretMock.mockReset();
   verifyInternalSecretMock.mockReturnValue(true);
+  readRunSummaryMock.mockResolvedValue({ ok: true, body: SUMMARY });
   for (const fn of Object.values(datasetReads)) {
     fn.mockReset();
     fn.mockResolvedValue({ ok: true, body: { ok: "dataset-read" } });
@@ -45,13 +54,11 @@ describe("POST /api/internal/project-evaluations", () => {
   it("rejects an unauthorized caller before reading anything", async () => {
     verifyInternalSecretMock.mockReturnValue(false);
 
-    const res = await POST(
-      makeRequest({ read: "dataset", projectId: "proj-1", datasetId: "ds_1" }),
-    );
+    const res = await POST(makeRequest({ read: "run", projectId: "proj-1", runId: "run-1" }));
 
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "Unauthorized" });
-    for (const fn of Object.values(datasetReads)) expect(fn).not.toHaveBeenCalled();
+    expect(readRunSummaryMock).not.toHaveBeenCalled();
   });
 
   it("rejects invalid JSON with a 400", async () => {
@@ -67,11 +74,52 @@ describe("POST /api/internal/project-evaluations", () => {
     expect(await res.json()).toEqual({ error: "Invalid JSON" });
   });
 
+  it.each([
+    [{ read: "run", runId: "run-1" }, "projectId is required"],
+    [{ read: "run", projectId: "", runId: "run-1" }, "projectId is required"],
+    [{ read: "run", projectId: "proj-1" }, "runId is required"],
+    [{ read: "run", projectId: "proj-1", runId: 7 }, "runId is required"],
+  ])("rejects %j with a fixed message", async (body, message) => {
+    const res = await POST(makeRequest(body));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: message });
+    expect(readRunSummaryMock).not.toHaveBeenCalled();
+  });
+
   it("rejects an unknown read before reading anything", async () => {
     const res = await POST(makeRequest({ read: "everything", projectId: "proj-1" }));
 
     expect(res.status).toBe(400);
-    for (const fn of Object.values(datasetReads)) expect(fn).not.toHaveBeenCalled();
+    expect(readRunSummaryMock).not.toHaveBeenCalled();
+  });
+
+  it("reads the run inside the given project", async () => {
+    const res = await POST(makeRequest({ read: "run", projectId: "proj-1", runId: "run-1" }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(SUMMARY);
+    expect(readRunSummaryMock).toHaveBeenCalledWith({ projectId: "proj-1", runId: "run-1" });
+  });
+
+  it("drops a field the read does not take rather than passing it on", async () => {
+    await POST(
+      makeRequest({ read: "run", projectId: "proj-1", runId: "run-1", baselineRunId: "run-0" }),
+    );
+
+    expect(readRunSummaryMock).toHaveBeenCalledWith({ projectId: "proj-1", runId: "run-1" });
+  });
+
+  it.each([
+    [404, "Evaluation run not found"],
+    [403, "Data outside retention window"],
+  ])("answers a refused read with %i and its message", async (status, error) => {
+    readRunSummaryMock.mockResolvedValue({ ok: false, status, error });
+
+    const res = await POST(makeRequest({ read: "run", projectId: "proj-1", runId: "run-1" }));
+
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({ error });
   });
 
   describe("dataset reads", () => {

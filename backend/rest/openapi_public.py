@@ -642,6 +642,25 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
     "complete_run": {"enabled": False},
+    # The run read is tool-exposed; the reporting writes above stay SDK-facing. Its payload
+    # is bounded by scorer count rather than case count, and the route reads no per-case
+    # TEXT and sits in the READ bucket, so an agent calling it in a loop cannot pull an
+    # unbounded body.
+    "read_run": {
+        "name": "get_evaluation_run",
+        "description": (
+            "Read one evaluation run's summary: its status, result counts, per-scorer "
+            "scores, and mean cost and duration per case. scored_count, task_error_count "
+            "and scorer_error_count are null until the run completes. A case is errored "
+            "or not_scored; passed and failed are older statuses, so passed_count and "
+            "failed_count are usually 0. Each score and metric carries "
+            "observed_count, the number of results it was taken over. A numeric score's "
+            "value is its mean and a boolean score's is its pass rate. A categorical or "
+            "mixed-type score, or one no result reported, has a null value: it has no "
+            "mean, and is not a score of 0."
+        ),
+        "enabled": True,
+    },
     # Account-tenancy ops have no membership to gate; minRole VIEWER is the no-role-floor convention.
     "create_workspace": {
         "name": "create_workspace",

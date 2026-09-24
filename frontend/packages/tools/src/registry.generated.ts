@@ -1027,6 +1027,28 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_evaluation_run",
+    description:
+      "Read one evaluation run's summary: its status, result counts, per-scorer scores, and mean cost and duration per case. scored_count, task_error_count and scorer_error_count are null until the run completes. A case is errored or not_scored; passed and failed are older statuses, so passed_count and failed_count are usually 0. Each score and metric carries observed_count, the number of results it was taken over. A numeric score's value is its mean and a boolean score's is its pass rate. A categorical or mixed-type score, or one no result reported, has a null value: it has no mean, and is not a score of 0.",
+    method: "get",
+    path: "/api/v1/public/evaluation-runs/{run_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        run_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["run_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_finding",
     description: "Fetch one detector finding by id, with its full analysis detail.",
     method: "get",

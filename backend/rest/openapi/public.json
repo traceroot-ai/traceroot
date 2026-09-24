@@ -3643,6 +3643,196 @@
         "title": "RCAResult",
         "type": "object"
       },
+      "ReadRunResponse": {
+        "description": "A run's SUMMARY \u2014 deliberately no per-case rows, so the payload is bounded by\nscorer count rather than case count and needs no truncation flag.",
+        "properties": {
+          "candidate_version": {
+            "title": "Candidate Version",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "errored_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Errored Count",
+            "type": "integer"
+          },
+          "evaluation_id": {
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "evaluation_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Key"
+          },
+          "evaluation_name": {
+            "title": "Evaluation Name",
+            "type": "string"
+          },
+          "evaluation_run_id": {
+            "title": "Evaluation Run Id",
+            "type": "string"
+          },
+          "failed_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Failed Count",
+            "type": "integer"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/RunMetricItem"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "not_scored_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Not Scored Count",
+            "type": "integer"
+          },
+          "passed_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Passed Count",
+            "type": "integer"
+          },
+          "result_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Result Count",
+            "type": "integer"
+          },
+          "run_number": {
+            "title": "Run Number",
+            "type": "integer"
+          },
+          "run_path": {
+            "title": "Run Path",
+            "type": "string"
+          },
+          "run_url": {
+            "title": "Run Url",
+            "type": "string"
+          },
+          "scored_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored Count"
+          },
+          "scorer_error_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorer Error Count"
+          },
+          "scores": {
+            "items": {
+              "$ref": "#/components/schemas/RunMetricItem"
+            },
+            "title": "Scores",
+            "type": "array"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "completed_with_errors",
+              "failed",
+              "incomplete",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_error_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Error Count"
+          }
+        },
+        "required": [
+          "evaluation_run_id",
+          "evaluation_id",
+          "evaluation_name",
+          "run_number",
+          "candidate_version",
+          "environment",
+          "status",
+          "started_at",
+          "dataset_id",
+          "dataset_version_id",
+          "run_path",
+          "run_url",
+          "result_count",
+          "scored_count",
+          "task_error_count",
+          "scorer_error_count",
+          "passed_count",
+          "failed_count",
+          "errored_count",
+          "not_scored_count"
+        ],
+        "title": "ReadRunResponse",
+        "type": "object"
+      },
       "RegisterRunRequest": {
         "description": "Register/start a run. Idempotent on ``client_run_id`` within an evaluation.",
         "properties": {
@@ -3801,6 +3991,78 @@
           "run_url"
         ],
         "title": "RegisterRunResponse",
+        "type": "object"
+      },
+      "RunMetricItem": {
+        "description": "One score or one derived metric. Identical shape for both: they differ in\nPROVENANCE (a scorer reported it vs the platform derived it from the trace), not in\nstructure, and a client renders them the same way.\n\n``value`` is the run's own mean over ``observed_count`` results, and null rather than\n0 when nothing was observed \u2014 \"no data\" and \"measured zero\" are different facts and\nmust stay distinguishable.",
+        "properties": {
+          "direction": {
+            "enum": [
+              "higher_is_better",
+              "lower_is_better",
+              "none"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "observed_count": {
+            "description": "How many results reported a usable value for this score or metric.",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Observed Count",
+            "type": "integer"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "$",
+                  "tok",
+                  "ms",
+                  "count"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run's own mean over observed_count results. Null when nothing was observed, and always for a categorical score or one that stored labels and numbers together.",
+            "title": "Value"
+          },
+          "value_type": {
+            "description": "The scorer's declared kind, else the kind it stored. Every derived metric is numeric.",
+            "enum": [
+              "numeric",
+              "boolean",
+              "categorical"
+            ],
+            "title": "Value Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "direction",
+          "value_type",
+          "observed_count"
+        ],
+        "title": "RunMetricItem",
         "type": "object"
       },
       "ScoreInput": {
@@ -9809,6 +10071,137 @@
         ],
         "x-tool": {
           "enabled": false
+        }
+      }
+    },
+    "/api/v1/public/evaluation-runs/{run_id}": {
+      "get": {
+        "description": "Read a run's own summary: status, result counts, and per-score and per-metric\nmeans over the run's results.\n\nTyped rather than left to the catch-all so it appears in the published OpenAPI: an\nendpoint a CLI is expected to call must be in the contract the CLI generates from.\nSummary only, so the response is bounded by scorer count rather than case count.\n\nComparing two runs is not part of this read. It is a different question with its own\ntrust rules, and an optional parameter here would be too easily confused with the\nbaseline a run stores at registration.",
+        "operationId": "read_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project, or the run is outside the plan's retention window"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Read an evaluation run's summary",
+        "tags": [
+          "Offline Eval (Public)"
+        ],
+        "x-tool": {
+          "description": "Read one evaluation run's summary: its status, result counts, per-scorer scores, and mean cost and duration per case. scored_count, task_error_count and scorer_error_count are null until the run completes. A case is errored or not_scored; passed and failed are older statuses, so passed_count and failed_count are usually 0. Each score and metric carries observed_count, the number of results it was taken over. A numeric score's value is its mean and a boolean score's is its pass rate. A categorical or mixed-type score, or one no result reported, has a null value: it has no mean, and is not a score of 0.",
+          "enabled": true,
+          "name": "get_evaluation_run"
         }
       }
     },

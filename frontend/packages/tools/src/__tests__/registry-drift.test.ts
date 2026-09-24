@@ -35,6 +35,7 @@ describe("committed registry", () => {
       "get_dataset",
       "get_dataset_version",
       "get_detector",
+      "get_evaluation_run",
       "get_finding",
       "get_finding_by_trace",
       "get_session",

@@ -16,7 +16,8 @@ Writes are authenticated here with ``KeyStampedAuth`` (the SDK's ingest credenti
 and the Bearer key is forwarded so the Next.js handler re-validates authoritatively
 against Postgres.
 
-The reads are the exception: the four dataset reads are not forwarded. They take ``DualStampedAuth`` like every other project-scoped public
+The reads are the exception: the run summary and the four dataset reads are not
+forwarded. They take ``DualStampedAuth`` like every other project-scoped public
 read, so an API key or a signed-in user with ``project_id`` can call them, and each
 calls the shared evaluation read common with the project this router resolved, the
 same body any internal project-scoped mirror calls, so the surfaces cannot drift.
@@ -61,6 +62,7 @@ from rest.routers.evaluation_read_common import (
     get_dataset_version_page,
     list_dataset_versions_page,
     list_datasets_page,
+    read_run_summary,
 )
 from rest.routers.public.deps import DualStampedAuth, KeyStampedAuth
 from rest.schemas.eval import (
@@ -71,6 +73,7 @@ from rest.schemas.eval import (
     ListDatasetsResponse,
     ListDatasetVersionsResponse,
     PublicDataset,
+    ReadRunResponse,
     RegisterRunRequest,
     RegisterRunResponse,
     UpsertResultRequest,
@@ -475,6 +478,53 @@ async def register_run(
     return await _forward(request, _upstream_path(request.method, "evaluation-runs"))
 
 
+@router.get(
+    "/evaluation-runs/{run_id}",
+    operation_id="read_run",
+    response_model=ReadRunResponse,
+    responses={
+        **_EVAL_READ_RESPONSES,
+        403: {
+            "model": ErrorResponse,
+            "description": "No access to this project, or the run is outside the plan's "
+            "retention window",
+        },
+    },
+    summary="Read an evaluation run's summary",
+)
+# READ, not INGEST. It is a read, and the INGEST bucket is 16x looser — sized for an SDK
+# streaming per-case results, not for a summary an agent can call in a loop. Sharing the
+# read bucket with every other public read is what keeps one caller's polling from
+# competing with another's ingestion.
+@limiter.shared_limit(
+    resolve_limit,
+    scope=BUCKET_READ,
+    key_func=key_read,
+    exempt_when=is_request_rate_limit_exempt,
+)
+async def read_run(
+    run_id: str,
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+) -> ReadRunResponse:
+    """Read a run's own summary: status, result counts, and per-score and per-metric
+    means over the run's results.
+
+    Typed rather than left to the catch-all so it appears in the published OpenAPI: an
+    endpoint a CLI is expected to call must be in the contract the CLI generates from.
+    Summary only, so the response is bounded by scorer count rather than case count.
+
+    Comparing two runs is not part of this read. It is a different question with its own
+    trust rules, and an optional parameter here would be too easily confused with the
+    baseline a run stores at registration.
+    """
+    # Not forwarded. The read is served by the shared evaluation read common, keyed by the
+    # project this route resolved, which is the same body any internal project-scoped
+    # mirror calls. A run outside the project's retention window is a 403.
+    return await read_run_summary(auth.project_id, run_id)
+
+
 @router.post(
     "/evaluation-runs/{run_id}/results",
     operation_id="upsert_result",
@@ -519,7 +569,8 @@ async def complete_run(
 
 # Remaining untyped run subpaths (additive per-scorer scores, human review) stay a
 # hidden catch-all until they're typed in a later phase. Registered last so it does
-# not shadow the explicit routes above.
+# not shadow the explicit routes above. POST only: the one run read is typed above and
+# is not forwarded.
 @router.api_route("/evaluation-runs/{subpath:path}", methods=["POST"], include_in_schema=False)
 @limiter.shared_limit(
     resolve_limit,
