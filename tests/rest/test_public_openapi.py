@@ -245,10 +245,26 @@ def test_eval_reporting_routes_document_error_and_auth_contract():
 
 
 def test_untyped_dataset_catch_alls_stay_hidden():
-    """Dataset + dataset-version catch-alls remain unpublished until a later phase."""
+    """The dataset READS are typed and published; the WRITES stay on hidden catch-alls.
+
+    The three GETs are published so a client — including the tool registry — can be
+    generated from them. No policy decision has been made for dataset WRITES, and
+    publishing one would be the first step toward handing it to an agent, so the
+    upsert/patch/publish shapes stay unpublished and the catch-alls keep serving them.
+    """
     paths = _schema()["paths"]
-    assert not any(p.startswith("/api/v1/public/datasets") for p in paths), paths
-    assert not any(p.startswith("/api/v1/public/dataset-versions") for p in paths), paths
+    dataset_paths = {
+        p: set(item) & _METHODS
+        for p, item in paths.items()
+        if p.startswith("/api/v1/public/datasets")
+        or p.startswith("/api/v1/public/dataset-versions")
+    }
+    assert dataset_paths == {
+        "/api/v1/public/datasets": {"get"},
+        "/api/v1/public/datasets/{dataset_id}": {"get"},
+        "/api/v1/public/datasets/{dataset_id}/versions": {"get"},
+        "/api/v1/public/dataset-versions/{version_id}": {"get"},
+    }, dataset_paths
     # The additive per-scorer scores / human-score run subpaths also stay hidden:
     # only the three explicit reporting paths are published under evaluation-runs.
     eval_paths = {p for p in paths if p.startswith("/api/v1/public/evaluation-runs")}
@@ -257,6 +273,21 @@ def test_untyped_dataset_catch_alls_stay_hidden():
         "/api/v1/public/evaluation-runs/{run_id}/results",
         "/api/v1/public/evaluation-runs/{run_id}/complete",
     }
+
+
+def test_dataset_reads_document_the_errors_a_read_can_return():
+    """A read can be refused for a project the caller can't see (403) or rate-limited
+    (429). It takes no body, so a 413 would be a false promise."""
+    paths = _schema()["paths"]
+    for path in (
+        "/api/v1/public/datasets",
+        "/api/v1/public/datasets/{dataset_id}",
+        "/api/v1/public/datasets/{dataset_id}/versions",
+        "/api/v1/public/dataset-versions/{version_id}",
+    ):
+        responses = paths[path]["get"]["responses"]
+        assert {"401", "403", "404", "422", "429", "503"} <= set(responses), path
+        assert "413" not in responses, path
 
 
 def test_session_read_routes_document_error_responses():
@@ -402,6 +433,10 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/sql": {"post": "run_sql"},
     "/api/v1/public/sql/schema": {"get": "get_sql_schema"},
     "/api/v1/public/whoami": {"get": "whoami"},
+    "/api/v1/public/datasets": {"get": "list_datasets"},
+    "/api/v1/public/datasets/{dataset_id}": {"get": "get_dataset"},
+    "/api/v1/public/datasets/{dataset_id}/versions": {"get": "list_dataset_versions"},
+    "/api/v1/public/dataset-versions/{version_id}": {"get": "get_dataset_version"},
     "/api/v1/public/evaluation-runs": {"post": "register_run"},
     "/api/v1/public/evaluation-runs/{run_id}/results": {"post": "upsert_result"},
     "/api/v1/public/evaluation-runs/{run_id}/complete": {"post": "complete_run"},
@@ -502,6 +537,10 @@ def test_x_tool_enabled_set_and_shape():
         "delete_dashboard",
         "delete_widget",
         "delete_alert",
+        "get_dataset",
+        "get_dataset_version",
+        "list_dataset_versions",
+        "list_datasets",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
@@ -528,6 +567,10 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/widgets/{widget_id}/data",
     "/api/v1/public/alerts",
     "/api/v1/public/alerts/{alert_id}",
+    "/api/v1/public/datasets",
+    "/api/v1/public/datasets/{dataset_id}",
+    "/api/v1/public/datasets/{dataset_id}/versions",
+    "/api/v1/public/dataset-versions/{version_id}",
 ]
 
 
@@ -549,6 +592,14 @@ def test_key_only_ops_have_no_project_id_param():
     # ingestion is key-only and unchanged.
     post_params = paths["/api/v1/public/traces"]["post"].get("parameters", [])
     assert not [q for q in post_params if q["name"] == "project_id"]
+    # So is evaluation reporting: the SDK reports with its API key, never a user login.
+    for path in (
+        "/api/v1/public/evaluation-runs",
+        "/api/v1/public/evaluation-runs/{run_id}/results",
+        "/api/v1/public/evaluation-runs/{run_id}/complete",
+    ):
+        params = paths[path]["post"].get("parameters", [])
+        assert not [q for q in params if q["name"] == "project_id"], path
 
 
 def _filters_param(schema):

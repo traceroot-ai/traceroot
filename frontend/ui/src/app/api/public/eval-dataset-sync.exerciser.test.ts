@@ -497,3 +497,168 @@ describe("B1: cancelled run status", () => {
     expect(run.completedAt).toBeInstanceOf(Date);
   });
 });
+
+describe("a version's cases are paged, and the page size is capped server-side", () => {
+  /**
+   * Publish `n` cases into one version and return its id. A publish carries at most 1000
+   * changes and each version carries the previous one's cases forward, so a larger set is
+   * built from successive publishes and the last version holds all of them.
+   */
+  async function publishCases(n: number): Promise<string> {
+    fakePrisma.dataset.rows.push({
+      id: "ds_big",
+      clientDatasetId: "ds_big",
+      projectId: PROJECT_ID,
+      name: "big",
+    });
+    let versionId: string | null = null;
+    for (let start = 0; start < n; start += 1000) {
+      const res = await publishVersion(
+        req({
+          base_version_id: versionId,
+          changes: Array.from({ length: Math.min(1000, n - start) }, (_, j) => ({
+            op: "upsert",
+            test_case_id: `tc_${String(start + j).padStart(4, "0")}`,
+            input: `case ${start + j}`,
+          })),
+        }),
+        dsParams("ds_big"),
+      );
+      expect(res.status).toBe(201);
+      versionId = (await readJson(res)).dataset_version_id as string;
+    }
+    return versionId as string;
+  }
+
+  it("returns a bounded page and a cursor that walks the rest", async () => {
+    const versionId = await publishCases(7);
+
+    const first = await readJson(await readVersion(getReq("?limit=3"), versionParams(versionId)));
+    expect((first.items as unknown[]).length).toBe(3);
+    expect(first.next_cursor).toBeTruthy();
+
+    const second = await readJson(
+      await readVersion(getReq(`?limit=3&cursor=${first.next_cursor}`), versionParams(versionId)),
+    );
+    expect((second.items as unknown[]).length).toBe(3);
+
+    const third = await readJson(
+      await readVersion(getReq(`?limit=3&cursor=${second.next_cursor}`), versionParams(versionId)),
+    );
+    expect((third.items as unknown[]).length).toBe(1);
+    // Null at the end, so a client loops until it is null rather than counting.
+    expect(third.next_cursor).toBeNull();
+
+    // The three pages are the whole set, in order, with nothing repeated or skipped —
+    // which is the property the total ordering exists to guarantee.
+    const ids = [first, second, third].flatMap((p) =>
+      (p.items as Array<Record<string, unknown>>).map((i) => i.test_case_id as string),
+    );
+    expect(ids).toEqual([...ids].sort());
+    expect(new Set(ids).size).toBe(7);
+  });
+
+  it("clamps an absurd limit at the control plane (the gateway rejects it first)", async () => {
+    // This is the BACKSTOP, not the published contract. Through the gateway an
+    // out-of-range limit is a 422 — asserted in tests/rest/test_public_eval_gateway.py,
+    // matching every other public paged read. This layer only guarantees that a request
+    // which somehow bypasses the gateway still cannot pull an unbounded body.
+    // More cases than the cap, so an unclamped read would return all 1001 and no cursor.
+    const versionId = await publishCases(1001);
+    const body = await readJson(
+      await readVersion(getReq("?limit=999999"), versionParams(versionId)),
+    );
+    expect((body.items as unknown[]).length).toBe(1000);
+    expect(body.next_cursor).toBeTruthy();
+  });
+
+  it("reads a fractional limit as a page of one, not an empty page that claims more", async () => {
+    const versionId = await publishCases(3);
+    const res = await readVersion(getReq("?limit=0.5"), versionParams(versionId));
+    expect(res.status).toBe(200);
+    const body = await readJson(res);
+    expect((body.items as unknown[]).length).toBe(1);
+    expect(body.next_cursor).toBeTruthy();
+  });
+
+  it("returns the whole version when neither limit nor cursor is given", async () => {
+    // The released SDKs pull a snapshot with ONE request and never follow next_cursor. A
+    // default page here would silently hand them the first 200 cases as the whole dataset.
+    const versionId = await publishCases(250);
+    const body = await readJson(await readVersion(getReq(""), versionParams(versionId)));
+    expect((body.items as unknown[]).length).toBe(250);
+    expect(body.next_cursor).toBeNull();
+  });
+
+  it("pages at the default size once the caller pages at all", async () => {
+    // More than two default pages, so each page's size is the bound and not a remainder.
+    const versionId = await publishCases(450);
+    const first = await readJson(await readVersion(getReq("?limit=abc"), versionParams(versionId)));
+    expect((first.items as unknown[]).length).toBe(200);
+    expect(first.next_cursor).toBeTruthy();
+    // A cursor alone is paging too: it continues at the default size of 200.
+    const second = await readJson(
+      await readVersion(getReq(`?cursor=${first.next_cursor}`), versionParams(versionId)),
+    );
+    expect((second.items as unknown[]).length).toBe(200);
+    expect(second.next_cursor).toBeTruthy();
+  });
+
+  it("defaults to a bounded page when limit is nonsense", async () => {
+    const versionId = await publishCases(3);
+    for (const q of ["?limit=0", "?limit=-4", "?limit=abc"]) {
+      const body = await readJson(await readVersion(getReq(q), versionParams(versionId)));
+      expect((body.items as unknown[]).length).toBe(3);
+    }
+  });
+});
+
+describe("a cursor that is not in the set being paged is refused, never read as the end", () => {
+  async function publish(datasetId: string, n: number, key = API_KEY): Promise<string> {
+    await upsertDataset(req({ dataset_id: datasetId, name: datasetId }, key));
+    const res = await publishVersion(
+      req(
+        {
+          base_version_id: null,
+          changes: Array.from({ length: n }, (_, i) => ({
+            op: "upsert",
+            test_case_id: `${datasetId}_tc_${i}`,
+            input: `case ${i}`,
+          })),
+        },
+        key,
+      ),
+      dsParams(datasetId),
+    );
+    expect(res.status).toBe(201);
+    return (await readJson(res)).dataset_version_id as string;
+  }
+
+  it("refuses another version's case cursor, and a stale one, on the version read", async () => {
+    const a = await publish("ds_a", 3);
+    const b = await publish("ds_b", 3);
+    const pageA = await readJson(await readVersion(getReq("?limit=1"), versionParams(a)));
+    expect(pageA.next_cursor).toBeTruthy();
+
+    for (const cursor of [pageA.next_cursor as string, "row_that_never_existed"]) {
+      const res = await readVersion(getReq(`?limit=1&cursor=${cursor}`), versionParams(b));
+      expect(res.status).toBe(400);
+      expect((await readJson(res)).error).toBe("Invalid cursor");
+    }
+  });
+
+  it("refuses another project's dataset as a cursor on the dataset list", async () => {
+    await publish("ds_mine", 1);
+    await publish("ds_theirs", 1, OTHER_KEY);
+    const theirs = fakePrisma.dataset.rows.find((d) => d.clientDatasetId === "ds_theirs")!;
+    const res = await listDatasets(getReq(`?limit=1&cursor=${theirs.id}`));
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses another dataset's version as a cursor on the version list", async () => {
+    await publish("ds_a", 1);
+    const otherVersion = await publish("ds_b", 1);
+    const res = await listVersions(getReq(`?limit=1&cursor=${otherVersion}`), dsParams("ds_a"));
+    expect(res.status).toBe(400);
+  });
+});

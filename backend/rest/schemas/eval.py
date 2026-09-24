@@ -70,6 +70,14 @@ def _json_int(v: Any) -> Any:
     return v
 
 
+def _json_safe_int(v: Any) -> Any:
+    """As ``_json_int``, and within ``Number.isSafeInteger`` as ``z.number().int()`` requires."""
+    v = _json_int(v)
+    if isinstance(v, int) and not -JSON_SAFE_INT_MAX <= v <= JSON_SAFE_INT_MAX:
+        raise ValueError("must be a safe integer (beyond 2^53 - 1 a JSON client loses precision)")
+    return v
+
+
 def _json_bool(v: Any) -> Any:
     """Reject the values ``z.boolean()`` rejects: everything that is not a JSON boolean."""
     if not isinstance(v, bool):
@@ -90,6 +98,9 @@ JSON_SAFE_INT_MAX = 9_007_199_254_740_991
 # `"ge": 0` keywords instead of JSON Schema's `"minimum": 0`.
 #: ``z.number().int().nonnegative()``.
 JsonNonNegativeInt = Annotated[int, Field(ge=0, le=JSON_SAFE_INT_MAX), BeforeValidator(_json_int)]
+#: ``z.number().int()`` — a safe JSON integer, never a coerced string/boolean. Checked in
+#: the validator rather than with ``Field`` bounds, so the published schema stays as it is.
+JsonInt = Annotated[int, BeforeValidator(_json_safe_int)]
 #: ``z.number().nonnegative()``.
 JsonNonNegativeFloat = Annotated[float, Field(ge=0), BeforeValidator(_json_number)]
 
@@ -303,6 +314,84 @@ class RegisterRunResponse(BaseModel):
     # should print this verbatim rather than joining run_path to its own host_url. The
     # gateway proxies the upstream body verbatim, so this is documentation/parity only.
     run_url: str
+
+
+# --- Dataset reads -----------------------------------------------------------
+
+
+class PublicDataset(BaseModel):
+    """A dataset as the public API describes it.
+
+    Every field is REQUIRED and nullable rather than optional: the route always emits all
+    of them, and a default here would say the key may be absent, which is a different
+    contract from "present and null". The shape roster compares this to the Zod side
+    field-for-field, so the two cannot drift apart on that distinction.
+
+    ``dataset_id`` is the id a CLIENT addresses the dataset by — its own
+    ``client_dataset_id`` when it created the dataset, or the row id for one authored in
+    the UI. ``key`` is the pre-image of that id, so a pulled dataset recovers its key when
+    key and name differ.
+
+    No case count: no dataset read computes one, and deriving it would need an N+1 over
+    versions. It lives on a version, where it is one grouped aggregate.
+    """
+
+    dataset_id: str
+    name: str
+    description: str | None
+    current_dataset_version_id: str | None
+    key: str | None
+    # When the dataset row last changed (ISO 8601).
+    updated_at: str
+
+
+class ListDatasetsResponse(BaseModel):
+    datasets: list[PublicDataset]
+    # Opaque row id. Null at the end, so a client loops until null rather than counting.
+    next_cursor: str | None
+
+
+class PublicDatasetVersion(BaseModel):
+    dataset_version_id: str
+    version_number: JsonInt
+    label: str | None
+    note: str | None
+    case_count: JsonNonNegativeInt
+    created_at: str
+    # Whether this version is the dataset's currently-published one.
+    is_current: JsonBool
+
+
+class ListDatasetVersionsResponse(BaseModel):
+    versions: list[PublicDatasetVersion]
+    next_cursor: str | None
+
+
+class PublicTestCase(BaseModel):
+    """One test case in a version snapshot.
+
+    ``input``/``expected``/``metadata`` are NATIVE JSON values — an object stays an
+    object, a JSON-looking string stays a string — so they are ``Any``, not ``str``.
+    """
+
+    test_case_id: str
+    input: Any
+    expected: Any
+    metadata: Any
+    # Provenance when the case was captured from a trace. Null is normal, not an error.
+    source_trace_id: str | None
+    source_span_id: str | None
+
+
+class GetDatasetVersionResponse(BaseModel):
+    """A version snapshot: the version's identity plus a PAGE of its cases."""
+
+    dataset_version_id: str
+    dataset_id: str
+    version_number: JsonInt
+    label: str | None
+    items: list[PublicTestCase]
+    next_cursor: str | None
 
 
 # --- (b) Upsert one test-case result with scores ----------------------------
