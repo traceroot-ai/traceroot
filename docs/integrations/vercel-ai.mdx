@@ -28,7 +28,7 @@ Automatically capture agent runs, LLM calls, tool executions, and token usage fr
 
     AI SDK 7 requires Node >=22.
   </Tab>
-  <Tab title="AI SDK 6">
+  <Tab title="AI SDK 6 (legacy)">
     ```bash
     npm install @traceroot-ai/traceroot ai@^6 @ai-sdk/openai@^3 zod@^4
     ```
@@ -81,7 +81,7 @@ Once initialized, every `generateText` / `streamText` call, model call, and tool
     await TraceRoot.flush();
     ```
   </Tab>
-  <Tab title="AI SDK 6">
+  <Tab title="AI SDK 6 (legacy)">
     ```typescript
     import { TraceRoot } from '@traceroot-ai/traceroot';
     import { generateText, tool, stepCountIs } from 'ai';

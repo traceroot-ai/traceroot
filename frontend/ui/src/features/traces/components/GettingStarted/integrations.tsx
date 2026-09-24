@@ -325,7 +325,7 @@ traceroot.initialize(integrations=[Integration.PYDANTIC_AI])`,
     languages: {
       typescript: {
         installCommand: VERCEL_AI_INSTALL_COMMAND,
-        initSnippet: `// AI SDK 7. On AI SDK 6, see https://traceroot.ai/docs/integrations/vercel-ai
+        initSnippet: `// AI SDK 7. On AI SDK 6 (legacy), see https://traceroot.ai/docs/integrations/vercel-ai
 // (no @ai-sdk/otel; set experimental_telemetry: { isEnabled: true } per call).
 import { TraceRoot } from "@traceroot-ai/traceroot";
 import { registerTelemetry } from "ai";

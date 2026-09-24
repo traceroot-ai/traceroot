@@ -2,7 +2,7 @@
 
 Multi-step tool-use agent built with the [Vercel AI SDK](https://ai-sdk.dev/), instrumented with [TraceRoot](https://traceroot.ai).
 
-This example pins **AI SDK 6** (`ai@^6`) and enables tracing with `experimental_telemetry`. AI SDK 7 needs `@ai-sdk/otel` and `registerTelemetry` instead — see [docs/integrations/vercel-ai](https://traceroot.ai/docs/integrations/vercel-ai).
+This example pins **AI SDK 6 (legacy)** (`ai@^6`) and enables tracing with `experimental_telemetry`. AI SDK 7 needs `@ai-sdk/otel` and `registerTelemetry` instead — see [docs/integrations/vercel-ai](https://traceroot.ai/docs/integrations/vercel-ai).
 
 ## Setup
 
