@@ -315,17 +315,17 @@ export default nextConfig;
 
 ## What Gets Captured
 
-Span names and attributes differ by version. AI SDK 7's `OpenTelemetry` integration follows the OpenTelemetry GenAI semantic conventions; AI SDK 6 uses the AI SDK's own `ai.*` names. TraceRoot handles both.
+Span names and attributes differ by version. AI SDK 7's `OpenTelemetry` integration follows the OpenTelemetry GenAI semantic conventions; AI SDK 6 uses the AI SDK's own `ai.*` names. TraceRoot handles both. The trees below show span names as TraceRoot displays them; TraceRoot shows tool spans by tool name, whatever name the SDK emitted (`execute_tool <tool>` on 7.x, `ai.toolCall` on 6.x).
 
 <Tabs>
   <Tab title="AI SDK 7">
-    One `invoke_agent` span per `generateText` / `streamText` / agent call, a `step` span per loop iteration, and `chat` / `execute_tool` spans under each step:
+    One `invoke_agent` span per `generateText` / `streamText` / agent call, a `step` span per loop iteration, and a `chat` span plus one span per tool call under each step:
 
     ```
     invoke_agent gpt-4o-mini          # AGENT — gen_ai.agent.name = functionId
     ├── step 1
     │   ├── chat gpt-4o-mini          # LLM — model, messages, tokens
-    │   └── execute_tool getWeather   # TOOL — arguments and result
+    │   └── getWeather                # TOOL — arguments and result (emitted as execute_tool getWeather)
     └── step 2
         └── chat gpt-4o-mini
     embeddings text-embedding-3-small # embed / embedMany (root + one child per provider call)
@@ -337,7 +337,7 @@ Span names and attributes differ by version. AI SDK 7's `OpenTelemetry` integrat
     |-----------|-------|
     | Model | `gen_ai.request.model` |
     | Messages and response | `gen_ai.input.messages`, `gen_ai.output.messages` on `invoke_agent` and `chat` |
-    | Tool calls | `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result` on `execute_tool` |
+    | Tool calls | `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result` on the tool span |
     | Tokens | `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` |
     | Cache read / write | `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.cache_creation.input_tokens` |
     | Reasoning | `ai.usage.outputTokenDetails.reasoningTokens` — only with `usage: true` |
@@ -350,7 +350,7 @@ Span names and attributes differ by version. AI SDK 7's `OpenTelemetry` integrat
     ```
     ai.generateText weather_agent     # AGENT
     ├── ai.generateText.doGenerate    # LLM — model, messages, tokens
-    ├── ai.toolCall                   # TOOL — arguments and result
+    ├── getWeather                    # TOOL — arguments and result (emitted as ai.toolCall)
     └── ai.generateText.doGenerate
     ai.streamText haiku
     └── ai.streamText.doStream
@@ -364,7 +364,7 @@ Span names and attributes differ by version. AI SDK 7's `OpenTelemetry` integrat
     |-----------|-------|
     | Model | `gen_ai.request.model` on `doGenerate` / `doStream` |
     | Messages and response | `input.value`, `output.value` (added by the OpenInference processor) |
-    | Tool calls | `input.value`, `output.value` on `ai.toolCall` |
+    | Tool calls | `input.value`, `output.value` on the tool span |
     | Tokens | `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` on `doGenerate` / `doStream` |
     | Cache read / write | `ai.usage.inputTokenDetails.cacheReadTokens`, `ai.usage.inputTokenDetails.cacheWriteTokens` |
     | Reasoning | `ai.usage.outputTokenDetails.reasoningTokens` |
@@ -372,12 +372,12 @@ Span names and attributes differ by version. AI SDK 7's `OpenTelemetry` integrat
     | Latency | Request duration per span |
   </Tab>
   <Tab title="AI SDK 7 (Legacy)">
-    With `registerTelemetry(new LegacyOpenTelemetry())` (see [Troubleshooting](#troubleshooting)), AI SDK 7 emits the 6.x names and attributes. The one difference: `ai.toolCall` nests under the `doGenerate` span that requested it instead of beside it.
+    With `registerTelemetry(new LegacyOpenTelemetry())` (see [Troubleshooting](#troubleshooting)), AI SDK 7 emits the 6.x names and attributes. The one difference: the tool span (emitted as `ai.toolCall`, displayed by tool name) nests under the `doGenerate` span that requested it instead of beside it.
 
     ```
     ai.generateText weather_agent     # AGENT
     ├── ai.generateText.doGenerate    # LLM — model, messages, tokens
-    │   └── ai.toolCall               # TOOL — arguments and result
+    │   └── getWeather                # TOOL — arguments and result (emitted as ai.toolCall)
     └── ai.generateText.doGenerate
     ```
 
@@ -403,7 +403,7 @@ TraceRoot counts tokens and cost on the model-call spans (`chat`, `doGenerate`, 
 
 **Root span shows as LLM instead of AGENT (AI SDK 7).** Your lockfile holds `@arizeai/openinference-vercel` 2.7.x, which only classifies `invoke_agent` as an agent when `gen_ai.agent.name` is present. Pass `telemetry: { functionId }` on the call, or refresh the lockfile to 2.8.1 or newer.
 
-**You want the 6.x span names on AI SDK 7.** Register `LegacyOpenTelemetry` instead of `OpenTelemetry`. It emits the `ai.generateText` / `ai.toolCall` shape with `ai.usage.*` attributes (one difference from 6.x: `ai.toolCall` nests under the `doGenerate` span that requested it):
+**You want the 6.x span names on AI SDK 7.** Register `LegacyOpenTelemetry` instead of `OpenTelemetry`. It emits the 6.x `ai.generateText` / `ai.generateText.doGenerate` / `ai.toolCall` span names with `ai.usage.*` attributes (TraceRoot still displays the tool span by tool name; one difference from 6.x: it nests under the `doGenerate` span that requested it):
 
 ```typescript
 import { TraceRoot } from '@traceroot-ai/traceroot';
