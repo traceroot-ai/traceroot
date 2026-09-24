@@ -9,19 +9,35 @@ TraceRoot automatically captures the git repository, commit, and the exact sourc
 
 | Attribute | Description |
 |-----------|-------------|
-| `git_repo` | Repository in `owner/repo` format |
-| `git_ref` | Commit SHA, tag, or branch name |
-| `source_file` | File path of the decorated function |
-| `source_line` | Line number |
-| `source_function` | Function name |
+| `traceroot.git.repo` | Repository in `owner/repo` format |
+| `traceroot.git.ref` | Commit SHA, tag, or branch name |
+| `traceroot.git.source_file` | File path of the decorated function |
+| `traceroot.git.source_line` | Line number |
+| `traceroot.git.source_function` | Function name |
 
-`git_repo` and `git_ref` are set at the trace level. `source_file`, `source_line`, and `source_function` are set per span automatically by `@observe`.
+`traceroot.git.repo` and `traceroot.git.ref` are set at the trace level. The
+`traceroot.git.source_*` attributes are set per span automatically by `@observe`.
 
 ## Configuration
 
-TraceRoot resolves git context in this order: explicit init args →
-`TRACEROOT_GIT_REPO` / `TRACEROOT_GIT_REF` env vars → GitHub Actions env vars
-(`GITHUB_REPOSITORY` / `GITHUB_SHA`) → local `.git` auto-detection.
+TraceRoot resolves the repository and ref independently, filling each unset
+value in this order:
+
+1. Explicit initialization arguments.
+2. `TRACEROOT_GIT_REPO` / `TRACEROOT_GIT_REF` environment variables.
+3. GitHub Actions variables (`GITHUB_REPOSITORY` / `GITHUB_SHA`).
+4. Files in `<current working directory>/.git` (`config` and `HEAD`). This step
+   does not need the `git` binary and does not search parent directories.
+5. A `git` subprocess (`git remote get-url origin` and `git rev-parse HEAD`).
+   This step needs the binary but works when the process starts in a repository
+   subdirectory.
+
+Automatic repository parsing recognizes only `github.com` remotes. For GitLab,
+Bitbucket, or self-hosted remotes, set `TRACEROOT_GIT_REPO` explicitly.
+
+Because the repository and ref resolve independently, one may be present while
+the other is missing. In that case the SDK logs `git context incomplete`; set
+the missing value explicitly so source correlation has both fields.
 
 Local `.git` auto-detection is a **development convenience only**. Production containers usually ship without a `.git` directory or the `git` binary, so auto-detection silently finds nothing and the AI agent cannot correlate traces to source. In production, always inject git context explicitly (see below).
 
