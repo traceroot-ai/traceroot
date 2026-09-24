@@ -81,14 +81,21 @@ function db(evaluations: Row[], runs: Row[] = []) {
           (w.name === undefined ||
             String(r.name).toLowerCase().includes(String(w.name.contains).toLowerCase())),
       );
-      return page(order(matched, args.orderBy), args).map((r) => ({
-        ...r,
-        _count: { runs: runs.filter((x) => x.evaluationId === r.id).length },
-        runs: order(
-          runs.filter((x) => x.evaluationId === r.id),
-          { startedAt: "desc" },
-        ).slice(0, 1),
-      }));
+      return page(order(matched, args.orderBy), args).map((r) => {
+        // Only the evaluations read selects the nested runs; the runs read has no such key.
+        const nested = args.select?.runs;
+        if (!nested) return r;
+        return {
+          ...r,
+          _count: { runs: runs.filter((x) => x.evaluationId === r.id).length },
+          // Ordered by whatever the read asked for — hardcoding it here would hide a
+          // missing sort key in the read itself.
+          runs: order(
+            runs.filter((x) => x.evaluationId === r.id),
+            nested.orderBy,
+          ).slice(0, nested.take ?? 1),
+        };
+      });
     },
   });
   return {
@@ -140,6 +147,29 @@ describe("listEvaluationsPage", () => {
         updated_at: "2026-08-02T00:00:00.000Z",
       },
     ]);
+  });
+
+  it("picks the latest run by the same tiebreaker the runs list uses", async () => {
+    // Runs reported in one batch share a timestamp. Without the id tiebreaker, "latest"
+    // is whichever row the plan happened to return first.
+    const at = new Date("2026-08-25T00:00:00Z");
+    holder.prisma = db(
+      [evaluation()],
+      [
+        run({ id: "run_1", runNumber: 1, startedAt: at, status: "failed" }),
+        run({ id: "run_3", runNumber: 3, startedAt: at, status: "completed" }),
+        run({ id: "run_2", runNumber: 2, startedAt: at, status: "running" }),
+      ],
+    );
+    const { evaluations } = await body(() =>
+      listEvaluationsPage({ projectId: OURS, limit: null, cursor: null, name: null }),
+    );
+    expect(evaluations[0].latest_run).toEqual({
+      evaluation_run_id: "run_3",
+      run_number: 3,
+      status: "completed",
+      started_at: "2026-08-25T00:00:00.000Z",
+    });
   });
 
   it("reports an evaluation nothing has run yet, with a null latest run", async () => {
@@ -279,6 +309,69 @@ describe("listEvaluationRunsPage", () => {
     // Absent falls back to the default page rather than to 1.
     const absent = await body(() => listEvaluationRunsPage({ ...args, limit: null }));
     expect(absent.runs).toHaveLength(50);
+  });
+
+  it("pages runs to the end, with the row id deciding tied timestamps", async () => {
+    // Every run shares a startedAt, so the page boundary is decided by the id tiebreaker
+    // alone: without it, a cursor can skip or repeat a row between pages.
+    const at = new Date("2026-08-25T00:00:00Z");
+    const ids = ["run_5", "run_4", "run_3", "run_2", "run_1"];
+    // Stored in the opposite order to the one expected back: with a stable sort, a fixture
+    // already in id-desc order would look right even with no tiebreaker at all.
+    holder.prisma = db(
+      [],
+      [...ids].reverse().map((id) => run({ id, startedAt: at })),
+    );
+
+    const first = await body(() => listEvaluationRunsPage({ ...args, limit: 2 }));
+    expect(first.runs.map((r: Row) => r.evaluation_run_id)).toEqual(["run_5", "run_4"]);
+    expect(first.next_cursor).toBe("run_4");
+
+    const second = await body(() =>
+      listEvaluationRunsPage({ ...args, limit: 2, cursor: first.next_cursor }),
+    );
+    expect(second.runs.map((r: Row) => r.evaluation_run_id)).toEqual(["run_3", "run_2"]);
+    expect(second.next_cursor).toBe("run_2");
+
+    const third = await body(() =>
+      listEvaluationRunsPage({ ...args, limit: 2, cursor: second.next_cursor }),
+    );
+    expect(third.runs.map((r: Row) => r.evaluation_run_id)).toEqual(["run_1"]);
+    expect(third.next_cursor).toBeNull();
+
+    // Every run seen exactly once across the three pages.
+    const seen = [...first.runs, ...second.runs, ...third.runs].map(
+      (r: Row) => r.evaluation_run_id,
+    );
+    expect(seen).toEqual(ids);
+  });
+
+  it("keeps the filter while paging, so a cursor cannot widen the set", async () => {
+    const at = new Date("2026-08-25T00:00:00Z");
+    holder.prisma = db(
+      [],
+      [
+        run({ id: "run_1", startedAt: at }),
+        run({ id: "run_2", startedAt: at }),
+        run({ id: "run_9", evaluationId: "eval_9", startedAt: at }),
+        run({ id: "run_3", startedAt: at }),
+      ],
+    );
+    const first = await body(() =>
+      listEvaluationRunsPage({ ...args, evaluationId: "eval_2", limit: 2 }),
+    );
+    expect(first.runs.map((r: Row) => r.evaluation_run_id)).toEqual(["run_3", "run_2"]);
+
+    const second = await body(() =>
+      listEvaluationRunsPage({
+        ...args,
+        evaluationId: "eval_2",
+        limit: 2,
+        cursor: first.next_cursor,
+      }),
+    );
+    expect(second.runs.map((r: Row) => r.evaluation_run_id)).toEqual(["run_1"]);
+    expect(second.next_cursor).toBeNull();
   });
 
   it("refuses a cursor that names no run in this project", async () => {

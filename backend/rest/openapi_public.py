@@ -652,16 +652,17 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "List the project's evaluations, newest first: each one's name, the key an SDK "
             "reports it under, the dataset it runs against, how many runs it has, and its "
             "latest run. Filter by a case-insensitive substring of the name. An evaluation "
-            "nothing has run yet has a null latest_run. Use this to find an evaluation "
-            "before listing its runs."
+            "that has never been run reports a null latest_run. Use this to find an "
+            "evaluation before listing its runs."
         ),
         "enabled": True,
     },
     "list_evaluation_runs": {
         "name": "list_evaluation_runs",
         "description": (
-            "List evaluation runs, newest first, optionally one evaluation's "
-            "(evaluation_id) or one status's. Each row is identity and outcome only: which "
+            "List evaluation runs, newest first. Filter by evaluation_id to see one "
+            "evaluation's runs, or by status to see only runs in that state. Each row is "
+            "identity and outcome only: which "
             "run it is, what was evaluated, the dataset version it pinned, its status, and "
             "when it started and finished. A run's counts and per-scorer means come from "
             "get_evaluation_run. Use this to find a run id."

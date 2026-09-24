@@ -615,6 +615,8 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/datasets/{dataset_id}/versions",
     "/api/v1/public/dataset-versions/{version_id}",
     "/api/v1/public/evaluation-runs/{run_id}",
+    "/api/v1/public/evaluations",
+    "/api/v1/public/evaluation-runs",
 ]
 
 

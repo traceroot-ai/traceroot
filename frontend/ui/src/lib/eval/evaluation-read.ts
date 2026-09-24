@@ -83,7 +83,10 @@ export async function listEvaluationsPage(input: {
       updateTime: true,
       _count: { select: { runs: true } },
       runs: {
-        orderBy: { startedAt: "desc" },
+        // The same two keys the runs list orders by: runs reported in one batch share a
+        // timestamp, and on a tie the row id decides, so "latest" is one run, not whichever
+        // the plan happened to return.
+        orderBy: [{ startedAt: "desc" }, { id: "desc" }],
         take: 1,
         select: { id: true, runNumber: true, status: true, startedAt: true },
       },
