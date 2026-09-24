@@ -24,10 +24,14 @@ Create API Keys either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self
 
 ## 3. Set Environment Variables
 
-```bash .env
-TRACEROOT_API_KEY=your-api-key
-TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
+Both SDKs read configuration exclusively from the process environment; they do not automatically load `.env` files. Export the variables in your shell:
+
+```bash
+export TRACEROOT_API_KEY="your-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
 ```
+
+*(If you prefer to use a `.env` file, ensure you load it explicitly in your code as shown in the next step.)*
 
 ## 4. Instrument Your Code
 
@@ -39,6 +43,7 @@ TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
     import traceroot
     from traceroot import Integration
     from openai import OpenAI
+    # from dotenv import load_dotenv; load_dotenv()  # Uncomment if using a .env file
 
     # This single line instruments all OpenAI API calls
     traceroot.initialize(integrations=[Integration.OPENAI])
@@ -50,6 +55,7 @@ TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
     Add a single line at the start of your application to instrument all OpenAI API calls.
 
     ```typescript
+    // import 'dotenv/config';  // Uncomment if using a .env file
     import OpenAI from 'openai';
     import { TraceRoot } from '@traceroot-ai/traceroot';
 

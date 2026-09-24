@@ -126,9 +126,11 @@ A scorer receives the case's `input`, `output`, `expected`, and `metadata`, and 
 
 Drop `local` and the run reports to TraceRoot, using the same credentials as the tracing SDK:
 
-```bash .env
-TRACEROOT_API_KEY=your-api-key
-TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
+Both SDKs read configuration exclusively from the process environment; they do not automatically load `.env` files. Export the variables in your shell:
+
+```bash
+export TRACEROOT_API_KEY="your-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
 ```
 
 `candidate_version` labels what you're testing — a model id, a prompt version, or a git sha. It's what the UI groups and compares runs by.
