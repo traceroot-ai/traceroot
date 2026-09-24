@@ -1,6 +1,8 @@
 # Vercel AI SDK Agent
 
-Multi-step tool-use agent built with the [Vercel AI SDK](https://sdk.vercel.ai/), instrumented with [TraceRoot](https://traceroot.ai).
+Multi-step tool-use agent built with the [Vercel AI SDK](https://ai-sdk.dev/), instrumented with [TraceRoot](https://traceroot.ai).
+
+This example pins **AI SDK 6** (`ai@^6`) and enables tracing with `experimental_telemetry`. AI SDK 7 needs `@ai-sdk/otel` and `registerTelemetry` instead — see [docs/integrations/vercel-ai](https://traceroot.ai/docs/integrations/vercel-ai).
 
 ## Setup
 
@@ -34,6 +36,6 @@ captured automatically:
 
 ## Why no `instrumentModules` config?
 
-Unlike LangChain / OpenAI / Anthropic, the Vercel AI SDK emits OpenTelemetry spans natively when `experimental_telemetry: { isEnabled: true }` is set on each call. TraceRoot enriches those spans through the OpenInference span processor registered inside `TraceRoot.initialize()` — no `instrumentModules` entry needed.
+Unlike LangChain / OpenAI / Anthropic, AI SDK 6 emits OpenTelemetry spans natively when `experimental_telemetry: { isEnabled: true }` is set on each call. TraceRoot enriches those spans through the OpenInference span processor registered inside `TraceRoot.initialize()` — no `instrumentModules` entry needed.
 
 See [docs/integrations/vercel-ai](https://traceroot.ai/docs/integrations/vercel-ai) for details.
