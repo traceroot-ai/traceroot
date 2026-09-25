@@ -393,6 +393,44 @@ class TestGeminiModelIds:
             f"{model_id} matched a different entry than {expected_name}"
         )
 
+    @pytest.mark.parametrize(
+        "model_id,input_price,output_price,cache_read_price",
+        [
+            # Published standard paid-tier rates (https://ai.google.dev/gemini-api/docs/pricing).
+            # The 3.6-3.8 Flash rates double on 2027-01-01; the table has no effective dates,
+            # so update the rows then.
+            ("gemini-3.8-flash", 7.5e-7, 3.75e-6, 7.5e-8),
+            ("gemini-3.7-flash", 7.5e-7, 3.75e-6, 7.5e-8),
+            ("gemini-3.6-flash", 7.5e-7, 3.75e-6, 7.5e-8),
+            ("gemini-3.5-flash-lite", 3e-7, 2.5e-6, 3e-8),
+        ],
+    )
+    def test_new_gemini_rows_resolve_at_published_prices(
+        self, real_cache, model_id, input_price, output_price, cache_read_price
+    ):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None
+        assert price[MATCHED_MODEL_NAME] == model_id
+        assert price["input"] == pytest.approx(input_price)
+        assert price["output"] == pytest.approx(output_price)
+        assert price["cacheRead"] == pytest.approx(cache_read_price)
+        assert price["cacheWrite"] is None
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            # TTS has its own price sheet; must not fall through to a 3.x Flash text row.
+            "gemini-3.8-flash-tts",
+            # Google repoints -latest aliases without notice, so they stay unpriced.
+            "gemini-flash-latest",
+        ],
+    )
+    def test_unpriced_gemini_ids_do_not_inherit_a_price(self, real_cache, model_id):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert get_model_price(model_id) is None
+
 
 class TestDeepSeekModelIds:
     @pytest.mark.parametrize("model_id,expected_name", DEEPSEEK_MODEL_CASES)
