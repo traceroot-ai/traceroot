@@ -113,10 +113,10 @@ root_agent = Agent(
 
 | Attribute | Description |
 |-----------|-------------|
-| Runner calls | An `invocation [<app>]` chain span per runner call |
+| Runner calls | An `invocation [<app>]` span per runner call |
 | Agent runs | An `agent_run [<agent>]` agent span per agent and sub-agent run |
 | LLM calls | A `call_llm` span per Gemini call with model, request, and response |
-| Tool calls | An `execute_tool <tool>` span per tool call with input arguments and result |
+| Tool calls | A tool span per tool call, named after the tool, with input arguments and result |
 | Tokens & Cost | Input, output, and reasoning token counts per LLM call; cost for models in the pricing table, including `gemini-3.8-flash` |
 | Sessions & users | The ADK session id as `session.id` and user id as `user.id` on every span |
 | Latency | Duration per agent run and per span |
