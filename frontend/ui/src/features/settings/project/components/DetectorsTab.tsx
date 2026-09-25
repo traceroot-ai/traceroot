@@ -135,6 +135,11 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           >
             {modelMutation.isPending ? "Saving..." : "Save"}
           </Button>
+          {modelMutation.isError && (
+            <p role="alert" className="mt-2 text-[13px] text-destructive">
+              {modelMutation.error.message || "Failed to save agent model. Please try again."}
+            </p>
+          )}
         </div>
       </div>
 
@@ -163,6 +168,12 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           >
             {emailsMutation.isPending ? "Saving..." : "Save"}
           </Button>
+          {emailsMutation.isError && (
+            <p role="alert" className="mt-2 text-[13px] text-destructive">
+              {emailsMutation.error.message ||
+                "Failed to save email notifications. Please try again."}
+            </p>
+          )}
         </div>
 
         {/* Slack subsection — read-only mirror, configured at workspace settings */}
@@ -224,6 +235,11 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           >
             {windowMutation.isPending ? "Saving..." : "Save"}
           </Button>
+          {windowMutation.isError && (
+            <p role="alert" className="mt-2 text-[13px] text-destructive">
+              {windowMutation.error.message || "Failed to save alert window. Please try again."}
+            </p>
+          )}
         </div>
       </div>
     </div>

@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { ApiError } from "@/lib/api/errors";
+import type { ModelSelection } from "@/features/ai-assistant/components/model-selector";
 
 const mocks = vi.hoisted(() => ({
   project: {
@@ -21,10 +23,20 @@ vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
   useSlackStatus: () => ({ data: undefined }),
 }));
 vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+  ModelSelector: ({ onChange }: { onChange: (selection: ModelSelection) => void }) => (
+    <button
+      onClick={() =>
+        onChange({ model: "test-model", provider: "test-provider", source: "system", adapter: "" })
+      }
+    >
+      Change model
+    </button>
+  ),
 }));
 vi.mock("@/features/detectors/components/alert-channels-editor", () => ({
-  AlertChannelsEditor: () => null,
+  AlertChannelsEditor: ({ onChange }: { onChange: (emails: string[]) => void }) => (
+    <button onClick={() => onChange(["alerts@example.com"])}>Change emails</button>
+  ),
 }));
 
 // Radix Select renders through a portal and is flaky in jsdom; mock it to a
@@ -74,7 +86,38 @@ afterEach(() => {
   mocks.project.alert_window = "10m";
 });
 
-describe("DetectorsTab alert window", () => {
+describe("DetectorsTab settings", () => {
+  it.each([
+    ["model", { rca_model: "test-model", rca_provider: "test-provider", rca_source: "system" }],
+    ["emails", { alert_emails: ["alerts@example.com"] }],
+    ["window", { alert_window: "2h" }],
+  ])(
+    "shows a permission failure for %s and clears it after a successful retry",
+    async (setting, payload) => {
+      mocks.updateProject.mockRejectedValueOnce(new ApiError(403, "Requires ADMIN role or higher"));
+      renderTab();
+      if (setting === "window") {
+        fireEvent.change(screen.getByRole("combobox", { name: /window/i }), {
+          target: { value: "2h" },
+        });
+      } else {
+        fireEvent.click(screen.getByRole("button", { name: `Change ${setting}` }));
+      }
+      const save =
+        setting === "window"
+          ? screen.getByRole("button", { name: /save alert window/i })
+          : screen.getAllByRole("button", { name: "Save" })[setting === "model" ? 0 : 1];
+      fireEvent.click(save);
+      expect((await screen.findByRole("alert")).textContent).toBe("Requires ADMIN role or higher");
+      expect(mocks.updateProject).toHaveBeenCalledWith("w1", "p1", payload);
+      expect(save).toHaveProperty("disabled", false);
+
+      fireEvent.click(save);
+      await waitFor(() => expect(mocks.updateProject).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    },
+  );
+
   it("hydrates the saved window from the project", () => {
     mocks.project.alert_window = "1h";
     renderTab();
