@@ -3,7 +3,7 @@ title: Cost Tracking
 description: Automatic token counting and cost calculation for LLM calls
 ---
 
-When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChain, token usage and cost are tracked automatically — no extra code needed.
+TraceRoot captures token usage from instrumented LLM calls. It calculates cost only when the reported model ID matches an entry in TraceRoot's pricing table, regardless of which integration emitted the span.
 
 <Tabs>
   <Tab title="Python">
@@ -32,9 +32,25 @@ When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChai
 
 ## How It Works
 
-1. **Auto-instrumentation** — TraceRoot intercepts LLM calls from OpenAI, Anthropic, and LangChain and captures token usage from the API response automatically.
+1. **Auto-instrumentation** — TraceRoot integrations capture token usage from the provider response automatically.
 2. **Fallback estimation** — When token counts aren't in the response, TraceRoot estimates using tiktoken.
-3. **Cost calculation** — Token counts are multiplied by the model's pricing from TraceRoot's pricing table.
+3. **Model matching** — The reported model ID is matched against `standard-model-prices.json`, including supported provider-prefixed and hosted aliases.
+4. **Cost calculation** — When a match exists, token counts are multiplied by that entry's prices. An unmatched model still records tokens but has no calculated cost.
+
+## Pricing coverage
+
+Pricing entries currently cover these model families:
+
+- OpenAI
+- Anthropic, including supported Anthropic model IDs routed through Amazon Bedrock and Google Vertex AI
+- Google Gemini
+- xAI
+- DeepSeek
+- Moonshot (Kimi)
+- Z.AI (GLM)
+- TypeSafe AI (JEV)
+
+Coverage is based on model-ID patterns, not merely the provider or integration name. Notable model families without pricing entries include Mistral, Groq-hosted models, Amazon Nova and Titan, and Meta Llama. Routed models, such as models called through OpenRouter or Bedrock, are priced only when the routed model ID matches a pricing entry.
 
 ## What Gets Tracked
 
@@ -45,7 +61,7 @@ Each LLM span captures:
 | Input tokens | Tokens in the prompt/messages |
 | Output tokens | Tokens in the completion/response |
 | Total tokens | Sum of input and output |
-| Cost (USD) | Calculated from token usage and model pricing |
+| Cost (USD) | Calculated only when the model ID matches the pricing table |
 
 ## Viewing Costs
 
