@@ -7,6 +7,7 @@
  * only carry the definitions (which metrics they emit is unknown until the run runs), so
  * completion is where the resolved manifest arrives and has to be folded in.
  */
+import { canonicalJson } from "./json-value";
 
 /**
  * Merge a resolved manifest (from completion) into the stored one, by definition name:
@@ -37,16 +38,4 @@ export function mergeScorerManifests(stored: unknown, incoming: unknown): unknow
  *  order, so a replay's merged manifest matches the stored one element-for-element). */
 export function scorerManifestsEqual(a: unknown, b: unknown): boolean {
   return canonicalJson(a) === canonicalJson(b);
-}
-
-function canonicalJson(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
-  if (v && typeof v === "object") {
-    const o = v as Record<string, unknown>;
-    return `{${Object.keys(o)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(v) ?? "null";
 }
