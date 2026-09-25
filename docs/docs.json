@@ -29,6 +29,12 @@
   "contextual": {
     "options": ["copy", "view", "chatgpt", "claude"]
   },
+  "redirects": [
+    {
+      "source": "/detectors/alerts",
+      "destination": "/detectors/notifications"
+    }
+  ],
   "search": {
     "ai": true
   },
@@ -122,7 +128,7 @@
             "pages": [
               "detectors/introduction",
               "detectors/get-started",
-              "detectors/alerts"
+              "detectors/notifications"
             ]
           },
           {

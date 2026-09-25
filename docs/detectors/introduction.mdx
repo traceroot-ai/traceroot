@@ -4,7 +4,7 @@ description: Continuous monitoring for your AI agents
 ---
 
 
-A detector is an **LLM-as-a-judge** — an evaluator model that reads each incoming trace and decides whether a specific problem is present. When the judge flags one, the TraceRoot AI agent investigates — pulling in the trace, your production source code, and recent GitHub activity — and the combined alert lands once both steps complete.
+A detector is an **LLM-as-a-judge** — an evaluator model that reads each incoming trace and decides whether a specific problem is present. When the judge flags one, TraceRoot records a finding and, when RCA is enabled, the AI agent investigates using the trace, your production source code, and recent GitHub activity. Notifications are sent on the configured digest window rather than waiting for the analysis to finish.
 
 
 <Frame>
@@ -30,11 +30,11 @@ A detector has four parts:
 - **An outcome** — a boolean `identified` — was the problem present in this trace?
 - **An RCA toggle** — whether the AI agent investigates this detector's findings (on by default).
 
-When `identified` is true, the detector emits a **finding**, the AI agent investigates (when RCA is enabled — see below), and the combined alert — finding plus analysis — lands in your inbox.
+When `identified` is true, the detector emits a **finding** and the AI agent investigates when RCA is enabled. Findings from RCA-enabled detectors are included in the next configured notification digest; the RCA itself is read in TraceRoot, not in the digest.
 
 ## Root cause analysis
 
-Every detector has a **Run root cause analysis on findings** toggle, available in the create sheet and the edit panel. It controls whether the AI agent (step 2) investigates the detector's findings — turn it off for a noisy detector that would otherwise incur agent-model cost on every finding. It defaults to on, and detection itself is unaffected either way: a detector with the toggle off still fires and records findings; only the downstream analysis is skipped.
+Every detector has a **Run root cause analysis on findings** toggle, available in the create sheet and the edit panel. It controls whether the AI agent (step 2) investigates the detector's findings — turn it off for a noisy detector that would otherwise incur agent-model cost on every finding. It defaults to on, and detection itself is unaffected either way: a detector with the toggle off still fires and records findings, but its findings are excluded from email and Slack notification digests.
 
 RCA is decided **per trace, not per detector**. When several detectors fire on the same trace they share a single finding and a single RCA agent, and that analysis runs if **at least one detector that fired** on the trace has the toggle on. Two consequences:
 
@@ -47,7 +47,7 @@ RCA is decided **per trace, not per detector**. When several detectors fire on t
   <Card title="Get Started" icon="rocket" href="/detectors/get-started">
     Create your first detector in a few minutes from a starting prompt.
   </Card>
-  <Card title="Alerts" icon="bell" href="/detectors/alerts">
+  <Card title="Notifications" icon="bell" href="/detectors/notifications">
     Configure email and Slack notifications for findings.
   </Card>
 </CardGroup>
