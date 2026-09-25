@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 import { env } from "@/env";
@@ -14,7 +15,7 @@ type RouteParams = { params: Promise<{ projectId: string; traceId: string }> };
  *
  * Returns an empty state on any backend failure: it is a hint, not page data.
  */
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, traceId } = await params;
@@ -34,3 +35,4 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     return successResponse(empty);
   }
 }
+export const GET = withImpersonationPolicy(handleGET);

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 vi.mock("next/server", () => ({
   NextRequest: class {},
   NextResponse: { json: (body: unknown, init?: { status?: number }) => Response.json(body, init) },

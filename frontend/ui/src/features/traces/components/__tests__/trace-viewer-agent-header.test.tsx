@@ -33,6 +33,9 @@ vi.mock("../../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
 vi.mock("@/features/detectors/hooks/use-findings", () => ({
   useTraceFindings: () => ({ data: { findings: [] } }),
   useRca: () => ({ data: { rca: null } }),
+  // No detection queued: the header shows no detecting badge.
+  useTraceDetectionState: () => ({ data: undefined }),
+  detectionInFlight: () => false,
 }));
 const layoutMocks = vi.hoisted(() => ({ registerAiHost: vi.fn(() => () => {}) }));
 vi.mock("@/components/layout/app-layout", () => ({
