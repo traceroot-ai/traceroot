@@ -24,8 +24,10 @@ Only findings from detectors with **Run root cause analysis on findings** enable
 Email and Slack receive the same digest content:
 
 - Each detector's name and number of findings in the window.
-- A link to the latest trace for each detector, plus a link to view all findings.
+- A link to the latest trace for each detector.
 - An optional short, one-paragraph LLM summary of the window.
+
+The email also links to all findings. Slack links each detector name to its findings for the window.
 
 The summary is best effort, so a digest can arrive without it. It is also omitted for a Free workspace that has reached its RCA quota. Root cause analyses remain available in TraceRoot and are never embedded in the digest.
 
@@ -46,4 +48,3 @@ Slack delivery is available on every plan. The integration is workspace-level â€
 1. Open **Settings** then **Integrations** as a workspace admin.
 2. Click **Connect** and complete the OAuth flow in your Slack workspace.
 3. Pick the channel TraceRoot should post notification digests to.
-
