@@ -25,6 +25,9 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/traces/{trace_id}/time-since-last-span"),
     ("GET", "/api/v1/internal/traces/{trace_id}/findings"),
     ("GET", "/api/v1/internal/traces/{trace_id}/detector-runs"),
+    # Detection state: whether detection is queued for a trace, and which
+    # detectors ran, read off the worker's enqueue-claim record.
+    ("GET", "/api/v1/internal/traces/{trace_id}/detection-state"),
     ("GET", "/api/v1/internal/detector-window-summary"),
     ("POST", "/api/v1/internal/traces"),
     ("POST", "/api/v1/internal/traces/agent"),
