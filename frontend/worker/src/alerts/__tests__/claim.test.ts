@@ -62,6 +62,10 @@ function row(overrides: Partial<AlertRowLike> = {}): AlertRowLike {
     severity: "OK",
     severityChangedAt: null,
     alertedAt: null,
+    lastNotifyStatus: null,
+    lastNotifyError: null,
+    lastNotifyAt: null,
+    slackUpdatedAt: null,
     ...overrides,
   };
 }
@@ -190,6 +194,18 @@ describe("claimDueAlerts — taking ownership", () => {
     for (const window of Object.keys(ALERT_WINDOWS)) {
       expect(sql).toContain(`WHEN '${window}' THEN`);
     }
+  });
+
+  it("reads back the last delivery, and Slack's settings only for a page that failed", async () => {
+    await claimDueAlerts(TICK);
+    const sql = claimSql().replace(/\s+/g, " ");
+
+    // A page that never went out for want of Slack is retried once Slack is set up,
+    // so the tick needs both sides of that comparison without a query per rule.
+    expect(sql).toContain('last_notify_at AS "lastNotifyAt"');
+    expect(sql).toContain("CASE WHEN last_notify_status = 'FAILED' THEN");
+    expect(sql).toContain("JOIN slack_integrations s ON s.workspace_id = sp.workspace_id");
+    expect(sql).toContain('END AS "slackUpdatedAt"');
   });
 
   it("returns nothing when every candidate was already held elsewhere", async () => {
