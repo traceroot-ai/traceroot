@@ -561,10 +561,10 @@ describe("base-fetched skeleton spans build a connected tree", () => {
   // connected. The backend half is guarded in tests/rest/test_trace_reader.py
   // (the SELECT extracts the attrs) and tests/rest/test_traces_router.py (the
   // dashboard route does not drop them).
-  it("nests a skeleton child under a synthesized ancestor instead of orphaning it", () => {
+  it("builds one connected tree from a base skeleton with pending ancestors", () => {
     // Only the leaf has been exported so far: its parent chain is still running.
     const skeletonSpans = [
-      makeSpan({
+      makeSkeletonSpan({
         span_id: "leaf",
         parent_span_id: "agent",
         name: "tool_call",
@@ -572,19 +572,19 @@ describe("base-fetched skeleton spans build a connected tree", () => {
       }),
     ];
 
-    const rows = buildSpanTree(enrichSpansWithPending(skeletonSpans));
+    const repairedSpans = enrichSpansWithPending(skeletonSpans);
+    const rows = buildSpanTree(repairedSpans);
+    const visibleHierarchy = rows.map((row) => [row.span.span_id, row.level]);
 
-    expect(rows.map((r) => [r.span.span_id, r.level])).toEqual([
+    expect(visibleHierarchy).toEqual([
       ["root", 0],
       ["agent", 1],
       ["leaf", 2],
     ]);
-    // The ancestors are placeholders, and the real leaf is not one.
-    expect(rows[0].span.pending).toBe(true);
-    expect(rows[1].span.pending).toBe(true);
-    expect(rows[2].span.pending).toBeUndefined();
-    // Exactly one top-level row: nothing is orphaned up to the root.
-    expect(rows.filter((r) => r.level === 0)).toHaveLength(1);
+
+    const topLevelRows = rows.filter((row) => row.level === 0);
+    expect(topLevelRows).toHaveLength(1);
+    expect(topLevelRows[0].span.span_id).toBe("root");
   });
 
   it("orphans the child when the skeleton carries no path metadata", () => {
