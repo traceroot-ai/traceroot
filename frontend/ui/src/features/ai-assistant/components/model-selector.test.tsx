@@ -185,6 +185,46 @@ describe("ModelSelector", () => {
     });
   });
 
+  it("renders the selected model indicator as an icon instead of a Unicode checkmark", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [
+            { id: "claude-4", label: "Claude 4" },
+            { id: "claude-3-5", label: "Claude 3.5" },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{
+          model: "claude-4",
+          provider: "anthropic",
+          source: "system",
+          adapter: "anthropic",
+        }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /claude 4/i }));
+
+    const selectedOption = screen
+      .getAllByRole("button", { name: /claude 4/i })
+      .find((button) => button.className.includes("w-full"));
+    expect(selectedOption).toBeDefined();
+
+    expect(selectedOption!.textContent).not.toContain("✓");
+    expect(selectedOption!.querySelector("svg")).not.toBeNull();
+  });
+
   it("does not auto-pick when a defaultModelId marks empty as a valid state", () => {
     mocks.models = {
       byokProviders: [],
@@ -241,8 +281,8 @@ describe("ModelSelector", () => {
     const rows = screen.getAllByRole("button").filter((b) => !b.hasAttribute("aria-haspopup"));
     const tracked = rows.find((b) => b.textContent?.includes("Claude 4"));
     const other = rows.find((b) => b.textContent?.includes("Claude 5"));
-    expect(tracked?.textContent).toContain("✓");
-    expect(other?.textContent).not.toContain("✓");
+    expect(tracked?.querySelector("svg")).not.toBeNull();
+    expect(other?.querySelector("svg")).toBeNull();
   });
 
   it("picking the tracked default keeps the selection empty rather than pinning it", () => {
@@ -392,7 +432,9 @@ describe("ModelSelector", () => {
     expect(screen.getByRole("button").textContent).not.toContain("Claude 4");
 
     fireEvent.click(screen.getByRole("button"));
-    const ticked = screen.getAllByRole("button").filter((b) => b.textContent?.includes("✓"));
+    const ticked = screen
+      .getAllByRole("button")
+      .filter((b) => b.querySelector("svg") !== null && !b.hasAttribute("aria-haspopup"));
     expect(ticked).toHaveLength(0);
   });
 
@@ -508,7 +550,12 @@ describe("ModelSelector", () => {
 
     const ticked = screen
       .getAllByRole("button")
-      .filter((b) => b.textContent?.includes("✓") && b.textContent?.includes("Claude 4"));
+      .filter(
+        (b) =>
+          b.querySelector("svg") !== null &&
+          b.textContent?.includes("Claude 4") &&
+          !b.hasAttribute("aria-haspopup"),
+      );
     expect(ticked).toHaveLength(1);
     // The BYOK row is the one carrying the provider tag.
     expect(ticked[0].textContent).not.toContain("My Anthropic");
