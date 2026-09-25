@@ -1,0 +1,179 @@
+---
+title: Read-only SQL
+description: Query your project's spans and traces from the CLI or public API
+---
+
+TraceRoot's SQL gateway runs analytical queries against your project's trace data. It is read-only and project-scoped: the authenticated credential selects the project, and the request cannot select or override a project ID.
+
+You can query the gateway with the [TraceRoot CLI](/cli/get-started) or with the public API.
+
+## Query with the CLI
+
+Pass a query as one quoted argument, or use `--file <path>` to read it from a file:
+
+```bash
+traceroot sql "SELECT count() AS spans FROM spans WHERE span_start_time >= now() - INTERVAL 1 DAY"
+```
+
+The default output is a table. Use `--csv` for CSV, `--json` for the complete API response, and `--output <file>` to write the selected format to a file.
+
+```bash
+traceroot sql \
+  "SELECT span_id, trace_id, name, duration_ms FROM spans WHERE span_start_time >= now() - INTERVAL 7 DAY" \
+  --csv \
+  --max-rows 5000 \
+  --output spans.csv
+```
+
+Bind `{name:Type}` placeholders with one `--param name=value` flag per value. Parameters stay separate from the SQL text.
+
+```bash
+traceroot sql \
+  "SELECT count() FROM spans WHERE span_start_time >= {since:DateTime64(3)} AND environment = {environment:String}" \
+  --param since=2026-09-18T00:00:00Z \
+  --param environment=production
+```
+
+Run `traceroot sql schema` to list the available tables, columns, and ClickHouse types. The [CLI repository](https://github.com/traceroot-ai/traceroot-cli#sql-queries) documents installation, authentication, output formats, and the complete flag reference.
+
+## Worked queries
+
+Always include a time predicate on `span_start_time` or `trace_start_time`. The gateway uses that range when reading the underlying project-scoped views, so bounded queries scan less data.
+
+### Recent error spans
+
+```sql
+SELECT span_id, trace_id, name, status_message, span_start_time
+FROM spans
+WHERE status = 'ERROR'
+  AND span_start_time >= now() - INTERVAL 1 DAY
+ORDER BY span_start_time DESC
+LIMIT 100
+```
+
+### p95 latency by model
+
+```sql
+SELECT model_name, quantile(0.95)(duration_ms) AS p95_ms
+FROM spans
+WHERE model_name IS NOT NULL
+  AND span_start_time >= now() - INTERVAL 7 DAY
+GROUP BY model_name
+ORDER BY p95_ms DESC
+```
+
+### Cost by model over seven days
+
+```sql
+SELECT model_name, sum(cost) AS total_cost
+FROM spans
+WHERE model_name IS NOT NULL
+  AND span_start_time >= now() - INTERVAL 7 DAY
+GROUP BY model_name
+ORDER BY total_cost DESC
+```
+
+## Query with the API
+
+Send a project API key as a bearer token to `POST /api/v1/public/sql`:
+
+```bash
+curl --request POST "$TRACEROOT_HOST_URL/api/v1/public/sql" \
+  --header "Authorization: Bearer $TRACEROOT_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "query": "SELECT model_name, sum(cost) AS total_cost FROM spans WHERE span_start_time >= {since:DateTime64(3)} GROUP BY model_name ORDER BY total_cost DESC",
+    "parameters": {"since": "2026-09-18T00:00:00Z"},
+    "max_rows": 1000
+  }'
+```
+
+A successful response contains column names and types, row values in the same order, the returned row count, truncation state, elapsed time, and any read statistics supplied by ClickHouse:
+
+```json
+{
+  "columns": [
+    {"name": "model_name", "type": "Nullable(String)"},
+    {"name": "total_cost", "type": "Nullable(Decimal(38, 9))"}
+  ],
+  "rows": [["gpt-5", "0.013500000"]],
+  "row_count": 1,
+  "truncated": false,
+  "elapsed_ms": 12,
+  "statistics": {"rows_read": 842, "bytes_read": 91736}
+}
+```
+
+`statistics` is best-effort and may be empty. When more rows match than the gateway returns, `truncated` is `true`. A request's `max_rows` can lower the server cap, but cannot raise it.
+
+Fetch the same schema used by the validator and query rewriter with `GET /api/v1/public/sql/schema`:
+
+```bash
+curl "$TRACEROOT_HOST_URL/api/v1/public/sql/schema" \
+  --header "Authorization: Bearer $TRACEROOT_API_KEY"
+```
+
+## Public schema
+
+Queries can reference only two logical tables:
+
+| Table | Contents | Time-filter column |
+| :-- | :-- | :-- |
+| `spans` | Span identity, timing, status, model, token, cost, environment, metadata, and Git source fields | `span_start_time` |
+| `traces` | Trace identity, timing, name, user, session, Git, environment, and metadata fields | `trace_start_time` |
+
+Use `traceroot sql schema --json` or `GET /api/v1/public/sql/schema` for the authoritative column list and types.
+
+These are curated views over TraceRoot's internal tables. They deliberately exclude:
+
+- span and trace `input` and `output` payloads;
+- the raw metadata JSON document; `metadata` is exposed instead as a one-level string map, accessed with expressions such as `metadata['user_id']`;
+- `project_id`, `ch_create_time`, `ch_update_time`, and internal classification fields;
+- rows that are not customer traffic; and
+- every trace that belongs to an evaluation run, including its spans.
+
+## SQL contract
+
+The gateway accepts one `SELECT` or `UNION`. CTEs, subqueries, joins, grouping, ordering, and the `row_number`, `rank`, and `dense_rank` window functions are supported. Functions are allowlisted; the list includes common aggregation, date-bucketing, string, conversion, conditional, and metadata-map functions. A ClickHouse function outside the allowlist is rejected even if ClickHouse normally supports it.
+
+The gateway rejects:
+
+- multiple statements, writes, DDL, and control statements;
+- tables other than `spans` and `traces`, including table functions;
+- database-qualified names and the internal view names;
+- `FINAL`, `SETTINGS`, and `FORMAT` clauses;
+- any reference or alias named `project_id`;
+- a CTE named `spans` or `traces`; and
+- parameter names `project_id` or beginning with `scope_`, which are reserved for server-side scoping.
+
+Queries are limited to 65,536 characters. A request can bind at most 100 parameters, whose serialized JSON is limited to 16,384 characters.
+
+## Execution and rate limits
+
+Default execution limits are:
+
+| Limit | Default |
+| :-- | --: |
+| Execution time | 30 seconds |
+| ClickHouse result rows | 100,000 |
+| Result size | 512 MiB |
+| Memory per query | 4 GiB |
+| Concurrent queries per project, per REST process | 4 |
+| Concurrent queries in total, per REST process | 16 |
+
+The gateway reserves a row beyond the returned result to detect truncation. If that row exists, it removes the sentinel and returns `truncated: true`. Queries that exceed the time, result-size, or memory limits fail; narrow the selected columns or time range and retry.
+
+On self-hosted deployments, operators can change the four ClickHouse caps with `CLICKHOUSE_SQL_MAX_EXECUTION_TIME`, `CLICKHOUSE_SQL_MAX_RESULT_ROWS`, `CLICKHOUSE_SQL_MAX_RESULT_BYTES`, and `CLICKHOUSE_SQL_MAX_MEMORY_USAGE`.
+
+Concurrency is not a queue. If either per-process slot limit is full, the API returns HTTP 429 with `Too many queries are running. Retry shortly.` and a one-second `Retry-After` header.
+
+TraceRoot Cloud also applies a per-project SQL request rate:
+
+| Plan | Requests per minute |
+| :-- | --: |
+| Free | 20 |
+| Starter | 60 |
+| Pro | 120 |
+| Enterprise | 120 |
+
+SQL rate limiting is disabled on self-hosted deployments where billing is disabled.
