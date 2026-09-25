@@ -111,17 +111,14 @@ ADK 2.x runs agents, tools, and plain Python functions as nodes of a graph `Work
 
 ```python
 import asyncio
-
 import traceroot
 from traceroot import Integration
-
-traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
-
-# Import after initialize() so tracing is already active.
 from google.adk import Agent, Event, Workflow
 from google.adk.runners import InMemoryRunner
 from google.adk.workflow import JoinNode
 from google.genai import types
+
+traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
 
 
 def record_city(node_input: str):
@@ -130,9 +127,9 @@ def record_city(node_input: str):
     return Event(output=city, state={"city": city})
 
 
-def get_weather(node_input: str) -> dict:
-    """Get current weather for a city."""
-    return {"city": node_input, "temp": 72, "condition": "sunny"}
+def get_weather(city: str) -> dict:
+    """Get current weather for the city in session state."""
+    return {"city": city, "temp": 72, "condition": "sunny"}
 
 
 suggest_food = Agent(
@@ -157,13 +154,16 @@ async def main():
     )
 
     # The workflow run and every node in it are traced
+    output = None
     async for event in runner.run_async(
         user_id="demo-user",
         session_id="demo-session",
         new_message=types.Content(role="user", parts=[types.Part(text="Tokyo")]),
     ):
         if event.output is not None:
-            print(event.output)
+            output = event.output
+    # The last output is the joined result, keyed by branch name
+    print(output)
 
 
 if __name__ == "__main__":
