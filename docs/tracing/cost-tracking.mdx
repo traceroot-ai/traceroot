@@ -13,7 +13,7 @@ TraceRoot captures token usage from instrumented LLM calls. It calculates cost o
 
     traceroot.initialize(integrations=[Integration.OPENAI])
 
-    # All OpenAI calls are now automatically tracked — tokens, cost, model
+    # OpenAI calls are tracked automatically; cost requires a priced model ID
     client.chat.completions.create(...)
     ```
   </Tab>
@@ -24,7 +24,7 @@ TraceRoot captures token usage from instrumented LLM calls. It calculates cost o
 
     TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
 
-    // All OpenAI calls are now automatically tracked — tokens, cost, model
+    // OpenAI calls are tracked automatically; cost requires a priced model ID
     await client.chat.completions.create({ ... });
     ```
   </Tab>
