@@ -31,6 +31,7 @@ export {
   getEntitlements,
   requireEntitlement,
   // Seat enforcement
+  countCurrentSeats,
   getSeatLimit,
   canAddSeat,
   requireSeatAvailable,
