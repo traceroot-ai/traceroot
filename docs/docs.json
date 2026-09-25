@@ -133,7 +133,8 @@
               "evals/datasets",
               "evals/scorers",
               "evals/running-evals",
-              "evals/reading-results"
+              "evals/reading-results",
+              "evals/cli"
             ]
           },
           {

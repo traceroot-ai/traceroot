@@ -125,6 +125,14 @@ Pull a published dataset back down as an ordinary local `Dataset` — iterate it
 
 To reproduce a past run, pull the version that run recorded (`result.dataset.dataset_version_id`) and re-run it with your own task and scorers.
 
+To see what's published without pulling it, the [CLI](/evals/cli) lists datasets, their versions, and the cases in one version:
+
+```bash
+traceroot datasets list
+traceroot datasets versions list ds_…
+traceroot datasets versions get dsv_…
+```
+
 ## Next steps
 
 <CardGroup cols={2}>
@@ -133,5 +141,8 @@ To reproduce a past run, pull the version that run recorded (`result.dataset.dat
   </Card>
   <Card title="Running Evals" icon="play" href="/evals/running-evals">
     Point a task and scorers at a dataset and run it.
+  </Card>
+  <Card title="From the Terminal" icon="terminal" href="/evals/cli">
+    Read datasets and their versions with the CLI.
   </Card>
 </CardGroup>
