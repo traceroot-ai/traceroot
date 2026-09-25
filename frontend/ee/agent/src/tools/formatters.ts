@@ -776,3 +776,195 @@ export function formatAlertDetail(data: unknown): string {
   }
   return lines.join("\n");
 }
+
+// ---------------------------------------------------------------------------
+// Evaluations
+// ---------------------------------------------------------------------------
+
+/** A run can declare up to 200 scorers; the model needs the first screenful, then a count. */
+export const EVAL_SCORE_ROW_CAP = 40;
+
+/** The text budget of every evaluation read, as for the dashboard data reads. */
+const EVAL_READ_BUDGET_BYTES = DASHBOARD_DATA_BUDGET_BYTES;
+
+/**
+ * Text capped at `maxBytes`, with a marker saying where it was cut. The marker's own bytes
+ * are reserved first, so the result never exceeds the budget it names.
+ */
+function boundedText(text: string, maxBytes: number, hint: string): string {
+  const marker = `\n… output truncated at ${maxBytes} bytes; ${hint}`;
+  const room = maxBytes - new TextEncoder().encode(marker).length;
+  const bounded = truncateHead(text, { maxBytes: room });
+  return bounded.truncated ? `${bounded.content}${marker}` : bounded.content;
+}
+
+/** A server-supplied word kept to one line, such as an unrecognised status. */
+function oneLine(value: unknown, max: number): string {
+  const text = String(value ?? "").replace(/\s+/g, " ");
+  return text.length > max ? `${truncate(text, max)}…` : text;
+}
+
+/**
+ * A stored value — a name, a key, an id an SDK chose — as one quoted, escaped token.
+ *
+ * JSON escaping keeps it exact and on one line, so an id survives character for character
+ * and a name cannot open a line or pose as a field (" · ", " | ", "[…]:") of its own. JSON
+ * leaves three line breaks raw (U+0085, U+2028, U+2029), so those are escaped as well. A
+ * value too long to show is cut before it is escaped, so the cut never lands inside an
+ * escape, and it ends in … so it is never quoted as complete.
+ */
+function token(value: unknown, max: number): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const text = String(value);
+  const shown = text.length > max ? truncate(text, max) : text;
+  const escaped = JSON.stringify(shown).replace(
+    /[\u0085\u2028\u2029]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+  return shown === text ? escaped : `${escaped}…`;
+}
+
+/**
+ * A measure to five significant digits, grouped past a thousand. Significant digits, not
+ * fixed decimals: a 1–5 judge averaging 4.9967 must not print 5, a share of 0.99995 must
+ * not print 1, and a per-case cost of $0.000149 must not lose a third of its value.
+ */
+function formatMeasure(value: number): string {
+  return Math.abs(value) >= 1000
+    ? value.toLocaleString("en-US", { maximumFractionDigits: 0 })
+    : value.toLocaleString("en-US", { maximumSignificantDigits: 5 });
+}
+
+/** A value with its server-supplied unit, or — when nothing was reported (never 0). */
+function withUnit(value: unknown, unit: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const sign = value < 0 ? "-" : "";
+  const body = formatMeasure(Math.abs(value));
+  if (unit === "$") return `${sign}$${body}`;
+  if (typeof unit === "string" && unit !== "") return `${sign}${body} ${unit}`;
+  return `${sign}${body}`;
+}
+
+/**
+ * Whether the run is finished, in words. Only the SDK's completion call ends a run, so a
+ * run whose job died stays "running" for good; the line says so rather than promising
+ * figures that will never arrive.
+ */
+function statusText(status: unknown): string {
+  switch (status) {
+    case "running":
+      return "running — not reported as finished, so figures may still change (a run whose job stopped stays in this state)";
+    case "completed":
+      return "complete";
+    case "completed_with_errors":
+      return "complete, with errors";
+    case "failed":
+      return "failed";
+    case "incomplete":
+      return "partial — it stopped before finishing";
+    case "cancelled":
+      return "partial — it was cancelled before finishing";
+    default:
+      return `status ${oneLine(status ?? "unknown", 40)}`;
+  }
+}
+
+function count(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "—";
+}
+
+/**
+ * The results line, as counts only. Two of the run's counts need care:
+ * - scored and the two error counters are written only when the run reports completion,
+ *   so on a running run they are unreported, not zero;
+ * - current SDKs record each case as errored or not scored and never as passed or failed,
+ *   so passed and failed are shown only when a run recorded them, and "not scored" — a
+ *   case with no pass/fail verdict, however many scorers ran on it — is not shown at all.
+ */
+function resultsText(run: any): string {
+  const completed = run.status !== "running";
+  const onCompletion = (value: unknown) => (completed ? count(value) : "—");
+  const parts = [
+    `${count(run.result_count)} observed`,
+    `${onCompletion(run.scored_count)} scored`,
+    `${onCompletion(run.task_error_count)} task errors`,
+    `${onCompletion(run.scorer_error_count)} scorer errors`,
+    `errored ${count(run.errored_count)}`,
+  ];
+  if ((run.passed_count ?? 0) > 0 || (run.failed_count ?? 0) > 0) {
+    parts.push(`passed ${count(run.passed_count)}`, `failed ${count(run.failed_count)}`);
+  }
+  return `Results: ${parts.join(" · ")}`;
+}
+
+/**
+ * One score or metric: its mean and the number of cases it is over. The server leaves the
+ * mean empty when the stored values are not all numbers (labels, or labels mixed with
+ * numbers); that is said in words rather than left looking unreported. A mean nothing
+ * reported prints as —, never 0.
+ */
+function meanText(item: any, unit: unknown): string {
+  const n = item.observed_count;
+  const over = typeof n === "number" ? ` · over ${n} case${n === 1 ? "" : "s"}` : "";
+  if (typeof item.value !== "number" && typeof n === "number" && n > 0) {
+    return `not averaged (its stored values are not all numbers)${over}`;
+  }
+  return `${withUnit(item.value, unit)}${over}`;
+}
+
+/**
+ * The text the model sees for a get_evaluation_run result: one run's own summary.
+ *
+ * It opens with where the run stands — complete, partial or running — because every
+ * figure below is qualified by it. Counts are counts: nothing here divides one by another,
+ * so no pass rate or percentage can be quoted from this text as if the platform had
+ * computed it. A value the run did not report prints as —. There is no comparison: the
+ * read is one run's own summary.
+ */
+export function formatEvaluationRun(data: unknown): string {
+  const run = (data ?? {}) as any;
+  const name = run.evaluation_name ? token(run.evaluation_name, 200) : "(unnamed)";
+  const lines: string[] = [
+    `Standing: ${statusText(run.status)}`,
+    `Run: ${name} · run #${count(run.run_number)} · id ${token(run.evaluation_run_id, 64)}`,
+  ];
+  // Printed verbatim when present, never composed from an id and a host.
+  if (typeof run.run_url === "string" && run.run_url !== "") {
+    lines.push(`URL: ${run.run_url}`);
+  }
+  lines.push(
+    `Candidate: ${token(run.candidate_version, 200)} · environment: ${token(run.environment, 64)} · started ${run.started_at ?? "—"} · completed ${run.completed_at ?? "—"}`,
+    // Ids, not names: an SDK's dataset id is often a hash.
+    `Dataset: id ${token(run.dataset_id, 64)} · version id ${token(run.dataset_version_id, 64)}`,
+    resultsText(run),
+  );
+
+  const scores: any[] = Array.isArray(run.scores) ? run.scores : [];
+  if (scores.length === 0) {
+    lines.push("Scores: none reported");
+  } else {
+    lines.push("Scores (mean per case over the cases each scorer scored; unitless):");
+    for (const s of scores.slice(0, EVAL_SCORE_ROW_CAP)) {
+      lines.push(
+        `- ${token(s.name, 200)} [${s.value_type ?? "?"}, ${s.direction ?? "?"}]: ${meanText(s, null)}`,
+      );
+    }
+    if (scores.length > EVAL_SCORE_ROW_CAP) {
+      lines.push(`… ${scores.length - EVAL_SCORE_ROW_CAP} more scores not shown`);
+    }
+  }
+
+  const metrics: any[] = Array.isArray(run.metrics) ? run.metrics : [];
+  if (metrics.length > 0) {
+    lines.push("Metrics (mean per case over the cases that reported it):");
+    for (const m of metrics) {
+      lines.push(`- ${oneLine(m.name, 60)}${m.unit ? ` [${m.unit}]` : ""}: ${meanText(m, m.unit)}`);
+    }
+  }
+
+  return boundedText(
+    lines.join("\n"),
+    EVAL_READ_BUDGET_BYTES,
+    "open the run URL for the full table",
+  );
+}
