@@ -883,6 +883,42 @@
     }
   },
   {
+    "id": "tr-gemini-3-8-flash",
+    "modelName": "gemini-3.8-flash",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.8-flash(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.00000075,
+      "output": 0.00000375,
+      "cacheRead": 0.000000075,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-3-7-flash",
+    "modelName": "gemini-3.7-flash",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.7-flash(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.00000075,
+      "output": 0.00000375,
+      "cacheRead": 0.000000075,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-3-6-flash",
+    "modelName": "gemini-3.6-flash",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.6-flash(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.00000075,
+      "output": 0.00000375,
+      "cacheRead": 0.000000075,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gemini-3-5-flash",
     "modelName": "gemini-3.5-flash",
     "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.5-flash(-[\\d-]+)?$",
@@ -891,6 +927,18 @@
       "input": 0.0000015,
       "output": 0.000009,
       "cacheRead": 0.00000015,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-3-5-flash-lite",
+    "modelName": "gemini-3.5-flash-lite",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.5-flash-lite(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.0000003,
+      "output": 0.0000025,
+      "cacheRead": 0.00000003,
       "cacheWrite": null
     }
   },
