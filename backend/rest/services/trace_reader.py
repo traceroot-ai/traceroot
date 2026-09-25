@@ -12,8 +12,6 @@ from shared.span_attributes import (
     SPAN_PATH,
     SPAN_TREE_ATTRIBUTES,
 )
-from worker.tokens.buckets import TokenBuckets, reconcile_cache_write_1h
-from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
 
 # Lookback for the trace-detail spans query lower bound:
 # span_start_time >= trace_start_time - this value.
@@ -142,40 +140,6 @@ def default_lookback_start(normalized_end: datetime | None) -> datetime:
     """
     upper = normalized_end if normalized_end is not None else datetime.now(UTC).replace(tzinfo=None)
     return upper - timedelta(hours=DEFAULT_SPAN_SCAN_LOOKBACK_HOURS)
-
-
-def span_cost_details(
-    model_name: str | None,
-    input_tokens: int | None,
-    output_tokens: int | None,
-    usage_details: dict[str, int],
-) -> dict[str, float]:
-    """Per-category dollar breakdown for a stored span.
-
-    Rebuilds the disjoint token buckets from the stored GROSS input_tokens and the
-    cache counts in usage_details, then prices each bucket with the model's current
-    rates. Display-only: the values sum to the span's stored `cost` when rates are
-    unchanged. Returns {} when the model has no known prices.
-    """
-    if not model_name:
-        return {}
-    cache_read = int(usage_details.get("cache_read_tokens", 0) or 0)
-    cache_write = int(usage_details.get("cache_write_tokens", 0) or 0)
-    # Optional 1-hour cache-write portion (absent for spans with no 1-hour writes and
-    # for any emitter that doesn't report it). Reconciled against the write total with
-    # the same rule used at ingest, so a stored breakdown can't over-count.
-    cache_write_1h = reconcile_cache_write_1h(
-        cache_write,
-        int(usage_details.get("cache_write_1h_tokens", 0) or 0),
-    )
-    buckets = TokenBuckets(
-        input_uncached=max((input_tokens or 0) - cache_read - cache_write, 0),
-        output=output_tokens or 0,
-        cache_read=cache_read,
-        cache_write=cache_write,
-        cache_write_1h=cache_write_1h,
-    )
-    return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
 
 
 def _extract_span_path_attr(attribute: str) -> str:
@@ -766,9 +730,12 @@ class TraceReaderService:
 
         # Fetch span skeletons — omit the large input/output blobs and the full
         # metadata bag (fetched per-span on demand instead). usage_details is
-        # kept (small map) to derive cost_details. Duration is derived on the
-        # client from start/end so in-progress spans can grow against `now()`
-        # for live traces.
+        # kept (small map) for display; cost_details is read straight from
+        # storage — it is computed once at ingest, alongside cost, not
+        # recomputed here (a live recompute could disagree with the stored
+        # cost whenever the price catalogue changed after ingest).
+        # Duration is derived on the client from start/end so in-progress
+        # spans can grow against `now()` for live traces.
         # span_start_time is DateTime64(3) (ms), so sub-ms parallel siblings tie;
         # the span_end_time + span_id tie-breakers give a stable, deterministic
         # order (clients sort the same way — keep these columns in sync).
@@ -788,7 +755,7 @@ class TraceReaderService:
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
                 model_name, cost, input_tokens, output_tokens, total_tokens,
-                usage_details,
+                usage_details, cost_details,
                 if(
                     empty(tree_ids_path) AND empty(tree_name_path),
                     NULL,
@@ -803,7 +770,7 @@ class TraceReaderService:
                     span_id, trace_id, parent_span_id, name, span_kind,
                     span_start_time, span_end_time, status, status_message,
                     model_name, cost, input_tokens, output_tokens, total_tokens,
-                    usage_details,
+                    usage_details, cost_details,
                     {_extract_span_path_attr(SPAN_IDS_PATH)} AS tree_ids_path,
                     {_extract_span_path_attr(SPAN_PATH)} AS tree_name_path,
                     git_source_file, git_source_line, git_source_function
@@ -838,17 +805,12 @@ class TraceReaderService:
                     "output_tokens": int(row[12]) if row[12] is not None else None,
                     "total_tokens": int(row[13]) if row[13] is not None else None,
                     "usage_details": dict(row[14]) if row[14] else {},
-                    "cost_details": span_cost_details(
-                        row[9],  # model_name
-                        int(row[11]) if row[11] is not None else None,  # input_tokens
-                        int(row[12]) if row[12] is not None else None,  # output_tokens
-                        dict(row[14]) if row[14] else {},  # usage_details
-                    ),
+                    "cost_details": dict(row[15]) if row[15] else {},
                     # Already reduced to the span-path subset by the query.
-                    "metadata": row[15],
-                    "git_source_file": row[16],
-                    "git_source_line": int(row[17]) if row[17] is not None else None,
-                    "git_source_function": row[18],
+                    "metadata": row[16],
+                    "git_source_file": row[17],
+                    "git_source_line": int(row[18]) if row[18] is not None else None,
+                    "git_source_function": row[19],
                 }
             )
 

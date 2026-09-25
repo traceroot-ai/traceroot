@@ -1,109 +1,33 @@
-"""Unit tests for read-path cost derivation.
+"""Unit tests for the trace-detail read path.
 
-Pure logic — get_model_price is patched, so no DB/ClickHouse is needed.
+cost_details is read straight from storage (computed once at ingest,
+alongside cost — see tests/worker/test_otel_transform.py for that side).
+The ClickHouse client is mocked throughout; no DB is needed.
 """
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
 
-CLAUDE_PRICES = {
-    "input": 0.000003,
-    "output": 0.000015,
-    "cacheRead": 0.0000003,
-    "cacheWrite": 0.00000375,
-}
+def test_trace_reader_no_longer_recomputes_cost_details_live():
+    """cost_details is computed once at ingest and stored — the read
+    path must not carry any live-pricing machinery that could let it drift
+    from the stored cost again. Structural guard: these names must be gone
+    from the module, not just unused."""
+    import rest.services.trace_reader as trace_reader_module
 
-
-def test_span_cost_details_reconciles_to_cost():
-    from rest.services.trace_reader import span_cost_details
-    from worker.tokens.buckets import TokenBuckets
-    from worker.tokens.pricing import cost_from_buckets
-
-    with patch("rest.services.trace_reader.get_model_price", return_value=CLAUDE_PRICES):
-        details = span_cost_details(
-            "claude-3-5-sonnet-20241022",
-            input_tokens=10000,  # gross: 2000 uncached + 6000 read + 2000 write
-            output_tokens=1500,
-            usage_details={
-                "cache_read_tokens": 6000,
-                "cache_write_tokens": 2000,
-                "reasoning_tokens": 800,
-            },
+    for name in (
+        "span_cost_details",
+        "get_model_price",
+        "cost_breakdown_from_buckets",
+        "TokenBuckets",
+        "reconcile_cache_write_1h",
+    ):
+        assert not hasattr(trace_reader_module, name), (
+            f"rest.services.trace_reader still has {name} — cost_details must be read "
+            "straight from storage, never recomputed live"
         )
-
-    expected = cost_from_buckets(
-        CLAUDE_PRICES,
-        TokenBuckets(input_uncached=2000, output=1500, cache_read=6000, cache_write=2000),
-    )
-    assert sum(details.values()) == pytest.approx(expected)
-    assert details["cache_read_cost"] == pytest.approx(6000 * 0.0000003)
-    assert details["input_uncached_cost"] == pytest.approx(2000 * 0.000003)
-
-
-def test_span_cost_details_rebuilds_1h_portion():
-    from rest.services.trace_reader import span_cost_details
-    from worker.tokens.buckets import TokenBuckets
-    from worker.tokens.pricing import cost_from_buckets
-
-    # input 1000 = 100 uncached + 0 read + 900 write; of the 900: 600 @1h, 300 remainder.
-    prices = {**CLAUDE_PRICES, "cacheWrite1h": 0.000006}  # 2x the 0.000003 input rate
-    with patch("rest.services.trace_reader.get_model_price", return_value=prices):
-        details = span_cost_details(
-            "claude-opus-4-7",
-            input_tokens=1000,
-            output_tokens=0,
-            usage_details={
-                "cache_read_tokens": 0,
-                "cache_write_tokens": 900,
-                "cache_write_1h_tokens": 600,
-            },
-        )
-
-    expected = cost_from_buckets(
-        prices,
-        TokenBuckets(
-            input_uncached=100,
-            output=0,
-            cache_read=0,
-            cache_write=900,
-            cache_write_1h=600,
-        ),
-    )
-    assert sum(details.values()) == pytest.approx(expected)
-    # Independent ground truth: 300 remainder @cacheWrite + 600 @cacheWrite1h.
-    assert details["cache_write_cost"] == pytest.approx(300 * 0.00000375 + 600 * 0.000006)
-
-
-def test_span_cost_details_without_1h_key_matches_combined_rate():
-    # A stored span with no 1-hour key (every span today) prices its whole write total
-    # at the combined cacheWrite rate.
-    from rest.services.trace_reader import span_cost_details
-
-    prices = {**CLAUDE_PRICES, "cacheWrite1h": 0.000006}
-    with patch("rest.services.trace_reader.get_model_price", return_value=prices):
-        details = span_cost_details(
-            "claude-opus-4-7",
-            input_tokens=1000,
-            output_tokens=0,
-            usage_details={"cache_read_tokens": 0, "cache_write_tokens": 900},
-        )
-    assert details["cache_write_cost"] == pytest.approx(900 * 0.00000375)
-
-
-def test_span_cost_details_empty_without_model():
-    from rest.services.trace_reader import span_cost_details
-
-    assert span_cost_details(None, 100, 50, {}) == {}
-
-
-def test_span_cost_details_empty_for_unknown_model():
-    from rest.services.trace_reader import span_cost_details
-
-    with patch("rest.services.trace_reader.get_model_price", return_value=None):
-        assert span_cost_details("mystery-model", 100, 50, {}) == {}
 
 
 def test_span_path_attribute_names_are_the_sdk_wire_strings():
@@ -206,6 +130,7 @@ class TestGetTraceSkeleton:
                         None,  # output_tokens
                         None,  # total_tokens
                         {},  # usage_details
+                        {"input_uncached_cost": 0.003, "output_cost": 0.015},  # cost_details
                         # ClickHouse has already extracted the path attrs; this
                         # is the small object the query re-packs, not the blob.
                         '{"traceroot.span.ids_path":["root-id"],'
@@ -281,6 +206,9 @@ class TestGetTraceSkeleton:
         span = result["spans"][0]
         assert "input" not in span
         assert "output" not in span
+        # cost_details is read straight from the stored column — no live
+        # pricing call, no recomputation.
+        assert span["cost_details"] == {"input_uncached_cost": 0.003, "output_cost": 0.015}
         assert span["metadata"] == (
             '{"traceroot.span.ids_path":["root-id"],"traceroot.span.path":["root","child"]}'
         )
