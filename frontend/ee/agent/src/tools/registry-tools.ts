@@ -14,6 +14,12 @@ import {
   formatDashboardDetail,
   formatDashboardList,
   formatDetectorDetail,
+  DATASET_CASE_ROW_CAP,
+  DATASET_LIST_PAGE_SIZE,
+  formatDatasetDetail,
+  formatDatasetList,
+  formatDatasetVersionDetail,
+  formatDatasetVersionList,
   formatDetectorList,
   formatEvaluationRun,
   formatFindingDetail,
@@ -37,6 +43,9 @@ function requireEntry(name: string) {
   return entry;
 }
 
+/** A read's first page: no cursor is ever sent, and the model is never offered one. */
+const FIRST_PAGE = { cursor: undefined };
+
 /**
  * The agent's read tools, generated from the shared registry and bound to the
  * internal project-scoped routes with service auth. Presentation (the text the
@@ -59,10 +68,28 @@ export function createRegistryReadTools(
       defaults?: ReturnType<typeof windowDefaults>;
       /** Structured details the chat panel cards, beside the text the model reads. */
       details?: (data: unknown) => unknown;
+      /** Params set on every call and hidden from the model, beside the project id. */
+      pinned?: Record<string, unknown>;
+      /** Rewrites the registry's description where this surface pins a param it names. */
+      describe?: (registryText: string) => string;
     } = {},
   ) => {
-    const { defaults, details } = options;
+    const { defaults, details, pinned = {}, describe } = options;
     const entry = requireEntry(name);
+    // A pin for a param the registry no longer has would silently hand the renamed param
+    // back to the model, so a stale pin fails loudly; every tool is built in the tests.
+    for (const key of Object.keys(pinned)) {
+      if (!(key in entry.inputSchema.properties)) {
+        throw new Error(`${name}: pinned param "${key}" is not in the registry entry`);
+      }
+    }
+    // A describe that no longer matches the curation would leave the registry's own paging
+    // advice in a description whose paging params this surface pins off, telling the model
+    // to do what it cannot. Rewritten prose is a silent miss, so an unchanged text throws.
+    const described = describe?.(entry.description) ?? entry.description;
+    if (describe !== undefined && described === entry.description) {
+      throw new Error(`${name}: describe matched nothing in the registry description`);
+    }
     // The registry text says an omitted window means the site's default; in
     // the chat it means the window the user is looking at. Said on the tool
     // and on the range parameter itself, so the schema cannot contradict it.
@@ -78,12 +105,13 @@ export function createRegistryReadTools(
     const tool = toPiAgentTool(entry, {
       client,
       pathOverride: INTERNAL_BINDINGS[name],
-      fixedArgs: { project_id: projectId },
+      fixedArgs: { ...pinned, project_id: projectId },
       formatResult,
       details,
+      ...(describe !== undefined && { description: described }),
       ...(defaults !== undefined && {
         defaults,
-        description: entry.description.replace(
+        description: described.replace(
           /neither means the site's default[^.)]*/,
           `leave it out to answer for ${onThePage}`,
         ),
@@ -134,5 +162,29 @@ export function createRegistryReadTools(
     bind("list_alerts", formatAlertList, { details: alertListCardDetails }),
     bind("get_alert", formatAlertDetail, { details: alertDetailCardDetails }),
     bind("get_evaluation_run", formatEvaluationRun),
+    // These reads return the first page of a list and no further, as the CLI does. The
+    // cursor is pinned off and hidden, so the model cannot page, nor guess a cursor that
+    // matches no row and reads back as an empty last page. The list size is pinned to the
+    // most the API serves, so "more exist" is true of everything the page leaves out.
+    bind("list_datasets", formatDatasetList, {
+      pinned: { ...FIRST_PAGE, limit: DATASET_LIST_PAGE_SIZE },
+    }),
+    bind("get_dataset", formatDatasetDetail),
+    bind("list_dataset_versions", formatDatasetVersionList, {
+      pinned: { ...FIRST_PAGE, limit: DATASET_LIST_PAGE_SIZE },
+    }),
+    // A version read is pinned to the cases the formatter shows, so the one page it reads is
+    // exactly the page the model sees. The pin matters: without a limit the API returns the
+    // whole version in one response, each field up to 1 MB. The registry text tells a caller
+    // to pass a limit and follow next_cursor; here both are pinned, so that sentence is
+    // replaced with what the tool actually does.
+    bind("get_dataset_version", formatDatasetVersionDetail, {
+      pinned: { ...FIRST_PAGE, limit: DATASET_CASE_ROW_CAP },
+      describe: (text) =>
+        text.replace(
+          / Always pass limit[^.]*\./,
+          ` Returns the version's first ${DATASET_CASE_ROW_CAP} cases, and says when it has more.`,
+        ),
+    }),
   ];
 }

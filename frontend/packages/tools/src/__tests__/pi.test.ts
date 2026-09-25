@@ -225,6 +225,11 @@ describe("INTERNAL_BINDINGS", () => {
       list_alerts: "/api/v1/internal/projects/{project_id}/alerts",
       get_alert: "/api/v1/internal/projects/{project_id}/alerts/{alert_id}",
       get_evaluation_run: "/api/v1/internal/projects/{project_id}/evaluation-runs/{run_id}",
+      list_datasets: "/api/v1/internal/projects/{project_id}/datasets",
+      get_dataset: "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}",
+      list_dataset_versions:
+        "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}/versions",
+      get_dataset_version: "/api/v1/internal/projects/{project_id}/dataset-versions/{version_id}",
     });
   });
 });
