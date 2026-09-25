@@ -7,7 +7,6 @@ import { clientEnv } from "@/env.client";
 const DISMISSED_KEY = "github-star-widget-dismissed";
 const STAR_CACHE_KEY = "github-star-count-cache";
 const STAR_CACHE_TTL = 60 * 60 * 1000; // 1 hour
-const REPO = "traceroot-ai/traceroot";
 
 function formatStarCount(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
@@ -34,14 +33,18 @@ export function GitHubStarWidget() {
         // malformed cache entry — fall through to fetch
       }
     }
-    fetch(`https://api.github.com/repos/${REPO}`)
+    // Go through our own cached server route, not api.github.com directly: the
+    // unauthenticated GitHub API is capped at 60 req/hour per IP, so calling it from
+    // every browser fails with 403 and the count renders as "—". The proxy makes at
+    // most one upstream call per hour for all viewers.
+    fetch("/api/github-stars")
       .then((r) => r.json())
-      .then((data: { stargazers_count?: number }) => {
-        if (typeof data.stargazers_count === "number") {
-          setStarCount(data.stargazers_count);
+      .then((data: { stars?: number | null }) => {
+        if (typeof data.stars === "number") {
+          setStarCount(data.stars);
           localStorage.setItem(
             STAR_CACHE_KEY,
-            JSON.stringify({ count: data.stargazers_count, timestamp: Date.now() }),
+            JSON.stringify({ count: data.stars, timestamp: Date.now() }),
           );
         }
       })
