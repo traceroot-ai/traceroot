@@ -49,7 +49,7 @@ print(response.function_calls)
 ```
 
 <Warning>
-  If you pass Python functions as `tools`, the SDK's automatic function calling runs the whole tool loop inside one `generate_content` call. That records one span, priced on the last model call only. For accurate cost, disable automatic function calling and run the tool loop yourself, as the example below does.
+  If you pass Python functions as `tools`, the SDK's automatic function calling runs the whole tool loop inside one `generate_content` call. That records one span, priced on the last model call only. For accurate cost, pass function declarations instead (as above) or set `automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)`, and run the tool loop yourself as the [example](#run-the-example) does.
 </Warning>
 
 ## What Gets Captured
