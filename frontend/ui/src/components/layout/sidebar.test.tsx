@@ -6,6 +6,10 @@ import { createRoot, type Root } from "react-dom/client";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const navigation = { pathname: "/workspaces", params: {} as Record<string, string> };
+let sessionData: {
+  user: { role: string | null; name: string; email: string };
+  session: { impersonatedBy?: string };
+} | null = null;
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
@@ -14,7 +18,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
-    useSession: () => ({ data: null }),
+    useSession: () => ({ data: sessionData }),
     admin: { stopImpersonating: vi.fn() },
   },
 }));
@@ -40,6 +44,7 @@ describe("Sidebar", () => {
   beforeEach(() => {
     navigation.pathname = "/workspaces";
     navigation.params = {};
+    sessionData = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -80,6 +85,21 @@ describe("Sidebar", () => {
     expect(container.querySelector('[data-testid="star-widget"]')).toBeNull();
   });
 
+  it("puts Home first among the project links, above Tracing", () => {
+    navigation.pathname = "/projects/p1/home";
+    navigation.params = { projectId: "p1" };
+    render();
+
+    const links = Array.from(container.querySelectorAll("nav a"));
+    expect(links.slice(0, 2).map((l) => l.textContent)).toEqual(["Home", "Tracing"]);
+
+    const home = links[0];
+    expect(home.getAttribute("href")).toBe("/projects/p1/home");
+    // Active state: the plain `bg-muted` token (not the `hover:` variant).
+    expect(home.className.split(" ")).toContain("bg-muted");
+    expect(links[1].className.split(" ")).not.toContain("bg-muted");
+  });
+
   it("shows the upgrade button only in a project or workspace context", () => {
     render();
     expect(container.querySelector('[data-testid="upgrade-button"]')).toBeNull();
@@ -100,4 +120,35 @@ describe("Sidebar", () => {
     render();
     expect(container.innerHTML).toBe("");
   });
+  it.each(["admin", "support", null, "impersonated"])(
+    "places the staff-only console in the account menu (%s)",
+    (role) => {
+      sessionData = {
+        user: {
+          role: role === "impersonated" ? "admin" : role,
+          name: "Jared",
+          email: "jared@local.dev",
+        },
+        session: { impersonatedBy: role === "impersonated" ? "staff" : undefined },
+      };
+      render();
+      expect(container.querySelector('nav a[href="/admin"]')).toBeNull();
+      expect(document.querySelector('a[href="/admin"]')).toBeNull();
+      act(() =>
+        (container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click(),
+      );
+      const link = document.querySelector('a[href="/admin"]');
+      expect(!!link).toBe(role === "admin" || role === "support");
+      const sessions = document.querySelector('a[href="/account/settings/sessions"]');
+      expect(sessions?.className).toContain("text-left");
+      expect(sessions?.firstElementChild?.tagName.toLowerCase()).toBe("svg");
+      if (link) {
+        act(() => {
+          link.addEventListener("click", (event) => event.preventDefault());
+          (link as HTMLElement).click();
+        });
+        expect(document.querySelector('a[href="/admin"]')).toBeNull();
+      }
+    },
+  );
 });

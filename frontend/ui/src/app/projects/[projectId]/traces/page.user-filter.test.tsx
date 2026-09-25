@@ -16,6 +16,10 @@ vi.mock("@/features/traces/hooks", () => ({
   // The page gates the onboarding empty state on a separate "has this project
   // ever traced" probe; exists: true is required so the filter bar (and the
   // user_id badge inside it) isn't suppressed by showGettingStarted.
+  // The page now hosts the "Save as test case" drawer, which lazily fetches the
+  // selected span's I/O. Unmocked, the factory omits it and the page throws
+  // "useSpanIO is not a function" before any assertion runs.
+  useSpanIO: () => ({ data: undefined, isLoading: false, error: null }),
   useTracesExist: () => ({ data: { exists: true }, isPending: false, error: null }),
   usePrefetchTraces: () => vi.fn(),
 }));
@@ -30,7 +34,11 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
     queryOptions: { page: 1, limit: 50 },
   }),
 }));
-vi.mock("@/lib/hooks/use-local-storage", () => ({ useLocalStorage: () => [false, vi.fn()] }));
+// The page's live-view toggle and the trace list's column entry both persist through this
+// hook, so the stub pins the toggle for the test and leaves the columns at their defaults.
+vi.mock("@/lib/hooks/use-local-storage", () => ({
+  useLocalStorage: () => [false, vi.fn()],
+}));
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: { id: "u1", email: "e" } }, isPending: false }),
 }));

@@ -21,7 +21,34 @@ export const DASHBOARD_NAME_MAX = 50;
 export const WIDGET_TITLE_MAX = 100;
 export const DASHBOARD_DESCRIPTION_MAX = 500;
 
-export const AGGS = ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"] as const;
+// The kinds of widget a dashboard can hold. Single source: the runtime check
+// on the write paths, the `WidgetType` union, and the grid's per-type tile
+// sizes all derive from this list, so adding a kind here fails to compile
+// until every one of them handles it.
+export const WIDGET_TYPES = ["query", "trace_feed"] as const;
+export type WidgetType = (typeof WIDGET_TYPES)[number];
+
+export const isWidgetType = (value: unknown): value is WidgetType =>
+  (WIDGET_TYPES as readonly unknown[]).includes(value);
+
+// The write API's rejection message. Its wording is part of that API's error
+// contract, but the type names come from the list above so a new kind can
+// never leave it naming the wrong set.
+export const WIDGET_TYPE_MESSAGE = `type must be ${WIDGET_TYPES.map((t) => `"${t}"`).join(" or ")}`;
+
+export const AGGS = [
+  "count",
+  "sum",
+  "avg",
+  "min",
+  "max",
+  "p50",
+  "p75",
+  "p90",
+  "p95",
+  "p99",
+  "uniq",
+] as const;
 
 export const WidgetFilterSchema = z.object({
   field: z.string().min(1),
@@ -30,11 +57,23 @@ export const WidgetFilterSchema = z.object({
   // at "") must keep the spec incomplete, not save a widget that silently
   // matches only empty-valued rows.
   value: z.union([z.string().min(1), z.number()]),
+  // Declared because the schema strips what it does not declare — without it a
+  // metadata filter reaches the engine keyless. Which fields require a key, and
+  // whether one belongs, is the engine's call.
+  key: z.string().min(1).optional(),
 });
 
 // Pie and bar plot one mark per category — without a breakdown dimension the
 // query collapses to a single unlabeled datum and there is nothing to chart.
 export const BREAKDOWN_REQUIRED_DISPLAYS: ReadonlySet<DisplayType> = new Set(["pie", "bar"]);
+
+// A number tile renders exactly one value and a histogram compiles to its own
+// bin shape — the query engine rejects a breakdown on either rather than
+// silently dropping every group but the first.
+export const BREAKDOWN_UNSUPPORTED_DISPLAYS: ReadonlySet<DisplayType> = new Set([
+  "number",
+  "histogram",
+]);
 
 export const WidgetSpecSchema = z
   .object({
@@ -100,7 +139,7 @@ export interface Widget {
   id: string;
   dashboardId: string;
   title: string;
-  type: "query" | "trace_feed";
+  type: WidgetType;
   spec: Record<string, unknown>;
   displayConfig: Record<string, unknown>;
 }
@@ -113,7 +152,9 @@ export interface DashboardDetail extends DashboardSummary {
 export interface WidgetQueryResult {
   columns: string[];
   rows: (string | number | null)[][];
-  meta: { granularity?: "hour" | "day" };
+  // A number is a bucket width in milliseconds, reported when the caller asked
+  // for one specific grain rather than letting the range pick it.
+  meta: { granularity?: "hour" | "day" | number };
 }
 
 export interface WidgetSchemaField {
@@ -126,6 +167,11 @@ export interface WidgetSchemaField {
   // the count(*) sentinel). Optional so older cached schemas keep working;
   // treat absence as histogrammable.
   histogrammable?: boolean;
+  // Whether a filter on this field carries a map key alongside op and value.
+  requiresKey?: boolean;
+  // Whether the widget builder offers this field. Optional so an older cached
+  // schema keeps working — treat absence as offered.
+  inBuilder?: boolean;
 }
 
 export type WidgetSchema = Record<
@@ -147,9 +193,10 @@ export interface WidgetFieldValuesResponse {
  * Whether a filter's value is one of the field's stored values (so the builder
  * offers a dropdown of them). Equality on a string dimension is enumerable;
  * `contains` stays free text and numeric fields take a number input.
+ * A keyed field is never enumerable; see `requires_key` in widget_registry.py.
  */
 export function isEnumerableFilter(field: WidgetSchemaField | undefined, op: string): boolean {
-  return !!field && field.type === "string" && op === "=";
+  return !!field && field.type === "string" && !field.requiresKey && op === "=";
 }
 
 // Numeric comparison symbols shared with the trace-list filter chips.

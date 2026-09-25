@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 import { env } from "@/env";
@@ -7,7 +8,7 @@ const INTERNAL_API_SECRET = env.INTERNAL_API_SECRET || "";
 
 type RouteParams = { params: Promise<{ projectId: string; traceId: string }> };
 
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, traceId } = await params;
@@ -22,3 +23,4 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   const data = await res.json();
   return successResponse(data);
 }
+export const GET = withImpersonationPolicy(handleGET);

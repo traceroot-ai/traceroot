@@ -97,8 +97,21 @@ class TestCustomerTrafficOnlyHelper:
 
 
 class TestDistinctSpanValuesExcludesDetector:
+    """Discovery lives in its own service now, but it reuses this module's shared
+    predicate, so the exclusion is asserted here alongside every other customer-facing
+    read rather than only where discovery's own tests live."""
+
+    def _discovery_with_mock_client(self):
+        with patch("rest.services.trace_discovery.get_clickhouse_client") as get_client:
+            client = MagicMock()
+            get_client.return_value = client
+            from rest.services.trace_discovery import TraceDiscoveryService
+
+            service = TraceDiscoveryService()
+        return service, client
+
     def test_dropdown_options_skip_detector_spans(self):
-        service, client = _service_with_mock_client()
+        service, client = self._discovery_with_mock_client()
         result = MagicMock()
         result.result_rows = []
         client.query.return_value = result

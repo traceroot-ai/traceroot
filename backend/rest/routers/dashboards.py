@@ -18,11 +18,11 @@ from rest.rate_limit import (
     resolve_limit,
 )
 from rest.retention import clamp_retention_window
+from rest.routers.dashboard_read_common import run_widget_query_page
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.dashboards import WidgetQueryRequest, WidgetQueryResponse
 from rest.schemas.traces import FilterValuesResponse
-from rest.services.trace_reader import get_trace_reader_service
-from rest.services.widget_query import WidgetSpecError, run_widget_query
+from rest.services.trace_discovery import get_trace_discovery_service
 from rest.services.widget_registry import REGISTRY, registry_schema
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,8 @@ async def get_widget_field_values(
 
     Raises:
         HTTPException: 404 for an unknown view or field, 400 for a field that is
-            not an enumerable string dimension (numeric measures, ``count``).
+            not an enumerable string dimension (numeric measures, ``count``,
+            ``trace_id``, keyed maps).
     """
     view_def = REGISTRY.get(view)
     if view_def is None:
@@ -81,7 +82,10 @@ async def get_widget_field_values(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown field '{field}' for view '{view}'",
         )
-    if field_def.type != "string":
+    # Enumerable, not merely typed "string": type alone admits `trace_id`, whose
+    # enumeration is a GROUP BY over the highest-cardinality column in `spans` for a
+    # dropdown nothing would open. Keyed fields are refused rather than scanned.
+    if field_def.type != "string" or not field_def.filter_ops or field_def.requires_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Field '{field}' does not support distinct-value listing",
@@ -92,9 +96,10 @@ async def get_widget_field_values(
     # (mirrors the list endpoints; unlimited plans pass through unchanged).
     start_time, end_time = clamp_retention_window(_access.billing_plan, start_time, end_time)
 
-    service = get_trace_reader_service()
-    # String dims declare their expr as the bare physical column name on the
-    # view's source table, so it feeds the distinct scan directly.
+    service = get_trace_discovery_service()
+    # String dims declare their expr over the view's source table columns, so it
+    # feeds the distinct scan directly. An expr naming a base-relation alias
+    # instead would not resolve here, which is why the registry writes them so.
     if view == "spans":
         values = service.get_distinct_span_values(
             project_id=project_id,
@@ -137,28 +142,11 @@ async def query_widget_data(
     body: WidgetQueryRequest,
     _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
 ):
-    """Execute a widget spec. Stateless: used by saved widgets and builder previews."""
-    # Retention gate: clamp the widget's start bound to the plan's cutoff before
-    # any ClickHouse scan, so aggregates can't reach past the retention window
-    # (mirrors the list endpoints; unlimited plans pass through unchanged).
-    start_time, end_time = clamp_retention_window(
-        _access.billing_plan, body.start_time, body.end_time
+    """Execute a widget spec for a window. Stateless: saved widgets, builder previews, the agent.
+
+    The handler body is shared with the public ``run_widget_query`` route
+    (``rest.routers.dashboard_read_common``) so the two surfaces cannot drift.
+    """
+    return await run_widget_query_page(
+        body, project_id=project_id, billing_plan=_access.billing_plan
     )
-    try:
-        return run_widget_query(
-            spec=body.spec,
-            project_id=project_id,
-            start_time=start_time,
-            end_time=end_time,
-        )
-    except WidgetSpecError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={"step": e.step, "message": e.message},
-        ) from e
-    except Exception as e:
-        logger.exception(f"Widget query failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Widget query failed",
-        ) from e

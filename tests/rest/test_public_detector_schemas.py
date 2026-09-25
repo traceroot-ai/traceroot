@@ -4,6 +4,7 @@ from datetime import datetime
 
 from rest.schemas.common import PaginationMeta
 from rest.schemas.public import (
+    DetectorDetail,
     DetectorItem,
     DetectorResultItem,
     FindingDetail,
@@ -125,3 +126,27 @@ def test_public_finding_list_response_wraps_summaries_with_pagination():
     )
     assert resp.meta.page == 0
     assert resp.data[0].detectors == ["failure", "logic"]
+
+
+def test_detector_detail_extends_item_with_config_fields():
+    detail = DetectorDetail(
+        detector_id="d1",
+        name="Error spike",
+        template="failure",
+        enabled=True,
+        created_at=datetime(2026, 8, 1, 12, 0, 0),
+        prompt="Flag traces with elevated error rates",
+        output_schema={"type": "object"},
+        sample_rate=25,
+        enable_rca=True,
+        detection_model=None,
+        detection_provider=None,
+        detection_source=None,
+        updated_at=datetime(2026, 8, 2, 9, 0, 0),
+        trigger_conditions=None,
+    )
+    dumped = detail.model_dump()
+    assert dumped["detector_id"] == "d1"
+    assert dumped["sample_rate"] == 25
+    assert dumped["enable_rca"] is True
+    assert dumped["trigger_conditions"] is None

@@ -24,6 +24,7 @@ const TYPESCRIPT_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot";
 const MASTRA_INSTALL_COMMAND =
   "npm install @traceroot-ai/mastra @mastra/core @mastra/observability";
 const PI_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot @earendil-works/pi-coding-agent";
+const VERCEL_AI_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot ai @ai-sdk/otel";
 
 // Ordered to mirror the docs integrations overview (frameworks first, then model
 // providers, alphabetical within each group). Keep this in sync with
@@ -323,14 +324,18 @@ traceroot.initialize(integrations=[Integration.PYDANTIC_AI])`,
     logoDark: "/logo/integrations/vercel-ai-dark.svg",
     languages: {
       typescript: {
-        installCommand: TYPESCRIPT_INSTALL_COMMAND,
-        initSnippet: `import { TraceRoot } from "@traceroot-ai/traceroot";
+        installCommand: VERCEL_AI_INSTALL_COMMAND,
+        initSnippet: `// AI SDK 7. On AI SDK 6 (legacy), see https://traceroot.ai/docs/integrations/vercel-ai
+// (no @ai-sdk/otel; set experimental_telemetry: { isEnabled: true } per call).
+import { TraceRoot } from "@traceroot-ai/traceroot";
+import { registerTelemetry } from "ai";
+import { OpenTelemetry } from "@ai-sdk/otel";
 
-// No instrumentModules — Vercel AI SDK telemetry is handled automatically.
+// No instrumentModules — the AI SDK emits its own OpenTelemetry spans.
 TraceRoot.initialize();
 
-// Then on each generateText / streamText / generateObject call:
-//   experimental_telemetry: { isEnabled: true }`,
+// Required on AI SDK 7 — without it no spans are produced.
+registerTelemetry(new OpenTelemetry({ usage: true }));`,
       },
     },
   },

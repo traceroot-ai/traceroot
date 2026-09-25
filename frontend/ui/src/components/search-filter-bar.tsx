@@ -13,17 +13,21 @@ interface SearchFilterBarProps {
   // Optional replacement for the default search input (e.g. a combined
   // search-and-filter input). When provided, the plain input is not rendered.
   searchInput?: React.ReactNode;
-  // Date filter
-  dateFilter: DateFilterOption;
-  customStartDate: Date | null;
-  customEndDate: Date | null;
-  onDateFilterChange: (option: DateFilterOption) => void;
-  onCustomRangeChange: (startDate: Date, endDate: Date) => void;
+  // Date filter — omitted whole by surfaces that have no time range (the alert
+  // list), in which case the control is not rendered.
+  dateFilter?: DateFilterOption;
+  customStartDate?: Date | null;
+  customEndDate?: Date | null;
+  onDateFilterChange?: (option: DateFilterOption) => void;
+  onCustomRangeChange?: (startDate: Date, endDate: Date) => void;
   // Retention gating — options exceeding the window show a lock icon
   retentionDays?: number | null;
   onUpgradeClick?: () => void;
   // Optional additional content (e.g., filter badges)
   children?: React.ReactNode;
+  // Optional control rendered immediately left of the date filter, grouped with it on the
+  // right of the bar rather than with `children` on the left.
+  beforeDateFilter?: React.ReactNode;
 }
 
 export function SearchFilterBar({
@@ -39,6 +43,7 @@ export function SearchFilterBar({
   retentionDays,
   onUpgradeClick,
   children,
+  beforeDateFilter,
 }: SearchFilterBarProps) {
   return (
     <div className="border-b border-border bg-background px-3 py-1.5">
@@ -55,16 +60,24 @@ export function SearchFilterBar({
           </div>
         )}
         {children}
-        <DateFilterSelect
-          className="ml-auto"
-          dateFilter={dateFilter}
-          customStartDate={customStartDate}
-          customEndDate={customEndDate}
-          onDateFilterChange={onDateFilterChange}
-          onCustomRangeChange={onCustomRangeChange}
-          retentionDays={retentionDays}
-          onUpgradeClick={onUpgradeClick}
-        />
+        {/* The auto margin moves to the group so an adjacent control travels with the date
+            filter and wraps with it instead of drifting to the other end of the bar. */}
+        {(beforeDateFilter || dateFilter) && (
+          <div className="ml-auto flex items-center gap-2">
+            {beforeDateFilter}
+            {dateFilter && onDateFilterChange && onCustomRangeChange && (
+              <DateFilterSelect
+                dateFilter={dateFilter}
+                customStartDate={customStartDate ?? null}
+                customEndDate={customEndDate ?? null}
+                onDateFilterChange={onDateFilterChange}
+                onCustomRangeChange={onCustomRangeChange}
+                retentionDays={retentionDays}
+                onUpgradeClick={onUpgradeClick}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

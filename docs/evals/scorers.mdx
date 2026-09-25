@@ -1,0 +1,174 @@
+---
+title: Scorers
+description: Turn a case's output into a metric
+---
+
+A scorer receives a case's `input`, `output`, `expected`, and `metadata`, and returns a metric. There are two kinds: **code scorers**, which you write as a function, and **LLM-as-a-judge** scorers, which grade the output with a model.
+
+## Code scorers
+
+Any function is a scorer. The metric takes the function's name.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    def reports_temp(input, output, expected=None, metadata=None):
+        return expected is not None and expected in (output or "")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import type { ScorerContext } from "@traceroot-ai/traceroot";
+
+    function reportsTemp({ output, expected }: ScorerContext) {
+      return typeof output === "string" && output.includes(String(expected));
+    }
+    ```
+  </Tab>
+</Tabs>
+
+Return a boolean, a number, or any of the [return values](#what-a-scorer-can-return) below. A boolean passes or fails on its own value; a number is averaged until you give it a threshold.
+
+### Adding a threshold
+
+Wrap the function in `Scorer.code` to give a numeric metric a pass mark, so the platform can mark each score as passing or failing and compare runs.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Scorer
+
+    @Scorer.code(
+        key="covers_cities",
+        value_type="numeric",          # "numeric" | "boolean" | "categorical"
+        direction="higher_is_better",  # "higher_is_better" | "lower_is_better" | "none"
+        threshold=1.0,
+    )
+    def covers_cities(ctx):
+        cities = ctx.input["cities"]
+        output = (ctx.output or "").lower()
+        return sum(c.lower() in output for c in cities) / len(cities)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Scorer, type ScorerContext } from "@traceroot-ai/traceroot";
+
+    const coversCities = Scorer.code(
+      {
+        key: "covers_cities",
+        valueType: "numeric",          // "numeric" | "boolean" | "categorical"
+        direction: "higher_is_better", // "higher_is_better" | "lower_is_better" | "none"
+        threshold: 1.0,
+      },
+      (ctx: ScorerContext) => {
+        const cities = (ctx.input as { cities: string[] }).cities;
+        const output = String(ctx.output ?? "").toLowerCase();
+        return cities.filter((c) => output.includes(c.toLowerCase())).length / cities.length;
+      },
+    );
+    ```
+  </Tab>
+</Tabs>
+
+- **`key`** identifies the scorer. Use the same `key` in Python and TypeScript for the same scorer.
+- **`threshold` and `direction`** decide whether a numeric score passes.
+- The metric takes the scorer's name. If you return a `Score` with a different name, give it that scorer's name too — otherwise the threshold can't be matched to it.
+
+## LLM-as-a-judge
+
+For a judge, the model and the prompt are the scorer. Write the prompt with `{{input}}`, `{{output}}`, and `{{expected}}` placeholders, filled in per case.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Scorer
+
+    is_grounded = Scorer.llm_judge(
+        name="is_grounded",
+        model="claude-haiku-4-5",
+        messages=[
+            {"role": "system", "content": "Reply 1.0 if the answer states concrete values, else 0.0."},
+            {"role": "user", "content": "ANSWER:\n{{output}}"},
+        ],
+        value_type="numeric",
+        threshold=1.0,
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Scorer } from "@traceroot-ai/traceroot";
+
+    const isGrounded = Scorer.llmJudge({
+      name: "is_grounded",
+      model: "claude-haiku-4-5",
+      messages: [
+        { role: "system", content: "Reply 1.0 if the answer states concrete values, else 0.0." },
+        { role: "user", content: "ANSWER:\n{{output}}" },
+      ],
+      valueType: "numeric",
+      threshold: 1.0,
+    });
+    ```
+  </Tab>
+</Tabs>
+
+`rubric="…"` is a shorthand when you only need a single grading instruction.
+
+### Building the prompt from the case
+
+To fill in your own placeholders, pass a function that returns the template values. It returns variables for the prompt, never a score.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    @Scorer.llm_judge(
+        name="comparison_present",
+        model="claude-haiku-4-5",
+        messages=[{"role": "user", "content": "Does {{answer}} compare {{cities}}? Reply 1.0 or 0.0."}],
+        value_type="numeric",
+        threshold=1.0,
+    )
+    def comparison_present(ctx):
+        return {"answer": ctx.output, "cities": " and ".join(ctx.input["cities"])}
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const comparisonPresent = Scorer.llmJudge(
+      {
+        name: "comparison_present",
+        model: "claude-haiku-4-5",
+        messages: [{ role: "user", content: "Does {{answer}} compare {{cities}}? Reply 1.0 or 0.0." }],
+        valueType: "numeric",
+        threshold: 1.0,
+      },
+      (ctx) => ({
+        answer: ctx.output,
+        cities: (ctx.input as { cities: string[] }).cities.join(" and "),
+      }),
+    );
+    ```
+  </Tab>
+</Tabs>
+
+Pass `complete=` (Python) / `complete:` (TypeScript) — a function taking the model and messages and returning a string — to stub the model call, so judges run in tests and CI without an API key.
+
+## What a scorer can return
+
+- a **boolean** or **number**,
+- a **`Score`** — `Score(name, value, comment=None, metadata=None)`,
+- a **list of `Score`s**, or a **`{metric: value}`** map, for a scorer that emits several metrics,
+- a **`DeferredScore`** — a score awaiting human or async review. It's recorded as pending, never as a zero.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Running Evals" icon="play" href="/evals/running-evals">
+    Point a task and your scorers at a dataset and run the eval.
+  </Card>
+  <Card title="Reading Results" icon="list-check" href="/evals/reading-results">
+    Per-metric averages, pass rates, and case status.
+  </Card>
+</CardGroup>

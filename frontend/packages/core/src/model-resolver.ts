@@ -22,8 +22,10 @@ import {
   PROVIDER_PRIORITY,
   ADAPTER_TO_PI_AI,
   ADAPTER_DEFAULT_BASE_URL,
-  ADAPTER_API_PROTOCOL,
   ADAPTER_MODELS,
+  defaultApiProtocol,
+  isDecisionAdapter,
+  isDecisionModelId,
 } from "./llm-providers.ts";
 
 /** Workspace BYOK row (decrypted key). Same shape as agent's private ProviderConfig. */
@@ -35,8 +37,7 @@ export interface ProviderModelConfig {
 }
 
 // Build system model lookup from SYSTEM_MODELS.
-// Per-model apiProtocol overrides the provider-level default
-// (e.g. gpt-5.3-codex → openai-responses).
+// A model's own apiProtocol, when set, overrides the provider-level default.
 const systemModelLookup = new Map<string, { piAIProvider: string; apiProtocol: string }>();
 for (const sys of SYSTEM_MODELS) {
   for (const m of sys.models) {
@@ -115,11 +116,22 @@ export function resolvePiModel(
   modelId: string | undefined,
   providerConfig: ProviderModelConfig | null,
 ): Model<Api> {
+  // A decision model id would otherwise fall through to a system model below.
+  if (modelId && isDecisionModelId(modelId)) {
+    throw new Error(`Model "${modelId}" is a decision model and cannot run as a chat model`);
+  }
   const defaultSystemModel = !modelId ? getDefaultSystemModel() : null;
   const effectiveModelId = modelId || defaultSystemModel?.modelId || "claude-sonnet-4-5";
 
   // 1. BYOK
   if (providerConfig) {
+    // A decision adapter has no chat model; falling through would silently run
+    // a system model on the workspace's behalf.
+    if (isDecisionAdapter(providerConfig.adapter)) {
+      throw new Error(
+        `BYOK adapter "${providerConfig.adapter}" is a decision model and cannot run as a chat model`,
+      );
+    }
     const piAIProvider = ADAPTER_TO_PI_AI[providerConfig.adapter];
     if (piAIProvider) {
       const modelProtocols = (providerConfig.config as Record<string, unknown>)?.modelProtocols as
@@ -140,15 +152,11 @@ export function resolvePiModel(
         );
       }
 
-      // Per-model `apiProtocol` overrides — checked in order:
-      //   1. BYOK row's `config.modelProtocols` (user-overridable per workspace)
-      //   2. Catalog's per-model `apiProtocol` (e.g. gpt-5.3-codex → openai-responses)
-      //   3. Adapter-level default
-      const catalogProtocol = catalog?.find((m) => m.id === fallbackModelId)?.apiProtocol;
+      // The BYOK row's `config.modelProtocols` (user-overridable per workspace)
+      // wins over the catalog/adapter default the provider dialog displays.
       const apiProtocol =
         modelProtocols?.[fallbackModelId] ||
-        catalogProtocol ||
-        ADAPTER_API_PROTOCOL[providerConfig.adapter] ||
+        defaultApiProtocol(providerConfig.adapter, fallbackModelId) ||
         "openai-completions";
       const model = buildFallbackModel(fallbackModelId, apiProtocol, piAIProvider);
       const baseUrl = providerConfig.baseUrl || ADAPTER_DEFAULT_BASE_URL[providerConfig.adapter];

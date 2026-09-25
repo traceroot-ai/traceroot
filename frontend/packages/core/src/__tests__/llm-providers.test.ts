@@ -6,7 +6,36 @@ import {
   ADAPTER_API_PROTOCOL,
   LLMAdapter,
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  defaultApiProtocol,
+  isDecisionModelId,
 } from "../llm-providers.ts";
+
+describe("defaultApiProtocol", () => {
+  it("prefers the catalog entry's own protocol over the adapter default", () => {
+    expect(defaultApiProtocol("openai", "o3")).toBe("openai-completions");
+    expect(defaultApiProtocol("openai", "o4-mini")).toBe("openai-completions");
+    expect(defaultApiProtocol("openai", "gpt-5")).toBe("openai-responses");
+  });
+
+  it("falls back to the adapter default for unknown models and no model", () => {
+    expect(defaultApiProtocol("openai", "some-future-model")).toBe("openai-responses");
+    expect(defaultApiProtocol("openai")).toBe("openai-responses");
+    expect(defaultApiProtocol("deepseek", "deepseek-chat")).toBe("openai-completions");
+  });
+
+  it("is empty for an unknown adapter", () => {
+    expect(defaultApiProtocol("nope", "x")).toBe("");
+  });
+});
+
+describe("isDecisionModelId", () => {
+  it("owns only the decision adapters' catalog ids, not other jev- ids or chat model ids", () => {
+    expect(isDecisionModelId("jev-1.13.0")).toBe(true);
+    expect(isDecisionModelId("jev-latest")).toBe(false);
+    expect(isDecisionModelId("jev-custom")).toBe(false);
+    expect(isDecisionModelId("gpt-4o")).toBe(false);
+  });
+});
 
 describe("ADAPTER_MODELS", () => {
   it("contains no duplicate model IDs within a single adapter", () => {
@@ -144,6 +173,16 @@ describe("ADAPTER_MODELS", () => {
           ).toBe(true);
         }
       }
+    });
+  });
+
+  it("includes grok-4.6 in the xAI model list", () => {
+    const xaiModels = ADAPTER_MODELS["xai"];
+    expect(xaiModels).toBeDefined();
+
+    expect(xaiModels).toContainEqual({
+      id: "grok-4.6",
+      label: "grok-4.6",
     });
   });
 });

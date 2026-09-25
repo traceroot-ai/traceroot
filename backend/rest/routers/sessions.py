@@ -36,6 +36,11 @@ async def list_sessions(
     search_query: str | None = Query(None, description="Search by session_id"),
     start_after: datetime | None = Query(None, description="Filter traces after this time"),
     end_before: datetime | None = Query(None, description="Filter traces before this time"),
+    include_evaluations: bool = Query(
+        False,
+        description="Include offline-evaluation traces in the session aggregates. "
+        "Excluded by default, matching the Traces list.",
+    ),
 ):
     """List unique sessions for a project with trace counts and token totals."""
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
@@ -48,6 +53,7 @@ async def list_sessions(
             search_query=search_query,
             start_after=start_after,
             end_before=end_before,
+            include_evaluations=include_evaluations,
         )
         return result
     except Exception as e:
@@ -70,6 +76,11 @@ async def get_session(
     _access: RateLimitedProjectAccess,
     start_after: datetime | None = Query(None, description="Filter traces after this time"),
     end_before: datetime | None = Query(None, description="Filter traces before this time"),
+    include_evaluations: bool = Query(
+        False,
+        description="Include offline-evaluation traces in this session's traces and "
+        "totals. Excluded by default, matching the session list.",
+    ),
 ):
     """Get session detail with all traces for conversation view."""
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
@@ -80,6 +91,7 @@ async def get_session(
             session_id=session_id,
             start_after=start_after,
             end_before=end_before,
+            include_evaluations=include_evaluations,
         )
         if result is None:
             raise HTTPException(

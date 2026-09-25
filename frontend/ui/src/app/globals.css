@@ -69,3 +69,16 @@
 .animate-slide-in-right {
   animation: slideInFromRight 0.3s ease-out;
 }
+
+@keyframes slideInFromLeft {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-left {
+  animation: slideInFromLeft 0.3s ease-out;
+}

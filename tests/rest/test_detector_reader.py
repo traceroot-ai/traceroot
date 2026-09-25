@@ -18,15 +18,20 @@ def _ch_result(rows):
 
 
 class FakeCH:
-    """Fake ClickHouse client: count queries get count_rows, others get rows."""
+    """Fake ClickHouse client, dispatching by SQL content: the run_id lookup
+    (``FROM detector_runs``) gets run_rows, count queries get count_rows, and the
+    finding queries get rows."""
 
     def __init__(self):
         self.calls: list[tuple] = []
         self.count_rows = [(0,)]
         self.rows: list[tuple] = []
+        self.run_rows: list[tuple] = []  # (finding_id, [run_id, ...])
 
     def query(self, query, parameters=None):
         self.calls.append((query, parameters))
+        if "from detector_runs" in query.lower():
+            return _ch_result(self.run_rows)
         if "count(" in query.lower():
             return _ch_result(self.count_rows)
         return _ch_result(self.rows)
@@ -56,6 +61,8 @@ def test_list_findings_parses_payload_into_summaries(reader):
     )
     reader._client.rows = [("f1", "p1", "t1", "combined", payload, datetime(2026, 6, 29, 10, 42))]
     reader._client.count_rows = [(1,)]
+    # A finding is per-trace; the two detectors above each produced a run.
+    reader._client.run_rows = [("f1", ["run-1", "run-2"])]  # finding_id -> [run_id, ...]
 
     items, total = reader.list_findings(
         project_id="p1", limit=50, start_after=None, end_before=None, detector=None, trace_id=None
@@ -65,8 +72,46 @@ def test_list_findings_parses_payload_into_summaries(reader):
     assert len(items) == 1
     assert items[0].finding_id == "f1"
     assert items[0].detectors == ["hallucination", "logic"]
+    # All producing runs are joined back onto the finding for display.
+    assert items[0].run_ids == ["run-1", "run-2"]
     # every query is project-scoped
     assert all(p and p.get("project_id") == "p1" for _, p in reader._client.calls)
+
+
+def test_list_findings_run_ids_empty_when_no_run_references_the_finding(reader):
+    payload = json.dumps([{"detectorId": "d1", "detectorName": "x", "summary": "s", "data": None}])
+    reader._client.rows = [("f1", "p1", "t1", "sum", payload, datetime(2026, 6, 29))]
+    reader._client.count_rows = [(1,)]
+    reader._client.run_rows = []  # no run row references f1
+
+    items, _ = reader.list_findings(
+        project_id="p1", limit=50, start_after=None, end_before=None, detector=None, trace_id=None
+    )
+
+    assert items[0].run_ids == []
+
+
+def test_list_findings_run_ids_empty_when_lookup_raises(reader):
+    """The run_id lookup is a display convenience: if it throws, the finding
+    still reads back with empty run_ids rather than failing the whole request."""
+    payload = json.dumps([{"detectorId": "d1", "detectorName": "x", "summary": "s", "data": None}])
+    reader._client.rows = [("f1", "p1", "t1", "sum", payload, datetime(2026, 6, 29))]
+    reader._client.count_rows = [(1,)]
+
+    real_query = reader._client.query
+
+    def boom(query, parameters=None):
+        if "from detector_runs" in query.lower():
+            raise RuntimeError("clickhouse unavailable")
+        return real_query(query, parameters)
+
+    reader._client.query = boom
+
+    items, _ = reader.list_findings(
+        project_id="p1", limit=50, start_after=None, end_before=None, detector=None, trace_id=None
+    )
+
+    assert items[0].run_ids == []
 
 
 def test_list_findings_detector_filter_includes_token_and_resolved_names(reader, monkeypatch):
@@ -159,6 +204,7 @@ def test_get_finding_normalizes_results_and_attaches_rca(reader, monkeypatch):
         [{"detectorId": "d1", "detectorName": "hallucination", "summary": "s", "data": {"x": 1}}]
     )
     reader._client.rows = [("f1", "p1", "t1", "sum", payload, datetime(2026, 6, 29))]
+    reader._client.run_rows = [("f1", ["run-9"])]
 
     def fake_pg(sql, params):
         s = sql.lower()
@@ -181,11 +227,38 @@ def test_get_finding_normalizes_results_and_attaches_rca(reader, monkeypatch):
     assert detail.detectors == ["hallucination"]
     assert detail.rca.status == "done"
     assert detail.rca.result == "root cause text"
+    assert detail.run_ids == ["run-9"]
 
 
 def test_get_finding_returns_none_when_missing(reader):
     reader._client.rows = []
     assert reader.get_finding("p1", "missing") is None
+
+
+def test_get_finding_compares_ids_hyphen_insensitively(reader, monkeypatch):
+    """Stored ids are uuid-hyphenated but display surfaces render them dashless
+    — the lookup predicate must strip hyphens from BOTH sides so either shape
+    of the id resolves either shape of the stored row."""
+    payload = json.dumps([{"detectorId": "d1", "detectorName": "x", "summary": "s", "data": None}])
+    stored_id = "b3977f86-c96d-f250-b7b5-dd9062a94dfd"
+    reader._client.rows = [(stored_id, "p1", "t1", "sum", payload, datetime(2026, 6, 29))]
+    monkeypatch.setattr(reader, "_pg_rows", lambda sql, params: [])
+
+    detail = reader.get_finding("p1", "b3977f86c96df250b7b5dd9062a94dfd")
+
+    # The matched row is returned with its stored id untouched. The fake client
+    # cannot evaluate the predicate, so the SQL itself is asserted below.
+    assert detail is not None
+    assert detail.finding_id == stored_id
+
+    finding_queries = [
+        (q, p) for q, p in reader._client.calls if "from detector_findings" in q.lower()
+    ]
+    assert finding_queries, "expected a detector_findings lookup"
+    query, params = finding_queries[0]
+    assert "replaceAll(finding_id, '-', '')" in query
+    assert "replaceAll({finding_id:String}, '-', '')" in query
+    assert params["finding_id"] == "b3977f86c96df250b7b5dd9062a94dfd"
 
 
 def test_get_finding_absent_rca_yields_none(reader, monkeypatch):
@@ -223,7 +296,9 @@ def test_get_finding_by_trace_is_project_and_trace_scoped(reader, monkeypatch):
     detail = reader.get_finding_by_trace("p1", "t9")
 
     assert detail.trace_id == "t9"
-    _, params = reader._client.calls[-1]
+    # The finding-fetch query (the one carrying trace_id) is project- and
+    # trace-scoped — the trailing run_id lookup is a separate call.
+    _, params = next((q, p) for q, p in reader._client.calls if p and "trace_id" in p)
     assert params["project_id"] == "p1"
     assert params["trace_id"] == "t9"
 
@@ -305,3 +380,73 @@ def test_get_detector_reader_service_is_singleton(monkeypatch):
     monkeypatch.setattr(mod, "get_clickhouse_client", lambda: MagicMock())
     mod._service = None
     assert mod.get_detector_reader_service() is mod.get_detector_reader_service()
+
+
+def test_get_detector_returns_full_config_with_trigger(reader, monkeypatch):
+    row = (
+        "det-1",
+        "Error spike",
+        "failure",
+        True,
+        datetime(2026, 8, 1, 12, 0, 0),
+        "Flag traces with elevated error rates",
+        {"type": "object"},
+        25,
+        True,
+        "claude-haiku-4-5",
+        "anthropic",
+        "system",
+        datetime(2026, 8, 2, 9, 0, 0),
+        [{"field": "root_span_finished", "op": "=", "value": True}],
+    )
+    captured = {}
+
+    def fake_pg_rows(sql, params):
+        captured["sql"] = sql
+        captured["params"] = params
+        return [row]
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg_rows)
+    detail = reader.get_detector("proj-A", "det-1")
+
+    assert captured["params"] == ("proj-A", "det-1")
+    assert "LEFT JOIN detector_triggers" in captured["sql"]
+    assert detail.detector_id == "det-1"
+    assert detail.prompt == "Flag traces with elevated error rates"
+    assert detail.output_schema == {"type": "object"}
+    assert detail.sample_rate == 25
+    assert detail.enable_rca is True
+    assert detail.detection_model == "claude-haiku-4-5"
+    assert detail.detection_provider == "anthropic"
+    assert detail.detection_source == "system"
+    assert detail.updated_at == datetime(2026, 8, 2, 9, 0, 0)
+    assert detail.trigger_conditions == [{"field": "root_span_finished", "op": "=", "value": True}]
+
+
+def test_get_detector_returns_none_when_missing(reader, monkeypatch):
+    monkeypatch.setattr(reader, "_pg_rows", lambda sql, params: [])
+    assert reader.get_detector("proj-A", "nope") is None
+
+
+def test_get_detector_without_trigger_has_none_conditions(reader, monkeypatch):
+    row = (
+        "det-2",
+        "Latency",
+        "blank",
+        False,
+        datetime(2026, 8, 1, 12, 0, 0),
+        "p",
+        None,
+        100,
+        False,
+        None,
+        None,
+        None,
+        datetime(2026, 8, 1, 12, 0, 0),
+        None,
+    )
+    monkeypatch.setattr(reader, "_pg_rows", lambda sql, params: [row])
+    detail = reader.get_detector("proj-A", "det-2")
+    assert detail.trigger_conditions is None
+    assert detail.enabled is False
+    assert detail.detection_model is None

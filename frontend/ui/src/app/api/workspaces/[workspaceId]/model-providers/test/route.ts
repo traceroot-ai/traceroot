@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { Role, LLMAdapter, ADAPTER_DEFAULT_BASE_URL, prisma, decryptKey } from "@traceroot/core";
@@ -24,6 +25,7 @@ const ADAPTER_VALUES = [
   LLMAdapter.XAI,
   LLMAdapter.MOONSHOT,
   LLMAdapter.ZAI,
+  LLMAdapter.TYPESAFE,
 ] as const;
 
 const testSchema = z.object({
@@ -104,7 +106,7 @@ function adapterBaseUrl(adapter: string, baseUrl?: string): string {
 }
 
 // POST /api/workspaces/[workspaceId]/model-providers/test
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -281,6 +283,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
+
+      case "typesafe": {
+        // GET /models answers 401 for a bad key. Only the status is checked: the
+        // list names aliases (jev-latest), not every version /systemone accepts.
+        const typesafeBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${typesafeBase}/models`, {
+          Authorization: `Bearer ${apiKey}`,
+        });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
+        break;
+      }
     }
 
     return successResponse({ success: true });
@@ -298,3 +312,4 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
   }
 }
+export const POST = withImpersonationPolicy(handlePOST);

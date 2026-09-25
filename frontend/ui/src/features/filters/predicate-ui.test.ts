@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { MAX_FILTERS } from "./predicate";
 import {
   predicateLabel,
   buildInPredicate,
@@ -37,6 +38,26 @@ describe("predicateLabel", () => {
     );
   });
 
+  it("names the key of a keyed predicate, since the field alone does not say what was filtered", () => {
+    expect(
+      predicateLabel({ field: "metadata", key: "session_id", op: "eq", value: "s-1" }, "metadata"),
+    ).toBe("metadata.session_id = s-1");
+    expect(
+      predicateLabel(
+        { field: "metadata", key: "tenant", op: "contains", value: "acme" },
+        "metadata",
+      ),
+    ).toBe("metadata.tenant contains acme");
+  });
+
+  it("appends the key itself, so the display name it is given is the bare field name", () => {
+    // The label owns the dotting. A caller that pre-dots the key into the name it passes
+    // gets the key spelled twice, which is what this pins against.
+    expect(
+      predicateLabel({ field: "metadata", key: "session_id", op: "eq", value: "s-1" }, "metadata"),
+    ).not.toContain("session_id.session_id");
+  });
+
   it("uses the supplied display name in place of the raw field key", () => {
     expect(predicateLabel({ field: "duration_ms", op: "gte", value: 5 }, "latency")).toBe(
       "latency ≥ 5",
@@ -70,6 +91,21 @@ describe("predicate builders", () => {
       op: "contains",
       value: "abc",
     });
+  });
+
+  it("buildTextPredicate carries a key for a keyed field", () => {
+    expect(buildTextPredicate("metadata", "eq", "s-1", "session_id")).toEqual({
+      field: "metadata",
+      key: "session_id",
+      op: "eq",
+      value: "s-1",
+    });
+  });
+
+  it("buildTextPredicate omits the key member entirely for an unkeyed field", () => {
+    // A stray key on an unkeyed field fails validation, so it must be absent rather
+    // than present-and-undefined.
+    expect("key" in buildTextPredicate("trace_id", "eq", "abc")).toBe(false);
   });
 });
 
@@ -142,6 +178,18 @@ describe("upsertPredicate", () => {
     ]);
   });
 
+  it("keeps two metadata keys as independent filters rather than replacing one with the other", () => {
+    const session = buildTextPredicate("metadata", "eq", "s-1", "session_id");
+    const tenant = buildTextPredicate("metadata", "eq", "acme", "tenant");
+    expect(upsertPredicate([session], tenant)).toEqual([session, tenant]);
+  });
+
+  it("replaces the existing filter on the SAME metadata key", () => {
+    const first = buildTextPredicate("metadata", "eq", "s-1", "session_id");
+    const second = buildTextPredicate("metadata", "contains", "s-", "session_id");
+    expect(upsertPredicate([first], second)).toEqual([second]);
+  });
+
   it("never touches predicates on other fields", () => {
     const start = [gte("duration_ms", 5), gte("cost", 1)];
     expect(upsertPredicate(start, lte("duration_ms", 10))).toEqual([
@@ -149,5 +197,41 @@ describe("upsertPredicate", () => {
       gte("cost", 1),
       lte("duration_ms", 10),
     ]);
+  });
+
+  describe("at the filter-count cap", () => {
+    // Distinct predicates: metadata keys are independent filters, so `n` of them are `n` chips.
+    const atCap = Array.from({ length: MAX_FILTERS }, (_, i) =>
+      buildTextPredicate("metadata", "eq", `v${i}`, `key_${i}`),
+    );
+
+    it("refuses a genuinely new predicate that would push the array past the cap", () => {
+      // Admitting it would 422 the list and lose the results for all twenty; dropping it
+      // loses only the one filter the user has not seen results for yet.
+      const newField = buildInPredicate("model_name", ["gpt-4o"]);
+      expect(upsertPredicate(atCap, newField)).toEqual(atCap);
+    });
+
+    it("still applies an upsert that supersedes an existing filter, since the count cannot grow", () => {
+      // Editing the twentieth chip must keep working: replacing one filter with another
+      // leaves the array at the cap rather than past it.
+      const edited = buildTextPredicate("metadata", "contains", "edited", "key_0");
+      const result = upsertPredicate(atCap, edited);
+      expect(result).toHaveLength(MAX_FILTERS);
+      expect(result).toContainEqual(edited);
+      expect(result).not.toContainEqual(atCap[0]);
+    });
+
+    it("still applies an upsert that supersedes a filter one below the cap", () => {
+      const belowCap = atCap.slice(0, MAX_FILTERS - 1);
+      const edited = buildTextPredicate("metadata", "contains", "edited", "key_0");
+      expect(upsertPredicate(belowCap, edited)).toHaveLength(MAX_FILTERS - 1);
+    });
+
+    it("admits a new predicate while the array is still one below the cap", () => {
+      const belowCap = atCap.slice(0, MAX_FILTERS - 1);
+      const newField = buildInPredicate("model_name", ["gpt-4o"]);
+      expect(upsertPredicate(belowCap, newField)).toEqual([...belowCap, newField]);
+    });
   });
 });

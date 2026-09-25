@@ -1,5 +1,5 @@
 # docker/Dockerfile.web
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 RUN apk add --no-cache openssl && \
     corepack enable && corepack prepare pnpm@10 --activate
 
@@ -81,10 +81,13 @@ COPY frontend/packages/core/prisma ./packages/core/prisma
 ENTRYPOINT ["./packages/core/node_modules/.bin/prisma", "migrate", "deploy", "--schema", "packages/core/prisma/schema.prisma"]
 
 # --- Runner stage ---
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 
-RUN apk add --no-cache openssl && \
+# Runtime images start from a freshly upgraded base and drop npm, which is
+# not used at runtime but ships its own bundled dependencies.
+RUN apk upgrade --no-cache && apk add --no-cache openssl && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx && \
     addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 

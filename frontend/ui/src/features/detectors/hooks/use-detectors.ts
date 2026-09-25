@@ -16,7 +16,9 @@ export interface Detector {
   detectionSource: "system" | "byok" | null;
   createTime: string;
   updateTime: string;
-  trigger?: { conditions: Array<{ field: string; op: string; value: unknown }> } | null;
+  trigger?: {
+    conditions: Array<{ field: string; op: string; value: unknown; key?: string }>;
+  } | null;
 }
 
 interface PaginationMeta {
@@ -44,7 +46,7 @@ export interface CreateDetectorInput {
   sampleRate?: number;
   enabled?: boolean;
   enableRca?: boolean;
-  triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
+  triggerConditions?: Array<{ field: string; op: string; value: unknown; key?: string }>;
   detectionModel?: string;
   detectionProvider?: string;
   detectionSource?: "system" | "byok";
@@ -95,7 +97,7 @@ export interface UpdateDetectorInput {
   sampleRate?: number;
   enabled?: boolean;
   enableRca?: boolean;
-  triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
+  triggerConditions?: Array<{ field: string; op: string; value: unknown; key?: string }>;
   detectionModel?: string;
   detectionProvider?: string;
   detectionSource?: "system" | "byok";

@@ -60,6 +60,28 @@ def test_no_filters_param_threads_an_empty_list(client, mock_trace_reader):
     assert mock_trace_reader.list_traces.call_args.kwargs["filters"] == []
 
 
+def test_metadata_predicate_carries_its_key_through_to_the_service(client, mock_trace_reader):
+    raw = json.dumps([{"field": "metadata", "op": "eq", "value": "acme-corp", "key": "tenant_id"}])
+    resp = client.get("/api/v1/projects/p1/traces", params={"filters": raw})
+    assert resp.status_code == 200
+    threaded = mock_trace_reader.list_traces.call_args.kwargs["filters"]
+    assert threaded == [Predicate(field="metadata", op="eq", value="acme-corp", key="tenant_id")]
+
+
+def test_metadata_predicate_without_a_key_returns_422(client, mock_trace_reader):
+    raw = json.dumps([{"field": "metadata", "op": "eq", "value": "acme-corp"}])
+    resp = client.get("/api/v1/projects/p1/traces", params={"filters": raw})
+    assert resp.status_code == 422
+    mock_trace_reader.list_traces.assert_not_called()
+
+
+def test_key_on_a_field_that_takes_none_returns_422(client, mock_trace_reader):
+    raw = json.dumps([{"field": "model_name", "op": "in", "value": ["gpt-4"], "key": "x"}])
+    resp = client.get("/api/v1/projects/p1/traces", params={"filters": raw})
+    assert resp.status_code == 422
+    mock_trace_reader.list_traces.assert_not_called()
+
+
 def test_unknown_field_returns_422(client, mock_trace_reader):
     raw = json.dumps([{"field": "nope", "op": "in", "value": ["x"]}])
     resp = client.get("/api/v1/projects/p1/traces", params={"filters": raw})

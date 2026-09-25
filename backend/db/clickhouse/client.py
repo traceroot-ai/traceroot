@@ -1,5 +1,6 @@
 """ClickHouse client using clickhouse-connect."""
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -9,22 +10,60 @@ from clickhouse_connect.driver.query import QueryResult
 
 from shared.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 class ClickHouseClient:
     """ClickHouse client wrapper for trace data operations."""
 
-    def __init__(self, client: Client):
+    def __init__(self, client: Client, default_settings: dict[str, Any] | None = None):
         self._client = client
+        # Applied to every query this wrapper issues, unless the caller overrides the
+        # same key. Empty for normal clients; used by the SQL gateway's self-host
+        # fallback to carry the resource caps that the read-only user would otherwise
+        # get from its CONST settings profile.
+        self._default_settings = default_settings or {}
+
+    def with_default_settings(self, default_settings: dict[str, Any]) -> "ClickHouseClient":
+        """A view of this client that applies ``default_settings`` to every query.
+
+        Shares the underlying connection rather than opening a second one, so the
+        caps travel with the handle without giving the SQL gateway its own pool or
+        imposing them on the shared client every other caller uses.
+        """
+        return ClickHouseClient(self._client, default_settings)
 
     @classmethod
     def from_settings(cls) -> "ClickHouseClient":
-        """Create client from centralized settings."""
+        """Create client from centralized settings (full-privilege user)."""
+        ch = settings.clickhouse
+        return cls._build(ch.user, ch.password)
+
+    @classmethod
+    def readonly_from_settings(cls) -> "ClickHouseClient":
+        """Create a client authenticated as the read-only SQL gateway user.
+
+        Raises unless both ``CLICKHOUSE_RO_USER`` and ``CLICKHOUSE_RO_PASSWORD`` are set.
+        Callers wanting the cloud-fatal / self-host-fallback behavior must use
+        ``get_readonly_clickhouse_client`` instead.
+        """
+        ch = settings.clickhouse
+        if not _readonly_configured():
+            raise RuntimeError(
+                "readonly_from_settings() requires CLICKHOUSE_RO_USER and CLICKHOUSE_RO_PASSWORD "
+                "to be set; use get_readonly_clickhouse_client() for the configured fallback "
+                "behavior."
+            )
+        return cls._build(ch.ro_user, ch.ro_password)
+
+    @classmethod
+    def _build(cls, username: str, password: str) -> "ClickHouseClient":
         ch = settings.clickhouse
         client = clickhouse_connect.get_client(
             host=ch.host,
             port=ch.port,
-            username=ch.user,
-            password=ch.password,
+            username=username,
+            password=password,
             database=ch.database,
             # Disable the sticky server-side session so this shared singleton client
             # can serve concurrent queries (the two-phase trace view fans out a
@@ -68,6 +107,7 @@ class ClickHouseClient:
                     now,  # ch_create_time
                     now,  # ch_update_time
                     t.get("environment"),
+                    1 if t.get("is_evaluation") else 0,
                 ]
             )
 
@@ -90,6 +130,7 @@ class ClickHouseClient:
                 "ch_create_time",
                 "ch_update_time",
                 "environment",
+                "is_evaluation",
             ],
         )
 
@@ -135,6 +176,7 @@ class ClickHouseClient:
                     now,  # ch_create_time
                     now,  # ch_update_time
                     s.get("environment"),
+                    1 if s.get("is_evaluation") else 0,
                 ]
             )
 
@@ -168,6 +210,7 @@ class ClickHouseClient:
                 "ch_create_time",
                 "ch_update_time",
                 "environment",
+                "is_evaluation",
             ],
         )
 
@@ -196,25 +239,103 @@ class ClickHouseClient:
                 TIMEOUT_EXCEEDED error, which surfaces here as a raised
                 exception). Scoped to the single query: other queries, the
                 session, and the server config are unaffected. ``None`` means
-                server/session defaults.
+                server/session defaults. Note a ``readonly = 1`` user cannot
+                apply per-query settings at all: the server rejects the query
+                rather than ignoring the setting, so the SQL gateway's
+                read-only caps come from its settings profile instead.
 
         Returns:
             QueryResult: The clickhouse-connect query result.
         """
-        return self._client.query(query, parameters=parameters, settings=settings)
+        # Defaults are applied LAST so they win. They are caps, not preferences: the
+        # self-host fallback sets them precisely because no settings profile is enforcing
+        # them server-side, and a caller that could override one could raise it or pass 0,
+        # which ClickHouse reads as unlimited. A caller wanting a stricter limit should
+        # lower the configured cap rather than pass a per-query override.
+        merged = {**(settings or {}), **self._default_settings}
+        return self._client.query(query, parameters=parameters, settings=merged or None)
 
     def close(self) -> None:
         """Close the client connection."""
         self._client.close()
 
 
-# Singleton instance
+# Singleton instances
 _client: ClickHouseClient | None = None
+_ro_client: ClickHouseClient | None = None
 
 
 def get_clickhouse_client() -> ClickHouseClient:
-    """Get or create the singleton ClickHouse client."""
+    """Get or create the singleton ClickHouse client (full-privilege user)."""
     global _client
     if _client is None:
         _client = ClickHouseClient.from_settings()
     return _client
+
+
+def _readonly_configured() -> bool:
+    """Whether the read-only gateway identity is usable, which needs both halves.
+
+    The user alone is not enough. Compose defaults ``CLICKHOUSE_RO_USER`` to the account
+    name so that setting only the password turns the gateway on, and it provisions that
+    account only when the password is set. A user with no password is therefore an account
+    that does not exist, and logging in as it would fail every gateway query with an
+    authentication error instead of the explicit refusal or fallback below.
+    """
+    ch = settings.clickhouse
+    return bool(ch.ro_user and ch.ro_password)
+
+
+def get_readonly_clickhouse_client() -> ClickHouseClient:
+    """Get or create the singleton read-only ClickHouse client for the SQL gateway.
+
+    Uses the dedicated read-only user (``CLICKHOUSE_RO_USER`` / ``CLICKHOUSE_RO_PASSWORD``)
+    when configured. When it is NOT configured:
+
+    * **Cloud mode** (billing enabled, ``ENABLE_BILLING`` != ``"false"``): fail fast —
+      we refuse to run user SQL through a privileged client in a multi-tenant deployment.
+    * **Self-host / dev** (``ENABLE_BILLING=false``): fall back to the default client and
+      log a loud warning.
+
+    Tenant isolation still depends on the application binding the authenticated
+    project_id into the view call; DB grants do not enforce the tenant choice.
+    """
+    global _ro_client
+    if _ro_client is not None:
+        return _ro_client
+
+    if _readonly_configured():
+        _ro_client = ClickHouseClient.readonly_from_settings()
+        return _ro_client
+
+    # No read-only user configured. Lazy import avoids coupling this module to the
+    # enterprise license gate at import time.
+    from ee.license import is_billing_enabled
+
+    if is_billing_enabled():
+        raise RuntimeError(
+            "CLICKHOUSE_RO_USER and CLICKHOUSE_RO_PASSWORD are required in cloud mode "
+            "(ENABLE_BILLING != 'false') for the public SQL gateway, but they are not both set. "
+            "Refusing to execute user SQL through a privileged ClickHouse client."
+        )
+
+    logger.warning(
+        "SQL gateway FALLBACK: CLICKHOUSE_RO_USER / CLICKHOUSE_RO_PASSWORD are not both set; "
+        "using the default (privileged) "
+        "ClickHouse client. This is acceptable for local/dev/self-host only; cloud deployments "
+        "MUST set both CLICKHOUSE_RO_USER and CLICKHOUSE_RO_PASSWORD."
+    )
+    # The caps normally come from the read-only user's CONST settings profile. Without
+    # that user there is no profile, so without this the fallback runs user SQL with no
+    # execution-time, result-row, result-byte or memory limit at all. A privileged client
+    # is the one kind that CAN take them per query -- readonly = 1 is what forbids it.
+    ch = settings.clickhouse
+    _ro_client = get_clickhouse_client().with_default_settings(
+        {
+            "max_execution_time": ch.sql_max_execution_time,
+            "max_result_rows": ch.sql_max_result_rows,
+            "max_result_bytes": ch.sql_max_result_bytes,
+            "max_memory_usage": ch.sql_max_memory_usage,
+        }
+    )
+    return _ro_client

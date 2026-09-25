@@ -1,7 +1,9 @@
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
+  Bell,
   Bot,
+  Braces,
   BotMessageSquare,
   Box,
   CircleAlert,
@@ -16,6 +18,9 @@ import {
   LayoutDashboard,
   LayoutGrid,
   Layers,
+  FlaskConical,
+  Play,
+  Ruler,
   Shapes,
   Sparkle,
   Users,
@@ -41,6 +46,10 @@ export const DOMAIN_ICONS = {
   agent: Bot,
   llm: Sparkle,
   tool: Wrench,
+  // Offline-eval span kinds, emitted by the SDK's eval engine.
+  evaluation: FlaskConical,
+  task: Play,
+  scorer: Ruler,
   // Default/generic span kind (anything that isn't trace/llm/agent/tool).
   span: ArrowRight,
   assistant: BotMessageSquare,
@@ -61,7 +70,15 @@ export const DOMAIN_ICONS = {
   workspace: LayoutGrid,
   detector: Eye,
   environment: Globe,
+  // Free-form key/value data the user attached to a trace, not a traceroot field.
+  metadata: Braces,
   dashboard: LayoutDashboard,
+  // A monitor watching a metric, distinct from `error` (CircleAlert), which
+  // marks a span that failed. An alert can fire on a metric that has nothing
+  // to do with errors, so the two must not share a glyph.
+  alert: Bell,
+  // Collapsing rows into a lineage/roll-up (e.g. "Group by evaluation").
+  group: Layers,
   // Neutral "unknown field" fallback for filter/widget dropdowns. Kept
   // decoupled from `model` even though both currently render as Box — if the
   // model glyph ever changes, unmapped fields shouldn't silently change with

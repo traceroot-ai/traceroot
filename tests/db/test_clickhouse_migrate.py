@@ -86,3 +86,20 @@ def test_docker_goose_command_supports_up():
 def test_docker_goose_command_rejects_create():
     with pytest.raises(ValueError, match="Docker fallback"):
         migrate.docker_goose_command("create")
+
+
+def test_migration_version_prefixes_are_unique():
+    """Two files sharing a numeric prefix make goose refuse the whole run.
+
+    Nothing is applied then — not the duplicate pair, not anything after it — so a
+    branch that adds `006_x.sql` alongside an existing `006_y.sql` ships a schema
+    the application code already assumes exists, and every query touching the new
+    column fails at runtime rather than at deploy time.
+    """
+    versions: dict[str, str] = {}
+    for path in sorted(migrate.migrations_dir().glob("*.sql")):
+        version = path.name.split("_", 1)[0]
+        assert version not in versions, (
+            f"duplicate migration version {version}: {versions[version]} and {path.name}"
+        )
+        versions[version] = path.name

@@ -1,0 +1,659 @@
+"""Public offline-evaluation API gateway.
+
+Datasets, dataset versions, and evaluation runs live in the Postgres control
+plane, which is owned by the Next.js app (Prisma). This router is a thin
+authenticated reverse proxy: it forwards the SDK's
+
+    /api/v1/public/{datasets,dataset-versions,evaluation-runs}/*
+
+requests to the Next.js ``/api/public/*`` route handlers that implement them, so
+the SDK reaches dataset authoring + run reporting through the SAME ``host_url``
+it already uses for trace ingestion — no separate eval URL. This is the
+"two-hop" production path the SDK contract anticipated: SDK → this gateway →
+Next.js control plane.
+
+Writes are authenticated here with ``KeyStampedAuth`` (the SDK's ingest credential)
+and the Bearer key is forwarded so the Next.js handler re-validates authoritatively
+against Postgres.
+
+The reads are the exception: the run summary and the four dataset reads are not
+forwarded. They take ``DualStampedAuth`` like every other project-scoped public
+read, so an API key or a signed-in user with ``project_id`` can call them, and each
+calls the shared evaluation read common with the project this router resolved, the
+same body any internal project-scoped mirror calls, so the surfaces cannot drift.
+
+Proxy safety
+------------
+A proxy that concatenates caller-controlled path text onto an internal origin is
+an open reverse proxy, so nothing here is built by concatenation alone:
+
+* every path segment must match ``_SEGMENT_RE`` (no ``/``, ``%``, ``\\``, ``:``
+  or dot-segments survive it), and
+* the resulting ``(shape, method)`` must be one of the eight real upstream routes
+  in ``_UPSTREAM_ROUTES`` — an explicit allowlist mirroring
+  ``frontend/ui/src/app/api/public/**/route.ts``.
+
+Anything else is a 404, so the gateway fails closed rather than relying on URL
+normalization. Forwarded headers are likewise an allowlist
+(``_FORWARD_REQUEST_HEADERS``), not a denylist: the caller's ``Cookie``, its
+``X-Forwarded-For``, and hop-by-hop framing headers never reach the control
+plane.
+"""
+
+import logging
+import re
+from typing import Any
+
+import httpx
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse
+
+from rest.rate_limit import (
+    BUCKET_INGEST,
+    BUCKET_READ,
+    is_request_rate_limit_exempt,
+    key_ingest,
+    key_read,
+    limiter,
+    resolve_limit,
+)
+from rest.routers.evaluation_read_common import (
+    get_dataset_detail,
+    get_dataset_version_page,
+    list_dataset_versions_page,
+    list_datasets_page,
+    list_evaluation_runs_page,
+    list_evaluations_page,
+    read_run_summary,
+)
+from rest.routers.public.deps import DualStampedAuth, KeyStampedAuth
+from rest.schemas.eval import (
+    CompleteRunRequest,
+    CompleteRunResponse,
+    ErrorResponse,
+    EvalRunStatus,
+    GetDatasetVersionResponse,
+    ListDatasetsResponse,
+    ListDatasetVersionsResponse,
+    ListEvaluationRunsResponse,
+    ListEvaluationsResponse,
+    PublicDataset,
+    ReadRunResponse,
+    RegisterRunRequest,
+    RegisterRunResponse,
+    UpsertResultRequest,
+    UpsertResultResponse,
+)
+from shared.config import settings
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/public", tags=["Offline Eval (Public)"])
+
+# One path segment: an opaque cuid/slug. Deliberately narrow — no `/`, `%`, `\`,
+# `:` or whitespace can pass, so percent-encoded traversal (`..%2F`, which uvicorn
+# has already unquoted to `../` by the time the route matches), double-encoded
+# traversal (`%252e`, which arrives with a literal `%`), backslash traversal, and
+# absolute URLs (`http://…`) are all rejected before any URL is built.
+_SEGMENT_RE = re.compile(r"[A-Za-z0-9_.~-]{1,128}")
+
+# Dot-segments match the character class above, so they are excluded by name.
+_DOT_SEGMENTS = frozenset({".", ".."})
+
+# The complete set of upstream routes this gateway may reach, as
+# (segment shape, allowed methods). `*` is one opaque id segment. This mirrors
+# `frontend/ui/src/app/api/public/**/route.ts` one-for-one; adding a route there
+# without adding it here means the gateway 404s it (fail closed, by design).
+_UPSTREAM_ROUTES: tuple[tuple[tuple[str, ...], frozenset[str]], ...] = (
+    # Dataset writes only: the dataset reads are typed below and served by the read common,
+    # so no GET is ever forwarded and a GET that reaches a catch-all is refused here.
+    (("datasets",), frozenset({"POST"})),
+    (("datasets", "*"), frozenset({"PATCH"})),
+    (("datasets", "*", "versions"), frozenset({"POST"})),
+    (("evaluation-runs",), frozenset({"POST"})),
+    (("evaluation-runs", "*", "complete"), frozenset({"POST"})),
+    (("evaluation-runs", "*", "results"), frozenset({"POST"})),
+    (("evaluation-runs", "*", "results", "*", "human-score"), frozenset({"POST"})),
+    (("evaluation-runs", "*", "results", "*", "scores"), frozenset({"POST"})),
+)
+
+# Only what the SDK actually needs crosses the trust boundary. An allowlist (not a
+# denylist) so a header nobody thought about cannot be relayed: `cookie` would
+# hand the control plane a second, session-scoped credential on a Bearer-authed
+# request (confused deputy); `transfer-encoding` would contradict the
+# `Content-Length` httpx derives from the buffered body (request-smuggling shape);
+# `x-forwarded-for`/`x-real-ip` are caller-chosen and would poison upstream logs.
+_FORWARD_REQUEST_HEADERS = frozenset(
+    {
+        "authorization",
+        "content-type",
+        "accept",
+        "user-agent",
+        "traceparent",
+        "tracestate",
+        "idempotency-key",
+    }
+)
+
+# `_forward` buffers the body into REST-process memory before sending it upstream,
+# so it needs a ceiling. Sized above the largest legal typed payload (an upsert
+# carries four 1 MB text fields plus its scores) with headroom, and far below
+# anything that would pressure the process.
+_MAX_FORWARD_BODY_BYTES = 8 * 1024 * 1024
+
+# Shown when an upstream failure carries no usable message (non-JSON body, HTML
+# error page, unexpected structure). Deliberately generic so nothing internal leaks.
+_GENERIC_UPSTREAM_ERROR = "Evaluation request failed"
+
+
+def _upstream_path(method: str, *parts: str) -> str:
+    """Validate caller-supplied path text and return the safe upstream subpath.
+
+    Args:
+        method (str): The request method; matched against the route's allowlist
+            entry so only the verbs the upstream handler implements forward.
+        *parts (str): Path fragments to join, each of which may itself contain
+            ``/`` (the ``{subpath:path}`` catch-alls bind a whole tail here).
+
+    Returns:
+        str: The validated ``a/b/c`` subpath, safe to concatenate onto the
+            control-plane origin.
+
+    Raises:
+        HTTPException: 404 if any segment is not a plain opaque token, or if the
+            resulting shape+method is not one of the known upstream routes. A 404
+            (rather than 400) keeps the gateway from confirming which internal
+            paths exist.
+    """
+    segments = [s for part in parts for s in part.split("/") if s]
+    if not segments:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    for segment in segments:
+        if segment in _DOT_SEGMENTS or not _SEGMENT_RE.fullmatch(segment):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    for shape, methods in _UPSTREAM_ROUTES:
+        if len(shape) != len(segments) or method.upper() not in methods:
+            continue
+        if all(e == "*" or e == a for e, a in zip(shape, segments)):
+            return "/".join(segments)
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+
+def _normalized_error(upstream: httpx.Response) -> JSONResponse:
+    """Re-serialize an upstream non-2xx into the canonical ``{"detail": ...}`` shape.
+
+    The Next.js control plane returns ``{"error": ...}`` (and occasionally
+    ``{"detail": ...}``); the public API contract is uniformly ``{"detail": ...}``.
+    We surface only a safe human-readable *string* message and never the raw
+    upstream body — which could be an HTML error page, a stack trace, or unexpected
+    structure — falling back to a generic message otherwise. The upstream HTTP
+    status is preserved.
+    """
+    detail = _GENERIC_UPSTREAM_ERROR
+    conflict: dict = {}
+    try:
+        data = upstream.json()
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        # Prefer an already-canonical `detail`, else accept Next.js's `error`.
+        message = data.get("detail")
+        if not (isinstance(message, str) and message.strip()):
+            message = data.get("error")
+        if isinstance(message, str) and message.strip():
+            detail = message.strip()
+        # Preserve the optimistic-concurrency conflict fields (a version 409) so the SDK
+        # can report which base was stale and what the current version is — flattening to
+        # detail-only left its conflict diagnostics permanently None. Only these known
+        # keys, str-or-null, are passed through — never the raw upstream body.
+        for key in ("base_version_id", "current_version_id"):
+            if key in data and (data[key] is None or isinstance(data[key], str)):
+                conflict[key] = data[key]
+    return JSONResponse(status_code=upstream.status_code, content={"detail": detail, **conflict})
+
+
+async def _read_capped_body(request: Request) -> bytes:
+    """Buffer the request body, refusing anything over ``_MAX_FORWARD_BODY_BYTES``.
+
+    A declared ``Content-Length`` is rejected up front so an oversized upload is
+    refused before it is read; the streaming check below is what actually enforces
+    the cap (a chunked or mis-declared body has no trustworthy length).
+
+    Raises:
+        HTTPException: 413 if the body exceeds the cap.
+    """
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > _MAX_FORWARD_BODY_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Request body too large",
+        )
+    chunks: list[bytes] = []
+    total = 0
+    # Starlette replays the cached body here when a typed route already parsed it.
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_FORWARD_BODY_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Request body too large",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _forward(request: Request, subpath: str) -> Response:
+    """Proxy the current request to the Next.js ``/api/public/<subpath>`` route.
+
+    ``subpath`` MUST already have come from ``_upstream_path`` — this function
+    concatenates it onto the control-plane origin verbatim.
+
+    Successful (2xx/3xx) responses pass through verbatim. Upstream failures are
+    normalized to ``{"detail": ...}`` (see ``_normalized_error``); a transport
+    failure reaching the control plane is a native 503 in the same shape.
+    """
+    url = f"{settings.traceroot_ui_url.rstrip('/')}/api/public/{subpath}"
+    body = await _read_capped_body(request)
+    headers = {k: v for k, v in request.headers.items() if k.lower() in _FORWARD_REQUEST_HEADERS}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            upstream = await client.request(
+                request.method,
+                url,
+                params=dict(request.query_params),
+                content=body,
+                headers=headers,
+            )
+    except httpx.RequestError as e:
+        logger.error("Eval gateway forward to %s failed: %s", url, e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Evaluation service unavailable",
+        ) from e
+
+    if upstream.status_code >= 400:
+        return _normalized_error(upstream)
+
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type", "application/json"),
+    )
+
+
+# Shared by every typed public route below — the dataset reads and the run
+# reporting endpoints answer the same error envelope.
+_EVAL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": ErrorResponse, "description": "Invalid request"},
+    404: {"model": ErrorResponse, "description": "Not found"},
+    413: {"model": ErrorResponse, "description": "Request body too large"},
+    # FastAPI raises RequestValidationError (422) for a malformed body; `main.py`
+    # normalizes it into this same {"detail": "<string>"} envelope, so declaring it
+    # here keeps the published contract and the runtime response in agreement.
+    422: {"model": ErrorResponse, "description": "Validation error"},
+}
+
+# The reads take no body, so they can never be too large. What they can do is refuse a
+# signed-in user who isn't a member of the project (403) and hit the rate limit (429).
+# 401 and 503 are added to every public operation by the schema builder.
+_EVAL_READ_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": ErrorResponse, "description": "Invalid request"},
+    403: {"model": ErrorResponse, "description": "No access to this project"},
+    404: {"model": ErrorResponse, "description": "Not found"},
+    422: {"model": ErrorResponse, "description": "Validation error"},
+    429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
+}
+
+
+# --- Dataset reads (typed + published; the writes stay on the catch-alls) ---
+#
+# The GETs are declared explicitly so they appear in the published OpenAPI and a
+# client — including the tool registry — can be generated from them. None of them
+# forwards: each calls the evaluation read common with the resolved project, the body any
+# internal project-scoped mirror calls too. The POST/PATCH write
+# shapes deliberately stay on the catch-alls below: no policy decision has been made for
+# dataset writes, and publishing one here would be the first step toward handing it to an
+# agent. Registered BEFORE the catch-alls so they are matched first.
+@router.get(
+    "/datasets",
+    operation_id="list_datasets",
+    response_model=ListDatasetsResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="List the project's evaluation datasets",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_datasets(
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int = Query(50, ge=1, le=200, description="Datasets per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+    name: str | None = Query(
+        None, min_length=1, max_length=200, description="Case-insensitive substring of the name"
+    ),
+) -> ListDatasetsResponse:
+    """List datasets, newest first. `next_cursor` is null on the last page."""
+    return await list_datasets_page(auth.project_id, limit, cursor, name)
+
+
+@router.get(
+    "/datasets/{dataset_id}",
+    operation_id="get_dataset",
+    response_model=PublicDataset,
+    responses=_EVAL_READ_RESPONSES,
+    summary="Read one evaluation dataset",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_dataset(
+    dataset_id: str, request: Request, response: Response, auth: DualStampedAuth
+) -> PublicDataset:
+    """Read one dataset. `current_dataset_version_id` is null until a version is published."""
+    return await get_dataset_detail(auth.project_id, dataset_id)
+
+
+@router.get(
+    "/datasets/{dataset_id}/versions",
+    operation_id="list_dataset_versions",
+    response_model=ListDatasetVersionsResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="List a dataset's published versions",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_dataset_versions(
+    dataset_id: str,
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int = Query(50, ge=1, le=200, description="Versions per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+) -> ListDatasetVersionsResponse:
+    """List versions newest-first, each with its case count and whether it is current."""
+    return await list_dataset_versions_page(auth.project_id, dataset_id, limit, cursor)
+
+
+@router.get(
+    "/dataset-versions/{version_id}",
+    operation_id="get_dataset_version",
+    response_model=GetDatasetVersionResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="Read one dataset version and a page of its test cases",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_dataset_version(
+    version_id: str,
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int | None = Query(
+        None,
+        ge=1,
+        le=1000,
+        description=(
+            "Test cases per page. Omit it, with no cursor, to receive the whole version in "
+            "one response, as an SDK pulling the snapshot it will run does; pass it to page."
+        ),
+    ),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+) -> GetDatasetVersionResponse:
+    """Read an immutable snapshot: the version plus its cases, whole or a page at a time.
+
+    Paging is opt-in through `limit`, because the released SDKs pull a version with one
+    request and never follow `next_cursor`; a default page would silently truncate them.
+    A version's case set is unbounded in practice, so any other caller should page.
+    `input`/`expected` come back as native JSON values.
+    """
+    return await get_dataset_version_page(auth.project_id, version_id, limit, cursor)
+
+
+# --- Datasets (A1/A2 list+upsert, A3 patch, A4/A5 versions) -----------------
+# Dataset traffic is authoring/read traffic, so it shares the READ bucket; the run
+# reporting writes below use INGEST. Every route takes KeyStampedAuth, which is what
+# puts the workspace + plan on request.state for the limiter's key_func.
+@router.api_route("/datasets", methods=["GET", "POST"], include_in_schema=False)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def datasets_root(request: Request, auth: KeyStampedAuth) -> Response:
+    return await _forward(request, _upstream_path(request.method, "datasets"))
+
+
+@router.api_route(
+    "/datasets/{subpath:path}", methods=["GET", "POST", "PATCH"], include_in_schema=False
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def datasets_sub(subpath: str, request: Request, auth: KeyStampedAuth) -> Response:
+    return await _forward(request, _upstream_path(request.method, "datasets", subpath))
+
+
+# --- Dataset versions -------------------------------------------------------
+# The one real shape, the snapshot read, is typed above and not forwarded. This catch-all
+# stays so any other GET under the prefix is refused by the allowlist (404) rather than
+# reaching routing's default.
+@router.api_route("/dataset-versions/{subpath:path}", methods=["GET"], include_in_schema=False)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def dataset_versions(subpath: str, request: Request, auth: KeyStampedAuth) -> Response:
+    return await _forward(request, _upstream_path(request.method, "dataset-versions", subpath))
+
+
+# --- Evaluation runs (Phase-4 write path) -----------------------------------
+# The three reporting endpoints are explicit, typed, and published to OpenAPI so
+# the CLI can codegen a real client. They still forward the (now request-validated)
+# body to the Prisma-owned Next.js handlers — no persistence is duplicated here.
+# The response_model documents the success shape; the actual body is the upstream
+# response passed through by ``_forward``. These are registered before the catch-all
+# below so they win for their exact paths.
+
+
+@router.post(
+    "/evaluation-runs",
+    operation_id="register_run",
+    response_model=RegisterRunResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses=_EVAL_ERROR_RESPONSES,
+    summary="Register an evaluation run",
+)
+@limiter.shared_limit(
+    resolve_limit,
+    scope=BUCKET_INGEST,
+    key_func=key_ingest,
+    exempt_when=is_request_rate_limit_exempt,
+)
+async def register_run(
+    payload: RegisterRunRequest, request: Request, auth: KeyStampedAuth
+) -> Response:
+    """Register/start a run. Idempotent on ``client_run_id`` within an evaluation."""
+    return await _forward(request, _upstream_path(request.method, "evaluation-runs"))
+
+
+# --- Evaluation listing reads (typed + published) ----------------------------
+#
+# `read_run` answers for ONE run, and nothing else public hands a caller a run id. These two
+# are what make it reachable from a terminal or a chat: the evaluations a project has, and
+# the runs of one of them. Identity and status only — a run's numbers are aggregates over
+# its results, which `read_run` answers one run at a time, so a page of runs stays one
+# query. Registered before the catch-all so they win for their exact paths.
+@router.get(
+    "/evaluations",
+    operation_id="list_evaluations",
+    response_model=ListEvaluationsResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="List the project's evaluations",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_evaluations(
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int = Query(50, ge=1, le=200, description="Evaluations per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+    name: str | None = Query(
+        None, min_length=1, max_length=200, description="Case-insensitive substring of the name"
+    ),
+) -> ListEvaluationsResponse:
+    """List evaluations, newest first, each with its run count and latest run.
+
+    `next_cursor` is null on the last page.
+    """
+    return await list_evaluations_page(auth.project_id, limit, cursor, name)
+
+
+@router.get(
+    "/evaluation-runs",
+    operation_id="list_evaluation_runs",
+    response_model=ListEvaluationRunsResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="List the project's evaluation runs",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_evaluation_runs(
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int = Query(50, ge=1, le=200, description="Runs per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+    evaluation_id: str | None = Query(
+        None, min_length=1, max_length=64, description="Only this evaluation's runs"
+    ),
+    run_status: EvalRunStatus | None = Query(
+        None, alias="status", description="Only runs in this status"
+    ),
+) -> ListEvaluationRunsResponse:
+    """List evaluation runs, newest first, optionally one evaluation's or one status's.
+
+    Identity and status only: a run's counts and per-scorer means come from `read_run`, so
+    listing stays one query however many runs a page holds. `next_cursor` is null on the
+    last page.
+    """
+    return await list_evaluation_runs_page(
+        auth.project_id, limit, cursor, evaluation_id, run_status
+    )
+
+
+@router.get(
+    "/evaluation-runs/{run_id}",
+    operation_id="read_run",
+    response_model=ReadRunResponse,
+    responses={
+        **_EVAL_READ_RESPONSES,
+        403: {
+            "model": ErrorResponse,
+            "description": "No access to this project, or the run is outside the plan's "
+            "retention window",
+        },
+    },
+    summary="Read an evaluation run's summary",
+)
+# READ, not INGEST. It is a read, and the INGEST bucket is 16x looser — sized for an SDK
+# streaming per-case results, not for a summary an agent can call in a loop. Sharing the
+# read bucket with every other public read is what keeps one caller's polling from
+# competing with another's ingestion.
+@limiter.shared_limit(
+    resolve_limit,
+    scope=BUCKET_READ,
+    key_func=key_read,
+    exempt_when=is_request_rate_limit_exempt,
+)
+async def read_run(
+    run_id: str,
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+) -> ReadRunResponse:
+    """Read a run's own summary: status, result counts, and per-score and per-metric
+    means over the run's results.
+
+    Typed rather than left to the catch-all so it appears in the published OpenAPI: an
+    endpoint a CLI is expected to call must be in the contract the CLI generates from.
+    Summary only, so the response is bounded by scorer count rather than case count.
+
+    Comparing two runs is not part of this read. It is a different question with its own
+    trust rules, and an optional parameter here would be too easily confused with the
+    baseline a run stores at registration.
+    """
+    # Not forwarded. The read is served by the shared evaluation read common, keyed by the
+    # project this route resolved, which is the same body any internal project-scoped
+    # mirror calls. A run outside the project's retention window is a 403.
+    return await read_run_summary(auth.project_id, run_id)
+
+
+@router.post(
+    "/evaluation-runs/{run_id}/results",
+    operation_id="upsert_result",
+    response_model=UpsertResultResponse,
+    responses=_EVAL_ERROR_RESPONSES,
+    summary="Upsert one test-case result with scores",
+)
+@limiter.shared_limit(
+    resolve_limit,
+    scope=BUCKET_INGEST,
+    key_func=key_ingest,
+    exempt_when=is_request_rate_limit_exempt,
+)
+async def upsert_result(
+    run_id: str, payload: UpsertResultRequest, request: Request, auth: KeyStampedAuth
+) -> Response:
+    """Upsert one test-case result (and its scores). Idempotent on (run, test case)."""
+    subpath = _upstream_path(request.method, "evaluation-runs", run_id, "results")
+    return await _forward(request, subpath)
+
+
+@router.post(
+    "/evaluation-runs/{run_id}/complete",
+    operation_id="complete_run",
+    response_model=CompleteRunResponse,
+    responses=_EVAL_ERROR_RESPONSES,
+    summary="Complete/finalize an evaluation run",
+)
+@limiter.shared_limit(
+    resolve_limit,
+    scope=BUCKET_INGEST,
+    key_func=key_ingest,
+    exempt_when=is_request_rate_limit_exempt,
+)
+async def complete_run(
+    run_id: str, payload: CompleteRunRequest, request: Request, auth: KeyStampedAuth
+) -> Response:
+    """Complete/fail a run, reporting final completeness counts."""
+    subpath = _upstream_path(request.method, "evaluation-runs", run_id, "complete")
+    return await _forward(request, subpath)
+
+
+# Remaining untyped run subpaths (additive per-scorer scores, human review) stay a
+# hidden catch-all until they're typed in a later phase. Registered last so it does
+# not shadow the explicit routes above. POST only: the one run read is typed above and
+# is not forwarded.
+@router.api_route("/evaluation-runs/{subpath:path}", methods=["POST"], include_in_schema=False)
+@limiter.shared_limit(
+    resolve_limit,
+    scope=BUCKET_INGEST,
+    key_func=key_ingest,
+    exempt_when=is_request_rate_limit_exempt,
+)
+async def evaluation_runs_sub(subpath: str, request: Request, auth: KeyStampedAuth) -> Response:
+    return await _forward(request, _upstream_path(request.method, "evaluation-runs", subpath))

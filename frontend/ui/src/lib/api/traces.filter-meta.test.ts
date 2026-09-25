@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("./client", () => ({ fetchTraceApi: vi.fn().mockResolvedValue({ fields: [] }) }));
 
 import { fetchTraceApi } from "./client";
-import { getFilterFields, getFilterValues } from "./traces";
+import { getFilterFields, getFilterValues, getMetadataKeys } from "./traces";
 
 const mockFetch = vi.mocked(fetchTraceApi);
 
@@ -32,6 +32,28 @@ describe("filter meta API", () => {
     expect(mockFetch.mock.calls[0][0]).toBe(
       "/projects/p1/traces/filter-values/model_name" +
         "?start_after=2026-06-01T00%3A00%3A00Z&end_before=2026-06-02T00%3A00%3A00Z",
+    );
+  });
+
+  it("getMetadataKeys hits the metadata-keys endpoint with no query when no window", async () => {
+    await getMetadataKeys("p1", undefined, undefined);
+    expect(mockFetch.mock.calls[0][0]).toBe("/projects/p1/traces/metadata-keys");
+  });
+
+  it("getMetadataKeys appends both bounds so the keys match the active window", async () => {
+    // Suggestions gathered outside the window the user is looking at would offer keys
+    // that return zero rows the moment they are picked.
+    await getMetadataKeys("p1", "2026-06-01T00:00:00Z", "2026-06-02T00:00:00Z");
+    expect(mockFetch.mock.calls[0][0]).toBe(
+      "/projects/p1/traces/metadata-keys" +
+        "?start_after=2026-06-01T00%3A00%3A00Z&end_before=2026-06-02T00%3A00%3A00Z",
+    );
+  });
+
+  it("getMetadataKeys appends a lone start_after", async () => {
+    await getMetadataKeys("p1", "2026-06-01T00:00:00Z", undefined);
+    expect(mockFetch.mock.calls[0][0]).toBe(
+      "/projects/p1/traces/metadata-keys?start_after=2026-06-01T00%3A00%3A00Z",
     );
   });
 });

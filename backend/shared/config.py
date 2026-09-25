@@ -7,8 +7,12 @@ Environment variables are loaded from .env by entrypoints (rest/main.py,
 worker/celery_app.py) before this module is first imported.
 """
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Values shipped as defaults in .env.example / docker-compose.prod.yml. They are
+# public, so they are not secrets and must never be accepted as one.
+_PUBLISHED_INTERNAL_SECRETS = frozenset({"dev-internal-secret", "internal-secret", "changeme"})
 
 
 class ClickHouseSettings(BaseSettings):
@@ -26,6 +30,61 @@ class ClickHouseSettings(BaseSettings):
     user: str = "clickhouse"
     password: str = "clickhouse"
     database: str = "default"
+
+    # Read-only user for the public SQL gateway. The password is the switch: when it
+    # is unset, cloud (billing-enabled) deployments fail fast and self-host/dev falls
+    # back to the default client with a loud warning — see db.clickhouse.client.
+    #
+    # The user defaults to the account the bootstrap SQL provisions, because the
+    # documented way to turn the gateway on is to set the password alone. Leaving it
+    # None meant a deployment that did exactly that, including the one .env.example
+    # describes, ran customer SQL through the privileged client while the read-only
+    # account sat provisioned and unused. Naming the account that does not exist is
+    # not a risk: the password still gates it, and the two are provisioned together.
+    # Overriding the name is for a deployment that provisioned its own account, and it
+    # owns that provisioning: bootstrap creates sql_gateway_ro and nothing else, so a
+    # name nothing created fails every gateway query as a server error, which is the
+    # direction that alerts rather than the one that quietly runs SQL as the admin.
+    # Env: CLICKHOUSE_RO_USER, CLICKHOUSE_RO_PASSWORD.
+    ro_user: str | None = "sql_gateway_ro"
+    ro_password: str | None = None
+
+    # SQL gateway resource caps. These MIRROR the read-only user's CONST settings
+    # profile, which is the authoritative server-side enforcement (under readonly=1
+    # the RO user cannot change settings per-query, so they are NOT sent per-query on
+    # that path). They are also the live values on the self-host fallback path, where
+    # there is no RO user and therefore no profile: db.clickhouse.client sends them as
+    # per-query settings there, which a privileged client is permitted to accept.
+    # Env: CLICKHOUSE_SQL_MAX_EXECUTION_TIME, CLICKHOUSE_SQL_MAX_RESULT_ROWS,
+    # CLICKHOUSE_SQL_MAX_RESULT_BYTES, CLICKHOUSE_SQL_MAX_MEMORY_USAGE.
+    sql_max_execution_time: int = 30
+    sql_max_result_rows: int = 100_000
+    sql_max_result_bytes: int = 536_870_912  # 512 MiB
+    sql_max_memory_usage: int = 4_294_967_296  # 4 GiB
+
+    @field_validator(
+        "sql_max_execution_time",
+        "sql_max_result_rows",
+        "sql_max_result_bytes",
+        "sql_max_memory_usage",
+    )
+    @classmethod
+    def _cap_must_bound_something(cls, value: int, info) -> int:
+        """ClickHouse reads 0 as "no limit", so a zero cap removes the guard.
+
+        On the self-host fallback these values are sent as per-query settings and are
+        the only limit customer SQL runs under, since there is no read-only user and
+        therefore no settings profile. A zero there is not a small budget: it is an
+        unbounded query. Refused at startup, where the name of the variable is still
+        available to say in the error.
+        """
+        if value <= 0:
+            raise ValueError(
+                f"{info.field_name} must be greater than zero, got {value}. "
+                "ClickHouse reads 0 as no limit, so this would remove the cap rather "
+                "than tighten it."
+            )
+        return value
 
 
 class S3Settings(BaseSettings):
@@ -83,6 +142,31 @@ _PLAN_LIMITS_EXPORT: dict[str, str] = {
     "pro": "1000/minute",
     "enterprise": "1000/minute",
 }
+# Writes launch with the read numbers: control-plane writes are far rarer than
+# reads, so the read budget is a comfortable ceiling, and a separate bucket
+# means the tiers can tighten later without touching read quota.
+# NOTE: the write path stamps every account credential as "free" (see
+# ``_account_result_for_user`` in the public deps), so the "free" row is the
+# EFFECTIVE GLOBAL write limit for all tenants; the paid rows are unreachable
+# until per-request plan resolution lands. Tightening "free" tightens everyone.
+_PLAN_LIMITS_WRITE: dict[str, str] = {
+    "free": "60/minute",
+    "starter": "300/minute",
+    "pro": "1000/minute",
+    "enterprise": "1000/minute",
+}
+
+
+# Public SQL is deliberately the tightest bucket. A single query can scan a
+# project's history, so the budget is counted in queries per minute rather than
+# requests per minute, and the free tier is sized for interactive use rather
+# than for a script in a loop.
+_PLAN_LIMITS_SQL: dict[str, str] = {
+    "free": "20/minute",
+    "starter": "60/minute",
+    "pro": "120/minute",
+    "enterprise": "120/minute",
+}
 
 
 def normalize_plan(plan: str | None) -> str:
@@ -106,7 +190,8 @@ class RateLimitSettings(BaseSettings):
     """Operational rate-limit settings for the public REST API.
 
     Plan tiers are a product decision and live as code constants
-    (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ``, ``_PLAN_LIMITS_EXPORT`` above)
+    (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ``, ``_PLAN_LIMITS_EXPORT``,
+    ``_PLAN_LIMITS_WRITE``, ``_PLAN_LIMITS_SQL`` above)
     — not env-overridable.
     The knobs here are the operational ones an SRE legitimately needs at runtime.
 
@@ -134,6 +219,8 @@ class RateLimitSettings(BaseSettings):
         table = {
             "ingest": _PLAN_LIMITS_INGEST,
             "export": _PLAN_LIMITS_EXPORT,
+            "write": _PLAN_LIMITS_WRITE,
+            "sql": _PLAN_LIMITS_SQL,
         }.get(bucket, _PLAN_LIMITS_READ)
         return table[normalize_plan(plan)]
 
@@ -162,6 +249,19 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("TRACEROOT_PUBLIC_UI_URL", "NEXT_PUBLIC_APP_URL"),
     )
     internal_api_secret: str = ""
+
+    @field_validator("internal_api_secret")
+    @classmethod
+    def _ignore_published_placeholder(cls, value: str) -> str:
+        """Treat a placeholder this repository published as if it were unset.
+
+        .env.example and docker-compose.prod.yml both shipped working defaults
+        for this value, so any deployment that never overrode them shared a
+        secret with every other deployment. Both call sites already fail closed
+        on an empty secret, so mapping the published strings to "" turns a
+        silently-trusted value into a visible misconfiguration.
+        """
+        return "" if value.strip().lower() in _PUBLISHED_INTERNAL_SECRETS else value
 
     # Live SSE: how long a completed root span must stay quiet before the
     # stream emits trace_complete. Must exceed the SDK's flush interval

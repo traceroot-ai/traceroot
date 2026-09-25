@@ -1,0 +1,281 @@
+import {
+  Agent,
+  type AgentEvent,
+  type AgentTool,
+  type AgentMessage,
+} from "@earendil-works/pi-agent-core";
+import * as piAgentCore from "@earendil-works/pi-agent-core";
+import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
+import type { Message } from "@earendil-works/pi-ai";
+import { ADAPTER_TO_PI_AI, BEDROCK_USE_DEFAULT_CREDENTIALS, ModelSource } from "@traceroot/core";
+import { applyCapturePolicy } from "@traceroot/core/capture-policy";
+import { withheldOutputText } from "@traceroot/core/capture-note";
+import { instrumentPiAgentCore, type ToolIoCaptureContext } from "@traceroot-ai/traceroot";
+import {
+  resolvePiModel,
+  fetchProviderConfig,
+  findByokKeyForPiProvider,
+  invalidateProviderConfigCache,
+  type ProviderModelConfig,
+} from "@traceroot/core/model-resolver";
+import { REGISTRY } from "@traceroot-ai/tools";
+import { SessionManager } from "./session.js";
+import { createWritePolicyHook } from "./tools/write-policy.js";
+import { captureLlmContent, TRUNCATED_ATTRIBUTE } from "./llm-content.js";
+import { agentCaptureInput } from "./capture-input.js";
+import { recordToolSpan, currentCaptureState } from "./self-trace.js";
+
+// Process-global, idempotent: patches Agent.prototype once. Spans only land inside an
+// active withAgentTrace() context; outside one the instrumentation opens roots that
+// the SDK drops as unattributed (no project id), so this is safe to install unconditionally.
+//
+// agentSpan is 'unless-nested': withAgentTrace opens the run's root (pi-mono)
+// and records the prompt and the answer on it, so the SDK's own Agent.prompt
+// span would only sit between that root and the LLM spans with nothing of its
+// own to show (review feedback, 2026-09-16). The LLM and tool spans hang
+// directly off the root instead.
+//
+// captureContent is a function, not `true`: the boolean form stamps the raw
+// prompt and assistant text on the child LLM spans, bypassing the redaction and
+// cap the root span's I/O (self-trace.ts) and the persisted tool I/O (capture
+// policy) go through — a secret withheld from a tool span would reappear
+// verbatim once the model quoted it. captureLlmContent renders each model
+// call's input and output through the same policy first (llm-content.ts).
+// Charge the run's SPAN budget (currentCaptureState() — one accumulator for
+// the whole run, shared across the args and result sides of every tool call
+// so the per-run cap holds across calls, not just within one). This is
+// deliberately independent of the StreamPersister's row budget: the same
+// tool event is captured once for the span and once for the persisted row,
+// and each sink is bounded by perRunBytes on its own rather than splitting
+// one shared budget between them. Undefined outside a run (SDK used standalone).
+function policed(toolName: string, args: unknown, result: unknown, ctx: ToolIoCaptureContext) {
+  const c = applyCapturePolicy(
+    agentCaptureInput(toolName, args, result),
+    currentCaptureState() ?? { spentBytes: 0 },
+  );
+  // The span says when its I/O was cut to fit (per-step cap) and when the
+  // run's budget was spent before this call (design B7/B8), so a query or
+  // the viewer can key on the attribute instead of scanning the text.
+  if (c.truncated) ctx.attributes[TRUNCATED_ATTRIBUTE] = true;
+  if (c.withheld === "budget") ctx.attributes[BUDGET_EXCEEDED_ATTRIBUTE] = true;
+  return c;
+}
+
+/** The attribute a tool span carries when the run's capture budget was already spent (design B8). */
+export const BUDGET_EXCEEDED_ATTRIBUTE = "traceroot.capture_budget_exceeded";
+
+instrumentPiAgentCore(piAgentCore, {
+  agentSpan: "unless-nested",
+  captureContent: captureLlmContent,
+  captureToolIo: {
+    args: (toolName, args, ctx) => policed(toolName, args, undefined, ctx).args,
+    result: (toolName, result, ctx) => {
+      const c = policed(toolName, undefined, result, ctx);
+      // A withheld result is described in the reader's terms (what is missing
+      // and why), the same wording the persisted chat step shows — never the
+      // policy's bare verdict, which reads as an error in the trace viewer. A
+      // kept structured result is serialised for the span attribute.
+      return c.result === undefined
+        ? withheldOutputText(c)
+        : typeof c.result === "string"
+          ? c.result
+          : JSON.stringify(c.result);
+    },
+  },
+  onToolSpan: recordToolSpan,
+});
+
+/**
+ * Resolve an API key for a pi-ai provider — workspace BYOK first, env var fallback.
+ * Used as the getApiKey callback for the Agent.
+ */
+async function fetchProviderKey(workspaceId: string, provider: string): Promise<string> {
+  const byokKey = await findByokKeyForPiProvider(workspaceId, provider);
+  if (byokKey) return byokKey;
+
+  const envKey = getEnvApiKey(provider);
+  if (!envKey) {
+    console.warn(`[Agent] No API key for provider "${provider}" (no BYOK, no env var)`);
+    return "";
+  }
+  return envKey;
+}
+
+// Agent cache: one Agent per conversation session
+const sessionAgents = new Map<string, Agent>();
+const sessionManagers = new Map<string, SessionManager>();
+const sessionModels = new Map<string, string>();
+
+export interface AgentRunnerConfig {
+  sessionId: string;
+  projectId: string;
+  workspaceId: string;
+  userId: string;
+  systemPrompt: string;
+  tools: AgentTool<any>[];
+  model?: string;
+  providerName?: string; // BYOK provider name
+  source?: ModelSource; // where the model comes from
+}
+
+export interface AgentEventHandler {
+  onEvent: (event: AgentEvent) => void;
+  onError: (error: Error) => void;
+  onDone: () => void;
+}
+
+/**
+ * Get or create an Agent + SessionManager for a conversation session.
+ */
+export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
+  agent: Agent;
+  sessionManager: SessionManager;
+}> {
+  const requestedModel = config.model || "claude-sonnet-4-5";
+  const cacheKeyModel = `${requestedModel}:${config.providerName || ""}:${config.source || ""}`;
+  const cachedModel = sessionModels.get(config.sessionId);
+  const existingAgent = sessionAgents.get(config.sessionId);
+  const existingManager = sessionManagers.get(config.sessionId);
+
+  // Return cached agent if model hasn't changed. Tools close over
+  // per-request context (projectId from the URL, the current executor), and
+  // the agent cache outlives it — a stale closure would aim write tools at
+  // the wrong project — so refresh the tools with this request's closures.
+  // The system prompt carries the same per-request context (current
+  // trace/session/project) and pi-agent-core reads state.systemPrompt at
+  // prompt time, so refresh it the same way — a stale prompt would have the
+  // model reason about one context while its tools bind to another.
+  if (existingAgent && existingManager && cachedModel === cacheKeyModel) {
+    existingAgent.state.tools = config.tools;
+    existingAgent.state.systemPrompt = config.systemPrompt;
+    return { agent: existingAgent, sessionManager: existingManager };
+  }
+
+  // Model changed mid-session — discard old agent
+  if (existingAgent) {
+    sessionAgents.delete(config.sessionId);
+  }
+
+  // Fetch BYOK provider config if this is a BYOK model
+  let providerConfig: ProviderModelConfig | null = null;
+  if (config.source === ModelSource.BYOK && config.providerName) {
+    providerConfig = await fetchProviderConfig(config.workspaceId, config.providerName);
+    if (!providerConfig) {
+      throw new Error(
+        `BYOK provider "${config.providerName}" not found or disabled. ` +
+          `Check workspace settings.`,
+      );
+    }
+  }
+
+  const model = resolvePiModel(config.model, providerConfig);
+  console.log(
+    `[Agent] Using model="${config.model || "claude-sonnet-4-5"}" source=${config.source || ModelSource.SYSTEM} provider=${config.providerName || "—"}`,
+    JSON.stringify(model),
+  );
+
+  const agent = new Agent({
+    initialState: {
+      systemPrompt: config.systemPrompt,
+      model,
+      thinkingLevel: "off",
+      tools: config.tools,
+    },
+    // TODO: implement proper convertToLlm instead of identity cast
+    convertToLlm: (messages: AgentMessage[]) => messages as Message[],
+    // Session-bound so confirm-class writes can park against this session's
+    // live run channel and wait for the user's decision.
+    beforeToolCall: createWritePolicyHook(REGISTRY, { sessionId: config.sessionId }),
+    getApiKey: async (provider: string) => {
+      // If we have BYOK config with a decrypted key, use it directly
+      if (providerConfig && providerConfig.key !== BEDROCK_USE_DEFAULT_CREDENTIALS) {
+        const expectedPiAi = ADAPTER_TO_PI_AI[providerConfig.adapter];
+        if (expectedPiAi === provider) {
+          return providerConfig.key;
+        }
+      }
+      // System models: always use env var, never fall through to BYOK keys
+      if (config.source !== ModelSource.BYOK) {
+        const envKey = getEnvApiKey(provider);
+        if (envKey) return envKey;
+      }
+      return fetchProviderKey(config.workspaceId, provider);
+    },
+  });
+
+  const sessionManager = new SessionManager(config.sessionId);
+
+  // Load existing conversation history
+  const agentMessages = await sessionManager.buildContext();
+  if (agentMessages.length > 0) {
+    // pi-agent-core 0.74.0 dropped `replaceMessages` in favor of direct state
+    // assignment. Semantically equivalent — sets the agent's message history.
+    agent.state.messages = agentMessages;
+  }
+
+  sessionAgents.set(config.sessionId, agent);
+  sessionModels.set(config.sessionId, cacheKeyModel);
+  if (!existingManager) {
+    sessionManagers.set(config.sessionId, sessionManager);
+  }
+  return { agent, sessionManager: existingManager || sessionManager };
+}
+
+/**
+ * Run a user message through the agent with event streaming.
+ */
+export async function runAgent(
+  agent: Agent,
+  userMessage: string,
+  handler: AgentEventHandler,
+): Promise<void> {
+  const unsubscribe = agent.subscribe((event: AgentEvent) => {
+    try {
+      handler.onEvent(event);
+    } catch (err) {
+      console.error("[Agent] Error in event handler:", err);
+    }
+  });
+
+  try {
+    await agent.prompt(userMessage);
+    handler.onDone();
+  } catch (error) {
+    handler.onError(error instanceof Error ? error : new Error(String(error)));
+  } finally {
+    unsubscribe();
+  }
+}
+
+/**
+ * Abort the session's in-flight run, if it has one. Used by session delete:
+ * the deleted session's turn has nobody left to narrate to, and every tool it
+ * would still run writes into a session row that no longer exists.
+ */
+export function abortSessionRun(sessionId: string): void {
+  sessionAgents.get(sessionId)?.abort();
+}
+
+/**
+ * Remove a cached agent + session manager (on session delete).
+ */
+export function removeAgent(sessionId: string): void {
+  sessionAgents.delete(sessionId);
+  sessionManagers.delete(sessionId);
+  sessionModels.delete(sessionId);
+}
+
+/**
+ * Invalidate cached provider config when a provider is updated or deleted.
+ * Also evicts any session agents that used this provider so they re-fetch on next message.
+ */
+export function invalidateProviderCache(workspaceId: string, providerName: string): void {
+  invalidateProviderConfigCache(workspaceId, providerName);
+  // Evict session agents that may hold a stale key in their closure
+  for (const [sessionId, modelKey] of sessionModels) {
+    if (modelKey.includes(providerName)) {
+      sessionAgents.delete(sessionId);
+      sessionModels.delete(sessionId);
+    }
+  }
+}

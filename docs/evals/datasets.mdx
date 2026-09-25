@@ -1,0 +1,137 @@
+---
+title: Datasets
+description: A named, versioned collection of the cases you evaluate against
+---
+
+A dataset is a named collection of **cases** — each with an `input`, an optional `expected` answer, and optional `metadata`. You build it in code, save it to disk, and publish it to the platform when you're ready.
+
+## Create a dataset
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Dataset
+
+    ds = Dataset("Capitals QA", key="capitals-qa")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Dataset } from "@traceroot-ai/traceroot";
+
+    const ds = new Dataset("Capitals QA", null, { key: "capitals-qa" });
+    ```
+  </Tab>
+</Tabs>
+
+`key` is what identifies the dataset — it defaults to the name. Set it explicitly on any dataset you'll re-run, so you can rename the dataset later without starting a new history.
+
+## Add cases
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    ds.add({"country": "France"}, expected="Paris")
+    ds.add({"country": "Japan"}, expected="Tokyo", id="case-japan")
+
+    print(len(ds))
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    ds.add({ country: "France" }, { expected: "Paris" });
+    ds.add({ country: "Japan" }, { expected: "Tokyo", id: "case-japan" });
+
+    console.log(ds.size);
+    ```
+  </Tab>
+</Tabs>
+
+- **`add(input, …)`** — add a case and return it.
+- **`upsert(case)`** — add or replace by id, so re-running your authoring script never duplicates a case.
+- **`update(id, …)`** — edit a case in place.
+- **`archive(id)`** / **`remove(id)`** — retire a case, or delete it outright.
+
+A case's id is derived from its content, so adding or reordering cases never renumbers the others. Pass `id=` to use your own identifier instead — a ticket number, or a row id from your warehouse.
+
+## Save and load
+
+`save(path)` writes the dataset to disk and `load(path)` reads it back. Use a `.jsonl` path for a format that diffs cleanly in a pull request.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    ds.save("capitals-qa.jsonl")
+    ds = Dataset.load("capitals-qa.jsonl")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    ds.save("capitals-qa.jsonl");
+    const ds2 = Dataset.load("capitals-qa.jsonl");
+    ```
+  </Tab>
+</Tabs>
+
+## Publish a version
+
+`push()` publishes the dataset to the platform as one immutable version. Re-pushing unchanged cases is a no-op; changed cases publish a new version of the same dataset.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot.eval import PlatformDatasetSync
+
+    push = ds.push(PlatformDatasetSync())
+    print(push.status, push.version_number)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { PlatformDatasetSync } from "@traceroot-ai/traceroot";
+
+    const push = await ds.push(new PlatformDatasetSync());
+    console.log(push.status, push.versionNumber);
+    ```
+  </Tab>
+</Tabs>
+
+Publishing into a dataset that already exists asks for confirmation on an interactive terminal. Pass `on_existing=lambda info: True` (Python) / `{ onExisting: () => true }` (TypeScript), or set `TRACEROOT_ASSUME_YES=1`, to skip the prompt in CI. A declined prompt raises `DatasetPublishAborted`.
+
+You don't need to publish before running an eval — `evaluate()` publishes a local dataset for you and never prompts. See [Running evals](/evals/running-evals).
+
+## Pull a dataset
+
+Pull a published dataset back down as an ordinary local `Dataset` — iterate it, edit it, save it, or evaluate against it.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import pull_dataset, pull_dataset_version
+
+    ds = pull_dataset("ds_…")                      # the current version
+    old = pull_dataset_version("…")                # one exact version
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { pullDataset, pullDatasetVersion } from "@traceroot-ai/traceroot";
+
+    const ds = await pullDataset("ds_…");          // the current version
+    const old = await pullDatasetVersion("…");     // one exact version
+    ```
+  </Tab>
+</Tabs>
+
+To reproduce a past run, pull the version that run recorded (`result.dataset.dataset_version_id`) and re-run it with your own task and scorers.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Scorers" icon="ruler" href="/evals/scorers">
+    Turn a case's output into a metric.
+  </Card>
+  <Card title="Running Evals" icon="play" href="/evals/running-evals">
+    Point a task and scorers at a dataset and run it.
+  </Card>
+</CardGroup>
