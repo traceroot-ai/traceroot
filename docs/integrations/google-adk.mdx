@@ -1,9 +1,9 @@
 ---
 title: Google ADK
-description: Auto-instrument Google Agent Development Kit agents, tools, and runners
+description: Auto-instrument Google Agent Development Kit agents, workflows, tools, and runners
 ---
 
-Automatically capture agent runs, tool executions, and the underlying Gemini calls within the [Google Agent Development Kit (ADK)](https://github.com/google/adk-python).
+Automatically capture agent runs, workflow graphs, tool executions, and the underlying Gemini calls within the [Google Agent Development Kit (ADK)](https://github.com/google/adk-python).
 
 ## Setup
 
@@ -105,11 +105,83 @@ root_agent = Agent(
   `adk web` and `adk api_server` install their own OpenTelemetry tracer provider before `agent.py` loads. From the first `traceroot` release after 0.2.0, `@observe` spans are traced alongside ADK's spans in these modes. On 0.2.0, ADK's spans still arrive but `@observe` spans are dropped; use `adk run` or your own runner instead.
 </Note>
 
+## Usage with Workflows
+
+ADK 2.x runs agents, tools, and plain Python functions as nodes of a graph `Workflow`. Each workflow run, node, fan-out, and join is traced:
+
+```python
+import asyncio
+import traceroot
+from traceroot import Integration
+from google.adk import Agent, Event, Workflow
+from google.adk.runners import InMemoryRunner
+from google.adk.workflow import JoinNode
+from google.genai import types
+
+traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
+
+
+def record_city(node_input: str):
+    """Store the city in session state and pass it on to both branches."""
+    city = node_input.strip()
+    return Event(output=city, state={"city": city})
+
+
+def get_weather(city: str) -> dict:
+    """Get current weather for the city in session state."""
+    return {"city": city, "temp": 72, "condition": "sunny"}
+
+
+suggest_food = Agent(
+    name="suggest_food",
+    model="gemini-3.8-flash",
+    instruction="In one sentence, name a signature local dish to try in {city}.",
+)
+
+# START -> record_city -> (get_weather, suggest_food in parallel) -> gather
+workflow = Workflow(
+    name="city_brief",
+    edges=[("START", record_city, (get_weather, suggest_food), JoinNode(name="gather"))],
+)
+
+
+async def main():
+    runner = InMemoryRunner(agent=workflow, app_name="traceroot-adk-workflow")
+    await runner.session_service.create_session(
+        app_name="traceroot-adk-workflow",
+        user_id="demo-user",
+        session_id="demo-session",
+    )
+
+    # The workflow run and every node in it are traced
+    output = None
+    async for event in runner.run_async(
+        user_id="demo-user",
+        session_id="demo-session",
+        new_message=types.Content(role="user", parts=[types.Part(text="Tokyo")]),
+    ):
+        if event.output is not None:
+            output = event.output
+    # The last output is the joined result, keyed by branch name
+    print(output)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    traceroot.flush()
+```
+
+<Note>
+  Workflow and node spans need the first `traceroot` release after 0.2.0. On 0.2.0, only the `Agent` nodes of a workflow appear.
+</Note>
+
 ## What Gets Captured
 
 | Attribute | Description |
 |-----------|-------------|
 | Runner calls | An `invocation [<app>]` span per runner call |
+| Workflow runs | An `invoke_workflow <name>` span per workflow run |
+| Workflow nodes | An `invoke_node <name>` span per function or join node; `Agent` nodes appear as agent runs |
 | Agent runs | An `agent_run [<agent>]` agent span per agent and sub-agent run |
 | LLM calls | A `call_llm` span per Gemini call with model, request, and response |
 | Tool calls | A tool span per tool call, named after the tool, with input arguments and result |
@@ -117,13 +189,18 @@ root_agent = Agent(
 | Sessions & users | The ADK session id as `session.id` and user id as `user.id` on every span |
 | Latency | Duration per agent run and per span |
 
-Model aliases such as `gemini-flash-latest` are not priced; pin a model id to get cost. In an ADK 2.x `Workflow`, only `Agent` nodes are captured today; function nodes are not yet traced.
+Model aliases such as `gemini-flash-latest` are not priced; pin a model id to get cost.
 
 
 ## Run the example
 
 Clone the repo and run a complete agent end-to-end.
 
-  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/google-adk-agent">
-    Run the Python example
+<CardGroup cols={2}>
+  <Card title="Agent" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/google-adk-agent">
+    Run the Python agent example
   </Card>
+  <Card title="Workflow" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/google-adk-workflow">
+    Run the Python workflow example
+  </Card>
+</CardGroup>
