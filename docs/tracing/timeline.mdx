@@ -3,9 +3,7 @@ title: Timeline View
 description: Visualize spans as Gantt-style bars over time to spot long operations, parallelism, and gaps
 ---
 
-The trace viewer has three views: **Trace** (hierarchical tree), **Timeline**
-(Gantt-style bars), and **Detectors** (findings produced for the trace). The
-Trace and Timeline views share selection and collapse state.
+The trace viewer has three views: **Trace** (hierarchical tree), **Timeline** (Gantt-style bars), and **Detectors** (findings produced for the trace). The Trace and Timeline views share selection and collapse state.
 
 <Frame>
   <img src="/images/trace_timeline_v1.png" alt="TraceRoot trace viewer showing the Timeline view with span bars" />
@@ -19,13 +17,11 @@ Trace and Timeline views share selection and collapse state.
 | Inspecting span attributes, inputs, outputs | Finding the critical path or longest span | Reviewing detector results for this trace |
 | Navigating nested agent or tool calls | Checking parallel vs serial execution | Opening the related analysis |
 
-The Detectors view is hidden for detector and agent traces, which detectors do
-not evaluate, and when the trace viewer is embedded in an evaluation view.
+The Detectors view is hidden for detector and agent traces, which detectors do not evaluate, and when the trace viewer is embedded in an evaluation view.
 
 ## Toggling
 
-Use the **Trace**, **Timeline**, and **Detectors** buttons in the trace viewer's
-sub-header. Selection persists when switching between Trace and Timeline.
+Use the **Trace**, **Timeline**, and **Detectors** buttons in the trace viewer's sub-header. Selection persists when switching between Trace and Timeline.
 
 ## Click-to-select
 
