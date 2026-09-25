@@ -41,6 +41,8 @@ const result = await observe({ name: 'my_function', type: 'tool' }, async () => 
 | `metadata` | `Record<string, unknown>` | — | Static metadata to attach |
 | `tags` | `string[]` | — | Tags to attach |
 
+See [Data Capture and Privacy](/tracing/data-capture) for `captureInput` and `captureOutput` examples that keep sensitive values off spans.
+
 ## Setting Trace Context
 
 Use `usingAttributes()` to set user and session context for all spans created within a block:

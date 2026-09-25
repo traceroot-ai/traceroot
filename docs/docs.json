@@ -88,6 +88,7 @@
                   "tracing/sessions",
                   "tracing/tags",
                   "tracing/metadata",
+                  "tracing/data-capture",
                   "tracing/cost-tracking",
                   "tracing/git-context",
                   "tracing/timeline",
