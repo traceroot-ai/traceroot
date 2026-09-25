@@ -115,7 +115,7 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 
 By default, the TypeScript SDK batches spans to optimize performance, flushing them every 5 seconds or when 100 spans are accumulated.
 
-**Important:** Node.js does not emit the `beforeExit` event on `process.exit()`, unhandled exceptions, or signals like SIGINT/SIGTERM. In short-lived scripts, serverless functions, or CLI tools, spans will be lost if you exit without flushing.
+**Important:** The SDK's only automatic flush is a `beforeExit` hook. Node.js does not emit `beforeExit` on `process.exit()`, unhandled exceptions, or signals like SIGINT/SIGTERM. Serverless runtimes that freeze the process (e.g. AWS Lambda, Cloud Functions) skip it too. In any of these cases, spans will be lost if you exit without flushing explicitly.
 
 To ensure all spans are exported before your script terminates, await `shutdown()` (or `flush()`):
 
@@ -143,7 +143,7 @@ TraceRoot.initialize({ disableBatch: true });
 
 **Note:** Disabling batching does not make the network request synchronous. You still must await `flush()` or `shutdown()` before terminating the process with `process.exit()`.
 
-*(Note: The Python SDK differs; it automatically registers an `atexit` handler which reliably flushes spans on shutdown in most environments.)*
+*(Note: The Python SDK registers an `atexit` handler that flushes spans automatically in most environments. However, `atexit` does not run when a serverless runtime freezes the process — Python handlers there still need `traceroot.flush()` before returning.)*
 
 ## Environment Variables
 
