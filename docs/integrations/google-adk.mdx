@@ -24,13 +24,16 @@ Once initialized, ADK agent runs, tool calls, and Gemini calls are captured auto
 
 ```python
 import asyncio
+
 import traceroot
 from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
+
+# Import after initialize() so tracing is already active.
 from google.adk import Agent
 from google.adk.runners import InMemoryRunner
 from google.genai import types
-
-traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
 
 
 def get_weather(city: str) -> dict:
