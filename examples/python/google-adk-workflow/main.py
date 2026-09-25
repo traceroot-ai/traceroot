@@ -106,7 +106,29 @@ workflow = Workflow(
 DEMO_CITIES = ["Tokyo", "London"]
 
 
-@observe(name="demo_session", type="agent")
+@observe(name="city_brief_run", type="agent")
+async def run_city(runner: InMemoryRunner, user_id: str, session_id: str, city: str):
+    # Fresh ADK session per city so each run starts from empty workflow state.
+    # TraceRoot records this ADK session id as session.id.
+    await runner.session_service.create_session(
+        app_name=runner.app_name,
+        user_id=user_id,
+        session_id=session_id,
+    )
+    async for event in runner.run_async(
+        user_id=user_id,
+        session_id=session_id,
+        new_message=types.Content(role="user", parts=[types.Part(text=city)]),
+    ):
+        if (
+            event.author == write_brief.name
+            and event.content
+            and event.content.parts
+            and event.content.parts[0].text
+        ):
+            print(f"\nBrief: {event.content.parts[0].text.strip()}\n")
+
+
 async def run_demo():
     app_name = "traceroot-adk-workflow-demo"
     user_id = "example-user"
@@ -118,24 +140,11 @@ async def run_demo():
         print(f"City {i}: {city}")
         print("=" * 60)
 
-        # Fresh session per city so each run starts from empty workflow state.
-        session = await runner.session_service.create_session(app_name=app_name, user_id=user_id)
-        async for event in runner.run_async(
-            user_id=user_id,
-            session_id=session.id,
-            new_message=types.Content(role="user", parts=[types.Part(text=city)]),
-        ):
-            if (
-                event.author == write_brief.name
-                and event.content
-                and event.content.parts
-                and event.content.parts[0].text
-            ):
-                print(f"\nBrief: {event.content.parts[0].text.strip()}\n")
+        await run_city(runner, user_id, f"google-adk-workflow-{city.lower()}", city)
 
 
 if __name__ == "__main__":
-    with using_attributes(user_id="example-user", session_id="google-adk-workflow-session"):
+    with using_attributes(user_id="example-user"):
         try:
             asyncio.run(run_demo())
         finally:
