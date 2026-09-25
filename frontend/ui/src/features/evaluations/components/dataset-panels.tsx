@@ -151,7 +151,9 @@ export function DatasetEditPanel({
     setState(emptyDatasetForm({ name: dataset.name, description: dataset.description ?? "" }));
   }, [dataset]);
 
-  const canSave = state.name.trim() !== "";
+  const hasChanges =
+    state.name.trim() !== dataset.name || state.description.trim() !== (dataset.description ?? "");
+  const canSave = state.name.trim() !== "" && hasChanges;
 
   const handleSave = () => {
     update.mutate(

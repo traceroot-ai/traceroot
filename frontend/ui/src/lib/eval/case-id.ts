@@ -1,37 +1,10 @@
 import { createHash } from "crypto";
+import { rejectLoneSurrogate } from "./canonical";
 
-/**
- * A lone UTF-16 surrogate: a high surrogate not followed by a low one, or a low
- * one not preceded by a high one. Such a string is not valid Unicode text and
- * cannot be UTF-8 encoded — Python raises while hashing it, so we reject it here
- * too rather than silently hashing Node's replacement form and diverging cross-SDK.
- * Kept byte-identical to the SDK's `rejectLoneSurrogate` (traceroot-ts
- * `src/eval/canonical.ts`, traceroot-py `traceroot/eval/canonical.py`).
- */
-const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-
-/**
- * Raised when a string carries an unpaired UTF-16 surrogate and so cannot be
- * canonicalized (it is not valid Unicode text). A dedicated type so callers can tell
- * this specific, caller-fixable condition apart from an unexpected failure — the
- * publish routes map it to a 400, and `contentSignature` swallows it for ALREADY-stored
- * content (which must keep a stable signature rather than be re-validated on every publish).
- */
-export class LoneSurrogateError extends Error {
-  constructor(
-    message = "string contains an unpaired UTF-16 surrogate and cannot be canonicalized; " +
-      "it is not valid Unicode text",
-  ) {
-    super(message);
-    this.name = "LoneSurrogateError";
-  }
-}
-
-export function rejectLoneSurrogate(s: string): void {
-  if (LONE_SURROGATE.test(s)) {
-    throw new LoneSurrogateError();
-  }
-}
+/** The surrogate guard lives with the canonicalizer it protects (`./canonical`, which is
+ *  importable from client code); re-exported here so the publish routes that map it to a
+ *  400 keep importing it alongside the id helpers they already pull from this module. */
+export { LoneSurrogateError } from "./canonical";
 
 /**
  * Derive a dataset case's stable, CONTENT-addressed id (`tc_…`).

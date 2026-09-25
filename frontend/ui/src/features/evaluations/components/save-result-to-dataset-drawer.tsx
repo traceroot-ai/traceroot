@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/drawer";
 import { useToast } from "@/components/ui/toast";
 import { EditableValueBlock } from "@/features/offline-eval/components";
+import { encodeEditedText } from "@/lib/eval/json-value";
 import { useDatasets } from "../hooks";
 
 /** Read-only fields never edit, so onChange is a no-op. */
@@ -42,27 +43,24 @@ export interface ResultForDataset {
 
 const ACTION_META: Record<
   ResultDatasetAction,
-  { title: string; blurb: string; cta: string; picksDataset: boolean }
+  { title: string; blurb: string; picksDataset: boolean }
 > = {
   update_existing_case: {
     title: "Update source case",
     blurb:
       "Publishes a new immutable version of this run's dataset with this case updated. Runs already recorded keep pointing at the version they used.",
-    cta: "Publish update",
     picksDataset: false,
   },
   save_new_case: {
     title: "Save as a new case",
     blurb:
       "Adds a brand-new case to the chosen dataset. Blocked if it would just recreate this result's own source case — use “Update source case” for that.",
-    cta: "Save new case",
     picksDataset: true,
   },
   duplicate_as_variant: {
     title: "Duplicate as a variant",
     blurb:
       "Adds a new case tagged as a variant of the source case. Always allowed — useful for exploring a tweak without touching the original.",
-    cta: "Duplicate case",
     picksDataset: true,
   },
 };
@@ -177,8 +175,28 @@ export function SaveResultToDatasetDrawer({
     },
   });
 
+  // Only "update" republishes an existing case, so only it needs a dirty gate; save/duplicate
+  // always create a case and are savable as they stand. Every field is compared the way it is
+  // PERSISTED — this drawer POSTs `input` and `expected` verbatim, and a case's id is a hash of
+  // its exact input (`stableCaseId` over `canonicalJson`, which does not trim) — so nothing here
+  // trims. A whitespace-only edit really does change the published case; gating it away as a
+  // no-op would leave the reviewer unable to save a change the backend would have accepted.
+  // Trimming `input` on the way in is not an option either: that id derivation is byte-parity
+  // with the TS/Python SDKs, so a trimming UI would give `" hi "` a different `tc_` id than the
+  // same input pushed from an SDK, and a re-publish would duplicate the case, not upsert it.
+  const hasChanges =
+    action === "update_existing_case"
+      ? (meta.picksDataset && targetDatasetId !== sourceDatasetId) ||
+        encodeEditedText(result.input, input) !== encodeEditedText(result.input, result.input) ||
+        (useCandidateAsExpected
+          ? (result.candidateOutput ?? "") !== (result.expectedOutput ?? "")
+          : expected !== (result.expectedOutput ?? ""))
+      : true;
+
   const canSave =
-    !save.isPending && (!meta.picksDataset || datasets.some((d) => d.id === targetDatasetId));
+    !save.isPending &&
+    (!meta.picksDataset || datasets.some((d) => d.id === targetDatasetId)) &&
+    hasChanges;
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -302,7 +320,7 @@ export function SaveResultToDatasetDrawer({
             Cancel
           </Button>
           <Button size="sm" disabled={!canSave} onClick={() => save.mutate()}>
-            {save.isPending ? "Saving…" : meta.cta}
+            {save.isPending ? "Saving…" : "Save"}
           </Button>
         </DrawerFooter>
       </DrawerContent>
