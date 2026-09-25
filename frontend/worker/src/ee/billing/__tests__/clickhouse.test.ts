@@ -56,6 +56,7 @@ describe("getWorkspaceUsageDetails", () => {
     expect(parsed.searchParams.get("start")).toBe("2026-01-01T00:00:00.000Z");
     expect(parsed.searchParams.get("end")).toBe("2026-02-01T00:00:00.000Z");
     expect(init.headers).toMatchObject({ "X-Internal-Secret": expect.any(String) });
+    expect(init.signal).toBeInstanceOf(AbortSignal);
 
     expect(usage).toEqual({ traces: 12, spans: 120, detectorRuns: 4, bySource });
   });
