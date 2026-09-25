@@ -99,8 +99,11 @@
 | ---- | -------- | ---- |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | 自动埋点 Chat Completions 与 Responses API。 |
 | [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | 通过 OpenAI SDK 的 OpenRouter base URL 进行兼容追踪；可参考 [Python](./examples/python/openrouter-tool-agent) 与 [TypeScript](./examples/typescript/openrouter) 示例。 |
+| [Amazon Bedrock](https://traceroot.ai/docs/integrations/bedrock) | Python, JS/TS | 自动埋点 Bedrock Converse API 调用与工具使用；可参考 [TypeScript](./examples/typescript/bedrock) 示例。 |
 | [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python, JS/TS | 自动埋点 Messages API。 |
+| [Azure OpenAI](https://traceroot.ai/docs/integrations/azure-openai) | Python, JS/TS | 通过 OpenAI 集成自动埋点 `AzureOpenAI` 客户端。 |
 | [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | 通过 Google GenAI SDK 实现自动埋点。 |
+| [Groq](https://traceroot.ai/docs/integrations/groq) | Python | 自动埋点 Groq chat completions 与工具调用；可参考 [Python](./examples/python/groq-tool-agent) 示例。 |
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | 自动埋点 Mistral 的 chat completions、工具调用以及流式响应。 |
 
 ### Agent 框架
