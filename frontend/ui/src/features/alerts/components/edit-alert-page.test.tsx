@@ -76,6 +76,7 @@ describe("EditAlertPage", () => {
         operator: ">",
         threshold: "250",
         window: "1h",
+        noDataMode: "HOLD",
         renotify: { mode: "OFF" },
         name: "Checkout latency",
       },
