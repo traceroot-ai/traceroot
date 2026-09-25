@@ -30,6 +30,9 @@ describe("buildDigestAlertBlocks", () => {
     expect(text).toContain("5 findings");
     expect(text).toContain("checkout-svc");
     expect(text).toContain("Latency regression");
+    expect(text).toContain("4 triggers");
+    expect(text).toContain("1 trigger");
+    expect(text).not.toContain("4 findings");
     // the representative finding is labelled "latest" (most recent), not "top"
     expect(text).toContain("· latest: <");
     expect(text).not.toContain("· top:");
