@@ -295,6 +295,26 @@ export type PlanConfig = (typeof PLANS)[PlanType];
 // =============================================================================
 // PLAN HELPERS
 // =============================================================================
+/**
+ * Narrow a raw plan string to a `PlanType`, failing closed to `FREE` for
+ * anything unrecognized. `billing_plan` is a free-form TEXT column, so a
+ * legacy, mistyped, or rolled-back plan name can reach the UI; the plan
+ * helpers below are keyed on `PlanType` and answer nonsense for anything else
+ * (`getPlanOrder` returns undefined, which makes `isUpgrade` false for every
+ * plan and labels every CTA "Downgrade").
+ *
+ * Deliberately an EXACT match, unlike `normalize_plan` in backend/shared/config.py,
+ * which lowercases and trims first: this is the frontend's plan lookup and it must
+ * agree with `getRetentionDays` above, whose `hasOwnProperty` check is exact too.
+ * Accepting `"PRO"` here while retention still reads it as unrecognized would show a
+ * 90-day entitlement over a 15-day window. Widen both together or neither.
+ */
+export function toPlanType(plan: string | null | undefined): PlanType {
+  return (Object.values(PlanType) as string[]).includes(plan ?? "")
+    ? (plan as PlanType)
+    : PlanType.FREE;
+}
+
 export function getPlanConfig(plan: PlanType): PlanConfig {
   return PLANS[plan];
 }

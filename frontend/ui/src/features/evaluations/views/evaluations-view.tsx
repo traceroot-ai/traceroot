@@ -16,8 +16,16 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DateFilterSelect } from "@/components/date-filter-select";
-import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
+import {
+  DATE_FILTER_OPTIONS,
+  clampDateFilter,
+  toTimestampBounds,
+  type DateFilterOption,
+} from "@/lib/date-filter";
 import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { toPlanType } from "@traceroot/core";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -154,13 +162,30 @@ function RunsTab({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
   const del = useDeleteRuns(projectId);
+  // Plan-based retention window. Same wiring as every other windowed surface
+  // (traces/sessions/users/detectors/dashboards): the hook supplies the window to
+  // the date control and owns the upgrade dialog the locked presets route to.
+  // The server clamps too (evaluations/runs/route.ts) — this is the visible half.
+  const retention = useRetention(projectId);
   const [deleteRun, setDeleteRun] = React.useState<RunRow | null>(null);
   // Row selection for bulk actions (compare / delete).
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
   const { keyword, setKeyword, searchQuery } = useKeywordSearch();
-  const [dateFilter, setDateFilter] = React.useState<DateFilterOption>(
+  const [rawDateFilter, setRawDateFilter] = React.useState<DateFilterOption>(
     DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0],
+  );
+  // Clamp at READ time, exactly as use-url-date-filter does for the other windowed
+  // surfaces. Nothing is locked while the plan is still resolving (retentionDays is
+  // undefined then, deliberately), so a pick made in that gap can out-reach the
+  // window; deriving keeps the raw pick and collapses it to the widest allowed
+  // preset the moment retention resolves. Without this the trigger goes on
+  // advertising "Last 90 days" for the rest of the session while the server
+  // (correctly) serves 15 — the control would be lying about the window rather
+  // than leaking data.
+  const dateFilter = React.useMemo(
+    () => clampDateFilter(rawDateFilter, retention.retentionDays),
+    [rawDateFilter, retention.retentionDays],
   );
   const [customStart, setCustomStart] = React.useState<Date | null>(null);
   const [customEnd, setCustomEnd] = React.useState<Date | null>(null);
@@ -313,11 +338,13 @@ function RunsTab({ projectId }: { projectId: string }) {
             dateFilter={dateFilter}
             customStartDate={customStart}
             customEndDate={customEnd}
-            onDateFilterChange={setDateFilter}
+            onDateFilterChange={setRawDateFilter}
             onCustomRangeChange={(s, e) => {
               setCustomStart(s);
               setCustomEnd(e);
             }}
+            retentionDays={retention.retentionDays}
+            onUpgradeClick={retention.onUpgradeClick}
           />
         </div>
       </SearchFilterBar>
@@ -426,6 +453,14 @@ function RunsTab({ projectId }: { projectId: string }) {
           isDeleting={del.isPending}
         />
       )}
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={toPlanType(retention.billingPlan)}
+        hasSubscription={retention.hasSubscription}
+      />
     </>
   );
 }
