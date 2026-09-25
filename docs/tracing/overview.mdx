@@ -22,7 +22,10 @@ Here's everything you can attach in one place:
 
     @observe(name="run_agent", type="agent", metadata={"version": "v2"})
     def run_agent(query: str) -> str:
-        response = client.chat.completions.create(...)  # tokens + cost tracked automatically
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": query}]
+        )  # tokens + cost tracked automatically
         return response.choices[0].message.content
 
     with using_attributes(user_id="user-42", session_id="chat-abc", tags=["production"]):
@@ -41,7 +44,10 @@ Here's everything you can attach in one place:
 
     async function runAgent(query: string): Promise<string> {
       return observe({ name: 'run_agent', type: 'agent', metadata: { version: 'v2' } }, async () => {
-        const response = await client.chat.completions.create({ ... }); // tokens + cost tracked automatically
+        const response = await client.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [{ role: 'user', content: query }]
+        }); // tokens + cost tracked automatically
         return response.choices[0].message.content ?? '';
       });
     }
