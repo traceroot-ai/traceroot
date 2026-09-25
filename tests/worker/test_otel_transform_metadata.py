@@ -4,10 +4,12 @@ import base64
 import json
 
 from shared.span_attributes import (
+    CAPTURE_BUDGET_EXCEEDED,
     SPAN_IDS_PATH,
     SPAN_PATH,
     SPAN_STARTS_PATH,
     SPAN_TREE_ATTRIBUTES,
+    TRUNCATED,
 )
 from worker.otel_transform import _is_known_attribute, transform_otel_to_clickhouse
 
@@ -384,6 +386,39 @@ def test_span_path_attributes_survive_alongside_explicit_metadata():
     assert metadata[SPAN_PATH] == ["root", "child"]
     assert metadata[SPAN_IDS_PATH] == ["root-id"]
     assert metadata[SPAN_STARTS_PATH] == ["1700000000000000000"]
+
+
+def test_capture_markers_survive_alongside_explicit_metadata():
+    """A span that says its content was cut must keep saying so.
+
+    The agent self-trace's root is both: it stamps the trace metadata and
+    records a prompt and answer the capture policy may have cut. Dropping the
+    marker here leaves a reader treating a 16 KB slice as the whole prompt —
+    the exact thing design B7/B8 added the attribute to prevent.
+    """
+    payload = _otel_payload(
+        [
+            _attr("traceroot.span.metadata", json.dumps({"kind": "chat"})),
+            _attr(TRUNCATED, True),
+            _attr(CAPTURE_BUDGET_EXCEEDED, True),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+    metadata = json.loads(spans[0]["metadata"])
+
+    assert metadata["kind"] == "chat"
+    assert metadata[TRUNCATED] is True
+    assert metadata[CAPTURE_BUDGET_EXCEEDED] is True
+
+
+def test_capture_markers_survive_without_explicit_metadata():
+    """The other branch keeps them too — they are ordinary unknown attributes there."""
+    payload = _otel_payload([_attr(TRUNCATED, True)])
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert json.loads(spans[0]["metadata"])[TRUNCATED] is True
 
 
 def test_non_object_explicit_metadata_is_stored_verbatim():

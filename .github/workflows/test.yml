@@ -71,6 +71,53 @@ jobs:
           path: coverage-backend.xml
 
   # ---------------------------------------------------------------------------
+  # SQL gateway against a live ClickHouse  (tests/integration/)
+  # ---------------------------------------------------------------------------
+  # The suite skips without a server, so in backend-tests it proves nothing. This job
+  # gives it one: the same major version the compose stack defaults to, with an admin
+  # that can create the gateway's accounts and set its views' DEFINER.
+  sql-gateway-integration:
+    name: SQL Gateway Integration
+    runs-on: ubuntu-24.04
+    needs: [lint]
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.2
+        env:
+          CLICKHOUSE_USER: it
+          CLICKHOUSE_PASSWORD: it
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run SQL gateway integration tests
+        timeout-minutes: 10
+        env:
+          SQL_GATEWAY_IT_CLICKHOUSE_HOST: localhost
+          SQL_GATEWAY_IT_CLICKHOUSE_PORT: "8123"
+          SQL_GATEWAY_IT_CLICKHOUSE_USER: it
+          SQL_GATEWAY_IT_CLICKHOUSE_PASSWORD: it
+          SQL_GATEWAY_IT_REQUIRED: "1"
+        run: uv run pytest tests/integration -m integration
+
+  # ---------------------------------------------------------------------------
   # Frontend unit tests  (frontend/)
   # ---------------------------------------------------------------------------
   frontend-tests:
@@ -87,7 +134,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -96,6 +143,12 @@ jobs:
 
       - name: Generate Prisma client
         run: cd frontend/packages/core && pnpm db:generate
+
+      # The agent package resolves @traceroot-ai/tools through its compiled
+      # dist (exports map), so the tools package must be built before any
+      # dependent package's tests run.
+      - name: Build tools package
+        run: cd frontend/packages/tools && pnpm build
 
       - name: Run frontend tests with coverage
         timeout-minutes: 15
@@ -106,7 +159,7 @@ jobs:
           cd frontend
 
           FAIL=0
-          for pkg in ui worker packages/core packages/agent packages/slack packages/github; do
+          for pkg in ui worker packages/core ee/agent packages/slack packages/github packages/tools; do
             echo "::group::test:coverage — $pkg"
             cd "$pkg"
             pnpm test:coverage || FAIL=1
@@ -132,9 +185,10 @@ jobs:
             "frontend/ui"
             "frontend/worker"
             "frontend/packages/core"
-            "frontend/packages/agent"
+            "frontend/ee/agent"
             "frontend/packages/slack"
             "frontend/packages/github"
+            "frontend/packages/tools"
           )
 
           > coverage-frontend.lcov  # truncate / create
@@ -161,6 +215,100 @@ jobs:
           path: coverage-frontend.lcov
 
   # ---------------------------------------------------------------------------
+  # Agent self-trace contract  (tests/e2e/test_agent_trace_contract.py)
+  #
+  # The one automated guard that an internal (agent / detector) trace never
+  # reaches a customer surface or the customer's usage bucket. It needs a live
+  # REST over migrated Postgres + ClickHouse + Redis, so it runs here rather
+  # than in backend-tests: infra from docker-compose.yml, REST from source, and
+  # tests/e2e/stub_key_validator.py standing in for the UI's key-resolution
+  # route (which has its own unit tests). No image is built.
+  # ---------------------------------------------------------------------------
+  agent-trace-contract:
+    name: Agent Trace Contract
+    runs-on: ubuntu-24.04
+    needs: [lint]
+    timeout-minutes: 20
+    env:
+      TRACEROOT_E2E_PROJECT_ID: 00000000-0000-4000-8000-00000000e2e0
+      # The dev compose file's own defaults; the database exists for this job only.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      ENABLE_BILLING: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Minted per run rather than written down: nothing here outlives the job,
+      # and a literal in the workflow reads like a secret to every scanner that
+      # sees it (and to the next person who copies it somewhere that matters).
+      - name: Mint this run's credentials
+        run: |
+          set -euo pipefail
+          {
+            echo "INTERNAL_API_SECRET=$(openssl rand -hex 32)"
+            echo "TRACEROOT_E2E_API_KEY=tr-$(uuidgen | tr "[:upper:]" "[:lower:]")"
+          } >> "$GITHUB_ENV"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies (Prisma)
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Start Postgres, ClickHouse and Redis
+        run: docker compose up -d --wait postgres clickhouse redis
+
+      - name: Migrate Postgres
+        run: cd frontend/packages/core && pnpm exec prisma migrate deploy
+
+      - name: Migrate ClickHouse
+        run: docker compose run --rm migrate-clickhouse up
+
+      - name: Start the key-resolution stub and REST
+        run: |
+          set -euo pipefail
+          # The stub verifies a digest, so it is given one — never the key.
+          export TRACEROOT_E2E_API_KEY_SHA256="$(printf '%s' "$TRACEROOT_E2E_API_KEY" | sha256sum | cut -d' ' -f1)"
+          nohup uv run python tests/e2e/stub_key_validator.py 3999 > stub.log 2>&1 &
+          TRACEROOT_UI_URL=http://localhost:3999 \
+            nohup uv run uvicorn rest.main:app --host 127.0.0.1 --port 8000 > rest.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:8000/health > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://localhost:8000/health
+
+      - name: Run the contract test
+        env:
+          TRACEROOT_E2E: "1"
+          TRACEROOT_REST_URL: http://localhost:8000
+          TRACEROOT_CH_URL: http://localhost:8123/?user=clickhouse&password=clickhouse
+          TRACEROOT_REDIS_URL: redis://localhost:6379/0
+        run: uv run pytest tests/e2e/test_agent_trace_contract.py -v
+
+      - name: Service logs
+        if: failure()
+        run: |
+          echo "::group::REST"; cat rest.log; echo "::endgroup::"
+          echo "::group::stub"; cat stub.log; echo "::endgroup::"
+          docker compose logs --tail=100 clickhouse postgres redis
+
+  # ---------------------------------------------------------------------------
   # Coverage summary
   # ---------------------------------------------------------------------------
   coverage:
@@ -173,7 +321,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download coverage artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: coverage-backend
 
@@ -228,12 +376,12 @@ jobs:
         run: pip install 'diff-cover>=9.2.0'
 
       - name: Download backend coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: coverage-backend
 
       - name: Download frontend coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: coverage-frontend
 

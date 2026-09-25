@@ -11,12 +11,20 @@ import { startDetectorRunWorker } from "./processors/detector-run-processor.js";
 import { startDetectorRcaWorker } from "./processors/detector-rca-processor.js";
 import { startDetectorDigestWorker } from "./processors/detector-digest-processor.js";
 import { initSelfTraceEmitter, shutdownSelfTraceEmitter } from "./detection/self-trace-emitter.js";
+import { isAlertsSchedulerEnabled, startAlertScheduler } from "./alerts/scheduler.js";
+import { logInfo } from "./alerts/log.js";
+import { startAlertNotificationWorker } from "./notifications/alert-slack.js";
 
 // Graceful shutdown handling
 let isShuttingDown = false;
 let detectorRunWorker: ReturnType<typeof startDetectorRunWorker> | undefined;
 let detectorRcaWorker: ReturnType<typeof startDetectorRcaWorker> | undefined;
 let detectorDigestWorker: ReturnType<typeof startDetectorDigestWorker> | undefined;
+let alertNotificationWorker: ReturnType<typeof startAlertNotificationWorker> | undefined;
+let alertScheduler: ReturnType<typeof startAlertScheduler> | undefined;
+
+// A tick can run tens of seconds but compose's stop grace is 10s: an unbounded drain is a SIGKILL.
+const ALERT_TICK_DRAIN_TIMEOUT_MS = 5_000;
 
 async function shutdown(signal: string): Promise<void> {
   if (isShuttingDown) return;
@@ -25,6 +33,18 @@ async function shutdown(signal: string): Promise<void> {
   console.log(`\n[Detector Worker] Received ${signal}, shutting down gracefully...`);
 
   try {
+    if (alertScheduler) {
+      alertScheduler.stop();
+      const isDrained = await alertScheduler.waitForIdle(ALERT_TICK_DRAIN_TIMEOUT_MS);
+      if (!isDrained) {
+        console.log(
+          `[Detector Worker] alert tick still running after ${ALERT_TICK_DRAIN_TIMEOUT_MS}ms, continuing shutdown`,
+        );
+      }
+    }
+    if (alertNotificationWorker) {
+      await alertNotificationWorker.close();
+    }
     if (detectorRunWorker) {
       await detectorRunWorker.close();
     }
@@ -72,6 +92,20 @@ async function main(): Promise<void> {
   // Start BullMQ detector digest worker
   detectorDigestWorker = startDetectorDigestWorker();
   console.log("[Detector Worker] Detector digest worker started");
+
+  // Alert delivery consumer and the once-a-minute evaluation tick. Both live
+  // here rather than in a process of their own (ruling B5), and the flag gates
+  // both at boot: a consumer started when alerting is off would page from a
+  // backlog nobody is watching. Only the tick re-reads the flag afterwards, so
+  // a switch flipped later stops new pages while the consumer drains what is
+  // already queued — bounded by each job's retry budget, and by the staleness
+  // check that drops a job whose emission the rule has since moved past.
+  if (isAlertsSchedulerEnabled()) {
+    alertNotificationWorker = startAlertNotificationWorker();
+    alertScheduler = startAlertScheduler();
+  } else {
+    logInfo('alerts disabled (set ALERTS_SCHEDULER_ENABLED="true" to run them)');
+  }
 
   // Construct the self-trace emitter up front so the first detector run does
   // not pay the provider setup, and misconfiguration (no secret) logs at boot.

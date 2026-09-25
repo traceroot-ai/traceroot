@@ -1,6 +1,9 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, Role, detectorModelProblem, listWorkspaceModels } from "@traceroot/core";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
+import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
   requireAuth,
   requireProjectAccess,
@@ -13,7 +16,7 @@ type RouteParams = { params: Promise<{ projectId: string }> };
 // GET /api/projects/[projectId]/detectors - List detectors for the project.
 // Supports `search_query` (substring on name/template/prompt), `page`, `limit`.
 // Returns `{ data, meta }` to match the rest of the list endpoints.
-export async function GET(req: NextRequest, { params }: RouteParams) {
+async function handleGET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -55,14 +58,15 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/projects/[projectId]/detectors - Create a new detector
-export async function POST(req: NextRequest, { params }: RouteParams) {
+async function handlePOST(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
   const { projectId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
+  const { workspaceId } = accessResult.project;
 
   let body: unknown;
   try {
@@ -116,11 +120,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     resolvedSampleRate = sampleRate;
   }
 
-  // Validate triggerConditions and outputSchema are arrays when provided —
-  // a non-array object would otherwise silently produce an empty list and
-  // cause the detector to fire on every trace.
-  if (triggerConditions !== undefined && !Array.isArray(triggerConditions)) {
-    return errorResponse("triggerConditions must be an array", 400);
+  // Validate triggerConditions against the trigger-field registry — an
+  // unknown field or operator would be stored fine but never match at
+  // evaluation time, silently disabling the detector.
+  if (triggerConditions !== undefined) {
+    const conditionsError = validateTriggerConditions(triggerConditions);
+    if (conditionsError) return errorResponse(conditionsError, 400);
   }
   if (outputSchema !== undefined && !Array.isArray(outputSchema)) {
     return errorResponse("outputSchema must be an array", 400);
@@ -140,6 +145,20 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     typeof detectionModel === "string" && detectionModel ? detectionModel : null;
   const resolvedProvider =
     typeof detectionProvider === "string" && detectionProvider ? detectionProvider : null;
+  // The same check the write service makes: a model the workspace cannot run
+  // is refused here rather than on the detector's first evaluation. The
+  // picker only offers listed models, so this guards a hand-built request.
+  if (resolvedModel || sourceStr === "byok") {
+    const problem = detectorModelProblem(
+      {
+        detectionSource: sourceStr,
+        detectionModel: resolvedModel,
+        detectionProvider: resolvedProvider,
+      },
+      await listWorkspaceModels(workspaceId),
+    );
+    if (problem !== null) return errorResponse(problem, 400);
+  }
 
   // enableRca: optional boolean, defaults true (RCA on). Reject non-booleans
   // so "false"/0 can't silently coerce.
@@ -156,27 +175,37 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
   const resolvedEnabled = enabled ?? resolvedSampleRate > 0;
 
-  const detector = await prisma.detector.create({
-    data: {
-      projectId,
-      name,
-      template,
-      prompt,
-      outputSchema: (outputSchema as object) ?? [],
-      sampleRate: resolvedSampleRate,
-      enabled: resolvedEnabled,
-      enableRca: resolvedEnableRca,
-      detectionModel: resolvedModel,
-      detectionProvider: resolvedProvider,
-      detectionSource: sourceStr,
-      trigger: {
-        create: {
-          conditions: (triggerConditions as object) ?? [],
+  // No duplicate-name pre-check: uq_detector_project_name is the check, and
+  // the only race-free one.
+  let detector;
+  try {
+    detector = await prisma.detector.create({
+      data: {
+        projectId,
+        name,
+        template,
+        prompt,
+        outputSchema: (outputSchema as object) ?? [],
+        sampleRate: resolvedSampleRate,
+        enabled: resolvedEnabled,
+        enableRca: resolvedEnableRca,
+        detectionModel: resolvedModel,
+        detectionProvider: resolvedProvider,
+        detectionSource: sourceStr,
+        trigger: {
+          create: {
+            conditions: (triggerConditions as object) ?? [],
+          },
         },
       },
-    },
-    include: { trigger: true },
-  });
+      include: { trigger: true },
+    });
+  } catch (e) {
+    if (!isPrismaKnownError(e, "P2002")) throw e;
+    return errorResponse("A detector with this name already exists", 409);
+  }
 
   return successResponse({ detector }, 201);
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

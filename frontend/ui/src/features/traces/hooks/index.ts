@@ -5,6 +5,7 @@ import { useCallback } from "react";
 import { useQuery, keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import { getTraces, getTrace, getSpanIO, tracesExist } from "@/lib/api";
+import type { TraceSource } from "@/lib/api/traces";
 import { getSessions, getSession, type SessionDetailOptions } from "@/lib/api/sessions";
 import { getUsers, type UserQueryOptions } from "@/lib/api/users";
 import type { SessionQueryOptions, TraceQueryOptions } from "@/types/api";
@@ -13,6 +14,9 @@ import { canonicalizeFilters } from "@/features/filters/predicate";
 
 // Composed state hooks
 export { useTraceListState } from "./use-trace-list-state";
+
+// Column visibility for the trace list
+export { useTraceColumns } from "./use-trace-columns";
 
 // Live trace streaming
 export { useTraceStream } from "./use-trace-stream";
@@ -131,7 +135,7 @@ export function spanIOQueryKey(projectId: string, traceId: string, spanId: strin
  * by even one element makes every span event a silent no-op — the view then only
  * refreshes on trace_complete, because invalidateQueries matches by prefix.
  */
-export function traceQueryKey(projectId: string, traceId: string, source?: "detector" | "user") {
+export function traceQueryKey(projectId: string, traceId: string, source?: TraceSource) {
   return ["trace", projectId, traceId, source ?? null] as const;
 }
 

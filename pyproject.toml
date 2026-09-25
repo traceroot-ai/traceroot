@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     # Core
-    "pydantic>=2.0",
+    "pydantic>=2.12",
     "pydantic-settings>=2.14.2",
     "cuid2>=2.0.0",
     # Database (PostgreSQL access moved to Prisma in ui/)
@@ -31,6 +31,16 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "watchfiles>=0.21",
     "httpx>=0.28.1",
+    # Offline verification of the CLI access JWTs against the app's JWKS
+    # (EdDSA/Ed25519 needs the crypto extra -> cryptography).
+    "pyjwt[crypto]>=2.9",
+    # SQL validation. Pinned EXACTLY, not to a range: the validator's function
+    # gate is built on how this version normalises function names (uniq ->
+    # APPROX_DISTINCT, formatDateTime -> TimeToStr, and the rest documented in
+    # ALLOWED_FUNCTIONS), so a lockfile refresh that moved the parse could change
+    # what the allowlist admits without a line of our code changing. Bump it
+    # deliberately, with the suite as the gate.
+    "sqlglot==26.33.0",
     # Tokenization
     "tiktoken>=0.5.0",
     # PostgreSQL (for standard model pricing lookup)
@@ -48,6 +58,9 @@ dev = [
     "respx>=0.20",
     "ruff>=0.15.0",
     "mypy>=1.0",
+    # Parsing the mounted ClickHouse config in tests. defusedxml rather than the stdlib
+    # because the native xml modules are XXE-prone and the scanners reject them.
+    "defusedxml>=0.7",
 ]
 
 [build-system]

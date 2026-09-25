@@ -37,8 +37,13 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from shared.enums import SpanKind, SpanStatus
-from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_TREE_ATTRIBUTES
+from shared.enums import EVALUATION_SPAN_KINDS, SpanKind, SpanStatus
+from shared.span_attributes import (
+    CAPTURE_MARKER_ATTRIBUTES,
+    SPAN_IDS_PATH,
+    SPAN_PATH,
+    SPAN_TREE_ATTRIBUTES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +52,29 @@ logger = logging.getLogger(__name__)
 # deliberately-empty spans get fabricated counts. Python only — the TypeScript scope
 # ("@traceroot-ai/claude-agent-sdk") reports real per-turn usage and is excluded.
 _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES = frozenset({"traceroot.claude-agent-sdk"})
+
+
+def _has_recorded_response(output: Any) -> bool:
+    """Whether a span's recorded output represents an actual produced response.
+
+    Takes the RAW attribute value, before `json.dumps`. That matters: an empty OTLP
+    arrayValue/kvlistValue arrives from `extract_attribute_value` as [] / {} and
+    serializes to the truthy strings "[]" / "{}" — but a model that literally
+    answered "[]" (an empty structured-output array is a real, billed response)
+    serializes to the same two characters. Only the pre-serialization type tells
+    the two apart, so matching serialized text against sentinels would withhold
+    billed cost from a genuine response. Used only to decide whether an ERRORED
+    span produced anything; see the estimation gate below.
+    """
+    if output is None:
+        return False
+    if isinstance(output, str):
+        return bool(output.strip())
+    if isinstance(output, (list, dict)):
+        return bool(output)
+    # Any other scalar the extractor can yield (int/float/bool) is a produced
+    # value — 0 and False included.
+    return True
 
 
 def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
@@ -150,24 +178,59 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
     return None
 
 
+# Upper sanity bound per token field, shared by the manual-usage and instrumentor
+# paths. Sized by the tightest downstream column, which is `cost`, not the token
+# columns: every accepted count is priced into Decimal64(9) — Decimal(18,9), nine
+# integer digits, so strictly under $10^9 (the same ceiling `filters/translate.py`
+# derives for that type). Pricing multiplies a count by a per-token rate, and the
+# catalog's most expensive model is under 1e-3/token summed across its input,
+# cache, and output rates, so a bound of 10^9 prices to under $10^6 — three orders
+# inside the column, which keeps the guard correct no matter what rate a future
+# catalog row carries rather than resting on today's most expensive model. Any sum
+# of the fields stays far inside the Int64 token columns. 10^9 tokens is orders of
+# magnitude beyond any shipped context window, so nothing legitimate is near it.
+_MAX_PLAUSIBLE_TOKENS = 10**9
+
+
+def _usable_token_value(value: Any) -> bool:
+    """Check whether a token attribute will survive ``int_or_zero`` intact.
+
+    Single source of truth for "usable count", so the candidate-list scan and the
+    coercion cannot disagree about which values are worth taking.
+
+    Args:
+        value (Any): Raw OTEL attribute value.
+
+    Returns:
+        bool: True when the value parses to a non-negative int within the
+            plausible bound -- i.e. ``int_or_zero`` will return it unchanged.
+    """
+    if value is None or value == "" or isinstance(value, bool):
+        return False
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return False
+    return 0 <= parsed <= _MAX_PLAUSIBLE_TOKENS
+
+
 def first_present_number(attrs: dict[str, Any], keys: list[str]) -> Any:
     """Like ``first_present`` but for numeric token attributes: skip keys whose
     value is missing or malformed (empty / non-numeric) so a malformed
     high-priority attribute cannot suppress a valid lower-priority fallback.
 
-    Validity mirrors ``int_or_zero`` (the value must coerce via ``int``); a present
-    but unusable value is skipped rather than short-circuiting the candidate list.
+    Validity is exactly what ``int_or_zero`` will accept, via the shared
+    ``_usable_token_value`` predicate. The two must not drift: a value this
+    function returns but ``int_or_zero`` then drops to 0 gets the worst of both
+    behaviours -- the malformed attribute short-circuits the candidate list AND
+    resolves to nothing, so a perfectly good lower-priority fallback is never
+    reached and the span is stored with no usage at all.
+
     Returns the first usable value, or None if none qualify.
     """
     for key in keys:
-        value = attrs.get(key)
-        if value is None or value == "":
-            continue
-        try:
-            int(value)
-        except (TypeError, ValueError):
-            continue
-        return value
+        if _usable_token_value(attrs.get(key)):
+            return attrs.get(key)
     return None
 
 
@@ -177,14 +240,97 @@ def int_or_zero(value: Any) -> int:
     ``first_present`` returns falsy-but-present values (e.g. an empty string for
     an attribute that exists with a non-numeric value), so guard the cast — a
     single malformed attribute must not crash ingestion of the whole batch.
+
+    Bounded by the same limit as the manual-usage path, and an over-bound value is
+    dropped to 0 rather than clamped (see below): these values are summed into
+    ``total_tokens`` (Int64) and priced into ``cost`` (Decimal(18,9)), so an
+    unbounded per-field value overflows the column and ClickHouse rejects the
+    whole insert — which on the public path discards every trace in the batch,
+    not just this span. Negative counts are floored at 0 for the same reason the
+    manual path floors them: they are meaningless as usage and would subtract
+    from dashboard sums.
     """
     if value is None or value == "":
         return 0
     try:
-        return int(value)
+        parsed = int(value)
     except (TypeError, ValueError):
         logger.warning("Non-numeric OTEL token attribute %r; treating as 0", value)
         return 0
+    if parsed < 0:
+        logger.warning("Negative OTEL token attribute %r; treating as 0", value)
+        return 0
+    if parsed > _MAX_PLAUSIBLE_TOKENS:
+        # Dropped, not clamped. Clamping substitutes an implausible count that is then
+        # priced and stored, so one malformed span lands a trillion-token, nine-figure
+        # row that dominates every cost and token aggregate it appears in. The
+        # manual-usage path discards an over-bound field for the same reason, and every
+        # other unusable value here already resolves to 0.
+        logger.warning(
+            "OTEL token attribute %r exceeds the plausible bound %d; treating as 0",
+            value,
+            _MAX_PLAUSIBLE_TOKENS,
+        )
+        return 0
+    return parsed
+
+
+def str_or_none(value: Any) -> str | None:
+    """Coerce a present OTEL attribute to str for a String column; None stays None.
+
+    Same hazard as ``str_attr``, one layer later: OTLP values are typed, so an
+    ordinary sender can put an int in ``user.id`` or a bool in ``session.id``. Those
+    reach ClickHouse columns typed ``Nullable(String)``, which rejects a non-string
+    and fails the INSERT — and the insert carries the whole batch, so on the public
+    path one such span discards every trace in the export after the route already
+    returned 200. Coerce rather than drop: the value is still the caller's identifier,
+    just wrongly typed on the wire.
+    """
+    if value is None or isinstance(value, str):
+        return value
+    return str(value)
+
+
+def int32_or_none(value: Any) -> int | None:
+    """Coerce a present OTEL attribute to an Int32-representable int; else None.
+
+    Mirror of ``str_or_none`` for the ``Nullable(Int32)`` columns. An SDK is free to
+    report a line number as a string, a float, or a value past the Int32 range, and
+    any of those fails the INSERT for the whole batch. Out-of-range and unparseable
+    values become None rather than being clamped: a wrong line number is worse than
+    an absent one, since it points a reader at unrelated source.
+    """
+    # isinstance(True, int) is True and int(True) is 1, so an unguarded bool would
+    # silently record line 1 -- the "points a reader at unrelated source" outcome
+    # this helper drops out-of-range values to avoid.
+    if value is None or value == "" or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        logger.warning("Non-numeric OTEL Int32 attribute %r; dropping", value)
+        return None
+    if not (-(2**31) <= parsed < 2**31):
+        logger.warning("OTEL Int32 attribute %r outside the column range; dropping", value)
+        return None
+    return parsed
+
+
+def str_attr(value: Any) -> str:
+    """Coerce a present OTEL attribute to str for case-folding; missing -> "".
+
+    OTLP attribute values are typed — a sender may legitimately supply an int,
+    bool, double or array for a key we expect to be a string. Guarding only for
+    None (``attrs.get(k) or ""``) leaves ``.upper()``/``.lower()`` to raise
+    AttributeError on those, which on the public path is fatal well past the
+    point of no return: the route has already 200'd, so the whole S3 batch —
+    every trace in that export, not just the offending span — is lost after the
+    task's retries. Coerce instead; a wrong-typed value simply fails to match
+    any known kind and falls through to the normal inference path.
+    """
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else str(value)
 
 
 # Fields recognized in the Python SDK's manual usage dict
@@ -201,14 +347,6 @@ _MANUAL_USAGE_KEYS = (
     "cache_write_1h_tokens",
     "reasoning_tokens",
 )
-
-# Upper sanity bound per manual usage field. The token columns are Int64 and we
-# store SUMS of fields (total_tokens = uncached + cache buckets + output), so the
-# bound must sit far below Int64-max — capping at Int64-max itself would still
-# let two capped fields overflow the stored sum and reject the whole insert
-# batch. 10^15 tokens is orders of magnitude beyond any real span while keeping
-# any sum of the six fields comfortably inside Int64.
-_MANUAL_USAGE_MAX_TOKENS = 10**15
 
 
 def parse_manual_usage(raw: Any) -> dict[str, int]:
@@ -272,7 +410,7 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
                 "Manual usage field %s is not a usable number (%r); ignoring it", key, value
             )
             continue
-        if parsed > _MANUAL_USAGE_MAX_TOKENS:
+        if parsed > _MAX_PLAUSIBLE_TOKENS:
             logger.warning(
                 "Manual usage field %s exceeds the sanity bound (%r); ignoring it", key, value
             )
@@ -392,15 +530,22 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         otel_kind: OTEL span kind (int or string like "SPAN_KIND_INTERNAL")
 
     Returns:
-        One of: "LLM", "SPAN", "AGENT", "TOOL"
+        One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER"
     """
-    # Check explicit type attribute (handle None values)
-    explicit_type = (attrs.get("traceroot.span.type") or "").upper()
-    if explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL):
+    # Check explicit type attribute (handle None values). EVALUATION_SPAN_KINDS is
+    # included so the SDK's offline-evaluation spans are preserved rather than silently
+    # coerced to SPAN. Preserving SCORER in particular is load-bearing beyond
+    # classification: cost attribution walks the scorer subtree to keep judge cost out
+    # of the candidate's cost.
+    explicit_type = str_attr(attrs.get("traceroot.span.type")).upper()
+    if (
+        explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL)
+        or explicit_type in EVALUATION_SPAN_KINDS
+    ):
         return explicit_type
 
     # Check OpenInference semantic conventions (handle None values)
-    openinference_type = (attrs.get("openinference.span.kind") or "").upper()
+    openinference_type = str_attr(attrs.get("openinference.span.kind")).upper()
     if openinference_type == SpanKind.LLM:
         return SpanKind.LLM
     elif openinference_type == SpanKind.AGENT:
@@ -411,7 +556,7 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.SPAN
 
     # GenAI semconv operation name (pydantic-ai, native OTel GenAI instrumentors)
-    operation_name = (attrs.get("gen_ai.operation.name") or "").lower()
+    operation_name = str_attr(attrs.get("gen_ai.operation.name")).lower()
     if operation_name in ("chat", "text_completion", "embeddings"):
         return SpanKind.LLM
     if operation_name == "execute_tool":
@@ -442,14 +587,14 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
 
 def _extract_user_id(attrs: dict[str, Any]) -> str | None:
     """Extract user_id from span attributes, checking multiple keys."""
-    return (
+    return str_or_none(
         attrs.get("traceroot.trace.user_id") or attrs.get("user.id") or attrs.get("session.user_id")
     )
 
 
 def _extract_session_id(attrs: dict[str, Any]) -> str | None:
     """Extract session_id from span attributes, checking multiple keys."""
-    return attrs.get("traceroot.trace.session_id") or attrs.get("session.id")
+    return str_or_none(attrs.get("traceroot.trace.session_id") or attrs.get("session.id"))
 
 
 def transform_otel_to_clickhouse(
@@ -459,7 +604,8 @@ def transform_otel_to_clickhouse(
     """Transform OTEL JSON to ClickHouse traces and spans.
 
     Never sets `source` on a record. Classification belongs to the ingest route, not
-    the payload: the internal route stamps 'detector' after this returns, and every
+    the payload: the internal route stamps the authenticated caller's source ('detector'
+    or 'agent') after this returns, and every
     other row is written as 'user' by the insert helpers (the column's DEFAULT is the
     backfill backstop for pre-migration rows, not the path live writes take). That makes the anti-spoof
     guarantee structural — a tenant-supplied traceroot.source is simply never read
@@ -495,6 +641,16 @@ def transform_otel_to_clickhouse(
     # when the first span in a batch isn't the closest-to-root span for that trace.
     _trace_name_candidates: dict[str, tuple[int, str]] = {}
     trace_git_attrs: dict[str, dict[str, str | None]] = {}
+
+    # Trace-level fields collected from ANY span in the batch and applied post-loop.
+    # Both are attached to the shallow (eager) trace record as well as the root-upgraded
+    # one: OTel's BatchSpanProcessor exports a span when it ENDS, so children routinely
+    # export in an earlier batch than their parent and the root is usually the LAST span
+    # of a trace to arrive. Reading these only off the root would leave every trace
+    # unclassified until the root lands — and permanently unclassified if the process
+    # dies first, a state nothing reconciles.
+    _trace_is_evaluation: set[str] = set()  # any eval-kind span seen for this trace
+    _trace_environment: dict[str, str] = {}  # first non-null environment seen
 
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
@@ -538,10 +694,32 @@ def transform_otel_to_clickhouse(
                 if span_kind == SpanKind.TOOL:
                     tool_name = span_attrs.get("gen_ai.tool.name") or span_attrs.get("tool.name")
                     if tool_name:
-                        span_name = tool_name
+                        # `name` is a non-nullable String on both spans and traces, and
+                        # this is the one path that sources it from a caller attribute
+                        # rather than the proto's own string field.
+                        span_name = str_attr(tool_name)
 
-                # Build span record
+                # Build span record.
+                #
+                # `environment` is the user's deployment tag (TRACEROOT_ENVIRONMENT:
+                # production, staging, ...) and is passed through untouched. The
+                # "this is an offline-evaluation run" classification is a SEPARATE
+                # field, never folded into this one: `environment` is a user-namespace
+                # value and a user-namespace value must not double as an internal
+                # control flag. Overloading it would (a) misclassify a customer who
+                # legitimately names their environment "evaluation", hiding their real
+                # traces, and (b) silently fail to classify any eval run in a project
+                # that sets TRACEROOT_ENVIRONMENT — the common case in CI or an
+                # SDK-initialised app, since those spans already carry the attribute.
+                #
+                # The classification is derived from the span kind alone, which the
+                # SDK's eval engine sets and the user cannot influence.
                 environment = span_attrs.get("traceroot.environment")
+                is_evaluation = span_kind in EVALUATION_SPAN_KINDS
+                if is_evaluation:
+                    _trace_is_evaluation.add(trace_id)
+                if isinstance(environment, str):
+                    _trace_environment.setdefault(trace_id, environment)
                 span_record = {
                     "span_id": span_id,
                     "trace_id": trace_id,
@@ -555,11 +733,27 @@ def transform_otel_to_clickhouse(
                 }
                 if isinstance(environment, str):
                     span_record["environment"] = environment
+                if is_evaluation:
+                    span_record["is_evaluation"] = True
+
+                # Check span status for errors. Determined HERE, before anything reads
+                # it, because the token/cost section below gates text estimation on it
+                # — stamping the status further down (as this used to) left the
+                # estimation blind to failures and priced calls that never ran.
+                status = otel_span.get("status", {})
+                status_code = status.get("code", 0)
+                # Handle both int (0, 1, 2) and string ("STATUS_CODE_ERROR") formats
+                span_is_error = status_code == 2 or status_code == "STATUS_CODE_ERROR"
+                if span_is_error:
+                    span_record["status"] = SpanStatus.ERROR
+                    span_record["status_message"] = status.get("message")
 
                 # Extract git source fields for span
-                git_source_file = span_attrs.get("traceroot.git.source_file")
-                git_source_line = span_attrs.get("traceroot.git.source_line")
-                git_source_function = span_attrs.get("traceroot.git.source_function")
+                git_source_file = str_or_none(span_attrs.get("traceroot.git.source_file"))
+                # source_line lands in Nullable(Int32): parse it like any other numeric
+                # attribute rather than passing a non-numeric string straight through.
+                git_source_line = int32_or_none(span_attrs.get("traceroot.git.source_line"))
+                git_source_function = str_or_none(span_attrs.get("traceroot.git.source_function"))
                 if git_source_file is not None:
                     span_record["git_source_file"] = git_source_file
                 if git_source_line is not None:
@@ -606,11 +800,23 @@ def transform_otel_to_clickhouse(
                         json.dumps(span_output) if not isinstance(span_output, str) else span_output
                     )
 
+                # A failed span with no recorded output. Gates text token estimation
+                # below — see the rationale there for why recorded output, not error
+                # status alone, is the discriminator. Named for what it observes: the
+                # absence of output is a property of what the instrumentor recorded,
+                # and stands in for "nothing was produced".
+                errored_without_response = span_is_error and not _has_recorded_response(span_output)
+
                 # Model & token fields — extract API-provided counts whenever a model
                 # name is present, not just for LLM spans. Auto-instrumentors
                 # (OpenInference, GenAI) set model/token attrs on AGENT and CHAIN spans
                 # too. Text-based ESTIMATION, however, is LLM-spans-only (see below).
-                model_name = (
+                # Coerced before use, not just before storage: a non-string model
+                # reaches `get_model_price`, whose catalog lookup is a regex match and
+                # raises TypeError on a non-str — out of the per-span loop and out of
+                # the whole transform, so the batch is lost before it ever reaches an
+                # INSERT the column type could reject.
+                model_name = str_or_none(
                     span_attrs.get("traceroot.llm.model")
                     or span_attrs.get("gen_ai.request.model")
                     or span_attrs.get("llm.model_name")
@@ -668,6 +874,10 @@ def transform_otel_to_clickhouse(
                         span_attrs,
                         [
                             "llm.token_count.prompt_details.cache_write",
+                            # traceroot SDKs' Claude Agent SDK instrumentation
+                            # (python + ts) spells the same bucket with
+                            # Anthropic's "cache_creation" word:
+                            "llm.token_count.prompt_details.cache_creation",
                             "gen_ai.usage.cache_creation.input_tokens",
                             "gen_ai.usage.cache_creation_input_tokens",
                             "gen_ai.usage.details.cache_write_tokens",
@@ -679,9 +889,9 @@ def transform_otel_to_clickhouse(
                     )
                     # Optional Anthropic 1-hour cache-write portion (1h write = 2.0x
                     # input, versus 1.25x for the default 5-minute write). A SUBSET of
-                    # cache_write, priced at its own rate when present; absent for every
-                    # emitter today (the split is dropped at the instrumentation layer),
-                    # so this defaults to None -> 0 and leaves pricing unchanged.
+                    # cache_write, priced at its own rate when present; emitters that
+                    # don't distinguish TTLs simply omit it, and this defaults to
+                    # None -> 0, leaving pricing at the combined rate.
                     api_cache_write_1h_tokens = first_present_number(
                         span_attrs,
                         [
@@ -782,12 +992,12 @@ def transform_otel_to_clickhouse(
                         )
                         # Store a GROSS (cache-inclusive) input reconstructed from the
                         # disjoint buckets, so the input column always reconciles with
-                        # its cache breakdown. Net/exclusive emitters (e.g.
-                        # claude-agent-sdk) report only the non-cached tokens in
-                        # llm.token_count.prompt with cache as separate additive
-                        # buckets, so the reported input alone (e.g. 2) understates the
-                        # true total; summing the buckets recovers it. Gross emitters
-                        # are unchanged (cache is already a subset of the input).
+                        # its cache breakdown. Net/exclusive emitters report only the
+                        # non-cached tokens in llm.token_count.prompt with cache as
+                        # separate additive buckets, so the reported input alone
+                        # (e.g. 2) understates the true total; summing the buckets
+                        # recovers it. Gross emitters are unchanged (cache is already
+                        # a subset of the input).
                         gross_input = (
                             buckets.input_uncached + buckets.cache_read + buckets.cache_write
                         )
@@ -806,9 +1016,9 @@ def transform_otel_to_clickhouse(
                             ),
                         }
                         # Persist the 1-hour cache-write portion only when an emitter
-                        # actually reports it, so spans with no 1-hour portion (every
-                        # span today) keep an identical usage_details map. The read path
-                        # defaults the missing key to 0.
+                        # actually reports it, so spans with no 1-hour portion keep an
+                        # identical usage_details map. The read path defaults the
+                        # missing key to 0.
                         if buckets.cache_write_1h:
                             span_record["usage_details"]["cache_write_1h_tokens"] = (
                                 buckets.cache_write_1h
@@ -819,6 +1029,7 @@ def transform_otel_to_clickhouse(
                     elif (
                         not aggregate_wrapper
                         and span_kind == SpanKind.LLM
+                        and not errored_without_response
                         and not _scope_skips_text_token_estimation(scope_name)
                     ):
                         # Fall back to text-based estimation — only for LLM (completion)
@@ -832,6 +1043,32 @@ def transform_otel_to_clickhouse(
                         # text be estimated into fabricated counts.
                         # Scopes in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES leave even their
                         # LLM spans deliberately unset and are skipped as well.
+                        # Spans that errored WITHOUT producing a response are excluded
+                        # too: a rejected call (400, auth failure, provider reject)
+                        # burned nothing upstream, but the instrumentor still records
+                        # the model — it comes from the REQUEST — and the prompt, which
+                        # is exactly the shape this branch prices. Estimating it invents
+                        # an input-token cost for a call that never ran.
+                        # The gate is deliberately narrower than "span errored",
+                        # because the two error shapes are not alike. A rejected call
+                        # records no output: openinference's non-streaming wrappers call
+                        # a bare finish_tracing() on the error path, attaching no output
+                        # attributes. A stream that dies mid-response DOES record its
+                        # accumulated partial output (openinference _stream.py passes
+                        # _ResponseExtractor/_MessageExtractor into _finish_tracing even
+                        # on the error path) — and there the prompt was billed in full
+                        # and the partial output really was generated, so estimating is
+                        # far closer to the truth than zero. Recorded output is what
+                        # separates them.
+                        # Known limitation: a SELF-instrumented span that stores an
+                        # error message as its output (`except: set_output(str(e))`)
+                        # reads as a response and gets estimated. Distinguishing an
+                        # error payload from a model response would take heuristics
+                        # worse than the residual, so it is accepted: the span's own
+                        # instrumentation asserted there was output.
+                        # Only ESTIMATION is gated either way; reported usage above is
+                        # kept on error spans, since a provider that does report counts
+                        # on a failure is reporting real ones.
                         from worker.tokens import calculate_cost
 
                         usage = calculate_cost(
@@ -858,9 +1095,15 @@ def transform_otel_to_clickhouse(
                 # its parent was still open. That hit exactly the spans users
                 # annotate — usually leaves, whose long-lived parents are the ones
                 # still in flight — so the paths ride along with user metadata.
+                #
+                # The capture markers ride along for the same reason: they say
+                # the recorded input/output is not the whole of it, and they are
+                # set on exactly the spans that also carry explicit metadata (an
+                # agent self-trace's root stamps the trace metadata and records
+                # the prompt and answer through the capture policy).
                 span_path_attrs = {
                     key: span_attrs[key]
-                    for key in SPAN_TREE_ATTRIBUTES
+                    for key in (*SPAN_TREE_ATTRIBUTES, *CAPTURE_MARKER_ATTRIBUTES)
                     if span_attrs.get(key) is not None
                 }
                 explicit_metadata = span_attrs.get("traceroot.span.metadata")
@@ -891,22 +1134,14 @@ def transform_otel_to_clickhouse(
                     if extra_attrs:
                         span_record["metadata"] = json.dumps(extra_attrs)
 
-                # Check span status for errors
-                status = otel_span.get("status", {})
-                status_code = status.get("code", 0)
-                # Handle both int (0, 1, 2) and string ("STATUS_CODE_ERROR") formats
-                if status_code == 2 or status_code == "STATUS_CODE_ERROR":
-                    span_record["status"] = SpanStatus.ERROR
-                    span_record["status_message"] = status.get("message")
-
                 spans.append(span_record)
 
                 # Collect user_id/session_id from ANY span (not just root)
                 # Priority: root span values overwrite, child span values only set if empty
                 span_user_id = _extract_user_id(span_attrs)
                 span_session_id = _extract_session_id(span_attrs)
-                span_git_ref = span_attrs.get("traceroot.git.ref")
-                span_git_repo = span_attrs.get("traceroot.git.repo")
+                span_git_ref = str_or_none(span_attrs.get("traceroot.git.ref"))
+                span_git_repo = str_or_none(span_attrs.get("traceroot.git.repo"))
 
                 if trace_id not in trace_attrs:
                     trace_attrs[trace_id] = {"user_id": None, "session_id": None}
@@ -975,7 +1210,7 @@ def transform_otel_to_clickhouse(
                     span_path_c = span_attrs.get(SPAN_PATH)
                     ids_path_c = span_attrs.get(SPAN_IDS_PATH)
                     candidate_name = (
-                        span_path_c[0]
+                        str_attr(span_path_c[0])
                         if isinstance(span_path_c, (list, tuple)) and span_path_c
                         else span_name
                     )
@@ -1031,6 +1266,23 @@ def transform_otel_to_clickhouse(
         if trace_id in traces:
             traces[trace_id]["name"] = best_name
 
+    # Classify the trace from ANY eval-kind span in the batch, not just the root, so a
+    # batch of {SCORER, TASK} whose EVALUATION root has not been exported yet still
+    # writes a classified trace row. The trace record is then never less classified than
+    # its own spans, and the flag only ever goes 0 -> 1.
+    for trace_id in _trace_is_evaluation:
+        if trace_id in traces:
+            traces[trace_id]["is_evaluation"] = True
+
+    # Same for the user's environment tag: the shallow record would otherwise carry no
+    # environment until the root arrives. The root-upgrade block above already set it
+    # authoritatively when the root IS in this batch, so only fill the gap here.
+    for trace_id, env in _trace_environment.items():
+        if trace_id in traces and not traces[trace_id].get("environment"):
+            traces[trace_id]["environment"] = env
+
+    # Update trace records with user_id/session_id collected from child spans
+    # (in case child spans with these attrs came after the root span was processed)
     # Update trace records with user_id/session_id collected from child spans (in
     # case child spans with these attrs came after the root span was processed).
     for trace_id, attrs in trace_attrs.items():

@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, getSeatLimit, canAddSeat, PlanType } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
@@ -5,7 +6,7 @@ import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers"
 type RouteParams = { params: Promise<{ inviteId: string }> };
 
 // POST /api/invites/[inviteId]/accept - Accept an invite
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { inviteId } = await params;
 
   const authResult = await requireAuth();
@@ -96,3 +97,4 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     role: invite.role,
   });
 }
+export const POST = withImpersonationPolicy(handlePOST);

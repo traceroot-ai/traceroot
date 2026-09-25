@@ -91,6 +91,13 @@ class TraceListItem(BaseModel):
     total_input_tokens: int | None = 0
     total_output_tokens: int | None = 0
     total_cost: float | None = 0.0
+    # Trace-level metadata, one entry per key — what the list's single Metadata cell
+    # renders from, and its only source: ``TraceListItem`` carries no ``metadata`` string
+    # sibling to fall back to, so dropping this field would empty that cell rather than
+    # degrade it. Empty for traces that carry no metadata. Filters match any span, so a
+    # row's cell can differ from what its filter matched — see the comment on the list
+    # query in ``trace_reader.list_traces``.
+    metadata_map: dict[str, str] = {}
 
 
 class TraceListResponse(BaseModel):
@@ -139,6 +146,10 @@ class FilterField(BaseModel):
     # True for integer-typed numeric fields (tokens/latency/errors), so the UI can
     # restrict their inputs to whole numbers.
     integer: bool = False
+    # True for the one parameterized field (metadata), whose predicate carries a key as
+    # well as an operator and a value. The builder renders a key control only for these,
+    # so the one-row filter shape holds for every other field.
+    requires_key: bool = False
 
 
 class FilterFieldsResponse(BaseModel):
@@ -159,3 +170,16 @@ class FilterValuesResponse(BaseModel):
 
     field: str
     values: list[FilterValueCount]
+
+
+class MetadataKeysResponse(BaseModel):
+    """Metadata keys observed in a window, by frequency — the discovery answer.
+
+    Feeds one surface: the metadata filter's key combobox. The trace list's column picker
+    is not a consumer — it offers fixed fields only, and metadata reaches the list as a
+    single blob cell rather than a column per key. Rows reuse ``FilterValueCount``
+    (``value``/``count``) because a key with an occurrence count is the same shape as a
+    categorical value with one, and both are rendered by the same suggestion list.
+    """
+
+    keys: list[FilterValueCount]

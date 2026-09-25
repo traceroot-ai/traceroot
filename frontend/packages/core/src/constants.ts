@@ -7,6 +7,10 @@ export const SpanKind = {
   AGENT: "AGENT",
   TOOL: "TOOL",
   SPAN: "SPAN",
+  // Offline-evaluation span kinds (evaluation-item root, candidate task, scorer).
+  EVALUATION: "EVALUATION",
+  TASK: "TASK",
+  SCORER: "SCORER",
 } as const;
 export type SpanKind = (typeof SpanKind)[keyof typeof SpanKind];
 

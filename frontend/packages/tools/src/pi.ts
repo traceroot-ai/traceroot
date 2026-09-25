@@ -1,0 +1,157 @@
+import type { ApiClient } from "./client.js";
+import { dispatch } from "./dispatch.js";
+import { stripOversizedNumericBounds } from "./sanitize.js";
+import type { ParamSchema, RegistryEntry } from "./types.js";
+
+/** One text block of a pi tool result. */
+export interface PiToolResultContent {
+  type: "text";
+  text: string;
+}
+
+export interface PiToolResult {
+  content: PiToolResultContent[];
+  /** Structured data beside the text, for a surface that renders results
+   *  (the chat panel's cards); undefined unless the binding asked for it. */
+  details: unknown;
+}
+
+/**
+ * The agent runtime's tool shape, matched structurally so this package needs
+ * no dependency on it.
+ */
+export interface PiAgentTool {
+  name: string;
+  label: string;
+  description: string;
+  parameters: {
+    type: "object";
+    properties: Record<string, ParamSchema>;
+    required: string[];
+    additionalProperties: false;
+  };
+  execute: (toolCallId: string, rawParams: unknown, signal?: AbortSignal) => Promise<PiToolResult>;
+}
+
+export interface ToPiAgentToolOptions {
+  client: ApiClient;
+  /** Alternative path template (e.g. an internal project-scoped route). */
+  pathOverride?: string;
+  /**
+   * Args injected on every call and hidden from the model's schema
+   * (e.g. the project id an internal route template needs).
+   */
+  fixedArgs?: Record<string, unknown>;
+  /** Renders the API result for the model; defaults to pretty-printed JSON. */
+  formatResult?: (result: unknown) => string;
+  /**
+   * Structured details surfaced beside the text on a successful call, for a
+   * surface that renders results rather than reading them — the model sees
+   * only the text. Forwarded and persisted verbatim, so keep it a compact
+   * projection of the payload, not the payload itself.
+   */
+  details?: (result: unknown) => unknown;
+  /**
+   * Replaces the registry entry's description for this surface. The entry's
+   * text is written for the public API and CLI; a surface that changes a
+   * default (the in-app agent's page window) must tell the model the truth
+   * that applies to it, and the description sits closer to the call than
+   * the system prompt does.
+   */
+  description?: string;
+  /**
+   * Values for params the model omits, read on every call. Unlike fixedArgs
+   * these stay in the model's schema and lose to a value the model supplies:
+   * the page's selected time range is the motivating case — the agent should
+   * query the window the user is looking at unless they named another.
+   * A function of the model's own (visible) args, so a default can stand
+   * down when the model addressed the same concern another way — a page
+   * window with explicit bounds must not be merged under a range the model
+   * named. Read on every call because the window changes per message.
+   */
+  defaults?: (supplied: Readonly<Record<string, unknown>>) => Record<string, unknown>;
+}
+
+/** "list_traces" -> "List traces" for the tool's human-readable label. */
+function humanizeName(name: string): string {
+  const words = name.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * Adapt a registry entry to the pi agent tool shape: inject the required
+ * model-supplied `label` param, hide fixedArgs and the entry's
+ * agentHiddenParams from the model, and render results and errors as text
+ * content.
+ */
+export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOptions): PiAgentTool {
+  const {
+    client,
+    pathOverride,
+    fixedArgs = {},
+    formatResult,
+    details,
+    defaults,
+    description,
+  } = options;
+
+  // The registry keeps agentHiddenParams in inputSchema/bodyParams for full
+  // API/CLI parity and leaves the stripping to consumers — this adapter is the
+  // model-facing consumer, so it must neither show them nor accept them back.
+  const hidden = new Set(entry.agentHiddenParams ?? []);
+  const isHidden = (name: string) => name in fixedArgs || hidden.has(name);
+
+  const properties: Record<string, ParamSchema> = {
+    label: {
+      type: "string",
+      description: "Brief description of what this call is doing (shown to the user)",
+    },
+  };
+  for (const [name, schema] of Object.entries(entry.inputSchema.properties)) {
+    if (isHidden(name)) {
+      continue;
+    }
+    // Generated entries are already clean; this also covers hand-authored ones.
+    properties[name] = stripOversizedNumericBounds(schema);
+  }
+  const required = ["label", ...entry.inputSchema.required.filter((name) => !isHidden(name))];
+
+  return {
+    name: entry.name,
+    label: humanizeName(entry.name),
+    description: description ?? entry.description,
+    parameters: { type: "object", properties, required, additionalProperties: false },
+    execute: async (_toolCallId, rawParams, signal): Promise<PiToolResult> => {
+      const { label: _label, ...params } = (rawParams ?? {}) as Record<string, unknown>;
+      // Drop anything hidden that the model invented anyway — the schema says
+      // these fields do not exist, so a value for one is never the caller's.
+      for (const name of hidden) {
+        delete params[name];
+      }
+      // Defaults under the model's args, fixedArgs over them; a param the
+      // model sent as undefined counts as omitted.
+      const supplied = Object.fromEntries(
+        Object.entries(params).filter(([, value]) => value !== undefined),
+      );
+      try {
+        // Inside the boundary: a defaults callback that throws is reported to
+        // the model like any other failure, not surfaced as a rejected call.
+        const args = { ...(defaults?.(supplied) ?? {}), ...supplied, ...fixedArgs };
+        const result = await dispatch(entry, args, client, { pathOverride, signal });
+        const text = formatResult ? formatResult(result) : JSON.stringify(result, null, 2);
+        return { content: [{ type: "text", text }], details: details?.(result) };
+      } catch (error) {
+        // Deliberate divergence from the runtime's throw-on-failure contract:
+        // errors are returned as tool-result text so the model can read the
+        // failure (status, detail) and adapt — matching how the in-app agent's
+        // existing query tools behave. Revisit if runtime error accounting
+        // (isError marking) becomes load-bearing.
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{ type: "text", text: `Error calling ${entry.name}: ${message}` }],
+          details: undefined,
+        };
+      }
+    },
+  };
+}

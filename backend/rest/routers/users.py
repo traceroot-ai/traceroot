@@ -36,6 +36,11 @@ async def list_users(
     search_query: str | None = Query(None, description="Search by user_id"),
     start_after: datetime | None = Query(None, description="Filter traces after this time"),
     end_before: datetime | None = Query(None, description="Filter traces before this time"),
+    include_evaluations: bool = Query(
+        False,
+        description="Include offline-evaluation traces in the per-user counts and "
+        "totals. Excluded by default, matching the Traces list.",
+    ),
 ):
     """List unique users for a project with trace counts."""
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
@@ -48,6 +53,7 @@ async def list_users(
             search_query=search_query,
             start_after=start_after,
             end_before=end_before,
+            include_evaluations=include_evaluations,
         )
         return result
     except Exception as e:

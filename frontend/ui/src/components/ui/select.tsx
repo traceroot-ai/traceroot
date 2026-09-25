@@ -86,4 +86,19 @@ const SelectItem = React.forwardRef<
 ));
 SelectItem.displayName = SelectPrimitive.Item.displayName;
 
-export { Select, SelectGroup, SelectValue, SelectTrigger, SelectContent, SelectItem };
+// Non-selectable placeholder row for an empty popover: plain muted text, no
+// focus and no value, so it reads as "nothing here" rather than a choice.
+const SelectEmpty = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, children, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cn("px-2 py-1.5 text-[12px] text-muted-foreground", className)}
+      {...props}
+    >
+      {children}
+    </div>
+  ),
+);
+SelectEmpty.displayName = "SelectEmpty";
+
+export { Select, SelectGroup, SelectValue, SelectTrigger, SelectContent, SelectItem, SelectEmpty };

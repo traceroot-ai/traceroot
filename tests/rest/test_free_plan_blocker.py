@@ -99,6 +99,34 @@ class TestFreePlanBlocker:
 
         assert response.status_code == 200
 
+    def test_not_blocked_when_billing_disabled(self, monkeypatch):
+        """With billing disabled (self-hosted), a free plan flagged
+        ingestion_blocked is NOT gated: the guard is `is_billing_enabled() and
+        auth.ingestion_blocked`, so a False first term skips the 402 entirely.
+        """
+        monkeypatch.setattr("rest.routers.public.traces.is_billing_enabled", lambda: False)
+        app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result(
+            billing_plan="free",
+            ingestion_blocked=True,
+        )
+
+        monkeypatch.setattr(
+            "rest.routers.public.traces.decode_otlp_protobuf",
+            lambda body: {"resourceSpans": []},
+        )
+        mock_s3 = MagicMock()
+        monkeypatch.setattr("rest.routers.public.traces.get_s3_service", lambda: mock_s3)
+        monkeypatch.setattr("rest.routers.public.traces.process_s3_traces", MagicMock())
+
+        test_client = TestClient(app)
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
+
+        assert response.status_code == 200
+
     def test_starter_plan_not_blocked(self, monkeypatch):
         """Starter plan should not be blocked."""
         monkeypatch.setattr("rest.routers.public.traces.is_billing_enabled", lambda: True)

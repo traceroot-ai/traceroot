@@ -24,6 +24,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write      # mint the OIDC token used to assume the ECR push role
 
 env:
   AWS_REGION: us-east-1
@@ -63,8 +64,10 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          # Short-lived credentials minted per run via GitHub OIDC. The role can
+          # push to traceroot-* ECR repositories and nothing else; there is no
+          # stored AWS key to leak.
+          role-to-assume: arn:aws:iam::965747688757:role/traceroot-build-ecr
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -73,9 +76,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Only vX.Y.Z tags are platform versions; other tags must not become the label.
       - name: Resolve app version
         id: app_version
-        run: echo "value=$(git describe --tags --abbrev=0 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
+        run: echo "value=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
 
       - name: Docker meta
         id: meta

@@ -211,6 +211,50 @@ describe("processTrace — finding + RCA", () => {
     expect(mockQueueAdd.mock.calls[0][1].findingTimestamp).toBe(ts);
   });
 
+  it("re-detecting over an existing finding never resets its lifecycle status", async () => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Slow",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: null,
+        detectionProvider: null,
+        detectionSource: "system",
+        enableRca: true,
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: true,
+      summary: "found it",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: "m",
+      inferenceProvider: "anthropic",
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    // The upsert's `update` branch must never touch lifecycle status: with the
+    // deterministic RCA jobId (`rca-<findingId>`) and removeOnComplete: 100,
+    // a re-detection over an already-completed finding can dedupe against the
+    // retained completed job and never run — resetting status to "pending"
+    // here would then leave a done finding stuck at "pending" forever. Only a
+    // newly allocated attempt's own markFindingRunningIfLatest may set
+    // "running".
+    expect(mockPrisma.detectorRca.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: { projectId: "p1" } }),
+    );
+    const [{ update }] = mockPrisma.detectorRca.upsert.mock.calls[0] as [
+      { update: Record<string, unknown> },
+    ];
+    expect(update).not.toHaveProperty("status");
+  });
+
   it("enqueues the RCA job with retry attempts and backoff so transient agent failures retry", async () => {
     mockFetches(60_000, '{"span":1}\n');
     mockPrisma.detector.findMany.mockResolvedValue([
@@ -392,12 +436,10 @@ describe("processTrace — self-trace emission", () => {
     expect(mockWithSelfTrace).toHaveBeenCalledTimes(1);
     const meta = mockWithSelfTrace.mock.calls[0][0];
     expect(meta.projectId).toBe("p1");
-    expect(meta.scannedTraceId).toBe("t1");
-    expect(meta.detectorId).toBe("d1");
-    expect(meta.detectorName).toBe("Slow");
-    // Dashless 32-hex — the same shape as a trace id, and the self-trace's
-    // trace_id verbatim.
-    expect(meta.runId).toMatch(/^[0-9a-f]{32}$/);
+    expect(meta.name).toBe("detector-run: Slow");
+    expect(meta.metadata).toEqual({ detectorId: "d1", detectorName: "Slow", scannedTraceId: "t1" });
+    // Dashless 32-hex — the run id verbatim, forced as the self-trace's trace_id.
+    expect(meta.traceId).toMatch(/^[0-9a-f]{32}$/);
     // The eval genuinely ran inside the wrapper.
     expect(mockRunDetection).toHaveBeenCalledTimes(1);
     expect(mockWriteRun).toHaveBeenCalledWith(expect.objectContaining({ selfTraced: true }));

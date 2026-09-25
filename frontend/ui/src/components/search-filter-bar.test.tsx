@@ -32,6 +32,13 @@ describe("SearchFilterBar", () => {
     expect(screen.getByText(DATE_FILTER_OPTIONS[0].label)).toBeTruthy();
   });
 
+  it("leaves out the date filter when a surface has no time range", () => {
+    render(<SearchFilterBar searchValue="" onSearchChange={vi.fn()} />);
+
+    expect(screen.getByPlaceholderText("Search...")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
   it("reflects the current search value", () => {
     render(
       <SearchFilterBar
@@ -47,5 +54,18 @@ describe("SearchFilterBar", () => {
 
     const input = screen.getByPlaceholderText("Search...") as HTMLInputElement;
     expect(input.value).toBe("checkout");
+  });
+
+  it("omits the date filter entirely when the caller has no time range to filter by", () => {
+    render(
+      <SearchFilterBar searchValue="" onSearchChange={vi.fn()}>
+        <button type="button">Live</button>
+      </SearchFilterBar>,
+    );
+
+    expect(screen.getByText("Live")).toBeTruthy();
+    for (const option of DATE_FILTER_OPTIONS) {
+      expect(screen.queryByText(option.label)).toBeNull();
+    }
   });
 });

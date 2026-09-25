@@ -9,6 +9,8 @@ import { fetchGitHubConnection } from "@/lib/github";
 import { useWorkspace } from "@/features/workspaces/hooks";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { authClient } from "@/lib/auth-client";
+import { ImpersonationError, throwIfImpersonationDenied } from "@/lib/api/errors";
 
 interface GitHubConnectButtonProps {
   workspaceId: string;
@@ -18,6 +20,9 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
   const queryClient = useQueryClient();
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [open, setOpen] = useState(false);
+  const [denial, setDenial] = useState<string | null>(null);
+  const { data: session } = authClient.useSession();
+  const impersonating = !!session?.session.impersonatedBy;
 
   const { data: workspace } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
@@ -36,10 +41,14 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
         `/api/github/disconnect?workspaceId=${encodeURIComponent(workspaceId)}`,
         { method: "POST" },
       );
+      await throwIfImpersonationDenied(res);
       if (res.ok) {
         queryClient.invalidateQueries({ queryKey: ["github-connection", workspaceId] });
         setOpen(false);
       }
+    } catch (error) {
+      if (error instanceof ImpersonationError) setDenial(error.message);
+      else throw error;
     } finally {
       setIsDisconnecting(false);
     }
@@ -49,6 +58,21 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
   // would create an SSR/CSR hydration mismatch in this client component.
   const buildHref = (path: string) =>
     `${path}?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=${encodeURIComponent(pathname || "/")}`;
+
+  if (impersonating || denial) {
+    return (
+      <div className="flex items-center gap-3">
+        <FaGithub className="h-6 w-6" />
+        <div>
+          <div className="text-sm font-medium">GitHub</div>
+          <p role="status" className="text-sm text-muted-foreground">
+            {denial ||
+              "GitHub connections cannot be managed while impersonating, including as an admin."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

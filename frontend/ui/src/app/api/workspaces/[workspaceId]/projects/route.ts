@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
@@ -7,6 +8,8 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { seedDefaultDashboard } from "@/lib/dashboard-seed";
 
 const createProjectSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -16,7 +19,7 @@ const createProjectSchema = z.object({
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
 // GET /api/workspaces/[workspaceId]/projects - List projects in workspace
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -55,7 +58,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/workspaces/[workspaceId]/projects - Create a new project (MEMBER+)
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -79,29 +82,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const { name, trace_ttl_days } = result.data;
 
-  // Check for duplicate name in workspace
-  const existingProject = await prisma.project.findFirst({
-    where: {
-      workspaceId,
-      name,
-      deleteTime: null,
-    },
-  });
-
-  if (existingProject) {
-    return errorResponse("A project with this name already exists", 409);
-  }
-
   const projectId = crypto.randomUUID();
 
-  const project = await prisma.project.create({
-    data: {
-      id: projectId,
-      workspaceId,
-      name,
-      traceTtlDays: trace_ttl_days ?? null,
-    },
-  });
+  // No duplicate pre-check: uq_project_workspace_live_name is the check, and
+  // the only race-free one. One transaction: every project ships with its
+  // Default dashboard, so a failure to seed rolls the project back rather than
+  // leaving a project whose Default never appears once another dashboard is
+  // created.
+  let project;
+  try {
+    project = await prisma.$transaction(async (tx) => {
+      const created = await tx.project.create({
+        data: {
+          id: projectId,
+          workspaceId,
+          name,
+          traceTtlDays: trace_ttl_days ?? null,
+        },
+      });
+      await seedDefaultDashboard(tx, { projectId, actorUserId: user.id });
+      return created;
+    });
+  } catch (e) {
+    if (!isPrismaKnownError(e, "P2002")) throw e;
+    return errorResponse("A project with this name already exists", 409);
+  }
 
   return NextResponse.json(
     {
@@ -114,3 +119,5 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     { status: 201 },
   );
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);
