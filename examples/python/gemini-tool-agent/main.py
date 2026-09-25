@@ -202,18 +202,13 @@ class ReActAgent:
         # Append user message in Gemini's Content format
         self.contents.append(types.Content(role="user", parts=[types.Part(text=query)]))
 
+        # Manual tool loop (not AFC), so each model call is its own traced, priced span
         for _ in range(5):
             response = self._get_completion()
 
-            if not response.candidates:
-                return response.text or "No response generated."
-
-            candidate = response.candidates[0]
-            content = candidate.content
-
-            # Guard against None content
+            content = response.candidates[0].content if response.candidates else None
             if content is None or not content.parts:
-                return response.text or "No response generated."
+                return "No response generated."
 
             # Collect any text and function calls from the response parts
             text_parts = []
