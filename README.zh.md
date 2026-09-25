@@ -85,11 +85,16 @@
   git clone https://github.com/traceroot-ai/traceroot.git
   cd traceroot
 
+  cp .env.example .env
+  # 在 .env 中取消注释 SQL_GATEWAY_BOOTSTRAP_PASSWORD，
+  # 并将其替换为唯一的强密码。
+
   # 全部组件都跑在 Docker 中
   make prod
   ```
 
-- [Terraform (AWS)](./deploy/)：通过 Helm 和 Terraform 在 k8s 上运行 TraceRoot。该方式面向生产环境部署，目前仍处于实验阶段。
+- [Helm Chart](https://github.com/traceroot-ai/traceroot-k8s)：使用现有的 PostgreSQL、ClickHouse、Redis 和 S3 兼容服务，将 TraceRoot 部署到 Kubernetes。
+- [Terraform (AWS)](https://github.com/traceroot-ai/traceroot-terraform-aws)：预置 AWS 基础设施并安装 TraceRoot Helm Chart。
 
 ## 集成
 
