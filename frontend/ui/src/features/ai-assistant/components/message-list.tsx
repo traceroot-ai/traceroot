@@ -19,6 +19,7 @@ import remarkGfm from "remark-gfm";
 import { ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { describeCapture } from "@traceroot/core/capture-note";
+import { LoadingState } from "@/components/ui/loading-state";
 import type { AIMessage, ToolCallStep } from "../types";
 import { PANEL_MAX_WIDTH } from "../constants";
 import {
@@ -753,6 +754,9 @@ interface MessageListProps {
    *  downgraded is neither queried nor named. Undefined while the plan is
    *  still resolving, and with no project to look one up by. */
   retentionDays?: number | null;
+  // Names what is being waited on when nothing is streaming in. Omit for a live
+  // stream, where the text arriving is the feedback.
+  waitingLabel?: string;
 }
 
 export function MessageList({
@@ -762,6 +766,7 @@ export function MessageList({
   known = NOTHING_KNOWN,
   projectId,
   retentionDays,
+  waitingLabel,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -885,7 +890,11 @@ export function MessageList({
         })}
         {isWaiting && (
           <div className="px-1 pb-2">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/40" />
+            {waitingLabel ? (
+              <LoadingState label={waitingLabel} className="text-[12px]" />
+            ) : (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/40" />
+            )}
           </div>
         )}
       </div>

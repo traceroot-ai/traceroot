@@ -1847,3 +1847,124 @@ describe("useAiChat revision by chat", () => {
     expect(result.current.pendingDecision).toBe(before);
   });
 });
+
+// Opening a detector-flagged trace pre-loads an RCA session that a worker
+// fills in, so the answer can arrive after the chat is already on screen.
+// Until then the chat shows a working indicator, driven by
+// initialSessionPending, and re-reads the session once the flag clears.
+describe("useAiChat pre-loaded session still being written", () => {
+  const PROMPT = {
+    id: "u-1",
+    role: "user",
+    content: "Analyze this trace",
+    createTime: "2026-01-01T00:00:00Z",
+  };
+  const ANSWER = {
+    id: "a-1",
+    role: "assistant",
+    content: "Root cause: the worker dropped the span.",
+    createTime: "2026-01-01T00:00:01Z",
+  };
+  /** What GET .../sessions/rca-1/messages answers with — the DB's view. */
+  let history: unknown[];
+  let historyFetches: number;
+  let sse: ReturnType<typeof createSSE>;
+
+  beforeEach(() => {
+    history = [PROMPT];
+    historyFetches = 0;
+    sse = createSSE();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (method === "GET" && url.endsWith("/ai/sessions/rca-1/messages")) {
+          historyFetches++;
+          return jsonResponse({ messages: history });
+        }
+        if (method === "POST" && url.endsWith("/ai/sessions/rca-1/messages")) {
+          return sse.response;
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const renderRca = (pending: boolean) =>
+    renderHook(
+      ({ pending }: { pending: boolean }) =>
+        useAiChat({ projectId: "p1", initialSessionId: "rca-1", initialSessionPending: pending }),
+      { wrapper, initialProps: { pending } },
+    );
+
+  it("keeps the indicator up while the run is pending, then re-reads the answer once it lands", async () => {
+    const { result, rerender } = renderRca(true);
+
+    // Indicator shows immediately, before any messages have loaded.
+    expect(result.current.isLoadingSession).toBe(true);
+    await waitFor(() => expect(result.current.messages.map((m) => m.role)).toEqual(["user"]));
+    expect(result.current.isLoadingSession).toBe(true);
+    // Nothing to abort: the Stop button must stay hidden.
+    expect(result.current.isStreaming).toBe(false);
+
+    // Run finishes → flag flips → the answer is re-read and the indicator clears.
+    history = [PROMPT, ANSWER];
+    rerender({ pending: false });
+    expect(result.current.isLoadingSession).toBe(false);
+    await waitFor(() =>
+      expect(result.current.messages.map((m) => m.role)).toEqual(["user", "assistant"]),
+    );
+    expect(historyFetches).toBe(2);
+  });
+
+  it("holds the re-read until the user's own turn in that session has ended", async () => {
+    const { result, rerender } = renderRca(true);
+    await waitFor(() => expect(historyFetches).toBe(1));
+
+    // The user asks a follow-up while the worker is still writing.
+    await act(async () => {
+      await result.current.handleSend("and why?", MODEL);
+    });
+    sse.emit("because");
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "because")).toBe(true),
+    );
+
+    // The worker finishes mid-turn: no re-read yet — it would replace the
+    // bucket the stream is writing into — and the Stop button stays.
+    history = [PROMPT, ANSWER];
+    rerender({ pending: false });
+    expect(result.current.isLoadingSession).toBe(false);
+    expect(result.current.isStreaming).toBe(true);
+    expect(historyFetches).toBe(1);
+
+    // Their turn ends → the owed re-read lands.
+    sse.close();
+    await waitFor(() => expect(result.current.isStreaming).toBe(false));
+    await waitFor(() => expect(historyFetches).toBe(2));
+  });
+
+  it("shows no indicator and reads once when the answer is already complete on open", async () => {
+    history = [PROMPT, ANSWER];
+    const { result } = renderRca(false);
+
+    expect(result.current.isLoadingSession).toBe(false);
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+    expect(historyFetches).toBe(1);
+  });
+
+  it("drops the indicator once the user moves off the pending session", async () => {
+    const { result } = renderRca(true);
+    await waitFor(() => expect(historyFetches).toBe(1));
+    expect(result.current.isLoadingSession).toBe(true);
+
+    act(() => result.current.handleNewSession());
+    expect(result.current.isLoadingSession).toBe(false);
+  });
+});
