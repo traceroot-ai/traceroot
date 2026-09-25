@@ -109,6 +109,11 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
             {updateMutation.isPending ? "Saving..." : "Save"}
           </Button>
         </div>
+        {updateMutation.isError && (
+          <p role="alert" className="mt-2 text-[13px] text-destructive">
+            {updateMutation.error.message || "Failed to rename project. Please try again."}
+          </p>
+        )}
       </div>
 
       <div className="border p-4">
@@ -116,7 +121,13 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
         <p className="mt-1 text-[12px] text-muted-foreground">
           Permanently delete this project and all of its data. This action cannot be undone.
         </p>
-        <DeleteButton onClick={() => setShowDeleteDialog(true)} className="mt-3 h-7 text-[12px]">
+        <DeleteButton
+          onClick={() => {
+            if (deleteMutation.isError) deleteMutation.reset();
+            setShowDeleteDialog(true);
+          }}
+          className="mt-3 h-7 text-[12px]"
+        >
           Delete project
         </DeleteButton>
       </div>
@@ -141,6 +152,11 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
               onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleDelete()}
               placeholder="Project name"
             />
+            {deleteMutation.isError && (
+              <p role="alert" className="mt-2 text-sm text-destructive">
+                {deleteMutation.error.message || "Failed to delete project. Please try again."}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
