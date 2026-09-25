@@ -102,7 +102,7 @@ root_agent = Agent(
 ```
 
 <Note>
-  `adk web` and `adk api_server` install their own OpenTelemetry tracer provider before `agent.py` loads, so `@observe` spans are dropped in these modes; ADK's spans still arrive. Use `adk run` or your own runner to trace `@observe` functions.
+  `adk web` and `adk api_server` install their own OpenTelemetry tracer provider before `agent.py` loads. From the first `traceroot` release after 0.2.0, `@observe` spans are traced alongside ADK's spans in these modes. On 0.2.0, ADK's spans still arrive but `@observe` spans are dropped; use `adk run` or your own runner instead.
 </Note>
 
 ## What Gets Captured
