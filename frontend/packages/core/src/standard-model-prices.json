@@ -26,9 +26,35 @@
     }
   },
   {
+    "id": "tr-claude-opus-5-5-fast",
+    "modelName": "claude-opus-5-5-fast",
+    "matchPattern": "(?i)^(anthropic\\/)?claude-opus-5-5-fast$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 8e-6,
+      "output": 4e-5,
+      "cacheRead": 4e-7,
+      "cacheWrite": 1e-5,
+      "cacheWrite1h": 1.6e-5
+    }
+  },
+  {
+    "id": "tr-claude-opus-5-5",
+    "modelName": "claude-opus-5-5",
+    "matchPattern": "(?i)^(anthropic[/.])?claude-opus-5-5$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 4e-6,
+      "output": 2e-5,
+      "cacheRead": 2e-7,
+      "cacheWrite": 5e-6,
+      "cacheWrite1h": 8e-6
+    }
+  },
+  {
     "id": "tr-claude-opus-5",
     "modelName": "claude-opus-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-5(\\[1m\\])?(-[\\d-]+)?(@[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-5-opus(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-5(\\[1m\\])?(-(?:\\d{8}|\\d{4}-\\d{2}-\\d{2}))?(@[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-5(-(?:\\d{8}|\\d{4}-\\d{2}-\\d{2}))?(-v\\d+:\\d+)?|claude-5-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000005,
