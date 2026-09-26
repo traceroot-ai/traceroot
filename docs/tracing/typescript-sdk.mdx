@@ -175,22 +175,22 @@ For more fine-grained control over spans, including recording tokens for streami
 ```typescript
 import { startSpan, usingSpan, getCurrentSpan } from '@traceroot-ai/traceroot';
 
-// Start a manual span and provide updates later
-const span = startSpan({ name: 'streaming_completion', type: 'llm', model: 'gpt-4' });
-
+// 1. Manual lifecycle pattern
+const llmSpan = startSpan({ name: 'streaming_completion', type: 'llm', model: 'gpt-4' });
 try {
   // Update the span mid-flight or at the end
-  span.update({
+  llmSpan.update({
     usage: { input: 10, output: 50 }, // Accepts `usage` (input/output/total), but not `prompt` directly
     output: { text: "Hello!" }
   });
 } finally {
-  span.end();
+  llmSpan.end();
 }
 
-// usingSpan executes a block with the span active in context, then ends it automatically
-await usingSpan(span, async () => {
-  const current = getCurrentSpan(); // Retrieve the active span from context
+// 2. usingSpan pattern: executes a block with the span active in context, then ends it automatically
+const blockSpan = startSpan({ name: 'agent_step', type: 'agent' });
+await usingSpan(blockSpan, async () => {
+  const current = getCurrentSpan(); // Retrieves `blockSpan` from context
   console.log(current?.spanId);
 });
 ```
