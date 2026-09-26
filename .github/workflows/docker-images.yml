@@ -111,8 +111,8 @@ jobs:
             APP_VERSION=${{ steps.app_version.outputs.value }}
             NEXT_PUBLIC_APP_URL=${{ inputs.environment == 'production' && 'https://app.traceroot.ai' || 'https://staging.traceroot.ai' }}
             BETTER_AUTH_URL=${{ inputs.environment == 'production' && 'https://app.traceroot.ai' || 'https://staging.traceroot.ai' }}
-            NEXT_PUBLIC_POSTHOG_KEY=${{ inputs.environment == 'production' && secrets.NEXT_PUBLIC_POSTHOG_KEY || '' }}
-            NEXT_PUBLIC_POSTHOG_HOST=${{ inputs.environment == 'production' && secrets.NEXT_PUBLIC_POSTHOG_HOST || '' }}
+            NEXT_PUBLIC_POSTHOG_KEY=${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+            NEXT_PUBLIC_POSTHOG_HOST=${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
