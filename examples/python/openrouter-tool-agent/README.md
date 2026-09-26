@@ -44,8 +44,8 @@ Change the model by passing a different OpenRouter model string to `ReActAgent()
 
 ```python
 agent = ReActAgent(model="openai/gpt-4o-mini")  # default — priced
-agent = ReActAgent(model="anthropic/claude-3-haiku")  # priced
-agent = ReActAgent(model="meta-llama/llama-4-maverick")  # priced
+agent = ReActAgent(model="anthropic/claude-sonnet-4.5")  # priced
+agent = ReActAgent(model="meta-llama/llama-4-maverick")  # unpriced in TraceRoot, shows $0 cost
 
 # Free / unpriced models work but show $0 cost in TraceRoot:
 # agent = ReActAgent(model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")

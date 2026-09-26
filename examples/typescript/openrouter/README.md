@@ -34,8 +34,8 @@ Change the model by passing a different OpenRouter model string to `new ReActAge
 
 ```typescript
 const agent = new ReActAgent("openai/gpt-4o-mini");       // default — priced
-const agent = new ReActAgent("anthropic/claude-3-haiku");   // priced
-const agent = new ReActAgent("meta-llama/llama-4-maverick"); // priced
+const agent = new ReActAgent("anthropic/claude-sonnet-4.5"); // priced
+const agent = new ReActAgent("meta-llama/llama-4-maverick"); // unpriced in TraceRoot, shows $0 cost
 
 // Free / unpriced models work but show $0 cost in TraceRoot:
 // const agent = new ReActAgent("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free");

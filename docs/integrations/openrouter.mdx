@@ -96,7 +96,7 @@ OpenRouter is OpenAI-compatible: use the standard `openai` SDK with the OpenRout
 
 | Attribute  | Description                                                                                                              |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Model      | Any OpenRouter model string, such as `openai/gpt-4o-mini`, `anthropic/claude-3-haiku`, or `meta-llama/llama-4-maverick`  |
+| Model      | Any OpenRouter model string, such as `openai/gpt-4o-mini`, `anthropic/claude-sonnet-4.5`, or `meta-llama/llama-4-maverick` |
 | Messages   | Input messages array                                                                                                     |
 | Response   | Completion content                                                                                                       |
 | Tool calls | Function/tool call inputs and outputs when using the OpenAI SDK tool-calling API                                         |
@@ -106,7 +106,9 @@ OpenRouter is OpenAI-compatible: use the standard `openai` SDK with the OpenRout
 | Latency    | Request duration                                                                                                         |
 
 <Note>
-**Streaming and token counts:** When streaming, pass `stream_options: {"include_usage": true}` (Python) or `stream_options: { include_usage: true }` (TypeScript) so that the final chunk includes token counts. Without this option, streamed calls may report zero tokens.
+**Streaming:** OpenRouter always sends token usage in the last chunk of a stream, so no extra option is needed (`stream_options.include_usage` is deprecated on OpenRouter).
+- **Python:** streamed calls record tokens and cost.
+- **TypeScript:** with `@arizeai/openinference-instrumentation-openai` 4.2.x, streamed chat completions are traced without token counts, so cost shows \$0. Use a non-streaming call if you need cost today; this is fixed in the next instrumentor release.
 </Note>
 
 ## Run the example
