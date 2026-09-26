@@ -96,12 +96,18 @@ OpenRouter is OpenAI-compatible: use the standard `openai` SDK with the OpenRout
 
 | Attribute  | Description                                                                                                              |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Model      | Any OpenRouter model string, such as `openai/gpt-4o-mini`, `anthropic/claude-sonnet-4`, or `meta-llama/llama-4-maverick` |
+| Model      | Any OpenRouter model string, such as `openai/gpt-4o-mini`, `anthropic/claude-3-haiku`, or `meta-llama/llama-4-maverick`  |
 | Messages   | Input messages array                                                                                                     |
 | Response   | Completion content                                                                                                       |
 | Tool calls | Function/tool call inputs and outputs when using the OpenAI SDK tool-calling API                                         |
 | Tokens     | Prompt, completion, and total tokens when returned by the provider                                                       |
+| Cost       | Calculated when the model id returned by OpenRouter matches TraceRoot's pricing table (e.g. `openai/gpt-4o-mini`). Gateway-prefixed ids such as `x-ai/` are tracked in [#2125](https://github.com/traceroot-ai/traceroot/pull/2125). Free or unpriced models show \$0. |
+| Session    | `session_id` and `user_id` when set via `using_attributes` (Python) or `usingAttributes` (TypeScript)                   |
 | Latency    | Request duration                                                                                                         |
+
+<Note>
+**Streaming and token counts:** When streaming, pass `stream_options: {"include_usage": true}` (Python) or `stream_options: { include_usage: true }` (TypeScript) so that the final chunk includes token counts. Without this option, streamed calls may report zero tokens.
+</Note>
 
 ## Run the example
 
