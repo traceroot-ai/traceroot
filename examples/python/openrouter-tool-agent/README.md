@@ -4,10 +4,17 @@ ReAct-style agent with [OpenRouter](https://openrouter.ai/) streaming and tool u
 
 OpenRouter provides a unified API to 200+ models (Claude, Llama, Gemini, Mistral, GPT-4o, etc.). Since it's OpenAI-compatible, TraceRoot's OpenAI integration captures all calls automatically — no extra configuration needed.
 
+## Prerequisites
+
+- Python 3.11+
+- An [OpenRouter API key](https://openrouter.ai/keys)
+- A [TraceRoot API key](https://app.traceroot.ai)
+- `traceroot` ≥ 0.2.0
+
 ## Setup
 
 ```bash
-cp .env.example .env # fill in OPENROUTER_API_KEY and TRACEROOT_API_KEY
+cp .env.example .env  # fill in OPENROUTER_API_KEY and TRACEROOT_API_KEY
 ```
 
 With `uv` (recommended):
@@ -17,6 +24,7 @@ uv run --no-project --python 3.13 --with-requirements requirements.txt python ma
 
 Or with pip:
 ```bash
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
@@ -31,12 +39,16 @@ Tools: `get_weather`, `get_stock_price`, `calculate`, `get_current_time`
 
 ## Model selection
 
+The default model is `openai/gpt-4o-mini` (cheap and priced in TraceRoot).
 Change the model by passing a different OpenRouter model string to `ReActAgent()`:
 
 ```python
-agent = ReActAgent(model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
-agent = ReActAgent(model="anthropic/claude-sonnet-4")
-agent = ReActAgent(model="meta-llama/llama-4-maverick")
+agent = ReActAgent(model="openai/gpt-4o-mini")  # default — priced
+agent = ReActAgent(model="anthropic/claude-3-haiku")  # priced
+agent = ReActAgent(model="meta-llama/llama-4-maverick")  # priced
+
+# Free / unpriced models work but show $0 cost in TraceRoot:
+# agent = ReActAgent(model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
 ```
 
 See [openrouter.ai/models](https://openrouter.ai/models) for the full list.
