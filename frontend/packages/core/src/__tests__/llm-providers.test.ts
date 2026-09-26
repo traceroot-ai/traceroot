@@ -191,7 +191,7 @@ function getTableRows(docPath: URL, heading: string): { provider: string; ids: s
         // skip header and separator
         i++; // skip header row
         // the next might be separator
-        if (lines[i] && lines[i].startsWith("|-")) {
+        if (lines[i] && /^\|[-\s:|]+$/.test(lines[i])) {
           continue;
         } else {
           // fallback if missing
@@ -300,10 +300,13 @@ describe("docs stay in sync with ADAPTER_MODELS (BYOK model catalog)", () => {
 
   it("every free-text adapter is mentioned in the note", () => {
     const content = readFileSync(BYOK_DOC, "utf8");
-    const freeTextAdapters = PROVIDER_PRIORITY.filter((adapter) => !ADAPTER_MODELS[adapter]);
+    const freeTextAdapters = Object.keys(ADAPTER_CONFIG).filter(
+      (adapter) => !ADAPTER_MODELS[adapter],
+    );
 
     // the text is below the table
-    const noteMatch = content.match(/\*\*Note:\*\* (.*)/);
+    const byokSection = content.split("## BYOK model catalog")[1].split("## ")[0];
+    const noteMatch = byokSection.match(/\*\*Note:\*\* (.*)/);
     expect(noteMatch, "Missing **Note:** below BYOK model catalog table").toBeTruthy();
 
     const noteText = noteMatch[1];
