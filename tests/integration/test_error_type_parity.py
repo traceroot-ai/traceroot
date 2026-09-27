@@ -9,7 +9,16 @@ from rest.rate_limit import set_rate_limit_identity
 from rest.routers.dashboards import get_widget_field_values
 from rest.routers.deps import ProjectAccessInfo
 from rest.routers.traces import get_filter_values
-from tests.integration.conftest import DATABASE, Gateway, _insert, _span
+from tests.integration.conftest import (
+    ADMIN_PASSWORD,
+    ADMIN_USER,
+    DATABASE,
+    HOST,
+    PORT,
+    Gateway,
+    _insert,
+    _span,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -18,11 +27,20 @@ PROJECT_PARITY = "proj_parity"
 
 @pytest.mark.asyncio
 async def test_error_type_filter_parity(gateway: Gateway, monkeypatch: pytest.MonkeyPatch):
-    # Patch the settings to connect to the integration test database.
+    # Patch the settings to connect to the integration test database using active test credentials.
     # The autouse _reset_singletons fixture (tests/conftest.py) ensures
     # the client and service singletons are cleared before and after the test,
     # so they will cleanly re-initialize using these patched settings.
+    import db.clickhouse.client as ch_mod
+    import rest.services.trace_discovery as td_mod
+
+    monkeypatch.setattr(shared.config.settings.clickhouse, "host", HOST)
+    monkeypatch.setattr(shared.config.settings.clickhouse, "port", PORT)
     monkeypatch.setattr(shared.config.settings.clickhouse, "database", DATABASE)
+    monkeypatch.setattr(shared.config.settings.clickhouse, "user", ADMIN_USER)
+    monkeypatch.setattr(shared.config.settings.clickhouse, "password", ADMIN_PASSWORD)
+    monkeypatch.setattr(ch_mod, "_client", None)
+    monkeypatch.setattr(td_mod, "_service", None)
 
     start = datetime.now(UTC) - timedelta(days=1)
 
@@ -114,3 +132,5 @@ async def test_error_type_filter_parity(gateway: Gateway, monkeypatch: pytest.Mo
             gateway.admin.command("OPTIMIZE TABLE spans FINAL")
         except Exception:
             pass
+        ch_mod._client = None
+        td_mod._service = None
