@@ -65,6 +65,7 @@
             "pages": [
               "getting-started/introduction",
               "getting-started/quickstart",
+              "getting-started/concepts",
               "developer/self-hosting"
             ]
           },
@@ -135,6 +136,14 @@
               "evals/running-evals",
               "evals/reading-results"
             ]
+          },
+          {
+            "group": "Dashboards",
+            "pages": ["dashboards/get-started"]
+          },
+          {
+            "group": "Alerts",
+            "pages": ["alerts/get-started"]
           },
           {
             "group": "CLI",

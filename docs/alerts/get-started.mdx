@@ -1,0 +1,32 @@
+---
+title: Get started with alerts
+description: Monitor project metrics and notify your team when a threshold is crossed
+---
+
+Threshold alerts monitor an aggregate over a time window, such as latency or error rate, and notify your team when it meets the rule's condition. They are configured from the project's **Alerts** page. Detector findings have a separate [notification workflow](/detectors/alerts).
+
+## Configure notifications
+
+Threshold alerts post to the Slack channel connected to the workspace. Ask a workspace ADMIN to connect Slack and select a destination channel in workspace settings. The Alerts page links to these settings when a connection or channel is missing. Slack availability depends on your plan.
+
+## Create an alert
+
+1. Open **Alerts** in your project's navigation and start a new alert.
+2. Choose a metric and aggregation, then add filters to select the traffic you want to monitor.
+3. Set the comparison, threshold, and lookback window. Inspect the preview to check the rule against recent data.
+4. Choose whether to notify only on transitions or to re-alert at a regular interval while the condition remains breached.
+5. Give the alert a name and click **Create Alert**.
+
+Creating, editing, pausing, and resuming alerts requires MEMBER or ADMIN access. VIEWERs can read alerts. See [workspace roles](/getting-started/concepts#roles).
+
+## Review and maintain alerts
+
+The Alerts list shows each rule's state, severity, and window. Open a rule to edit its metric, filters, condition, or notification settings. Use the actions menu to pause a rule when you want to stop monitoring temporarily, then resume it when needed.
+
+If notifications are missing, check the workspace's Slack connection and selected channel as well as the rule's state. Check the time window and filters if the preview contains no matching data.
+
+## Next steps
+
+- [Build a dashboard](/dashboards/get-started) to inspect the metrics behind a rule.
+- [Set up detectors](/detectors/get-started) to evaluate individual traces with an LLM judge.
+- [Understand project environments](/getting-started/concepts#environments) to target the intended deployment.
