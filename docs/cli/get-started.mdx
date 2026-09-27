@@ -58,6 +58,8 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 | `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
 | `traces get <id>` | Show one trace: header, span tree, duration, and I/O preview. `--json` emits the full trace. |
 | `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index to a directory. Flags: `--output <dir>`, `--force`. |
+| `sql [query]` | Run one read-only query over the project's spans and traces. See [Read-only SQL](/cli/sql). |
+| `sql schema` | List every table and column available to read-only SQL. |
 
 ## What's next
 

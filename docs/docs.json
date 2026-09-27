@@ -139,7 +139,8 @@
           {
             "group": "CLI",
             "pages": [
-              "cli/get-started"
+              "cli/get-started",
+              "cli/sql"
             ]
           }
         ]
