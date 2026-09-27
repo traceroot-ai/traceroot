@@ -12302,6 +12302,36 @@
                         "additionalProperties": false,
                         "properties": {
                           "field": {
+                            "const": "error_type",
+                            "title": "Error type",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "items": {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
                             "const": "status",
                             "title": "Status",
                             "type": "string"
