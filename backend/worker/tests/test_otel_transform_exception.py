@@ -127,3 +127,27 @@ def test_ok_span_ignores_exception():
     assert len(spans) == 1
     assert spans[0]["status"] == "OK"
     assert spans[0]["error_type"] == ""
+
+
+def test_error_span_multiple_exceptions_first_has_no_type():
+    """If the first exception has no type, it scans until it finds one."""
+    span = _span(
+        "failing_tool",
+        status_code=2,  # ERROR
+        events=[
+            {
+                "name": "exception",
+                "attributes": [_str_attr("other.attr", "some_value")],
+            },
+            {
+                "name": "exception",
+                "attributes": [_str_attr("exception.type", "ValueError")],
+            },
+        ],
+    )
+
+    _, spans = transform_otel_to_clickhouse(_payload(span), project_id="proj-1")
+
+    assert len(spans) == 1
+    assert spans[0]["status"] == "ERROR"
+    assert spans[0]["error_type"] == "ValueError"

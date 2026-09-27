@@ -177,6 +177,7 @@ class ClickHouseClient:
                     now,  # ch_update_time
                     s.get("environment"),
                     1 if s.get("is_evaluation") else 0,
+                    s.get("error_type", ""),
                 ]
             )
 
@@ -211,6 +212,7 @@ class ClickHouseClient:
                 "ch_update_time",
                 "environment",
                 "is_evaluation",
+                "error_type",
             ],
         )
 

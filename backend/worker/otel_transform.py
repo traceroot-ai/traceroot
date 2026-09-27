@@ -756,7 +756,7 @@ def transform_otel_to_clickhouse(
                         exception_type = str_or_none(event_attrs.get("exception.type"))
                         if exception_type:
                             error_type = exception_type
-                        break
+                            break
 
                 if not span_is_error:
                     error_type = ""

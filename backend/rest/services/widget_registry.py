@@ -82,7 +82,7 @@ METADATA_MAP_COLUMN = "metadata_map"
 
 _SPANS_BASE = f"""
     SELECT
-        name, span_kind, status, model_name, environment, trace_id,
+        name, span_kind, status, error_type, model_name, environment, trace_id,
         parent_span_id, {_IS_ROOT_EXPR} AS is_root,
         span_start_time AS event_time,
         dateDiff('millisecond', span_start_time, span_end_time) AS duration_ms,
@@ -93,7 +93,7 @@ _SPANS_BASE = f"""
         {KEYED_COLUMN_SLOT}
     FROM (
         SELECT
-            span_id, trace_id, parent_span_id, name, span_kind, status, model_name, environment,
+            span_id, trace_id, parent_span_id, name, span_kind, status, error_type, model_name, environment,
             span_start_time, span_end_time, cost, input_tokens, output_tokens, total_tokens, usage_details
             {KEYED_COLUMN_SLOT}
         FROM spans
