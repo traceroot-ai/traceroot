@@ -30,7 +30,7 @@ from rest.services.sql.schema import (
 
 MIGRATION = (
     Path(__file__).resolve().parents[2]
-    / "backend/db/clickhouse/migrations/012_create_public_sql_views.sql"
+    / "backend/db/clickhouse/migrations/015_recreate_public_sql_views.sql"
 )
 
 # Every contract table paired with the view it rewrites to, for per-view parametrizing.
