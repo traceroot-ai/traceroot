@@ -15,7 +15,7 @@ Project API keys are scoped to one project. Create a key in the project's settin
 
 An environment labels traffic within a project, for example `production` or `staging`. It is a field on trace data, rather than a separate workspace, project, or permission boundary. Use environment filters to focus on one deployment.
 
-The deployment label is carried by the `traceroot.environment` span attribute. The TypeScript SDK reads `TRACEROOT_ENVIRONMENT`; the Python SDK does not read that variable. Consult the [Python](/tracing/python-sdk) or [TypeScript](/tracing/typescript-sdk) reference for your SDK's configuration.
+The deployment label is carried by the `traceroot.environment` span attribute. With the [TypeScript SDK](/tracing/typescript-sdk), set `TRACEROOT_ENVIRONMENT` to label the deployment.
 
 ## Invite a teammate
 
