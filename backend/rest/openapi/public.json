@@ -1143,6 +1143,7 @@
                     "enum": [
                       "name",
                       "span_kind",
+                      "error_type",
                       "model_name",
                       "environment",
                       null
@@ -1186,6 +1187,7 @@
                           "enum": [
                             "name",
                             "span_kind",
+                            "error_type",
                             "status",
                             "model_name",
                             "environment",
@@ -5906,6 +5908,7 @@
                     "enum": [
                       "name",
                       "span_kind",
+                      "error_type",
                       "model_name",
                       "environment",
                       null
@@ -5949,6 +5952,7 @@
                           "enum": [
                             "name",
                             "span_kind",
+                            "error_type",
                             "status",
                             "model_name",
                             "environment",
