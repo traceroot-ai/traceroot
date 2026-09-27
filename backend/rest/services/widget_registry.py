@@ -201,6 +201,7 @@ REGISTRY: dict[str, ViewDef] = {
         fields={
             "name": _string_dim("name", "Span name"),
             "span_kind": _string_dim("span_kind", "Span kind"),
+            "error_type": _string_dim("error_type", "Error type"),
             # Effectively binary (OK / ERROR): useful as a filter, not worth a
             # breakdown dimension.
             "status": FieldDef(

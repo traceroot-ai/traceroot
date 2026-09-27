@@ -796,6 +796,13 @@ def compile_bucketed(spec_dict, bucket_seconds, start=START, end=END):
     )
 
 
+def test_error_type_grouping_uses_projection():
+    """A widget query grouped by error_type must compile successfully and is expected to hit the projection."""
+    spec = make_spec(display={"type": "bar"}, breakdown="error_type")
+    sql, _ = compile_(spec)
+    assert "GROUP BY error_type" in sql
+
+
 def test_explicit_bucket_compiles_to_tostartofinterval():
     """An explicit width replaces the derived hour/day grain, in UTC like the rest."""
     sql, _ = compile_bucketed(make_spec(display={"type": "line"}), 300, end=datetime(2026, 6, 2))
