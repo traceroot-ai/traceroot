@@ -4,7 +4,7 @@ description: Continuous monitoring for your AI agents
 ---
 
 
-A detector is an **LLM-as-a-judge** — an evaluator model that reads each incoming trace and decides whether a specific problem is present. When the judge flags one, the TraceRoot AI agent investigates — pulling in the trace, your production source code, and recent GitHub activity — and the combined alert lands once both steps complete.
+A detector is an **LLM-as-a-judge** — an evaluator model that reads a sampled share of incoming traces that match its trigger conditions and decides whether a specific problem is present. When the judge flags one, the TraceRoot AI agent investigates — pulling in the trace, your production source code, and recent GitHub activity — and the combined alert lands once both steps complete.
 
 
 <Frame>
@@ -15,7 +15,7 @@ A detector is an **LLM-as-a-judge** — an evaluator model that reads each incom
 
 Detection runs in two stages so you pay deep-analysis costs only on real problems:
 
-**Step 1 — LLM-as-a-judge.** Every selected trace is read by an evaluator model. The judge returns a boolean: is the problem you defined present in this trace?
+**Step 1 — LLM-as-a-judge.** An evaluator model reads the sampled traces that match the detector's trigger conditions. The judge returns a boolean: is the problem you defined present in this trace?
 
 **Step 2 — AI agent run.** When the judge flags a trace, the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis with a code location and recommendation.
 
@@ -23,14 +23,18 @@ Each step's model is configurable. For the judge we can choose a cheaper model a
 
 ## Anatomy of a detector
 
-A detector has four parts:
+A detector has six configurable parts:
 
 - **A prompt** — what to look for, in natural language ("does this trace contain a hallucination?").
-- **A target** — which traces it runs on (every trace in the project, by default).
-- **An outcome** — a boolean `identified` — was the problem present in this trace?
+- **An output schema** — the structured result the judge returns, including the boolean `identified` outcome.
+- **Trigger conditions** — which incoming traces are eligible for evaluation.
+- **A sample rate** — what percentage of matching traces to evaluate (25% for a new detector).
+- **A detection model** — the system or BYOK model that evaluates the trace.
 - **An RCA toggle** — whether the AI agent investigates this detector's findings (on by default).
 
 When `identified` is true, the detector emits a **finding**, the AI agent investigates (when RCA is enabled — see below), and the combined alert — finding plus analysis — lands in your inbox.
+
+Sampling is deterministic for each trace and detector. Sending the same trace again does not change whether it is sampled. Set the rate to **100%** to evaluate every matching trace, or to **0%** to pause the detector.
 
 ## Root cause analysis
 
