@@ -64,10 +64,11 @@ PROJECT_CAP = "proj_cap"
 # known on both sides. That is the layout primary-key pruning can act on, which a handful of
 # rows in one granule never is.
 PROJECTS_WIDE = ("wide_a", "wide_b", "wide_c")
-WIDE_TRACES_PER_PROJECT = 20_000
+LITE_SEED = os.environ.get("SQL_GATEWAY_IT_LITE_SEED", "") == "1"
+WIDE_TRACES_PER_PROJECT = 20 if LITE_SEED else 20_000
 
 # The read-only profile caps result rows at this, CONST, in the bootstrap SQL.
-PROFILE_MAX_RESULT_ROWS = 100_000
+PROFILE_MAX_RESULT_ROWS = 100 if LITE_SEED else 100_000
 
 # Timezone-aware on purpose: clickhouse-connect reads a naive datetime as the CLIENT's
 # local time, which moves every boundary row by the runner's UTC offset.
@@ -197,6 +198,8 @@ def _seed(admin: Client) -> Seeded:
         _insert(admin, "spans", span_rows)
         traces[project] = {r["trace_id"] for r in trace_rows}
         spans[project] = {r["span_id"] for r in span_rows}
+        if LITE_SEED:
+            return Seeded(spans=spans, traces=traces)
 
     # Semantics tenant. Each case is inserted separately so versions land in different
     # parts and a merge has something to collapse.
