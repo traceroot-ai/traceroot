@@ -79,6 +79,15 @@ export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
     enum_values: [],
   },
   {
+    field: "error_type",
+    label: "Error type",
+    type: "categorical",
+    level: "SPAN_MEMBERSHIP",
+    operators: ["in"],
+    value_source: "distinct_query",
+    enum_values: [],
+  },
+  {
     field: "status",
     label: "Status",
     type: "categorical",
