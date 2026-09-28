@@ -378,7 +378,9 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
             # late row behind them. ORDER BY create_time DESC processes the newest (most
             # likely still-arriving) candidates first so no row is indefinitely skipped;
             # the recent-window bound keeps the scan on the partial index small. See
-            # migration ``ix_eval_result_cost_backfill``.
+            # migration ``ix_eval_result_cost_backfill``. Migration
+            # 20260927020000_rederive_eval_result_metrics uses the same 7-day cutoff;
+            # change both together.
             cur.execute(
                 "SELECT project_id, trace_id FROM evaluation_results "
                 "WHERE cost_derived_at IS NULL AND trace_id IS NOT NULL "
