@@ -389,7 +389,7 @@ class TestGpt6AstraPublishedPrices:
 
 class TestGpt6SolPublishedPrices:
     """Assert the absolute, provider-published rate directly."""
-    def test_published_rates(self,real_cache):
+    def test_published_rates(self, real_cache):
         assert entry["prices"]["input"] == pytest.approx(2e-06)       # $2 / 1M tokens
         assert entry["prices"]["output"] == pytest.approx(1e-05)      # $10 / 1M tokens
         assert entry["prices"]["cacheRead"] == pytest.approx(2e-07)   # $0.20 / 1M tokens
