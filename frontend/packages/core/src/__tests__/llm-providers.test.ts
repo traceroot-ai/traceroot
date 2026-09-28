@@ -7,6 +7,7 @@ import {
   LLMAdapter,
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
   defaultApiProtocol,
+  isDecisionModelId,
   ADAPTER_CONFIG,
   PROVIDER_PRIORITY,
 } from "../llm-providers.ts";
@@ -250,7 +251,7 @@ describe("docs stay in sync with SYSTEM_MODELS", () => {
       ).toBeDefined();
 
       expect(
-        row.ids,
+        row!.ids,
         `docs/ai-agent/byok.mdx Default Models table is out of sync with SYSTEM_MODELS for ${provider} — update the table`,
       ).toEqual([...expectedIds]);
     },
@@ -264,7 +265,7 @@ describe("docs stay in sync with ADAPTER_MODELS (BYOK model catalog)", () => {
     for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
       if (!models || models.length === 0) continue;
 
-      const label = ADAPTER_CONFIG[adapter].label;
+      const label = ADAPTER_CONFIG[adapter as LLMAdapter].label;
       const row = rows.find((r) => r.provider === label);
 
       expect(
@@ -274,7 +275,7 @@ describe("docs stay in sync with ADAPTER_MODELS (BYOK model catalog)", () => {
 
       const expectedIds = models.map((m) => m.id);
       expect(
-        row.ids,
+        row!.ids,
         `BYOK model catalog for "${label}" is out of sync with ADAPTER_MODELS — update the table`,
       ).toEqual(expectedIds);
     }
@@ -292,11 +293,11 @@ describe("docs stay in sync with ADAPTER_MODELS (BYOK model catalog)", () => {
         `Unknown provider "${row.provider}" in BYOK model catalog table`,
       ).toBeDefined();
 
-      const adapterKey = adapterEntry[0];
+      const adapterKey = adapterEntry![0] as LLMAdapter;
       const codeModels = ADAPTER_MODELS[adapterKey] || [];
-      const codeIds = new Set(codeModels.map((m) => m.id));
+      const codeIds = new Set(codeModels.map((m: any) => m.id));
 
-      for (const docId of row.ids) {
+      for (const docId of row!.ids) {
         expect(
           codeIds.has(docId),
           `Stale ID "${docId}" found in BYOK model catalog table under "${row.provider}" — remove it or add it to ADAPTER_MODELS`,
@@ -320,7 +321,7 @@ describe("docs stay in sync with ADAPTER_MODELS (BYOK model catalog)", () => {
   it("every free-text adapter is mentioned in the note", () => {
     const content = readFileSync(BYOK_DOC, "utf8");
     const freeTextAdapters = Object.keys(ADAPTER_CONFIG).filter(
-      (adapter) => !ADAPTER_MODELS[adapter],
+      (adapter) => !ADAPTER_MODELS[adapter as LLMAdapter],
     );
 
     // the text is below the table
@@ -328,10 +329,10 @@ describe("docs stay in sync with ADAPTER_MODELS (BYOK model catalog)", () => {
     const noteMatch = byokSection.match(/\*\*Note:\*\* (.*)/);
     expect(noteMatch, "Missing **Note:** below BYOK model catalog table").toBeTruthy();
 
-    const noteText = noteMatch[1];
+    const noteText = noteMatch![1];
 
     for (const adapter of freeTextAdapters) {
-      const label = ADAPTER_CONFIG[adapter].label;
+      const label = ADAPTER_CONFIG[adapter as LLMAdapter].label;
       expect(
         noteText.includes(label) || noteText.includes(adapter),
         `Free-text adapter "${label}" (${adapter}) is missing from the BYOK model catalog note`,
