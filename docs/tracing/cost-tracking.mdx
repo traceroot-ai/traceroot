@@ -55,7 +55,7 @@ In the dashboard, costs are visible at both the span and trace level:
 
 ## Manual Token Reporting
 
-For custom or unsupported providers, report token usage manually:
+For custom or unsupported providers, report token usage manually. Pass `model` and `usage` as top-level arguments — not inside `metadata`, which is stored verbatim and never priced. Include the cache buckets when your provider reports them: without them every prompt token is priced at the full input rate, and the cache read/write widgets stay at zero.
 
 <Tabs>
   <Tab title="Python">
@@ -71,6 +71,9 @@ For custom or unsupported providers, report token usage manually:
             usage={
                 "input_tokens": response.input_token_count,
                 "output_tokens": response.output_token_count,
+                # Cache buckets — omit if your provider has no prompt cache
+                "cache_read_tokens": response.cache_read_count,
+                "cache_write_tokens": response.cache_write_count,
             },
         )
 
@@ -85,12 +88,13 @@ For custom or unsupported providers, report token usage manually:
       const response = await myLlm.generate(prompt);
 
       updateCurrentSpan({
-        metadata: {
-          model: 'my-custom-model',
-          usage: {
-            input_tokens: response.inputTokenCount,
-            output_tokens: response.outputTokenCount,
-          },
+        model: 'my-custom-model',
+        usage: {
+          input: response.inputTokenCount,
+          output: response.outputTokenCount,
+          // Cache buckets — omit if your provider has no prompt cache
+          cacheRead: response.cacheReadCount,
+          cacheWrite: response.cacheWriteCount,
         },
       });
 
@@ -99,3 +103,14 @@ For custom or unsupported providers, report token usage manually:
     ```
   </Tab>
 </Tabs>
+
+### Usage fields
+
+| Python key | TypeScript key | Anthropic `usage` field | OpenAI `usage` field |
+|------------|----------------|-------------------------|----------------------|
+| `input_tokens` | `input` | `input_tokens` | `input_tokens` |
+| `output_tokens` | `output` | `output_tokens` | `output_tokens` |
+| `cache_read_tokens` | `cacheRead` | `cache_read_input_tokens` | `input_tokens_details.cached_tokens` |
+| `cache_write_tokens` | `cacheWrite` | `cache_creation_input_tokens` | `input_tokens_details.cache_write_tokens` |
+
+Report the provider's numbers as-is. TraceRoot prices cache reads and writes at the model's cache rates and reconciles the input total, so a call that reads 8,000 cached tokens costs a fraction of one that sends them uncached. OpenAI reports `cache_write_tokens` on GPT-5.6 and later; earlier OpenAI models have no cache-write charge. Python also accepts `cache_write_1h_tokens` for the Anthropic 1-hour cache tier.
