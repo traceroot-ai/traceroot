@@ -32,24 +32,53 @@ export interface SummaryResult {
   scores: ComparisonScore[];
   durationMs: number | null;
   cost: number | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  llmCalls: number | null;
+  llmDurationMs: number | null;
 }
 
 /**
  * The per-case metrics the summary averages, read from columns every result already
- * carries. `duration` is the whole case (task + scorers); `cost` is derived from the
- * candidate task's trace. Both are `lower_is_better`, carried on the response rather than
+ * carries. `duration` is the whole case (task + scorers). The rest are derived from the
+ * candidate task's trace, scorer spans excluded: `cost`, the token counts, `llm_calls`, and
+ * `llm_duration` (time inside the task's model calls, not the whole case). A result whose
+ * task made no LLM call stores NULL for them, so it is left out of those means rather than
+ * averaged in as zero. All are `lower_is_better`, carried on the response rather than
  * assumed, so a client that disagrees can re-read the sign itself.
  */
-const RUN_METRICS = [
+export const RUN_METRICS = [
   { key: "duration", field: "durationMs", unit: "ms" },
   { key: "cost", field: "cost", unit: "$" },
+  { key: "prompt_tokens", field: "promptTokens", unit: "tok" },
+  { key: "completion_tokens", field: "completionTokens", unit: "tok" },
+  { key: "total_tokens", field: "totalTokens", unit: "tok" },
+  { key: "llm_calls", field: "llmCalls", unit: "count" },
+  { key: "llm_duration", field: "llmDurationMs", unit: "ms" },
 ] as const satisfies ReadonlyArray<{
   key: string;
-  field: keyof SummaryResult;
+  field: Exclude<keyof SummaryResult, "scores">;
   unit: MetricUnit;
 }>;
 
 export type RunMetricKey = (typeof RUN_METRICS)[number]["key"];
+export type RunMetricField = (typeof RUN_METRICS)[number]["field"];
+
+/**
+ * Every metric column, as a select for a database aggregate (`_avg` / `_count`). Written
+ * out rather than built from RUN_METRICS so the ORM sees literal keys; `satisfies` fails
+ * the build if it drifts from the list in either direction.
+ */
+export const RUN_METRIC_SELECT = {
+  durationMs: true,
+  cost: true,
+  promptTokens: true,
+  completionTokens: true,
+  totalTokens: true,
+  llmCalls: true,
+  llmDurationMs: true,
+} as const satisfies Record<RunMetricField, true>;
 
 export interface SummaryItem {
   name: string;

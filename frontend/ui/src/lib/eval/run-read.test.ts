@@ -96,7 +96,9 @@ function db(rows: Row[]) {
           for (const r of resultsOf(where)) counts.set(r.status, (counts.get(r.status) ?? 0) + 1);
           return [...counts].map(([status, n]) => ({ status, _count: { _all: n } }));
         },
-        aggregate: async ({ where }: Row) => {
+        // Answers exactly the columns the read selects, AVG and COUNT over non-null rows
+        // as Postgres does, so a metric the read forgets to select comes back undefined.
+        aggregate: async ({ where, _avg, _count }: Row) => {
           const stat = (field: string) => {
             const xs = resultsOf(where)
               .map((r) => r[field])
@@ -106,11 +108,9 @@ function db(rows: Row[]) {
               n: xs.length,
             };
           };
-          const d = stat("durationMs");
-          const c = stat("cost");
           return {
-            _avg: { durationMs: d.avg, cost: c.avg },
-            _count: { durationMs: d.n, cost: c.n },
+            _avg: Object.fromEntries(Object.keys(_avg).map((f) => [f, stat(f).avg])),
+            _count: Object.fromEntries(Object.keys(_count).map((f) => [f, stat(f).n])),
           };
         },
       },
@@ -232,13 +232,53 @@ describe("response shape", () => {
     expect(body).not.toHaveProperty("coverage");
   });
 
-  it("supplies units from the server for the two stored metrics, and leaves scores unitless", async () => {
+  it("supplies units from the server for the stored metrics, and leaves scores unitless", async () => {
     const body = await readBody([run()]);
     for (const s of body.scores) expect(s.unit).toBeNull();
     expect(body.metrics.map((m: Row) => [m.name, m.unit])).toEqual([
       ["duration", "ms"],
       ["cost", "$"],
+      ["prompt_tokens", "tok"],
+      ["completion_tokens", "tok"],
+      ["total_tokens", "tok"],
+      ["llm_calls", "count"],
+      ["llm_duration", "ms"],
     ]);
+  });
+
+  it("reports token, LLM-call and LLM-latency means over the cases that made a model call", async () => {
+    const llm = (promptTokens: number, completionTokens: number, llmCalls: number) => ({
+      ...run().results[0],
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      llmCalls,
+      llmDurationMs: 250 * llmCalls,
+    });
+    const body = await readBody([
+      run({
+        results: [
+          llm(100, 10, 1),
+          llm(500, 50, 3),
+          // No model call: the worker stores NULL, and the case is left out of these means.
+          { ...run().results[0], cost: null },
+        ],
+      }),
+    ]);
+    const m = byName(body.metrics);
+    expect(m.prompt_tokens).toEqual({
+      name: "prompt_tokens",
+      unit: "tok",
+      direction: "lower_is_better",
+      value_type: "numeric",
+      value: 300,
+      observed_count: 2,
+    });
+    expect(m.completion_tokens).toMatchObject({ value: 30, observed_count: 2 });
+    expect(m.total_tokens).toMatchObject({ value: 330, observed_count: 2 });
+    expect(m.llm_calls).toMatchObject({ unit: "count", value: 2, observed_count: 2 });
+    expect(m.llm_duration).toMatchObject({ unit: "ms", value: 500, observed_count: 2 });
+    expect(m.duration).toMatchObject({ value: 100, observed_count: 3 });
   });
 
   it("keeps an unobserved metric null rather than zero", async () => {
