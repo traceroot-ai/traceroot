@@ -1,6 +1,6 @@
 """Static contract tests for the public SQL gateway views migration.
 
-These assert the *text* of migration 012 — they do not run against a live
+These assert the *text* of migration 015 — they do not run against a live
 ClickHouse (the full live security matrix lives in a separate integration suite).
 They guard the curated
 projection, the parameterized + DEFINER + dedup shape, and that no forbidden
@@ -94,7 +94,7 @@ def _view_select(text: str, view: str) -> exp.Select:
         up,
         re.DOTALL,
     )
-    assert match, f"migration 012 does not create {view}"
+    assert match, f"migration 015 does not create {view}"
     tree = sqlglot.parse_one(match.group("body"), read="clickhouse")
     assert isinstance(tree, exp.Select), f"{view} body is not a single SELECT"
     return tree
@@ -112,7 +112,7 @@ def _predicate(text: str) -> exp.Expression:
 
 
 def test_migration_exists(text):
-    assert text.strip(), "migration 012 is empty or missing"
+    assert text.strip(), "migration 015 is empty or missing"
 
 
 def test_both_views_created(text):
