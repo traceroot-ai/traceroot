@@ -62,10 +62,14 @@ Test data: 10 OTLP spans per run — 3× `ValueError`, 2× `TypeError`, 1× ERRO
 - It captures the exception type **at the ingest boundary** — the single place the
   event data still exists. Any fix applied later in the pipeline is impossible by
   construction.
-- It collapses the type to a **low-cardinality value at write time**
-  (`LowCardinality(String)` column), so dashboards never enumerate raw error
-  strings at query time. This follows the repo's own established patterns
-  (migrations 006/008 for additive columns, in-place projection rebuild).
+- It collapses the type to a short class-name string at write time (plain
+  `String` column — `LowCardinality(String)` was tried first, but the SQL
+  Gateway contract check in CI requires `String`, matching `status`; there is
+  no `LowCardinality` anywhere else in the spans table. A reply confirming
+  the change was posted to the review thread), so dashboards never enumerate
+  raw error strings at query time. This follows the repo's own established
+  patterns (migrations 006/008 for additive columns, in-place projection
+  rebuild).
 - It flows through the **standard widget path** — transform → insert client →
   migration → widget registry → filter columns → OpenAPI → regenerated frontend
   snapshot. The dashboard needs zero special-casing: `breakdown: "error_type"` is
@@ -98,7 +102,10 @@ Conclusion: issue reproduced end-to-end against real infrastructure. A widget co
 
 **Migration:** applied cleanly, instant (metadata-only, empty-table instant; production tables get the same property because the column stays out of ORDER BY / PARTITION BY).
 
-**Schema:** `error_type LowCardinality(String) DEFAULT ''`. Projection `spans_no_io_by_start_time` rebuilt in place — `error_type` added to its SELECT, ORDER BY untouched (`project_id, span_start_time, trace_id, span_id`).
+**Schema:** `error_type String DEFAULT ''` (plain `String`, per the SQL Gateway
+contract — see note in §2). Projection `spans_no_io_by_start_time` rebuilt in
+place — `error_type` added to its SELECT, ORDER BY untouched
+(`project_id, span_start_time, trace_id, span_id`).
 
 **Backfill:** the 10 pre-existing rows read back as `''` — no rewrite, no nulls, per spec.
 
@@ -161,7 +168,9 @@ dashboard could already show — the fix adds the breakdown without changing tot
 1. **Empty bucket on historical data.** Pre-013 rows backfill to `''`, so a naive `GROUP BY error_type` widget shows an empty-string bucket for all old errors. Recommend the widget default to `error_type != ''` or the frontend hide empty buckets. Worth one line in the PR description.
 2. **`unknown` bucket semantics.** ERROR spans with no exception event land in `"unknown"` — correct per spec and keeps totals consistent, but on SDKs that don't record exception events this bucket could dominate. Worth monitoring after rollout, not a code change.
 3. **Only the first exception event is kept.** Chained exceptions (`__cause__` recorded as multiple events) lose the root cause. Spec says first-wins; fine, but flag it if a maintainer asks.
-4. **`exception.type` cardinality is SDK-controlled.** Python OTel sends bare class names (`ValueError`); some SDKs send fully-qualified names (`builtins.ValueError`). `LowCardinality(String)` absorbs this, but a normalization step could be proposed as follow-up if dashboards look noisy.
+4. **`exception.type` cardinality is SDK-controlled.** Python OTel sends bare class names (`ValueError`); some SDKs send fully-qualified names (`builtins.ValueError`). the values are short class names (plain `String` column, per the SQL Gateway
+contract), but a normalization step could be proposed as follow-up if
+dashboards look noisy.
 5. **Rollback drops data.** `DROP COLUMN` in the Down migration discards all extracted values — inherent to ClickHouse, acceptable, but call it out in the PR so reviewers know rollback is lossy for this column.
 6. **Not verified here:** full `docker-compose` stack (daemon runs and a ClickHouse
    image was built, but this sandbox's kernel blocks container execution and its
