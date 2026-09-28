@@ -123,7 +123,7 @@ unknown       1
 
 **Real widget path:** rendered the actual `_SPANS_BASE` SQL from `widget_registry.py` (with `customer_traffic_only()` and bound params) + `GROUP BY error_type` — returned the breakdown correctly.
 
-**Projection eligibility:** `EXPLAIN` on the time-window aggregate shows `error_type` queries behave identically to `status` queries (both `Read type: Default` at this 20-row scale — the optimizer correctly skips projections on tiny tables). No regression; `error_type` is carried by the projection so eligibility is preserved by construction.
+**Projection eligibility:** `EXPLAIN` on the time-window aggregate shows `error_type` queries behave identically to `status` queries (both `Read type: Default` at this 20-row scale — the optimizer correctly skips projections on tiny tables). No regression; `error_type` is carried by the projection so eligibility is preserved by construction, and `test_error_type_breakdown_query_is_served_by_the_time_pruned_projection` (in `tests/rest/test_widget_query.py`) now pins it statically: the compiled widget SQL's inner scan + filter columns are a subset of migration 013's projection column list, and the breakdown compiles to `GROUP BY error_type`.
 
 **Rollback:** migration Down applied cleanly — column dropped, projection restored to the 008 definition, breakdown query fails again with `UNKNOWN_IDENTIFIER` (proving the Down is a true inverse). Up re-applied afterwards.
 
@@ -213,8 +213,11 @@ guidance). All findings scoring ≥80 were fixed and re-verified:
   — 013's `ADD COLUMN ... DEFAULT ''` is pinned, and a new test trips if any
   migration ever puts `error_type` in a sort/partition key.
 
-No implementation bugs found by the bug-hunter agent. Full suite:
-**3028 passed, 0 failed** (167 integration skips need live env vars);
+No implementation bugs found by the bug-hunter agent. Full suite on the final
+tree: **3015 passed, 0 regressions** (167 integration skips need live env vars).
+14 failures are pre-existing sandbox-network issues — `tiktoken` cannot download
+its encoding files through the sandbox TLS egress (SSL WRONG_VERSION_NUMBER);
+verified they fail identically on the pristine tree.
 `ruff check` and `ruff format --check` clean. Note: the sandbox's proxy env
 (`no_proxy` containing `[::1]`) breaks httpx client construction in ~550 auth
 tests — unrelated to this change (fails identically on the pristine tree);
