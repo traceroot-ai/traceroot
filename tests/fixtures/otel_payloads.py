@@ -34,6 +34,7 @@ def make_span(
     end_nanos: int = 1705320001000000000,
     attributes: list[dict] | None = None,
     status_code: int | str = 0,
+    events: list[dict] | None = None,
 ) -> dict:
     """Build a single OTEL span dict."""
     span = {
@@ -47,7 +48,31 @@ def make_span(
     }
     if parent_span_id_hex:
         span["parentSpanId"] = encode_id(parent_span_id_hex)
+    if events is not None:
+        span["events"] = events
     return span
+
+
+def make_exception_event(
+    exception_type: str | None = "ValueError",
+    exception_message: str | None = "invalid literal",
+) -> dict:
+    """Build a standard OTel `exception` span event.
+
+    This is the shape every OTel SDK records when an exception is raised:
+    an event named "exception" carrying `exception.type` / `exception.message`
+    attributes.
+    """
+    attributes = []
+    if exception_type is not None:
+        attributes.append(make_attr("exception.type", exception_type))
+    if exception_message is not None:
+        attributes.append(make_attr("exception.message", exception_message))
+    return {
+        "timeUnixNano": "1705320000500000000",
+        "name": "exception",
+        "attributes": attributes,
+    }
 
 
 def make_otel_payload(

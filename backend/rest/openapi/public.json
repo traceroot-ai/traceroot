@@ -1143,6 +1143,7 @@
                     "enum": [
                       "name",
                       "span_kind",
+                      "error_type",
                       "model_name",
                       "environment",
                       null
@@ -1187,6 +1188,7 @@
                             "name",
                             "span_kind",
                             "status",
+                            "error_type",
                             "model_name",
                             "environment",
                             "is_root",
@@ -5906,6 +5908,7 @@
                     "enum": [
                       "name",
                       "span_kind",
+                      "error_type",
                       "model_name",
                       "environment",
                       null
@@ -5950,6 +5953,7 @@
                             "name",
                             "span_kind",
                             "status",
+                            "error_type",
                             "model_name",
                             "environment",
                             "is_root",
@@ -12300,6 +12304,36 @@
                           "field": {
                             "const": "status",
                             "title": "Status",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "items": {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "error_type",
+                            "title": "Error type",
                             "type": "string"
                           },
                           "op": {

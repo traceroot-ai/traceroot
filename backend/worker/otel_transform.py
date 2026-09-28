@@ -520,6 +520,36 @@ def attributes_to_dict(attributes: list[dict]) -> dict[str, Any]:
     return result
 
 
+def _extract_error_type(otel_span: dict[str, Any], span_is_error: bool) -> str:
+    """Extract the exception type from a span's OTel exception events.
+
+    Every OTel SDK records a span `event` named "exception" when an exception
+    is raised, with the exception's class name in `exception.type`. The
+    transform otherwise ignores span events entirely, so this is the only
+    place that survives: collapse it to a single low-cardinality value at
+    write time so the dashboard can break errors down by type without
+    enumerating raw error strings at query time.
+
+    Returns the `exception.type` of the FIRST `exception` event — first event
+    wins even if it carries no usable type, in which case an ERROR span yields
+    "unknown" — "unknown" for an ERROR span with no `exception` event at all
+    (so the error-rate total and the by-type breakdown agree), and "" for
+    non-error spans.
+    """
+    if not span_is_error:
+        return ""
+    for event in otel_span.get("events", []) or []:
+        if not isinstance(event, dict) or event.get("name") != "exception":
+            continue
+        event_attrs = attributes_to_dict(event.get("attributes", []) or [])
+        exc_type = event_attrs.get("exception.type")
+        if isinstance(exc_type, str) and exc_type:
+            return exc_type
+        # Exception event present but no usable type: still an error, bucket it.
+        return "unknown"
+    return "unknown"
+
+
 def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     """Determine the span kind from span attributes.
 
@@ -747,6 +777,12 @@ def transform_otel_to_clickhouse(
                 if span_is_error:
                     span_record["status"] = SpanStatus.ERROR
                     span_record["status_message"] = status.get("message")
+
+                # Issue #2378: collapse the exception type at write time so the
+                # dashboard can break errors down by type without enumerating
+                # raw error strings at query time. ERROR without an exception
+                # event lands in "unknown"; OK spans store empty.
+                span_record["error_type"] = _extract_error_type(otel_span, span_is_error)
 
                 # Extract git source fields for span
                 git_source_file = str_or_none(span_attrs.get("traceroot.git.source_file"))
