@@ -948,6 +948,63 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_dataset",
+    description:
+      "Read one evaluation dataset by id: its name, description, key, and current published version. A dataset with no published version has none, and its cases cannot be read until one exists.",
+    method: "get",
+    path: "/api/v1/public/datasets/{dataset_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dataset_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["dataset_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_dataset_version",
+    description:
+      "Read one immutable dataset version and its test cases (input, expected, metadata, and trace provenance where the case was captured from one). Always pass limit (for example 20) and follow next_cursor until it is null: without limit the whole version comes back in one response, which can be very large.",
+    method: "get",
+    path: "/api/v1/public/dataset-versions/{version_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        version_id: {
+          type: "string",
+        },
+        limit: {
+          maximum: 1000,
+          minimum: 1,
+          type: "integer",
+          description:
+            "Test cases per page. Omit it, with no cursor, to receive the whole version in one response, as an SDK pulling the snapshot it will run does; pass it to page.",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["version_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_detector",
     description:
       "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
@@ -966,6 +1023,28 @@ export const REGISTRY: readonly RegistryEntry[] = [
         },
       },
       required: ["detector_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evaluation_run",
+    description:
+      "Read one evaluation run's summary: its status, result counts, per-scorer scores, and mean cost and duration per case. scored_count, task_error_count and scorer_error_count are null until the run completes. A case is errored or not_scored; passed and failed are older statuses, so passed_count and failed_count are usually 0. Each score and metric carries observed_count, the number of results it was taken over. A numeric score's value is its mean and a boolean score's is its pass rate. A categorical or mixed-type score, or one no result reported, has a null value: it has no mean, and is not a score of 0.",
+    method: "get",
+    path: "/api/v1/public/evaluation-runs/{run_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        run_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["run_id"],
       additionalProperties: false,
     },
   },
@@ -1205,6 +1284,79 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "list_dataset_versions",
+    description:
+      "List a dataset's published versions, newest first, each with its case count and whether it is the current one. Versions are immutable snapshots: editing a dataset's test cases publishes a new version rather than changing an old one, while renaming a dataset or changing its description publishes nothing.",
+    method: "get",
+    path: "/api/v1/public/datasets/{dataset_id}/versions",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dataset_id: {
+          type: "string",
+        },
+        limit: {
+          default: 50,
+          description: "Versions per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["dataset_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_datasets",
+    description:
+      "List the project's evaluation datasets, newest first, with each dataset's current published version. Filter by a case-insensitive substring of the name. Use this for discovery before reading a specific dataset.",
+    method: "get",
+    path: "/api/v1/public/datasets",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Datasets per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        name: {
+          maxLength: 200,
+          minLength: 1,
+          type: "string",
+          description: "Case-insensitive substring of the name",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_detectors",
     description: "List the project's detectors (id, name, template, enabled flag, creation time).",
     method: "get",
@@ -1228,6 +1380,94 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only detectors created before this time (exclusive, ISO 8601)",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_evaluation_runs",
+    description:
+      "List evaluation runs, newest first. Filter by evaluation_id to see one evaluation's runs, or by status to see only runs in that state. Each row is identity and outcome only: which run it is, what was evaluated, the dataset version it pinned, its status, and when it started and finished. A run's counts and per-scorer means come from get_evaluation_run. Use this to find a run id.",
+    method: "get",
+    path: "/api/v1/public/evaluation-runs",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Runs per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        evaluation_id: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Only this evaluation's runs",
+        },
+        status: {
+          enum: [
+            "running",
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "incomplete",
+            "cancelled",
+          ],
+          type: "string",
+          description: "Only runs in this status",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_evaluations",
+    description:
+      "List the project's evaluations, newest first: each one's name, the key an SDK reports it under, the dataset it runs against, how many runs it has, and its latest run. Filter by a case-insensitive substring of the name. An evaluation that has never been run reports a null latest_run. Use this to find an evaluation before listing its runs.",
+    method: "get",
+    path: "/api/v1/public/evaluations",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          default: 50,
+          description: "Evaluations per page",
+          maximum: 200,
+          minimum: 1,
+          type: "integer",
+        },
+        cursor: {
+          maxLength: 64,
+          minLength: 1,
+          type: "string",
+          description: "Opaque cursor from a previous page",
+        },
+        name: {
+          maxLength: 200,
+          minLength: 1,
+          type: "string",
+          description: "Case-insensitive substring of the name",
         },
         project_id: {
           type: "string",

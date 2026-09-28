@@ -3,7 +3,7 @@ title: Google ADK
 description: Auto-instrument Google Agent Development Kit agents, tools, and runners
 ---
 
-Automatically capture agent runs, tool executions, and the multi-turn agent loop within the [Google Agent Development Kit (ADK)](https://github.com/google/adk-python).
+Automatically capture agent runs, tool executions, and the underlying Gemini calls within the [Google Agent Development Kit (ADK)](https://github.com/google/adk-python).
 
 ## Setup
 
@@ -20,13 +20,13 @@ Automatically capture agent runs, tool executions, and the multi-turn agent loop
 
 ## Usage
 
-Once initialized, ADK agent executions, tool calls, and underlying Gemini calls are captured automatically:
+Once initialized, ADK agent runs, tool calls, and Gemini calls are captured automatically:
 
 ```python
 import asyncio
 import traceroot
 from traceroot import Integration
-from google.adk.agents import Agent
+from google.adk import Agent
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
@@ -38,9 +38,10 @@ def get_weather(city: str) -> dict:
     return {"status": "success", "city": city, "temp": 72, "condition": "sunny"}
 
 
+# ADK resolves the Gemini API key from GOOGLE_API_KEY in the environment.
 agent = Agent(
     name="assistant",
-    model="gemini-2.5-flash",
+    model="gemini-3.8-flash",
     description="Helpful assistant with access to tools.",
     instruction="You are a helpful AI assistant. Use tools when needed.",
     tools=[get_weather],
@@ -73,16 +74,50 @@ if __name__ == "__main__":
     traceroot.flush()
 ```
 
+## Usage with the ADK CLI
+
+If you run your agent with `adk run` or `adk web`, initialize TraceRoot at the top of `agent.py`:
+
+```python
+# my_agent/agent.py
+import traceroot
+from traceroot import Integration
+from google.adk import Agent
+
+traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
+
+
+def get_current_time(city: str) -> dict:
+    """Returns the current time in a specified city."""
+    return {"status": "success", "city": city, "time": "10:30 AM"}
+
+
+root_agent = Agent(
+    model="gemini-3.8-flash",
+    name="root_agent",
+    description="Tells the current time in a specified city.",
+    instruction="Use the 'get_current_time' tool to answer.",
+    tools=[get_current_time],
+)
+```
+
+<Note>
+  `adk web` and `adk api_server` install their own OpenTelemetry tracer provider before `agent.py` loads, so `@observe` spans are dropped in these modes; ADK's spans still arrive. Use `adk run` or your own runner to trace `@observe` functions.
+</Note>
+
 ## What Gets Captured
 
 | Attribute | Description |
 |-----------|-------------|
-| Agent runs | Each `runner.run_async()` invocation |
-| Agent steps | Individual turns within the ADK agent loop |
-| Tool calls | Each tool invocation with input arguments and results |
-| LLM calls | Raw Gemini calls made by the ADK runtime |
-| Tokens & Cost | Aggregated token usage and pricing |
+| Runner calls | An `invocation [<app>]` span per runner call |
+| Agent runs | An `agent_run [<agent>]` agent span per agent and sub-agent run |
+| LLM calls | A `call_llm` span per Gemini call with model, request, and response |
+| Tool calls | A tool span per tool call, named after the tool, with input arguments and result |
+| Tokens & Cost | Input, output, and reasoning token counts per LLM call; cost for models in the pricing table, including `gemini-3.8-flash` |
+| Sessions & users | The ADK session id as `session.id` and user id as `user.id` on every span |
 | Latency | Duration per agent run and per span |
+
+Model aliases such as `gemini-flash-latest` are not priced; pin a model id to get cost. In an ADK 2.x `Workflow`, only `Agent` nodes are captured today; function nodes are not yet traced.
 
 
 ## Run the example
