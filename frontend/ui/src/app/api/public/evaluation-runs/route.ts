@@ -26,6 +26,78 @@ function isUniqueViolation(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
 }
 
+/** A run's stored dataset coverage — all null together when the SDK declared none. */
+type StoredCoverage = {
+  datasetCaseCount: number | null;
+  selectionMode: string | null;
+  selectedCaseCount: number | null;
+  sampleSeed: number | null;
+};
+
+/** The stored row as Prisma reads it: `sample_seed` is BIGINT and comes back a `bigint`. */
+type StoredCoverageRow = Omit<StoredCoverage, "sampleSeed"> & { sampleSeed: bigint | null };
+
+function fromRow(row: StoredCoverageRow): StoredCoverage {
+  // The contract bounds a seed to a safe integer, so the conversion is exact.
+  return { ...row, sampleSeed: row.sampleSeed === null ? null : Number(row.sampleSeed) };
+}
+
+/**
+ * Flatten a request's coverage block into the stored column shape. The contract
+ * guarantees `dataset_case_count` and `run_selection` arrive together or not at all,
+ * so this is all-null or all-populated (bar `sample_seed`, which only a sample carries).
+ */
+function coverageColumns(req: RegisterRunRequest): StoredCoverage {
+  const selection = req.run_selection ?? null;
+  return {
+    datasetCaseCount: req.dataset_case_count ?? null,
+    selectionMode: selection?.mode ?? null,
+    selectedCaseCount: selection?.selected_case_count ?? null,
+    sampleSeed: selection?.sample_seed ?? null,
+  };
+}
+
+/**
+ * Human-readable coverage, for the one message a caller ever sees about it.
+ * Mirrors how the UI reads a run's coverage, so the two never describe it differently.
+ */
+function describeCoverage(c: StoredCoverage): string {
+  if (c.selectionMode === null) return "coverage unknown";
+  const of = `${c.selectedCaseCount} of ${c.datasetCaseCount} cases`;
+  if (c.selectionMode === "full") return `full dataset (${c.datasetCaseCount} cases)`;
+  const seed = c.sampleSeed != null ? `, seed ${c.sampleSeed}` : "";
+  return `${c.selectionMode} ${of}${seed}`;
+}
+
+/**
+ * Coverage is the run's IMMUTABLE selection identity, so a replay may not quietly
+ * redefine it. The idempotent branch below is a lookup-and-echo — every other field on
+ * a replay is silently discarded — and for most fields that is merely lossy. For
+ * coverage it would be a lie: the caller would be handed a run id for a run that
+ * measured a different slice of the dataset than the one it just described, and per the
+ * write-only public surface it cannot read the run back to notice.
+ *
+ * Only a request that ACTUALLY DECLARES coverage can conflict. A request that omits the
+ * block asserts nothing, so an older SDK (or any SDK that does not send it) replays
+ * exactly as it always has and is never rejected by this check.
+ */
+function coverageConflict(req: RegisterRunRequest, row: StoredCoverageRow): string | null {
+  const incoming = coverageColumns(req);
+  const stored = fromRow(row);
+  if (incoming.selectionMode === null) return null;
+  const same =
+    incoming.datasetCaseCount === stored.datasetCaseCount &&
+    incoming.selectionMode === stored.selectionMode &&
+    incoming.selectedCaseCount === stored.selectedCaseCount &&
+    incoming.sampleSeed === stored.sampleSeed;
+  if (same) return null;
+  return (
+    `client_run_id already registered a run with different dataset coverage ` +
+    `(stored: ${describeCoverage(stored)}; requested: ${describeCoverage(incoming)}). ` +
+    `Coverage is immutable — use a new client_run_id for a differently-scoped run.`
+  );
+}
+
 /**
  * Resolve the lineage, apply the client_run_id short-circuit, allocate run_number and
  * insert the run. Every read-then-write in here is backed by a unique index, so losing
@@ -104,9 +176,19 @@ async function registerRun(
           clientRunId: req.client_run_id,
         },
       },
-      select: { id: true, runNumber: true, datasetVersionId: true },
+      select: {
+        id: true,
+        runNumber: true,
+        datasetVersionId: true,
+        datasetCaseCount: true,
+        selectionMode: true,
+        selectedCaseCount: true,
+        sampleSeed: true,
+      },
     });
     if (existing) {
+      const conflict = coverageConflict(req, existing);
+      if (conflict) return { httpError: { message: conflict, status: 409 } };
       return {
         response: {
           evaluation_id: evaluation.id,
@@ -119,8 +201,17 @@ async function registerRun(
     }
   }
 
+  // Precedence matters. `case_count` stays first so an SDK that sends it keeps its
+  // existing meaning verbatim. `selected_case_count` comes next because it is the count
+  // the run actually set out to measure — without it a `--first 20` run against a
+  // 500-case version stores 500 and every per-case average reads 25x low. Counting the
+  // version is the last resort, and is only right for a run that covers all of it.
+  // The contract already refuses a `case_count` that contradicts the selection, so these
+  // first two can never disagree.
   const caseCount =
-    req.case_count ?? (await tx.testCase.count({ where: { datasetVersionId: versionId } }));
+    req.case_count ??
+    req.run_selection?.selected_case_count ??
+    (await tx.testCase.count({ where: { datasetVersionId: versionId } }));
   // max + 1 is not serialised by READ COMMITTED, so two concurrent registrations can
   // read the same N. uq_run_evaluation_run_number rejects the second insert rather
   // than letting two runs share a number, and the replay re-reads the new max.
@@ -143,6 +234,10 @@ async function registerRun(
       status: "running",
       baselineRunId: req.baseline_run_id ?? null,
       caseCount,
+      // The run's immutable selection identity, written once here. Completion never
+      // touches it, so a later `case_count` cannot retroactively redefine what this run
+      // set out to measure. All null when the SDK declared nothing → coverage unknown.
+      ...coverageColumns(req),
       // The full scorer manifest — identity ({name, version}), config
       // (value_type/direction/threshold) and the read-only DEFINITION
       // (scorer_type, prompt/source) — rides along in this JSON column when the

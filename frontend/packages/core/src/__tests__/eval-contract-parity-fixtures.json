@@ -300,6 +300,20 @@
             "selected_case_count": 0
           }
         }
+      },
+      {
+        "name": "coverage_sample_seed_beyond_int32",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "sample",
+            "selected_case_count": 20,
+            "sample_seed": 1726000000000
+          }
+        }
       }
     ],
     "invalid": [

@@ -501,3 +501,147 @@ describe("scorer manifest", () => {
     expect(db.rows.evaluationRun[0].scorers).toEqual(scorers);
   });
 });
+
+describe("dataset coverage", () => {
+  const coverage = (mode: string, selected: number, extra: Record<string, unknown> = {}) => ({
+    dataset_case_count: 500,
+    run_selection: { mode, selected_case_count: selected, ...extra },
+  });
+  const stored = () => {
+    const r = db.rows.evaluationRun[0];
+    return {
+      datasetCaseCount: r.datasetCaseCount,
+      selectionMode: r.selectionMode,
+      selectedCaseCount: r.selectedCaseCount,
+      sampleSeed: r.sampleSeed,
+      caseCount: r.caseCount,
+    };
+  };
+
+  it("persists a full-dataset run", async () => {
+    expect((await POST(post(body(coverage("full", 500))))).status).toBe(201);
+    expect(stored()).toEqual({
+      datasetCaseCount: 500,
+      selectionMode: "full",
+      selectedCaseCount: 500,
+      sampleSeed: null,
+      caseCount: 500,
+    });
+  });
+
+  it("persists a first-N subset and stores the SELECTED count as case_count", async () => {
+    // The denominator every per-case average divides by. Counting the pinned version
+    // instead would store 500 here and render a 20-case run's cost 25x too low.
+    expect((await POST(post(body(coverage("first", 20))))).status).toBe(201);
+    expect(stored()).toEqual({
+      datasetCaseCount: 500,
+      selectionMode: "first",
+      selectedCaseCount: 20,
+      sampleSeed: null,
+      caseCount: 20,
+    });
+  });
+
+  it("persists a seeded sample, and a seedless one", async () => {
+    await POST(post(body(coverage("sample", 20, { sample_seed: 7 }))));
+    expect(stored().sampleSeed).toBe(7);
+    db.rows.evaluationRun.length = 0;
+    await POST(post(body({ ...coverage("sample", 20), client_run_id: "c2" })));
+    expect(stored().sampleSeed).toBeNull();
+  });
+
+  it("leaves every coverage column null for an SDK that declares nothing", async () => {
+    // The legacy shape, and the only honest reading of it: coverage UNKNOWN. Never
+    // relabelled "full" — the two test cases on dv1 say nothing about what ran.
+    expect((await POST(post(body()))).status).toBe(201);
+    expect(stored()).toEqual({
+      datasetCaseCount: null,
+      selectionMode: null,
+      selectedCaseCount: null,
+      sampleSeed: null,
+      caseCount: 2, // unchanged: still the pinned version's size
+    });
+  });
+
+  it("keeps an explicit case_count ahead of the selected count", async () => {
+    await POST(post(body({ ...coverage("first", 20), case_count: 20 })));
+    expect(stored().caseCount).toBe(20);
+  });
+
+  it("rejects a half-declared coverage block at the schema", async () => {
+    const res = await POST(
+      post(body({ run_selection: { mode: "first", selected_case_count: 20 } })),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("run_selection requires dataset_case_count");
+    expect(db.rows.evaluationRun).toHaveLength(0);
+  });
+
+  describe("immutability on replay", () => {
+    it("replays identical coverage as the same run", async () => {
+      const first = await POST(post(body({ ...coverage("first", 20), client_run_id: "ci-42" })));
+      const retry = await POST(post(body({ ...coverage("first", 20), client_run_id: "ci-42" })));
+      expect(retry.status).toBe(201);
+      expect((await retry.json()).evaluation_run_id).toBe((await first.json()).evaluation_run_id);
+      expect(db.rows.evaluationRun).toHaveLength(1);
+    });
+
+    it("refuses a replay that redefines the selection, rather than echoing the old run", async () => {
+      // The damaging shape: a CI job id reused for a differently-scoped run. The replay
+      // branch discards every other field silently, and the caller cannot read the run
+      // back to notice — so a conflicting selection must be reported, not swallowed.
+      await POST(post(body({ ...coverage("first", 20), client_run_id: "ci-42" })));
+      const res = await POST(post(body({ ...coverage("first", 50), client_run_id: "ci-42" })));
+      expect(res.status).toBe(409);
+      const { error } = await res.json();
+      expect(error).toContain("different dataset coverage");
+      expect(error).toContain("first 20 of 500 cases");
+      expect(error).toContain("first 50 of 500 cases");
+      // The stored run is untouched.
+      expect(db.rows.evaluationRun).toHaveLength(1);
+      expect(stored().selectedCaseCount).toBe(20);
+    });
+
+    it("treats a differing seed and a differing mode as conflicts too", async () => {
+      await POST(post(body({ ...coverage("sample", 20, { sample_seed: 7 }), client_run_id: "c" })));
+      const seed = await POST(
+        post(body({ ...coverage("sample", 20, { sample_seed: 8 }), client_run_id: "c" })),
+      );
+      expect(seed.status).toBe(409);
+      const mode = await POST(post(body({ ...coverage("first", 20), client_run_id: "c" })));
+      expect(mode.status).toBe(409);
+    });
+
+    it("replays a seed beyond 32 bits as the same run, though it is stored as BIGINT", async () => {
+      // A millisecond timestamp is a common seed. It used to overflow the INTEGER column
+      // and 500; and once stored as BIGINT, Prisma reads it back as a bigint, which must
+      // still compare equal to the number a retry sends.
+      const seeded = {
+        ...coverage("sample", 20, { sample_seed: 1726000000000 }),
+        client_run_id: "s",
+      };
+      expect((await POST(post(body(seeded)))).status).toBe(201);
+      db.rows.evaluationRun[0].sampleSeed = BigInt(db.rows.evaluationRun[0].sampleSeed);
+      const retry = await POST(post(body(seeded)));
+      expect(retry.status).toBe(201);
+      expect(db.rows.evaluationRun).toHaveLength(1);
+    });
+
+    it("never rejects a replay from an SDK that declares no coverage", async () => {
+      // An older SDK asserts nothing about coverage, so it has nothing to contradict —
+      // whatever is stored. This is what keeps the guard from breaking existing callers.
+      await POST(post(body({ ...coverage("first", 20), client_run_id: "ci-42" })));
+      const res = await POST(post(body({ client_run_id: "ci-42" })));
+      expect(res.status).toBe(201);
+      expect(db.rows.evaluationRun).toHaveLength(1);
+      expect(stored().selectedCaseCount).toBe(20);
+    });
+
+    it("reports a legacy run's unknown coverage when a newer SDK replays over it", async () => {
+      await POST(post(body({ client_run_id: "ci-42" })));
+      const res = await POST(post(body({ ...coverage("first", 20), client_run_id: "ci-42" })));
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain("stored: coverage unknown");
+    });
+  });
+});
