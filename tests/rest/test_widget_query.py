@@ -903,7 +903,8 @@ def _widget_inner_scan_columns() -> set[str]:
     """Physical columns the widget's inner spans scan touches.
 
     The inner SELECT of _SPANS_BASE plus the WHERE-clause columns
-    (project_id, the time bounds, and source via customer_traffic_only()).
+    (project_id, the time bounds, and source via customer_traffic_only())
+    and ch_update_time (ORDER BY for the LIMIT 1 BY dedup).
     """
     from rest.services.widget_registry import _SPANS_BASE
 
@@ -915,7 +916,7 @@ def _widget_inner_scan_columns() -> set[str]:
         token = item.strip().split()[-1].strip('`"')
         if token and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token):
             cols.add(token)
-    cols.update({"project_id", "span_start_time", "source"})
+    cols.update({"project_id", "span_start_time", "source", "ch_update_time"})
     return cols
 
 
