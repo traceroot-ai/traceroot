@@ -175,7 +175,7 @@
     "provider": "openai",
     "prices": {
       "input": 0.000002,
-      "output": 0.000010,
+      "output": 0.00001,
       "cacheRead": 0.0000002,
       "cacheWrite": 0.0000025
     }
