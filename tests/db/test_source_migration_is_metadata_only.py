@@ -162,10 +162,10 @@ def test_error_type_migration_adds_defaulted_column():
 
     add = re.search(
         r"ALTER TABLE spans\s+ADD COLUMN IF NOT EXISTS error_type"
-        r"\s+LowCardinality\(String\)\s+DEFAULT ''",
+        r"\s+String\s+DEFAULT ''",
         up,
     )
-    assert add, "Up must ADD COLUMN error_type LowCardinality(String) DEFAULT '' to spans"
+    assert add, "Up must ADD COLUMN error_type String DEFAULT '' to spans"
 
     drop = re.search(r"ALTER TABLE spans\s+DROP COLUMN IF EXISTS error_type", down)
     assert drop, "Down must DROP COLUMN error_type from spans"

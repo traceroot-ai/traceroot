@@ -6,8 +6,10 @@
 -- DEFAULT '' backfills existing rows with no table rewrite: error_type is
 -- outside both the ORDER BY sort key and the PARTITION key on spans (and
 -- outside the spans projection's ORDER BY), so this ADD COLUMN is
--- metadata-only. LowCardinality keeps the low-distinct-value column cheap.
-ALTER TABLE spans ADD COLUMN IF NOT EXISTS error_type LowCardinality(String) DEFAULT '';
+-- metadata-only. Plain String matches the spans table convention (status is
+-- String, not LowCardinality) and the SQL Gateway contract, which declares
+-- error_type as String.
+ALTER TABLE spans ADD COLUMN IF NOT EXISTS error_type String DEFAULT '';
 
 -- Rebuild the no-I/O projection in place to carry `error_type`, mirroring
 -- 008's treatment of `source`: a projection can only serve a query whose
