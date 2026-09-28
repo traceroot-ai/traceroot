@@ -231,6 +231,48 @@ it("shows null comparison fields for a run with no baseline", async () => {
   expect(prismaMock.evaluationResult.findMany).not.toHaveBeenCalled();
 });
 
+it("keeps a seeded sample's BIGINT seed off the row, so the list stays serializable", async () => {
+  // sample_seed is BIGINT, so Prisma hands back a bigint. Spread into the row as-is, it
+  // would make the whole list throw on JSON serialization.
+  prismaMock.evaluationRun.findMany.mockResolvedValueOnce([
+    {
+      id: "run_sample",
+      projectId: "p1",
+      evaluationId: "e1",
+      datasetId: "ds1",
+      datasetVersionId: "dv1",
+      runNumber: 4,
+      candidateVersion: "sonnet",
+      status: "completed",
+      baselineRunId: null,
+      caseCount: 20,
+      datasetCaseCount: 500,
+      selectionMode: "sample",
+      selectedCaseCount: 20,
+      sampleSeed: BigInt(1726000000000),
+      taskErrorCount: 0,
+      scorerErrorCount: 0,
+      scorers: [],
+      startedAt: new Date("2026-07-21T00:00:00Z"),
+      completedAt: new Date("2026-07-21T00:00:05Z"),
+      evaluation: { name: "ticket-routing" },
+      datasetVersion: {
+        label: "v1",
+        createTime: new Date("2026-07-16T00:00:00Z"),
+        versionNumber: 1,
+      },
+    },
+  ]);
+  prismaMock.evaluationRun.count.mockResolvedValue(1);
+  prismaMock.evaluationResult.findMany.mockResolvedValue([]);
+
+  const res = await GET(nextUrl() as never, params);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { data: Record<string, unknown>[] };
+  expect(body.data[0].id).toBe("run_sample");
+  expect(body.data[0]).not.toHaveProperty("sampleSeed");
+});
+
 it("derives per-status counts for a listed run", async () => {
   const run = {
     id: "run_c",
