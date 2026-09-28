@@ -85,11 +85,16 @@
   git clone https://github.com/traceroot-ai/traceroot.git
   cd traceroot
 
+  cp .env.example .env
+  # .env에서 SQL_GATEWAY_BOOTSTRAP_PASSWORD의 주석을 해제하고
+  # 고유하고 강력한 비밀 값으로 바꾸세요.
+
   # 전체 서비스를 Docker로 실행
   make prod
   ```
 
-- [Terraform (AWS)](./deploy/): Helm과 Terraform으로 Kubernetes 환경에 TraceRoot를 배포합니다. 프로덕션 호스팅용이며, 현재는 experimental 단계입니다.
+- [Helm 차트](https://github.com/traceroot-ai/traceroot-k8s): 기존 PostgreSQL, ClickHouse, Redis 및 S3 호환 서비스를 사용하여 Kubernetes에 TraceRoot를 배포합니다.
+- [Terraform (AWS)](https://github.com/traceroot-ai/traceroot-terraform-aws): AWS 인프라를 프로비저닝하고 TraceRoot Helm 차트를 설치합니다.
 
 ## 통합
 

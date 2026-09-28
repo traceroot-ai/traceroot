@@ -7,7 +7,7 @@ description: Run TraceRoot on your own infrastructure
   Prefer a managed solution? [TraceRoot Cloud](https://app.traceroot.ai) is maintained by the TraceRoot team — no setup required.
 </Note>
 
-TraceRoot is open source and supports self-hosting. Run it on your own infrastructure for full control over your data and deployment. Some features require an enterprise license key.
+TraceRoot is open source and supports self-hosting. Run it on your own infrastructure for full control over your data and deployment.
 
 ## Deployment Options
 
@@ -40,6 +40,9 @@ Runs the entire stack in containers using Docker Compose — no need to install 
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
+cp .env.example .env
+# In .env, uncomment SQL_GATEWAY_BOOTSTRAP_PASSWORD and replace its value
+# with a unique, strong secret before starting the stack.
 make prod
 ```
 
@@ -50,8 +53,7 @@ See the [README](https://github.com/traceroot-ai/traceroot/blob/main/README.md) 
 
 Best for: production workloads on AWS.
 
-Deploy TraceRoot on Kubernetes using Helm charts and Terraform. Configuration lives in the [`deploy`](https://github.com/traceroot-ai/traceroot/tree/main/deploy) directory.
+Choose the deployment repository that matches the infrastructure you already have:
 
-<Warning>
-  Terraform deployment is currently experimental. We recommend testing thoroughly before production use.
-</Warning>
+- [TraceRoot Helm chart](https://github.com/traceroot-ai/traceroot-k8s) deploys the application to Kubernetes and connects it to PostgreSQL, ClickHouse, Redis, and S3-compatible storage that you provide.
+- [TraceRoot Terraform module for AWS](https://github.com/traceroot-ai/traceroot-terraform-aws) provisions the AWS infrastructure and installs the Helm chart for you.
