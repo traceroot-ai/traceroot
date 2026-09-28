@@ -673,7 +673,10 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "name": "get_evaluation_run",
         "description": (
             "Read one evaluation run's summary: its status, result counts, per-scorer "
-            "scores, and mean cost and duration per case. scored_count, task_error_count "
+            "scores, and per-case means of duration, cost, prompt/completion/total "
+            "tokens, LLM calls and LLM latency. The LLM metrics cover the task under "
+            "test, not its scorers, and leave out cases that made no model call. "
+            "scored_count, task_error_count "
             "and scorer_error_count are null until the run completes. A case is errored "
             "or not_scored; passed and failed are older statuses, so passed_count and "
             "failed_count are usually 0. Each score and metric carries "
