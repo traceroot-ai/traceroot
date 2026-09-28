@@ -150,7 +150,7 @@ async def list_trace_filter_values(
     The values-discovery companion to the typed ``filters`` parameter on the
     trace list: the filterable field catalog lives in the generated schema,
     while a field's current values are dynamic per project. Only fields the
-    registry marks as distinct-query (model_name, environment) are listable;
+    registry marks as distinct-query (model_name, environment, error_type) are listable;
     the field is resolved through the registry before it reaches SQL, so it can
     never be a raw client-supplied column name.
 
