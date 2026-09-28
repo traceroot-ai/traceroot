@@ -1,7 +1,9 @@
 -- +goose Up
 
--- Rebuild the spans no-I/O projection to carry `error_type`, so error_type-filtered
--- reads can use it without falling back to the base table.
+-- Rebuild the spans no-I/O projection to carry `error_type`, so widget breakdown
+-- queries on error_type can use it without falling back to the base table. Reads of
+-- `metadata_map` or `is_evaluation` (which the public SQL views make) still fall back
+-- to the base table: the projection has never carried them (see migrations 009, 012).
 
 ALTER TABLE spans DROP PROJECTION IF EXISTS spans_no_io_by_start_time;
 
