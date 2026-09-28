@@ -62,8 +62,9 @@ Test data: 10 OTLP spans per run — 3× `ValueError`, 2× `TypeError`, 1× ERRO
 - It captures the exception type **at the ingest boundary** — the single place the
   event data still exists. Any fix applied later in the pipeline is impossible by
   construction.
-- It collapses the type to a short class-name string at write time (plain
-  `String` column — `LowCardinality(String)` was tried first, but the SQL
+- It records the SDK-provided exception type verbatim at write time (plain
+  `String` column, stored unnormalized — e.g. `builtins.ValueError` stays
+  fully qualified. `LowCardinality(String)` was tried first, but the SQL
   Gateway contract check in CI requires `String`, matching `status`; there is
   no `LowCardinality` anywhere else in the spans table. A reply confirming
   the change was posted to the review thread), so dashboards never enumerate
@@ -168,9 +169,11 @@ dashboard could already show — the fix adds the breakdown without changing tot
 1. **Empty bucket on historical data.** Pre-013 rows backfill to `''`, so a naive `GROUP BY error_type` widget shows an empty-string bucket for all old errors. Recommend the widget default to `error_type != ''` or the frontend hide empty buckets. Worth one line in the PR description.
 2. **`unknown` bucket semantics.** ERROR spans with no exception event land in `"unknown"` — correct per spec and keeps totals consistent, but on SDKs that don't record exception events this bucket could dominate. Worth monitoring after rollout, not a code change.
 3. **Only the first exception event is kept.** Chained exceptions (`__cause__` recorded as multiple events) lose the root cause. Spec says first-wins; fine, but flag it if a maintainer asks.
-4. **`exception.type` cardinality is SDK-controlled.** Python OTel sends bare class names (`ValueError`); some SDKs send fully-qualified names (`builtins.ValueError`). the values are short class names (plain `String` column, per the SQL Gateway
-contract), but a normalization step could be proposed as follow-up if
-dashboards look noisy.
+4. **`exception.type` is stored verbatim — SDK-provided and unnormalized.**
+   Python OTel sends bare class names (`ValueError`); some SDKs send
+   fully-qualified names (`builtins.ValueError`), and `_extract_error_type`
+   preserves whatever the SDK sent. A normalization step (e.g. stripping the
+   module prefix) could be proposed as follow-up if dashboards look noisy.
 5. **Rollback drops data.** `DROP COLUMN` in the Down migration discards all extracted values — inherent to ClickHouse, acceptable, but call it out in the PR so reviewers know rollback is lossy for this column.
 6. **Not verified here:** full `docker-compose` stack (daemon runs and a ClickHouse
    image was built, but this sandbox's kernel blocks container execution and its
