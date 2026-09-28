@@ -870,3 +870,74 @@ def test_additive_timeseries_metric_coalesces_fill_rows_to_zero():
     # Not a timeseries: no fill rows exist, so there is nothing to coalesce.
     sql, _ = compile_(make_spec(metric={"measure": "cost", "agg": "sum"}, display={"type": "bar"}))
     assert "ifNull(sum(cost), 0)" not in sql
+
+
+def _projection_columns_013() -> set[str]:
+    """Columns carried by spans_no_io_by_start_time as rebuilt in migration 013."""
+    from pathlib import Path
+
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "backend"
+        / "db"
+        / "clickhouse"
+        / "migrations"
+        / "013_add_error_type_column.sql"
+    )
+    up = path.read_text().split("-- +goose Down")[0]
+    m = re.search(
+        r"ADD PROJECTION spans_no_io_by_start_time\s*\(\s*SELECT(.*?)ORDER BY",
+        up,
+        re.DOTALL | re.IGNORECASE,
+    )
+    assert m, "013 must rebuild spans_no_io_by_start_time"
+    cols = set()
+    for item in m.group(1).split(","):
+        token = item.strip().split()[-1].strip('`"')
+        if token and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token):
+            cols.add(token)
+    return cols
+
+
+def _widget_inner_scan_columns() -> set[str]:
+    """Physical columns the widget's inner spans scan touches.
+
+    The inner SELECT of _SPANS_BASE plus the WHERE-clause columns
+    (project_id, the time bounds, and source via customer_traffic_only()).
+    """
+    from rest.services.widget_registry import _SPANS_BASE
+
+    inner = _SPANS_BASE.split("FROM (", 1)[1]
+    select_list = inner.split("FROM spans", 1)[0]
+    select_list = re.sub(r"--.*", "", select_list)  # keyed-column slot comment
+    cols = set()
+    for item in select_list.split(","):
+        token = item.strip().split()[-1].strip('`"')
+        if token and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token):
+            cols.add(token)
+    cols.update({"project_id", "span_start_time", "source"})
+    return cols
+
+
+def test_error_type_breakdown_query_is_served_by_the_time_pruned_projection():
+    """Issue #2378 acceptance: the error_type breakdown must be servable from
+    spans_no_io_by_start_time.
+
+    ClickHouse only considers a projection when every column the query
+    touches is carried by it. Migration 013 rebuilds the projection to carry
+    error_type; this pins that the compiled widget SQL references nothing
+    outside the projection's column list, so the breakdown cannot silently
+    fall back to a full base-table scan.
+    """
+    projection_cols = _projection_columns_013()
+    assert "error_type" in projection_cols
+    scan_cols = _widget_inner_scan_columns()
+    assert "error_type" in scan_cols
+    missing = scan_cols - projection_cols
+    assert not missing, (
+        "widget query touches columns the time-pruned projection lacks, "
+        f"so the error_type breakdown would miss the projection: {sorted(missing)}"
+    )
+
+    sql, _ = compile_(make_spec(breakdown="error_type", display={"type": "bar"}))
+    assert "GROUP BY error_type" in sql
