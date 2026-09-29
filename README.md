@@ -7,7 +7,7 @@
 
 [TraceRoot](https://traceroot.ai/) turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
 
-**[Try Cloud](https://app.traceroot.ai) · [Quickstart](#quickstart) · [CLI](#built-for-coding-agents) · [Self-host](#self-host) · [Docs](https://traceroot.ai/docs)**
+**[Try Cloud](https://app.traceroot.ai) · [Getting Started](#getting-started) · [CLI](#cli-quickstart) · [Self-Hosting](#self-hosting) · [Docs](https://traceroot.ai/docs)**
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -25,9 +25,7 @@
   <a href="./README.ko.md"><img alt="한국어 README" src="https://img.shields.io/badge/한국어-f8f8f8"></a>
 </p>
 
-## From production signals to better agents
-
-Understand what your agent did, find opportunities to improve it, and test the next version with real context.
+## Features
 
 <p align="center">
   <a href="https://traceroot.ai/docs/detectors/get-started">
@@ -36,55 +34,7 @@ Understand what your agent did, find opportunities to improve it, and test the n
 </p>
 <p align="center"><em>Detectors surface findings from production traces so you can decide what to improve next.</em></p>
 
-## Star TraceRoot
-
-If you like what we’re building, give TraceRoot a star to help more developers discover it.
-
-<p align="center">
-  <a href="https://github.com/traceroot-ai/traceroot">
-    <img src="docs/images/github-star-demo.gif" alt="How to star the TraceRoot repository on GitHub" width="100%">
-  </a>
-</p>
-
-## How it works
-
-1. **Find improvement opportunities.** Capture agent runs and configure detectors to flag behaviors you care about, such as missed tasks or incorrect tool use.
-2. **Bring context into development.** Use the CLI to give your coding agent access to traces and findings alongside your code.
-3. **Evaluate the next version.** Build representative datasets, run your agent with the Python or TypeScript SDK, and compare results using code scorers or LLM judges.
-
-You decide what to change and ship. TraceRoot provides the production context and evaluation tools for the loop.
-
-## Built for coding agents
-
-Give Claude Code, Codex, Pi, or another coding agent a terminal interface to your production context. The CLI supports readable output for you and JSON for tools.
-
-Requires Node.js 20.3 or later and a TraceRoot project with traces. New here? Start with [TraceRoot Cloud](#traceroot-cloud).
-
-```bash
-npm install -g traceroot-cli
-traceroot login
-traceroot projects list
-```
-
-Copy a project ID from the list, then inspect its recent activity:
-
-```bash
-traceroot traces list --project <project-id> --limit 10
-traceroot findings list --project <project-id> --since 24h
-traceroot traces get <trace-id> --project <project-id> --fields full --json
-```
-
-For example, ask your coding agent:
-
-> Use the TraceRoot CLI to inspect recent findings and the related traces. Explain one improvement opportunity, identify the relevant code, and propose an eval case to test the change.
-
-The CLI also includes [skills and instrumentation helpers](https://github.com/traceroot-ai/traceroot-cli#readme). Run `traceroot skills list` to explore them. An empty findings list simply means there are no matching findings yet; [create a detector](https://traceroot.ai/docs/detectors/get-started) to start evaluating incoming traces.
-
-**[CLI source and command reference →](https://github.com/traceroot-ai/traceroot-cli)**
-
-## Core features
-
-| Capability | What you can do |
+| Feature | Description |
 | ---------- | --------------- |
 | [Tracing](https://traceroot.ai/docs/tracing/get-started) | Capture LLM calls, tool use, and agent steps with OpenTelemetry-compatible Python and TypeScript SDKs. Inspect inputs, outputs, latency, tokens, and cost. |
 | [Detectors](https://traceroot.ai/docs/detectors/get-started) | Define behaviors to look for in production traces, configure sampling and judge models, and review findings. |
@@ -94,41 +44,98 @@ The CLI also includes [skills and instrumentation helpers](https://github.com/tr
 | Dashboards & alerts | Track quality, latency, and cost, and configure threshold alerts. |
 | In-app AI assistant | Explore traces with an agent that can access your source code and GitHub context. Use a hosted model or bring your own key. |
 
-## Quickstart
+## Star TraceRoot
+
+If you like what we’re building, give TraceRoot a star ⭐ to help more developers discover it.
+
+<p align="center">
+  <a href="https://github.com/traceroot-ai/traceroot">
+    <img src="docs/images/github-star-demo.gif" alt="How to star the TraceRoot repository on GitHub" width="100%">
+  </a>
+</p>
+
+## Getting Started
 
 ### TraceRoot Cloud
 
-[Create an account](https://app.traceroot.ai), create a project, and generate a project API key. With Python 3.11 or later, install the SDK and set your keys:
+[Sign up for TraceRoot Cloud](https://app.traceroot.ai), create a project, and generate a project API key. You can add tracing with the SDK below or use the [CLI to help your coding agent onboard your existing project](#cli-quickstart).
+
+### TypeScript SDK Quickstart
+
+**1. Install the SDK** in your TypeScript project:
+
+```sh
+npm install @traceroot-ai/traceroot openai
+```
+
+**2. Set your API keys:**
 
 ```bash
-pip install traceroot openai
 export TRACEROOT_API_KEY="your-project-api-key"
 export TRACEROOT_HOST_URL="https://app.traceroot.ai"
 export OPENAI_API_KEY="your-openai-api-key"
 ```
 
-Save this as `example.py`:
+**3. Trace an agent call.** Save this as `example.ts`:
 
-```python
-import traceroot
-from traceroot import Integration
-from openai import OpenAI
+```typescript
+import OpenAI from 'openai';
+import { TraceRoot, observe } from '@traceroot-ai/traceroot';
 
-traceroot.initialize(integrations=[Integration.OPENAI])
-client = OpenAI()
+TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+const openai = new OpenAI();
 
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[{"role": "user", "content": "Say hello!"}],
-)
-print(response.choices[0].message.content)
+const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: query }],
+  });
+  return response.choices[0].message.content;
+});
+
+async function main() {
+  try {
+    await myAgent("What's the weather in SF?");
+  } finally {
+    await TraceRoot.shutdown();
+  }
+}
+
+main().catch(console.error);
 ```
 
-Run `python example.py`, then open your project's **Traces** page to see the call, tokens, latency, and cost. This example makes one OpenAI API call.
+**4. Run it** with `npx tsx example.ts`, then open your project's **Traces** page to inspect the agent run. This example makes one OpenAI API call.
 
-**Try more examples:** [Python](examples/python) · [TypeScript](examples/typescript) · [Agent evaluations](examples/python/agent-eval). Each example has its own setup instructions. See the [tracing quickstart](https://traceroot.ai/docs/tracing/get-started) for SDK setup in either language.
+**More examples:** [TypeScript](examples/typescript) · [Python](examples/python) · [Agent evaluations](examples/typescript/agent-eval). Each example includes setup instructions.
 
-### Self-host
+### CLI Quickstart
+
+The CLI works with coding agents such as Claude Code, Codex, and Pi. Use it to help onboard an existing project, then inspect production traces and findings from your terminal. Requires Node.js 20.3 or later.
+
+```bash
+npm install -g traceroot-cli
+traceroot login
+traceroot projects list
+```
+
+From your agent application's repository, generate onboarding instructions:
+
+```bash
+traceroot instrument --print
+```
+
+Give the generated prompt to your coding agent to help it add TraceRoot instrumentation. This command generates instructions; it does not change your application automatically.
+
+Once your application sends traces, use a project ID from `traceroot projects list`:
+
+```bash
+traceroot traces list --project <project-id> --limit 10
+traceroot findings list --project <project-id> --since 24h
+```
+
+See the [CLI README](https://github.com/traceroot-ai/traceroot-cli#readme) for skills, full trace exports, authentication options, and the command reference.
+
+### Self-Hosting
 
 Requires Git, Make, and Docker with Compose v2 running. This command builds the app and starts the local Docker stack:
 
