@@ -2259,8 +2259,12 @@ class TestErrorType:
         assert self._transform(span)["error_type"] == "unknown"
 
     def test_error_span_with_event_lacking_type_is_unknown(self):
+        # The last exception event decides; an earlier typed one does not stand in.
         span = make_span(self.TRACE, self.SPAN, status_code=2)
-        span["events"] = [make_exception_event(exception_type=None)]
+        span["events"] = [
+            make_exception_event("RetryableError", time_nanos=1),
+            make_exception_event(exception_type=None, time_nanos=2),
+        ]
         assert self._transform(span)["error_type"] == "unknown"
 
     def test_ok_span_ignores_exception_event(self):

@@ -199,3 +199,5 @@ def test_registry_columns_exist_in_gateway_public_tables():
         - _PENDING_GATEWAY_FIELDS
     )
     assert not missing, f"registry columns absent from Gateway curated schema: {missing}"
+    stale = _PENDING_GATEWAY_FIELDS & gateway_cols
+    assert not stale, f"gateway now exposes {stale}; drop them from _PENDING_GATEWAY_FIELDS"
