@@ -1,15 +1,14 @@
-"""Project writes for the ``traceroot setup`` wizard.
+"""The first-key write for the ``traceroot setup`` wizard.
 
-Two writes the onboarding wizard cannot work without: create a project, and mint
-that project its first API key. Both run under a **user** credential, because
-both happen before any project key exists — a project key knows exactly one
-project, so asking it to create a project or to mint that project's first key is
-circular.
+One write the onboarding wizard cannot work without: minting a project its first
+API key. It runs under a **user** credential, because it happens before any
+project key exists — a project key knows exactly one project, so asking it to
+mint that project's first key is circular.
 
-Deliberately just these two. This is not a general write API, and it should not
+Deliberately just this one. This is not a general write API, and it should not
 grow into one: everything else a user writes has a browser surface that already
-owns it. These two exist only because onboarding has no project and no key yet,
-so nothing else can.
+owns it. This exists only because onboarding has no key yet, so nothing else can
+produce one.
 
 Project creation is deliberately absent: the public write surface already serves
 ``POST /api/v1/public/projects``, and the setup wizard always resolves a workspace
