@@ -52,14 +52,6 @@ If you like what we’re building, give TraceRoot a star to help more developers
 2. **Bring context into development.** Use the CLI to give your coding agent access to traces and findings alongside your code.
 3. **Evaluate the next version.** Build representative datasets, run your agent with the Python or TypeScript SDK, and compare results using code scorers or LLM judges.
 
-```mermaid
-flowchart LR
-    A[Production traces] --> B[Detector findings]
-    B --> C[Coding agent + CLI]
-    C --> D[Dataset + eval comparison]
-    D -->|Ship the next version| A
-```
-
 You decide what to change and ship. TraceRoot provides the production context and evaluation tools for the loop.
 
 ## Built for coding agents
@@ -104,63 +96,37 @@ The CLI also includes [skills and instrumentation helpers](https://github.com/tr
 
 ## Quickstart
 
-### Try an eval locally
-
-No TraceRoot account or model API key needed for this deterministic example. Use Python 3.11 or later in a virtual environment:
-
-```bash
-pip install "traceroot>=0.2.0"
-```
-
-Save this as `eval_example.py`:
-
-```python
-from traceroot import Dataset, evaluate
-
-cases = Dataset("Capitals QA", key="capitals-qa")
-cases.add({"country": "France"}, expected="Paris")
-cases.add({"country": "Japan"}, expected="Tokyo")
-
-
-def task(input):
-    return {"France": "Paris", "Japan": "Tokyo"}.get(input["country"], "")
-
-
-def matches_expected(input, output, expected=None):
-    return output == expected
-
-
-result = evaluate(
-    name="capitals",
-    dataset=cases,
-    task=task,
-    scorers=[matches_expected],
-    candidate_version="capitals-v1",
-    local=True,
-)
-print(result.summary())
-```
-
-```bash
-python eval_example.py
-```
-
-Both cases should score as correct. Change one answer and run again to see the score change. This example runs locally and does not upload results.
-
-**Next:** [Report runs to TraceRoot and compare versions](https://traceroot.ai/docs/evals/get-started), or try a complete tool-using agent in [Python](examples/python/agent-eval) or [TypeScript](examples/typescript/agent-eval). Those agent examples require model API keys.
-
 ### TraceRoot Cloud
 
-1. [Create an account](https://app.traceroot.ai), create a project, and generate a project API key.
-2. Set your credentials in the environment where your agent runs:
+[Create an account](https://app.traceroot.ai), create a project, and generate a project API key. With Python 3.11 or later, install the SDK and set your keys:
 
-   ```bash
-   export TRACEROOT_API_KEY="your-project-api-key"
-   export TRACEROOT_HOST_URL="https://app.traceroot.ai"
-   ```
+```bash
+pip install traceroot openai
+export TRACEROOT_API_KEY="your-project-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"
+export OPENAI_API_KEY="your-openai-api-key"
+```
 
-3. Follow the [Python or TypeScript tracing quickstart](https://traceroot.ai/docs/tracing/get-started), or use an [integration](#integrations) for your framework. Model calls also require your provider's API key.
-4. Run your agent and open the project's **Traces** page to inspect the run. Then [create your first detector](https://traceroot.ai/docs/detectors/get-started).
+Save this as `example.py`:
+
+```python
+import traceroot
+from traceroot import Integration
+from openai import OpenAI
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+client = OpenAI()
+
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Say hello!"}],
+)
+print(response.choices[0].message.content)
+```
+
+Run `python example.py`, then open your project's **Traces** page to see the call, tokens, latency, and cost. This example makes one OpenAI API call.
+
+**Try more examples:** [Python](examples/python) · [TypeScript](examples/typescript) · [Agent evaluations](examples/python/agent-eval). Each example has its own setup instructions. See the [tracing quickstart](https://traceroot.ai/docs/tracing/get-started) for SDK setup in either language.
 
 ### Self-host
 
