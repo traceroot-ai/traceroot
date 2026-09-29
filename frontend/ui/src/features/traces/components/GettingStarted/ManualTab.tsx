@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading-state";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 import { CodeBlock } from "./CodeBlock";
@@ -55,7 +56,7 @@ interface ManualTabProps {
 }
 
 export function ManualTab({ projectId }: ManualTabProps) {
-  const { data: project } = useProject(projectId);
+  const { data: project, isLoading: projectLoading } = useProject(projectId);
   const workspaceId = project?.workspace_id ?? "";
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("openai");
   const [lang, setLang] = useState<Lang>("python");
@@ -145,7 +146,11 @@ export function ManualTab({ projectId }: ManualTabProps) {
 
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">5. External integrations</p>
-        <ExternalIntegrations workspaceId={workspaceId} />
+        {projectLoading ? (
+          <LoadingState label="Loading integrations..." />
+        ) : (
+          <ExternalIntegrations workspaceId={workspaceId} />
+        )}
       </div>
     </div>
   );
