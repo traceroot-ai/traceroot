@@ -99,3 +99,43 @@ For custom or unsupported providers, report token usage manually:
     ```
   </Tab>
 </Tabs>
+
+### Usage fields
+
+The usage dict accepts these fields. Only `input_tokens` or `output_tokens` is required.
+
+| Field | Description |
+| --- | --- |
+| `input_tokens` | Input tokens for the call. |
+| `output_tokens` | Output tokens for the call. |
+| `cache_read_tokens` | Input tokens read from the prompt cache. |
+| `cache_write_tokens` | Input tokens written to the prompt cache. |
+| `cache_write_1h_tokens` | The part of `cache_write_tokens` written with a 1-hour TTL. |
+| `reasoning_tokens` | The part of `output_tokens` used for reasoning. |
+| `input_is_net` | Set to `true` when `input_tokens` does not include the cache tokens. |
+
+### Reporting cached tokens
+
+Providers count cached tokens in two different ways, and TraceRoot needs to know which one your numbers use:
+
+- **Gross:** `input_tokens` already includes the cache tokens. OpenAI (`prompt_tokens`) and Gemini (`promptTokenCount`) report this way. This is the default.
+- **Net:** `input_tokens` counts only the tokens that were not cached. Anthropic and Amazon Bedrock Converse report this way.
+
+If you copy the usage from a provider that reports net input, set `input_is_net` so the uncached tokens are priced:
+
+```python
+update_current_span(
+    model="claude-sonnet-4-6",
+    usage={
+        "input_tokens": response.usage.input_tokens,
+        "output_tokens": response.usage.output_tokens,
+        "cache_read_tokens": response.usage.cache_read_input_tokens,
+        "cache_write_tokens": response.usage.cache_creation_input_tokens,
+        "input_is_net": True,
+    },
+)
+```
+
+If you set span attributes yourself instead of using the SDK, set `traceroot.llm.usage.input_is_net` to `true` on the span.
+
+Without the flag, TraceRoot treats the input as net only when the cache tokens exceed `input_tokens`, because that cannot happen with a gross count.
