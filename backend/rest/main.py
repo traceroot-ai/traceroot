@@ -40,6 +40,7 @@ from rest.routers.public.dashboards_read import router as public_dashboards_read
 from rest.routers.public.detectors_read import router as public_detectors_read_router
 from rest.routers.public.eval import router as public_eval_router
 from rest.routers.public.project_write import router as public_project_write_router
+from rest.routers.public.projects import router as public_projects_router
 from rest.routers.public.sessions_read import router as public_sessions_read_router
 from rest.routers.public.sql import SqlBodyLimitMiddleware
 from rest.routers.public.sql import router as public_sql_router
@@ -130,6 +131,7 @@ app.include_router(public_traces_router, prefix="/api/v1")
 
 # Public read API for API-key clients (e.g. the CLI)
 app.include_router(public_whoami_router, prefix="/api/v1")
+app.include_router(public_projects_router, prefix="/api/v1")
 app.include_router(public_traces_read_router, prefix="/api/v1")
 app.include_router(public_sessions_read_router, prefix="/api/v1")
 app.include_router(public_sql_router, prefix="/api/v1")
