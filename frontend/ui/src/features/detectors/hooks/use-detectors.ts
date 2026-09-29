@@ -86,7 +86,12 @@ async function createDetector(projectId: string, input: CreateDetectorInput): Pr
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to create detector: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      body.error ?? body.detail ?? body.message ?? `Failed to create detector: ${res.status}`,
+    );
+  }
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
 }
