@@ -2283,6 +2283,11 @@ class TestErrorType:
         ]
         assert self._transform(span)["error_type"] == "TimeoutError"
 
+    def test_oversized_type_is_truncated(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [make_exception_event("E" * 1500)]
+        assert self._transform(span)["error_type"] == "E" * 1024
+
     def test_non_exception_events_are_skipped(self):
         span = make_span(self.TRACE, self.SPAN, status_code=2)
         span["events"] = [
