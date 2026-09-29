@@ -25,15 +25,6 @@
   <a href="./README.ko.md"><img alt="한국어 README" src="https://img.shields.io/badge/한국어-f8f8f8"></a>
 </p>
 
-## CLI Quickstart
-
-Use the [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) with your coding agent.
-
-```bash
-npm install -g traceroot-cli
-traceroot login
-```
-
 ## Features
 
 <p align="center">
@@ -52,6 +43,24 @@ traceroot login
 | [CLI](https://github.com/traceroot-ai/traceroot-cli) | Read and export traces, inspect detectors and findings, and bring that context into your coding workflow. |
 | Dashboards & alerts | Track quality, latency, and cost, and configure threshold alerts. |
 | In-app AI assistant | Explore traces with an agent that can access your source code and GitHub context. Use a hosted model or bring your own key. |
+
+## Why TraceRoot?
+
+- **Traces alone don't scale.**
+
+  As AI agent systems grow more complex, manually sifting through every trace is unsustainable. TraceRoot's Detectors selectively screen incoming traces — flagging hallucinations, tool failures, logic errors, and safety issues automatically, so you spend time fixing problems, not hunting for them.
+
+- **Debugging AI agent systems in production is painful.**
+
+  Root-causing failures across agent hallucinations, tool call instabilities, and version changes is hard. TraceRoot's AI connects to a sandbox running your production source code, identifies the exact failing line, cross-references your GitHub history — commits, PRs, open issues — and opens a PR to fix it.
+
+- **Agent improvement should be systematic, not ad hoc.**
+
+  Most teams debug production issues and move on — the learning evaporates. TraceRoot connects online and offline evaluation in a single loop: Detectors evaluate live traffic, confirmed failures become golden datasets, and offline evals verify every fix against them. Release over release, your agent gets measurably more robust and performant — improvement becomes a repeatable process, not a one-off firefight.
+
+- **Fully open source, no vendor lock-in.**
+
+  Both the observability platform and the AI debugging layer are open source. BYOK support for any model provider — OpenAI, Anthropic, Gemini, xAI, DeepSeek, OpenRouter, Kimi, GLM and more.
 
 ## Star TraceRoot
 
@@ -83,6 +92,15 @@ make prod-lite
 Open [localhost:3000](http://localhost:3000). Review `.env` for your deployment; the local defaults are for local testing. See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for details.
 
 Want to develop TraceRoot itself? Follow [CONTRIBUTING.md](CONTRIBUTING.md) for the development environment.
+
+## CLI Quickstart
+
+Use the [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) with your coding agent.
+
+```bash
+npm install -g traceroot-cli
+traceroot login
+```
 
 ## Integrations
 
