@@ -44,7 +44,7 @@ function evalSpan(
     span_end_time: "1970-01-01T00:00:00.000Z",
     status: "OK" as SpanStatus,
     status_message: null,
-    error_type: "",
+    error_type: partial.status === "ERROR" ? "unknown" : "",
     model_name: null,
     cost: null,
     input_tokens: null,
@@ -97,7 +97,6 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
       output: result.candidateOutput,
       status: rootStatus,
       status_message: result.taskError ?? null,
-      error_type: rootStatus === "ERROR" ? "unknown" : "",
       metadata: JSON.stringify({
         evaluation: run.evaluationName,
         candidate_version: run.candidateVersion,
@@ -118,7 +117,6 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
       cost: result.cost,
       status: rootStatus,
       status_message: result.taskError ?? null,
-      error_type: rootStatus === "ERROR" ? "unknown" : "",
       metadata: JSON.stringify({ step: "task" }),
     }),
   ];
@@ -138,7 +136,6 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
         output: s.error ?? scoreValue(s),
         status: (s.error ? "ERROR" : "OK") as SpanStatus,
         status_message: s.error ?? null,
-        error_type: s.error ? "unknown" : "",
         metadata: JSON.stringify({ scorer: s.scorerName, version: s.scorerVersion }),
       }),
     );
