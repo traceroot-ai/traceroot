@@ -51,6 +51,48 @@ async function expireCheckoutSession(stripe: Stripe, sessionId: string) {
   }
 }
 
+/**
+ * Reduce this workspace to one open checkout session, and report which one survived.
+ *
+ * Idempotency keys deduplicate identical requests, but two requests asking for
+ * different plans are not identical, so the preflight cannot stop both from reaching
+ * create(). The tie is settled afterwards instead: the oldest session wins, because
+ * every caller sees the same ordering and so agrees on the same winner without having
+ * to coordinate. The session id breaks a tie on identical timestamps.
+ */
+async function settleToOneOpenSession(
+  stripe: Stripe,
+  customerId: string,
+  workspaceId: string,
+  justCreated: { id: string; created?: number },
+  alreadyExpired: ReadonlySet<string>,
+) {
+  const open: Array<{ id: string; created: number }> = [];
+  for await (const session of stripe.checkout.sessions.list({
+    customer: customerId,
+    status: "open",
+    limit: 100,
+  })) {
+    if (session.metadata?.workspaceId !== workspaceId) continue;
+    // Stripe's list is eventually consistent, so a session this request expired a
+    // moment ago can still be listed as open. Standing down in its favour would
+    // leave the workspace with no usable checkout at all.
+    if (alreadyExpired.has(session.id)) continue;
+    open.push({ id: session.id, created: session.created ?? 0 });
+  }
+  // The session this request just created may not be listed yet.
+  if (!open.some((session) => session.id === justCreated.id)) {
+    open.push({ id: justCreated.id, created: justCreated.created ?? 0 });
+  }
+
+  open.sort((a, b) => a.created - b.created || a.id.localeCompare(b.id));
+  const [winner, ...losers] = open;
+  for (const loser of losers) {
+    await expireCheckoutSession(stripe, loser.id);
+  }
+  return winner.id;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await auth.api.getSession({ headers: await headers() });
@@ -215,6 +257,25 @@ export async function POST(req: NextRequest) {
         idempotencyKey: `workspace-checkout-${workspaceId}-${plan}-${idempotencyWindow}${expiredDigest}`,
       },
     );
+
+    // A concurrent request for a *different* plan carries a different idempotency
+    // key, so it can have created its own session in the meantime. Settle on one.
+    const survivor = await settleToOneOpenSession(
+      stripe,
+      customerId,
+      workspaceId,
+      checkoutSession,
+      new Set(expiredSessionIds),
+    );
+    if (survivor !== checkoutSession.id) {
+      return NextResponse.json(
+        {
+          error:
+            "Another checkout for this workspace was started first. Reload the billing page and try again.",
+        },
+        { status: 409 },
+      );
+    }
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (error) {

@@ -95,7 +95,11 @@ beforeEach(() => {
 
   getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "a@example.com" } });
   subscriptionsListMock.mockReturnValue([]);
-  checkoutCreateMock.mockResolvedValue({ url: "https://checkout.stripe.test/session" });
+  checkoutCreateMock.mockResolvedValue({
+    id: "cs_new",
+    created: 1_000,
+    url: "https://checkout.stripe.test/session",
+  });
   checkoutListMock.mockReturnValue([]);
   checkoutExpireMock.mockResolvedValue({});
   workspaceUpdateManyMock.mockResolvedValue({ count: 1 });
@@ -309,6 +313,37 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     expect(first.idempotencyKey).toMatch(/^workspace-checkout-ws-1-pro-/);
     expect(second.idempotencyKey).toBe(first.idempotencyKey);
     expect(params).toMatchObject({ metadata: { workspaceId: "ws-1", plan: "pro" } });
+  });
+
+  it("stands down when a checkout for another plan was created first", async () => {
+    // Two admins pick different plans in the same moment. Their idempotency keys differ,
+    // so both reach create(); the older session wins and the newer one is expired rather
+    // than handing back a URL that would open a second subscription.
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutListMock.mockReturnValueOnce([]).mockReturnValueOnce([
+      { ...openSession("cs_rival", "starter"), created: 500 },
+      { ...openSession("cs_new", "pro"), created: 1_000 },
+    ]);
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
+    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_new");
+    expect(checkoutExpireMock).not.toHaveBeenCalledWith("cs_rival");
+  });
+
+  it("keeps its own session and expires a later rival for another plan", async () => {
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutListMock.mockReturnValueOnce([]).mockReturnValueOnce([
+      { ...openSession("cs_new", "pro"), created: 1_000 },
+      { ...openSession("cs_rival", "starter"), created: 1_500 },
+    ]);
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/session" });
+    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_rival");
   });
 
   it("opens checkout for a workspace that has never been a Stripe customer", async () => {
