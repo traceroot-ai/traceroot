@@ -2147,6 +2147,98 @@ class TestEnvironmentAttributeTypeGuard:
         assert "environment" not in spans[0]
 
 
+class TestPiExtensionCacheWrite:
+    """traceroot-pi-extension (src/handlers/llm.ts:131-136) reports the write bucket
+    as ``gen_ai.usage.cache_write_input_tokens`` and the read bucket as
+    ``gen_ai.usage.cache_read_input_tokens``. Before the write spelling was
+    accepted, every Pi span stored cache_write_tokens=0 while reads landed.
+
+    Numbers are taken verbatim from a captured local Pi run on gpt-5.6-luna
+    (OpenAI GPT-5.6 writes the new suffix on every call and reads the prior
+    prefix on the next). Pi reports input NET of cache, so the tiny uncached
+    remainder floors to 0 under the buckets rule; that is documented behaviour,
+    not what these tests pin.
+    """
+
+    SCOPE = "@traceroot-ai/pi-extension"
+    PRICES: ClassVar[dict[str, float]] = {
+        "input": 0.00000125,
+        "output": 0.00001,
+        "cacheRead": 0.000000125,
+        "cacheWrite": 0.0000015625,
+    }
+
+    def _pi_span(self, *, input_tokens, output_tokens, cache_read, cache_write):
+        attrs = [
+            make_attr("openinference.span.kind", "LLM"),
+            make_attr("gen_ai.system", "openai"),
+            make_attr("gen_ai.request.model", "gpt-5.6-luna"),
+            make_attr("gen_ai.usage.input_tokens", input_tokens),
+            make_attr("gen_ai.usage.output_tokens", output_tokens),
+            make_attr("gen_ai.usage.cache_read_input_tokens", cache_read),
+            make_attr("gen_ai.usage.cache_write_input_tokens", cache_write),
+        ]
+        return make_span("aa" * 16, "bb" * 8, name="openai/gpt-5.6-luna", attributes=attrs)
+
+    def _transform(self, span):
+        from unittest.mock import patch
+
+        payload = make_otel_payload([span], scope_name=self.SCOPE)
+        with patch("worker.tokens.pricing.get_model_price", return_value=self.PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        return spans[0]
+
+    def test_first_call_write_is_stored_not_zeroed(self):
+        # Call 1 of the capture: nothing to read yet, the whole prefix is written.
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=224, cache_read=0, cache_write=3326)
+        )
+        assert s["usage_details"]["cache_read_tokens"] == 0
+        assert s["usage_details"]["cache_write_tokens"] == 3326
+        assert s["input_tokens"] == 3326  # gross = uncached(0, floored) + read + write
+        assert s["output_tokens"] == 224
+        expected = 3326 * self.PRICES["cacheWrite"] + 224 * self.PRICES["output"]
+        assert s["cost"] == pytest.approx(expected)
+
+    def test_steady_state_read_and_write_both_stored(self):
+        # Call 3 of the capture. Its read (3581) is call 2's whole prompt and its
+        # write (834) is call 3's new suffix; call 4 then read 4415 = 3581 + 834.
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=27, cache_read=3581, cache_write=834)
+        )
+        assert s["usage_details"]["cache_read_tokens"] == 3581
+        assert s["usage_details"]["cache_write_tokens"] == 834
+        assert s["input_tokens"] == 4415
+        expected = (
+            3581 * self.PRICES["cacheRead"]
+            + 834 * self.PRICES["cacheWrite"]
+            + 27 * self.PRICES["output"]
+        )
+        assert s["cost"] == pytest.approx(expected)
+
+    def test_explicit_zero_write_is_stored_as_zero(self):
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=20, cache_read=7952, cache_write=0)
+        )
+        assert s["usage_details"]["cache_write_tokens"] == 0
+        assert s["usage_details"]["cache_read_tokens"] == 7952
+
+    def test_malformed_write_value_does_not_crash_or_shadow_read(self):
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=20, cache_read=7952, cache_write="n/a")
+        )
+        assert s["usage_details"]["cache_write_tokens"] == 0
+        assert s["usage_details"]["cache_read_tokens"] == 7952
+
+    def test_cache_creation_spelling_still_wins_when_both_present(self):
+        # Documents priority: the semconv/pi.js "cache_creation" spelling is listed
+        # before the extension's "cache_write" spelling. No emitter sends both today.
+        span = self._pi_span(input_tokens=3, output_tokens=20, cache_read=0, cache_write=999)
+        span["attributes"].append(make_attr("gen_ai.usage.cache_creation_input_tokens", 555))
+        s = self._transform(span)
+        assert s["usage_details"]["cache_write_tokens"] == 555
+
+
 class TestErrorTypeExtraction:
     """Issue #2378: the OTel `exception` event's `exception.type` must survive
     ingest as `error_type` so dashboard widgets can break errors down by type."""

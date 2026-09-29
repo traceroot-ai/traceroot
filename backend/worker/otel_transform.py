@@ -916,6 +916,12 @@ def transform_otel_to_clickhouse(
                             "llm.token_count.prompt_details.cache_creation",
                             "gen_ai.usage.cache_creation.input_tokens",
                             "gen_ai.usage.cache_creation_input_tokens",
+                            # traceroot-pi-extension (src/handlers/llm.ts) spells the
+                            # write side with "cache_write" while its read side uses
+                            # cache_read_input_tokens above. Without this entry every
+                            # Pi span stored cache_write_tokens=0 while reads landed,
+                            # under-pricing every call by the write premium.
+                            "gen_ai.usage.cache_write_input_tokens",
                             "gen_ai.usage.details.cache_write_tokens",
                             # pydantic-ai version variant:
                             "gen_ai.usage.details.cache_creation_input_tokens",
