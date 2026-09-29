@@ -97,7 +97,7 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
       output: result.candidateOutput,
       status: rootStatus,
       status_message: result.taskError ?? null,
-      error_type: "",
+      error_type: rootStatus === "ERROR" ? "unknown" : "",
       metadata: JSON.stringify({
         evaluation: run.evaluationName,
         candidate_version: run.candidateVersion,
@@ -118,7 +118,7 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
       cost: result.cost,
       status: rootStatus,
       status_message: result.taskError ?? null,
-      error_type: "",
+      error_type: rootStatus === "ERROR" ? "unknown" : "",
       metadata: JSON.stringify({ step: "task" }),
     }),
   ];
@@ -138,7 +138,7 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
         output: s.error ?? scoreValue(s),
         status: (s.error ? "ERROR" : "OK") as SpanStatus,
         status_message: s.error ?? null,
-        error_type: "",
+        error_type: s.error ? "unknown" : "",
         metadata: JSON.stringify({ scorer: s.scorerName, version: s.scorerVersion }),
       }),
     );

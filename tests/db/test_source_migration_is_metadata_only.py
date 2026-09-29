@@ -107,6 +107,20 @@ def test_key_clauses_sees_primary_key():
     assert any(clause.startswith("PRIMARY KEY") and "source" in clause for clause in clauses)
 
 
+def test_error_type_migration_adds_defaulted_column_to_spans():
+    """Up adds error_type as LowCardinality(String) DEFAULT '' on spans; Down drops it."""
+    up, down = _split_goose_sections((MIGRATIONS_DIR / "013_add_error_type.sql").read_text())
+    add = re.search(
+        r"ALTER TABLE spans\s+ADD COLUMN IF NOT EXISTS error_type"
+        r"\s+LowCardinality\(String\)\s+DEFAULT ''",
+        up,
+    )
+    assert add, "Up must ADD COLUMN error_type LowCardinality(String) DEFAULT '' to spans"
+    assert re.search(r"ALTER TABLE spans\s+DROP COLUMN IF EXISTS error_type", down), (
+        "Down must DROP COLUMN error_type from spans"
+    )
+
+
 def test_source_migration_adds_defaulted_column_to_both_tables():
     """Up adds source with DEFAULT 'user' to spans and traces; Down drops it."""
     sql = SOURCE_MIGRATION.read_text()
