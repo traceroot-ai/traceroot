@@ -111,7 +111,14 @@ describe("SessionDetailPanel metadata badges", () => {
 describe("SessionDetailPanel AI assistant dismissal", () => {
   it("dismisses the AI assistant panel and clears context on unmount", () => {
     const { unmount } = render(
-      <SessionDetailPanel projectId="proj-1" sessionId="session-1" onClose={vi.fn()} />,
+      <SessionDetailPanel
+        projectId="proj-1"
+        sessionId="session-1"
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+        canNavigateUp={false}
+        canNavigateDown={false}
+      />,
     );
     mocks.setAiPanelOpen.mockClear();
     mocks.setAiContext.mockClear();
@@ -124,12 +131,28 @@ describe("SessionDetailPanel AI assistant dismissal", () => {
 
   it("dismisses the AI assistant panel and clears context when sessionId changes", () => {
     const { rerender } = render(
-      <SessionDetailPanel projectId="proj-1" sessionId="session-1" onClose={vi.fn()} />,
+      <SessionDetailPanel
+        projectId="proj-1"
+        sessionId="session-1"
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+        canNavigateUp={false}
+        canNavigateDown={false}
+      />,
     );
     mocks.setAiPanelOpen.mockClear();
     mocks.setAiContext.mockClear();
 
-    rerender(<SessionDetailPanel projectId="proj-1" sessionId="session-2" onClose={vi.fn()} />);
+    rerender(
+      <SessionDetailPanel
+        projectId="proj-1"
+        sessionId="session-2"
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+        canNavigateUp={false}
+        canNavigateDown={false}
+      />,
+    );
 
     expect(mocks.setAiPanelOpen).toHaveBeenCalledWith(false);
     expect(mocks.setAiContext).toHaveBeenCalledWith(null);
