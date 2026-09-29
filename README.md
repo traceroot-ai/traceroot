@@ -25,6 +25,15 @@
   <a href="./README.ko.md"><img alt="한국어 README" src="https://img.shields.io/badge/한국어-f8f8f8"></a>
 </p>
 
+## CLI Quickstart
+
+Use the [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) with your coding agent.
+
+```bash
+npm install -g traceroot-cli
+traceroot login
+```
+
 ## Features
 
 <p align="center">
@@ -58,82 +67,7 @@ If you like what we’re building, give TraceRoot a star ⭐ to help more develo
 
 ### TraceRoot Cloud
 
-[Sign up for TraceRoot Cloud](https://app.traceroot.ai), create a project, and generate a project API key. You can add tracing with the SDK below or use the [CLI to help your coding agent onboard your existing project](#cli-quickstart).
-
-### TypeScript SDK Quickstart
-
-**1. Install the SDK** in your TypeScript project:
-
-```sh
-npm install @traceroot-ai/traceroot openai
-```
-
-**2. Set your API keys:**
-
-```bash
-export TRACEROOT_API_KEY="your-project-api-key"
-export TRACEROOT_HOST_URL="https://app.traceroot.ai"
-export OPENAI_API_KEY="your-openai-api-key"
-```
-
-**3. Trace an agent call.** Save this as `example.ts`:
-
-```typescript
-import OpenAI from 'openai';
-import { TraceRoot, observe } from '@traceroot-ai/traceroot';
-
-TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
-const openai = new OpenAI();
-
-const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [{ role: 'user', content: query }],
-  });
-  return response.choices[0].message.content;
-});
-
-async function main() {
-  try {
-    await myAgent("What's the weather in SF?");
-  } finally {
-    await TraceRoot.shutdown();
-  }
-}
-
-main().catch(console.error);
-```
-
-**4. Run it** with `npx tsx example.ts`, then open your project's **Traces** page to inspect the agent run. This example makes one OpenAI API call.
-
-**More examples:** [TypeScript](examples/typescript) · [Python](examples/python) · [Agent evaluations](examples/typescript/agent-eval). Each example includes setup instructions.
-
-### CLI Quickstart
-
-The CLI works with coding agents such as Claude Code, Codex, and Pi. Use it to help onboard an existing project, then inspect production traces and findings from your terminal. Requires Node.js 20.3 or later.
-
-```bash
-npm install -g traceroot-cli
-traceroot login
-traceroot projects list
-```
-
-From your agent application's repository, generate onboarding instructions:
-
-```bash
-traceroot instrument --print
-```
-
-Give the generated prompt to your coding agent to help it add TraceRoot instrumentation. This command generates instructions; it does not change your application automatically.
-
-Once your application sends traces, use a project ID from `traceroot projects list`:
-
-```bash
-traceroot traces list --project <project-id> --limit 10
-traceroot findings list --project <project-id> --since 24h
-```
-
-See the [CLI README](https://github.com/traceroot-ai/traceroot-cli#readme) for skills, full trace exports, authentication options, and the command reference.
+The fastest way to get started. [Sign up for TraceRoot Cloud](https://app.traceroot.ai)!
 
 ### Self-Hosting
 
@@ -194,6 +128,52 @@ Want to develop TraceRoot itself? Follow [CONTRIBUTING.md](CONTRIBUTING.md) for 
 </details>
 
 > Don't see your framework or provider? [Request an integration](https://github.com/traceroot-ai/traceroot/issues).
+
+## TypeScript SDK Quickstart
+
+**1. Install the SDK** in your TypeScript project:
+
+```sh
+npm install @traceroot-ai/traceroot openai
+```
+
+**2. Set your API keys:**
+
+```bash
+export TRACEROOT_API_KEY="your-project-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+**3. Trace an agent call.** Save this as `example.ts`:
+
+```typescript
+import OpenAI from 'openai';
+import { TraceRoot, observe } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+const openai = new OpenAI();
+
+const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: query }],
+  });
+  return response.choices[0].message.content;
+});
+
+async function main() {
+  try {
+    await myAgent("What's the weather in SF?");
+  } finally {
+    await TraceRoot.shutdown();
+  }
+}
+
+main().catch(console.error);
+```
+
+**4. Run it** with `npx tsx example.ts`, then open your project's **Traces** page to inspect the agent run. This example makes one OpenAI API call.
 
 ## Security & Privacy
 
