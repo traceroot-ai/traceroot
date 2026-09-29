@@ -281,20 +281,40 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     expect(checkoutCreateMock).not.toHaveBeenCalled();
   });
 
-  it("uses a new idempotency key after expiring a session, so a retry is not served a closed one", async () => {
+  it("asks again when the stable key returns a session that is no longer open", async () => {
+    // The key is stable for the window, so a retry after expiring a session can be
+    // served Stripe's cached response pointing at that closed session.
     workspaceFindFirstMock.mockResolvedValue(workspace());
-    const now = vi.spyOn(Date, "now").mockReturnValue(1_790_000_000_000);
+    checkoutCreateMock
+      .mockResolvedValueOnce({ id: "cs_stale", created: 900, status: "expired", url: "dead" })
+      .mockResolvedValueOnce({
+        id: "cs_fresh",
+        created: 1_000,
+        status: "open",
+        url: "https://checkout.stripe.test/fresh",
+      });
 
-    await POST(makeRequest());
-    checkoutListMock.mockReturnValue([openSession("cs_starter", "starter")]);
-    await POST(makeRequest());
-    now.mockRestore();
+    const res = await POST(makeRequest());
 
-    const [[, before], [, after]] = checkoutCreateMock.mock.calls as [
+    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/fresh" });
+    const [[, first], [, second]] = checkoutCreateMock.mock.calls as [
       unknown,
       { idempotencyKey: string },
     ][];
-    expect(after.idempotencyKey).not.toBe(before.idempotencyKey);
+    expect(second.idempotencyKey).toBe(`${first.idempotencyKey}-after-cs_stale`);
+  });
+
+  it("refuses when Stripe says another plan already holds this workspace's key", async () => {
+    // Two admins pick different plans at the same moment. Same key, different
+    // parameters, so Stripe rejects the second rather than opening a rival session.
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutCreateMock.mockRejectedValue(
+      Object.assign(new Error("Keys for idempotent requests..."), { type: "idempotency_error" }),
+    );
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
   });
 
   it("gives simultaneous requests the same idempotency key, so Stripe opens one session", async () => {
@@ -310,7 +330,9 @@ describe("POST /api/billing/checkout — existing subscription", () => {
       Record<string, unknown>,
       { idempotencyKey: string },
     ][];
-    expect(first.idempotencyKey).toMatch(/^workspace-checkout-ws-1-pro-/);
+    // No plan in the key: a rival request for a different plan must collide with
+    // this one rather than getting a key of its own.
+    expect(first.idempotencyKey).toMatch(/^workspace-checkout-ws-1-\d+$/);
     expect(second.idempotencyKey).toBe(first.idempotencyKey);
     expect(params).toMatchObject({ metadata: { workspaceId: "ws-1", plan: "pro" } });
   });

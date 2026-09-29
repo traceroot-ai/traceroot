@@ -1,4 +1,3 @@
-import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
@@ -19,6 +18,16 @@ const BILLING_STATUSES = new Set([
   "paused",
 ]);
 
+function checkoutInProgress() {
+  return NextResponse.json(
+    {
+      error:
+        "Another checkout for this workspace was started first. Reload the billing page and try again.",
+    },
+    { status: 409 },
+  );
+}
+
 function alreadySubscribed() {
   return NextResponse.json(
     {
@@ -33,6 +42,15 @@ type Stripe = ReturnType<typeof getStripeOrThrow>;
 // Raised when a session completed while this request was working, which means the
 // workspace has a subscription the preflight could not have seen.
 class CheckoutCompletedError extends Error {}
+
+/**
+ * Whether Stripe refused this request because the idempotency key is already held
+ * by a request with different parameters — which is how a competing checkout for
+ * another plan is detected.
+ */
+function isIdempotencyConflict(error: unknown) {
+  return (error as { type?: string } | null)?.type === "idempotency_error";
+}
 
 // A simultaneous request may have expired the same session first, which is the only
 // benign reason for `expire` to fail.
@@ -205,15 +223,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Requests that arrive together see no open session yet. The same idempotency key
-    // makes Stripe return one session to all of them. Sessions this request expired
-    // are part of the key: otherwise a retry within the window would get back the
-    // cached response for a session that is no longer open.
+    // Requests that arrive together see no open session yet, so the idempotency key
+    // below is what actually stops them opening one session each.
     const idempotencyWindow = Math.floor(Date.now() / 60_000);
-    const expiredDigest = expiredSessionIds.length
-      ? `-${createHash("sha256").update(expiredSessionIds.join(",")).digest("hex").slice(0, 16)}`
-      : "";
-
     // Create checkout session with plan price + all three metered products.
     // Metered items have no quantity — usage flows from Stripe meter events.
     // All three are required so paid plans can be billed for chat, RCA, and
@@ -241,22 +253,46 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const checkoutSession = await stripe.checkout.sessions.create(
-      {
-        customer: customerId,
-        mode: "subscription",
-        line_items: lineItems,
-        success_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?success=true`,
-        cancel_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?canceled=true`,
-        metadata: { workspaceId, plan },
-        subscription_data: {
-          metadata: { workspaceId },
-        },
+    // One checkout per workspace per window, enforced by Stripe rather than by
+    // reading a list back. The key deliberately excludes the plan: two admins
+    // choosing different plans at the same moment then collide on the same key, and
+    // Stripe rejects the second instead of opening a session that could become a
+    // second subscription. That check is atomic on Stripe's side, so it does not
+    // depend on a listing having caught up.
+    const checkoutKey = `workspace-checkout-${workspaceId}-${idempotencyWindow}`;
+    const checkoutParams = {
+      customer: customerId,
+      mode: "subscription" as const,
+      line_items: lineItems,
+      success_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?success=true`,
+      cancel_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?canceled=true`,
+      metadata: { workspaceId, plan },
+      subscription_data: {
+        metadata: { workspaceId },
       },
-      {
-        idempotencyKey: `workspace-checkout-${workspaceId}-${plan}-${idempotencyWindow}${expiredDigest}`,
-      },
-    );
+    };
+
+    let checkoutSession;
+    try {
+      checkoutSession = await stripe.checkout.sessions.create(checkoutParams, {
+        idempotencyKey: checkoutKey,
+      });
+    } catch (error) {
+      if (isIdempotencyConflict(error)) {
+        return checkoutInProgress();
+      }
+      throw error;
+    }
+
+    // Because the key is stable for the window, a request that just expired a stale
+    // session can be handed Stripe's cached response for that same session. Ask again
+    // under a key derived from the stale session, so concurrent retries still collapse
+    // onto one new session rather than opening several.
+    if (checkoutSession.status && checkoutSession.status !== "open") {
+      checkoutSession = await stripe.checkout.sessions.create(checkoutParams, {
+        idempotencyKey: `${checkoutKey}-after-${checkoutSession.id}`,
+      });
+    }
 
     // A concurrent request for a *different* plan carries a different idempotency
     // key, so it can have created its own session in the meantime. Settle on one.
@@ -268,13 +304,7 @@ export async function POST(req: NextRequest) {
       new Set(expiredSessionIds),
     );
     if (survivor !== checkoutSession.id) {
-      return NextResponse.json(
-        {
-          error:
-            "Another checkout for this workspace was started first. Reload the billing page and try again.",
-        },
-        { status: 409 },
-      );
+      return checkoutInProgress();
     }
 
     return NextResponse.json({ url: checkoutSession.url });
