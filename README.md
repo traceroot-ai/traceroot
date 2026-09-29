@@ -36,9 +36,13 @@ Understand what your agent did, find opportunities to improve it, and test the n
 </p>
 <p align="center"><em>Detectors surface findings from production traces so you can decide what to improve next.</em></p>
 
+## Star TraceRoot
+
+If you like what we’re building, give TraceRoot a star to help more developers discover it.
+
 <p align="center">
   <a href="https://github.com/traceroot-ai/traceroot">
-    <img src="docs/images/star-traceroot.gif" alt="If you like what we’re building, star TraceRoot on GitHub" width="440">
+    <img src="docs/images/github-star-demo.gif" alt="How to star the TraceRoot repository on GitHub" width="100%">
   </a>
 </p>
 
