@@ -80,7 +80,7 @@ The fastest way to get started. [Sign up for TraceRoot Cloud](https://app.tracer
 
 ### Self-Hosting
 
-Requires Git, Make, and Docker with Compose v2 running. This command builds the app and starts the local Docker stack:
+Run locally with Docker:
 
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
@@ -89,9 +89,7 @@ cp .env.example .env
 make prod-lite
 ```
 
-Open [localhost:3000](http://localhost:3000). Review `.env` for your deployment; the local defaults are for local testing. See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for details.
-
-Want to develop TraceRoot itself? Follow [CONTRIBUTING.md](CONTRIBUTING.md) for the development environment.
+Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for details.
 
 ## CLI Quickstart
 
