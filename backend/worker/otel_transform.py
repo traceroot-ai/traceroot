@@ -597,6 +597,24 @@ def _extract_session_id(attrs: dict[str, Any]) -> str | None:
     return str_or_none(attrs.get("traceroot.trace.session_id") or attrs.get("session.id"))
 
 
+def _extract_error_type(otel_span: dict, span_is_error: bool) -> str:
+    """Return the bounded error group key for a span.
+
+    ERROR spans take `exception.type` from their last recorded exception event,
+    or "unknown" when no event carries one. OK spans store "" so the error-rate
+    and error-type totals agree.
+    """
+    if not span_is_error:
+        return ""
+    for event in reversed(otel_span.get("events") or []):
+        if event.get("name") != "exception":
+            continue
+        error_type = attributes_to_dict(event.get("attributes") or []).get("exception.type")
+        if isinstance(error_type, str) and error_type:
+            return error_type
+    return "unknown"
+
+
 def transform_otel_to_clickhouse(
     otel_data: dict,
     project_id: str,
@@ -747,6 +765,7 @@ def transform_otel_to_clickhouse(
                 if span_is_error:
                     span_record["status"] = SpanStatus.ERROR
                     span_record["status_message"] = status.get("message")
+                span_record["error_type"] = _extract_error_type(otel_span, span_is_error)
 
                 # Extract git source fields for span
                 git_source_file = str_or_none(span_attrs.get("traceroot.git.source_file"))

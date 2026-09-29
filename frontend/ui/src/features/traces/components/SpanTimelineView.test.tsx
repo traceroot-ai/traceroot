@@ -49,6 +49,7 @@ const trace: TraceDetail = {
       span_end_time: "2026-01-01T00:00:01.000Z",
       status: SpanStatus.OK,
       status_message: null,
+      error_type: "",
       model_name: "gpt-4o",
       cost: 0.0123,
       input_tokens: 100,

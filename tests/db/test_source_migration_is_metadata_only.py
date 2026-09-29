@@ -10,6 +10,8 @@ rewrite trips a test instead of a production surprise.
 import re
 from pathlib import Path
 
+import pytest
+
 MIGRATIONS_DIR = (
     Path(__file__).resolve().parents[2] / "backend" / "db" / "clickhouse" / "migrations"
 )
@@ -122,8 +124,9 @@ def test_source_migration_adds_defaulted_column_to_both_tables():
         assert drop, f"Down must DROP COLUMN source from {table}"
 
 
-def test_source_stays_out_of_every_sort_and_partition_key():
-    """No key clause across the migrations references source.
+@pytest.mark.parametrize("column", ["source", "error_type"])
+def test_defaulted_column_stays_out_of_every_sort_and_partition_key(column):
+    """No key clause across the migrations references the column.
 
     Covers the live schema wherever it is defined — the original CREATEs,
     the spans sort-key rebuild (including its projection's ORDER BY), and
@@ -140,9 +143,9 @@ def test_source_stays_out_of_every_sort_and_partition_key():
     offenders = [
         (name, clause)
         for name, clause in clauses
-        if re.search(r"\bsource\b", clause, re.IGNORECASE)
+        if re.search(rf"\b{column}\b", clause, re.IGNORECASE)
     ]
     assert not offenders, (
-        "source appears in a sort or partition key, so ALTERs on it are no longer "
+        f"{column} appears in a sort or partition key, so ALTERs on it are no longer "
         f"metadata-only: {offenders}"
     )
