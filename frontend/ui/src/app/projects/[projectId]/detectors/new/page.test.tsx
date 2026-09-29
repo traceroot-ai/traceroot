@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
   selectorProps: null as Record<string, unknown> | null,
   editedConditions: [] as Array<Record<string, unknown>>,
+  createMutationError: null as Error | null,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -16,7 +17,12 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
-  useCreateDetector: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
+  useCreateDetector: () => ({
+    mutateAsync: mocks.mutateAsync,
+    isPending: false,
+    isError: mocks.createMutationError !== null,
+    error: mocks.createMutationError,
+  }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: undefined }),
@@ -54,6 +60,7 @@ afterEach(() => {
   mocks.push.mockClear();
   mocks.selectorProps = null;
   mocks.editedConditions = [];
+  mocks.createMutationError = null;
 });
 
 const createButton = () =>
@@ -151,15 +158,14 @@ describe("NewDetectorPage — the conditions it submits", () => {
 
 describe("NewDetectorPage — creation error handling", () => {
   it("displays server error message when create mutation fails", async () => {
-    // Mock mutateAsync rejecting with specific error
-    mocks.mutateAsync.mockRejectedValueOnce(new Error("A detector with this name already exists"));
+    const errorMsg = "A detector with this name already exists";
+    mocks.createMutationError = new Error(errorMsg);
+    mocks.mutateAsync.mockRejectedValueOnce(mocks.createMutationError);
 
     render(<NewDetectorPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    expect(screen.getByText(errorMsg)).toBeDefined();
 
-    // Wait and verify the error message is visible
-    expect(mocks.mutateAsync).toHaveBeenCalled();
-    // In actual component with real/mocked useMutation error state:
-    // expect(screen.getByText("A detector with this name already exists")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalled());
   });
 });

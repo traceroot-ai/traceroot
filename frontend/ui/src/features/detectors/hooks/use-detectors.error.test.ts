@@ -99,3 +99,35 @@ describe("useDetectorList error path", () => {
     expect((result.current.error as ApiError).status).toBe(500);
   });
 });
+
+describe("useCreateDetector error path", () => {
+  it("extracts error message from response json on failure", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ error: "A detector with this name already exists" }),
+    });
+
+    const { useCreateDetector } = await import("./use-detectors");
+    const { result } = renderHook(() => useCreateDetector("proj-1"), { wrapper });
+
+    await expect(result.current.mutateAsync({ name: "Failure Detector" } as any)).rejects.toThrow(
+      "A detector with this name already exists",
+    );
+  });
+
+  it("falls back to status message when json parsing fails", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.reject(new Error("not json")),
+    });
+
+    const { useCreateDetector } = await import("./use-detectors");
+    const { result } = renderHook(() => useCreateDetector("proj-1"), { wrapper });
+
+    await expect(result.current.mutateAsync({ name: "Failure Detector" } as any)).rejects.toThrow(
+      "Failed to create detector: 500",
+    );
+  });
+});
