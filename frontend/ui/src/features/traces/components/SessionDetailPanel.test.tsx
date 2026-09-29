@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, fireEvent, screen } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
+  setAiPanelOpen: vi.fn(),
+  setAiContext: vi.fn(),
   sessionData: undefined as
     | {
         trace_count: number;
@@ -19,8 +21,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({
     aiPanelOpen: false,
-    setAiPanelOpen: vi.fn(),
-    setAiContext: vi.fn(),
+    setAiPanelOpen: mocks.setAiPanelOpen,
+    setAiContext: mocks.setAiContext,
     registerAiHost: () => () => {},
   }),
 }));
@@ -103,5 +105,33 @@ describe("SessionDetailPanel metadata badges", () => {
     expect(screen.getByText("User:")).toBeDefined();
     expect(screen.getByText("user-42")).toBeDefined();
     expect(screen.getByText("No traces in this session")).toBeDefined();
+  });
+});
+
+describe("SessionDetailPanel AI assistant dismissal", () => {
+  it("dismisses the AI assistant panel and clears context on unmount", () => {
+    const { unmount } = render(
+      <SessionDetailPanel projectId="proj-1" sessionId="session-1" onClose={vi.fn()} />,
+    );
+    mocks.setAiPanelOpen.mockClear();
+    mocks.setAiContext.mockClear();
+
+    unmount();
+
+    expect(mocks.setAiPanelOpen).toHaveBeenCalledWith(false);
+    expect(mocks.setAiContext).toHaveBeenCalledWith(null);
+  });
+
+  it("dismisses the AI assistant panel and clears context when sessionId changes", () => {
+    const { rerender } = render(
+      <SessionDetailPanel projectId="proj-1" sessionId="session-1" onClose={vi.fn()} />,
+    );
+    mocks.setAiPanelOpen.mockClear();
+    mocks.setAiContext.mockClear();
+
+    rerender(<SessionDetailPanel projectId="proj-1" sessionId="session-2" onClose={vi.fn()} />);
+
+    expect(mocks.setAiPanelOpen).toHaveBeenCalledWith(false);
+    expect(mocks.setAiContext).toHaveBeenCalledWith(null);
   });
 });
