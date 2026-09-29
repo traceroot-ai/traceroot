@@ -146,3 +146,54 @@ def test_source_stays_out_of_every_sort_and_partition_key():
         "source appears in a sort or partition key, so ALTERs on it are no longer "
         f"metadata-only: {offenders}"
     )
+
+
+ERROR_TYPE_MIGRATION = MIGRATIONS_DIR / "013_add_error_type_column.sql"
+
+
+def test_error_type_migration_adds_defaulted_column():
+    """013's ADD COLUMN is defaulted (no table rewrite); Down drops it.
+
+    Mirrors the `source` contract: the cheap ALTER holds only while the
+    column is added with a DEFAULT.
+    """
+    sql = ERROR_TYPE_MIGRATION.read_text()
+    up, down = _split_goose_sections(sql)
+
+    add = re.search(
+        r"ALTER TABLE spans\s+ADD COLUMN IF NOT EXISTS error_type"
+        r"\s+String\s+DEFAULT ''",
+        up,
+    )
+    assert add, "Up must ADD COLUMN error_type String DEFAULT '' to spans"
+
+    drop = re.search(r"ALTER TABLE spans\s+DROP COLUMN IF EXISTS error_type", down)
+    assert drop, "Down must DROP COLUMN error_type from spans"
+
+
+def test_error_type_stays_out_of_every_sort_and_partition_key():
+    """No key clause across the migrations references error_type.
+
+    Same guard as `source`: 013's ADD COLUMN is metadata-only only while
+    `error_type` sits outside every ORDER BY / PARTITION BY / PRIMARY KEY —
+    including the projection 013 rebuilds. A future key reorder that pulled
+    `error_type` into a sort key would silently turn the ALTER into a table
+    rewrite; this trips a test instead.
+    """
+    migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+    assert migration_files, f"no migrations found in {MIGRATIONS_DIR}"
+
+    clauses = [
+        (path.name, clause) for path in migration_files for clause in _key_clauses(path.read_text())
+    ]
+    assert clauses, "expected key declarations in the migrations"
+
+    offenders = [
+        (name, clause)
+        for name, clause in clauses
+        if re.search(r"\berror_type\b", clause, re.IGNORECASE)
+    ]
+    assert not offenders, (
+        "error_type appears in a sort or partition key, so ALTERs on it are no "
+        f"longer metadata-only: {offenders}"
+    )

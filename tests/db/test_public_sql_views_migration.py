@@ -100,6 +100,33 @@ def _view_select(text: str, view: str) -> exp.Select:
     return tree
 
 
+def _effective_view_select(view: str) -> exp.Select:
+    """The view body as it stands after every migration has run.
+
+    A later migration may CREATE OR REPLACE the view (013 does for
+    `spans_public_v1` to expose a new curated column). The LAST definition
+    across the migration directory wins, which is what the live database
+    holds and what the schema contract must agree with.
+    """
+    migrations_dir = (
+        Path(__file__).resolve().parents[2] / "backend" / "db" / "clickhouse" / "migrations"
+    )
+    bodies: list[str] = []
+    for path in sorted(migrations_dir.glob("*.sql")):
+        up = re.sub(r"--[^\n]*", "", path.read_text(encoding="utf-8").split("-- +goose Down")[0])
+        for match in re.finditer(
+            rf"CREATE OR REPLACE VIEW {view}\s+DEFINER\s*=\s*\w+\s+SQL SECURITY DEFINER\s+AS\b"
+            r"(?P<body>.*?);",
+            up,
+            re.DOTALL,
+        ):
+            bodies.append(match.group("body"))
+    assert bodies, f"no migration creates {view}"
+    tree = sqlglot.parse_one(bodies[-1], read="clickhouse")
+    assert isinstance(tree, exp.Select), f"{view} body is not a single SELECT"
+    return tree
+
+
 def _conjuncts(select: exp.Select) -> list[exp.Expression]:
     where = select.args.get("where")
     if where is None:
@@ -374,7 +401,7 @@ def test_goose_up_and_down(text):
 def test_view_projects_exactly_the_contract_columns(text, table, view):
     """Exact and in contract order. A curated column added to the contract or to the
     view alone fails here, which a presence check per listed column cannot see."""
-    projected = [e.alias_or_name for e in _view_select(text, view).expressions]
+    projected = [e.alias_or_name for e in _effective_view_select(view).expressions]
     assert projected == [c.name for c in PUBLIC_TABLES[table].columns]
 
 

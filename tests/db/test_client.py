@@ -196,6 +196,7 @@ class TestInsertSpansBatch:
                 "span_kind": "LLM",
                 "status": "OK",
                 "status_message": None,
+                "error_type": "ValueError",
                 "model_name": "gpt-4o",
                 "cost": 0.005,
                 "input_tokens": 100,
@@ -217,6 +218,7 @@ class TestInsertSpansBatch:
         assert _value(row, columns, "project_id") == "proj-1"
         assert _value(row, columns, "span_kind") == "LLM"
         assert _value(row, columns, "source") == "user"
+        assert _value(row, columns, "error_type") == "ValueError"
         assert _value(row, columns, "model_name") == "gpt-4o"
         assert _value(row, columns, "cost") == 0.005
         assert _value(row, columns, "input_tokens") == 100
@@ -226,8 +228,8 @@ class TestInsertSpansBatch:
         assert "environment" in columns
         assert row[columns.index("environment")] == "production"
         # 3 fixed breakdown columns collapsed into one usage_details map (net -2),
-        # then source, environment and is_evaluation added.
-        assert len(columns) == 27
+        # then source, environment, is_evaluation and error_type added.
+        assert len(columns) == 28
         # Addressed by name, not position: `is_evaluation` extends the row, and a
         # positional assert would silently follow the wrong column.
         assert "is_evaluation" in columns
@@ -266,6 +268,7 @@ class TestInsertSpansBatch:
             "source",
             "status",
             "status_message",
+            "error_type",
             "model_name",
             "cost",
             "input_tokens",

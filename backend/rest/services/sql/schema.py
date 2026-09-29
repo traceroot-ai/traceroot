@@ -86,6 +86,7 @@ _SPANS = PublicTable(
         PublicColumn("span_kind", "String"),
         PublicColumn("status", "String"),
         PublicColumn("status_message", "Nullable(String)"),
+        PublicColumn("error_type", "String"),
         PublicColumn("model_name", "Nullable(String)"),
         PublicColumn("cost", "Nullable(Decimal64(9))"),
         PublicColumn("input_tokens", "Nullable(Int64)"),

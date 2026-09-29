@@ -197,6 +197,17 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         value_source=ValueSource.DISTINCT_QUERY,
         detector_trigger=False,
     ),
+    # Issue #2378: filter spans by the exception type extracted at ingest.
+    FilterColumn(
+        name="error_type",
+        label="Error type",
+        ch_type="LowCardinality(String)",
+        level=FilterLevel.SPAN_MEMBERSHIP,
+        type=FilterType.CATEGORICAL,
+        operators=(FilterOperator.IN,),
+        value_source=ValueSource.DISTINCT_QUERY,
+        detector_trigger=False,
+    ),
     FilterColumn(
         name="name",
         label="Span name",

@@ -6,7 +6,12 @@ from typing import ClassVar
 
 import pytest
 
-from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
+from tests.fixtures.otel_payloads import (
+    make_attr,
+    make_exception_event,
+    make_otel_payload,
+    make_span,
+)
 from worker.otel_transform import (
     attributes_to_dict,
     decode_otel_id,
@@ -2232,3 +2237,84 @@ class TestPiExtensionCacheWrite:
         span["attributes"].append(make_attr("gen_ai.usage.cache_creation_input_tokens", 555))
         s = self._transform(span)
         assert s["usage_details"]["cache_write_tokens"] == 555
+
+
+class TestErrorTypeExtraction:
+    """Issue #2378: the OTel `exception` event's `exception.type` must survive
+    ingest as `error_type` so dashboard widgets can break errors down by type."""
+
+    def _error_span(self, events, status_code=2):
+        payload = make_otel_payload(
+            [make_span("aa" * 16, "bb" * 8, status_code=status_code, events=events)]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert len(spans) == 1
+        return spans[0]
+
+    def test_exception_type_is_extracted(self):
+        span = self._error_span([make_exception_event("ValueError")])
+        assert span["status"] == "ERROR"
+        assert span["error_type"] == "ValueError"
+
+    def test_first_exception_event_wins(self):
+        span = self._error_span(
+            [make_exception_event("ValueError"), make_exception_event("TypeError")]
+        )
+        assert span["error_type"] == "ValueError"
+
+    def test_non_exception_events_are_ignored(self):
+        span = self._error_span(
+            [
+                {"timeUnixNano": "1", "name": "log", "attributes": []},
+                make_exception_event("RuntimeError"),
+            ]
+        )
+        assert span["error_type"] == "RuntimeError"
+
+    def test_error_without_exception_event_is_unknown(self):
+        """ERROR spans with no exception event bucket into "unknown" so the
+        by-type breakdown total agrees with the error-rate total."""
+        span = self._error_span([])
+        assert span["status"] == "ERROR"
+        assert span["error_type"] == "unknown"
+
+    def test_error_with_exception_event_but_no_type_is_unknown(self):
+        span = self._error_span([make_exception_event(exception_type=None)])
+        assert span["error_type"] == "unknown"
+
+    def test_first_exception_event_wins_even_when_typeless(self):
+        # First-wins: a typeless first exception event buckets into "unknown"
+        # even when a later exception event carries a usable type.
+        span = self._error_span(
+            [
+                make_exception_event(exception_type=None),
+                make_exception_event(exception_type="KeyError"),
+            ]
+        )
+        assert span["error_type"] == "unknown"
+
+    def test_ok_span_stores_empty(self):
+        payload = make_otel_payload([make_span("aa" * 16, "bb" * 8, status_code=1)])
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["status"] == "OK"
+        assert spans[0]["error_type"] == ""
+
+    def test_ok_span_ignores_exception_events(self):
+        # A stray exception event on a non-error span must not flip it into a bucket.
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    status_code=1,
+                    events=[make_exception_event("ValueError")],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["status"] == "OK"
+        assert spans[0]["error_type"] == ""
+
+    def test_string_status_code_error_is_handled(self):
+        span = self._error_span([make_exception_event("KeyError")], status_code="STATUS_CODE_ERROR")
+        assert span["error_type"] == "KeyError"
