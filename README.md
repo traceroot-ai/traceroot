@@ -182,8 +182,8 @@ Want to develop TraceRoot itself? Follow [CONTRIBUTING.md](CONTRIBUTING.md) for 
 | Python | [traceroot-py](https://github.com/traceroot-ai/traceroot-py) |
 | TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
 
-<details>
-<summary>All supported frameworks and model providers</summary>
+<details open>
+<summary>Supported frameworks and model providers</summary>
 
 ### Agent Frameworks
 
