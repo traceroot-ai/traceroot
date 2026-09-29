@@ -11,7 +11,7 @@ import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
 
 const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
-  { category: "provider", label: "Model providers" },
+  { category: "provider", label: "Model Providers" },
   { category: "framework", label: "Frameworks" },
 ];
 
@@ -36,7 +36,7 @@ function LangTabs({
             onClick={() => isAvailable && onChange(candidate)}
             disabled={!isAvailable}
             className={cn(
-              "-mb-px border-b-2 px-3 py-1.5 text-xs font-medium transition-colors",
+              "-mb-px border-b-2 px-3 py-1.5 text-[12px] font-medium transition-colors",
               lang === candidate
                 ? "border-foreground text-foreground"
                 : "border-transparent text-muted-foreground",
@@ -80,24 +80,24 @@ export function ManualTab({ projectId }: ManualTabProps) {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">1. Create an API key</p>
+        <p className="text-[13px] font-medium text-foreground">1. Create an API key</p>
         <ApiKeyBlock projectId={projectId} />
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">2. Install SDK</p>
+        <p className="text-[13px] font-medium text-foreground">2. Install SDK</p>
         <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
         <CodeBlock label="bash" value={config.installCommand} />
       </div>
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-medium text-foreground">3. Select your integration</p>
+          <p className="text-[13px] font-medium text-foreground">3. Select your integration</p>
           <a
             href="https://github.com/traceroot-ai/traceroot/issues/new"
             target="_blank"
             rel="noopener noreferrer"
-            className="shrink-0 text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+            className="shrink-0 text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
           >
             Don&apos;t see yours? Request one
           </a>
@@ -111,7 +111,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
 
           return (
             <div key={group.category} className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">{group.label}</p>
+              <p className="text-[12px] font-medium text-muted-foreground">{group.label}</p>
               <div role="radiogroup" aria-label={group.label} className="flex flex-wrap gap-2">
                 {items.map((integration) => (
                   <IntegrationPickerCard
@@ -130,14 +130,14 @@ export function ManualTab({ projectId }: ManualTabProps) {
           href={selectedIntegration.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-block text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+          className="inline-block text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
         >
           View {selectedIntegration.name} docs
         </a>
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">
+        <p className="text-[13px] font-medium text-foreground">
           4. Initialize TraceRoot for {selectedIntegration.name}
         </p>
         <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
@@ -145,7 +145,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">5. External integrations</p>
+        <p className="text-[13px] font-medium text-foreground">5. External integrations</p>
         {projectLoading ? (
           <LoadingState label="Loading integrations..." />
         ) : (
