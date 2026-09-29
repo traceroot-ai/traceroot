@@ -2526,6 +2526,30 @@ class TestNetInputConvention:
             self._cost(uncached=1752, cache_read=5187, cache_write=0, output=100)
         )
 
+    def test_js_openinference_bedrock_invoke_model_is_priced_as_net(self):
+        # @arizeai/openinference-instrumentation-bedrock stamps the provider's
+        # net input under llm.token_count.prompt, with cache as prompt_details.
+        attrs = [
+            make_attr("openinference.span.kind", "LLM"),
+            make_attr("llm.model_name", "claude-sonnet-4-6"),
+            make_attr("llm.token_count.prompt", 1000),
+            make_attr("llm.token_count.completion", 10),
+            make_attr("llm.token_count.prompt_details.cache_read", 300),
+            make_attr("llm.token_count.prompt_details.cache_write", 100),
+        ]
+        span = make_span("aa" * 16, "bb" * 8, name="bedrock.invoke_model", attributes=attrs)
+        s = self._transform(
+            span,
+            scope_name="@arizeai/openinference-instrumentation-bedrock",
+            scope_version="0.5.1",
+        )
+        assert s["input_tokens"] == 1400
+        assert s["usage_details"]["cache_read_tokens"] == 300
+        assert s["usage_details"]["cache_write_tokens"] == 100
+        assert s["cost"] == pytest.approx(
+            self._cost(uncached=1000, cache_read=300, cache_write=100, output=10)
+        )
+
     @pytest.mark.parametrize("flag", [True, "true", "TRUE"])
     def test_span_attribute_marks_the_input_as_net(self, flag):
         s = self._transform(

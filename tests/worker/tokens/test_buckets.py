@@ -323,6 +323,53 @@ def test_npm_scoped_traceroot_emitters_are_known_no_warning(caplog):
 
 
 class TestNetInputEmitterTable:
+    def test_js_openinference_bedrock_is_net_even_when_cache_is_smaller_than_input(self):
+        # InvokeModel on Claude and Nova passes the provider's net input through.
+        b = normalize_token_usage(
+            "@arizeai/openinference-instrumentation-bedrock",
+            input_tokens=1000,
+            output_tokens=10,
+            cache_read_tokens=300,
+            cache_write_tokens=100,
+            scope_version="0.5.1",
+        )
+        assert b == TokenBuckets(input_uncached=1000, output=10, cache_read=300, cache_write=100)
+
+    def test_js_openinference_bedrock_without_cache_is_unchanged(self):
+        # Its Converse path emits no cache attributes: net and gross agree.
+        b = normalize_token_usage(
+            "@arizeai/openinference-instrumentation-bedrock",
+            input_tokens=1000,
+            output_tokens=10,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+        assert b == TokenBuckets(input_uncached=1000, output=10, cache_read=0, cache_write=0)
+
+    def test_python_openinference_bedrock_is_not_in_the_table(self):
+        # One scope, two conventions. InvokeModel on Claude sums the three
+        # fields (gross), so a scope-level net entry would price cache twice.
+        scope = "openinference.instrumentation.bedrock"
+        invoke_model_claude = normalize_token_usage(
+            scope,
+            input_tokens=1400,  # 1000 uncached + 300 read + 100 write, already summed
+            output_tokens=10,
+            cache_read_tokens=300,
+            cache_write_tokens=100,
+        )
+        assert invoke_model_claude.input_uncached == 1000
+
+        # Converse passes the net inputTokens through. It is only recognized
+        # when the cache exceeds the input.
+        converse_provably_net = normalize_token_usage(
+            scope,
+            input_tokens=14,
+            output_tokens=10,
+            cache_read_tokens=1613,
+            cache_write_tokens=0,
+        )
+        assert converse_provably_net.input_uncached == 14
+
     @pytest.mark.parametrize(
         "scope",
         ["@traceroot-ai/pi-extension", "@traceroot-ai/pi-coding-agent"],

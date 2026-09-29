@@ -138,4 +138,10 @@ update_current_span(
 
 If you set span attributes yourself instead of using the SDK, set `traceroot.llm.usage.input_is_net` to `true` on the span.
 
-Without the flag, TraceRoot treats the input as net only when the cache tokens exceed `input_tokens`, because that cannot happen with a gross count.
+If you don't set the flag, TraceRoot decides in this order:
+
+1. Spans from an integration that is known to report net input are treated as net. Today these are the Pi extension, the TypeScript SDK's Pi integration, `@traceloop/instrumentation-anthropic` up to version 0.27.0, and `@arizeai/openinference-instrumentation-bedrock`.
+2. Any other span is treated as net when its cache tokens exceed `input_tokens`, because that cannot happen with a gross count.
+3. Everything else is treated as gross.
+
+Set the flag explicitly when you report net input from your own code. Rule 2 cannot detect a net count whose cache tokens are smaller than `input_tokens`.

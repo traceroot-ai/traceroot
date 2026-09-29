@@ -136,6 +136,16 @@ _NET_INPUT_SCOPES: dict[str, tuple[int, ...] | None] = {
     # instrumentation.ts passes Anthropic's input_tokens through up to 0.27.0.
     # Later versions sum the three fields before emitting.
     "@traceloop/instrumentation-anthropic": (0, 27, 0),
+    # JS OpenInference Bedrock, attributes/invoke-model-helpers.ts: InvokeModel
+    # passes the provider's input through for Claude (input_tokens) and Nova
+    # (inputTokens), and Bedrock reports both net of cache. Its Converse path
+    # emits no cache attributes, so the convention cannot matter there.
+    "@arizeai/openinference-instrumentation-bedrock": None,
+    # NOT listed: Python OpenInference Bedrock (openinference.instrumentation.
+    # bedrock). That one scope is mixed: Converse passes the net inputTokens
+    # through, while InvokeModel on Claude sums the three fields into a gross
+    # prompt. A scope-level entry would price the cache twice on the second, so
+    # its Converse spans are left to the provable-net fallback.
 }
 
 _warned_net_fallback_scopes: set[str] = set()
