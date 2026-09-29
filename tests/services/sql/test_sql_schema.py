@@ -48,6 +48,7 @@ EXPECTED_SPANS_COLUMNS = {
     "span_kind",
     "status",
     "status_message",
+    "error_type",
     "model_name",
     "cost",
     "input_tokens",

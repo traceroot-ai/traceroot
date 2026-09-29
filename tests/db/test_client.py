@@ -226,12 +226,14 @@ class TestInsertSpansBatch:
         assert "environment" in columns
         assert row[columns.index("environment")] == "production"
         # 3 fixed breakdown columns collapsed into one usage_details map (net -2),
-        # then source, environment and is_evaluation added.
-        assert len(columns) == 27
+        # then source, environment, is_evaluation, and error_type added.
+        assert len(columns) == 28
         # Addressed by name, not position: `is_evaluation` extends the row, and a
         # positional assert would silently follow the wrong column.
         assert "is_evaluation" in columns
         assert row[columns.index("is_evaluation")] == 0
+        assert "error_type" in columns
+        assert row[columns.index("error_type")] == ""
 
     def test_column_names_are_the_spans_schema_in_order(self):
         """Pin the written column list, for the same positional reason as the traces
@@ -282,6 +284,7 @@ class TestInsertSpansBatch:
             "ch_update_time",
             "environment",
             "is_evaluation",
+            "error_type",
         ]
 
     def test_optional_fields_none(self):

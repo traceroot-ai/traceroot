@@ -144,6 +144,7 @@ def test_the_offered_fields_are_the_trace_list_fields_without_trace_id():
     assert [c.name for c in FILTER_COLUMNS if not c.detector_trigger] == [
         "trace_id",
         "span_kind",
+        "error_type",
         "status",
         "name",
     ]

@@ -442,6 +442,49 @@ class TestTransformOtelToClickhouse:
 
         assert spans[0]["status"] == "ERROR"
 
+    def test_error_type_from_single_exception_event(self):
+        span = make_span("aa" * 16, "bb" * 8, status_code=2)
+        span["events"] = [
+            {
+                "name": "exception",
+                "attributes": [{"key": "exception.type", "value": {"stringValue": "ValueError"}}],
+            }
+        ]
+        payload = make_otel_payload([span])
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["error_type"] == "ValueError"
+
+    def test_error_type_falls_through_empty_event_to_find_type(self):
+        span = make_span("aa" * 16, "bb" * 8, status_code=2)
+        span["events"] = [
+            {"name": "exception", "attributes": []},
+            {
+                "name": "exception",
+                "attributes": [{"key": "exception.type", "value": {"stringValue": "TypeError"}}],
+            },
+        ]
+        payload = make_otel_payload([span])
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["error_type"] == "TypeError"
+
+    def test_error_type_unknown_when_error_status_but_no_events(self):
+        span = make_span("aa" * 16, "bb" * 8, status_code=2)
+        payload = make_otel_payload([span])
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["error_type"] == "unknown"
+
+    def test_error_type_empty_when_ok_status(self):
+        span = make_span("aa" * 16, "bb" * 8, status_code=0)
+        span["events"] = [
+            {
+                "name": "exception",
+                "attributes": [{"key": "exception.type", "value": {"stringValue": "ValueError"}}],
+            }
+        ]
+        payload = make_otel_payload([span])
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["error_type"] == ""
+
     def test_error_status_string_code(self):
         trace_hex = "aa" * 16
         span_hex = "bb" * 8

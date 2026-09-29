@@ -744,9 +744,22 @@ def transform_otel_to_clickhouse(
                 status_code = status.get("code", 0)
                 # Handle both int (0, 1, 2) and string ("STATUS_CODE_ERROR") formats
                 span_is_error = status_code == 2 or status_code == "STATUS_CODE_ERROR"
+
+                error_type = ""
                 if span_is_error:
                     span_record["status"] = SpanStatus.ERROR
                     span_record["status_message"] = status.get("message")
+                    error_type = "unknown"
+
+                    for event in otel_span.get("events", []):
+                        if event.get("name") == "exception":
+                            event_attrs = attributes_to_dict(event.get("attributes", []))
+                            exc_type = str_or_none(event_attrs.get("exception.type"))
+                            if exc_type:
+                                error_type = exc_type
+                                break
+
+                span_record["error_type"] = error_type
 
                 # Extract git source fields for span
                 git_source_file = str_or_none(span_attrs.get("traceroot.git.source_file"))

@@ -1143,6 +1143,7 @@
                     "enum": [
                       "name",
                       "span_kind",
+                      "error_type",
                       "model_name",
                       "environment",
                       null
@@ -1186,6 +1187,7 @@
                           "enum": [
                             "name",
                             "span_kind",
+                            "error_type",
                             "status",
                             "model_name",
                             "environment",
@@ -5906,6 +5908,7 @@
                     "enum": [
                       "name",
                       "span_kind",
+                      "error_type",
                       "model_name",
                       "environment",
                       null
@@ -5949,6 +5952,7 @@
                           "enum": [
                             "name",
                             "span_kind",
+                            "error_type",
                             "status",
                             "model_name",
                             "environment",
@@ -12298,6 +12302,36 @@
                         "additionalProperties": false,
                         "properties": {
                           "field": {
+                            "const": "error_type",
+                            "title": "Error type",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "items": {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
                             "const": "status",
                             "title": "Status",
                             "type": "string"
@@ -12733,7 +12767,7 @@
     },
     "/api/v1/public/traces/filter-values/{field}": {
       "get": {
-        "description": "Distinct values for an open-ended categorical filter field.\n\nThe values-discovery companion to the typed ``filters`` parameter on the\ntrace list: the filterable field catalog lives in the generated schema,\nwhile a field's current values are dynamic per project. Only fields the\nregistry marks as distinct-query (model_name, environment) are listable;\nthe field is resolved through the registry before it reaches SQL, so it can\nnever be a raw client-supplied column name.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    field (str): The categorical field to enumerate.\n    start_after (datetime | None): Lower bound on span start time (active\n        window).\n    end_before (datetime | None): Upper bound on span start time (active\n        window), symmetric with ``start_after`` so options match the list's\n        window.\n\nReturns:\n    FilterValuesResponse: Distinct values ordered by descending frequency.\n\nRaises:\n    HTTPException: 400 if the field is unknown or not a distinct-query\n        categorical, 500 on a reader failure.",
+        "description": "Distinct values for an open-ended categorical filter field.\n\nThe values-discovery companion to the typed ``filters`` parameter on the\ntrace list: the filterable field catalog lives in the generated schema,\nwhile a field's current values are dynamic per project. Only fields the\nregistry marks as distinct-query (model_name, environment, error_type) are listable;\nthe field is resolved through the registry before it reaches SQL, so it can\nnever be a raw client-supplied column name.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    field (str): The categorical field to enumerate.\n    start_after (datetime | None): Lower bound on span start time (active\n        window).\n    end_before (datetime | None): Upper bound on span start time (active\n        window), symmetric with ``start_after`` so options match the list's\n        window.\n\nReturns:\n    FilterValuesResponse: Distinct values ordered by descending frequency.\n\nRaises:\n    HTTPException: 400 if the field is unknown or not a distinct-query\n        categorical, 500 on a reader failure.",
         "operationId": "list_trace_filter_values",
         "parameters": [
           {

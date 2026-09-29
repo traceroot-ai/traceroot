@@ -401,6 +401,16 @@ def test_other_fold_shape():
     assert "LIMIT 50" in sql
 
 
+def test_error_type_breakdown_compiles():
+    """error_type is groupable and folds into 'other' past 50 groups."""
+    spec = make_spec(breakdown="error_type", display={"type": "bar"})
+    sql, _ = compile_(spec)
+    assert "GROUP BY error_type" in sql
+    assert "'other'" in sql
+    assert "IN (SELECT" in sql
+    assert "LIMIT 50" in sql
+
+
 def test_count_measure_with_breakdown():
     """count measure (expr='*') must compile with count(*) and a breakdown."""
     spec = make_spec(display={"type": "bar"})
