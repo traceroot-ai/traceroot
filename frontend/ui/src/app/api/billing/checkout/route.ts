@@ -7,7 +7,17 @@ import { prisma, getStripeOrThrow, getPlanConfig, PlanType } from "@traceroot/co
 // Subscription statuses that bill now or can start billing. `incomplete` is a
 // first payment still settling (for example a pending 3DS step), which becomes
 // active on success, so a second checkout opened meanwhile would also bill.
-const BILLING_STATUSES = new Set(["active", "trialing", "past_due", "unpaid", "incomplete"]);
+// `paused` bills nothing today but is not terminal either: resuming it alongside a
+// second subscription would bill the workspace twice. Only `canceled` and
+// `incomplete_expired` are ends of the line, and those are absent here deliberately.
+const BILLING_STATUSES = new Set([
+  "active",
+  "trialing",
+  "past_due",
+  "unpaid",
+  "incomplete",
+  "paused",
+]);
 
 function alreadySubscribed() {
   return NextResponse.json(
@@ -20,14 +30,24 @@ function alreadySubscribed() {
 
 type Stripe = ReturnType<typeof getStripeOrThrow>;
 
-// A simultaneous request may have expired the same session first; that is fine as
-// long as it is no longer open.
+// Raised when a session completed while this request was working, which means the
+// workspace has a subscription the preflight could not have seen.
+class CheckoutCompletedError extends Error {}
+
+// A simultaneous request may have expired the same session first, which is the only
+// benign reason for `expire` to fail.
 async function expireCheckoutSession(stripe: Stripe, sessionId: string) {
   try {
     await stripe.checkout.sessions.expire(sessionId);
   } catch (error) {
     const current = await stripe.checkout.sessions.retrieve(sessionId);
-    if (current.status === "open") throw error;
+    if (current.status === "complete") {
+      // Stripe refuses to expire a completed session. The customer paid between the
+      // subscription preflight and this call, so opening another checkout now would
+      // bill them twice.
+      throw new CheckoutCompletedError();
+    }
+    if (current.status !== "expired") throw error;
   }
 }
 
@@ -198,6 +218,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (error) {
+    if (error instanceof CheckoutCompletedError) {
+      return alreadySubscribed();
+    }
     console.error("Checkout error:", error);
     return NextResponse.json({ error: "Failed to create checkout" }, { status: 500 });
   }

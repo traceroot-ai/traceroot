@@ -138,6 +138,18 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     expect(checkoutCreateMock).not.toHaveBeenCalled();
   });
 
+  it.each(["incomplete", "paused"])("refuses while a subscription is %s", async (status) => {
+    // Neither status bills right now, but neither is terminal: the first settles into
+    // active and the second can be resumed, so a second checkout would bill twice.
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    subscriptionsListMock.mockReturnValue([{ id: "sub_1", status }]);
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
+    expect(checkoutCreateMock).not.toHaveBeenCalled();
+  });
+
   it("refuses while a first payment is still settling", async () => {
     workspaceFindFirstMock.mockResolvedValue(workspace());
     subscriptionsListMock.mockReturnValue([{ id: "sub_pending", status: "incomplete" }]);
@@ -237,6 +249,32 @@ describe("POST /api/billing/checkout — existing subscription", () => {
 
     expect(res.status).toBe(200);
     expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses when an open session completed while this request was expiring it", async () => {
+    // The customer paid between the subscription preflight and the expire call, so the
+    // workspace has a subscription that no earlier check could have seen.
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutListMock.mockReturnValue([openSession("cs_starter", "starter")]);
+    checkoutExpireMock.mockRejectedValue(new Error("session is not open"));
+    checkoutRetrieveMock.mockResolvedValue({ id: "cs_starter", status: "complete" });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
+    expect(checkoutCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an expire failure that leaves the session open", async () => {
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutListMock.mockReturnValue([openSession("cs_starter", "starter")]);
+    checkoutExpireMock.mockRejectedValue(new Error("stripe is down"));
+    checkoutRetrieveMock.mockResolvedValue({ id: "cs_starter", status: "open" });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(500);
+    expect(checkoutCreateMock).not.toHaveBeenCalled();
   });
 
   it("uses a new idempotency key after expiring a session, so a retry is not served a closed one", async () => {
