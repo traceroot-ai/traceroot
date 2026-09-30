@@ -67,6 +67,9 @@ describe("ConditionSection", () => {
   it("shows the rule's no-data mode and emits the chosen one", () => {
     const props = renderSection({ noDataMode: "ZERO" });
     expect(screen.getByLabelText("no data mode").textContent).toContain("Treat as zero");
+    // The hint tracks the selection, so the consequence of the chosen mode is on
+    // screen rather than a label the reader has to interpret.
+    expect(screen.getByText(/empty window counts as 0/i)).toBeTruthy();
     openSelect("no data mode");
     fireEvent.click(screen.getByRole("option", { name: "Notify when data stops" }));
     expect(props.onNoDataModeChange).toHaveBeenCalledWith("NOTIFY");

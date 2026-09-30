@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { FieldLabel, SectionBox } from "@/features/dashboards/components/SectionBox";
 import {
   ALERT_NO_DATA_MODES,
+  ALERT_NO_DATA_MODE_HINTS,
   ALERT_NO_DATA_MODE_LABELS,
   ALERT_OPERATORS,
   ALERT_OPERATOR_LABELS,
@@ -178,6 +179,9 @@ export function ConditionSection({
             ))}
           </SelectContent>
         </Select>
+        <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+          {ALERT_NO_DATA_MODE_HINTS[noDataMode]}
+        </p>
       </div>
       <div className="p-3">
         <div className="flex flex-col gap-3">
