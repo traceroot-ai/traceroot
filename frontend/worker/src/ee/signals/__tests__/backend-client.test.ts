@@ -9,6 +9,7 @@ beforeEach(() => {
   vi.stubEnv("INTERNAL_API_SECRET", "sec");
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -74,6 +75,5 @@ describe("signalsBackend", () => {
     const assertion = expect(p).rejects.toThrow("timed out");
     await vi.advanceTimersByTimeAsync(30_000);
     await assertion;
-    vi.useRealTimers();
   });
 });

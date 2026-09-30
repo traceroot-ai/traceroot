@@ -87,7 +87,12 @@ export async function enqueueSignalHits(params: {
   const partitions = [...new Set(params.triggered.map((t) => t.detectorId))].filter((id) =>
     on.has(id),
   );
-  for (const detectorId of partitions) await enqueueAssignment(params.projectId, detectorId);
+  // Every partition is tried even if one fails; the failure is still reported.
+  const results = await Promise.allSettled(
+    partitions.map((detectorId) => enqueueAssignment(params.projectId, detectorId)),
+  );
+  const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+  if (failed) throw failed.reason;
   return partitions.length;
 }
 

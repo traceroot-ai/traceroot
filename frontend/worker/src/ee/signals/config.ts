@@ -69,8 +69,9 @@ export const WAITING_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * A hit that keeps failing is given up after at least this many failures
- * spread over at least this long, so an outage (which fails every hit for a
- * while) never gives up hits, while one bad hit stops being retried.
+ * spread over at least this long, so one bad hit stops being retried while an
+ * outage shorter than that gives up nothing. A longer outage gives up the
+ * oldest waiting hits of each detector, a couple at a time.
  */
 export const GIVE_UP_AFTER_FAILURES = 3;
 export const GIVE_UP_AFTER_MS = 6 * 60 * 60 * 1000;

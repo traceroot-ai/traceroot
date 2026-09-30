@@ -577,9 +577,22 @@ describe("processTrace — signals call site", () => {
     error.mockRestore();
   });
 
-  it("does not queue anything when nothing triggers", async () => {
+  it("does not queue anything when a detector with signals on evaluates clean", async () => {
     mockFetches(60_000, spans);
+    triggerOne();
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: null,
+      inferenceProvider: "anthropic",
+    });
     await processTrace("t1", "p1", ["d1"]);
+    expect(mockRunDetection).toHaveBeenCalledOnce();
     expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
   });
 });

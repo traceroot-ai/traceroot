@@ -142,6 +142,7 @@ export async function runAssignmentRound(
     console.log(
       `[Signals] skip project=${projectId} detector=${detectorId} reason=${stats.skipped}`,
     );
+    stats.durationMs = deps.now() - started;
     return stats;
   }
 
@@ -152,7 +153,10 @@ export async function runAssignmentRound(
     await deps.backend.waitingHits(projectId, detectorId, sinceMs, ROUND_MAX_HITS)
   ).map((row) => toWaitingHit(row, projectId, detectorId));
   stats.waiting = waiting.length;
-  if (waiting.length === 0) return stats;
+  if (waiting.length === 0) {
+    stats.durationMs = deps.now() - started;
+    return stats;
+  }
   stats.lagMs = Math.max(0, started - waiting[0].seenAt.getTime());
 
   const usage: ModelUsage[] = [];

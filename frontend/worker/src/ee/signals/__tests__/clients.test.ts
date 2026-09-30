@@ -91,6 +91,11 @@ describe("embedTexts", () => {
     await expect(embedTexts(["a", "b"], "k")).rejects.toThrow("missing or repeated index 0");
   });
 
+  it("rejects a fractional index", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse(200, { data: [{ index: 0.5, embedding: [1] }] }));
+    await expect(embedTexts(["a"], "k")).rejects.toThrow("missing or repeated index 0.5");
+  });
+
   it("reports a network failure", async () => {
     mockFetch.mockRejectedValueOnce(new Error("ECONNRESET"));
     await expect(embedTexts(["a"], "k")).rejects.toThrow("embedding request failed: ECONNRESET");

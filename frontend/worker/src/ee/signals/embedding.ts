@@ -81,7 +81,12 @@ function parseEmbeddings(text: string, expected: number): EmbeddingResult {
   const vectors: number[][] = new Array(expected);
   rows.forEach((row, i) => {
     const index = typeof row.index === "number" ? row.index : i;
-    if (index < 0 || index >= expected || vectors[index] !== undefined) {
+    if (
+      !Number.isInteger(index) ||
+      index < 0 ||
+      index >= expected ||
+      vectors[index] !== undefined
+    ) {
       throw new Error(`embedding response has a missing or repeated index ${index}`);
     }
     if (!Array.isArray(row.embedding) || row.embedding.some((x) => typeof x !== "number")) {

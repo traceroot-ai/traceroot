@@ -107,7 +107,7 @@ export async function applyAssignment(
       target = found.signal;
       // After a merge the hit was judged against another signal's criteria.
       criteriaVersion = found.followed ? null : placement.criteriaVersion;
-      score = placement.score;
+      score = found.followed ? null : placement.score;
     } else if (placement.kind === "group") {
       const grouped = await tx.signal.findFirst({
         where: {
