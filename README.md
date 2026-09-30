@@ -207,14 +207,6 @@ Special thanks to [pi-mono](https://github.com/badlogic/pi-mono), which powers o
 
 TraceRoot uses [Apache 2.0](LICENSE) for code outside directories named `ee`. Those directories are covered by the [Enterprise License](ee/LICENSE).
 
-## Contributors
-
-<p align="center">
-<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot contributors" />
-</a>
-</p>
-
 ## Star History
 
 <p align="center">
@@ -227,10 +219,17 @@ TraceRoot uses [Apache 2.0](LICENSE) for code outside directories named `ee`. Th
 </a>
 </p>
 
+## Contributors
+
+<p align="center">
+<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot contributors" />
+</a>
+</p>
+
 <br>
 
 <p align="center">⭐ <b>Star us on GitHub</b> to support TraceRoot!</p>
-<p align="center"><sub>Want release updates? Select Watch → Custom → Releases.</sub></p>
 
 <!-- Links -->
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
