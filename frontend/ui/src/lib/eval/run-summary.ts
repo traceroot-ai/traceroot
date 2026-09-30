@@ -195,6 +195,56 @@ export function metricSummary(
   };
 }
 
+/**
+ * One stored metric's item from its SUM and how many results reported it: the form a
+ * grouped aggregate hands back. SQL's SUM skips a NULL, so `observedCount` must be the
+ * per-column count, not the run's row count, or the mean understates a run where some
+ * results did not report the value.
+ */
+export function metricFromTotals(
+  key: RunMetricKey,
+  sum: number | null,
+  observedCount: number,
+): SummaryItem {
+  return metricSummary(
+    key,
+    sum != null && observedCount > 0 ? sum / observedCount : null,
+    observedCount,
+  );
+}
+
+/** Totals per stored metric column, as a grouped aggregate returns them. */
+export interface MetricTotals {
+  cost: number | null;
+  durationMs: number | null;
+}
+
+/**
+ * A run's per-case cost and duration means, flattened for the internal run routes, with
+ * how many results each mean was taken over. `sum` is the aggregate's `_sum`, `count` its
+ * per-column `_count` (never the row count).
+ */
+export interface RunAverages {
+  avgCost: number | null;
+  costObservedCount: number;
+  avgDurationMs: number | null;
+  durationObservedCount: number;
+}
+
+export function runAverages(
+  sum: MetricTotals,
+  count: { cost: number; durationMs: number },
+): RunAverages {
+  const cost = metricFromTotals("cost", sum.cost, count.cost);
+  const duration = metricFromTotals("duration", sum.durationMs, count.durationMs);
+  return {
+    avgCost: cost.value,
+    costObservedCount: cost.observedCount,
+    avgDurationMs: duration.value,
+    durationObservedCount: duration.observedCount,
+  };
+}
+
 /** Summarize one run from its whole list of results. */
 export function summarizeRun(
   scorers: readonly ComparisonScorerMeta[],
@@ -215,7 +265,7 @@ export function summarizeRun(
       sum += x;
       n += 1;
     }
-    return metricSummary(m.key, n > 0 ? sum / n : null, n);
+    return metricFromTotals(m.key, sum, n);
   });
 
   return { scores: summarizer.items(), metrics };
