@@ -3897,6 +3897,19 @@
             ],
             "title": "Completed At"
           },
+          "dataset_case_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Case Count"
+          },
           "dataset_id": {
             "title": "Dataset Id",
             "type": "string"
@@ -3976,6 +3989,16 @@
           "run_path": {
             "title": "Run Path",
             "type": "string"
+          },
+          "run_selection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSelection"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "run_url": {
             "title": "Run Url",
