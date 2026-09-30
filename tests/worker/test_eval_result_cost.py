@@ -16,6 +16,7 @@ for grading itself.
 """
 
 from datetime import datetime, timedelta
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,6 +28,7 @@ from worker.ingest_tasks import (
     _update_eval_result_costs,
     process_s3_traces,
 )
+from worker.otel_transform import transform_otel_to_clickhouse
 
 T = "trace-1"
 
@@ -228,6 +230,84 @@ class TestLlmMetricsShareTheExclusion:
             ]
         )
         assert (m.total_tokens, m.llm_calls, m.llm_duration_ms) == (0, 0, 0)
+
+
+class TestCacheTokensAreCountedOnce:
+    """Ingest already stores a span's ``input_tokens`` GROSS: uncached + cache read + cache
+    write (otel_transform rebuilds it from the disjoint buckets), and ``total_tokens`` as
+    that plus output. A result's prompt and total tokens are those columns summed, so the
+    cache buckets in ``usage_details`` must not be added on top a second time."""
+
+    PRICES: ClassVar[dict[str, float]] = {
+        "input": 0.00000125,
+        "output": 0.00001,
+        "cacheRead": 0.000000125,
+        "cacheWrite": 0.0000015625,
+    }
+
+    def _stored_row(self, input_attr):
+        """One LLM span through the real transform, projected to the worker's row."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            attributes=[
+                make_attr("openinference.span.kind", "LLM"),
+                make_attr("gen_ai.system", "openai"),
+                make_attr("gen_ai.request.model", "gpt-5.6-luna"),
+                input_attr,
+                make_attr("gen_ai.usage.output_tokens", 27),
+                make_attr("gen_ai.usage.cache_read_input_tokens", 3581),
+                make_attr("gen_ai.usage.cache_write_input_tokens", 834),
+            ],
+        )
+        payload = make_otel_payload([span], scope_name="@traceroot-ai/pi-extension")
+        with patch("worker.tokens.pricing.get_model_price", return_value=self.PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        s = spans[0]
+        row = tuple(
+            s.get(k)
+            for k in (
+                "trace_id",
+                "span_id",
+                "parent_span_id",
+                "span_kind",
+                "cost",
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "span_start_time",
+                "span_end_time",
+            )
+        )
+        return s, row
+
+    @pytest.mark.parametrize(
+        ("input_attr", "gross_input"),
+        [
+            # Net emitter (Pi): input excludes cache; the 3 uncached tokens floor to 0.
+            (make_attr("gen_ai.usage.input_tokens", 3), 3581 + 834),
+            # Gross emitter: input already contains both cache buckets.
+            (make_attr("llm.token_count.prompt", 3 + 3581 + 834), 3 + 3581 + 834),
+        ],
+    )
+    def test_prompt_tokens_equal_the_stored_cache_inclusive_input(self, input_attr, gross_input):
+        s, row = self._stored_row(input_attr)
+        assert s["input_tokens"] == gross_input
+        m = _task_metrics_by_trace([row])[row[0]]
+        assert m.prompt_tokens == s["input_tokens"]
+        assert m.completion_tokens == 27
+        assert m.total_tokens == s["total_tokens"] == gross_input + 27
+        assert m.cost == pytest.approx(s["cost"])
+
+    def test_cache_counts_are_not_added_to_an_already_gross_row(self):
+        m = _task_metrics_by_trace(
+            [
+                _row("root", None, "EVALUATION", None),
+                # 3 uncached + 3581 cache read + 834 cache write, stored gross.
+                _row("llm", "root", "LLM", 0.01, tokens=(4418, 27, 4445), ms=10),
+            ]
+        )[T]
+        assert (m.prompt_tokens, m.total_tokens) == (4418, 4445)
 
 
 class TestEachModelCallIsCountedOnce:
