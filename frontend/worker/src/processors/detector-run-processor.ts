@@ -16,6 +16,7 @@ import { runDetectionForTrace } from "../detection/sandbox-eval.js";
 import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-writer.js";
 import { withSelfTrace } from "../detection/self-trace-emitter.js";
 import { boundedJson } from "../detection/traced-complete.js";
+import { enqueueSignalHits } from "../ee/signals/queue.js";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
@@ -516,6 +517,13 @@ async function evaluateTrace(
 
   console.log(
     `[Detector] Finding ${findingId} created for trace ${traceId} (${triggered.length} detector(s) triggered)`,
+  );
+
+  // Signals (ee): enqueue assignment for detectors with signals on; the job
+  // reads the hits back from ClickHouse. A failure here must not fail the
+  // finding, which is written; the sweeper picks the hits up later.
+  await enqueueSignalHits({ projectId, detectors, triggered }).catch((err) =>
+    console.error(`[Detector] Failed to enqueue signal assignment for finding ${findingId}:`, err),
   );
 
   // RCA is shared per trace. Run it only when at least one triggered detector

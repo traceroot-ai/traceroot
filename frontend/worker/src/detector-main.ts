@@ -4,12 +4,14 @@
  * Background job processor for:
  * - Detector runs: BullMQ worker for evaluating detectors against traces
  * - Detector RCA: BullMQ worker for root cause analysis of findings
+ * - Signal assignment: BullMQ worker grouping detector hits into signals
  */
 
 import { prisma } from "@traceroot/core";
 import { startDetectorRunWorker } from "./processors/detector-run-processor.js";
 import { startDetectorRcaWorker } from "./processors/detector-rca-processor.js";
 import { startDetectorDigestWorker } from "./processors/detector-digest-processor.js";
+import { startSignalAssignWorker } from "./ee/signals/worker.js";
 import { initSelfTraceEmitter, shutdownSelfTraceEmitter } from "./detection/self-trace-emitter.js";
 import { isAlertsSchedulerEnabled, startAlertScheduler } from "./alerts/scheduler.js";
 import { logInfo } from "./alerts/log.js";
@@ -20,6 +22,7 @@ let isShuttingDown = false;
 let detectorRunWorker: ReturnType<typeof startDetectorRunWorker> | undefined;
 let detectorRcaWorker: ReturnType<typeof startDetectorRcaWorker> | undefined;
 let detectorDigestWorker: ReturnType<typeof startDetectorDigestWorker> | undefined;
+let signalAssignWorker: ReturnType<typeof startSignalAssignWorker> | undefined;
 let alertNotificationWorker: ReturnType<typeof startAlertNotificationWorker> | undefined;
 let alertScheduler: ReturnType<typeof startAlertScheduler> | undefined;
 
@@ -53,6 +56,9 @@ async function shutdown(signal: string): Promise<void> {
     }
     if (detectorDigestWorker) {
       await detectorDigestWorker.close();
+    }
+    if (signalAssignWorker) {
+      await signalAssignWorker.close();
     }
     // Flush batched self-trace spans; shutdownSelfTraceEmitter catches
     // internally so an export failure cannot crash shutdown.
@@ -92,6 +98,10 @@ async function main(): Promise<void> {
   // Start BullMQ detector digest worker
   detectorDigestWorker = startDetectorDigestWorker();
   console.log("[Detector Worker] Detector digest worker started");
+
+  // Assigns detector hits to signals, one job per (project, detector).
+  signalAssignWorker = startSignalAssignWorker();
+  console.log("[Detector Worker] Signal assignment worker started");
 
   // Alert delivery consumer and the once-a-minute evaluation tick. Both live
   // here rather than in a process of their own (ruling B5), and the flag gates
