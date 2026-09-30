@@ -8,6 +8,7 @@ import {
   type ComparisonScorerMeta,
   type CompareRunsInput,
 } from "./comparison";
+import type { RunCoverage } from "./coverage";
 
 // ── builders ─────────────────────────────────────────────────────────────
 
@@ -34,6 +35,32 @@ function result(testCaseId: string, opts: Partial<ComparisonResult> = {}): Compa
   };
 }
 
+/** Coverage builders — the four readings, spelled out where a test needs one. */
+const fullCoverage = (n = 10): RunCoverage => ({
+  mode: "full",
+  datasetCaseCount: n,
+  selectedCaseCount: n,
+  sampleSeed: null,
+});
+const firstCoverage = (selected: number, total = 500): RunCoverage => ({
+  mode: "first",
+  datasetCaseCount: total,
+  selectedCaseCount: selected,
+  sampleSeed: null,
+});
+const sampleCoverage = (selected: number, seed: number, total = 500): RunCoverage => ({
+  mode: "sample",
+  datasetCaseCount: total,
+  selectedCaseCount: selected,
+  sampleSeed: seed,
+});
+const unknownCoverage = (): RunCoverage => ({
+  mode: "unknown",
+  datasetCaseCount: null,
+  selectedCaseCount: null,
+  sampleSeed: null,
+});
+
 function run(opts: Partial<ComparisonRun> = {}): ComparisonRun {
   return {
     id: opts.id ?? "run_cand",
@@ -44,6 +71,10 @@ function run(opts: Partial<ComparisonRun> = {}): ComparisonRun {
     status: opts.status ?? "completed",
     baselineRunId: opts.baselineRunId === undefined ? "run_base" : opts.baselineRunId,
     scorers: opts.scorers ?? [{ name: "acc", version: "unversioned" }],
+    // Unknown by default, as every run recorded today is: the pre-existing cases then
+    // prove that a comparison between coverage-less runs is unchanged. The coverage
+    // suite below overrides it deliberately.
+    coverage: opts.coverage ?? unknownCoverage(),
   };
 }
 
@@ -744,5 +775,175 @@ describe("deriveComparisonState (four-state discriminant)", () => {
     expect(
       deriveComparisonState(true, false, ["candidate_not_terminal", "different_evaluation"]),
     ).toBe("pending");
+  });
+});
+
+describe("dataset coverage and trust", () => {
+  /** Two runs over the SAME case ids, so nothing but coverage can disqualify them. */
+  const pairOver = (ids: string[], candidate: RunCoverage, baseline: RunCoverage) =>
+    compareRuns(
+      build({
+        candidate: run({ coverage: candidate }),
+        baseline: run({ id: "run_base", runNumber: 1, coverage: baseline }),
+        candidateResults: ids.map((id) => result(id, { scores: [num("acc", 1)] })),
+        baselineResults: ids.map((id) => result(id, { scores: [num("acc", 0.5)] })),
+      }),
+    ).comparison;
+
+  it("trusts two runs that both provably covered the whole dataset", () => {
+    const c = pairOver(["a", "b"], fullCoverage(2), fullCoverage(2));
+    expect(c.reasons).toEqual([]);
+    expect(c.trustworthy).toBe(true);
+    expect(c.state).toBe("trustworthy");
+  });
+
+  it("refuses to trust two IDENTICAL subsets — the hole matching case sets left open", () => {
+    // The shape a CLI encourages: the same `--first 20` in a loop while iterating. The
+    // two runs pair perfectly (unpairedCases = 0), are both terminal and share a dataset
+    // version, so every other check passes and this used to read as an authoritative
+    // verdict at 4% coverage. Matching case sets say the runs agree about those cases;
+    // they say nothing about the dataset.
+    const c = pairOver(["a", "b"], firstCoverage(20), firstCoverage(20));
+    expect(c.reasons).not.toContain("case_set_mismatch");
+    expect(c.reasons).toContain("partial_coverage");
+    expect(c.trustworthy).toBe(false);
+    expect(c.state).toBe("exploratory");
+  });
+
+  it("refuses two identically-seeded samples for the same reason", () => {
+    const c = pairOver(["a", "b"], sampleCoverage(20, 7), sampleCoverage(20, 7));
+    expect(c.reasons).toContain("partial_coverage");
+    expect(c.trustworthy).toBe(false);
+  });
+
+  it("disqualifies a subset on either side", () => {
+    expect(pairOver(["a", "b"], firstCoverage(20), fullCoverage(2)).reasons).toContain(
+      "partial_coverage",
+    );
+    expect(pairOver(["a", "b"], fullCoverage(2), firstCoverage(20)).reasons).toContain(
+      "partial_coverage",
+    );
+  });
+
+  it("leaves a comparison between two coverage-less runs exactly as it was", () => {
+    // Every run recorded before coverage existed, and every run from an SDK that does
+    // not report it, lands here. Unknown coverage is neutral: the verdict is the one the
+    // engine gave before coverage existed — the same as two full runs.
+    const c = pairOver(["a", "b"], unknownCoverage(), unknownCoverage());
+    expect(c.reasons).toEqual([]);
+    expect(c.trustworthy).toBe(true);
+    expect(c.state).toBe("trustworthy");
+    expect(c).toEqual(pairOver(["a", "b"], fullCoverage(2), fullCoverage(2)));
+  });
+
+  it("keeps unknown coverage neutral beside a full run on either side", () => {
+    for (const [cand, base] of [
+      [unknownCoverage(), fullCoverage(2)],
+      [fullCoverage(2), unknownCoverage()],
+    ]) {
+      const c = pairOver(["a", "b"], cand, base);
+      expect(c.reasons).toEqual([]);
+      expect(c.trustworthy).toBe(true);
+    }
+  });
+
+  it("still downgrades a known subset compared against an unknown-coverage run", () => {
+    const c = pairOver(["a", "b"], firstCoverage(20), unknownCoverage());
+    expect(c.reasons).toEqual(["partial_coverage"]);
+    expect(c.trustworthy).toBe(false);
+  });
+
+  it("does not count a first/sample run that selected every case as partial", () => {
+    const c = pairOver(["a", "b"], firstCoverage(500), sampleCoverage(500, 7));
+    expect(c.reasons).toEqual([]);
+    expect(c.trustworthy).toBe(true);
+  });
+
+  it("changes the verdict only for a known partial run: none/none, none/full, none/partial, partial/full", () => {
+    // `none` is a run with no recorded coverage — every run today.
+    const none = unknownCoverage();
+    const partial = firstCoverage(20);
+    const full = fullCoverage(2);
+    const mainVerdict = { reasons: [], trustworthy: true, state: "trustworthy" };
+    expect(pairOver(["a", "b"], none, none)).toMatchObject(mainVerdict);
+    expect(pairOver(["a", "b"], none, full)).toMatchObject(mainVerdict);
+    expect(pairOver(["a", "b"], full, none)).toMatchObject(mainVerdict);
+    const downgraded = {
+      reasons: ["partial_coverage"],
+      trustworthy: false,
+      state: "exploratory",
+    };
+    expect(pairOver(["a", "b"], none, partial)).toMatchObject(downgraded);
+    expect(pairOver(["a", "b"], partial, none)).toMatchObject(downgraded);
+    expect(pairOver(["a", "b"], partial, full)).toMatchObject(downgraded);
+    expect(pairOver(["a", "b"], full, partial)).toMatchObject(downgraded);
+  });
+
+  it("reports a partial run once, not once per side", () => {
+    const c = pairOver(["a", "b"], firstCoverage(20), firstCoverage(20));
+    expect(c.reasons.filter((r) => r === "partial_coverage")).toHaveLength(1);
+  });
+
+  it("leaves the arithmetic alone — only the verdict changes", () => {
+    // Trust is separate from the deltas: a subset comparison is still computed and
+    // still correct ABOUT ITS SUBSET; it just may not be read as a dataset verdict.
+    const full = pairOver(["a", "b"], fullCoverage(2), fullCoverage(2));
+    const subset = pairOver(["a", "b"], firstCoverage(20), firstCoverage(20));
+    expect(subset.scorers).toEqual(full.scorers);
+    expect(subset.scoreCellCounts).toEqual(full.scoreCellCounts);
+  });
+
+  it("keeps the existing compatibility checks intact alongside coverage", () => {
+    // A different dataset version still disqualifies, and still reports its own reason,
+    // whatever the coverage says.
+    const c = compareRuns(
+      build({
+        candidate: run({ coverage: fullCoverage(2) }),
+        baseline: run({
+          id: "run_base",
+          runNumber: 1,
+          datasetVersionId: "dsv_2",
+          coverage: fullCoverage(2),
+        }),
+        candidateResults: [result("a", { scores: [num("acc", 1)] })],
+        baselineResults: [result("a", { scores: [num("acc", 0.5)] })],
+      }),
+    ).comparison;
+    expect(c.reasons).toContain("different_dataset_version");
+    expect(c.reasons).not.toContain("partial_coverage");
+  });
+
+  it("still says pending, not exploratory, when a subset run is also unfinished", () => {
+    // A non-terminal run is pending until it settles — "still running" stays the more
+    // actionable state even once coverage has an opinion.
+    const c = compareRuns(
+      build({
+        candidate: run({ status: "running", coverage: firstCoverage(20) }),
+        baseline: run({ id: "run_base", runNumber: 1, coverage: fullCoverage(2) }),
+        candidateResults: [result("a", { scores: [num("acc", 1)] })],
+        baselineResults: [result("a", { scores: [num("acc", 0.5)] })],
+      }),
+    ).comparison;
+    expect(c.reasons).toContain("candidate_not_terminal");
+    expect(c.reasons).toContain("partial_coverage");
+    expect(c.state).toBe("pending");
+  });
+
+  it("does not manufacture coverage reasons when there is no baseline to compare", () => {
+    const c = compareRuns(
+      build({
+        candidate: run({ baselineRunId: null, coverage: unknownCoverage() }),
+        baseline: null,
+        candidateResults: [result("a", { scores: [num("acc", 1)] })],
+      }),
+    ).comparison;
+    expect(c.reasons).toEqual(["no_baseline"]);
+    expect(c.state).toBe("unavailable");
+  });
+});
+
+describe("deriveComparisonState with coverage reasons", () => {
+  it("maps a coverage disqualification to exploratory", () => {
+    expect(deriveComparisonState(true, false, ["partial_coverage"])).toBe("exploratory");
   });
 });
