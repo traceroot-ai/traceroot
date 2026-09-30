@@ -20,7 +20,7 @@ const note = z
 
 /**
  * A user's status change. Resolving and dismissing take a reason, and a note
- * when the reason is "other"; reopening takes neither.
+ * when the reason is "other"; reopening takes no reason and an optional note.
  */
 export const signalStatusChangeSchema = z
   .discriminatedUnion("status", [

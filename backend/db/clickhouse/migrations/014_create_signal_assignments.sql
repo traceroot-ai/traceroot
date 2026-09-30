@@ -22,7 +22,10 @@ CREATE TABLE IF NOT EXISTS signal_assignments
     embedding        Array(Float32),
     score            Nullable(Float64),
     criteria_version Nullable(UInt32),
-    assigned_at      DateTime64(3)
+    -- The replacement version: the hit's assigned_at in Postgres, at the same
+    -- microsecond precision. A user's move stamps a time later than the hit's
+    -- previous one, so the newest placement wins whatever order writes land in.
+    assigned_at      DateTime64(6)
 )
 ENGINE = ReplacingMergeTree(assigned_at)
 ORDER BY (project_id, detector_id, run_id);
