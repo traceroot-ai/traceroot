@@ -33,6 +33,11 @@ function run(over: Row = {}): Row {
     datasetId: "ds_internal",
     datasetVersionId: "dv_1",
     caseCount: 2,
+    // Coverage as a run registered without it stores it: all four columns null.
+    datasetCaseCount: null,
+    selectionMode: null,
+    selectedCaseCount: null,
+    sampleSeed: null,
     scoredCount: 2,
     taskErrorCount: 0,
     scorerErrorCount: 0,
@@ -224,12 +229,11 @@ describe("response shape", () => {
     expect(body.dataset_id).toBe("ds_client_facing");
   });
 
-  it("carries the run's link and no comparison or coverage block", async () => {
+  it("carries the run's link and no comparison block", async () => {
     const body = await readBody([run()]);
     expect(body.run_path).toBe(`/projects/${OURS}/evaluations/run_1`);
     expect(body.run_url).toMatch(/\/projects\/proj_ours\/evaluations\/run_1$/);
     expect(body).not.toHaveProperty("comparison");
-    expect(body).not.toHaveProperty("coverage");
   });
 
   it("supplies units from the server for the two stored metrics, and leaves scores unitless", async () => {
@@ -321,6 +325,82 @@ describe("response shape", () => {
         "value_type",
       ]);
     }
+  });
+});
+
+describe("dataset coverage", () => {
+  const declared = (over: Row) => run({ datasetCaseCount: 500, selectedCaseCount: 20, ...over });
+
+  it("reports a run that declared no coverage as null for both, never as full", async () => {
+    // Every run registered before coverage existed, and every SDK that does not send it.
+    const body = await readBody([run()]);
+    expect(body.dataset_case_count).toBeNull();
+    expect(body.run_selection).toBeNull();
+  });
+
+  it("reports a full run's total and selection", async () => {
+    const body = await readBody([
+      run({ datasetCaseCount: 500, selectionMode: "full", selectedCaseCount: 500 }),
+    ]);
+    expect(body.dataset_case_count).toBe(500);
+    expect(body.run_selection).toEqual({
+      mode: "full",
+      selected_case_count: 500,
+      sample_seed: null,
+    });
+  });
+
+  it("reports a subset as selected out of the dataset's total", async () => {
+    const body = await readBody([declared({ selectionMode: "first" })]);
+    expect(body.dataset_case_count).toBe(500);
+    expect(body.run_selection).toEqual({
+      mode: "first",
+      selected_case_count: 20,
+      sample_seed: null,
+    });
+  });
+
+  it("serves a sample's BIGINT seed as an exact number, and the body stays serializable", async () => {
+    // sample_seed is BIGINT, so Prisma reads it back as a bigint that JSON cannot carry.
+    const body = await readBody([
+      declared({ selectionMode: "sample", sampleSeed: BigInt(1726000000000) }),
+    ]);
+    expect(body.run_selection).toEqual({
+      mode: "sample",
+      selected_case_count: 20,
+      sample_seed: 1726000000000,
+    });
+    expect(() => JSON.stringify(body)).not.toThrow();
+  });
+
+  it("drops a seed stored on a run that is not a sample", async () => {
+    const body = await readBody([declared({ selectionMode: "first", sampleSeed: BigInt(7) })]);
+    expect(body.run_selection.sample_seed).toBeNull();
+  });
+
+  it("reads a half-written or unrecognised declaration as unknown rather than guessing", async () => {
+    for (const over of [
+      { selectionMode: "stratified" },
+      { selectionMode: "first", datasetCaseCount: null },
+      { selectionMode: "first", selectedCaseCount: null },
+    ]) {
+      const body = await readBody([declared(over)]);
+      expect(body.dataset_case_count, JSON.stringify(over)).toBeNull();
+      expect(body.run_selection, JSON.stringify(over)).toBeNull();
+    }
+  });
+
+  it("asks the database for the four coverage columns", async () => {
+    // The fake returns whole rows whatever is selected, so pin the select itself.
+    const d = db([run()]);
+    holder.prisma = d.client;
+    await readRunSummary({ projectId: OURS, runId: "run_1" });
+    expect(d.selects[0]).toMatchObject({
+      datasetCaseCount: true,
+      selectionMode: true,
+      selectedCaseCount: true,
+      sampleSeed: true,
+    });
   });
 });
 
