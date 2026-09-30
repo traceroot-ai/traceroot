@@ -32,12 +32,13 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from rest.rate_limit import (
-    BUCKET_READ,
+    BUCKET_WRITE,
     is_request_rate_limit_exempt,
-    key_read,
+    key_write,
     limiter,
     resolve_limit,
 )
+from rest.routers.public.account_write import LiveSession
 from rest.routers.public.deps import AccountStampedAuth
 from shared.config import settings
 
@@ -124,13 +125,14 @@ async def _call_internal(route: str, payload: dict[str, Any]) -> Response:
 
 @router.post("/{project_id}/api-keys", include_in_schema=False)
 @limiter.shared_limit(
-    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+    resolve_limit, scope=BUCKET_WRITE, key_func=key_write, exempt_when=is_request_rate_limit_exempt
 )
 async def create_project_api_key(
     project_id: str,
     request: Request,
     response: Response,
     auth: AccountStampedAuth,
+    _live: LiveSession,
 ) -> Response:
     """Mint an API key for one of this user's projects.
 
@@ -145,6 +147,9 @@ async def create_project_api_key(
         response (Response): Outgoing response (rate-limit plumbing).
         auth (AccountStampedAuth): Account-scope user auth (session token or CLI
             access JWT); carries the resolved ``user_id``.
+        _live (LiveSession): Refuses a JWT whose minting session has been revoked
+            or expired. The key minted here does not expire by default, so a
+            revoked token must not be able to leave one behind.
 
     Returns:
         Response: 201 with the minted key, which appears in this response and
