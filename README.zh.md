@@ -207,8 +207,17 @@ main().catch(console.error);
 
 TraceRoot 中除名为 `ee` 的目录外，代码均采用 [Apache 2.0](LICENSE) 许可证。`ee` 目录中的代码采用[企业版许可证](ee/LICENSE)。
 
+## 贡献者
+
+<p align="center">
+<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot 贡献者" />
+</a>
+</p>
+
 ## Star 趋势
 
+<p align="center">
 <a href="https://star-history.com/#traceroot-ai/traceroot&Date">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date&theme=dark" />
@@ -216,12 +225,7 @@ TraceRoot 中除名为 `ee` 的目录外，代码均采用 [Apache 2.0](LICENSE)
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" style="border-radius: 15px;" />
  </picture>
 </a>
-
-## 贡献者
-
-<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot 贡献者" />
-</a>
+</p>
 
 <br>
 

@@ -207,8 +207,17 @@ Special thanks to [pi-mono](https://github.com/badlogic/pi-mono), which powers o
 
 TraceRoot uses [Apache 2.0](LICENSE) for code outside directories named `ee`. Those directories are covered by the [Enterprise License](ee/LICENSE).
 
+## Contributors
+
+<p align="center">
+<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot contributors" />
+</a>
+</p>
+
 ## Star History
 
+<p align="center">
 <a href="https://star-history.com/#traceroot-ai/traceroot&Date">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date&theme=dark" />
@@ -216,12 +225,7 @@ TraceRoot uses [Apache 2.0](LICENSE) for code outside directories named `ee`. Th
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" style="border-radius: 15px;" />
  </picture>
 </a>
-
-## Contributors
-
-<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot contributors" />
-</a>
+</p>
 
 <br>
 

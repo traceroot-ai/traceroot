@@ -207,8 +207,17 @@ main().catch(console.error);
 
 TraceRoot는 `ee` 디렉터리 외부의 코드에 [Apache 2.0](LICENSE) 라이선스를 적용합니다. `ee` 디렉터리에는 [Enterprise 라이선스](ee/LICENSE)가 적용됩니다.
 
+## Contributors
+
+<p align="center">
+<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot 기여자" />
+</a>
+</p>
+
 ## Star History
 
+<p align="center">
 <a href="https://star-history.com/#traceroot-ai/traceroot&Date">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date&theme=dark" />
@@ -216,12 +225,7 @@ TraceRoot는 `ee` 디렉터리 외부의 코드에 [Apache 2.0](LICENSE) 라이�
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" style="border-radius: 15px;" />
  </picture>
 </a>
-
-## Contributors
-
-<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot 기여자" />
-</a>
+</p>
 
 <br>
 
