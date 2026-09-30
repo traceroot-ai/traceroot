@@ -213,6 +213,7 @@ class TestGetTraceSkeleton:
                         "file.py",  # git_source_file
                         12,  # git_source_line
                         "fn",  # git_source_function
+                        "",  # error_type
                     )
                 ]
             )
@@ -288,11 +289,53 @@ class TestGetTraceSkeleton:
         assert span["git_source_file"] == "file.py"
         assert span["git_source_line"] == 12
         assert span["git_source_function"] == "fn"
+        assert span["error_type"] == ""
 
         # Trace-level I/O is preserved.
         assert result["input"] == "trace-in"
         assert result["output"] == "trace-out"
         assert result["metadata"] == "trace-meta"
+
+    def test_error_span_carries_error_type_through_to_the_response(self):
+        """error_type is the last column, so nothing before it moves; it round-trips."""
+        from rest.schemas.traces import SpanResponse
+
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                trace_row = ("abc123", "proj", "t", datetime(2024, 1, 1)) + (None,) * 7
+                return _rows([trace_row])
+            return _rows(
+                [
+                    (
+                        "span-1",
+                        "abc123",
+                        None,
+                        "tool.call",
+                        "TOOL",
+                        datetime(2024, 1, 1),
+                        datetime(2024, 1, 1),
+                        "ERROR",
+                        "connection timed out",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        {},
+                        None,
+                        None,
+                        None,
+                        None,
+                        "TimeoutError",  # error_type
+                    )
+                ]
+            )
+
+        service, _ = _make_service(side_effect)
+        span = service.get_trace("proj", "abc123")["spans"][0]
+        assert span["status"] == "ERROR"
+        assert span["error_type"] == "TimeoutError"
+        assert SpanResponse.model_validate(span).error_type == "TimeoutError"
 
     def test_returns_none_when_trace_missing(self):
         def side_effect(query, parameters=None):
