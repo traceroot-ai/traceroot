@@ -27,6 +27,29 @@ import {
   type WaitingHit,
 } from "./write.js";
 
+/**
+ * Point each copy at the signal Postgres holds for its hit now. A user may have
+ * moved the hit since it was assigned, and that move's rewrite of the
+ * ClickHouse copy found no copy yet.
+ */
+async function followMoves(db: Pick<PrismaClient, "signalHit">, batch: AssignmentRow[]) {
+  const assigned = batch.filter((c) => !c.gave_up);
+  if (assigned.length === 0) return;
+  const rows = await db.signalHit.findMany({
+    where: { runId: { in: assigned.map((c) => c.run_id) } },
+    select: { runId: true, signalId: true, score: true, criteriaVersion: true, assignedAt: true },
+  });
+  const current = new Map(rows.map((r) => [r.runId, r]));
+  for (const copy of assigned) {
+    const hit = current.get(copy.run_id);
+    if (!hit || hit.assignedAt.getTime() <= copy.assigned_at_ms) continue;
+    copy.signal_id = hit.signalId;
+    copy.score = hit.score;
+    copy.criteria_version = hit.criteriaVersion;
+    copy.assigned_at_ms = hit.assignedAt.getTime();
+  }
+}
+
 export type RoundDb = Pick<
   PrismaClient,
   "$transaction" | "detector" | "signal" | "signalHit" | "aIMessage"
@@ -175,6 +198,7 @@ export async function runAssignmentRound(
     if (copies.length === 0) return;
     const batch = copies.splice(0);
     try {
+      await followMoves(db, batch);
       await deps.backend.writeAssignments(batch);
     } catch (err) {
       flushError = err;

@@ -71,6 +71,7 @@ async function rewriteCopies(moved: MovedHits): Promise<void> {
           project_id: moved.projectId,
           detector_id: moved.detectorId,
           signal_id: moved.signalId,
+          assigned_at_ms: moved.assignedAt.getTime(),
           run_ids: runIds,
         }),
       });
@@ -81,7 +82,8 @@ async function rewriteCopies(moved: MovedHits): Promise<void> {
   }
 }
 
-// GET /api/projects/[projectId]/detectors/[detectorId]/signals?status=open
+// GET /api/projects/[projectId]/detectors/[detectorId]/signals?status=open&page=0&limit=50
+// Returns `{ data, meta }` like the other list endpoints.
 export async function handleListDetectorSignals(
   req: NextRequest,
   { params }: Params<{ projectId: string; detectorId: string }>,
@@ -89,12 +91,23 @@ export async function handleListDetectorSignals(
   const { projectId, detectorId } = await params;
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
-  const status = req.nextUrl.searchParams.get("status");
+  const { searchParams } = req.nextUrl;
+  const status = searchParams.get("status");
   if (status && !(SIGNAL_STATUSES as readonly string[]).includes(status)) {
     return errorResponse(`status must be one of ${SIGNAL_STATUSES.join(", ")}`, 400);
   }
-  const signals = await listSignals(prisma, { projectId, detectorId, status: status ?? undefined });
-  return successResponse({ signals });
+  const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);
+  const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
+  const limit = isNaN(rawLimit) ? 50 : Math.min(Math.max(rawLimit, 1), 200);
+  const page = isNaN(rawPage) ? 0 : Math.max(rawPage, 0);
+  const { signals, total } = await listSignals(prisma, {
+    projectId,
+    detectorId,
+    status: status ?? undefined,
+    page,
+    limit,
+  });
+  return successResponse({ data: signals, meta: { page, limit, total } });
 }
 
 // GET /api/projects/[projectId]/signals/[signalId]

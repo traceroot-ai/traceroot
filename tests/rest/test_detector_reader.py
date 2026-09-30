@@ -465,17 +465,28 @@ def _two_detector_finding(reader):
     reader._client.rows = [("f1", "p1", "t1", "sum", payload, datetime(2026, 9, 30))]
 
 
-def _signals_pg(own_rca=None, inherited=None, fail=None):
-    """Fake Postgres for the signal lookups; ``fail`` names a query to raise on."""
+def _signals_pg(own_rca=None, inherited=None, fail=None, calls=None):
+    """Fake Postgres for the signal lookups; ``fail`` names a query to raise on.
+
+    Rows come back only for project p1 and its finding f1 / signal sig-1, so a
+    lookup that loses its project or finding filter finds nothing. ``calls``
+    collects (sql, params) for assertions.
+    """
 
     def fake_pg(sql, params):
         s = sql.lower()
+        if calls is not None:
+            calls.append((s, params))
         if fail and fail in s:
             raise RuntimeError("postgres down")
         if "from signal_hits sh join signals" in s:
-            return [("f1", "d1", "sig-1", "Timeout swallowed", "open")]
+            if "sh.project_id = %s" in s and params == ("p1", ["f1"]):
+                return [("f1", "d1", "sig-1", "Timeout swallowed", "open")]
+            return []
         if "from signal_rcas" in s:
-            return inherited or []
+            if "dr.project_id = %s" in s and params == (["sig-1"], "p1"):
+                return inherited or []
+            return []
         if "from detector_rcas" in s:
             return own_rca or []
         return []
@@ -485,8 +496,19 @@ def _signals_pg(own_rca=None, inherited=None, fail=None):
 
 def test_get_finding_attaches_the_signal_of_each_grouped_hit(reader, monkeypatch):
     _two_detector_finding(reader)
-    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(own_rca=[("done", "own")]))
+    calls = []
+    monkeypatch.setattr(
+        reader,
+        "_pg_rows",
+        _signals_pg(
+            own_rca=[("done", "own")],
+            inherited=[("sig-1", "- Root cause: the signal's", "trace-first")],
+            calls=calls,
+        ),
+    )
     detail = reader.get_finding("p1", "f1")
+    signal_lookups = [p for sql, p in calls if "from signal_hits sh join signals" in sql]
+    assert signal_lookups == [("p1", ["f1"])]
     first, second = detail.results
     assert (first.signal_id, first.signal_title, first.signal_status) == (
         "sig-1",
@@ -496,18 +518,23 @@ def test_get_finding_attaches_the_signal_of_each_grouped_hit(reader, monkeypatch
     # Not grouped (signals off, or not assigned yet): no signal.
     assert (second.signal_id, second.signal_title, second.signal_status) == (None, None, None)
     assert [s.signal_id for s in detail.signals] == ["sig-1"]
-    # The finding's own RCA wins over the signal's.
+    # The finding's own RCA wins over the signal's, which is not even read.
     assert detail.rca.result == "own" and detail.rca.inherited is False
+    assert not any("from signal_rcas" in sql for sql, _ in calls)
 
 
 def test_get_finding_inherits_the_signal_rca_when_it_ran_none(reader, monkeypatch):
     _two_detector_finding(reader)
+    calls = []
     monkeypatch.setattr(
         reader,
         "_pg_rows",
-        _signals_pg(inherited=[("sig-1", "- Root cause: swallowed timeout", "trace-first")]),
+        _signals_pg(
+            inherited=[("sig-1", "- Root cause: swallowed timeout", "trace-first")], calls=calls
+        ),
     )
     detail = reader.get_finding("p1", "f1")
+    assert [p for sql, p in calls if "from signal_rcas" in sql] == [(["sig-1"], "p1")]
     assert detail.rca.status == "done"
     assert detail.rca.inherited is True
     assert detail.rca.result.startswith('## Failure: signal "Timeout swallowed"')

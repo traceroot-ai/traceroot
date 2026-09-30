@@ -5,8 +5,6 @@ type ReadDb = Pick<PrismaClient, "signal" | "signalHit" | "signalStatusEvent">;
 
 /** Most recent hits and status changes returned with a signal. */
 const DETAIL_LIMIT = 50;
-/** Signals returned for one detector; far above what a detector accumulates. */
-const LIST_LIMIT = 500;
 
 type OpeningRow = {
   reopenSeq: number;
@@ -26,42 +24,53 @@ function rcaSummary(rcas: OpeningRow[], reopenSeq: number) {
   };
 }
 
-/** A detector's signals, most recently seen first. Merged signals are left out. */
+/**
+ * One page of a detector's signals, most recently seen first, and how many
+ * there are. Merged signals are left out.
+ */
 export async function listSignals(
   db: Pick<PrismaClient, "signal">,
-  params: { projectId: string; detectorId: string; status?: string },
+  params: { projectId: string; detectorId: string; status?: string; page: number; limit: number },
 ) {
-  const rows = await db.signal.findMany({
-    where: {
-      projectId: params.projectId,
-      detectorId: params.detectorId,
-      mergedIntoId: null,
-      ...(params.status ? { status: params.status } : {}),
-    },
-    orderBy: { lastSeenAt: "desc" },
-    take: LIST_LIMIT,
-    select: {
-      id: true,
-      title: true,
-      status: true,
-      hitCount: true,
-      firstSeenAt: true,
-      lastSeenAt: true,
-      reopenSeq: true,
-      criteriaVersion: true,
-      groupKey: true,
-      createTime: true,
-      rcas: {
-        select: {
-          reopenSeq: true,
-          findingId: true,
-          createTime: true,
-          rca: { select: { status: true } },
+  const where = {
+    projectId: params.projectId,
+    detectorId: params.detectorId,
+    mergedIntoId: null,
+    ...(params.status ? { status: params.status } : {}),
+  };
+  const [rows, total] = await Promise.all([
+    db.signal.findMany({
+      where,
+      orderBy: [{ lastSeenAt: "desc" }, { id: "asc" }],
+      skip: params.page * params.limit,
+      take: params.limit,
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        hitCount: true,
+        firstSeenAt: true,
+        lastSeenAt: true,
+        reopenSeq: true,
+        criteriaVersion: true,
+        groupKey: true,
+        createTime: true,
+        rcas: {
+          select: {
+            reopenSeq: true,
+            findingId: true,
+            createTime: true,
+            rca: { select: { status: true } },
+          },
         },
       },
-    },
-  });
-  return rows.map(({ rcas, ...s }) => ({ ...s, rca: rcaSummary(rcas, s.reopenSeq) }));
+    }),
+    db.signal.count({ where }),
+  ]);
+  return {
+    signals: rows.map(({ rcas, ...s }) => ({ ...s, rca: rcaSummary(rcas, s.reopenSeq) })),
+    total,
+  };
 }
 
 /**

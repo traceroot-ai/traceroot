@@ -4,6 +4,9 @@ The worker assigns detector hits to signals and keeps the assignment in
 Postgres; ClickHouse holds a copy in ``signal_assignments``. A hit is waiting
 when its detector run fired a finding and has no row there. Every read is
 secret-gated and scoped by project and detector.
+
+The handlers are plain functions: FastAPI runs them in its thread pool, so the
+blocking ClickHouse calls do not hold up the event loop.
 """
 
 import json
@@ -49,7 +52,7 @@ def _parse_data(raw: str) -> Any:
 
 
 @router.get("/waiting-hits", dependencies=[Depends(verify_internal_secret)])
-async def list_waiting_hits(
+def list_waiting_hits(
     project_id: str,
     detector_id: str,
     since_ms: int = Query(..., ge=0),
@@ -194,7 +197,7 @@ class SignalAssignmentsPayload(BaseModel):
 
 
 @router.post("/assignments", dependencies=[Depends(verify_internal_secret)])
-async def write_signal_assignments(body: SignalAssignmentsPayload):
+def write_signal_assignments(body: SignalAssignmentsPayload):
     """Write the ClickHouse copy of hits the worker assigned in Postgres.
 
     Rewriting a run's row is harmless: the table keeps the row with the latest
@@ -217,18 +220,24 @@ class ReassignPayload(BaseModel):
     project_id: str = Field(min_length=1)
     detector_id: str = Field(min_length=1)
     signal_id: str = Field(min_length=1)
+    # When the user placed the hits, as written to their Postgres rows.
+    assigned_at_ms: int = Field(ge=0)
     run_ids: list[str] = Field(min_length=1, max_length=MAX_REASSIGN_RUNS)
 
 
 @router.post("/reassign", dependencies=[Depends(verify_internal_secret)])
-async def reassign_signal_assignments(body: ReassignPayload):
+def reassign_signal_assignments(body: ReassignPayload):
     """Point the ClickHouse copies of hits a user moved at their new signal.
 
     Called after a merge or a hit move commits in Postgres. Each hit's latest
     row is copied with the new ``signal_id``, its embedding kept, no score or
-    criteria version (a user placed it), and a newer ``assigned_at``, so the
-    new row replaces the old one on merge. Hits with no copy yet are skipped;
-    their first copy is written with the new signal anyway.
+    criteria version (a user placed it), and the placement time as
+    ``assigned_at``. The table keeps the row with the latest ``assigned_at``
+    per hit, and each placement is later than the hit's previous one, so when
+    two edits' rewrites arrive out of order the newer placement still wins.
+    Hits with no copy yet are skipped: the worker's first copy reads the hit's
+    signal from Postgres when it is written.
+
     """
     ch = get_clickhouse_client()
     ch.query(
@@ -238,7 +247,7 @@ async def reassign_signal_assignments(body: ReassignPayload):
              score, criteria_version, assigned_at)
         SELECT project_id, detector_id, run_id,
                argMax(trace_id, assigned_at), {signal_id:String}, argMax(embedding, assigned_at),
-               NULL, NULL, now64(3)
+               NULL, NULL, {assigned_at:DateTime64(6)}
         FROM signal_assignments
         WHERE project_id = {project_id:String}
           AND detector_id = {detector_id:String}
@@ -249,6 +258,7 @@ async def reassign_signal_assignments(body: ReassignPayload):
             "project_id": body.project_id,
             "detector_id": body.detector_id,
             "signal_id": body.signal_id,
+            "assigned_at": _ms_to_utc(body.assigned_at_ms),
             "run_ids": body.run_ids,
         },
     )

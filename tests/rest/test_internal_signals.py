@@ -261,6 +261,7 @@ class TestReassign:
                 "project_id": "p1",
                 "detector_id": "d1",
                 "signal_id": "s2",
+                "assigned_at_ms": 1_790_000_000_123,
                 "run_ids": ["r1", "r2"],
             },
             headers=HEADERS,
@@ -270,24 +271,32 @@ class TestReassign:
         params = mock_ch.query.call_args.kwargs["parameters"]
         assert "INSERT INTO signal_assignments" in sql
         assert "argMax(embedding, assigned_at)" in sql
-        assert "NULL, NULL, now64(3)" in sql
+        # The placement time is the row's version, so the newer of two edits wins.
+        assert "NULL, NULL, {assigned_at:DateTime64(6)}" in sql
         assert "GROUP BY project_id, detector_id, run_id" in sql
         assert params == {
             "project_id": "p1",
             "detector_id": "d1",
             "signal_id": "s2",
+            "assigned_at": datetime(2026, 9, 21, 14, 13, 20, 123000, tzinfo=UTC),
             "run_ids": ["r1", "r2"],
         }
 
     @pytest.mark.parametrize(
         "bad",
-        [{"run_ids": []}, {"run_ids": ["r"] * 1001}, {"signal_id": ""}],
+        [
+            {"run_ids": []},
+            {"run_ids": ["r"] * 1001},
+            {"signal_id": ""},
+            {"assigned_at_ms": -1},
+        ],
     )
     def test_rejects_bad_requests(self, client, mock_ch, bad):
         body = {
             "project_id": "p1",
             "detector_id": "d1",
             "signal_id": "s2",
+            "assigned_at_ms": 0,
             "run_ids": ["r1"],
             **bad,
         }

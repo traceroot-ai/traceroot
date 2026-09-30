@@ -139,16 +139,24 @@ describe("status changes", () => {
 });
 
 describe("reads", () => {
-  it("lists a detector's signals, optionally by status", async () => {
-    core.listSignals.mockResolvedValue([{ id: "s1" }]);
+  it("lists one page of a detector's signals, optionally by status", async () => {
+    core.listSignals.mockResolvedValue({ signals: [{ id: "s1" }], total: 51 });
     const res = await handleListDetectorSignals(
-      req(undefined, "?status=open"),
+      req(undefined, "?status=open&page=1&limit=50"),
       params({ projectId: "p1", detectorId: "d1" }),
     );
-    expect(await res.json()).toEqual({ signals: [{ id: "s1" }] });
+    expect(await res.json()).toEqual({
+      data: [{ id: "s1" }],
+      meta: { page: 1, limit: 50, total: 51 },
+    });
     expect(core.listSignals).toHaveBeenCalledWith(
       { tag: "prisma" },
-      { projectId: "p1", detectorId: "d1", status: "open" },
+      { projectId: "p1", detectorId: "d1", status: "open", page: 1, limit: 50 },
+    );
+    await handleListDetectorSignals(req(), params({ projectId: "p1", detectorId: "d1" }));
+    expect(core.listSignals).toHaveBeenLastCalledWith(
+      { tag: "prisma" },
+      { projectId: "p1", detectorId: "d1", status: undefined, page: 0, limit: 50 },
     );
     const bad = await handleListDetectorSignals(
       req(undefined, "?status=closed"),
@@ -203,9 +211,10 @@ describe("hand edits", () => {
 
   it("merges, rewrites the moved hits' ClickHouse copies in chunks, and audits it", async () => {
     const runIds = Array.from({ length: 1500 }, (_, i) => `r${i}`);
+    const assignedAt = new Date("2026-09-30T10:00:00.123Z");
     core.mergeSignals.mockResolvedValue({
       ok: true,
-      moved: { projectId: "p1", detectorId: "d1", signalId: "s2", runIds },
+      moved: { projectId: "p1", detectorId: "d1", signalId: "s2", assignedAt, runIds },
     });
     const res = await handleMergeSignal(req({ targetSignalId: "s2" }), signalParams);
     expect(await res.json()).toEqual({ mergedInto: "s2", movedHits: 1500 });
@@ -213,7 +222,10 @@ describe("hand edits", () => {
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toBe("http://localhost:8000/api/v1/internal/signals/reassign");
     expect(init.headers["X-Internal-Secret"]).toBe("sec");
-    expect(JSON.parse(init.body).run_ids).toHaveLength(1000);
+    const body = JSON.parse(init.body);
+    expect(body.run_ids).toHaveLength(1000);
+    // The placement time orders the rewrites of concurrent edits.
+    expect(body).toMatchObject({ signal_id: "s2", assigned_at_ms: assignedAt.getTime() });
     expect(core.writeAudit).toHaveBeenCalledWith(
       { tag: "prisma" },
       expect.objectContaining({ operation: "merge_signal", summary: { into: "s2", hits: 1500 } }),
@@ -225,7 +237,13 @@ describe("hand edits", () => {
     mockFetch.mockResolvedValue({ ok: false, status: 503 });
     core.mergeSignals.mockResolvedValue({
       ok: true,
-      moved: { projectId: "p1", detectorId: "d1", signalId: "s2", runIds: ["r1"] },
+      moved: {
+        projectId: "p1",
+        detectorId: "d1",
+        signalId: "s2",
+        assignedAt: new Date(),
+        runIds: ["r1"],
+      },
     });
     expect((await handleMergeSignal(req({ targetSignalId: "s2" }), signalParams)).status).toBe(200);
     expect(error).toHaveBeenCalled();
@@ -241,7 +259,13 @@ describe("hand edits", () => {
   it("moves a hit, rewrites its copy, and audits only a real move", async () => {
     core.moveHit.mockResolvedValueOnce({
       ok: true,
-      moved: { projectId: "p1", detectorId: "d1", signalId: "s2", runIds: ["r1"] },
+      moved: {
+        projectId: "p1",
+        detectorId: "d1",
+        signalId: "s2",
+        assignedAt: new Date(),
+        runIds: ["r1"],
+      },
     });
     const hitParams = params({ projectId: "p1", runId: "r1" });
     expect((await handleMoveHit(req({ signalId: "s2" }), hitParams)).status).toBe(200);
@@ -250,7 +274,13 @@ describe("hand edits", () => {
 
     core.moveHit.mockResolvedValueOnce({
       ok: true,
-      moved: { projectId: "p1", detectorId: "d1", signalId: "s2", runIds: [] },
+      moved: {
+        projectId: "p1",
+        detectorId: "d1",
+        signalId: "s2",
+        assignedAt: new Date(),
+        runIds: [],
+      },
     });
     await handleMoveHit(req({ signalId: "s2" }), hitParams);
     expect(core.writeAudit).toHaveBeenCalledOnce();

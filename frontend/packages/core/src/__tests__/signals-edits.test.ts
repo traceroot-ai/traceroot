@@ -25,6 +25,9 @@ type HitRow = {
   projectId: string;
   detectorId: string;
   seenAt: Date;
+  score?: number | null;
+  criteriaVersion?: number | null;
+  assignedAt?: Date;
 };
 
 const t = (m: number) => new Date(Date.UTC(2026, 8, 30, 10, m));
@@ -91,25 +94,27 @@ function fakeDb(signals: SignalRow[], hits: HitRow[] = [], rcas: RcaRow[] = []) 
     },
     signalHit: {
       findMany: async ({ where }: { where: { signalId: string } }) =>
-        hits.filter((h) => h.signalId === where.signalId).map((h) => ({ runId: h.runId })),
+        hits
+          .filter((h) => h.signalId === where.signalId)
+          .map((h) => ({ runId: h.runId, assignedAt: h.assignedAt ?? t(0) })),
       findFirst: async ({ where }: { where: { runId: string; projectId: string } }) =>
         pick(hits.find((h) => h.runId === where.runId && h.projectId === where.projectId)),
-      findUniqueOrThrow: async ({ where }: { where: { runId: string } }) => ({
-        ...hits.find((h) => h.runId === where.runId)!,
-      }),
+      findUniqueOrThrow: async ({ where }: { where: { runId: string } }) => {
+        const h = hits.find((x) => x.runId === where.runId)!;
+        return { ...h, assignedAt: h.assignedAt ?? t(0) };
+      },
       updateMany: async ({
         where,
         data,
       }: {
         where: { signalId: string };
-        data: { signalId: string };
+        data: Partial<HitRow>;
       }) => {
-        for (const h of hits.filter((x) => x.signalId === where.signalId))
-          h.signalId = data.signalId;
+        for (const h of hits.filter((x) => x.signalId === where.signalId)) Object.assign(h, data);
         return { count: 0 };
       },
-      update: async ({ where, data }: { where: { runId: string }; data: { signalId: string } }) => {
-        hits.find((h) => h.runId === where.runId)!.signalId = data.signalId;
+      update: async ({ where, data }: { where: { runId: string }; data: Partial<HitRow> }) => {
+        Object.assign(hits.find((h) => h.runId === where.runId)!, data);
       },
       aggregate: async ({ where }: { where: { signalId: string } }) => {
         const mine = hits
@@ -173,10 +178,20 @@ describe("editSignalCriteria", () => {
 });
 
 describe("mergeSignals", () => {
+  const later = new Date(Date.now() + 3_600_000);
   const hits = (): HitRow[] => [
-    { runId: "r1", signalId: "a", projectId: "p", detectorId: "d", seenAt: t(1) },
-    { runId: "r2", signalId: "a", projectId: "p", detectorId: "d", seenAt: t(9) },
-    { runId: "r3", signalId: "b", projectId: "p", detectorId: "d", seenAt: t(5) },
+    {
+      runId: "r1",
+      signalId: "a",
+      projectId: "p",
+      detectorId: "d",
+      seenAt: t(1),
+      score: 0.97,
+      criteriaVersion: 2,
+      assignedAt: later,
+    },
+    { runId: "r2", signalId: "a", projectId: "p", detectorId: "d", seenAt: t(9), score: 0.95 },
+    { runId: "r3", signalId: "b", projectId: "p", detectorId: "d", seenAt: t(5), score: 0.99 },
   ];
 
   it("moves the hits, points the source at the target, and recounts the target", async () => {
@@ -188,10 +203,25 @@ describe("mergeSignals", () => {
       hits(),
     );
     const r = await mergeSignals(f.db, { projectId: "p", sourceId: "a", targetId: "b" });
+    // Placed after every moved hit's previous assignment, even one stamped by
+    // a clock ahead of this one.
+    const placed = new Date(later.getTime() + 1);
     expect(r).toEqual({
       ok: true,
-      moved: { projectId: "p", detectorId: "d", signalId: "b", runIds: ["r1", "r2"] },
+      moved: {
+        projectId: "p",
+        detectorId: "d",
+        signalId: "b",
+        assignedAt: placed,
+        runIds: ["r1", "r2"],
+      },
     });
+    // Moved hits were judged against the source's criteria: no score or version.
+    expect(f.hits.filter((h) => h.runId !== "r3")).toEqual([
+      expect.objectContaining({ score: null, criteriaVersion: null, assignedAt: placed }),
+      expect.objectContaining({ score: null, criteriaVersion: null, assignedAt: placed }),
+    ]);
+    expect(f.hits[2]).toMatchObject({ score: 0.99 });
     const [a, b] = f.signals;
     expect(a).toMatchObject({ mergedIntoId: "b", hitCount: 0 });
     // Hits already reported for the source are not reported again as new.
@@ -246,15 +276,61 @@ describe("moveHit", () => {
       [signal({ id: "a", hitCount: 2 }), signal({ id: "b", hitCount: 0 })],
       [
         { runId: "r1", signalId: "a", projectId: "p", detectorId: "d", seenAt: t(1) },
-        { runId: "r2", signalId: "a", projectId: "p", detectorId: "d", seenAt: t(2) },
+        {
+          runId: "r2",
+          signalId: "a",
+          projectId: "p",
+          detectorId: "d",
+          seenAt: t(2),
+          score: 0.96,
+          criteriaVersion: 1,
+        },
       ],
     );
+    const before = Date.now();
     const r = await moveHit(f.db, { projectId: "p", runId: "r2", targetId: "b" });
-    expect(r).toEqual({
+    expect(r).toMatchObject({
       ok: true,
       moved: { projectId: "p", detectorId: "d", signalId: "b", runIds: ["r2"] },
     });
+    const placed = (r as { moved: { assignedAt: Date } }).moved.assignedAt;
+    expect(placed.getTime()).toBeGreaterThanOrEqual(before);
+    expect(f.hits[1]).toMatchObject({ score: null, criteriaVersion: null, assignedAt: placed });
     expect(f.signals.map((s) => s.hitCount)).toEqual([1, 1]);
+  });
+
+  it("moves an already reported hit's report with it", async () => {
+    const hits = (): HitRow[] => [
+      { runId: "r1", signalId: "a", projectId: "p", detectorId: "d", seenAt: t(1) },
+      { runId: "r2", signalId: "a", projectId: "p", detectorId: "d", seenAt: t(2) },
+      { runId: "r3", signalId: "b", projectId: "p", detectorId: "d", seenAt: t(3) },
+    ];
+    // Both of a's hits were reported: a keeps 1 of 1, b now counts r2 as reported.
+    const reported = fakeDb(
+      [
+        signal({ id: "a", hitCount: 2, notifiedHitCount: 2 }),
+        signal({ id: "b", hitCount: 1, notifiedHitCount: 1 }),
+      ],
+      hits(),
+    );
+    await moveHit(reported.db, { projectId: "p", runId: "r2", targetId: "b" });
+    expect(reported.signals.map((s) => [s.hitCount, s.notifiedHitCount])).toEqual([
+      [1, 1],
+      [2, 2],
+    ]);
+    // a had one unreported hit: it stays unreported, now under b.
+    const unreported = fakeDb(
+      [
+        signal({ id: "a", hitCount: 2, notifiedHitCount: 1 }),
+        signal({ id: "b", hitCount: 1, notifiedHitCount: 1 }),
+      ],
+      hits(),
+    );
+    await moveHit(unreported.db, { projectId: "p", runId: "r2", targetId: "b" });
+    expect(unreported.signals.map((s) => [s.hitCount, s.notifiedHitCount])).toEqual([
+      [1, 1],
+      [2, 1],
+    ]);
   });
 
   it("is a no-op when the hit is already there, and refuses other detectors and missing hits", async () => {
@@ -303,17 +379,19 @@ describe("reads", () => {
         rcas: [rca(0, "done"), rca(1, "running")],
       },
     ]);
-    const rows = await listSignals({ signal: { findMany } } as never, {
+    const count = vi.fn(async () => 120);
+    const list = await listSignals({ signal: { findMany, count } } as never, {
       projectId: "p",
       detectorId: "d",
       status: "open",
+      page: 2,
+      limit: 50,
     });
-    expect(rows[0].rca).toEqual({ currentState: "running", canonicalFindingId: "f0" });
-    expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { projectId: "p", detectorId: "d", mergedIntoId: null, status: "open" },
-      }),
-    );
+    expect(list.total).toBe(120);
+    expect(list.signals[0].rca).toEqual({ currentState: "running", canonicalFindingId: "f0" });
+    const where = { projectId: "p", detectorId: "d", mergedIntoId: null, status: "open" };
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where, skip: 100, take: 50 }));
+    expect(count).toHaveBeenCalledWith({ where });
   });
 
   it("returns a signal with its canonical RCA, hits and status history", async () => {
@@ -331,6 +409,9 @@ describe("reads", () => {
       signalStatusEvent: { findMany: vi.fn(async () => [{ toStatus: "open", reason: "new_hit" }]) },
     };
     const r = await getSignal(db as never, { projectId: "p", signalId: "a" });
+    expect(db.signal.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "a", projectId: "p" } }),
+    );
     expect(r).toMatchObject({
       merged: false,
       signal: {
@@ -368,7 +449,11 @@ describe("reads", () => {
         ]),
       },
     };
-    expect(await signalsForTrace(db as never, { projectId: "p", traceId: "t" })).toEqual([
+    const rows = await signalsForTrace(db as never, { projectId: "p", traceId: "t" });
+    expect(db.signalHit.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { projectId: "p", traceId: "t" } }),
+    );
+    expect(rows).toEqual([
       {
         runId: "r1",
         detectorId: "d",

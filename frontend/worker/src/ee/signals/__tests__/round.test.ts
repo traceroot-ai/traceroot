@@ -52,7 +52,15 @@ function fakeBackend(rows: WaitingHitRow[], opts: { failWrites?: boolean } = {})
   return { backend, written, waiting };
 }
 
-function fakeDb(opts: { recorded?: string[]; detector?: unknown } = {}) {
+type CurrentHit = {
+  runId: string;
+  signalId: string;
+  score: number | null;
+  criteriaVersion: number | null;
+  assignedAt: Date;
+};
+
+function fakeDb(opts: { recorded?: string[]; detector?: unknown; current?: CurrentHit[] } = {}) {
   const aiRows: Record<string, unknown>[] = [];
   const db = {
     detector: {
@@ -68,7 +76,12 @@ function fakeDb(opts: { recorded?: string[]; detector?: unknown } = {}) {
           : opts.detector,
       ),
     },
-    signalHit: { findMany: vi.fn(async () => (opts.recorded ?? []).map((runId) => ({ runId }))) },
+    signalHit: {
+      // The duplicate check reads run ids; the copy flush reads each hit's placement.
+      findMany: vi.fn(async ({ select }: { select: Record<string, boolean> }) =>
+        select.signalId ? (opts.current ?? []) : (opts.recorded ?? []).map((runId) => ({ runId })),
+      ),
+    },
     signal: { findMany: vi.fn(async () => []) },
     aIMessage: {
       createMany: vi.fn(async ({ data }: { data: Record<string, unknown>[] }) =>
@@ -324,6 +337,30 @@ describe("runAssignmentRound", () => {
       signal_id: "sigOld",
       score: 0.8,
       embedding: [1, 0],
+    });
+  });
+
+  it("copies the signal a user moved the hit to before its copy was written", async () => {
+    const { backend, written } = fakeBackend([row(1)]);
+    const moved = new Date(ASSIGNED_AT.getTime() + 5_000);
+    const db = fakeDb({
+      current: [
+        {
+          runId: "run1",
+          signalId: "sigUser",
+          score: null,
+          criteriaVersion: null,
+          assignedAt: moved,
+        },
+      ],
+    }).db;
+    await runAssignmentRound(deps(db, backend), "p", "d");
+    expect(written[0]).toMatchObject({
+      run_id: "run1",
+      signal_id: "sigUser",
+      score: null,
+      criteria_version: null,
+      assigned_at_ms: moved.getTime(),
     });
   });
 

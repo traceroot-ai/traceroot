@@ -9,6 +9,8 @@ export interface MovedHits {
   projectId: string;
   detectorId: string;
   signalId: string;
+  /** When the user placed them; the copy keeps its latest row by this time. */
+  assignedAt: Date;
   runIds: string[];
 }
 
@@ -27,6 +29,15 @@ export const signalCriteriaEditSchema = z.object({
   expectedCriteriaVersion: z.number().int().min(1),
 });
 export type SignalCriteriaEdit = z.output<typeof signalCriteriaEditSchema>;
+
+/**
+ * The time a user places hits: later than each hit's previous assignment. The
+ * ClickHouse copy keeps the row with the latest time per hit, so the newest
+ * placement wins however the copy rewrites of two edits are ordered.
+ */
+function placedAt(previous: Date | null | undefined): Date {
+  return new Date(Math.max(Date.now(), (previous?.getTime() ?? 0) + 1));
+}
 
 /** Recompute a signal's hit count and first/last seen from its hits. */
 async function recount(tx: Tx, signalId: string): Promise<void> {
@@ -132,11 +143,14 @@ export async function mergeSignals(
     }
     const hits = await tx.signalHit.findMany({
       where: { signalId: s.id },
-      select: { runId: true },
+      select: { runId: true, assignedAt: true },
     });
+    const assignedAt = placedAt(
+      hits.reduce<Date | null>((m, h) => (!m || h.assignedAt > m ? h.assignedAt : m), null),
+    );
     await tx.signalHit.updateMany({
       where: { signalId: s.id },
-      data: { signalId: t.id, criteriaVersion: null, score: null },
+      data: { signalId: t.id, criteriaVersion: null, score: null, assignedAt },
     });
     await tx.signal.update({
       where: { id: s.id },
@@ -177,6 +191,7 @@ export async function mergeSignals(
         projectId: params.projectId,
         detectorId: s.detectorId,
         signalId: t.id,
+        assignedAt,
         runIds: hits.map((h) => h.runId),
       },
     };
@@ -185,7 +200,9 @@ export async function mergeSignals(
 
 /**
  * Move one hit to another signal of the same detector. The hit records no
- * criteria version or score: a user placed it.
+ * criteria version or score: a user placed it. When the source had already
+ * reported the hit, the report moves with it, so the source does not hide its
+ * next new hit and the target does not report this one again.
  */
 export async function moveHit(
   db: Pick<PrismaClient, "$transaction">,
@@ -210,24 +227,38 @@ export async function moveHit(
     // Re-read under the lock: the hit may have moved since.
     const current = await tx.signalHit.findUniqueOrThrow({
       where: { runId: params.runId },
-      select: { signalId: true },
+      select: { signalId: true, assignedAt: true },
     });
-    if (current.signalId === params.targetId) {
-      return { ok: true, moved: { ...emptyMove(params, hit.detectorId), runIds: [] } };
-    }
+    const moved = {
+      projectId: params.projectId,
+      detectorId: hit.detectorId,
+      signalId: params.targetId,
+      assignedAt: current.assignedAt,
+      runIds: [] as string[],
+    };
+    if (current.signalId === params.targetId) return { ok: true, moved };
+    const assignedAt = placedAt(current.assignedAt);
     await tx.signalHit.update({
       where: { runId: params.runId },
-      data: { signalId: params.targetId, criteriaVersion: null, score: null },
+      data: { signalId: params.targetId, criteriaVersion: null, score: null, assignedAt },
     });
     await recount(tx, current.signalId);
     await recount(tx, params.targetId);
-    return {
-      ok: true,
-      moved: { ...emptyMove(params, hit.detectorId), runIds: [params.runId] },
-    };
+    const source = await tx.signal.findUniqueOrThrow({
+      where: { id: current.signalId },
+      select: { hitCount: true, notifiedHitCount: true },
+    });
+    const reported = Math.max(0, source.notifiedHitCount - source.hitCount);
+    if (reported > 0) {
+      await tx.signal.update({
+        where: { id: current.signalId },
+        data: { notifiedHitCount: source.hitCount },
+      });
+      await tx.signal.update({
+        where: { id: params.targetId },
+        data: { notifiedHitCount: { increment: reported } },
+      });
+    }
+    return { ok: true, moved: { ...moved, assignedAt, runIds: [params.runId] } };
   });
-}
-
-function emptyMove(params: { projectId: string; targetId: string }, detectorId: string): MovedHits {
-  return { projectId: params.projectId, detectorId, signalId: params.targetId, runIds: [] };
 }
