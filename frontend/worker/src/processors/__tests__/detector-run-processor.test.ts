@@ -12,7 +12,9 @@ const {
   mockPrisma,
   mockCalculateCost,
   mockWithSelfTrace,
+  mockEnqueueSignalHits,
 } = vi.hoisted(() => ({
+  mockEnqueueSignalHits: vi.fn(),
   mockRunDetection: vi.fn(),
   mockWriteRun: vi.fn(),
   mockWriteFinding: vi.fn(),
@@ -56,6 +58,7 @@ vi.mock("../../detection/clickhouse-writer.js", () => ({
 vi.mock("../../detection/self-trace-emitter.js", () => ({
   withSelfTrace: mockWithSelfTrace,
 }));
+vi.mock("../../ee/signals/queue.js", () => ({ enqueueSignalHits: mockEnqueueSignalHits }));
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -101,6 +104,7 @@ beforeEach(() => {
   mockCalculateCost.mockResolvedValue(0);
   mockPrisma.aIMessage.createMany.mockResolvedValue(undefined);
   mockPrisma.detectorRca.upsert.mockResolvedValue(undefined);
+  mockEnqueueSignalHits.mockResolvedValue(0);
   // Default: tracing works — run fn once, report selfTraced, surface throws
   // as ok:false (mirrors the real withSelfTrace contract).
   lastRecordedIo = undefined;
@@ -512,5 +516,70 @@ describe("processTrace — self-trace emission", () => {
     expect(mockWriteRun).toHaveBeenCalledWith(
       expect.not.objectContaining({ selfTraced: expect.anything() }),
     );
+  });
+});
+
+describe("processTrace — signals call site", () => {
+  const spans = JSON.stringify({ span_id: "s", span_start_time: "2026-09-30T09:00:00" });
+
+  function triggerOne() {
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Failure",
+        prompt: "p",
+        outputSchema: [],
+        enableRca: true,
+        enableSignals: true,
+        template: "failure",
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: true,
+      summary: "tool timed out",
+      data: { tool: "search" },
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: null,
+      inferenceProvider: "anthropic",
+    });
+  }
+
+  it("enqueues assignment for the finding's triggered detectors after the finding is written", async () => {
+    mockFetches(60_000, spans);
+    triggerOne();
+    await processTrace("t1", "p1", ["d1"]);
+    expect(mockEnqueueSignalHits).toHaveBeenCalledOnce();
+    const args = mockEnqueueSignalHits.mock.calls[0][0];
+    expect(args.projectId).toBe("p1");
+    expect(args.detectors[0]).toMatchObject({ id: "d1", enableSignals: true });
+    expect(args.triggered.map((t: { detectorId: string }) => t.detectorId)).toEqual(["d1"]);
+    // The job reads hits back from ClickHouse, so they must be written first.
+    const enqueueOrder = mockEnqueueSignalHits.mock.invocationCallOrder[0];
+    const lastRunWrite = Math.max(...mockWriteRun.mock.invocationCallOrder);
+    expect(enqueueOrder).toBeGreaterThan(lastRunWrite);
+    expect(enqueueOrder).toBeGreaterThan(mockWriteFinding.mock.invocationCallOrder[0]);
+  });
+
+  it("keeps the finding when enqueueing for signals fails", async () => {
+    mockFetches(60_000, spans);
+    triggerOne();
+    mockEnqueueSignalHits.mockRejectedValueOnce(new Error("pg down"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(processTrace("t1", "p1", ["d1"])).resolves.toBeUndefined();
+    expect(mockWriteFinding).toHaveBeenCalledOnce();
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to enqueue signal assignment"),
+      expect.any(Error),
+    );
+    error.mockRestore();
+  });
+
+  it("does not queue anything when nothing triggers", async () => {
+    mockFetches(60_000, spans);
+    await processTrace("t1", "p1", ["d1"]);
+    expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
   });
 });
