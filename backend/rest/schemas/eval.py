@@ -645,6 +645,12 @@ class ReadRunResponse(BaseModel):
     # Absolute clickable URL, returned so a client never RECONSTRUCTS one: the run and
     # compare pages are client-side routes whose only builders live in the browser UI.
     run_url: str
+    # The run's dataset coverage as it declared it at registration: the pinned version's
+    # size, and which of its cases the run set out to measure. Both null for a run that
+    # declared none (an older SDK, or a run registered before coverage existed): coverage
+    # UNKNOWN, which is never the same as full.
+    dataset_case_count: JsonNonNegativeInt | None = None
+    run_selection: RunSelection | None = None
     # The OBSERVED population — every result the run reported, and a different fact
     # from the run's DECLARED case_count.
     result_count: JsonNonNegativeInt

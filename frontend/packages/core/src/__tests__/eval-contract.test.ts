@@ -7,6 +7,7 @@ import {
   EVAL_PAYLOAD_TEXT_MAX,
   EVAL_SCORER_LIST_MAX,
   PublishDatasetVersionRequestSchema,
+  ReadRunResponseSchema,
   RegisterRunRequestSchema,
   SCORER_MESSAGES_MAX,
   SCORER_MESSAGE_CONTENT_MAX,
@@ -265,5 +266,67 @@ describe("RegisterRunRequestSchema dataset coverage", () => {
       }),
     );
     expect(parsed.run_selection).toEqual({ mode: "first", selected_case_count: 20 });
+  });
+});
+
+describe("ReadRunResponseSchema dataset coverage", () => {
+  const summary = (over: Record<string, unknown> = {}) => ({
+    evaluation_run_id: "run1",
+    evaluation_id: "eval1",
+    evaluation_name: "Billing routing",
+    run_number: 2,
+    candidate_version: "sonnet",
+    environment: "evaluation",
+    status: "completed",
+    started_at: "2026-09-14T00:00:00.000Z",
+    dataset_id: "ds1",
+    dataset_version_id: "dv1",
+    run_path: "/projects/p1/evaluations/run1",
+    run_url: "http://localhost:3000/projects/p1/evaluations/run1",
+    result_count: 20,
+    scored_count: 20,
+    task_error_count: 0,
+    scorer_error_count: 0,
+    passed_count: 0,
+    failed_count: 0,
+    errored_count: 0,
+    not_scored_count: 0,
+    ...over,
+  });
+
+  it("reads a subset's total and selection", () => {
+    const parsed = ReadRunResponseSchema.parse(
+      summary({
+        dataset_case_count: 500,
+        run_selection: { mode: "sample", selected_case_count: 20, sample_seed: 1726000000000 },
+      }),
+    );
+    expect(parsed.dataset_case_count).toBe(500);
+    expect(parsed.run_selection).toEqual({
+      mode: "sample",
+      selected_case_count: 20,
+      sample_seed: 1726000000000,
+    });
+  });
+
+  it("reads unknown coverage as null, and a server that predates the fields as absent", () => {
+    const unknown = ReadRunResponseSchema.parse(
+      summary({ dataset_case_count: null, run_selection: null }),
+    );
+    expect(unknown.run_selection).toBeNull();
+    // A client re-vendored against this contract still reads an older server's body.
+    const older = ReadRunResponseSchema.parse(summary());
+    expect(older.run_selection).toBeUndefined();
+  });
+
+  it("rejects a selection mode the contract does not define", () => {
+    expect(
+      ReadRunResponseSchema.safeParse(
+        summary({
+          dataset_case_count: 500,
+          run_selection: { mode: "stratified", selected_case_count: 20 },
+        }),
+      ).success,
+    ).toBe(false);
   });
 });

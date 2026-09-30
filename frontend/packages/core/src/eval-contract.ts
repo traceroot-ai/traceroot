@@ -594,6 +594,14 @@ export const ReadRunResponseSchema = z.object({
    * is never given.
    */
   run_url: z.string(),
+  /**
+   * The run's dataset coverage as it declared it at registration: the pinned version's
+   * size, and which of its cases the run set out to measure. Both null for a run that
+   * declared none (an older SDK, or a run registered before coverage existed): coverage
+   * UNKNOWN, which is never the same as full.
+   */
+  dataset_case_count: z.number().int().nonnegative().nullable().optional(),
+  run_selection: RunSelectionSchema.nullable().optional(),
   /** The OBSERVED population — every result the run reported. */
   result_count: z.number().int().nonnegative(),
   /**
