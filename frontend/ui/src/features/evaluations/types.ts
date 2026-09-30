@@ -174,6 +174,16 @@ export interface RunRow {
   elapsedMs?: number | null;
   /** Derived (list route): total SDK-reported case cost; null when none reported. */
   cost?: number | null;
+  /**
+   * Derived (list and detail routes): mean cost and duration per case, each over the results that
+   * reported that value; null when none did. Computed server-side so no client divides
+   * by the declared `caseCount`, which is not the population the sums were taken over.
+   */
+  avgCost?: number | null;
+  avgDurationMs?: number | null;
+  /** How many results `avgCost` / `avgDurationMs` were each taken over. */
+  costObservedCount?: number;
+  durationObservedCount?: number;
 }
 
 export interface RunDetail extends RunRow {

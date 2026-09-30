@@ -56,10 +56,17 @@ vi.mock("@traceroot/core", async (importOriginal) => {
           const src =
             args.where.runId === "run0" ? db.baseline : args.where.runId === "run1" ? db.run : null;
           const results =
-            (src as { results?: Array<{ durationMs?: number | null }> } | null)?.results ?? [];
-          const present = results.map((r) => r.durationMs).filter((d): d is number => d != null);
+            (
+              src as {
+                results?: Array<{ durationMs?: number | null; cost?: number | null }>;
+              } | null
+            )?.results ?? [];
+          const present = (field: "durationMs" | "cost") =>
+            results.map((r) => r[field]).filter((d): d is number => d != null);
+          const sum = (xs: number[]) => (xs.length > 0 ? xs.reduce((a, b) => a + b, 0) : null);
           return {
-            _sum: { durationMs: present.length > 0 ? present.reduce((a, b) => a + b, 0) : null },
+            _sum: { durationMs: sum(present("durationMs")), cost: sum(present("cost")) },
+            _count: { durationMs: present("durationMs").length, cost: present("cost").length },
           };
         }),
       },
