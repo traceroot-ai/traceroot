@@ -172,7 +172,7 @@ describe("handleDetectorRunJob — quiescence gate", () => {
 });
 
 describe("processTrace — finding + RCA", () => {
-  it("writes a finding, runs, and an RCA job when a detector triggers", async () => {
+  it("writes a finding and its runs with one capture time, and starts no RCA itself", async () => {
     mockFetches(60_000, '{"span":1}\n');
     mockPrisma.detector.findMany.mockResolvedValue([
       {
@@ -184,6 +184,7 @@ describe("processTrace — finding + RCA", () => {
         detectionProvider: null,
         detectionSource: "system",
         enableRca: true,
+        enableSignals: false,
       },
     ]);
     mockRunDetection.mockResolvedValue({
@@ -204,95 +205,15 @@ describe("processTrace — finding + RCA", () => {
     // never passes a `retracted` flag anymore
     expect(mockWriteFinding.mock.calls[0][0]).not.toHaveProperty("retracted");
     expect(mockWriteRun).toHaveBeenCalled();
-    expect(mockQueueAdd).toHaveBeenCalledTimes(1); // one RCA job
+    // RCA follows signals: the assignment job starts it when a hit opens a
+    // signal. Detection itself neither seeds an RCA row nor enqueues a job.
+    expect(mockPrisma.detectorRca.upsert).not.toHaveBeenCalled();
+    expect(mockQueueAdd).not.toHaveBeenCalled();
 
-    // The finding row, its triggered run, and the RCA job that keys the digest
-    // flush all carry the SAME capture time, so the count window the flush reads
-    // matches the window the key selects (no clock-boundary skew).
+    // The finding row and its triggered run carry the SAME capture time.
     const ts = mockWriteFinding.mock.calls[0][0].timestampMs;
     expect(typeof ts).toBe("number");
     expect(mockWriteRun.mock.calls[0][0].timestampMs).toBe(ts);
-    expect(mockQueueAdd.mock.calls[0][1].findingTimestamp).toBe(ts);
-  });
-
-  it("re-detecting over an existing finding never resets its lifecycle status", async () => {
-    mockFetches(60_000, '{"span":1}\n');
-    mockPrisma.detector.findMany.mockResolvedValue([
-      {
-        id: "d1",
-        name: "Slow",
-        prompt: "p",
-        outputSchema: [],
-        detectionModel: null,
-        detectionProvider: null,
-        detectionSource: "system",
-        enableRca: true,
-      },
-    ]);
-    mockRunDetection.mockResolvedValue({
-      identified: true,
-      summary: "found it",
-      data: {},
-      inferenceCost: 0,
-      inferenceInputTokens: 0,
-      inferenceOutputTokens: 0,
-      inferenceSource: "system",
-      inferenceModel: "m",
-      inferenceProvider: "anthropic",
-    });
-
-    await processTrace("t1", "p1", ["d1"]);
-
-    // The upsert's `update` branch must never touch lifecycle status: with the
-    // deterministic RCA jobId (`rca-<findingId>`) and removeOnComplete: 100,
-    // a re-detection over an already-completed finding can dedupe against the
-    // retained completed job and never run — resetting status to "pending"
-    // here would then leave a done finding stuck at "pending" forever. Only a
-    // newly allocated attempt's own markFindingRunningIfLatest may set
-    // "running".
-    expect(mockPrisma.detectorRca.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ update: { projectId: "p1" } }),
-    );
-    const [{ update }] = mockPrisma.detectorRca.upsert.mock.calls[0] as [
-      { update: Record<string, unknown> },
-    ];
-    expect(update).not.toHaveProperty("status");
-  });
-
-  it("enqueues the RCA job with retry attempts and backoff so transient agent failures retry", async () => {
-    mockFetches(60_000, '{"span":1}\n');
-    mockPrisma.detector.findMany.mockResolvedValue([
-      {
-        id: "d1",
-        name: "Slow",
-        prompt: "p",
-        outputSchema: [],
-        detectionModel: null,
-        detectionProvider: null,
-        detectionSource: "system",
-        enableRca: true,
-      },
-    ]);
-    mockRunDetection.mockResolvedValue({
-      identified: true,
-      summary: "found it",
-      data: {},
-      inferenceCost: 0,
-      inferenceInputTokens: 0,
-      inferenceOutputTokens: 0,
-      inferenceSource: "system",
-      inferenceModel: "m",
-      inferenceProvider: "anthropic",
-    });
-
-    await processTrace("t1", "p1", ["d1"]);
-
-    expect(mockQueueAdd.mock.calls[0][2]).toEqual(
-      expect.objectContaining({
-        attempts: 3,
-        backoff: { type: "exponential", delay: 10000 },
-      }),
-    );
   });
 
   it("writes no finding when nothing triggers", async () => {

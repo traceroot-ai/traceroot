@@ -32,6 +32,12 @@ export interface AssignmentRow {
   gave_up?: boolean;
 }
 
+/** One detector finding of a trace; `payload` is the JSON array of per-detector entries. */
+export interface TraceFindingRow {
+  finding_id: string;
+  payload: string;
+}
+
 export interface SignalsBackend {
   waitingHits(
     projectId: string,
@@ -40,6 +46,7 @@ export interface SignalsBackend {
     limit: number,
   ): Promise<WaitingHitRow[]>;
   writeAssignments(rows: AssignmentRow[]): Promise<void>;
+  traceFindings(projectId: string, traceId: string): Promise<TraceFindingRow[]>;
 }
 
 async function call<T>(
@@ -95,5 +102,13 @@ export const signalsBackend: SignalsBackend = {
   async writeAssignments(rows) {
     if (rows.length === 0) return;
     await call("POST", "/api/v1/internal/signals/assignments", { body: { rows } });
+  },
+  async traceFindings(projectId, traceId) {
+    const body = await call<{ findings: TraceFindingRow[] }>(
+      "GET",
+      `/api/v1/internal/traces/${encodeURIComponent(traceId)}/findings`,
+      { params: { project_id: projectId } },
+    );
+    return body.findings;
   },
 };

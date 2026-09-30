@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@traceroot/core";
 import { hitReopensSignal, lockSignalPartition, reopenSignalForHit } from "@traceroot/core/signals";
+import { RCA_COOLDOWN_MS } from "./config.js";
 import type { SignalText } from "./types.js";
 
 /** A hit waiting for assignment, as the job read it from ClickHouse. */
@@ -36,6 +37,8 @@ export interface AssignmentResult {
   score: number | null;
   criteriaVersion: number | null;
   assignedAt: Date;
+  /** Set when this hit's opening of the signal needs an RCA: the finding to analyse. */
+  rcaFindingId: string | null;
 }
 
 /** Merge chains are short; a longer one means a cycle, which merges must never create. */
@@ -74,6 +77,7 @@ export async function applyAssignment(
   db: Pick<PrismaClient, "$transaction">,
   hit: WaitingHit,
   placement: Placement,
+  opts: { rca: boolean; now?: number },
 ): Promise<AssignmentResult> {
   return db.$transaction(async (tx) => {
     await lockSignalPartition(tx, hit.projectId, hit.detectorId);
@@ -95,6 +99,7 @@ export async function applyAssignment(
         score: done.score,
         criteriaVersion: done.criteriaVersion,
         assignedAt: done.assignedAt,
+        rcaFindingId: null,
       };
     }
 
@@ -165,6 +170,29 @@ export async function applyAssignment(
       outcome = "created";
     }
 
+    // RCA follows signals: a hit that creates or reopens a signal gets one,
+    // unless the detector has RCA off or the signal's last RCA is recent.
+    let rcaFindingId: string | null = null;
+    if (opts.rca && (outcome === "created" || outcome === "reopened")) {
+      const last = await tx.signalRca.findFirst({
+        where: { signalId },
+        orderBy: { createTime: "desc" },
+        select: { createTime: true },
+      });
+      const now = opts.now ?? Date.now();
+      if (!last || now - last.createTime.getTime() >= RCA_COOLDOWN_MS) {
+        // Status is left alone on an existing row: only the RCA job's latest
+        // attempt writes it.
+        await tx.detectorRca.upsert({
+          where: { findingId: hit.findingId },
+          create: { findingId: hit.findingId, projectId: hit.projectId, status: "pending" },
+          update: { projectId: hit.projectId },
+        });
+        await tx.signalRca.create({ data: { signalId, reopenSeq, findingId: hit.findingId } });
+        rcaFindingId = hit.findingId;
+      }
+    }
+
     const recorded = await tx.signalHit.create({
       data: {
         runId: hit.runId,
@@ -186,6 +214,7 @@ export async function applyAssignment(
       score,
       criteriaVersion,
       assignedAt: recorded.assignedAt,
+      rcaFindingId,
     };
   });
 }

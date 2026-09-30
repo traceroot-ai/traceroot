@@ -38,6 +38,7 @@ function fakeBackend(rows: WaitingHitRow[], opts: { failWrites?: boolean } = {})
       backend.calls.push(args);
       return waiting.slice(0, args[3] as number);
     }),
+    traceFindings: vi.fn(async () => []),
     writeAssignments: vi.fn(async (batch: AssignmentRow[]) => {
       if (opts.failWrites) throw new Error("clickhouse down");
       written.push(...batch);
@@ -60,6 +61,7 @@ function fakeDb(opts: { recorded?: string[]; detector?: unknown } = {}) {
           ? {
               name: "Failure",
               enableSignals: true,
+              enableRca: true,
               signalsEnabledAt: ENABLED_AT,
               project: { workspaceId: "ws" },
             }
@@ -145,6 +147,7 @@ function deps(
     db: db as RoundDeps["db"],
     backend,
     failures,
+    enqueueRca: vi.fn(async () => {}),
     embed,
     models: async (_ws, usage) => chatModels(usage),
     now,
@@ -157,7 +160,13 @@ const ASSIGNED_AT = new Date(T0 + 1_000);
 function simulateWrites() {
   let n = 0;
   mockApply.mockImplementation(async (_db: unknown, _hit: WaitingHit, placement: Placement) => {
-    const base = { reopenSeq: 0, score: null, criteriaVersion: 1, assignedAt: ASSIGNED_AT };
+    const base = {
+      reopenSeq: 0,
+      score: null,
+      criteriaVersion: 1,
+      assignedAt: ASSIGNED_AT,
+      rcaFindingId: null,
+    };
     if (placement.kind === "attach" && placement.signalId === "") {
       return { ...base, outcome: "duplicate", signalId: "sigOld", score: 0.8 };
     }
@@ -220,6 +229,47 @@ describe("runAssignmentRound", () => {
       criteria_version: 1,
       assigned_at_ms: ASSIGNED_AT.getTime(),
     });
+  });
+
+  it("passes the detector's RCA switch to the write and enqueues each RCA after the round", async () => {
+    const { backend } = fakeBackend([row(1), row(2), row(3)]);
+    mockApply.mockImplementation(
+      async (_db: unknown, hit: WaitingHit, _p: Placement, opts: { rca: boolean }) => ({
+        outcome: "created",
+        signalId: `sig-${hit.runId}`,
+        reopenSeq: 0,
+        score: null,
+        criteriaVersion: 1,
+        assignedAt: ASSIGNED_AT,
+        rcaFindingId: opts.rca && hit.runId !== "run2" ? "f-shared" : null,
+      }),
+    );
+    const d = deps(fakeDb().db, backend);
+    const stats = await runAssignmentRound(d, "p", "d");
+    expect(mockApply.mock.calls[0][3]).toEqual({ rca: true, now: T0 });
+    // Two hits of one finding opened signals: one RCA job for the finding.
+    expect(d.enqueueRca).toHaveBeenCalledTimes(1);
+    expect(d.enqueueRca).toHaveBeenCalledWith("f-shared", "p");
+    expect(stats.rcas).toBe(1);
+  });
+
+  it("keeps the round's work when an RCA enqueue fails (the sweeper retries it)", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend, written } = fakeBackend([row(1)]);
+    mockApply.mockResolvedValueOnce({
+      outcome: "created",
+      signalId: "s",
+      reopenSeq: 0,
+      score: null,
+      criteriaVersion: 1,
+      assignedAt: ASSIGNED_AT,
+      rcaFindingId: "f1",
+    });
+    const d = deps(fakeDb().db, backend);
+    vi.mocked(d.enqueueRca).mockRejectedValueOnce(new Error("redis down"));
+    await expect(runAssignmentRound(d, "p", "d")).resolves.toMatchObject({ created: 1 });
+    expect(written).toHaveLength(1);
+    error.mockRestore();
   });
 
   it("reads hits only from after the switch was turned on, and within the lookback", async () => {

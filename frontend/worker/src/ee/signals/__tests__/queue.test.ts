@@ -72,6 +72,11 @@ vi.mock("../../../queues/detector-run-queue.js", () => ({
   createRedisConnection: () => fakeRedis,
 }));
 vi.mock("../round.js", () => ({ runAssignmentRound: mockRound }));
+const { mockEnqueueRca, mockSweepRcas } = vi.hoisted(() => ({
+  mockEnqueueRca: vi.fn(),
+  mockSweepRcas: vi.fn(),
+}));
+vi.mock("../rca.js", () => ({ enqueueSignalRca: mockEnqueueRca, sweepSignalRcas: mockSweepRcas }));
 vi.mock("@traceroot/core", () => ({ prisma: { tag: "prisma" } }));
 const { mockEmbed, mockChat, mockJev, mockFindJev } = vi.hoisted(() => ({
   mockEmbed: vi.fn(),
@@ -280,6 +285,7 @@ describe("sweepPartitions", () => {
     await fakeRedis.zadd("signals:assign:enqueued", T0 - 180_000, "p:d");
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     expect(await sweepPartitions(T0)).toBe(1);
+    expect(mockSweepRcas).toHaveBeenCalledWith({ tag: "prisma" }, T0);
     expect(mockAdd).toHaveBeenCalledWith(
       "assign",
       { projectId: "p", detectorId: "d" },
@@ -297,6 +303,8 @@ describe("production wiring", () => {
     expect(deps.db).toEqual({ tag: "prisma" });
     expect(deps.backend).toBeDefined();
     expect(deps.failures.record).toBe(recordHitFailure);
+    await deps.enqueueRca("f1", "p");
+    expect(mockEnqueueRca).toHaveBeenCalledWith("f1", "p");
     expect(deps.now()).toBeGreaterThan(0);
 
     await deps.embed(["a"]);

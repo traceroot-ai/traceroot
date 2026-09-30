@@ -42,6 +42,8 @@ export interface RoundDeps {
   db: RoundDb;
   backend: SignalsBackend;
   failures: HitFailures;
+  /** Enqueue the RCA of a finding whose hit started or reopened a signal. */
+  enqueueRca(findingId: string, projectId: string): Promise<void>;
   embed(texts: string[]): Promise<EmbeddingResult>;
   /** Model clients for one round; every call's usage is pushed to `usage`. */
   models(workspaceId: string, usage: ModelUsage[]): Promise<AssignmentModels>;
@@ -59,6 +61,8 @@ export interface RoundStats {
   failed: number;
   /** Hits given up on after failing repeatedly; they no longer count as waiting. */
   gaveUp: number;
+  /** Findings whose RCA this round enqueued. */
+  rcas: number;
   rejudged: number;
   unvalidated: number;
   /** Age of the oldest waiting hit when the round started: the partition's queue lag. */
@@ -114,6 +118,7 @@ export async function runAssignmentRound(
     duplicate: 0,
     failed: 0,
     gaveUp: 0,
+    rcas: 0,
     rejudged: 0,
     unvalidated: 0,
     lagMs: 0,
@@ -127,6 +132,7 @@ export async function runAssignmentRound(
     select: {
       name: true,
       enableSignals: true,
+      enableRca: true,
       signalsEnabledAt: true,
       project: { select: { workspaceId: true } },
     },
@@ -179,6 +185,7 @@ export async function runAssignmentRound(
 
   let processed = 0;
   let succeeded = 0;
+  const rcaFindings = new Set<string>();
   let lastError: unknown = null;
   try {
     // Hits recorded in Postgres whose ClickHouse copy is missing need no model call.
@@ -287,7 +294,11 @@ export async function runAssignmentRound(
               };
       }
 
-      const result: AssignmentResult = await applyAssignment(db, hit, placement);
+      const result: AssignmentResult = await applyAssignment(db, hit, placement, {
+        rca: detector.enableRca,
+        now: deps.now(),
+      });
+      if (result.rcaFindingId) rcaFindings.add(result.rcaFindingId);
       stats[result.outcome]++;
       updatePool(pool, result, placement, material, vector);
       copies.push({
@@ -351,10 +362,20 @@ export async function runAssignmentRound(
       if (copies.length >= ASSIGNMENT_FLUSH_ROWS) await flush();
     }
   } finally {
-    // Whatever was recorded in Postgres gets its copy, and billed calls stay
-    // findable, even when the round fails part-way.
+    // Whatever was recorded in Postgres gets its copy and its RCA, and billed
+    // calls stay findable, even when the round fails part-way.
     await flush();
     await recordUsage(db, workspaceId, usage);
+    for (const findingId of rcaFindings) {
+      // The pending RCA row is committed; if this enqueue fails, the sweeper
+      // re-enqueues it.
+      await deps
+        .enqueueRca(findingId, projectId)
+        .catch((err) =>
+          console.error(`[Signals] failed to enqueue RCA for finding ${findingId}:`, err),
+        );
+    }
+    stats.rcas = rcaFindings.size;
   }
   // Postgres is correct either way; failing the job retries with backoff
   // instead of re-reading the same hits in a tight loop.
@@ -367,7 +388,7 @@ export async function runAssignmentRound(
   console.log(
     `[Signals] round project=${projectId} detector=${detectorId} waiting=${stats.waiting} ` +
       `created=${stats.created} attached=${stats.attached} reopened=${stats.reopened} ` +
-      `duplicate=${stats.duplicate} failed=${stats.failed} gave_up=${stats.gaveUp} ` +
+      `duplicate=${stats.duplicate} failed=${stats.failed} gave_up=${stats.gaveUp} rcas=${stats.rcas} ` +
       `rejudged=${stats.rejudged} unvalidated=${stats.unvalidated} ` +
       `lag_ms=${stats.lagMs} duration_ms=${stats.durationMs} remaining=${stats.remaining}`,
   );

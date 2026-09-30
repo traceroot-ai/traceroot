@@ -27,8 +27,11 @@ function fakeDb(
     score?: number | null;
     criteriaVersion?: number | null;
   }[] = [],
+  rcas: { signalId: string; createTime: Date }[] = [],
 ) {
   const log: string[] = [];
+  const rcaRows: Record<string, unknown>[] = [];
+  const rcaUpserts: Record<string, unknown>[] = [];
   const events: Record<string, unknown>[] = [];
   const created: Record<string, unknown>[] = [];
   const hitRows: Record<string, unknown>[] = [];
@@ -93,6 +96,23 @@ function fakeDb(
         return { id: "new-sig", criteriaVersion: 1 };
       },
     },
+    signalRca: {
+      findFirst: async ({ where }: { where: { signalId: string } }) => {
+        const mine = rcas.filter((r) => r.signalId === where.signalId);
+        mine.sort((a, b) => b.createTime.getTime() - a.createTime.getTime());
+        return mine[0] ?? null;
+      },
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        log.push("rca+");
+        rcaRows.push(data);
+      },
+    },
+    detectorRca: {
+      upsert: async (args: Record<string, unknown>) => {
+        log.push("rca-seed");
+        rcaUpserts.push(args);
+      },
+    },
     signalStatusEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         log.push("event");
@@ -101,7 +121,7 @@ function fakeDb(
     },
   };
   const db = { $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx) };
-  return { db: db as never, log, events, created, hitRows };
+  return { db: db as never, log, events, created, hitRows, rcaRows, rcaUpserts };
 }
 
 const t = (iso: string) => new Date(`2026-09-30T${iso}Z`);
@@ -133,6 +153,7 @@ const hit = (over: Partial<WaitingHit> = {}): WaitingHit => ({
   groupKey: null,
   ...over,
 });
+const NO_RCA = { rca: false };
 const attach = (signalId = "sigA", score: number | null = 0.95): Placement => ({
   kind: "attach",
   signalId,
@@ -143,7 +164,7 @@ const attach = (signalId = "sigA", score: number | null = 0.95): Placement => ({
 describe("applyAssignment", () => {
   it("attaches under the partition lock and records the hit with its score and criteria version", async () => {
     const f = fakeDb([signal({})]);
-    const r = await applyAssignment(f.db, hit(), attach());
+    const r = await applyAssignment(f.db, hit(), attach(), NO_RCA);
     expect(r).toEqual({
       outcome: "attached",
       signalId: "sigA",
@@ -151,6 +172,7 @@ describe("applyAssignment", () => {
       score: 0.95,
       criteriaVersion: 2,
       assignedAt: ASSIGNED_AT,
+      rcaFindingId: null,
     });
     expect(f.log).toEqual(["lock:p/d", "hit?", "update:sigA", "hit+"]);
     expect(f.hitRows[0]).toMatchObject({
@@ -166,7 +188,7 @@ describe("applyAssignment", () => {
   it("widens first and last seen", async () => {
     const rows = [signal({})];
     const f = fakeDb(rows);
-    await applyAssignment(f.db, hit({ seenAt: t("08:00:00") }), attach());
+    await applyAssignment(f.db, hit({ seenAt: t("08:00:00") }), attach(), NO_RCA);
     expect(rows[0].firstSeenAt).toEqual(t("08:00:00"));
     expect(rows[0].lastSeenAt).toEqual(t("09:00:00"));
     expect(rows[0].hitCount).toBe(5);
@@ -177,7 +199,7 @@ describe("applyAssignment", () => {
       [signal({ reopenSeq: 2 })],
       [{ runId: "run1", signalId: "sigA", score: 0.7, criteriaVersion: 1 }],
     );
-    const r = await applyAssignment(f.db, hit(), attach("", null));
+    const r = await applyAssignment(f.db, hit(), attach("", null), NO_RCA);
     expect(r).toEqual({
       outcome: "duplicate",
       signalId: "sigA",
@@ -185,13 +207,14 @@ describe("applyAssignment", () => {
       score: 0.7,
       criteriaVersion: 1,
       assignedAt: ASSIGNED_AT,
+      rcaFindingId: null,
     });
     expect(f.log).toEqual(["lock:p/d", "hit?"]);
   });
 
   it("follows a merge made after the decision and drops the criteria version", async () => {
     const f = fakeDb([signal({ id: "sigA", mergedIntoId: "sigB" }), signal({ id: "sigB" })]);
-    const r = await applyAssignment(f.db, hit(), attach("sigA"));
+    const r = await applyAssignment(f.db, hit(), attach("sigA"), NO_RCA);
     expect(r.signalId).toBe("sigB");
     expect(r.criteriaVersion).toBe(null);
     // The score was judged against the merged-away signal, so it is not kept.
@@ -204,15 +227,19 @@ describe("applyAssignment", () => {
       signal({ id: "sigA", mergedIntoId: "sigB" }),
       signal({ id: "sigB", mergedIntoId: "sigA" }),
     ]);
-    await expect(applyAssignment(cycle.db, hit(), attach("sigA"))).rejects.toThrow("merge chain");
+    await expect(applyAssignment(cycle.db, hit(), attach("sigA"), NO_RCA)).rejects.toThrow(
+      "merge chain",
+    );
     const gone = fakeDb([]);
-    await expect(applyAssignment(gone.db, hit(), attach("sigA"))).rejects.toThrow("vanished");
+    await expect(applyAssignment(gone.db, hit(), attach("sigA"), NO_RCA)).rejects.toThrow(
+      "vanished",
+    );
   });
 
   it("reopens a resolved signal for a trace that started after the resolve", async () => {
     const rows = [signal({ status: "resolved", resolvedAt: t("09:30:00"), reopenSeq: 1 })];
     const f = fakeDb(rows);
-    const r = await applyAssignment(f.db, hit({ traceStartTime: t("09:45:00") }), attach());
+    const r = await applyAssignment(f.db, hit({ traceStartTime: t("09:45:00") }), attach(), NO_RCA);
     expect(r).toMatchObject({ outcome: "reopened", signalId: "sigA", reopenSeq: 2 });
     expect(f.events[0]).toMatchObject({
       actorUserId: "system",
@@ -226,7 +253,7 @@ describe("applyAssignment", () => {
   it("counts a late hit from a trace that started before the resolve without reopening", async () => {
     const rows = [signal({ status: "resolved", resolvedAt: t("09:30:00") })];
     const f = fakeDb(rows);
-    const r = await applyAssignment(f.db, hit({ traceStartTime: t("09:20:00") }), attach());
+    const r = await applyAssignment(f.db, hit({ traceStartTime: t("09:20:00") }), attach(), NO_RCA);
     expect(r.outcome).toBe("attached");
     expect(f.events).toEqual([]);
     expect(rows[0].status).toBe("resolved");
@@ -235,7 +262,7 @@ describe("applyAssignment", () => {
   it("counts hits on a dismissed signal silently", async () => {
     const rows = [signal({ status: "dismissed" })];
     const f = fakeDb(rows);
-    const r = await applyAssignment(f.db, hit({ traceStartTime: t("11:00:00") }), attach());
+    const r = await applyAssignment(f.db, hit({ traceStartTime: t("11:00:00") }), attach(), NO_RCA);
     expect(r.outcome).toBe("attached");
     expect(rows[0].status).toBe("dismissed");
     expect(rows[0].hitCount).toBe(5);
@@ -243,12 +270,17 @@ describe("applyAssignment", () => {
 
   it("creates a signal with this hit as its anchor", async () => {
     const f = fakeDb([]);
-    const r = await applyAssignment(f.db, hit(), {
-      kind: "create",
-      signal: { title: "T", covers: "C", excludes: "E" },
-      anchorText: "material",
-      anchorEmbedding: [0.1, 0.2],
-    });
+    const r = await applyAssignment(
+      f.db,
+      hit(),
+      {
+        kind: "create",
+        signal: { title: "T", covers: "C", excludes: "E" },
+        anchorText: "material",
+        anchorEmbedding: [0.1, 0.2],
+      },
+      NO_RCA,
+    );
     expect(r).toMatchObject({
       outcome: "created",
       signalId: "new-sig",
@@ -277,7 +309,7 @@ describe("applyAssignment", () => {
       anchorText: "m",
     };
     const fresh = fakeDb([]);
-    expect((await applyAssignment(fresh.db, hit(), group)).outcome).toBe("created");
+    expect((await applyAssignment(fresh.db, hit(), group, NO_RCA)).outcome).toBe("created");
     expect(fresh.created[0]).toMatchObject({ groupKey: "fabrication", anchorEmbedding: [] });
     // Category signals are never judged against criteria, so no version is recorded.
     expect(fresh.hitRows[0]).toMatchObject({ criteriaVersion: null });
@@ -286,7 +318,67 @@ describe("applyAssignment", () => {
       signal({ id: "other-project", projectId: "q", groupKey: "fabrication" }),
       signal({ id: "sigG", groupKey: "fabrication" }),
     ]);
-    const r = await applyAssignment(existing.db, hit(), group);
+    const r = await applyAssignment(existing.db, hit(), group, NO_RCA);
     expect(r).toMatchObject({ outcome: "attached", signalId: "sigG" });
+  });
+
+  describe("RCA", () => {
+    const create: Placement = {
+      kind: "create",
+      signal: { title: "T", covers: "C", excludes: "E" },
+      anchorText: "m",
+      anchorEmbedding: [1],
+    };
+    const NOW = t("12:00:00").getTime();
+
+    it("opens an RCA for the hit that creates a signal, in the same transaction", async () => {
+      const f = fakeDb([]);
+      const r = await applyAssignment(f.db, hit(), create, { rca: true, now: NOW });
+      expect(r.rcaFindingId).toBe("f1");
+      expect(f.rcaRows).toEqual([{ signalId: "new-sig", reopenSeq: 0, findingId: "f1" }]);
+      // Seeded pending; re-seeding never touches the status of an existing row.
+      expect(f.rcaUpserts[0]).toMatchObject({
+        where: { findingId: "f1" },
+        create: { findingId: "f1", projectId: "p", status: "pending" },
+        update: { projectId: "p" },
+      });
+      expect(f.log.indexOf("rca-seed")).toBeLessThan(f.log.indexOf("rca+"));
+    });
+
+    it("opens an RCA for a reopening once the last RCA is a day old", async () => {
+      const rows = [signal({ status: "resolved", resolvedAt: t("09:30:00"), reopenSeq: 1 })];
+      const f = fakeDb(
+        rows,
+        [],
+        [{ signalId: "sigA", createTime: new Date(NOW - 25 * 3_600_000) }],
+      );
+      const r = await applyAssignment(f.db, hit({ traceStartTime: t("09:45:00") }), attach(), {
+        rca: true,
+        now: NOW,
+      });
+      expect(r).toMatchObject({ outcome: "reopened", rcaFindingId: "f1" });
+      expect(f.rcaRows).toEqual([{ signalId: "sigA", reopenSeq: 2, findingId: "f1" }]);
+    });
+
+    it("skips the RCA of a reopening within a day of the last one", async () => {
+      const rows = [signal({ status: "resolved", resolvedAt: t("09:30:00") })];
+      const f = fakeDb(rows, [], [{ signalId: "sigA", createTime: new Date(NOW - 3_600_000) }]);
+      const r = await applyAssignment(f.db, hit({ traceStartTime: t("09:45:00") }), attach(), {
+        rca: true,
+        now: NOW,
+      });
+      expect(r).toMatchObject({ outcome: "reopened", rcaFindingId: null });
+      expect(f.rcaRows).toEqual([]);
+    });
+
+    it("opens none for an attach, or when the detector has RCA off", async () => {
+      const f = fakeDb([signal({})]);
+      const attached = await applyAssignment(f.db, hit(), attach(), { rca: true, now: NOW });
+      expect(attached.rcaFindingId).toBe(null);
+      const off = fakeDb([]);
+      const created = await applyAssignment(off.db, hit(), create, { rca: false, now: NOW });
+      expect(created.rcaFindingId).toBe(null);
+      expect([...f.rcaRows, ...off.rcaRows]).toEqual([]);
+    });
   });
 });
