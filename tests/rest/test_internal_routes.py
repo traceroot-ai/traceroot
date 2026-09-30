@@ -54,6 +54,7 @@ EXPECTED_ROUTES = {
     # the ClickHouse copy of assignments.
     ("GET", "/api/v1/internal/signals/waiting-hits"),
     ("POST", "/api/v1/internal/signals/assignments"),
+    ("POST", "/api/v1/internal/signals/reassign"),
 }
 
 

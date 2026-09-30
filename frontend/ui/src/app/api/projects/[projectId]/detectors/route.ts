@@ -92,6 +92,7 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
     detectionProvider,
     detectionSource,
     enableRca,
+    enableSignals,
   } = body as Record<string, unknown>;
 
   // Required fields must be non-empty strings (trim catches whitespace-only).
@@ -167,6 +168,12 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
   }
   const resolvedEnableRca = enableRca ?? true;
 
+  // enableSignals: optional boolean, defaults true (group hits into signals).
+  if (enableSignals !== undefined && typeof enableSignals !== "boolean") {
+    return errorResponse("enableSignals must be a boolean", 400);
+  }
+  const resolvedEnableSignals = enableSignals ?? true;
+
   // enabled: optional boolean. Defaults to true, but a detector created at 0%
   // sampling should not show as "enabled but never fires" — fall back to
   // sampleRate > 0 so a 0% rate creates a paused detector.
@@ -189,6 +196,7 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
         sampleRate: resolvedSampleRate,
         enabled: resolvedEnabled,
         enableRca: resolvedEnableRca,
+        enableSignals: resolvedEnableSignals,
         detectionModel: resolvedModel,
         detectionProvider: resolvedProvider,
         detectionSource: sourceStr,

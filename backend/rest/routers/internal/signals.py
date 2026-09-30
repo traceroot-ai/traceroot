@@ -26,6 +26,8 @@ router = APIRouter(prefix="/signals")
 MAX_WAITING_HITS = 500
 # Rows per write call; the worker flushes during a round, well below this.
 MAX_ASSIGNMENT_ROWS = 500
+# Runs per reassign call; the UI sends a large merge in chunks of this size.
+MAX_REASSIGN_RUNS = 1000
 # text-embedding-3-small is 1536-dimensional; anything much larger is a bug.
 MAX_EMBEDDING_DIMS = 4096
 
@@ -209,3 +211,45 @@ async def write_signal_assignments(body: SignalAssignmentsPayload):
         ]
     )
     return {"ok": True, "written": len(body.rows)}
+
+
+class ReassignPayload(BaseModel):
+    project_id: str = Field(min_length=1)
+    detector_id: str = Field(min_length=1)
+    signal_id: str = Field(min_length=1)
+    run_ids: list[str] = Field(min_length=1, max_length=MAX_REASSIGN_RUNS)
+
+
+@router.post("/reassign", dependencies=[Depends(verify_internal_secret)])
+async def reassign_signal_assignments(body: ReassignPayload):
+    """Point the ClickHouse copies of hits a user moved at their new signal.
+
+    Called after a merge or a hit move commits in Postgres. Each hit's latest
+    row is copied with the new ``signal_id``, its embedding kept, no score or
+    criteria version (a user placed it), and a newer ``assigned_at``, so the
+    new row replaces the old one on merge. Hits with no copy yet are skipped;
+    their first copy is written with the new signal anyway.
+    """
+    ch = get_clickhouse_client()
+    ch.query(
+        """
+        INSERT INTO signal_assignments
+            (project_id, detector_id, run_id, trace_id, signal_id, embedding,
+             score, criteria_version, assigned_at)
+        SELECT project_id, detector_id, run_id,
+               argMax(trace_id, assigned_at), {signal_id:String}, argMax(embedding, assigned_at),
+               NULL, NULL, now64(3)
+        FROM signal_assignments
+        WHERE project_id = {project_id:String}
+          AND detector_id = {detector_id:String}
+          AND run_id IN {run_ids:Array(String)}
+        GROUP BY project_id, detector_id, run_id
+        """,
+        parameters={
+            "project_id": body.project_id,
+            "detector_id": body.detector_id,
+            "signal_id": body.signal_id,
+            "run_ids": body.run_ids,
+        },
+    )
+    return {"ok": True}

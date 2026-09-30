@@ -104,6 +104,11 @@ class DetectorResultItem(BaseModel):
     summary: str
     identified: bool
     data: Any | None
+    # The signal (recurring problem) this detector's hit belongs to; None while
+    # the hit is not grouped (signals off for the detector, or not assigned yet).
+    signal_id: str | None = None
+    signal_title: str | None = None
+    signal_status: str | None = None
 
 
 class RCAResult(BaseModel):
@@ -116,6 +121,19 @@ class RCAResult(BaseModel):
 
     status: str
     result: str | None
+    # True when the finding ran no RCA of its own because its hits joined known
+    # signals: ``result`` is then those signals' RCAs, each labelled with the
+    # signal and the trace it analysed.
+    inherited: bool = False
+
+
+class FindingSignal(BaseModel):
+    """The signal one detector's hit in a finding belongs to."""
+
+    detector_id: str
+    signal_id: str
+    signal_title: str
+    signal_status: str
 
 
 class FindingSummary(BaseModel):
@@ -133,6 +151,8 @@ class FindingSummary(BaseModel):
     # index-aligned). Empty when no run row references the finding (e.g.
     # legacy/manually-created findings that predate run recording).
     run_ids: list[str] = []
+    # The signals the finding's hits belong to, one per grouped detector hit.
+    signals: list[FindingSignal] = []
 
 
 class FindingDetail(FindingSummary):

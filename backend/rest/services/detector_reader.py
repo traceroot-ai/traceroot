@@ -24,6 +24,7 @@ from rest.schemas.public import (
     DetectorItem,
     DetectorResultItem,
     FindingDetail,
+    FindingSignal,
     FindingSummary,
     RCAResult,
 )
@@ -281,8 +282,13 @@ class DetectorReaderService:
             for row in result.result_rows
         ]
         run_ids = self._run_ids_for_findings(project_id, [it.finding_id for it in items])
+        signals = self._read_signals(project_id, [it.finding_id for it in items])
         for it in items:
             it.run_ids = run_ids.get(it.finding_id, [])
+            it.signals = [
+                FindingSignal(detector_id=detector_id, **fields)
+                for detector_id, fields in signals.get(it.finding_id, {}).items()
+            ]
         return items, total
 
     def _run_ids_for_findings(
@@ -391,6 +397,7 @@ class DetectorReaderService:
         items = [item for item in self._parse_payload(payload) if isinstance(item, dict)]
         detector_ids = [str(item.get("detectorId") or "") for item in items]
         templates = self._read_templates(project_id, [d for d in detector_ids if d])
+        signals = self._read_signals(project_id, [finding_id]).get(finding_id, {})
         results = [
             DetectorResultItem(
                 detector_id=detector_id,
@@ -399,9 +406,13 @@ class DetectorReaderService:
                 summary=str(item.get("summary") or ""),
                 identified=True,
                 data=item.get("data"),
+                **signals.get(detector_id, {}),
             )
             for item, detector_id in zip(items, detector_ids)
         ]
+        rca = self._read_rca(project_id, finding_id)
+        if rca is None and signals:
+            rca = self._read_inherited_rca(project_id, results)
         return FindingDetail(
             finding_id=finding_id,
             project_id=project_id,
@@ -410,8 +421,12 @@ class DetectorReaderService:
             timestamp=timestamp,
             detectors=[r.detector_name for r in results],
             results=results,
-            rca=self._read_rca(project_id, finding_id),
+            rca=rca,
             run_ids=self._run_ids_for_findings(project_id, [finding_id]).get(finding_id, []),
+            signals=[
+                FindingSignal(detector_id=detector_id, **fields)
+                for detector_id, fields in signals.items()
+            ],
         )
 
     def _read_templates(self, project_id: str, detector_ids: list[str]) -> dict[str, str | None]:
@@ -443,6 +458,80 @@ class DetectorReaderService:
         if not rows:
             return None
         return RCAResult(status=rows[0][0], result=rows[0][1])
+
+    def _read_signals(
+        self, project_id: str, finding_ids: list[str]
+    ) -> dict[str, dict[str, dict[str, str]]]:
+        """Map finding_id -> detector_id -> the signal its hit belongs to.
+
+        Best-effort like the other Postgres enrichment: ``{}`` on a failed
+        lookup, and a hit that is not grouped (signals off, or not assigned
+        yet) is simply absent.
+        """
+        ids = [f for f in finding_ids if f]
+        if not ids:
+            return {}
+        try:
+            rows = self._pg_rows(
+                "SELECT sh.finding_id, sh.detector_id, s.id, s.title, s.status "
+                "FROM signal_hits sh JOIN signals s ON s.id = sh.signal_id "
+                "WHERE sh.project_id = %s AND sh.finding_id = ANY(%s)",
+                (project_id, ids),
+            )
+        except Exception:
+            logger.warning("signal lookup failed; signal fields will be null", exc_info=True)
+            return {}
+        out: dict[str, dict[str, dict[str, str]]] = {}
+        for finding_id, detector_id, signal_id, title, status in rows:
+            out.setdefault(finding_id, {})[detector_id] = {
+                "signal_id": signal_id,
+                "signal_title": title,
+                "signal_status": status,
+            }
+        return out
+
+    def _read_inherited_rca(
+        self, project_id: str, results: list[DetectorResultItem]
+    ) -> RCAResult | None:
+        """The RCAs a finding inherits from the signals its hits joined.
+
+        A hit that joins a known signal runs no RCA of its own; the signal's
+        canonical RCA (the finished RCA of its newest opening) stands for it.
+        One section per grouped detector, labelled with the signal and the trace
+        the RCA analysed. None when no signal has a finished RCA or the lookup
+        fails.
+        """
+        grouped = [r for r in results if r.signal_id]
+        if not grouped:
+            return None
+        try:
+            rows = self._pg_rows(
+                "SELECT DISTINCT ON (sr.signal_id) sr.signal_id, dr.result, "
+                "(SELECT sh.trace_id FROM signal_hits sh "
+                " WHERE sh.finding_id = sr.finding_id LIMIT 1) "
+                "FROM signal_rcas sr JOIN detector_rcas dr ON dr.finding_id = sr.finding_id "
+                "WHERE sr.signal_id = ANY(%s) AND dr.project_id = %s AND dr.status = 'done' "
+                "ORDER BY sr.signal_id, sr.reopen_seq DESC",
+                ([r.signal_id for r in grouped], project_id),
+            )
+        except Exception:
+            logger.warning("inherited RCA lookup failed; returning rca=None", exc_info=True)
+            return None
+        by_signal = {row[0]: (row[1], row[2]) for row in rows}
+        sections = []
+        for r in grouped:
+            if r.signal_id not in by_signal:
+                continue
+            result, trace_id = by_signal[r.signal_id]
+            source = f"from trace {trace_id}" if trace_id else "from an earlier trace"
+            sections.append(
+                f'## {r.detector_name}: signal "{r.signal_title}"\n'
+                f"This hit joined a known signal, so no new RCA ran. "
+                f"The signal's RCA, {source}:\n\n{result or ''}"
+            )
+        if not sections:
+            return None
+        return RCAResult(status="done", result="\n\n".join(sections), inherited=True)
 
 
 # Singleton instance

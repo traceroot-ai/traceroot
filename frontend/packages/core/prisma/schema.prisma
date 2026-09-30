@@ -665,7 +665,8 @@ model SignalHit {
 // itself stays per finding in detector_rcas; a finding's RCA can serve several
 // signals when one trace opens more than one. The signal's canonical RCA is its
 // highest-reopenSeq row whose RCA is done, so a slow RCA from an earlier opening
-// can never replace a newer one.
+// can never replace a newer one. A negative reopenSeq is an RCA carried over
+// from a signal merged into this one.
 model SignalRca {
   signalId   String   @map("signal_id") @db.VarChar
   reopenSeq  Int      @map("reopen_seq")
