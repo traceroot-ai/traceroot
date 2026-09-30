@@ -73,6 +73,12 @@ describe("POST /api/internal/user-create-project-key", () => {
     const res = await POST(makeRequest(VALID));
 
     expect(res.status).toBe(401);
+    // "before any lookup" is the claim: an unauthenticated caller must not reach
+    // the database at all, so the project and membership reads are what this
+    // asserts on. Checking only the create would still pass if the secret check
+    // moved below them.
+    expect(projectFindUniqueMock).not.toHaveBeenCalled();
+    expect(memberFindUniqueMock).not.toHaveBeenCalled();
     expect(keyCreateMock).not.toHaveBeenCalled();
   });
 

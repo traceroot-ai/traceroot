@@ -131,7 +131,6 @@ app.include_router(public_traces_router, prefix="/api/v1")
 
 # Public read API for API-key clients (e.g. the CLI)
 app.include_router(public_whoami_router, prefix="/api/v1")
-app.include_router(public_projects_router, prefix="/api/v1")
 app.include_router(public_traces_read_router, prefix="/api/v1")
 app.include_router(public_sessions_read_router, prefix="/api/v1")
 app.include_router(public_sql_router, prefix="/api/v1")
@@ -154,6 +153,9 @@ app.include_router(public_account_read_router, prefix="/api/v1")
 app.include_router(public_account_write_router, prefix="/api/v1")
 app.include_router(public_project_write_router, prefix="/api/v1")
 app.include_router(public_alerts_write_router, prefix="/api/v1")
+# The setup wizard's first-key write: the one project write that has to run on a
+# user credential, because no project key exists yet to authenticate with.
+app.include_router(public_projects_router, prefix="/api/v1")
 
 # Internal API for worker/service communication (protected by secret).
 # project_dashboards, project_widgets, project_alerts and project_evaluations are the
