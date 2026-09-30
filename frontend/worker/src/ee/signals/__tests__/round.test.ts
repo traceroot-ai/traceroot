@@ -267,7 +267,8 @@ describe("runAssignmentRound", () => {
     });
     const d = deps(fakeDb().db, backend);
     vi.mocked(d.enqueueRca).mockRejectedValueOnce(new Error("redis down"));
-    await expect(runAssignmentRound(d, "p", "d")).resolves.toMatchObject({ created: 1 });
+    await expect(runAssignmentRound(d, "p", "d")).resolves.toMatchObject({ created: 1, rcas: 0 });
+    expect(d.enqueueRca).toHaveBeenCalledWith("f1", "p");
     expect(written).toHaveLength(1);
     error.mockRestore();
   });

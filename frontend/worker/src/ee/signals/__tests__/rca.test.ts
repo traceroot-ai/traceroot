@@ -175,6 +175,9 @@ describe("hasUncoveredOpenings", () => {
     };
     expect(await hasUncoveredOpenings(db as never, "f1", ["s1:0", "s2:1"])).toBe(false);
     expect(await hasUncoveredOpenings(db as never, "f1", ["s1:0"])).toBe(true);
+    expect(db.signalRca.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { findingId: "f1" } }),
+    );
   });
 });
 

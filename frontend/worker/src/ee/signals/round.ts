@@ -369,13 +369,13 @@ export async function runAssignmentRound(
     for (const findingId of rcaFindings) {
       // The pending RCA row is committed; if this enqueue fails, the sweeper
       // re-enqueues it.
-      await deps
-        .enqueueRca(findingId, projectId)
-        .catch((err) =>
-          console.error(`[Signals] failed to enqueue RCA for finding ${findingId}:`, err),
-        );
+      try {
+        await deps.enqueueRca(findingId, projectId);
+        stats.rcas++;
+      } catch (err) {
+        console.error(`[Signals] failed to enqueue RCA for finding ${findingId}:`, err);
+      }
     }
-    stats.rcas = rcaFindings.size;
   }
   // Postgres is correct either way; failing the job retries with backoff
   // instead of re-reading the same hits in a tight loop.

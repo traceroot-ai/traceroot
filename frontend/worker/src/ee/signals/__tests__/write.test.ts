@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RCA_COOLDOWN_MS } from "../config.js";
 import { applyAssignment, type Placement, type WaitingHit } from "../write.js";
 
 type SignalRow = {
@@ -336,11 +337,11 @@ describe("applyAssignment", () => {
       const r = await applyAssignment(f.db, hit(), create, { rca: true, now: NOW });
       expect(r.rcaFindingId).toBe("f1");
       expect(f.rcaRows).toEqual([{ signalId: "new-sig", reopenSeq: 0, findingId: "f1" }]);
-      // Seeded pending; re-seeding never touches the status of an existing row.
+      // Seeded pending; an existing row of an earlier run goes back to pending.
       expect(f.rcaUpserts[0]).toMatchObject({
         where: { findingId: "f1" },
         create: { findingId: "f1", projectId: "p", status: "pending" },
-        update: { projectId: "p" },
+        update: { projectId: "p", status: "pending" },
       });
       expect(f.log.indexOf("rca-seed")).toBeLessThan(f.log.indexOf("rca+"));
     });
@@ -358,6 +359,20 @@ describe("applyAssignment", () => {
       });
       expect(r).toMatchObject({ outcome: "reopened", rcaFindingId: "f1" });
       expect(f.rcaRows).toEqual([{ signalId: "sigA", reopenSeq: 2, findingId: "f1" }]);
+    });
+
+    it("opens an RCA for a reopening exactly a day after the last one", async () => {
+      const rows = [signal({ status: "resolved", resolvedAt: t("09:30:00") })];
+      const f = fakeDb(
+        rows,
+        [],
+        [{ signalId: "sigA", createTime: new Date(NOW - RCA_COOLDOWN_MS) }],
+      );
+      const r = await applyAssignment(f.db, hit({ traceStartTime: t("09:45:00") }), attach(), {
+        rca: true,
+        now: NOW,
+      });
+      expect(r).toMatchObject({ outcome: "reopened", rcaFindingId: "f1" });
     });
 
     it("skips the RCA of a reopening within a day of the last one", async () => {

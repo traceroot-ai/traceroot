@@ -181,12 +181,15 @@ export async function applyAssignment(
       });
       const now = opts.now ?? Date.now();
       if (!last || now - last.createTime.getTime() >= RCA_COOLDOWN_MS) {
-        // Status is left alone on an existing row: only the RCA job's latest
-        // attempt writes it.
+        // The row goes back to pending even when an earlier run of this trace
+        // finished or is still running, so the pending sweeper retries an
+        // opening whose enqueue was lost or was absorbed by a job that was
+        // just finishing. A running job overwrites this with its own result,
+        // and its final check then sees this opening and runs again.
         await tx.detectorRca.upsert({
           where: { findingId: hit.findingId },
           create: { findingId: hit.findingId, projectId: hit.projectId, status: "pending" },
-          update: { projectId: hit.projectId },
+          update: { projectId: hit.projectId, status: "pending" },
         });
         await tx.signalRca.create({ data: { signalId, reopenSeq, findingId: hit.findingId } });
         rcaFindingId = hit.findingId;
