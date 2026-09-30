@@ -223,6 +223,11 @@ TraceRoot는 `ee` 디렉터리 외부의 코드에 [Apache 2.0](LICENSE) 라이�
   <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot 기여자" />
 </a>
 
+<br>
+
+<p align="center">⭐ <b>GitHub에서 Star를 눌러</b> TraceRoot를 응원해 주세요!</p>
+<p align="center"><sub>새 릴리스 알림을 받으려면 Watch → Custom → Releases를 선택하세요.</sub></p>
+
 <!-- Links -->
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
 [discord-url]: https://discord.gg/TM2m3CtKuC
