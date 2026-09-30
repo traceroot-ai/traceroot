@@ -322,3 +322,100 @@ def test_dataset_reads_reject_out_of_range_pages_before_any_read():
     ):
         assert client.get(path, headers=KEY_HEADER).status_code == 422, path
     assert internal.call_count == 0
+
+
+# ── internal project-scoped mirrors (the in-app agent's dispatch path) ───────
+
+# The mirrors are secret-only: the good path sends the secret and nothing else, so a
+# regression that also demanded a user header would fail here.
+SECRET_ONLY = {"X-Internal-Secret": "test-secret"}
+
+MIRRORS = [
+    (
+        "/api/v1/internal/projects/proj-A/datasets?limit=5&name=refund",
+        LIST_BODY,
+        {"read": "datasets", "projectId": "proj-A", "limit": 5, "name": "refund"},
+    ),
+    (
+        "/api/v1/internal/projects/proj-A/datasets/refunds",
+        DATASET,
+        {"read": "dataset", "projectId": "proj-A", "datasetId": "refunds"},
+    ),
+    (
+        "/api/v1/internal/projects/proj-A/datasets/refunds/versions?cursor=c1",
+        VERSIONS_BODY,
+        {
+            "read": "dataset_versions",
+            "projectId": "proj-A",
+            "datasetId": "refunds",
+            "limit": 50,
+            "cursor": "c1",
+        },
+    ),
+    (
+        "/api/v1/internal/projects/proj-A/dataset-versions/dv_3?limit=20",
+        VERSION_BODY,
+        {"read": "dataset_version", "projectId": "proj-A", "versionId": "dv_3", "limit": 20},
+    ),
+]
+
+
+@respx.mock
+@pytest.mark.parametrize(("path", "body", "payload"), MIRRORS)
+def test_internal_mirror_reads_like_the_public_route(monkeypatch, path, body, payload):
+    """Each mirror lives under `/api/v1/internal` (which the ingress fixed-404s) and
+    shares the public handler body, authenticated by the internal secret alone."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    internal = _mock_internal(body)
+    resp = _client().get(path, headers=SECRET_ONLY)
+    assert resp.status_code == 200
+    assert _sent(internal) == payload
+
+
+@respx.mock
+def test_version_mirror_reads_the_whole_version_when_limit_is_omitted(monkeypatch):
+    """Like its public twin: no limit and no cursor asks for the whole version."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    internal = _mock_internal(VERSION_BODY)
+    resp = _client().get(
+        "/api/v1/internal/projects/proj-A/dataset-versions/dv_3", headers=SECRET_ONLY
+    )
+    assert resp.status_code == 200
+    assert _sent(internal) == {
+        "read": "dataset_version",
+        "projectId": "proj-A",
+        "versionId": "dv_3",
+    }
+
+
+@respx.mock
+@pytest.mark.parametrize(("path", "body", "payload"), MIRRORS)
+def test_internal_mirror_rejects_a_caller_without_the_secret(monkeypatch, path, body, payload):
+    """An x-user-id header alone buys nothing: the mirrors are secret-only."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    internal = _mock_internal(body)
+    resp = _client().get(path, headers={"x-user-id": "u1"})
+    assert resp.status_code == 403
+    assert internal.call_count == 0
+
+
+def test_dataset_mirrors_are_off_the_public_project_surface():
+    """The dataset reads must not be mounted at `/api/v1/projects/...`, whose access check
+    trusts a caller-supplied x-user-id. Only the internal prefix may serve them."""
+    from fastapi.routing import APIRoute
+
+    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    for suffix in (
+        "datasets",
+        "datasets/{dataset_id}",
+        "datasets/{dataset_id}/versions",
+        "dataset-versions/{version_id}",
+    ):
+        assert f"/api/v1/projects/{{project_id}}/{suffix}" not in paths
+        assert f"/api/v1/internal/projects/{{project_id}}/{suffix}" in paths

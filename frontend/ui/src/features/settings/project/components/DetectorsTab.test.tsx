@@ -118,6 +118,43 @@ describe("DetectorsTab settings", () => {
     },
   );
 
+  it.each([
+    ["model", "Failed to save agent model. Please try again."],
+    ["emails", "Failed to save email notifications. Please try again."],
+    ["window", "Failed to save alert window. Please try again."],
+  ])(
+    "shows an action-specific fallback when saving %s fails without a message",
+    async (setting, message) => {
+      mocks.updateProject.mockRejectedValueOnce(new Error(""));
+      renderTab();
+      if (setting === "window") {
+        fireEvent.change(screen.getByRole("combobox", { name: /window/i }), {
+          target: { value: "2h" },
+        });
+      } else {
+        fireEvent.click(screen.getByRole("button", { name: `Change ${setting}` }));
+      }
+      const save =
+        setting === "window"
+          ? screen.getByRole("button", { name: /save alert window/i })
+          : screen.getAllByRole("button", { name: "Save" })[setting === "model" ? 0 : 1];
+      fireEvent.click(save);
+      expect((await screen.findByRole("alert")).textContent).toBe(message);
+      expect(save).toHaveProperty("disabled", false);
+
+      fireEvent.click(save);
+      await waitFor(() => expect(mocks.updateProject).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    },
+  );
+
+  it("describes email notifications as windowed digests", () => {
+    renderTab();
+    expect(
+      screen.getByText("Findings are batched into one email digest per alert window."),
+    ).toBeTruthy();
+  });
+
   it("hydrates the saved window from the project", () => {
     mocks.project.alert_window = "1h";
     renderTab();

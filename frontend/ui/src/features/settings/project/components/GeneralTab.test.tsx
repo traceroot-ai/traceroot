@@ -78,8 +78,12 @@ describe("GeneralTab project rename errors", () => {
 });
 
 describe("GeneralTab project delete dialog", () => {
-  it("shows permission failures in the dialog without navigating, and allows retry", async () => {
-    mocks.deleteProject.mockRejectedValueOnce(new ApiError(403, "Requires ADMIN role or higher"));
+  it.each([
+    [new ApiError(403, "Requires ADMIN role or higher"), "Requires ADMIN role or higher"],
+    [new Error("Network request failed"), "Network request failed"],
+    [new Error(""), "Failed to delete project. Please try again."],
+  ])("shows a failed deletion without navigating and allows retry: %s", async (error, message) => {
+    mocks.deleteProject.mockRejectedValueOnce(error);
     renderTab();
     fireEvent.click(screen.getByRole("button", { name: /delete project/i }));
     const dialog = screen.getByRole("dialog");
@@ -88,9 +92,7 @@ describe("GeneralTab project delete dialog", () => {
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete Project" }));
 
-    expect((await within(dialog).findByRole("alert")).textContent).toBe(
-      "Requires ADMIN role or higher",
-    );
+    expect((await within(dialog).findByRole("alert")).textContent).toBe(message);
     expect(mocks.push).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete Project" }));
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/workspaces/w1/projects"));
@@ -176,29 +178,60 @@ describe("GeneralTab project delete dialog", () => {
     expect(mocks.deleteProject).toHaveBeenCalledWith("w1", "p1");
   });
 
-  it("keeps a pending deletion disabled when the dialog is reopened", async () => {
-    mocks.deleteProject.mockReturnValue(new Promise(() => {}));
-    renderTab();
-    fireEvent.click(screen.getByRole("button", { name: /delete project/i }));
-    const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByPlaceholderText("Project name"), {
-      target: { value: "Acme Project" },
-    });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Project" }));
-    await waitFor(() =>
-      expect(within(dialog).getByRole("button", { name: "Deleting..." })).toHaveProperty(
+  it.each(["Cancel", "Close", "Escape", "outside click"])(
+    "prevents %s from dismissing a pending deletion and keeps its eventual error visible",
+    async (dismissal) => {
+      let rejectDelete!: (error: Error) => void;
+      mocks.deleteProject.mockReturnValue(
+        new Promise((_, reject) => {
+          rejectDelete = reject;
+        }),
+      );
+      renderTab();
+      fireEvent.click(screen.getByRole("button", { name: /delete project/i }));
+      const dialog = screen.getByRole("dialog");
+      fireEvent.change(within(dialog).getByPlaceholderText("Project name"), {
+        target: { value: "Acme Project" },
+      });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Delete Project" }));
+      await waitFor(() =>
+        expect(within(dialog).getByRole("button", { name: "Deleting..." })).toHaveProperty(
+          "disabled",
+          true,
+        ),
+      );
+      if (dismissal === "Cancel") {
+        expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveProperty(
+          "disabled",
+          true,
+        );
+      }
+      const dismiss = () => {
+        if (dismissal === "outside click") {
+          fireEvent.pointerDown(document.body);
+        } else if (dismissal === "Escape") {
+          fireEvent.keyDown(within(dialog).getByPlaceholderText("Project name"), { key: "Escape" });
+        } else {
+          fireEvent.click(within(dialog).getByRole("button", { name: dismissal }));
+        }
+      };
+      dismiss();
+      expect(screen.getByRole("dialog")).toBe(dialog);
+      fireEvent.keyDown(within(dialog).getByPlaceholderText("Project name"), { key: "Enter" });
+      expect(mocks.deleteProject).toHaveBeenCalledTimes(1);
+
+      rejectDelete(new Error("Delete failed"));
+      expect((await within(dialog).findByRole("alert")).textContent).toBe("Delete failed");
+      expect(mocks.push).not.toHaveBeenCalled();
+      expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveProperty(
         "disabled",
-        true,
-      ),
-    );
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    fireEvent.click(screen.getByRole("button", { name: /delete project/i }));
-    const reopened = screen.getByRole("dialog");
-    expect(within(reopened).getByRole("button", { name: "Deleting..." })).toHaveProperty(
-      "disabled",
-      true,
-    );
-    fireEvent.keyDown(within(reopened).getByPlaceholderText("Project name"), { key: "Enter" });
-    expect(mocks.deleteProject).toHaveBeenCalledTimes(1);
-  });
+        false,
+      );
+
+      dismiss();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /delete project/i }));
+      expect(within(screen.getByRole("dialog")).queryByRole("alert")).toBeNull();
+    },
+  );
 });
