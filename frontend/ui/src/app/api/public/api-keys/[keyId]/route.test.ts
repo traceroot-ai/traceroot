@@ -15,13 +15,13 @@ vi.mock("next/server", () => ({
 }));
 
 const findUniqueMock = vi.fn();
-const deleteMock = vi.fn();
+const deleteManyMock = vi.fn();
 const updateMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
   prisma: {
     accessKey: {
       findUnique: (...a: unknown[]) => findUniqueMock(...a),
-      delete: (...a: unknown[]) => deleteMock(...a),
+      deleteMany: (...a: unknown[]) => deleteManyMock(...a),
       update: (...a: unknown[]) => updateMock(...a),
     },
   },
@@ -52,6 +52,7 @@ const params = (keyId: string) => ({ params: Promise.resolve({ keyId }) });
 beforeEach(() => {
   vi.clearAllMocks();
   updateMock.mockResolvedValue({});
+  deleteManyMock.mockResolvedValue({ count: 1 });
   // First findUnique authenticates the caller; the second looks up the target.
   findUniqueMock.mockResolvedValueOnce(authRow());
 });
@@ -61,7 +62,11 @@ describe("DELETE /api/public/api-keys/{keyId}", () => {
     findUniqueMock.mockResolvedValueOnce({ id: "ak_old", projectId: "proj-A" });
     const res = await DELETE(request(), params("ak_old"));
     expect(res.status).toBe(204);
-    expect(deleteMock).toHaveBeenCalledWith({ where: { id: "ak_old" } });
+    // Scoped to the authorized project, so the delete itself can never reach
+    // outside the row the ownership lookup approved.
+    expect(deleteManyMock).toHaveBeenCalledWith({
+      where: { id: "ak_old", projectId: "proj-A" },
+    });
   });
 
   it("reports a key in ANOTHER project as absent, not forbidden", async () => {
@@ -70,13 +75,13 @@ describe("DELETE /api/public/api-keys/{keyId}", () => {
     findUniqueMock.mockResolvedValueOnce({ id: "ak_other", projectId: "proj-B" });
     const res = await DELETE(request(), params("ak_other"));
     expect(res.status).toBe(404);
-    expect(deleteMock).not.toHaveBeenCalled();
+    expect(deleteManyMock).not.toHaveBeenCalled();
   });
 
   it("404s an unknown key", async () => {
     findUniqueMock.mockResolvedValueOnce(null);
     expect((await DELETE(request(), params("nope"))).status).toBe(404);
-    expect(deleteMock).not.toHaveBeenCalled();
+    expect(deleteManyMock).not.toHaveBeenCalled();
   });
 
   it("refuses to revoke the key making the request", async () => {
@@ -85,7 +90,17 @@ describe("DELETE /api/public/api-keys/{keyId}", () => {
     findUniqueMock.mockResolvedValueOnce({ id: "ak_caller", projectId: "proj-A" });
     const res = await DELETE(request(), params("ak_caller"));
     expect(res.status).toBe(409);
-    expect(deleteMock).not.toHaveBeenCalled();
+    expect(deleteManyMock).not.toHaveBeenCalled();
+  });
+
+  it("is a 204 when the row vanishes between the lookup and the delete", async () => {
+    // Two concurrent revokes of one id, or a revoke racing a deletion in the
+    // dashboard. `delete` raised P2025 here, which surfaced as a 500 and the
+    // gateway relayed as one — a server error for an outcome that was achieved.
+    findUniqueMock.mockResolvedValueOnce({ id: "ak_old", projectId: "proj-A" });
+    deleteManyMock.mockResolvedValue({ count: 0 });
+    const res = await DELETE(request(), params("ak_old"));
+    expect(res.status).toBe(204);
   });
 
   it("rejects an unauthenticated request before touching the database", async () => {
@@ -93,6 +108,6 @@ describe("DELETE /api/public/api-keys/{keyId}", () => {
     findUniqueMock.mockResolvedValue(null);
     const res = await DELETE(request(), params("ak_old"));
     expect(res.status).toBe(401);
-    expect(deleteMock).not.toHaveBeenCalled();
+    expect(deleteManyMock).not.toHaveBeenCalled();
   });
 });

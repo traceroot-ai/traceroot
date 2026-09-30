@@ -21,12 +21,61 @@ from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Hop-by-hop and host-specific headers must not be forwarded: `host` would
-# address the wrong service and `content-length` would contradict the re-encoded
-# body. `accept-encoding` is dropped so httpx hands us a decoded body to inspect.
-_SKIP_REQUEST_HEADERS = {"host", "content-length", "connection", "accept-encoding"}
+# Only what a client actually needs crosses the trust boundary. An allowlist (not
+# a denylist) so a header nobody thought about cannot be relayed: `cookie` would
+# hand the control plane a second, session-scoped credential on a Bearer-authed
+# request (confused deputy); `transfer-encoding` would contradict the
+# `Content-Length` httpx derives from the buffered body (request-smuggling shape);
+# `x-forwarded-for`/`x-real-ip` are caller-chosen and would poison upstream logs.
+# `host` would address the wrong service and `accept-encoding` is omitted so httpx
+# hands us a decoded body to inspect.
+_FORWARD_REQUEST_HEADERS = frozenset(
+    {
+        "authorization",
+        "content-type",
+        "accept",
+        "user-agent",
+        "traceparent",
+        "tracestate",
+        "idempotency-key",
+    }
+)
+
+# `forward` buffers the body into REST-process memory before sending it upstream,
+# so it needs a ceiling. Nothing in front of this process imposes one, and the
+# largest legitimate body on these routes is a small JSON object.
+_MAX_FORWARD_BODY_BYTES = 8 * 1024 * 1024
 
 _GENERIC_UPSTREAM_ERROR = "Request failed"
+
+
+async def _read_capped_body(request: Request) -> bytes:
+    """Buffer the request body, refusing anything over ``_MAX_FORWARD_BODY_BYTES``.
+
+    A declared ``Content-Length`` is rejected up front so an oversized upload is
+    refused before it is read; the streaming check below is what actually enforces
+    the cap (a chunked or mis-declared body has no trustworthy length).
+
+    Raises:
+        HTTPException: 413 if the body exceeds the cap.
+    """
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > _MAX_FORWARD_BODY_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Request body too large",
+        )
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_FORWARD_BODY_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Request body too large",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def normalized_error(
@@ -74,8 +123,8 @@ async def forward(
     the control plane make the authoritative decision.
     """
     url = f"{settings.traceroot_ui_url.rstrip('/')}/api/public/{subpath}"
-    body = await request.body()
-    headers = {k: v for k, v in request.headers.items() if k.lower() not in _SKIP_REQUEST_HEADERS}
+    body = await _read_capped_body(request)
+    headers = {k: v for k, v in request.headers.items() if k.lower() in _FORWARD_REQUEST_HEADERS}
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             upstream = await client.request(
