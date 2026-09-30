@@ -44,6 +44,43 @@ from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
+# The body is buffered into this process before anything validates it, and the
+# only limit downstream is 100 characters on `name` — checked after the parse.
+# Sized well above the largest legal body (three short fields) and far below
+# anything that would pressure a worker. The eval proxy carries the same ceiling
+# for the same reason; extracting one shared reader is tracked separately.
+_MAX_BODY_BYTES = 64 * 1024
+
+
+async def _read_capped_body(request: Request) -> bytes:
+    """Buffer the request body, refusing anything over ``_MAX_BODY_BYTES``.
+
+    A declared ``Content-Length`` is rejected up front so an oversized upload is
+    refused before it is read; the streaming check is what actually enforces the
+    cap, since a chunked or mis-declared body has no trustworthy length.
+
+    Raises:
+        HTTPException: 413 if the body exceeds the cap.
+    """
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > _MAX_BODY_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Request body too large",
+        )
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_BODY_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Request body too large",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 router = APIRouter(prefix="/public/projects", tags=["Projects (Public)"])
 
 
@@ -156,7 +193,7 @@ async def create_project_api_key(
             nowhere else, or the control plane's error.
     """
     try:
-        body = await request.json()
+        body = json.loads(await _read_capped_body(request))
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Request body must be JSON"

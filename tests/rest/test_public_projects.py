@@ -255,4 +255,29 @@ def test_a_live_session_mints_and_is_actually_checked(monkeypatch):
 
     assert resp.status_code == 201
     assert live.call_count == 1
+    # And it checked THIS token's session, not some other one: the `sid` claim is
+    # the whole of what makes the gate mean anything, and a regression that sent an
+    # empty or wrong session id would still have produced one call.
+    assert json.loads(live.calls.last.request.content) == {"sessionId": "sess-1"}
     assert internal.called
+
+
+@respx.mock
+def test_an_oversized_body_is_refused_before_it_is_parsed():
+    """Nothing downstream bounds this: `name` is only checked after the parse."""
+    _mock_account_auth()
+    internal = _mock_internal("user-create-project-key", CREATED_KEY)
+
+    resp = TestClient(app).post(
+        "/api/v1/public/projects/proj-1/api-keys",
+        content=b'{"name": "x"}',
+        headers={
+            **USER_HEADER,
+            "Content-Type": "application/json",
+            "Content-Length": str(128 * 1024),
+        },
+    )
+
+    assert resp.status_code == 413
+    assert resp.json() == {"detail": "Request body too large"}
+    assert not internal.called
