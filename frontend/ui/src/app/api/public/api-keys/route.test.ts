@@ -228,3 +228,30 @@ describe("POST /api/public/api-keys", () => {
     expect((await GET(request())).status).toBe(403);
   });
 });
+
+describe("POST with an oversized body", () => {
+  /** A request that declares more bytes than the handler will accept. */
+  function oversized() {
+    return {
+      headers: {
+        get: (n: string) => {
+          const name = n.toLowerCase();
+          if (name === "authorization") return `Bearer ${CALLER_KEY}`;
+          if (name === "content-length") return String(128 * 1024);
+          return null;
+        },
+      },
+      json: async () => ({ name: "x" }),
+    } as unknown as Parameters<typeof POST>[0];
+  }
+
+  it("is refused before the body is parsed or a key is minted", async () => {
+    // The gateway's ceiling only covers callers who come through it; a project
+    // key can POST here directly. The schema's 100-character `name` is checked
+    // after the parse, so it bounds nothing on the wire.
+    const res = await POST(oversized());
+
+    expect(res.status).toBe(413);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+});

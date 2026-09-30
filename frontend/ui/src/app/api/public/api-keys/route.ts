@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@traceroot/core";
 import { generateApiKey, getKeyPrefix, hashApiKey } from "@/lib/api-keys";
+import { readLimitedJson } from "@/lib/eval/body";
 import { publicError, requireApiKeyProject } from "@/lib/public-auth";
 
 /**
@@ -16,6 +17,9 @@ import { publicError, requireApiKeyProject } from "@/lib/public-auth";
  * no `project_id` input to confuse or abuse. A key can therefore mint siblings
  * for its own project but can never reach another one.
  */
+
+/** Well above the largest legal body (three short fields), far below harm. */
+const MAX_BODY_BYTES = 64 * 1024;
 
 const createKeySchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -95,14 +99,18 @@ export async function POST(request: NextRequest) {
     return result.response;
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return publicError("Request body must be JSON", 400);
+  // Bounded on the wire, not after parsing. `request.json()` buffers the whole
+  // body with no ceiling — the Pages Router's `bodyParser.sizeLimit` does not
+  // apply to Route Handlers — and the gateway's own limit only covers callers who
+  // come through it, while a project key can POST here directly. The schema's
+  // 100-character `name` is checked after the parse, so it bounds nothing.
+  // (The reader lives under `lib/eval/` for historical reasons; it is generic.)
+  const read = await readLimitedJson(request, MAX_BODY_BYTES);
+  if (!read.ok) {
+    return publicError(read.status === 413 ? "Request body too large" : read.error, read.status);
   }
 
-  const parsed = createKeySchema.safeParse(body);
+  const parsed = createKeySchema.safeParse(read.value);
   if (!parsed.success) {
     return publicError(parsed.error.issues[0].message, 400);
   }
