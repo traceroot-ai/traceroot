@@ -180,7 +180,7 @@ export function planSignalDigest(input: {
 
 type DigestDb = Pick<
   PrismaClient,
-  "$queryRaw" | "$transaction" | "detector" | "signalRca" | "signal"
+  "$queryRaw" | "$executeRaw" | "$transaction" | "detector" | "signalRca" | "signal"
 >;
 
 /** Read the project's signals with unreported changes and what the plan needs. */
@@ -237,11 +237,15 @@ export async function loadDigestInput(db: DigestDb, projectId: string, now: numb
  * Record what the digest reported: the reopen_seq and hit count read, not the
  * current ones, so a hit that landed after the read is reported next time.
  * Only sent signals get notified_at, which rate-limits ongoing-only digests.
+ * A hit moved away while the digest ran lowers the hit count below the count
+ * read; the reported count is then cut to the hit count, so it cannot hide
+ * the signal's next new hit.
  */
 export async function recordDigest(db: DigestDb, plan: DigestPlan, sentAt: Date): Promise<void> {
   if (plan.consumed.length === 0) return;
-  await db.$transaction(
-    plan.consumed.map((c) =>
+  const ids = plan.consumed.map((c) => c.id);
+  await db.$transaction([
+    ...plan.consumed.map((c) =>
       db.signal.update({
         where: { id: c.id },
         data: {
@@ -251,7 +255,10 @@ export async function recordDigest(db: DigestDb, plan: DigestPlan, sentAt: Date)
         },
       }),
     ),
-  );
+    db.$executeRaw`
+      UPDATE signals SET notified_hit_count = hit_count
+      WHERE id = ANY(${ids}) AND notified_hit_count > hit_count`,
+  ]);
 }
 
 /**

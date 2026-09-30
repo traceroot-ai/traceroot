@@ -158,6 +158,14 @@ describe("reads", () => {
       { tag: "prisma" },
       { projectId: "p1", detectorId: "d1", status: undefined, page: 0, limit: 50 },
     );
+    await handleListDetectorSignals(
+      req(undefined, "?page=99999999999999999999&limit=1000"),
+      params({ projectId: "p1", detectorId: "d1" }),
+    );
+    expect(core.listSignals).toHaveBeenLastCalledWith(
+      { tag: "prisma" },
+      { projectId: "p1", detectorId: "d1", status: undefined, page: 10_000, limit: 200 },
+    );
     const bad = await handleListDetectorSignals(
       req(undefined, "?status=closed"),
       params({ projectId: "p1", detectorId: "d1" }),

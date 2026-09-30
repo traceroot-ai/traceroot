@@ -96,12 +96,12 @@ function fakeDb(signals: SignalRow[], hits: HitRow[] = [], rcas: RcaRow[] = []) 
       findMany: async ({ where }: { where: { signalId: string } }) =>
         hits
           .filter((h) => h.signalId === where.signalId)
-          .map((h) => ({ runId: h.runId, assignedAt: h.assignedAt ?? t(0) })),
+          .map((h) => ({ runId: h.runId, assignedAt: h.assignedAt ?? new Date(0) })),
       findFirst: async ({ where }: { where: { runId: string; projectId: string } }) =>
         pick(hits.find((h) => h.runId === where.runId && h.projectId === where.projectId)),
       findUniqueOrThrow: async ({ where }: { where: { runId: string } }) => {
         const h = hits.find((x) => x.runId === where.runId)!;
-        return { ...h, assignedAt: h.assignedAt ?? t(0) };
+        return { ...h, assignedAt: h.assignedAt ?? new Date(0) };
       },
       updateMany: async ({
         where,

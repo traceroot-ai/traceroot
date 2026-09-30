@@ -82,6 +82,9 @@ async function rewriteCopies(moved: MovedHits): Promise<void> {
   }
 }
 
+// Keeps the offset a query can ask for bounded, like the alerts list.
+const MAX_PAGE = 10_000;
+
 // GET /api/projects/[projectId]/detectors/[detectorId]/signals?status=open&page=0&limit=50
 // Returns `{ data, meta }` like the other list endpoints.
 export async function handleListDetectorSignals(
@@ -99,7 +102,7 @@ export async function handleListDetectorSignals(
   const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);
   const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
   const limit = isNaN(rawLimit) ? 50 : Math.min(Math.max(rawLimit, 1), 200);
-  const page = isNaN(rawPage) ? 0 : Math.max(rawPage, 0);
+  const page = isNaN(rawPage) ? 0 : Math.min(Math.max(rawPage, 0), MAX_PAGE);
   const { signals, total } = await listSignals(prisma, {
     projectId,
     detectorId,

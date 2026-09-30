@@ -216,6 +216,7 @@ describe("planSignalDigest", () => {
 
 function fakeDb(signals: PendingSignal[], lastSentAt: Date | null = null) {
   const updates: unknown[] = [];
+  const raws: { sql: string; values: unknown[] }[] = [];
   const queries: string[] = [];
   const db = {
     $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
@@ -225,6 +226,11 @@ function fakeDb(signals: PendingSignal[], lastSentAt: Date | null = null) {
       if (sql.includes("SELECT DISTINCT project_id"))
         return [{ projectId: "p1" }, { projectId: "p2" }];
       return signals;
+    }),
+    $executeRaw: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const op = { sql: strings.join("?"), values };
+      raws.push(op);
+      return op;
     }),
     $transaction: vi.fn(async (ops: unknown[]) => ops),
     detector: {
@@ -245,7 +251,7 @@ function fakeDb(signals: PendingSignal[], lastSentAt: Date | null = null) {
     },
     signal: { update: vi.fn((args: unknown) => (updates.push(args), args)) },
   };
-  return { db, updates, queries };
+  return { db, updates, raws, queries };
 }
 
 describe("loadDigestInput", () => {
@@ -272,7 +278,7 @@ describe("loadDigestInput", () => {
 
 describe("recordDigest", () => {
   it("records the values read, and the send time only for sent signals", async () => {
-    const { db, updates } = fakeDb([]);
+    const { db, updates, raws } = fakeDb([]);
     await recordDigest(
       db as never,
       {
@@ -291,6 +297,13 @@ describe("recordDigest", () => {
       },
       { where: { id: "b" }, data: { notifiedReopenSeq: 0, notifiedHitCount: 2 } },
     ]);
+    // Then, in the same transaction, a count above a hit count lowered by a
+    // concurrent move is cut to it.
+    expect(raws).toEqual([
+      { sql: expect.stringContaining("SET notified_hit_count = hit_count"), values: [["a", "b"]] },
+    ]);
+    expect(raws[0].sql).toContain("notified_hit_count > hit_count");
+    expect(db.$transaction).toHaveBeenCalledWith([updates[0], updates[1], raws[0]]);
   });
 });
 
