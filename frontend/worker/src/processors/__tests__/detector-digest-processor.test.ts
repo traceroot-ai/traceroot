@@ -114,6 +114,27 @@ describe("flushDigest", () => {
     expect(slackArg.total).toBe(4);
   });
 
+  it("leaves detectors grouping into signals to the signal digest", async () => {
+    detectorFindMany.mockResolvedValue([
+      { id: "d1", name: "Latency", enableRca: true, enableSignals: true },
+      { id: "d2", name: "Errors", enableRca: true, enableSignals: false },
+    ]);
+    vi.stubEnv("OPENAI_API_KEY", "sk");
+    await run();
+    expect(
+      sendDigestAlertSlack.mock.calls[0][0].entries.map(
+        (e: { detectorId: string }) => e.detectorId,
+      ),
+    ).toEqual(["d2"]);
+
+    // Without the signals key nothing groups, so the per-finding digest keeps both.
+    vi.stubEnv("OPENAI_API_KEY", "");
+    sendDigestAlertSlack.mockClear();
+    await run();
+    expect(sendDigestAlertSlack.mock.calls[0][0].entries).toHaveLength(2);
+    vi.unstubAllEnvs();
+  });
+
   it("sends nothing when no detector has findings in the window", async () => {
     readDetectorWindowSummary.mockResolvedValue({
       d1: { finding_count: 0, run_count: 9, sample_trace_ids: [] },

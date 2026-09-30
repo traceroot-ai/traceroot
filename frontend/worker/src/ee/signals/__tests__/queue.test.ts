@@ -77,6 +77,14 @@ const { mockEnqueueRca, mockSweepRcas } = vi.hoisted(() => ({
   mockSweepRcas: vi.fn(),
 }));
 vi.mock("../rca.js", () => ({ enqueueSignalRca: mockEnqueueRca, sweepSignalRcas: mockSweepRcas }));
+const { mockEnqueueDigest, mockSweepDigests } = vi.hoisted(() => ({
+  mockEnqueueDigest: vi.fn(),
+  mockSweepDigests: vi.fn(),
+}));
+vi.mock("../digest.js", () => ({
+  enqueueSignalDigest: mockEnqueueDigest,
+  sweepSignalDigests: mockSweepDigests,
+}));
 vi.mock("@traceroot/core", () => ({ prisma: { tag: "prisma" } }));
 const { mockEmbed, mockChat, mockJev, mockFindJev } = vi.hoisted(() => ({
   mockEmbed: vi.fn(),
@@ -286,6 +294,7 @@ describe("sweepPartitions", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     expect(await sweepPartitions(T0)).toBe(1);
     expect(mockSweepRcas).toHaveBeenCalledWith({ tag: "prisma" }, T0);
+    expect(mockSweepDigests).toHaveBeenCalledWith({ tag: "prisma" }, T0);
     expect(mockAdd).toHaveBeenCalledWith(
       "assign",
       { projectId: "p", detectorId: "d" },
@@ -305,6 +314,8 @@ describe("production wiring", () => {
     expect(deps.failures.record).toBe(recordHitFailure);
     await deps.enqueueRca("f1", "p");
     expect(mockEnqueueRca).toHaveBeenCalledWith("f1", "p");
+    await deps.enqueueDigest("p");
+    expect(mockEnqueueDigest).toHaveBeenCalledWith("p");
     expect(deps.now()).toBeGreaterThan(0);
 
     await deps.embed(["a"]);

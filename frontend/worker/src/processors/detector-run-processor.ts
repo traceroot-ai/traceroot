@@ -12,6 +12,8 @@ import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-
 import { withSelfTrace } from "../detection/self-trace-emitter.js";
 import { boundedJson } from "../detection/traced-complete.js";
 import { enqueueSignalHits } from "../ee/signals/queue.js";
+import { signalsAvailable } from "../ee/signals/config.js";
+import { scheduleFindingDigest } from "../notifications/digest-schedule.js";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
@@ -334,6 +336,7 @@ async function evaluateTrace(
       select: {
         workspaceId: true,
         workspace: { select: { billingPlan: true, detectorBlocked: true } },
+        alertConfig: { select: { alertWindow: true } },
       },
     }),
   ]);
@@ -438,8 +441,8 @@ async function evaluateTrace(
   );
 
   // Single capture time for this finding. Stamped onto the finding row AND every
-  // triggered run below (timestampMs), and threaded to the RCA job to key the
-  // digest flush. Because the same value is both the row timestamp the flush
+  // triggered run below (timestampMs), and keys the per-finding digest flush
+  // scheduled below. Because the same value is both the row timestamp the flush
   // counts and the window key, a finding always falls in exactly the window its
   // flush covers — no boundary skew between the worker and server clocks.
   const findingTimestamp = Date.now();
@@ -474,6 +477,23 @@ async function evaluateTrace(
   console.log(
     `[Detector] Finding ${findingId} created for trace ${traceId} (${triggered.length} detector(s) triggered)`,
   );
+
+  // Detectors not grouping into signals report through the per-finding digest;
+  // the signal digest covers the rest once their hits are assigned.
+  const grouping = signalsAvailable();
+  const reportsPerFinding = triggered.some((t) => {
+    const d = detectors.find((x) => x.id === t.detectorId);
+    return !(d?.enableSignals && grouping);
+  });
+  if (reportsPerFinding) {
+    await scheduleFindingDigest(
+      projectId,
+      findingTimestamp,
+      project?.alertConfig?.alertWindow ?? null,
+    ).catch((err) =>
+      console.error(`[Detector] Failed to schedule the digest for finding ${findingId}:`, err),
+    );
+  }
 
   // Signals (ee): enqueue assignment for detectors with signals on; the job
   // reads the hits back from ClickHouse. A failure here must not fail the

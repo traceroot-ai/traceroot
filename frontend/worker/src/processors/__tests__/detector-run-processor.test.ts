@@ -59,6 +59,10 @@ vi.mock("../../detection/self-trace-emitter.js", () => ({
   withSelfTrace: mockWithSelfTrace,
 }));
 vi.mock("../../ee/signals/queue.js", () => ({ enqueueSignalHits: mockEnqueueSignalHits }));
+const { mockScheduleFindingDigest } = vi.hoisted(() => ({ mockScheduleFindingDigest: vi.fn() }));
+vi.mock("../../notifications/digest-schedule.js", () => ({
+  scheduleFindingDigest: mockScheduleFindingDigest,
+}));
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -105,6 +109,7 @@ beforeEach(() => {
   mockPrisma.aIMessage.createMany.mockResolvedValue(undefined);
   mockPrisma.detectorRca.upsert.mockResolvedValue(undefined);
   mockEnqueueSignalHits.mockResolvedValue(0);
+  mockScheduleFindingDigest.mockResolvedValue(undefined);
   // Default: tracing works — run fn once, report selfTraced, surface throws
   // as ok:false (mirrors the real withSelfTrace contract).
   lastRecordedIo = undefined;
@@ -515,5 +520,56 @@ describe("processTrace — signals call site", () => {
     await processTrace("t1", "p1", ["d1"]);
     expect(mockRunDetection).toHaveBeenCalledOnce();
     expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+  });
+});
+
+describe("processTrace — per-finding digest", () => {
+  const spans = JSON.stringify({ span_id: "s", span_start_time: "2026-09-30T09:00:00" });
+  function trigger(enableSignals: boolean) {
+    mockPrisma.detector.findMany.mockResolvedValue([
+      { id: "d1", name: "Failure", prompt: "p", outputSchema: [], enableRca: true, enableSignals },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: true,
+      summary: "tool timed out",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: null,
+      inferenceProvider: "anthropic",
+    });
+    mockPrisma.project.findUnique.mockResolvedValue({
+      workspaceId: "w1",
+      workspace: { billingPlan: "pro", detectorBlocked: false },
+      alertConfig: { alertWindow: "30m" },
+    });
+  }
+
+  it("schedules the per-finding digest for a detector not grouping into signals", async () => {
+    mockFetches(60_000, spans);
+    trigger(false);
+    await processTrace("t1", "p1", ["d1"]);
+    const ts = mockWriteFinding.mock.calls[0][0].timestampMs;
+    expect(mockScheduleFindingDigest).toHaveBeenCalledWith("p1", ts, "30m");
+  });
+
+  it("leaves a detector grouping into signals to the signal digest", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk");
+    mockFetches(60_000, spans);
+    trigger(true);
+    await processTrace("t1", "p1", ["d1"]);
+    expect(mockScheduleFindingDigest).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
+  it("uses the per-finding digest when the deployment has no signals key", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    mockFetches(60_000, spans);
+    trigger(true);
+    await processTrace("t1", "p1", ["d1"]);
+    expect(mockScheduleFindingDigest).toHaveBeenCalledOnce();
+    vi.unstubAllEnvs();
   });
 });

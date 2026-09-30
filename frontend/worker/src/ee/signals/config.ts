@@ -113,3 +113,15 @@ export const RCA_DELAY_MS = 60_000;
 
 /** A signal RCA still pending after this long lost its job; the sweeper re-enqueues it. */
 export const RCA_STALE_MS = 10 * 60 * 1000;
+
+/** Delay before a project's signal digest is built after a round, collecting nearby changes. */
+export const SIGNAL_DIGEST_DELAY_MS = 60_000;
+
+/** A new or reopened signal waits this long at most for its RCA before it is announced. */
+export const DIGEST_RCA_WAIT_MS = 30 * 60 * 1000;
+
+/** A digest with only ongoing signals goes out at most this often per project. */
+export const ONGOING_DIGEST_INTERVAL_MS = 60 * 60 * 1000;
+
+/** The sweeper builds the digest of projects whose signals changed at least this long ago. */
+export const DIGEST_SWEEP_STALE_MS = 5 * 60 * 1000;

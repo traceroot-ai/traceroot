@@ -1,14 +1,5 @@
-import { DelayedError, Queue, Worker, type Job } from "bullmq";
-import {
-  prisma,
-  SYSTEM_MODELS,
-  PlanType,
-  ModelSource,
-  ALERT_WINDOWS,
-  DEFAULT_ALERT_WINDOW,
-  isAlertWindow,
-  type TraceStatus,
-} from "@traceroot/core";
+import { DelayedError, Worker, type Job } from "bullmq";
+import { prisma, SYSTEM_MODELS, PlanType, ModelSource, type TraceStatus } from "@traceroot/core";
 import {
   allocateExecution,
   finishFindingIfLatest,
@@ -29,26 +20,10 @@ import {
   loadSignalRcaContext,
   type SignalRcaContext,
 } from "../ee/signals/rca.js";
-import {
-  type DigestFlushJob,
-  windowStartFor,
-  createDetectorDigestQueue,
-} from "../queues/digest-queue.js";
+import { scheduleFindingDigest } from "../notifications/digest-schedule.js";
+import { enqueueSignalDigest } from "../ee/signals/digest.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
-
-// Settle margin past the window's end before the flush reads ClickHouse, so a
-// finding written at windowEnd−ε is visible. With finding-timestamp keying
-// there is no RCA-latency drift, so a few seconds for write-visibility suffices.
-const DIGEST_SETTLE_MS = Number(process.env.DIGEST_SETTLE_MS ?? 5_000);
-
-let digestQueue: Queue<DigestFlushJob> | null = null;
-function getDigestQueue(): Queue<DigestFlushJob> {
-  if (!digestQueue) {
-    digestQueue = createDetectorDigestQueue(createRedisConnection());
-  }
-  return digestQueue;
-}
 
 // Resolve a project-configured rca_model to the agent service body fields.
 // Uses the same pattern as sandbox-eval.ts: reads the provider from saved
@@ -504,41 +479,19 @@ export async function processRcaJob(job: Job<RcaJob>, token?: string) {
     );
   }
 
-  // Project alert aggregation window. Hoisted because `scheduleDigestFlush`
-  // closes over it but `project` is fetched later in the try below. Defaults to
-  // DEFAULT_ALERT_WINDOW until the project read resolves it.
-  let alertWindow: string = DEFAULT_ALERT_WINDOW;
+  // Project alert aggregation window, for the per-finding digest of legacy
+  // jobs. Hoisted because `scheduleDigestFlush` closes over it but `project` is
+  // fetched later in the try below.
+  let alertWindow: string | null = null;
 
-  // Every detector alert is a windowed digest: schedule one deduped flush per
-  // (project, windowStart) keyed off the finding timestamp, which the worker also
-  // stamps onto the detector_runs the flush counts — so the window the key selects
-  // and the window the count reads are identical. The deterministic jobId makes
-  // the first finding of the window schedule the flush and every later finding a
-  // no-op enqueue. Age-based retention keeps a late re-enqueue (slow RCA) a no-op
-  // past the largest window + RCA tail. Findings must never fail silently, so
-  // this runs on both the success and failure paths; flushDigest re-resolves the
-  // recipients and renders the digest.
-  const scheduleDigestFlush = async () => {
-    const windowMs = ALERT_WINDOWS[isAlertWindow(alertWindow) ? alertWindow : DEFAULT_ALERT_WINDOW];
-    // Legacy/in-flight RCA jobs enqueued before findingTimestamp existed carry no
-    // timestamp; fall back to now so the window key never goes NaN.
-    const safeFindingTs =
-      typeof findingTimestamp === "number" && Number.isFinite(findingTimestamp)
-        ? findingTimestamp
-        : Date.now();
-    const windowStart = windowStartFor(safeFindingTs, windowMs);
-    const delay = Math.max(0, windowStart + windowMs + DIGEST_SETTLE_MS - Date.now());
-    await getDigestQueue().add(
-      `digest-${projectId}-${windowStart}`,
-      { projectId, windowStart, windowMs },
-      {
-        jobId: `digest:${projectId}:${windowStart}`,
-        delay,
-        removeOnComplete: { age: 6 * 3600 },
-        removeOnFail: 50,
-      },
-    );
-  };
+  // Legacy per-finding jobs (in flight from before signals) still key the
+  // per-finding digest; a signal RCA instead lets the project's signal digest
+  // announce the signal it was waiting on. Runs on both the success and failure
+  // paths: findings must never fail silently.
+  const scheduleDigestFlush = () =>
+    signalContext
+      ? enqueueSignalDigest(projectId, 0)
+      : scheduleFindingDigest(projectId, findingTimestamp, alertWindow);
 
   // Remembered across the catch below: once the run itself has settled, a
   // later persistence failure must not rewrite an exported trace as `failed`
@@ -558,7 +511,7 @@ export async function processRcaJob(job: Job<RcaJob>, token?: string) {
         alertConfig: { select: { alertWindow: true } },
       },
     });
-    alertWindow = project?.alertConfig?.alertWindow ?? DEFAULT_ALERT_WINDOW;
+    alertWindow = project?.alertConfig?.alertWindow ?? null;
 
     // Workspace-level GitHub installations now drive the GitHub tool.
     // Any installation in this workspace is enough to flip the tool on.
