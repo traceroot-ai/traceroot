@@ -209,6 +209,7 @@ TraceRoot 中除名为 `ee` 的目录外，代码均采用 [Apache 2.0](LICENSE)
 
 ## Star 趋势
 
+<p align="center">
 <a href="https://star-history.com/#traceroot-ai/traceroot&Date">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date&theme=dark" />
@@ -216,12 +217,19 @@ TraceRoot 中除名为 `ee` 的目录外，代码均采用 [Apache 2.0](LICENSE)
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" style="border-radius: 15px;" />
  </picture>
 </a>
+</p>
 
 ## 贡献者
 
+<p align="center">
 <a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot 贡献者" />
 </a>
+</p>
+
+<br>
+
+<p align="center">⭐ <b>在 GitHub 上给我们点个 Star</b>，支持 TraceRoot！</p>
 
 <!-- Links -->
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
