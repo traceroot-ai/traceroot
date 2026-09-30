@@ -257,6 +257,14 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
             status: true,
             baselineRunId: true,
             scorers: true,
+            // The comparison engine weighs the BASELINE's coverage too — a full
+            // candidate against a subset baseline is not a whole-dataset verdict
+            // either. Omitting these would silently read every baseline as unknown,
+            // so a partial baseline would never downgrade the comparison.
+            datasetCaseCount: true,
+            selectionMode: true,
+            selectedCaseCount: true,
+            sampleSeed: true,
           },
         })
       : [];

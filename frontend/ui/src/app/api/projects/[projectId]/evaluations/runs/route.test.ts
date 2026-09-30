@@ -701,3 +701,94 @@ it("drops an unparseable started_after instead of erroring", async () => {
     }),
   );
 });
+
+it("feeds the BASELINE's coverage to the engine, not just the candidate's", async () => {
+  // The baseline is fetched with an explicit `select`, so its coverage columns only
+  // reach the engine if that select names them. Omitting them would read every
+  // baseline as unknown coverage, so a partial baseline would never downgrade anything.
+  const full = {
+    datasetCaseCount: 2,
+    selectionMode: "full",
+    selectedCaseCount: 2,
+    sampleSeed: null,
+  };
+  const candidate = {
+    id: "run_c",
+    projectId: "p1",
+    evaluationId: "e1",
+    datasetId: "ds1",
+    datasetVersionId: "dv1",
+    runNumber: 2,
+    candidateVersion: "sonnet",
+    status: "completed",
+    baselineRunId: "run_b",
+    caseCount: 1,
+    taskErrorCount: 0,
+    scorerErrorCount: 0,
+    scorers: [{ name: "acc", version: "unversioned" }],
+    ...full,
+    startedAt: new Date("2026-07-21T00:00:00Z"),
+    completedAt: new Date("2026-07-21T00:00:05Z"),
+    evaluation: { name: "ticket-routing" },
+    datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
+  };
+  // Same everything, except the baseline measured only 20 of 500 cases.
+  const subsetBaseline = {
+    id: "run_b",
+    projectId: "p1",
+    evaluationId: "e1",
+    datasetId: "ds1",
+    datasetVersionId: "dv1",
+    runNumber: 1,
+    candidateVersion: "opus",
+    status: "completed",
+    baselineRunId: null,
+    scorers: [{ name: "acc", version: "unversioned" }],
+    datasetCaseCount: 500,
+    selectionMode: "first",
+    selectedCaseCount: 20,
+    sampleSeed: null,
+  };
+  const rows = [
+    {
+      runId: "run_c",
+      testCaseId: "t0",
+      status: "passed",
+      candidateOutput: "billing",
+      durationMs: 900,
+      scores: [score("acc", 1)],
+    },
+    {
+      runId: "run_b",
+      testCaseId: "t0",
+      status: "passed",
+      candidateOutput: "billing",
+      durationMs: 800,
+      scores: [score("acc", 1)],
+    },
+  ];
+
+  prismaMock.evaluationRun.findMany
+    .mockResolvedValueOnce([candidate])
+    .mockResolvedValueOnce([subsetBaseline]);
+  prismaMock.evaluationRun.count.mockResolvedValue(1);
+  prismaMock.evaluationResult.findMany.mockResolvedValue(rows);
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([group("run_c", "passed", 1)]);
+
+  const body = (await (await GET(nextUrl() as never, params)).json()) as {
+    data: Record<string, unknown>[];
+  };
+  // The candidate covered everything and the case sets pair, but the baseline did not.
+  expect(body.data[0].baselineComparable).toBe(false);
+
+  // And the select genuinely asks for them.
+  const baselineArgs = prismaMock.evaluationRun.findMany.mock.calls[1][0];
+  expect(Object.keys(baselineArgs.select)).toEqual(
+    expect.arrayContaining([
+      "datasetCaseCount",
+      "selectionMode",
+      "selectedCaseCount",
+      "sampleSeed",
+    ]),
+  );
+});
