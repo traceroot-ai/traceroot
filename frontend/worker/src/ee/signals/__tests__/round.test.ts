@@ -122,10 +122,29 @@ function chatModels(usage: ModelUsage[]): AssignmentModels {
   };
 }
 
-function deps(db: unknown, backend: SignalsBackend, now: () => number = () => T0): RoundDeps {
+/** In-memory failure records: count and first failure time per run. */
+function fakeFailures(seed: Record<string, { count: number; firstAt: number }> = {}) {
+  const records = { ...seed };
+  return {
+    records,
+    record: vi.fn(async (runId: string, now: number) => {
+      const r = (records[runId] ??= { count: 0, firstAt: now });
+      r.count++;
+      return { ...r };
+    }),
+  };
+}
+
+function deps(
+  db: unknown,
+  backend: SignalsBackend,
+  now: () => number = () => T0,
+  failures = fakeFailures(),
+): RoundDeps {
   return {
     db: db as RoundDeps["db"],
     backend,
+    failures,
     embed,
     models: async (_ws, usage) => chatModels(usage),
     now,
@@ -322,6 +341,68 @@ describe("runAssignmentRound", () => {
     error.mockRestore();
   });
 
+  it("moves past a hit that fails, so the rest of the detector is still assigned", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend, written } = fakeBackend([row(1), row(2), row(3)]);
+    const failures = fakeFailures();
+    mockApply.mockImplementationOnce(async () => {
+      throw new Error("bad hit");
+    });
+    const stats = await runAssignmentRound(
+      deps(fakeDb().db, backend, () => T0, failures),
+      "p",
+      "d",
+    );
+    expect(stats).toMatchObject({ failed: 1, gaveUp: 0, created: 2 });
+    expect(written.map((w) => w.run_id)).toEqual(["run2", "run3"]);
+    expect(failures.record).toHaveBeenCalledWith("run1", T0);
+    error.mockRestore();
+  });
+
+  it("stops the round at two failures in a row and backs off when nothing moved", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend } = fakeBackend([row(1), row(2), row(3)]);
+    mockApply.mockRejectedValue(new Error("postgres down"));
+    await expect(runAssignmentRound(deps(fakeDb().db, backend), "p", "d")).rejects.toThrow(
+      "postgres down",
+    );
+    expect(mockApply).toHaveBeenCalledTimes(2);
+    error.mockRestore();
+  });
+
+  it("gives up on a hit that failed three times over six hours, and marks it so it stops waiting", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend, written } = fakeBackend([row(1)]);
+    const failures = fakeFailures({ run1: { count: 2, firstAt: T0 - 7 * 3_600_000 } });
+    mockApply.mockRejectedValueOnce(new Error("bad hit"));
+    const stats = await runAssignmentRound(
+      deps(fakeDb().db, backend, () => T0, failures),
+      "p",
+      "d",
+    );
+    expect(stats).toMatchObject({ failed: 1, gaveUp: 1 });
+    expect(written).toEqual([
+      expect.objectContaining({ run_id: "run1", signal_id: "", gave_up: true, embedding: [] }),
+    ]);
+    error.mockRestore();
+  });
+
+  it("keeps retrying a hit that failed often but only recently, as in an outage", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend, written } = fakeBackend([row(1)]);
+    const failures = fakeFailures({ run1: { count: 9, firstAt: T0 - 3_600_000 } });
+    mockApply.mockRejectedValueOnce(new Error("provider down"));
+    await expect(
+      runAssignmentRound(
+        deps(fakeDb().db, backend, () => T0, failures),
+        "p",
+        "d",
+      ),
+    ).rejects.toThrow("provider down");
+    expect(written).toEqual([]);
+    error.mockRestore();
+  });
+
   it("writes the copies it has and keeps usage findable when a model call fails part-way", async () => {
     // run1 starts the first signal (no assignment call); run3 needs one, which fails.
     const { backend, written } = fakeBackend([row(1), row(3)]);
@@ -344,8 +425,12 @@ describe("runAssignmentRound", () => {
         return m;
       },
     };
-    await expect(runAssignmentRound(failing, "p", "d")).rejects.toThrow("provider down");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    // run1 succeeded, so the round reports run3's failure instead of throwing.
+    const stats = await runAssignmentRound(failing, "p", "d");
+    expect(stats).toMatchObject({ failed: 1, created: 1 });
     expect(written.map((w) => w.run_id)).toEqual(["run1"]);
+    error.mockRestore();
     expect(aiRows.map((r) => r.model).sort()).toEqual(["gpt-5.6-luna", "text-embedding-3-small"]);
   });
 

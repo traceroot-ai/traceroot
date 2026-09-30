@@ -28,6 +28,8 @@ export interface AssignmentRow {
   score: number | null;
   criteria_version: number | null;
   assigned_at_ms: number;
+  /** The worker gave up on this hit; signal_id is empty and it belongs to no signal. */
+  gave_up?: boolean;
 }
 
 export interface SignalsBackend {

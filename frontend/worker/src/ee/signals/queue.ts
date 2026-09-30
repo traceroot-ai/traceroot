@@ -126,3 +126,20 @@ export async function partitionsToSweep(
       return { projectId, detectorId };
     });
 }
+
+/**
+ * Count one more failure of a hit, keeping the time of its first failure. The
+ * record expires with the lookback, after which the hit is no longer read.
+ */
+export async function recordHitFailure(
+  runId: string,
+  now: number,
+): Promise<{ count: number; firstAt: number }> {
+  const key = `signals:assign:failures:${runId}`;
+  const r = redis();
+  const count = await r.hincrby(key, "count", 1);
+  await r.hsetnx(key, "first", String(now));
+  await r.pexpire(key, WAITING_LOOKBACK_MS);
+  const first = await r.hget(key, "first");
+  return { count, firstAt: Number(first ?? now) };
+}

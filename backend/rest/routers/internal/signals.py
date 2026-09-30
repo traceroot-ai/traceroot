@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from db.clickhouse.client import get_clickhouse_client
 from rest.routers.internal.auth import verify_internal_secret
@@ -170,11 +170,21 @@ class SignalAssignmentRow(BaseModel):
     detector_id: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
     trace_id: str = Field(min_length=1)
-    signal_id: str = Field(min_length=1)
+    # Empty exactly when the worker gave up on the hit (see ``gave_up``).
+    signal_id: str
     embedding: list[float] = Field(default_factory=list, max_length=MAX_EMBEDDING_DIMS)
     score: float | None = None
     criteria_version: int | None = Field(default=None, ge=0)
     assigned_at_ms: int = Field(ge=0)
+    # The worker stopped retrying a hit that kept failing: the row is written
+    # with an empty signal_id so the hit no longer counts as waiting.
+    gave_up: bool = False
+
+    @model_validator(mode="after")
+    def _signal_id_matches_gave_up(self) -> "SignalAssignmentRow":
+        if self.gave_up != (self.signal_id == ""):
+            raise ValueError("signal_id must be empty exactly when gave_up is true")
+        return self
 
 
 class SignalAssignmentsPayload(BaseModel):
@@ -192,7 +202,7 @@ async def write_signal_assignments(body: SignalAssignmentsPayload):
     ch.insert_signal_assignments(
         [
             {
-                **row.model_dump(exclude={"assigned_at_ms"}),
+                **row.model_dump(exclude={"assigned_at_ms", "gave_up"}),
                 "assigned_at": _ms_to_utc(row.assigned_at_ms),
             }
             for row in body.rows

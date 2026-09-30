@@ -5,6 +5,9 @@ import {
   ASSIGNMENT_FLUSH_ROWS,
   EMBED_CHUNK,
   EMBEDDING_MODEL,
+  GIVE_UP_AFTER_FAILURES,
+  GIVE_UP_AFTER_MS,
+  MAX_CONSECUTIVE_FAILURES,
   ROUND_MAX_HITS,
   ROUND_MAX_MS,
   SHORTLIST_SIZE,
@@ -29,9 +32,16 @@ export type RoundDb = Pick<
   "$transaction" | "detector" | "signal" | "signalHit" | "aIMessage"
 >;
 
+/** Per-hit failure records, so a hit that keeps failing is eventually given up. */
+export interface HitFailures {
+  /** Count one more failure of this hit; returns the count and the first failure time. */
+  record(runId: string, now: number): Promise<{ count: number; firstAt: number }>;
+}
+
 export interface RoundDeps {
   db: RoundDb;
   backend: SignalsBackend;
+  failures: HitFailures;
   embed(texts: string[]): Promise<EmbeddingResult>;
   /** Model clients for one round; every call's usage is pushed to `usage`. */
   models(workspaceId: string, usage: ModelUsage[]): Promise<AssignmentModels>;
@@ -45,6 +55,10 @@ export interface RoundStats {
   reopened: number;
   /** Already assigned in Postgres; only the ClickHouse copy was written. */
   duplicate: number;
+  /** Hits whose processing threw this round; they stay waiting. */
+  failed: number;
+  /** Hits given up on after failing repeatedly; they no longer count as waiting. */
+  gaveUp: number;
   rejudged: number;
   unvalidated: number;
   /** Age of the oldest waiting hit when the round started: the partition's queue lag. */
@@ -98,6 +112,8 @@ export async function runAssignmentRound(
     attached: 0,
     reopened: 0,
     duplicate: 0,
+    failed: 0,
+    gaveUp: 0,
     rejudged: 0,
     unvalidated: 0,
     lagMs: 0,
@@ -158,6 +174,8 @@ export async function runAssignmentRound(
   };
 
   let processed = 0;
+  let succeeded = 0;
+  let lastError: unknown = null;
   try {
     // Hits recorded in Postgres whose ClickHouse copy is missing need no model call.
     const recorded = new Set(
@@ -221,9 +239,7 @@ export async function runAssignmentRound(
       anchorEmbedding: s.anchorEmbedding,
     }));
 
-    for (const hit of waiting) {
-      if (processed > 0 && deps.now() - started >= ROUND_MAX_MS) break;
-      processed++;
+    const assignOne = async (hit: WaitingHit): Promise<void> => {
       const material = hitMaterial(detector.name, hit.summary, hit.data);
       const vector = hit.groupKey ? undefined : await vectorFor(hit);
       let placement: Placement;
@@ -281,6 +297,53 @@ export async function runAssignmentRound(
         criteria_version: result.criteriaVersion,
         assigned_at_ms: result.assignedAt.getTime(),
       });
+    };
+
+    // A hit that fails is left waiting and the round moves on, so one bad hit
+    // cannot hold up the rest of its detector. Failures in a row look like an
+    // outage rather than a bad hit, so the round stops there.
+    let consecutiveFailures = 0;
+    for (const hit of waiting) {
+      if (processed > 0 && deps.now() - started >= ROUND_MAX_MS) break;
+      processed++;
+      try {
+        await assignOne(hit);
+        succeeded++;
+        consecutiveFailures = 0;
+      } catch (err) {
+        stats.failed++;
+        consecutiveFailures++;
+        lastError = err;
+        console.error(
+          `[Signals] failed to assign project=${projectId} detector=${detectorId} run=${hit.runId}:`,
+          err,
+        );
+        const failure = await deps.failures.record(hit.runId, deps.now());
+        if (
+          failure.count >= GIVE_UP_AFTER_FAILURES &&
+          deps.now() - failure.firstAt >= GIVE_UP_AFTER_MS
+        ) {
+          // Marked in ClickHouse so it stops counting as waiting; nothing is
+          // written to Postgres, so it belongs to no signal.
+          stats.gaveUp++;
+          console.error(
+            `[Signals] giving up on run=${hit.runId} after ${failure.count} failures since ${new Date(failure.firstAt).toISOString()}`,
+          );
+          copies.push({
+            project_id: projectId,
+            detector_id: detectorId,
+            run_id: hit.runId,
+            trace_id: hit.traceId,
+            signal_id: "",
+            embedding: [],
+            score: null,
+            criteria_version: null,
+            assigned_at_ms: deps.now(),
+            gave_up: true,
+          });
+        }
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
+      }
       if (copies.length >= ASSIGNMENT_FLUSH_ROWS) await flush();
     }
   } finally {
@@ -292,13 +355,16 @@ export async function runAssignmentRound(
   // Postgres is correct either way; failing the job retries with backoff
   // instead of re-reading the same hits in a tight loop.
   if (flushError) throw flushError;
+  // Nothing moved forward: back off rather than retry the same hits at once.
+  if (stats.failed > 0 && succeeded === 0 && stats.gaveUp === 0) throw lastError;
 
   stats.remaining = waiting.length === ROUND_MAX_HITS || processed < waiting.length;
   stats.durationMs = deps.now() - started;
   console.log(
     `[Signals] round project=${projectId} detector=${detectorId} waiting=${stats.waiting} ` +
       `created=${stats.created} attached=${stats.attached} reopened=${stats.reopened} ` +
-      `duplicate=${stats.duplicate} rejudged=${stats.rejudged} unvalidated=${stats.unvalidated} ` +
+      `duplicate=${stats.duplicate} failed=${stats.failed} gave_up=${stats.gaveUp} ` +
+      `rejudged=${stats.rejudged} unvalidated=${stats.unvalidated} ` +
       `lag_ms=${stats.lagMs} duration_ms=${stats.durationMs} remaining=${stats.remaining}`,
   );
   return stats;

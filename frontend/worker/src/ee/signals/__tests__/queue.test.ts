@@ -21,6 +21,31 @@ const { mockAdd, mockUpsertScheduler, mockRound, fakeRedis } = vi.hoisted(() => 
         .flatMap(([m, s]) => [m, String(s)]),
     zmscore: async (key: string, ...members: string[]) =>
       members.map((m) => (zset(key).has(m) ? String(zset(key).get(m)) : null)),
+    hashes: new Map<string, Map<string, string>>(),
+    expiries: new Map<string, number>(),
+    hash(key: string) {
+      if (!this.hashes.has(key)) this.hashes.set(key, new Map());
+      return this.hashes.get(key)!;
+    },
+    async hincrby(key: string, field: string, by: number) {
+      const h = this.hash(key);
+      const v = Number(h.get(field) ?? 0) + by;
+      h.set(field, String(v));
+      return v;
+    },
+    async hsetnx(key: string, field: string, value: string) {
+      const h = this.hash(key);
+      if (h.has(field)) return 0;
+      h.set(field, value);
+      return 1;
+    },
+    async hget(key: string, field: string) {
+      return this.hash(key).get(field) ?? null;
+    },
+    async pexpire(key: string, ms: number) {
+      this.expiries.set(key, ms);
+      return 1;
+    },
   };
   return { mockAdd: vi.fn(), mockUpsertScheduler: vi.fn(), mockRound: vi.fn(), fakeRedis };
 });
@@ -67,6 +92,7 @@ import {
   enqueueSignalHits,
   markDrained,
   partitionsToSweep,
+  recordHitFailure,
   type SignalAssignJobData,
 } from "../queue.js";
 import { processSignalAssignJob, startSignalAssignWorker, sweepPartitions } from "../worker.js";
@@ -77,6 +103,7 @@ const T0 = Date.parse("2026-09-30T10:00:00Z");
 beforeEach(() => {
   vi.clearAllMocks();
   fakeRedis.sets.clear();
+  fakeRedis.hashes.clear();
   vi.stubEnv("OPENAI_API_KEY", "sk-test");
   mockAdd.mockResolvedValue(undefined);
   mockUpsertScheduler.mockResolvedValue(undefined);
@@ -175,6 +202,14 @@ describe("partitionsToSweep", () => {
   });
 });
 
+describe("recordHitFailure", () => {
+  it("counts failures, keeps the first failure time, and expires with the lookback", async () => {
+    expect(await recordHitFailure("r1", T0)).toEqual({ count: 1, firstAt: T0 });
+    expect(await recordHitFailure("r1", T0 + 60_000)).toEqual({ count: 2, firstAt: T0 });
+    expect(fakeRedis.expiries.get("signals:assign:failures:r1")).toBe(7 * 24 * 3_600_000);
+  });
+});
+
 const job = (data: SignalAssignJobData, name = "assign") =>
   ({ name, data, moveToDelayed: vi.fn() }) as unknown as Job<SignalAssignJobData> & {
     moveToDelayed: ReturnType<typeof vi.fn>;
@@ -242,6 +277,7 @@ describe("production wiring", () => {
     const deps = mockRound.mock.calls[0][0] as RoundDeps;
     expect(deps.db).toEqual({ tag: "prisma" });
     expect(deps.backend).toBeDefined();
+    expect(deps.failures.record).toBe(recordHitFailure);
     expect(deps.now()).toBeGreaterThan(0);
 
     await deps.embed(["a"]);
