@@ -1,4 +1,11 @@
-import { PlanType, prisma, type EvalRunStatus, type ReadRunResponse } from "@traceroot/core";
+import {
+  PlanType,
+  RUN_SELECTION_MODES,
+  prisma,
+  type EvalRunStatus,
+  type ReadRunResponse,
+  type RunSelectionMode,
+} from "@traceroot/core";
 import type { ComparisonScorerMeta } from "@/lib/eval/comparison";
 import { parseScorers } from "@/lib/eval/comparison-db";
 import type { EvalReadResult } from "@/lib/eval/read-result";
@@ -18,6 +25,10 @@ const RUN_SELECT = {
   datasetId: true,
   datasetVersionId: true,
   caseCount: true,
+  datasetCaseCount: true,
+  selectionMode: true,
+  selectedCaseCount: true,
+  sampleSeed: true,
   scoredCount: true,
   taskErrorCount: true,
   scorerErrorCount: true,
@@ -25,6 +36,46 @@ const RUN_SELECT = {
   startedAt: true,
   completedAt: true,
 } as const;
+
+const SELECTION_MODES: ReadonlySet<string> = new Set(RUN_SELECTION_MODES);
+
+/** The coverage columns as Prisma reads them: `sample_seed` is BIGINT, so a `bigint`. */
+interface StoredCoverage {
+  datasetCaseCount: number | null;
+  selectionMode: string | null;
+  selectedCaseCount: number | null;
+  sampleSeed: bigint | null;
+}
+
+/**
+ * A run's coverage on the wire. Registration writes the four columns all together or not
+ * at all, so anything short of a complete, recognised declaration reads as UNKNOWN (both
+ * null) rather than as a guess: a half-written row and a mode this version does not know
+ * both describe a run whose coverage it cannot vouch for.
+ */
+function coverageFields(
+  row: StoredCoverage,
+): Pick<ReadRunResponse, "dataset_case_count" | "run_selection"> {
+  const { datasetCaseCount, selectionMode, selectedCaseCount, sampleSeed } = row;
+  if (
+    selectionMode === null ||
+    !SELECTION_MODES.has(selectionMode) ||
+    datasetCaseCount === null ||
+    selectedCaseCount === null
+  ) {
+    return { dataset_case_count: null, run_selection: null };
+  }
+  return {
+    dataset_case_count: datasetCaseCount,
+    run_selection: {
+      mode: selectionMode as RunSelectionMode,
+      selected_case_count: selectedCaseCount,
+      // Only a sample carries a seed. The contract bounds it to a safe integer, so the
+      // BIGINT converts exactly.
+      sample_seed: selectionMode === "sample" && sampleSeed !== null ? Number(sampleSeed) : null,
+    },
+  };
+}
 
 /** `MetricItem` on the wire — one shape for a score and for a derived metric alike. */
 type MetricItem = ReadRunResponse["scores"][number];
@@ -225,6 +276,8 @@ export async function readRunSummary(input: {
     // Built by the SAME helper the register response uses, so the two cannot describe one
     // run with two different links.
     ...runLink(projectId, run.id),
+    // Which slice of the dataset the run set out to measure; both null when it never said.
+    ...coverageFields(run),
     // The observed population: every result this run reported, a different fact from the
     // run's DECLARED case_count. Each mean below carries its own `observed_count`, because a
     // scorer that errored on some cases averaged over fewer than this.
