@@ -18,6 +18,7 @@ import {
   getSignalAssignQueue,
   markDrained,
   partitionsToSweep,
+  recordHitFailure,
   type SignalAssignJobData,
 } from "./queue.js";
 import { runAssignmentRound, type RoundDeps } from "./round.js";
@@ -30,6 +31,7 @@ function productionDeps(): RoundDeps {
   return {
     db: prisma,
     backend: signalsBackend,
+    failures: { record: recordHitFailure },
     embed: (texts) => embedTexts(texts, apiKey),
     models: async (workspaceId, usage) => {
       const jevConfig = await findJevProvider(prisma, workspaceId);

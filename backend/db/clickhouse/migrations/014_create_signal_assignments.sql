@@ -11,7 +11,8 @@
 -- merging its signal) carries a newer assigned_at and replaces the earlier row
 -- on merge. `embedding` is the hit's text-embedding-3-small vector (empty for
 -- hits grouped without one), kept so later drift checks and all-hits retrieval
--- need no backfill.
+-- need no backfill. An empty `signal_id` marks a hit the worker gave up on
+-- after it kept failing; it belongs to no signal and is no longer waiting.
 CREATE TABLE IF NOT EXISTS signal_assignments
 (
     project_id       String,

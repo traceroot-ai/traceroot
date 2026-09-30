@@ -212,13 +212,34 @@ class TestWriteAssignments:
     @pytest.mark.parametrize(
         "bad",
         [
-            {"signal_id": ""},
             {"embedding": [0.0] * 4097},
             {"criteria_version": -1},
             {"assigned_at_ms": -5},
         ],
     )
     def test_rejects_malformed_rows(self, client, mock_ch, bad):
+        resp = client.post(
+            f"{BASE}/assignments", json={"rows": [self._row(**bad)]}, headers=HEADERS
+        )
+        assert resp.status_code == 422
+        mock_ch.insert_signal_assignments.assert_not_called()
+
+    def test_accepts_a_given_up_hit_with_an_empty_signal(self, client, mock_ch):
+        resp = client.post(
+            f"{BASE}/assignments",
+            json={
+                "rows": [self._row(signal_id="", gave_up=True, score=None, criteria_version=None)]
+            },
+            headers=HEADERS,
+        )
+        assert resp.status_code == 200
+        row = mock_ch.insert_signal_assignments.call_args.args[0][0]
+        assert row["signal_id"] == "" and "gave_up" not in row
+
+    @pytest.mark.parametrize(
+        "bad", [{"signal_id": "", "gave_up": False}, {"signal_id": "s1", "gave_up": True}]
+    )
+    def test_signal_id_is_empty_exactly_when_given_up(self, client, mock_ch, bad):
         resp = client.post(
             f"{BASE}/assignments", json={"rows": [self._row(**bad)]}, headers=HEADERS
         )

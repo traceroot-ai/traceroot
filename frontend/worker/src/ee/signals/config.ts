@@ -67,6 +67,17 @@ export const DRAIN_MARGIN_MS = 10_000;
  */
 export const WAITING_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * A hit that keeps failing is given up after at least this many failures
+ * spread over at least this long, so an outage (which fails every hit for a
+ * while) never gives up hits, while one bad hit stops being retried.
+ */
+export const GIVE_UP_AFTER_FAILURES = 3;
+export const GIVE_UP_AFTER_MS = 6 * 60 * 60 * 1000;
+
+/** Failures in a row that end a round: more likely an outage than bad hits. */
+export const MAX_CONSECUTIVE_FAILURES = 2;
+
 /** Rows sent to ClickHouse per write while a round runs. */
 export const ASSIGNMENT_FLUSH_ROWS = 25;
 
