@@ -70,6 +70,9 @@ const RUN = {
   // Nothing was capped: all 24 rows came back.
   resultsTruncated: false,
   cost: 0.264,
+  // Per-case means as the list route serves them: 0.264 / 24 and 360000ms / 24.
+  avgCost: 0.011,
+  avgDurationMs: 15000,
   scorers: [{ name: "routing-accuracy", version: "v3" }],
   startedAt: "2026-07-17T10:24:00Z",
   completedAt: "2026-07-17T10:30:00Z",
@@ -357,6 +360,38 @@ describe("real Datasets + Evaluations views render server data", () => {
       // The hover explanation is reachable from the keyboard too.
       const trigger = screen.getByRole("img", { name: "subset run" }).closest("[tabindex]");
       expect(trigger?.getAttribute("tabindex")).toBe("0");
+    });
+  });
+
+  describe("per-case averages", () => {
+    it("renders the averages the server derived, never a division by the declared case count", async () => {
+      // A `--first 20` run whose SDK omitted case_count stores caseCount = 500. The view
+      // used to divide by it, rendering the average cost 25x too low.
+      global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
+        ok: true,
+        status: 200,
+        json: async () =>
+          String(url).includes("/evaluations/runs") && !String(url).includes("/runs/run1")
+            ? {
+                data: [
+                  {
+                    ...RUN,
+                    caseCount: 500,
+                    cost: 2,
+                    elapsedMs: 40000,
+                    avgCost: 0.1,
+                    avgDurationMs: 2000,
+                  },
+                ],
+                meta: { page: 0, limit: 50, total: 1 },
+              }
+            : payloadFor(String(url)),
+      })) as unknown as typeof fetch;
+
+      mount(<EvaluationsView projectId="p1" />);
+      expect(await screen.findByText("$0.1000")).toBeDefined();
+      expect(screen.queryByText("$0.0040")).toBeNull();
+      expect(screen.getByText("2.0s")).toBeDefined();
     });
   });
 

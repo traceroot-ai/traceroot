@@ -98,11 +98,9 @@ function RunTableRow({
   onToggleSelect: () => void;
 }) {
   const router = useRouter();
-  // Total ÷ case count. elapsedMs here is the SUM of per-case durations (see the
-  // runs route), so avg duration is a true average case latency.
-  const avgCost = r.cost != null && r.caseCount > 0 ? r.cost / r.caseCount : null;
-  const avgDurationMs =
-    r.elapsedMs != null && r.caseCount > 0 ? Math.round(r.elapsedMs / r.caseCount) : null;
+  // Per-case means, served by the runs route over the results that reported each value.
+  const avgCost = r.avgCost ?? null;
+  const avgDurationMs = r.avgDurationMs != null ? Math.round(r.avgDurationMs) : null;
   // The pinned dataset-version id — the time-sortable snowflake, stored as the id.
   const datasetVersion = r.datasetVersionId || null;
   return (
