@@ -8,6 +8,7 @@ import {
   ASSIGN_LOCK_DURATION_MS,
   SWEEP_EVERY_MS,
   signalsApiKey,
+  signalsAvailable,
 } from "./config.js";
 import { signalsBackend } from "./backend-client.js";
 import { embedTexts } from "./embedding.js";
@@ -49,6 +50,8 @@ function productionDeps(): RoundDeps {
  * Enqueueing a partition whose job is alive is a no-op.
  */
 export async function sweepPartitions(now: number = Date.now()): Promise<number> {
+  // Without the key no job can assign anything; keep the records for when it returns.
+  if (!signalsAvailable()) return 0;
   const partitions = await partitionsToSweep(now);
   for (const p of partitions) await enqueueAssignment(p.projectId, p.detectorId, 0);
   if (partitions.length > 0)
@@ -80,6 +83,9 @@ export async function processSignalAssignJob(
     await job.moveToDelayed(Date.now() + (stats.remaining ? 0 : ASSIGN_DELAY_MS), token);
     throw new DelayedError();
   }
+  // A round skipped for a missing key looked at nothing: leave the partition to
+  // the sweeper, which resumes it once the key is configured.
+  if (stats.skipped === "no-key") return;
   await markDrained(projectId, detectorId, stats.readAt);
 }
 

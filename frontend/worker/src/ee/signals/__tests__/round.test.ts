@@ -468,6 +468,7 @@ describe("runAssignmentRound", () => {
       waiting: 0,
       remaining: false,
       readAt: T0 + 10,
+      durationMs: 10,
     });
     expect(backend.writeAssignments).not.toHaveBeenCalled();
   });

@@ -163,6 +163,12 @@ describe("enqueueSignalHits", () => {
     expect(mockAdd.mock.calls.map((c) => c[2].jobId)).toEqual(["assign:p1:on", "assign:p1:also"]);
   });
 
+  it("tries every partition before reporting a failed enqueue", async () => {
+    mockAdd.mockRejectedValueOnce(new Error("redis blip"));
+    await expect(enqueueSignalHits(params)).rejects.toThrow("redis blip");
+    expect(mockAdd.mock.calls.map((c) => c[2].jobId)).toEqual(["assign:p1:on", "assign:p1:also"]);
+  });
+
   it("enqueues nothing without a key", async () => {
     vi.stubEnv("OPENAI_API_KEY", "");
     expect(await enqueueSignalHits(params)).toBe(0);
@@ -246,6 +252,12 @@ describe("processSignalAssignJob", () => {
     expect(j.moveToDelayed).toHaveBeenCalledWith(T0, "tok");
   });
 
+  it("leaves a partition skipped for a missing key to the sweeper", async () => {
+    mockRound.mockResolvedValueOnce(stats({ skipped: "no-key" }));
+    await processSignalAssignJob(job({ projectId: "p", detectorId: "d" }), "tok", deps);
+    expect(fakeRedis.sets.get("signals:assign:drained")).toBeUndefined();
+  });
+
   it("takes one more look after a round that did work, before completing", async () => {
     vi.useFakeTimers({ now: T0 });
     mockRound.mockResolvedValueOnce(stats({ waiting: 3 }));
@@ -257,6 +269,13 @@ describe("processSignalAssignJob", () => {
 });
 
 describe("sweepPartitions", () => {
+  it("does nothing without the signals key", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    await fakeRedis.zadd("signals:assign:enqueued", T0 - 180_000, "p:d");
+    expect(await sweepPartitions(T0)).toBe(0);
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
   it("re-enqueues the partitions that may have lost their job, without delay", async () => {
     await fakeRedis.zadd("signals:assign:enqueued", T0 - 180_000, "p:d");
     const log = vi.spyOn(console, "log").mockImplementation(() => {});

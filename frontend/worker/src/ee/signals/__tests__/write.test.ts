@@ -60,9 +60,18 @@ function fakeDb(
     signal: {
       findUnique: async ({ where }: { where: { id: string } }) =>
         pick(signals.find((s) => s.id === where.id)),
-      findFirst: async ({ where }: { where: { groupKey: string; detectorId: string } }) =>
+      findFirst: async ({
+        where,
+      }: {
+        where: { projectId: string; groupKey: string; detectorId: string };
+      }) =>
         pick(
-          signals.find((s) => s.groupKey === where.groupKey && s.detectorId === where.detectorId),
+          signals.find(
+            (s) =>
+              s.projectId === where.projectId &&
+              s.groupKey === where.groupKey &&
+              s.detectorId === where.detectorId,
+          ),
         ),
       update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
         log.push(`update:${where.id}`);
@@ -185,7 +194,9 @@ describe("applyAssignment", () => {
     const r = await applyAssignment(f.db, hit(), attach("sigA"));
     expect(r.signalId).toBe("sigB");
     expect(r.criteriaVersion).toBe(null);
-    expect(f.hitRows[0]).toMatchObject({ signalId: "sigB", criteriaVersion: null });
+    // The score was judged against the merged-away signal, so it is not kept.
+    expect(r.score).toBe(null);
+    expect(f.hitRows[0]).toMatchObject({ signalId: "sigB", criteriaVersion: null, score: null });
   });
 
   it("refuses a merge cycle and a vanished target", async () => {
@@ -271,7 +282,10 @@ describe("applyAssignment", () => {
     // Category signals are never judged against criteria, so no version is recorded.
     expect(fresh.hitRows[0]).toMatchObject({ criteriaVersion: null });
 
-    const existing = fakeDb([signal({ id: "sigG", groupKey: "fabrication" })]);
+    const existing = fakeDb([
+      signal({ id: "other-project", projectId: "q", groupKey: "fabrication" }),
+      signal({ id: "sigG", groupKey: "fabrication" }),
+    ]);
     const r = await applyAssignment(existing.db, hit(), group);
     expect(r).toMatchObject({ outcome: "attached", signalId: "sigG" });
   });
