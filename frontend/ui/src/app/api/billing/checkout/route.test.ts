@@ -301,7 +301,7 @@ describe("POST /api/billing/checkout — existing subscription", () => {
       unknown,
       { idempotencyKey: string },
     ][];
-    expect(second.idempotencyKey).toBe(`${first.idempotencyKey}-after-cs_stale`);
+    expect(second.idempotencyKey).toBe("workspace-checkout-ws-1-after-cs_stale");
   });
 
   it("refuses when Stripe says another plan already holds this workspace's key", async () => {
@@ -330,9 +330,10 @@ describe("POST /api/billing/checkout — existing subscription", () => {
       Record<string, unknown>,
       { idempotencyKey: string },
     ][];
-    // No plan in the key: a rival request for a different plan must collide with
-    // this one rather than getting a key of its own.
-    expect(first.idempotencyKey).toMatch(/^workspace-checkout-ws-1-\d+$/);
+    // Neither the plan nor the clock is in the key: a rival request for a different
+    // plan, or one landing a second later, must collide with this one rather than
+    // getting a key of its own.
+    expect(first.idempotencyKey).toBe("workspace-checkout-ws-1");
     expect(second.idempotencyKey).toBe(first.idempotencyKey);
     expect(params).toMatchObject({ metadata: { workspaceId: "ws-1", plan: "pro" } });
   });
@@ -342,9 +343,11 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     // so both reach create(); the older session wins and the newer one is expired rather
     // than handing back a URL that would open a second subscription.
     workspaceFindFirstMock.mockResolvedValue(workspace());
+    // Listed newest first, so only the sort on `created` can pick the older winner:
+    // taking whatever Stripe listed first would pass this test wrongly.
     checkoutListMock.mockReturnValueOnce([]).mockReturnValueOnce([
-      { ...openSession("cs_rival", "starter"), created: 500 },
       { ...openSession("cs_new", "pro"), created: 1_000 },
+      { ...openSession("cs_rival", "starter"), created: 500 },
     ]);
 
     const res = await POST(makeRequest());
@@ -356,9 +359,10 @@ describe("POST /api/billing/checkout — existing subscription", () => {
 
   it("keeps its own session and expires a later rival for another plan", async () => {
     workspaceFindFirstMock.mockResolvedValue(workspace());
+    // Again listed in the order that would break the assertion if the sort were gone.
     checkoutListMock.mockReturnValueOnce([]).mockReturnValueOnce([
-      { ...openSession("cs_new", "pro"), created: 1_000 },
       { ...openSession("cs_rival", "starter"), created: 1_500 },
+      { ...openSession("cs_new", "pro"), created: 1_000 },
     ]);
 
     const res = await POST(makeRequest());
@@ -366,6 +370,48 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/session" });
     expect(checkoutExpireMock).toHaveBeenCalledWith("cs_rival");
+  });
+
+  it("breaks a tie on identical timestamps by session id", async () => {
+    // Two sessions created in the same second still need one winner, and every caller
+    // has to choose the same one without talking to the others.
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutListMock.mockReturnValueOnce([]).mockReturnValueOnce([
+      { ...openSession("cs_new", "pro"), created: 1_000 },
+      { ...openSession("cs_aaa", "starter"), created: 1_000 },
+    ]);
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
+    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_new");
+  });
+
+  it("walks the key chain past more than one closed session", async () => {
+    // Each abandoned checkout advances the key by one step, and the step is derived
+    // from the session Stripe replayed, so concurrent callers walk the same chain.
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutCreateMock
+      .mockResolvedValueOnce({ id: "cs_old", created: 800, status: "expired", url: "dead" })
+      .mockResolvedValueOnce({ id: "cs_older", created: 900, status: "complete", url: "dead" })
+      .mockResolvedValueOnce({
+        id: "cs_fresh",
+        created: 1_000,
+        status: "open",
+        url: "https://checkout.stripe.test/fresh",
+      });
+
+    const res = await POST(makeRequest());
+
+    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/fresh" });
+    const keys = (checkoutCreateMock.mock.calls as [unknown, { idempotencyKey: string }][]).map(
+      ([, options]) => options.idempotencyKey,
+    );
+    expect(keys).toEqual([
+      "workspace-checkout-ws-1",
+      "workspace-checkout-ws-1-after-cs_old",
+      "workspace-checkout-ws-1-after-cs_older",
+    ]);
   });
 
   it("opens checkout for a workspace that has never been a Stripe customer", async () => {

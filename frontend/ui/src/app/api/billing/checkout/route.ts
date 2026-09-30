@@ -18,6 +18,11 @@ const BILLING_STATUSES = new Set([
   "paused",
 ]);
 
+// How far the key chain may advance past closed sessions before the route gives up.
+// Each step is one abandoned checkout for the same workspace inside Stripe's 24 hour
+// idempotency retention.
+const MAX_CHECKOUT_KEY_STEPS = 8;
+
 function checkoutInProgress() {
   return NextResponse.json(
     {
@@ -223,9 +228,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Requests that arrive together see no open session yet, so the idempotency key
-    // below is what actually stops them opening one session each.
-    const idempotencyWindow = Math.floor(Date.now() / 60_000);
     // Create checkout session with plan price + all three metered products.
     // Metered items have no quantity — usage flows from Stripe meter events.
     // All three are required so paid plans can be billed for chat, RCA, and
@@ -253,13 +255,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // One checkout per workspace per window, enforced by Stripe rather than by
-    // reading a list back. The key deliberately excludes the plan: two admins
-    // choosing different plans at the same moment then collide on the same key, and
-    // Stripe rejects the second instead of opening a session that could become a
-    // second subscription. That check is atomic on Stripe's side, so it does not
-    // depend on a listing having caught up.
-    const checkoutKey = `workspace-checkout-${workspaceId}-${idempotencyWindow}`;
+    // One checkout per workspace, enforced by Stripe rather than by reading a list
+    // back. The key excludes the plan, so two admins choosing different plans at the
+    // same moment collide on one key and Stripe rejects the second rather than
+    // opening a session that could become a second subscription. It excludes the
+    // clock too: a time bucket hands requests either side of a boundary different
+    // keys, which is the race all over again.
+    const checkoutKey = `workspace-checkout-${workspaceId}`;
     const checkoutParams = {
       customer: customerId,
       mode: "subscription" as const,
@@ -272,26 +274,36 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    let checkoutSession;
-    try {
-      checkoutSession = await stripe.checkout.sessions.create(checkoutParams, {
-        idempotencyKey: checkoutKey,
-      });
-    } catch (error) {
-      if (isIdempotencyConflict(error)) {
-        return checkoutInProgress();
+    // A key that never varies would replay the first session forever, so the key
+    // advances past each closed session instead: `...-after-<id>`. The step is
+    // derived from what Stripe returned, so concurrent callers walk the identical
+    // chain and still meet on one key at every position.
+    let checkoutSession: Awaited<ReturnType<typeof stripe.checkout.sessions.create>> | null = null;
+    let key = checkoutKey;
+    for (let step = 0; step < MAX_CHECKOUT_KEY_STEPS; step++) {
+      let candidate;
+      try {
+        candidate = await stripe.checkout.sessions.create(checkoutParams, { idempotencyKey: key });
+      } catch (error) {
+        if (isIdempotencyConflict(error)) {
+          // Another request holds this key with different parameters: a checkout for
+          // a different plan is already in flight for this workspace.
+          return checkoutInProgress();
+        }
+        throw error;
       }
-      throw error;
+      if (!candidate.status || candidate.status === "open") {
+        checkoutSession = candidate;
+        break;
+      }
+      key = `${checkoutKey}-after-${candidate.id}`;
     }
 
-    // Because the key is stable for the window, a request that just expired a stale
-    // session can be handed Stripe's cached response for that same session. Ask again
-    // under a key derived from the stale session, so concurrent retries still collapse
-    // onto one new session rather than opening several.
-    if (checkoutSession.status && checkoutSession.status !== "open") {
-      checkoutSession = await stripe.checkout.sessions.create(checkoutParams, {
-        idempotencyKey: `${checkoutKey}-after-${checkoutSession.id}`,
-      });
+    if (!checkoutSession) {
+      // Only reachable if a workspace burned through the whole chain inside Stripe's
+      // 24 hour key retention, which means something is opening checkouts in a loop.
+      console.error(`[Billing] Checkout key chain exhausted for workspace ${workspaceId}`);
+      return checkoutInProgress();
     }
 
     // A concurrent request for a *different* plan carries a different idempotency
