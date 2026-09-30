@@ -10,6 +10,22 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./rca-executions": {
+      "types": "./src/rca-executions.ts",
+      "default": "./src/rca-executions.ts"
+    },
+    "./capture-policy": {
+      "types": "./src/lib/capture-policy.ts",
+      "default": "./src/lib/capture-policy.ts"
+    },
+    "./capture-note": {
+      "types": "./src/lib/capture-note.ts",
+      "default": "./src/lib/capture-note.ts"
+    },
+    "./public-error": {
+      "types": "./src/lib/public-error.ts",
+      "default": "./src/lib/public-error.ts"
+    },
     "./llm-providers": {
       "types": "./src/llm-providers.ts",
       "default": "./src/llm-providers.ts"
@@ -36,10 +52,10 @@
   },
   "devDependencies": {
     "@types/node": "^22.19.9",
-    "@vitest/coverage-v8": "^3.2.6",
+    "@vitest/coverage-v8": "^4.1.11",
     "prisma": "^5.22.0",
     "stripe": "^14.0.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.11"
   }
 }

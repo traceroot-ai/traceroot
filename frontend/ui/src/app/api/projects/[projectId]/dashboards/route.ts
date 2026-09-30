@@ -1,10 +1,14 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
-import { defaultDashboardId, seedWidgets } from "@/lib/dashboard-seed";
+import { seedDefaultDashboard } from "@/lib/dashboard-seed";
+import { resolveCreatorNames } from "@/lib/dashboard-read";
 import { DASHBOARD_DESCRIPTION_MAX, DASHBOARD_NAME_MAX } from "@/features/dashboards/types";
+import { supportRequest } from "@/lib/support/request-context";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -23,17 +27,9 @@ const listArgs = (projectId: string) => ({
 });
 
 // Dashboards are shared across a project's members, so the list shows who
-// created each one. createdBy holds a bare user id (no relation on the
-// model); resolve the display names in one batch and swap them in — a
-// deleted account resolves to null and renders as "—".
+// created each one; a deleted account resolves to null and renders as "—".
 async function withCreators<T extends { createdBy: string }>(dashboards: T[]) {
-  const ids = [...new Set(dashboards.map((d) => d.createdBy))];
-  const users = await prisma.user.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, name: true, email: true },
-  });
-  // || not ??: an empty-string name must fall through to the email too.
-  const byId = new Map(users.map((u) => [u.id, u.name || u.email]));
+  const byId = await resolveCreatorNames(dashboards.map((d) => d.createdBy));
   return dashboards.map(({ createdBy, ...d }) => ({
     ...d,
     creator: byId.get(createdBy) ?? null,
@@ -41,8 +37,8 @@ async function withCreators<T extends { createdBy: string }>(dashboards: T[]) {
 }
 
 // GET /api/projects/[projectId]/dashboards — list; lazily seeds the default
-// "Default" dashboard the first time a project's dashboards are fetched.
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+// "Default" dashboard for projects that predate creation-time seeding.
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params);
   if (auth.error) return auth.error;
   const { user } = auth;
@@ -50,25 +46,10 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
   let dashboards = await prisma.dashboard.findMany(listArgs(projectId));
 
-  if (dashboards.length === 0) {
-    const widgets = seedWidgets();
-    const seeded = widgets.map((w, i) => ({ ...w, id: `seed-${i}-${projectId}` }));
+  // Opening a customer's page must not create resources as a side effect.
+  if (dashboards.length === 0 && !supportRequest.getStore()?.impersonation) {
     try {
-      await prisma.dashboard.create({
-        data: {
-          id: defaultDashboardId(projectId),
-          projectId,
-          name: "Default",
-          description: "Auto-created overview of traces, cost, tokens, and latency.",
-          isDefault: true,
-          createdBy: user.id,
-          // layout keys MUST equal widget ids (react-grid-layout matches on `i`)
-          layout: seeded.map((w) => ({ i: w.id, ...w.layout })),
-          widgets: {
-            create: seeded.map((w) => ({ id: w.id, title: w.title, type: w.type, spec: w.spec })),
-          },
-        },
-      });
+      await seedDefaultDashboard(prisma, { projectId, actorUserId: user.id });
     } catch (e) {
       // Concurrent first-visit: another request already created it (PK clash).
       if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") throw e;
@@ -80,7 +61,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/projects/[projectId]/dashboards — create a named dashboard
-export async function POST(req: NextRequest, { params }: RouteParams) {
+async function handlePOST(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { user } = auth;
@@ -105,13 +86,23 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     );
   }
 
-  const dashboard = await prisma.dashboard.create({
-    data: {
-      projectId,
-      name: name.trim(),
-      description: (description as string) ?? null,
-      createdBy: user.id,
-    },
-  });
+  // No duplicate pre-check: uq_dashboard_project_name is the check, and the
+  // only race-free one.
+  let dashboard;
+  try {
+    dashboard = await prisma.dashboard.create({
+      data: {
+        projectId,
+        name: name.trim(),
+        description: (description as string) ?? null,
+        createdBy: user.id,
+      },
+    });
+  } catch (e) {
+    if (!isPrismaKnownError(e, "P2002")) throw e;
+    return errorResponse("A dashboard with this name already exists", 409);
+  }
   return successResponse({ dashboard }, 201);
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

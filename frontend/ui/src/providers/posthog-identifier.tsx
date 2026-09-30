@@ -5,19 +5,23 @@ import { useSession } from "@/lib/auth-client";
 import { useEffect } from "react";
 
 export function PostHogIdentifier() {
-  const { data: session } = useSession();
+  const { data: session, isPending } = useSession();
   const posthog = usePostHog();
 
   useEffect(() => {
-    if (session?.user && posthog) {
-      posthog.identify(session.user.id, {
-        email: session.user.email,
-        name: session.user.name,
-      });
-    } else if (!session?.user && posthog) {
-      posthog.reset();
+    if (!posthog || isPending) return;
+    if (!session?.user) {
+      if (posthog.get_property("$user_state") === "identified") {
+        posthog.reset();
+      }
+      return;
     }
-  }, [session, posthog]);
+    if (session.session?.impersonatedBy) return;
+    posthog.identify(session.user.id, {
+      email: session.user.email,
+      name: session.user.name,
+    });
+  }, [session, isPending, posthog]);
 
   return null;
 }

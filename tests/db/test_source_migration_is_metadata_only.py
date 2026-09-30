@@ -48,9 +48,29 @@ def _key_clauses(sql: str) -> list[str]:
     flat = re.sub(r"\s+", " ", no_comments)
     return re.findall(
         r"\b(?:ORDER BY|PARTITION BY|PRIMARY KEY).*?"
-        r"(?=\bORDER BY\b|\bPARTITION BY\b|\bPRIMARY KEY\b|\bSETTINGS\b|\bTTL\b|;|$)",
+        r"(?=\bORDER BY\b|\bPARTITION BY\b|\bPRIMARY KEY\b|\bSETTINGS\b|\bTTL\b"
+        # A table key clause never contains WHERE or LIMIT. A view body does: the public
+        # views dedup with `ORDER BY ch_update_time DESC LIMIT 1 BY <id>` and then filter
+        # on `source`, and without these terminators that filter reads as part of a key.
+        r"|\bLIMIT\b|\bWHERE\b|;|$)",
         flat,
     )
+
+
+def test_key_clauses_stops_at_query_clauses():
+    """A view's `ORDER BY ... LIMIT 1 BY` dedup is not a table key.
+
+    Without a terminator the clause would run on into the view's own WHERE and report
+    any column filtered there, `source` included, as part of a sort key.
+    """
+    sql = (
+        "CREATE VIEW v AS SELECT a FROM (SELECT a, source FROM t "
+        "WHERE project_id = 'p' ORDER BY ch_update_time DESC LIMIT 1 BY a) "
+        "WHERE source = 'user';"
+    )
+    clauses = _key_clauses(sql)
+    assert clauses, "the ORDER BY should still be captured"
+    assert not any(re.search(r"\bsource\b", c) for c in clauses), clauses
 
 
 def test_key_clauses_sees_multiline_declarations():

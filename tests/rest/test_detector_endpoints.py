@@ -788,6 +788,7 @@ def _otlp_body(
 class TestInternalTraceIngest:
     CH_FAMILY = "ingest"
     URL = "/api/v1/internal/traces?project_id=proj-1"
+    AGENT_URL = "/api/v1/internal/traces/agent?project_id=proj-1"
 
     def test_rejects_missing_secret(self, client):
         resp = client.post(self.URL, content=_otlp_body())
@@ -927,6 +928,34 @@ class TestInternalTraceIngest:
         call_order = [name for name, _args, _kw in mock_ch.method_calls]
         assert call_order.index("insert_spans_batch") < call_order.index("insert_traces_batch")
 
+    def test_the_agent_path_stamps_agent_source(self, client, secret, mock_ch):
+        """The agent service's own path, same secret, different stored source."""
+        resp = client.post(
+            self.AGENT_URL, content=_otlp_body(), headers={"X-Internal-Secret": secret}
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        traces = mock_ch.insert_traces_batch.call_args[0][0]
+        assert spans and all(s["source"] == "agent" for s in spans)
+        assert traces and all(t["source"] == "agent" for t in traces)
+
+    def test_the_agent_path_needs_the_secret_too(self, client, mock_ch):
+        resp = client.post(self.AGENT_URL, content=_otlp_body())
+        assert resp.status_code == 403
+        mock_ch.insert_spans_batch.assert_not_called()
+
+    def test_source_header_is_ignored(self, client, secret, mock_ch):
+        """The client cannot choose its source: the path decides, a header naming
+        another source changes nothing."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret, "X-Internal-Source": "agent"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert all(s["source"] == "detector" for s in spans)
+
     def test_rejects_corrupt_gzip_body(self, client, secret, mock_ch, caplog):
         with caplog.at_level(logging.WARNING):
             resp = client.post(
@@ -1065,6 +1094,15 @@ class TestPerSpanProjectAttribution:
 # =============================================================================
 
 
+def _source_filters(sql: str) -> str:
+    """The SQL with its legitimate `source` uses (select list, GROUP BY) removed.
+
+    What is left must not mention `source`: any remaining occurrence is a WHERE
+    predicate, and a predicate on source would stop billing self-traces again.
+    """
+    return sql.replace("SELECT source,", "").replace("GROUP BY source", "")
+
+
 class TestUsageBillsEveryStoredRow:
     CH_FAMILY = "usage"
     PARAMS: typing.ClassVar[dict[str, str]] = {
@@ -1075,8 +1113,9 @@ class TestUsageBillsEveryStoredRow:
 
     def test_usage_details_counts_rows_from_every_source(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [
-            _make_query_result([(3,)], ["total"]),  # traces
-            _make_query_result([(9,)], ["total"]),  # spans
+            _make_query_result(
+                [("user", 3, 0), ("agent", 0, 9)], ["source", "traces", "spans"]
+            ),  # traces + spans, grouped by writer
             _make_query_result([(2,)], ["total"]),  # detector_runs
         ]
         resp = client.get(
@@ -1085,16 +1124,31 @@ class TestUsageBillsEveryStoredRow:
             headers={"X-Internal-Secret": secret},
         )
         assert resp.status_code == 200
-        traces_sql = mock_ch.query.call_args_list[0].args[0]
-        spans_sql = mock_ch.query.call_args_list[1].args[0]
-        runs_sql = mock_ch.query.call_args_list[2].args[0]
+        assert resp.json()["traces"] == 3 and resp.json()["spans"] == 9
+        rows_sql = mock_ch.query.call_args_list[0].args[0]
+        runs_sql = mock_ch.query.call_args_list[1].args[0]
         # Storage is billed whoever produced it, so metering must not filter on source
         # at all. Asserted rather than left to the commit message: re-adding a filter here
         # would silently stop billing self-traces again.
-        assert "source" not in traces_sql
-        assert "source" not in spans_sql
+        assert "source" not in _source_filters(rows_sql)
         # detector_runs was never filtered — it is the per-evaluation result record.
         assert "source" not in runs_sql
+
+    def test_usage_details_scans_each_table_once(self, client, mock_ch, secret):
+        """The breakdown is the count: one grouped scan per table, not a second pass."""
+        mock_ch.query.side_effect = [
+            _make_query_result([], ["source", "traces", "spans"]),
+            _make_query_result([(0,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert mock_ch.query.call_count == 2
+        rows_sql = mock_ch.query.call_args_list[0].args[0]
+        assert rows_sql.count("FROM traces") == 1 and rows_sql.count("FROM spans") == 1
 
     def test_usage_total_counts_rows_from_every_source(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [_make_query_result([(12,)], ["total"])]
@@ -1110,8 +1164,7 @@ class TestUsageBillsEveryStoredRow:
     def test_usage_bounds_are_normalized_to_utc(self, client, mock_ch, secret):
         """An aware non-UTC offset must bill the UTC instant, not the wall clock sent."""
         mock_ch.query.side_effect = [
-            _make_query_result([(1,)], ["total"]),
-            _make_query_result([(1,)], ["total"]),
+            _make_query_result([], ["source", "traces", "spans"]),
             _make_query_result([(0,)], ["total"]),
         ]
         resp = client.get(
@@ -1154,6 +1207,84 @@ class TestUsageBillsEveryStoredRow:
             headers={b"X-Internal-Secret": "sécret\xff".encode("latin-1")},
         )
         assert resp.status_code == 403
+
+    def test_non_ascii_configured_secret_matches_its_utf8_wire_bytes(
+        self, client, mock_ch, monkeypatch
+    ):
+        """The wire carries the secret's UTF-8 bytes; Starlette's latin-1 str must still match."""
+        monkeypatch.setattr(settings, "internal_api_secret", "sécret")
+        mock_ch.query.side_effect = [_make_query_result([(0,)], ["total"])]
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params=self.PARAMS,
+            headers={b"X-Internal-Secret": "sécret".encode()},
+        )
+        assert resp.status_code == 200
+
+    def test_details_totals_are_the_sum_of_the_per_source_buckets(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            _make_query_result(  # (source, traces, spans), one row per table and writer
+                [("user", 7, 0), ("detector", 3, 0), ("user", 0, 80), ("detector", 0, 20)],
+                ["source", "traces", "spans"],
+            ),
+            _make_query_result([(2,)], ["total"]),  # detector_runs
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # A row id belongs to exactly one source, so the buckets partition the total.
+        assert body["traces"] == 10 and body["spans"] == 100
+        assert body["by_source"] == {
+            "user": {"traces": 7, "spans": 80},
+            "detector": {"traces": 3, "spans": 20},
+            "agent": {"traces": 0, "spans": 0},
+        }
+        rows_sql = mock_ch.query.call_args_list[0].args[0]
+        assert "GROUP BY source" in rows_sql
+        assert "source" not in _source_filters(rows_sql)
+
+    def test_details_keeps_a_bucket_for_a_source_it_did_not_seed(self, client, mock_ch, secret):
+        """A new writer must show up, and count toward the total, without a code change."""
+        mock_ch.query.side_effect = [
+            _make_query_result([("user", 1, 0), ("digest", 4, 0)], ["source", "traces", "spans"]),
+            _make_query_result([(0,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        body = resp.json()
+        assert body["traces"] == 5
+        assert body["by_source"]["digest"] == {"traces": 4, "spans": 0}
+
+    def test_details_for_no_projects_returns_seeded_breakdown_without_querying(
+        self, client, mock_ch, secret
+    ):
+        """The projectless short-circuit must return the same shape as the
+        queried path — all three buckets present — so consumers never see two
+        shapes for one field."""
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params={**self.PARAMS, "project_ids": ""},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "traces": 0,
+            "spans": 0,
+            "detector_runs": 0,
+            "by_source": {
+                "user": {"traces": 0, "spans": 0},
+                "detector": {"traces": 0, "spans": 0},
+                "agent": {"traces": 0, "spans": 0},
+            },
+        }
+        mock_ch.query.assert_not_called()
 
 
 # =============================================================================

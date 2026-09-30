@@ -29,6 +29,12 @@
   "contextual": {
     "options": ["copy", "view", "chatgpt", "claude"]
   },
+  "redirects": [
+    {
+      "source": "/detectors/alerts",
+      "destination": "/detectors/notifications"
+    }
+  ],
   "search": {
     "ai": true
   },
@@ -128,7 +134,7 @@
             "pages": [
               "detectors/introduction",
               "detectors/get-started",
-              "detectors/alerts"
+              "detectors/notifications"
             ]
           },
           {
@@ -139,7 +145,8 @@
               "evals/datasets",
               "evals/scorers",
               "evals/running-evals",
-              "evals/reading-results"
+              "evals/reading-results",
+              "evals/cli"
             ]
           },
           {

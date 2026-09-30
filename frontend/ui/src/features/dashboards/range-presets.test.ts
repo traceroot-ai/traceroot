@@ -1,9 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 // range-presets is now a thin adapter over the shared date-filter module (one
 // source of truth for presets/default across trace list, dashboard, and the
 // builder preview) — these tests pin that contract rather than a local list.
 import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER } from "@/lib/date-filter";
-import { DEFAULT_RANGE_ID, RANGE_PRESETS, makeRange } from "./range-presets";
+import { dateFilterStorageKey } from "@/lib/date-filter-storage";
+import {
+  DEFAULT_RANGE_ID,
+  RANGE_PRESETS,
+  makeRange,
+  resolveSiteRange,
+  resolveSiteWindow,
+} from "./range-presets";
 
 describe("makeRange", () => {
   it("spans exactly the preset's duration, ending now", () => {
@@ -18,6 +25,207 @@ describe("makeRange", () => {
   it("falls back to the shared default window for unknown ids", () => {
     const r = makeRange("nope");
     expect(r.end.getTime() - r.start.getTime()).toBe(DEFAULT_DATE_FILTER.durationMinutes! * 60_000);
+  });
+});
+
+describe("resolveSiteRange", () => {
+  // These tests run in vitest's node environment, where no `window` exists —
+  // exactly the SSR case resolveSiteRange must survive. A stubbed window with
+  // a controllable localStorage stands in for the browser.
+  const stubStorage = (getItem: (key: string) => string | null) =>
+    vi.stubGlobal("window", { localStorage: { getItem } });
+
+  /** A browser whose URL pins a filter, over a project with its own stored pick. */
+  const stubUrlAndStorage = (search: string, storedId: string | null) =>
+    vi.stubGlobal("window", {
+      location: { search },
+      localStorage: {
+        getItem: (key: string) =>
+          key === dateFilterStorageKey("p1") && storedId ? JSON.stringify({ id: storedId }) : null,
+      },
+    });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("reads the site's own storage slot and returns the stored preset", () => {
+    const getItem = vi.fn((key: string) =>
+      key === dateFilterStorageKey("p1") ? JSON.stringify({ id: "7d" }) : null,
+    );
+    stubStorage(getItem);
+    expect(resolveSiteRange("p1")).toEqual(RANGE_PRESETS.find((o) => o.id === "7d"));
+    // The exact key the trace list and dashboard pages persist through —
+    // never a second slot of this module's own.
+    expect(getItem).toHaveBeenCalledWith(dateFilterStorageKey("p1"));
+  });
+
+  it("falls back to the default when nothing is stored", () => {
+    stubStorage(() => null);
+    expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
+  });
+
+  it("falls back silently for an unknown stored id", () => {
+    stubStorage(() => JSON.stringify({ id: "eleventy" }));
+    expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
+  });
+
+  it("falls back for a stored custom range these preset-only surfaces can't draw", () => {
+    stubStorage(() =>
+      JSON.stringify({ id: "custom", start: "2026-01-01T00:00:00Z", end: "2026-01-02T00:00:00Z" }),
+    );
+    expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
+  });
+
+  it("falls back when storage throws (privacy modes)", () => {
+    stubStorage(() => {
+      throw new Error("denied");
+    });
+    expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
+  });
+
+  it("clamps a stored range that the plan's retention no longer allows", () => {
+    // A downgrade leaves the old 90d selection in storage. Neither the label
+    // nor the query it names may outrun the window the plan still covers.
+    stubStorage(() => JSON.stringify({ id: "90d" }));
+    expect(resolveSiteRange("p1", 30)).toEqual(RANGE_PRESETS.find((o) => o.id === "30d"));
+  });
+
+  it("keeps the stored range when retention allows it or is still unknown", () => {
+    stubStorage(() => JSON.stringify({ id: "90d" }));
+    const ninety = RANGE_PRESETS.find((o) => o.id === "90d");
+    expect(resolveSiteRange("p1", 90)).toEqual(ninety);
+    // Undefined means "retention hasn't resolved yet" — clamping then would
+    // narrow every window on a hard reload.
+    expect(resolveSiteRange("p1", undefined)).toEqual(ninety);
+    expect(resolveSiteRange("p1", null)).toEqual(ninety);
+  });
+
+  it("clamps the default fallback too, not just a stored pick", () => {
+    stubStorage(() => null);
+    expect(resolveSiteRange("p1", 0.25)).toEqual(RANGE_PRESETS.find((o) => o.id === "6h"));
+  });
+
+  it("lets the URL's pinned filter win over the project's stored pick", () => {
+    // A shared link naming 7d must not leave the cards charting the 1d the
+    // picker last stored: the page and everything on it name one window.
+    stubUrlAndStorage("?date_filter=7d", "1d");
+    expect(resolveSiteRange("p1")).toEqual(RANGE_PRESETS.find((o) => o.id === "7d"));
+  });
+
+  it("falls back to the stored pick when the URL pins nothing", () => {
+    stubUrlAndStorage("?tab=widgets", "7d");
+    expect(resolveSiteRange("p1")).toEqual(RANGE_PRESETS.find((o) => o.id === "7d"));
+  });
+
+  it("clamps a URL-pinned range past the plan's retention, like any other", () => {
+    stubUrlAndStorage("?date_filter=90d", null);
+    expect(resolveSiteRange("p1", 7).durationMinutes).toBeLessThanOrEqual(7 * 24 * 60);
+  });
+
+  it("falls back for a URL-pinned id these preset-only surfaces can't draw", () => {
+    stubUrlAndStorage("?date_filter=custom&start=x&end=y", null);
+    expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
+  });
+
+  it("survives a window with no location at all", () => {
+    stubStorage(() => null);
+    expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
+  });
+});
+
+describe("resolveSiteWindow", () => {
+  const stub = (search: string, stored: unknown) =>
+    vi.stubGlobal("window", {
+      location: { search },
+      localStorage: {
+        getItem: (key: string) =>
+          key === dateFilterStorageKey("p1") && stored ? JSON.stringify(stored) : null,
+      },
+    });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sends the site's selected preset by id", () => {
+    stub("", { id: "7d" });
+    expect(resolveSiteWindow("p1")).toEqual({ range: "7d" });
+  });
+
+  it("lets a URL-pinned preset win, like the picker does", () => {
+    stub("?date_filter=30d", { id: "7d" });
+    expect(resolveSiteWindow("p1")).toEqual({ range: "30d" });
+  });
+
+  it("sends a custom selection as its explicit bounds, which a query can answer", () => {
+    stub("", { id: "custom", start: "2026-09-01T00:00:00.000Z", end: "2026-09-02T00:00:00.000Z" });
+    expect(resolveSiteWindow("p1")).toEqual({
+      start_time: "2026-09-01T00:00:00.000Z",
+      end_time: "2026-09-02T00:00:00.000Z",
+    });
+  });
+
+  it("honors a URL-pinned custom range's own bounds, like a shared link should", () => {
+    stub("?date_filter=custom&start=2026-09-03T00:00:00.000Z&end=2026-09-04T00:00:00.000Z", {
+      id: "7d",
+    });
+    expect(resolveSiteWindow("p1")).toEqual({
+      start_time: "2026-09-03T00:00:00.000Z",
+      end_time: "2026-09-04T00:00:00.000Z",
+    });
+  });
+
+  it("normalizes hand-edited custom bounds to the ISO instants the server requires", () => {
+    stub("?date_filter=custom&start=2026-09-03&end=2026-09-04T12:00:00Z", { id: "7d" });
+    expect(resolveSiteWindow("p1")).toEqual({
+      start_time: "2026-09-03T00:00:00.000Z",
+      end_time: "2026-09-04T12:00:00.000Z",
+    });
+  });
+
+  it("falls back to the default for a custom selection with unusable bounds", () => {
+    stub("", { id: "custom", start: "2026-09-02T00:00:00.000Z", end: "2026-09-01T00:00:00.000Z" });
+    expect(resolveSiteWindow("p1")).toEqual({ range: DEFAULT_RANGE_ID });
+  });
+
+  it("clamps a preset past the plan's retention, like the picker's pages do", () => {
+    stub("", { id: "90d" });
+    const window = resolveSiteWindow("p1", 7);
+    expect(
+      "range" in window && RANGE_PRESETS.find((o) => o.id === window.range)!.durationMinutes,
+    ).toBeLessThanOrEqual(7 * 24 * 60);
+  });
+
+  it("replaces custom bounds that lie wholly before the plan's retention with the default", () => {
+    // The server 422s a window entirely past the cutoff; the page would
+    // rather answer for the default than fail every read.
+    stub("", { id: "custom", start: "2026-01-01T00:00:00.000Z", end: "2026-01-02T00:00:00.000Z" });
+    expect(resolveSiteWindow("p1", 7)).toEqual({ range: DEFAULT_RANGE_ID });
+  });
+
+  it("keeps custom bounds that still overlap retention; the server clamps the start", () => {
+    const end = new Date().toISOString();
+    const start = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
+    stub("", { id: "custom", start, end });
+    expect(resolveSiteWindow("p1", 7)).toEqual({ start_time: start, end_time: end });
+  });
+
+  it("does not fall back to stored bounds when the URL pins custom without usable ones", () => {
+    // The URL is the page's window; a broken custom link is a default, not
+    // whatever the picker last stored for another visit.
+    stub("?date_filter=custom&start=x&end=y", {
+      id: "custom",
+      start: "2026-09-01T00:00:00.000Z",
+      end: "2026-09-02T00:00:00.000Z",
+    });
+    expect(resolveSiteWindow("p1")).toEqual({ range: DEFAULT_RANGE_ID });
+  });
+
+  it("is the default with nothing stored and no project", () => {
+    stub("", null);
+    expect(resolveSiteWindow(null)).toEqual({ range: DEFAULT_RANGE_ID });
+  });
+
+  it("falls back with no window at all (SSR) and with no project to key by", () => {
+    expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
+    expect(resolveSiteRange(undefined)).toEqual(DEFAULT_DATE_FILTER);
+    expect(resolveSiteRange(null)).toEqual(DEFAULT_DATE_FILTER);
   });
 });
 

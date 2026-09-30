@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import {
@@ -22,7 +23,7 @@ const MAX_RUN_DETAIL_RESULTS = 1000;
 
 // GET — a single evaluation run with its results, scores, human scores, and the
 // backend-derived candidate-vs-baseline comparison (the single source of truth).
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, runId } = await params;
@@ -154,7 +155,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
 // DELETE — remove a run (cascades its results + scores; other runs that used it as
 // a baseline have their baselineRunId set to null). Editing access required.
-export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+async function handleDELETE(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, runId } = await params;
@@ -170,3 +171,5 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   await prisma.evaluationRun.delete({ where: { id: runId } });
   return successResponse({ deleted: true });
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const DELETE = withImpersonationPolicy(handleDELETE);

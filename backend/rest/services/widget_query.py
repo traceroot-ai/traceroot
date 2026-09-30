@@ -142,6 +142,42 @@ def _base_relation(view: ViewDef, keyed_exprs: list[str]) -> str:
     return view.base_sql.replace(KEYED_COLUMN_SLOT, ", " + ", ".join(dict.fromkeys(keyed_exprs)))
 
 
+# Displays drawn over a time axis: one row per bucket (per breakdown group).
+SERIES_DISPLAYS = ("line", "area")
+
+
+def is_series(spec: WidgetSpec) -> bool:
+    """Whether the spec is drawn over a time axis, so its rows are the window's buckets."""
+    return spec.display.type in SERIES_DISPLAYS
+
+
+def _bucket_count(granule_seconds: int, start_time: datetime, end_time: datetime) -> int:
+    window_seconds = (end_time - start_time).total_seconds()
+    # +1: misaligned windows straddle one extra bucket (half-open [start, end) over toStartOfX boundaries).
+    return math.ceil(window_seconds / granule_seconds) + 1
+
+
+def series_row_bound(
+    spec: WidgetSpec, start_time: datetime, end_time: datetime, bucket_seconds: int | None = None
+) -> int:
+    """The most rows a series can return for the window: its buckets, times its groups.
+
+    Args:
+        spec: A series spec (see is_series).
+        start_time: Window start (inclusive).
+        end_time: Window end (exclusive).
+        bucket_seconds: An explicit bucket width, when the caller asks for one;
+            otherwise the range-derived grain the query itself would pick.
+
+    Returns:
+        The bucket count, multiplied by the breakdown group cap plus the
+        'other' fold when the series is broken down.
+    """
+    groups = MAX_GROUPS + 1 if spec.breakdown is not None else 1
+    _, _, granule_seconds = _time_bucket(start_time, end_time, bucket_seconds)
+    return _bucket_count(granule_seconds, start_time, end_time) * groups
+
+
 def compile_widget_query(
     spec: WidgetSpec,
     project_id: str,
@@ -149,14 +185,30 @@ def compile_widget_query(
     end_time: datetime,
     bucket_seconds: int | None = None,
     include_row_count: bool = False,
+    max_rows: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Return (sql, params) for the spec. Raises WidgetSpecError on bad specs.
 
-    ``include_row_count`` adds ``count() AS row_count`` beside the scalar of a
-    number display, over exactly the metric's FROM/WHERE. Alert evaluation
-    needs the population size to tell an empty window from a null aggregate,
-    and folding it here costs one column where a second query would double the
-    ClickHouse load of every tick.
+    Args:
+        spec: The validated widget spec to compile.
+        project_id: Project the query is scoped to.
+        start_time: Window start (inclusive).
+        end_time: Window end (exclusive).
+        bucket_seconds: Explicit time-series bucket width, when the caller needs
+            one specific grain rather than the range-derived one.
+        include_row_count: Adds ``count() AS row_count`` beside the scalar of a
+            number display, over exactly the metric's FROM/WHERE. Alert
+            evaluation needs the population size to tell an empty window from
+            a null aggregate, and folding it here costs one column where a
+            second query would double the ClickHouse load of every tick.
+        max_rows: Optional ceiling on the outer row limit. The display-derived
+            limit still applies; this only lowers it, for callers that will
+            keep fewer rows than the display needs and should not make the
+            engine materialize the rest. Ignored by histogram, whose output
+            is bounded by its bin count.
+
+    Returns:
+        The SQL string and its bound parameters.
     """
     # Normalize like every other ClickHouse endpoint: mixed tz-aware/naive
     # datetimes (both accepted by the request schema) crash subtraction in
@@ -280,12 +332,19 @@ def compile_widget_query(
     group_cols: list[str] = []
     order_by = ""
 
+    is_timeseries = is_series(spec)
     if is_timeseries and spec.metric.agg in _NON_ADDITIVE_AGGS:
         # For count/sum an empty bucket genuinely is zero, but for averages
         # and percentiles it has NO value — a filled 0 would render as a false
         # collapse (a p95 latency line dipping to nothing). Nullable makes the
         # WITH FILL rows below carry NULL, which the chart draws as a gap.
         metric_sql = f"toNullable({metric_sql})"
+    elif is_timeseries:
+        # The zero has to be made explicit: a sum over a Nullable column (cost,
+        # tokens) is itself Nullable, so its WITH FILL rows would carry NULL
+        # too, and the chart would see one real bucket among gaps and draw
+        # nothing for a series that has data.
+        metric_sql = f"ifNull({metric_sql}, 0)"
     # Bound unconditionally: both the bucketing branch and the row-cap branch
     # below key off is_timeseries, and an implicit binding would let them drift.
     bucket_of, step, granule_seconds = _time_bucket(start_time, end_time, bucket_seconds)
@@ -355,12 +414,9 @@ def compile_widget_query(
         row_limit = MAX_TABLE_ROWS
     elif is_timeseries:
         # Each time bucket can have up to (MAX_GROUPS + 1) rows: one per
-        # breakdown group plus the 'other' fold bucket. Compute the number of
-        # expected buckets from the window size so every bucket is included.
-        window_seconds = (end_time - start_time).total_seconds()
-        # +1: misaligned windows straddle one extra bucket (half-open [start, end) over toStartOfX boundaries).
-        n_buckets = math.ceil(window_seconds / granule_seconds) + 1
-        row_limit = n_buckets * (MAX_GROUPS + 1)
+        # breakdown group plus the 'other' fold bucket. Derived from the
+        # window size so every bucket is included.
+        row_limit = _bucket_count(granule_seconds, start_time, end_time) * (MAX_GROUPS + 1)
     elif spec.breakdown is not None:
         # Pure breakdown (no time axis): one row per group + 'other'.
         row_limit = MAX_GROUPS + 1
@@ -368,6 +424,8 @@ def compile_widget_query(
         # No dimensions: single aggregate row.
         row_limit = 1
 
+    if max_rows is not None:
+        row_limit = min(row_limit, max_rows)
     limit = f"LIMIT {row_limit}"
 
     sql = f"SELECT {', '.join(select_cols)} FROM {base} {where} {group_by} {order_by} {limit}"
@@ -381,14 +439,30 @@ def run_widget_query(
     end_time: datetime,
     bucket_seconds: int | None = None,
     include_row_count: bool = False,
+    max_rows: int | None = None,
 ) -> dict[str, Any]:
-    """Compile and execute, returning the response contract dict."""
+    """Compile and execute, returning the response contract dict.
+
+    Args:
+        spec: The validated widget spec to run.
+        project_id: Project the query is scoped to.
+        start_time: Window start (inclusive).
+        end_time: Window end (exclusive).
+        bucket_seconds: Explicit time-series bucket width; None picks the
+            range-derived grain. Echoed in ``meta["granularity"]``.
+        include_row_count: Adds ``count() AS row_count`` beside a number
+            display's scalar; see compile_widget_query.
+        max_rows: Optional ceiling on the row limit; see compile_widget_query.
+
+    Returns:
+        A dict with ``columns``, ``rows`` and ``meta``.
+    """
     # Normalized once here; compile_widget_query re-normalizing is idempotent
     # and keeps it safe for direct callers.
     start_time = to_utc_naive(start_time)
     end_time = to_utc_naive(end_time)
     sql, params = compile_widget_query(
-        spec, project_id, start_time, end_time, bucket_seconds, include_row_count
+        spec, project_id, start_time, end_time, bucket_seconds, include_row_count, max_rows=max_rows
     )
     client = get_clickhouse_client()
     # Execution bounds (readonly, timeout, GROUP BY spill ceiling) are the shared read
@@ -396,7 +470,7 @@ def run_widget_query(
     # trace list and the filter-option scans, so it gets the same ceilings.
     result = client.query(sql, parameters=params, settings=READ_QUERY_SETTINGS)
     meta: dict[str, Any] = {}
-    if spec.display.type in ("line", "area"):
+    if is_series(spec):
         # An explicit bucket has no name in the hour/day vocabulary, so it
         # reports its width in milliseconds instead.
         meta["granularity"] = (

@@ -11,7 +11,7 @@
   [![Discord][discord-image]][discord-url]
   [![Documentation][docs-image]][docs-url]
   [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
-  [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/traceroot-ai/traceroot)
+  [![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-5562EA)](https://deepwiki.com/traceroot-ai/traceroot)
 
 </div>
 
@@ -117,7 +117,7 @@ The fastest way to get started. Ample storage and LLM tokens for testing, no cre
 | [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | Automated instrumentation via the TraceRoot OTLP exporter. |
 | [OpenAI Agents SDK](https://traceroot.ai/docs/integrations/openai-agents-sdk) | Python, JS/TS | Automated instrumentation of agent runs, tool executions, and handoff transitions. |
 | [Pydantic AI](https://traceroot.ai/docs/integrations/pydantic-ai) | Python | Automated instrumentation of agent runs, LLM calls, and tool invocations via pydantic-ai's native OpenTelemetry support. |
-| [Vercel AI SDK](https://traceroot.ai/docs/integrations/vercel-ai) | JS/TS | Native OpenTelemetry tracing via `experimental_telemetry` — no `instrumentModules` config required. |
+| [Vercel AI SDK](https://traceroot.ai/docs/integrations/vercel-ai) | JS/TS | Native OpenTelemetry tracing — no `instrumentModules` config required. AI SDK 7 needs `@ai-sdk/otel`; AI SDK 6 (legacy) uses `experimental_telemetry`. |
 
 ### Model Providers
 

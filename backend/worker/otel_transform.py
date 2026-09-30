@@ -38,7 +38,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from shared.enums import EVALUATION_SPAN_KINDS, SpanKind, SpanStatus
-from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_TREE_ATTRIBUTES
+from shared.span_attributes import (
+    CAPTURE_MARKER_ATTRIBUTES,
+    SPAN_IDS_PATH,
+    SPAN_PATH,
+    SPAN_TREE_ATTRIBUTES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -599,7 +604,8 @@ def transform_otel_to_clickhouse(
     """Transform OTEL JSON to ClickHouse traces and spans.
 
     Never sets `source` on a record. Classification belongs to the ingest route, not
-    the payload: the internal route stamps 'detector' after this returns, and every
+    the payload: the internal route stamps the authenticated caller's source ('detector'
+    or 'agent') after this returns, and every
     other row is written as 'user' by the insert helpers (the column's DEFAULT is the
     backfill backstop for pre-migration rows, not the path live writes take). That makes the anti-spoof
     guarantee structural — a tenant-supplied traceroot.source is simply never read
@@ -868,8 +874,18 @@ def transform_otel_to_clickhouse(
                         span_attrs,
                         [
                             "llm.token_count.prompt_details.cache_write",
+                            # traceroot SDKs' Claude Agent SDK instrumentation
+                            # (python + ts) spells the same bucket with
+                            # Anthropic's "cache_creation" word:
+                            "llm.token_count.prompt_details.cache_creation",
                             "gen_ai.usage.cache_creation.input_tokens",
                             "gen_ai.usage.cache_creation_input_tokens",
+                            # traceroot-pi-extension (src/handlers/llm.ts) spells the
+                            # write side with "cache_write" while its read side uses
+                            # cache_read_input_tokens above. Without this entry every
+                            # Pi span stored cache_write_tokens=0 while reads landed,
+                            # under-pricing every call by the write premium.
+                            "gen_ai.usage.cache_write_input_tokens",
                             "gen_ai.usage.details.cache_write_tokens",
                             # pydantic-ai version variant:
                             "gen_ai.usage.details.cache_creation_input_tokens",
@@ -879,9 +895,9 @@ def transform_otel_to_clickhouse(
                     )
                     # Optional Anthropic 1-hour cache-write portion (1h write = 2.0x
                     # input, versus 1.25x for the default 5-minute write). A SUBSET of
-                    # cache_write, priced at its own rate when present; absent for every
-                    # emitter today (the split is dropped at the instrumentation layer),
-                    # so this defaults to None -> 0 and leaves pricing unchanged.
+                    # cache_write, priced at its own rate when present; emitters that
+                    # don't distinguish TTLs simply omit it, and this defaults to
+                    # None -> 0, leaving pricing at the combined rate.
                     api_cache_write_1h_tokens = first_present_number(
                         span_attrs,
                         [
@@ -982,12 +998,12 @@ def transform_otel_to_clickhouse(
                         )
                         # Store a GROSS (cache-inclusive) input reconstructed from the
                         # disjoint buckets, so the input column always reconciles with
-                        # its cache breakdown. Net/exclusive emitters (e.g.
-                        # claude-agent-sdk) report only the non-cached tokens in
-                        # llm.token_count.prompt with cache as separate additive
-                        # buckets, so the reported input alone (e.g. 2) understates the
-                        # true total; summing the buckets recovers it. Gross emitters
-                        # are unchanged (cache is already a subset of the input).
+                        # its cache breakdown. Net/exclusive emitters report only the
+                        # non-cached tokens in llm.token_count.prompt with cache as
+                        # separate additive buckets, so the reported input alone
+                        # (e.g. 2) understates the true total; summing the buckets
+                        # recovers it. Gross emitters are unchanged (cache is already
+                        # a subset of the input).
                         gross_input = (
                             buckets.input_uncached + buckets.cache_read + buckets.cache_write
                         )
@@ -1006,9 +1022,9 @@ def transform_otel_to_clickhouse(
                             ),
                         }
                         # Persist the 1-hour cache-write portion only when an emitter
-                        # actually reports it, so spans with no 1-hour portion (every
-                        # span today) keep an identical usage_details map. The read path
-                        # defaults the missing key to 0.
+                        # actually reports it, so spans with no 1-hour portion keep an
+                        # identical usage_details map. The read path defaults the
+                        # missing key to 0.
                         if buckets.cache_write_1h:
                             span_record["usage_details"]["cache_write_1h_tokens"] = (
                                 buckets.cache_write_1h
@@ -1085,9 +1101,15 @@ def transform_otel_to_clickhouse(
                 # its parent was still open. That hit exactly the spans users
                 # annotate — usually leaves, whose long-lived parents are the ones
                 # still in flight — so the paths ride along with user metadata.
+                #
+                # The capture markers ride along for the same reason: they say
+                # the recorded input/output is not the whole of it, and they are
+                # set on exactly the spans that also carry explicit metadata (an
+                # agent self-trace's root stamps the trace metadata and records
+                # the prompt and answer through the capture policy).
                 span_path_attrs = {
                     key: span_attrs[key]
-                    for key in SPAN_TREE_ATTRIBUTES
+                    for key in (*SPAN_TREE_ATTRIBUTES, *CAPTURE_MARKER_ATTRIBUTES)
                     if span_attrs.get(key) is not None
                 }
                 explicit_metadata = span_attrs.get("traceroot.span.metadata")

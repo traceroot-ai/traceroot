@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership, errorResponse } from "@/lib/auth-helpers";
@@ -5,7 +6,7 @@ import { requireAuth, requireWorkspaceMembership, errorResponse } from "@/lib/au
 type RouteParams = { params: Promise<{ workspaceId: string; inviteId: string }> };
 
 // DELETE /api/workspaces/[workspaceId]/invites/[inviteId] - Cancel invite (ADMIN+)
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   const { workspaceId, inviteId } = await params;
 
   const authResult = await requireAuth();
@@ -33,3 +34,4 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   return NextResponse.json({ deleted: true }, { status: 200 });
 }
+export const DELETE = withImpersonationPolicy(handleDELETE);

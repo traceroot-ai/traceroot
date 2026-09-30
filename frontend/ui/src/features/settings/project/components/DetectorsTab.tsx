@@ -153,7 +153,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             <AlertChannelsEditor emailAddresses={emailAddresses} onChange={setEmailAddresses} />
           </div>
           <p className="mt-2 text-[12px] text-muted-foreground">
-            Sent once per trace, after Root Cause Analysis completes.
+            Findings are batched into one email digest per alert window.
           </p>
           <Button
             size="sm"

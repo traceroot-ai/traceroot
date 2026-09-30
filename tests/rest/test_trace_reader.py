@@ -552,6 +552,12 @@ class TestHasTraces:
         service, _ = _make_service(lambda *a, **kw: _rows([]))
         assert service.has_traces("proj-1") is False
 
+    def test_counts_customer_spans_only(self):
+        """A project whose only rows are internal self-traces has no traces to show."""
+        service, client = _make_service(lambda *a, **kw: _rows([]))
+        service.has_traces("proj-1")
+        assert "source = 'user'" in client.query.call_args.args[0]
+
     def test_caches_true_result(self):
         call_count = {"n": 0}
 

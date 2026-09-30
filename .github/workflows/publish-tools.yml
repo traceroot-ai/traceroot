@@ -1,0 +1,80 @@
+name: Publish @traceroot-ai/tools
+
+# The tool registry is generated from the public OpenAPI schema and consumed by
+# traceroot-cli as a published dependency, so it needs its own release cadence
+# separate from the product releases this repo already tags as vX.Y.Z.
+#
+# Publishes silently, with no tag or GitHub Release: merging a version bump in
+# frontend/packages/tools/package.json publishes it if it is not on npm yet.
+on:
+  push:
+    branches: [main]
+    paths: [frontend/packages/tools/package.json]
+  # Re-run a publish after a workflow fix.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          VERSION=$(node -p "require('./frontend/packages/tools/package.json').version")
+          if npm view "@traceroot-ai/tools@$VERSION" version >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: check
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # npm trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          # The pnpm version is pinned by the frontend workspace's packageManager
+          # field; the repo root has none, so point the action at it.
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # Trusted publishing needs npm >= 11.5.1. Pinned to the 11 line rather
+      # than @latest: npm 12 requires Node ^22.22.2 and broke a publish here
+      # the day it shipped.
+      - name: Update npm
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Build
+        run: cd frontend/packages/tools && pnpm build
+
+      - name: Test
+        run: cd frontend/packages/tools && pnpm test
+
+      # No token: npm verifies over OIDC that this run came from this repo and
+      # workflow. Published with npm rather than pnpm because pnpm's publish
+      # does not perform the OIDC exchange; safe because this package declares
+      # no dependencies at all.
+      - name: Publish
+        run: npm publish --provenance --access public
+        working-directory: frontend/packages/tools

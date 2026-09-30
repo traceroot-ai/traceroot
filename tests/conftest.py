@@ -38,6 +38,7 @@ def _reset_singletons(monkeypatch):
     import rest.services.trace_reader as tr_mod
 
     monkeypatch.setattr(ch_mod, "_client", None)
+    monkeypatch.setattr(ch_mod, "_ro_client", None)
     monkeypatch.setattr(s3_mod, "_s3_service", None)
     monkeypatch.setattr(tr_mod, "_service", None)
     # Discovery holds a client AND a short-lived answer cache, so a leaked instance

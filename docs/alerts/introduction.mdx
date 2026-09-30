@@ -5,7 +5,7 @@ description: Monitor trace metrics and notify your team in Slack
 
 Metric alerts watch your project's spans over a recent time window. Each rule summarizes a measure, compares the result with a threshold, and posts changes to your workspace's Slack channel.
 
-Metric alerts are separate from [detector alerts](/detectors/alerts). Detectors use an LLM-as-a-judge to find problems in individual traces, while metric alerts evaluate numeric conditions such as latency, cost, token usage, or span count.
+Metric alerts are separate from [detector notifications](/detectors/notifications). Detectors use an LLM-as-a-judge to find problems in individual traces, while metric alerts evaluate numeric conditions such as latency, cost, token usage, or span count.
 
 ## Before you create an alert
 
@@ -57,7 +57,8 @@ The Alerts table shows the rule's latest state:
 - **OK** — the latest measured value is within the threshold.
 - **Alert** — the latest measured value breaches the threshold.
 - **No Data** — the latest window returned no value, or the rule is waiting for a fresh result after it was created, after you changed an evaluation setting, or after you resumed it.
-- **Failing** — the last evaluation failed. Open the badge for details and check the rule's measure and filters if failures continue.
+- **Failing** — the last run failed and will retry next minute. Open the badge for details and check the rule's measure and filters if failures continue.
+- **Parked** — the rule's settings cannot be evaluated, so automatic evaluation has stopped. Open the badge for the reason, then edit the affected evaluation settings or select **Resume** to retry. Renaming the rule alone does not restart it.
 - **Paused** — evaluation and notifications are stopped until you resume the rule.
 
 For rules created in the current form, an empty window doesn't send a notification or resolve an outstanding breach. If a breach was already announced, it remains outstanding until data returns and the rule can evaluate again.
@@ -72,6 +73,8 @@ Slack messages show the rule name, state, measured value, threshold, window, and
 The trace list carries supported rule filters where it can, but the list is trace-based while the alert evaluates spans. The linked results can therefore be broader than the exact spans that triggered the rule. Check the filter text in the Slack message for the complete rule conditions.
 
 Recovery messages include **View alert** but don't include **View traces**, because the metric is back within its threshold.
+
+If a notification could not be delivered, open the alert's state badge for the delivery reason. When offered, **Open Slack settings** takes you to the workspace integration to reconnect Slack or choose a channel.
 
 ## Manage alerts
 

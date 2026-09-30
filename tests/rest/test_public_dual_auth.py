@@ -165,10 +165,18 @@ def _install_jwt_signer(monkeypatch):
     return priv
 
 
-def _mint_jwt(priv, *, sub="u1"):
+def _mint_jwt(priv, *, sub="u1", sid="sess-1"):
     now = int(time.time())
+    # Verification requires sid, so mint one just as the issuer does.
     return jwt.encode(
-        {"sub": sub, "aud": "traceroot-api", "iss": "traceroot", "iat": now, "exp": now + 900},
+        {
+            "sub": sub,
+            "aud": "traceroot-api",
+            "iss": "traceroot",
+            "iat": now,
+            "exp": now + 900,
+            "sid": sid,
+        },
         priv,
         algorithm="EdDSA",
         headers={"kid": _JWT_KID},

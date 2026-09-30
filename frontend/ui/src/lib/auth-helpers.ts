@@ -1,5 +1,5 @@
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
+import { createHash, timingSafeEqual } from "crypto";
+import { getRequestSession } from "@/lib/request-session";
 import { NextResponse } from "next/server";
 import { prisma, type Role, hasMinRole } from "@traceroot/core";
 import { env } from "@/env";
@@ -22,9 +22,7 @@ export interface WorkspaceMembership {
  * Returns null if not authenticated.
  */
 export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  const session = await getRequestSession();
   if (!session?.user?.id) {
     return null;
   }
@@ -143,10 +141,27 @@ export async function requireProjectAccess(
 
 /**
  * Verify internal API secret for Python backend calls.
+ *
+ * One credential for every internal caller — the Python backend, the worker
+ * and the agent service, whose tools call this app for GitHub App tokens.
+ *
+ * Compared in constant time (crypto.timingSafeEqual) so response timing cannot
+ * be used to recover the secret byte-by-byte. Both sides are hashed first so
+ * the compared buffers always have equal length — timingSafeEqual throws on a
+ * length mismatch, and any length-dependent early exit would leak the secret's
+ * length. Fails closed on a missing header or a blank configured secret (env
+ * validation already rejects the latter at boot; guarded here anyway).
  */
 export function verifyInternalSecret(request: Request): boolean {
-  const secret = request.headers.get("X-Internal-Secret");
-  return secret === env.INTERNAL_API_SECRET;
+  const provided = request.headers.get("X-Internal-Secret");
+  const expected = env.INTERNAL_API_SECRET;
+  if (!provided || !expected) {
+    return false;
+  }
+  return timingSafeEqual(
+    createHash("sha256").update(provided).digest(),
+    createHash("sha256").update(expected).digest(),
+  );
 }
 
 /**

@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
 import { prisma, PlanType } from "@traceroot/core";
@@ -12,7 +13,7 @@ type RouteParams = { params: Promise<{ projectId: string }> };
 // GET /api/projects/[projectId]/detector-counts
 // Proxies to Python backend: GET /api/v1/internal/detector-window-summary
 // (the UI only reads the counts; the backend endpoint also returns sample traces)
-export async function GET(req: NextRequest, { params }: RouteParams) {
+async function handleGET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -61,3 +62,4 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   const data: unknown = await response.json();
   return Response.json(data, { status: response.status });
 }
+export const GET = withImpersonationPolicy(handleGET);
