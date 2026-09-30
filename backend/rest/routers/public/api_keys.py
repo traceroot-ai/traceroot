@@ -11,48 +11,58 @@ authenticating key's project is the only project reachable — there is no
 ``project_id`` input on any of these routes.
 """
 
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Request, Response
 
 from rest.rate_limit import (
     BUCKET_READ,
+    BUCKET_WRITE,
     is_request_rate_limit_exempt,
     key_read,
+    key_write,
     limiter,
     resolve_limit,
 )
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import KeyStampedAuth
 from rest.routers.public.gateway import forward
 
 router = APIRouter(prefix="/public/api-keys", tags=["API Keys (Public)"])
 
-Auth = Annotated[AuthResult, Depends(authenticate_api_key)]
+Auth = KeyStampedAuth
 
 _UNAVAILABLE = "API key service unavailable"
 _GENERIC = "API key request failed"
 
-# Both routes share the READ bucket. There is no write/credential bucket today,
-# and the eval gateway rate-limits nothing at all — but minting credentials
-# deserves a ceiling, and this resource is called about once per setup run, so
-# borrowing the authenticated read budget costs legitimate traffic nothing. A
-# dedicated bucket would be the better long-term home.
+# The listing rides the read bucket and the mutations ride the write bucket, like
+# every other public mutation in the tree. One decorated function carries one
+# bucket, which is why the collection is two handlers rather than a shared
+# ``api_route``.
 
 
-@router.api_route("", methods=["GET", "POST"], include_in_schema=False)
+@router.get("", include_in_schema=False)
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )
-async def api_keys_root(request: Request, response: Response, auth: Auth) -> Response:
-    """List this project's API keys, or mint a new one."""
+async def list_api_keys(request: Request, response: Response, auth: Auth) -> Response:
+    """List this project's API keys."""
     return await forward(
         request, "api-keys", unavailable_detail=_UNAVAILABLE, generic_error=_GENERIC
     )
 
 
-@router.api_route("/{key_id}", methods=["DELETE"], include_in_schema=False)
+@router.post("", include_in_schema=False)
 @limiter.shared_limit(
-    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+    resolve_limit, scope=BUCKET_WRITE, key_func=key_write, exempt_when=is_request_rate_limit_exempt
+)
+async def create_api_key(request: Request, response: Response, auth: Auth) -> Response:
+    """Mint a key for this project."""
+    return await forward(
+        request, "api-keys", unavailable_detail=_UNAVAILABLE, generic_error=_GENERIC
+    )
+
+
+@router.delete("/{key_id}", include_in_schema=False)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_WRITE, key_func=key_write, exempt_when=is_request_rate_limit_exempt
 )
 async def api_keys_item(key_id: str, request: Request, response: Response, auth: Auth) -> Response:
     """Revoke one of this project's API keys."""

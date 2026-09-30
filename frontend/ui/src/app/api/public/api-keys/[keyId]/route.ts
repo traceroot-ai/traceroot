@@ -43,7 +43,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     );
   }
 
-  await prisma.accessKey.delete({ where: { id: keyId } });
+  // Idempotent, and scoped to the project the lookup authorized. `delete` raises
+  // P2025 when the row is already gone, which an App Router handler surfaces as a
+  // 500 — so two concurrent revokes of one id, or a revoke racing a deletion in
+  // the dashboard, answered with a server error where "it is gone" is the truth.
+  await prisma.accessKey.deleteMany({ where: { id: keyId, projectId: result.auth.projectId } });
 
   return new NextResponse(null, { status: 204 });
 }

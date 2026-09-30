@@ -14,6 +14,7 @@ import respx
 from fastapi.testclient import TestClient
 
 from rest.main import app
+from rest.routers.public import deps
 from rest.routers.public.deps import AuthResult, authenticate_api_key
 
 UI_URL = "http://localhost:3000"
@@ -154,3 +155,69 @@ def test_query_parameters_survive_the_proxy(client):
     client.get("/api/v1/public/api-keys?limit=5", headers={"Authorization": "Bearer tr-caller"})
 
     assert route.calls.last.request.url.params["limit"] == "5"
+
+
+@respx.mock
+def test_an_oversized_declared_body_is_refused_before_it_is_forwarded(client):
+    """Nothing in front of this process caps a body, so the forwarder has to."""
+    route = respx.post(f"{UI_URL}/api/public/api-keys").mock(
+        return_value=httpx.Response(201, json=KEY_SUMMARY)
+    )
+
+    response = client.post(
+        "/api/v1/public/api-keys",
+        content=b"{}",
+        headers={
+            "Authorization": "Bearer tr-caller",
+            "Content-Type": "application/json",
+            "Content-Length": str(9 * 1024 * 1024),
+        },
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": "Request body too large"}
+    assert not route.called
+
+
+@respx.mock
+def test_a_cookie_is_never_relayed_to_the_control_plane(client):
+    """A forwarded cookie would be a second, session-scoped credential upstream."""
+    route = respx.get(f"{UI_URL}/api/public/api-keys").mock(
+        return_value=httpx.Response(200, json={"keys": []})
+    )
+
+    response = client.get(
+        "/api/v1/public/api-keys",
+        headers={"Authorization": "Bearer tr-caller", "Cookie": "session=abc"},
+    )
+
+    assert response.status_code == 200
+    forwarded = {k.lower() for k in route.calls.last.request.headers}
+    assert "cookie" not in forwarded
+    assert route.calls.last.request.headers["authorization"] == "Bearer tr-caller"
+
+
+@respx.mock
+def test_the_rate_limit_identity_is_stamped_for_the_caller(client, monkeypatch):
+    """A mis-keyed bucket raises nothing — it just applies the wrong limit.
+
+    Depending on the unstamped authenticator left the workspace and plan unset, so
+    every caller keyed as ``rl:read:free:``: one bucket shared across tenants, at
+    the free-tier ceiling for a paying workspace.
+    """
+    stamped: list[tuple[object, object]] = []
+    original = deps.set_rate_limit_identity
+
+    def spy(request, workspace_id, billing_plan):
+        stamped.append((workspace_id, billing_plan))
+        return original(request, workspace_id, billing_plan)
+
+    monkeypatch.setattr(deps, "set_rate_limit_identity", spy)
+    respx.get(f"{UI_URL}/api/public/api-keys").mock(
+        return_value=httpx.Response(200, json={"keys": []})
+    )
+
+    response = client.get("/api/v1/public/api-keys", headers={"Authorization": "Bearer tr-caller"})
+
+    assert response.status_code == 200
+    assert stamped == [("ws-1", "enterprise")]
