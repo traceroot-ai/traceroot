@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const readDetectorWindowSummary = vi.fn();
 const detectorFindMany = vi.fn();
-const projectFindUnique = vi.fn();
+const projectFindFirst = vi.fn();
 const sendDigestAlertSlack = vi.fn();
 const sendDigestAlertEmail = vi.fn();
 const generateDigestSummary = vi.fn();
@@ -15,7 +15,7 @@ vi.mock("../../detection/findings-reader.js", () => ({
 vi.mock("@traceroot/core", () => ({
   prisma: {
     detector: { findMany: (...a: any[]) => detectorFindMany(...a) },
-    project: { findUnique: (...a: any[]) => projectFindUnique(...a) },
+    project: { findFirst: (...a: any[]) => projectFindFirst(...a) },
     aIMessage: { create: (...a: any[]) => aiMessageCreate(...a) },
   },
   PlanType: { FREE: "free" },
@@ -63,7 +63,7 @@ beforeEach(() => {
     { id: "d1", name: "Latency", enableRca: true },
     { id: "d2", name: "Errors", enableRca: true },
   ]);
-  projectFindUnique.mockResolvedValue(PROJECT);
+  projectFindFirst.mockResolvedValue(PROJECT);
   sendDigestAlertSlack.mockResolvedValue(undefined);
   sendDigestAlertEmail.mockResolvedValue(undefined);
   generateDigestSummary.mockResolvedValue(null);
@@ -163,7 +163,7 @@ describe("flushDigest", () => {
   });
 
   it("skips Slack when no channel is configured but still emails", async () => {
-    projectFindUnique.mockResolvedValue({
+    projectFindFirst.mockResolvedValue({
       ...PROJECT,
       alertConfig: { emailAddresses: ["a@example.com"], slackChannelId: null },
       workspace: { id: "ws1", slackIntegration: null },
@@ -176,9 +176,14 @@ describe("flushDigest", () => {
   });
 
   it("returns without sending when the project is gone", async () => {
-    projectFindUnique.mockResolvedValue(null);
+    projectFindFirst.mockResolvedValue(null);
 
     await run();
+
+    // A soft-deleted project counts as gone.
+    expect(projectFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: expect.any(String), deleteTime: null } }),
+    );
 
     expect(readDetectorWindowSummary).not.toHaveBeenCalled(); // resolved first, bailed before the summary read
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
@@ -186,7 +191,7 @@ describe("flushDigest", () => {
   });
 
   it("short-circuits before reading counts when the project has no channels", async () => {
-    projectFindUnique.mockResolvedValue({
+    projectFindFirst.mockResolvedValue({
       name: "Acme Corp",
       alertConfig: { emailAddresses: [], slackChannelId: null },
       workspace: { id: "ws1", slackIntegration: null },
@@ -320,7 +325,7 @@ describe("flushDigest", () => {
   });
 
   it("skips summary generation entirely for rca-blocked free workspaces", async () => {
-    projectFindUnique.mockResolvedValue({
+    projectFindFirst.mockResolvedValue({
       ...PROJECT,
       workspace: { ...PROJECT.workspace, billingPlan: "free", rcaBlocked: true },
     });

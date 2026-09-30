@@ -337,10 +337,35 @@ describe("flushSignalDigest", () => {
     mockSlack.mockRejectedValue(new Error("slack down"));
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const { db } = fakeDb([sig()]);
+    const { db, updates } = fakeDb([sig()]);
     await flushSignalDigest("p1", T0, db as never);
     expect(mockEmail).toHaveBeenCalled();
+    expect(updates).toHaveLength(1);
     error.mockRestore();
+    log.mockRestore();
+  });
+
+  it("leaves the changes unreported when every send fails, for the sweeper to retry", async () => {
+    mockRecipients.mockResolvedValue(recipients);
+    mockSlack.mockRejectedValue(new Error("slack down"));
+    mockEmail.mockRejectedValue(new Error("smtp down"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { db, updates } = fakeDb([sig()]);
+    await flushSignalDigest("p1", T0, db as never);
+    expect(updates).toHaveLength(0);
+    error.mockRestore();
+    log.mockRestore();
+  });
+
+  it("records the changes when no channel is set up to deliver (no SMTP, no Slack plan)", async () => {
+    mockRecipients.mockResolvedValue(recipients);
+    mockSlack.mockResolvedValue(false);
+    mockEmail.mockResolvedValue(false);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { db, updates } = fakeDb([sig()]);
+    await flushSignalDigest("p1", T0, db as never);
+    expect(updates).toHaveLength(1);
     log.mockRestore();
   });
 

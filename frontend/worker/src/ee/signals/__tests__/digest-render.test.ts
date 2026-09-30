@@ -70,6 +70,18 @@ describe("signal digest rendering", () => {
     expect(blocks.find((b) => b.type === "context")?.elements?.[0].text).toBe("+16 more signals");
   });
 
+  it("lists at most 45 signals in the email and says how many were left out", () => {
+    const many = [
+      ...Array.from({ length: 30 }, (_, i) => item({ signalId: `n${i}` })),
+      ...Array.from({ length: 30 }, (_, i) => item({ signalId: `o${i}`, kind: "ongoing" })),
+    ];
+    const email = buildSignalDigestEmail({ projectId: "p", projectName: "P", items: many });
+    expect(email.text.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(45);
+    expect(email.text).toContain("+15 more signals");
+    expect(email.html).toContain("+15 more signals");
+    expect(email.html).not.toContain("signal=o15");
+  });
+
   it("builds the email with the same content, escaped", () => {
     const email = buildSignalDigestEmail({ projectId: "p1", projectName: "Shop <x>", items });
     expect(email.subject).toBe("[TraceRoot] Signals in Shop <x>: 1 new, 1 reopened, 1 ongoing");

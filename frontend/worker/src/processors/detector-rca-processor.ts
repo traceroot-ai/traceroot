@@ -577,6 +577,20 @@ export async function processRcaJob(job: Job<RcaJob>, token?: string) {
         data: { traceStatus: settledTraceStatus ?? "failed", finishedAt: new Date() },
       })
       .catch(() => {}); // best-effort
+
+    // A signal RCA that BullMQ will retry stays pending, and its digest waits
+    // for the retry: the digest takes a failed RCA as final and would announce
+    // the signal without the retry's result.
+    if (signalContext && job.attemptsMade + 1 < (job.opts.attempts ?? 1)) {
+      await prisma.detectorRca
+        .updateMany({
+          where: { findingId, executions: { none: { attempt: { gt: execution.attempt } } } },
+          data: { status: "pending" },
+        })
+        .catch(() => {}); // best-effort
+      throw e;
+    }
+
     await finishFindingIfLatest(prisma, {
       findingId,
       attempt: execution.attempt,

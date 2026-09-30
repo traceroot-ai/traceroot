@@ -17,6 +17,10 @@ import { scheduleFindingDigest } from "../notifications/digest-schedule.js";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
+// A failed per-finding digest enqueue is retried this many times, waiting
+// 1 s, then 2 s.
+const DIGEST_ENQUEUE_ATTEMPTS = 3;
+const DIGEST_ENQUEUE_RETRY_MS = 1_000;
 
 /**
  * Returns the AGE of the trace's most recent span arrival in milliseconds —
@@ -486,13 +490,24 @@ async function evaluateTrace(
     return !(d?.enableSignals && grouping);
   });
   if (reportsPerFinding) {
-    await scheduleFindingDigest(
-      projectId,
-      findingTimestamp,
-      project?.alertConfig?.alertWindow ?? null,
-    ).catch((err) =>
-      console.error(`[Detector] Failed to schedule the digest for finding ${findingId}:`, err),
-    );
+    // Retried here rather than by failing the job, which would run every
+    // detector on the trace again.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await scheduleFindingDigest(
+          projectId,
+          findingTimestamp,
+          project?.alertConfig?.alertWindow ?? null,
+        );
+        break;
+      } catch (err) {
+        if (attempt >= DIGEST_ENQUEUE_ATTEMPTS) {
+          console.error(`[Detector] Failed to schedule the digest for finding ${findingId}:`, err);
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, attempt * DIGEST_ENQUEUE_RETRY_MS));
+      }
+    }
   }
 
   // Signals (ee): enqueue assignment for detectors with signals on; the job

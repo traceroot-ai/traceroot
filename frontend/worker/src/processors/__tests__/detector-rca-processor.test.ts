@@ -996,6 +996,48 @@ describe("signal RCAs", () => {
     expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "tok");
   });
 
+  it("keeps a failed attempt pending, without a digest, while BullMQ will retry it", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    await stubRun();
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
+    const updateMany = vi.spyOn(p.detectorRca, "updateMany").mockResolvedValue({ count: 1 } as any);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob(signalJob({ attemptsMade: 1, opts: { attempts: 3 } }), "tok"),
+    ).rejects.toThrow("Prisma error");
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { findingId: "f1", executions: { none: { attempt: { gt: 1 } } } },
+      data: { status: "pending" },
+    });
+    expect(finishFindingIfLatestMock).not.toHaveBeenCalled();
+    expect(digestAddMock).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("fails the RCA and schedules the digest on the last attempt", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    await stubRun();
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob(signalJob({ attemptsMade: 2, opts: { attempts: 3 } }), "tok"),
+    ).rejects.toThrow("Prisma error");
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ findingId: "f1", status: "failed" }),
+    );
+    expect(digestAddMock).toHaveBeenCalledWith(
+      "signal-digest-p1",
+      expect.anything(),
+      expect.anything(),
+    );
+    error.mockRestore();
+  });
+
   it("builds a prompt for a single hit", async () => {
     const { signalRcaPrompt } = await import("../detector-rca-processor.js");
     const prompt = signalRcaPrompt([context.findings[0]], "t", "");

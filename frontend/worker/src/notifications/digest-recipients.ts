@@ -15,13 +15,13 @@ export interface DigestRecipients {
 
 /**
  * Resolve the project's alert channels once, up front. Returns null when the
- * project is gone or has nothing configured (no Slack channel + bot token, no
+ * project is gone (or soft-deleted) or has nothing configured (no Slack channel + bot token, no
  * email recipients), so the caller can skip the rest of the flush for a digest
  * that would fan out to nowhere.
  */
 export async function resolveRecipients(projectId: string): Promise<DigestRecipients | null> {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, deleteTime: null },
     select: {
       name: true,
       rcaModel: true,

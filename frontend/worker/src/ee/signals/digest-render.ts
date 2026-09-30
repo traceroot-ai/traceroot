@@ -7,6 +7,9 @@ const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 // Slack rejects a message with more than 50 blocks: header, one heading per
 // section (three), the footer and a divider leave 44 for signal lines.
 const MAX_SLACK_LINES = 44;
+// Gmail clips a message over about 102 KB; like the detector digest, an email
+// lists at most this many signals and counts the rest.
+const MAX_EMAIL_ROWS = 45;
 // Titles are model-written from detector output; bound them for one line.
 const TITLE_CAP = 200;
 const ROOT_CAUSE_CAP = 400;
@@ -103,18 +106,24 @@ export function buildSignalDigestEmail(params: {
   const headline = digestHeadline(params.items, params.projectName);
   const text: string[] = [headline, ""];
   const htmlSections: string[] = [];
+  let listed = 0;
+  let omitted = 0;
   for (const { kind, heading } of SECTIONS) {
-    const section = params.items.filter((i) => i.kind === kind);
+    const all = params.items.filter((i) => i.kind === kind);
+    const section = all.slice(0, Math.max(0, MAX_EMAIL_ROWS - listed));
+    listed += section.length;
+    omitted += all.length - section.length;
     if (section.length === 0) continue;
     text.push(`${heading}:`);
     const rows = section.map((item) => {
       const rca = rcaText(item);
-      text.push(`- ${item.title} · ${item.detectorName} · ${hitsText(item)}`);
+      const title = item.title.slice(0, TITLE_CAP);
+      text.push(`- ${title} · ${item.detectorName} · ${hitsText(item)}`);
       if (rca) text.push(`  ${rca}`);
       text.push(`  ${signalUrl(params.projectId, item)}`);
       return (
         `<p style="margin: 6px 0; color: #333; font-size: 14px; line-height: 1.6;">` +
-        `<a href="${signalUrl(params.projectId, item)}" style="color: #000; font-weight: 500;">${escapeHtml(item.title)}</a>` +
+        `<a href="${signalUrl(params.projectId, item)}" style="color: #000; font-weight: 500;">${escapeHtml(title)}</a>` +
         ` <span style="color: #888;">· ${escapeHtml(item.detectorName)} · ${escapeHtml(hitsText(item))}</span>` +
         (rca
           ? `<br/><span style="color: #555;">${escapeHtml(rca.slice(0, ROOT_CAUSE_CAP))}</span>`
@@ -127,6 +136,11 @@ export function buildSignalDigestEmail(params: {
       `<p style="margin: 12px 0 4px 0; color: #000; font-size: 13px; font-weight: 600;">${heading}</p>` +
         rows.join("\n"),
     );
+  }
+  if (omitted > 0) {
+    const more = `+${omitted} more signal${omitted === 1 ? "" : "s"}`;
+    text.push(more);
+    htmlSections.push(`<p style="margin: 12px 0 0 0; color: #888; font-size: 13px;">${more}</p>`);
   }
   const safeProject = escapeHtml(params.projectName);
   const html = renderEmailCard({

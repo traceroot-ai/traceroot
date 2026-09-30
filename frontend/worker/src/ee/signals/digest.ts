@@ -276,7 +276,8 @@ export async function sweepSignalDigests(
 /**
  * Build and send the project's signal digest, then record what it reported.
  * A project with no alert channels still records its changes as reported, so
- * configuring a channel later does not flood it with old announcements.
+ * configuring a channel later does not flood it with old announcements. When
+ * every send fails, nothing is recorded and the sweeper sends the digest again.
  */
 export async function flushSignalDigest(
   projectId: string,
@@ -292,26 +293,42 @@ export async function flushSignalDigest(
       console.log(`[Digest] skip signals project=${projectId} reason=no-channels`);
     } else {
       const content = { projectId, projectName: recipients.projectName, items: plan.items };
-      const sends: Promise<unknown>[] = [];
+      const sends: { channel: string; send: Promise<boolean> }[] = [];
       if (recipients.slackChannelId && recipients.encryptedBotToken) {
-        sends.push(
-          postSlackMessage({
+        sends.push({
+          channel: "Slack",
+          send: postSlackMessage({
             workspaceId: recipients.workspaceId,
             encryptedBotToken: recipients.encryptedBotToken,
             channelId: recipients.slackChannelId,
             blocks: buildSignalDigestBlocks(content),
             text: digestHeadline(plan.items, recipients.projectName),
-          }).catch((e) => console.error(`[Digest] signals Slack send failed for ${projectId}:`, e)),
-        );
+          }),
+        });
       }
       if (recipients.emailAddresses.length > 0) {
-        sends.push(
-          sendEmail({ to: recipients.emailAddresses, ...buildSignalDigestEmail(content) }).catch(
-            (e) => console.error(`[Digest] signals email send failed for ${projectId}:`, e),
-          ),
-        );
+        sends.push({
+          channel: "email",
+          send: sendEmail({ to: recipients.emailAddresses, ...buildSignalDigestEmail(content) }),
+        });
       }
-      await Promise.allSettled(sends);
+      const results = await Promise.allSettled(sends.map((s) => s.send));
+      results.forEach((r, i) => {
+        if (r.status === "rejected") {
+          console.error(
+            `[Digest] signals ${sends[i].channel} send failed for ${projectId}:`,
+            r.reason,
+          );
+        }
+      });
+      // Every send failed: leave the changes unreported so the sweeper sends
+      // them again. A channel that is not set up (no SMTP, no Slack plan)
+      // counts as no channel, like a project without recipients.
+      const delivered = results.some((r) => r.status === "fulfilled" && r.value);
+      if (!delivered && results.some((r) => r.status === "rejected")) {
+        console.log(`[Digest] signals project=${projectId} not sent; retrying later`);
+        return plan;
+      }
       console.log(
         `[Digest] sent signals project=${projectId} ` +
           SECTION_KINDS.map((k) => `${k}=${plan.items.filter((i) => i.kind === k).length}`).join(

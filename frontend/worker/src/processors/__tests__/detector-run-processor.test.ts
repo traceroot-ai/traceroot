@@ -555,6 +555,20 @@ describe("processTrace — per-finding digest", () => {
     expect(mockScheduleFindingDigest).toHaveBeenCalledWith("p1", ts, "30m");
   });
 
+  it("retries a failed digest enqueue instead of failing the job", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    mockFetches(60_000, spans);
+    trigger(false);
+    mockScheduleFindingDigest
+      .mockRejectedValueOnce(new Error("READONLY"))
+      .mockRejectedValueOnce(new Error("READONLY"));
+    const run = processTrace("t1", "p1", ["d1"]);
+    await vi.runAllTimersAsync();
+    await run;
+    expect(mockScheduleFindingDigest).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
+  });
+
   it("leaves a detector grouping into signals to the signal digest", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk");
     mockFetches(60_000, spans);
