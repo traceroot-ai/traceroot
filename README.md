@@ -223,6 +223,11 @@ TraceRoot uses [Apache 2.0](LICENSE) for code outside directories named `ee`. Th
   <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot contributors" />
 </a>
 
+<p align="center">
+  ⭐ <strong><a href="https://github.com/traceroot-ai/traceroot">Star us on GitHub to support TraceRoot!</a></strong><br>
+  <sub>Want release updates? Select <strong>Watch → Custom → Releases</strong>.</sub>
+</p>
+
 <!-- Links -->
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
 [discord-url]: https://discord.gg/TM2m3CtKuC
