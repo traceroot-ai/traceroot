@@ -37,11 +37,10 @@ import { makeRange } from "@/features/dashboards/range-presets";
 import { DEFAULT_DATE_FILTER, type DateFilterOption } from "@/lib/date-filter";
 import type { TimeRange } from "@/features/dashboards/types";
 import {
-  getAlertUnit,
+  getAlertUnitForSource,
   withAlertUnit,
   type AlertAggregation,
   type AlertFilter,
-  type AlertMeasureUnit,
   type AlertOperator,
   type AlertView,
 } from "../rule-model";
@@ -117,18 +116,20 @@ export function AlertPreviewChart({
   thresholdValue,
   operator,
   bucketMs,
-  unit,
 }: {
   data: WidgetPreviewData;
   thresholdValue: number | null;
   operator: AlertOperator;
   bucketMs: number;
-  // The rule's unit, not the engine field's: `count` and `uniq` of a latency
-  // column are not milliseconds.
-  unit?: AlertMeasureUnit;
 }) {
   const { spec, result } = data;
   const additive = isAdditiveAgg(spec.metric.agg);
+  // From the spec that produced these rows, not the live draft: keepPreviousData
+  // serves the previous query's rows while a changed measure is still loading.
+  const unit = getAlertUnitForSource(
+    { view: spec.view, field: spec.metric.measure },
+    spec.metric.agg,
+  );
   const { data: rows } = useMemo(
     () => pivotRows(result.columns, result.rows, additive ? 0 : null),
     [result, additive],
@@ -313,7 +314,6 @@ export function AlertPreview({
             thresholdValue={thresholdValue}
             operator={operator}
             bucketMs={bucketMs}
-            unit={getAlertUnit(measureId, aggregation, view)}
           />
         ) : null}
       </div>

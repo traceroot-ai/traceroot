@@ -109,7 +109,9 @@ export function ConditionSection({
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center gap-1.5">
+          {/* Wraps rather than squeezes: on a narrow viewport the window drops to
+              its own line and the threshold keeps a width it can be typed in. */}
+          <div className="flex flex-wrap items-center gap-1.5">
             <Select value={operator} onValueChange={(o) => onOperatorChange(o as AlertOperator)}>
               <SelectTrigger className={cn(CONTROL_SIZE, "w-14 shrink-0")} aria-label="operator">
                 <SelectValue />
@@ -128,7 +130,7 @@ export function ConditionSection({
             <div
               className={cn(
                 CONTROL_SIZE,
-                "flex min-w-0 flex-1 items-center gap-1 rounded-md border border-input bg-transparent px-3 shadow-sm focus-within:ring-1 focus-within:ring-ring",
+                "flex min-w-[5.5rem] flex-1 items-center gap-1 rounded-md border border-input bg-transparent px-2 shadow-sm focus-within:ring-1 focus-within:ring-ring",
               )}
             >
               {unit?.prefix && (
@@ -148,22 +150,24 @@ export function ConditionSection({
                 <span className="shrink-0 text-muted-foreground">{unit.suffix}</span>
               )}
             </div>
-            <Connective>over the last</Connective>
-            <Select value={window} onValueChange={(w) => onWindowChange(w as AlertWindow)}>
-              <SelectTrigger
-                className={cn(CONTROL_SIZE, "w-[4.5rem] shrink-0")}
-                aria-label="window"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(ALERT_WINDOWS) as AlertWindow[]).map((w) => (
-                  <SelectItem key={w} value={w} className="text-[12px]">
-                    {w}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Connective>over the last</Connective>
+              <Select value={window} onValueChange={(w) => onWindowChange(w as AlertWindow)}>
+                <SelectTrigger
+                  className={cn(CONTROL_SIZE, "w-[4.5rem] shrink-0")}
+                  aria-label="window"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(ALERT_WINDOWS) as AlertWindow[]).map((w) => (
+                    <SelectItem key={w} value={w} className="text-[12px]">
+                      {w}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
       </TooltipProvider>

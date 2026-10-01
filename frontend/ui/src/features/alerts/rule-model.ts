@@ -22,6 +22,7 @@ export {
   KEYED_ALERT_FILTER_FIELDS,
   clampRenotifyInterval,
   getAlertUnit,
+  getAlertUnitForSource,
   getMeasure,
   getValidAggregations,
   isCompleteAlertFilter,
