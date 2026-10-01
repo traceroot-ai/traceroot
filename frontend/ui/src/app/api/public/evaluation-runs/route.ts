@@ -129,24 +129,6 @@ async function registerRun(
   });
   if (!version) return { httpError: { message: "Dataset version not found", status: 400 } };
 
-  // A declared total must be the pinned version's real size. It is the denominator every
-  // coverage label and "full dataset" verdict rests on, and it is the one coverage fact
-  // the server can check for itself. Trusting it would store a run that counted a stale,
-  // filtered or truncated local list as "full" against a version it never covered.
-  if (req.dataset_case_count != null) {
-    const versionCaseCount = await tx.testCase.count({ where: { datasetVersionId: versionId } });
-    if (req.dataset_case_count !== versionCaseCount) {
-      return {
-        httpError: {
-          message:
-            `dataset_case_count is ${req.dataset_case_count}, but dataset version ` +
-            `${versionId} has ${versionCaseCount} cases`,
-          status: 400,
-        },
-      };
-    }
-  }
-
   if (req.baseline_run_id) {
     const baseline = await tx.evaluationRun.findFirst({
       where: { id: req.baseline_run_id, projectId },
@@ -168,29 +150,22 @@ async function registerRun(
   // shards) cannot both insert and split the history: the loser gets P2002 and finds the
   // winner's row on replay.
   const evaluationKey = req.evaluation_key ?? req.evaluation_name;
-  const evaluation =
-    (await tx.evaluation.findUnique({
-      where: { projectId_evaluationKey: { projectId, evaluationKey } },
-      select: { id: true },
-    })) ??
-    (await tx.evaluation.create({
-      data: {
-        projectId,
-        datasetId: dataset.id,
-        name: req.evaluation_name,
-        evaluationKey,
-      },
-      select: { id: true },
-    }));
+  const existingEvaluation = await tx.evaluation.findUnique({
+    where: { projectId_evaluationKey: { projectId, evaluationKey } },
+    select: { id: true },
+  });
 
   // Idempotency: re-registering with the same client_run_id returns the run. This
   // read only covers a retry that arrives after the original committed; a retry that
   // overlaps it misses here and is caught by uq_run_client_run_id on the insert.
-  if (req.client_run_id) {
+  // It runs before the case-count check below: a replay is judged against the version
+  // its run already pinned (via coverageConflict), not the dataset's current version,
+  // which may have moved on since the original request.
+  if (existingEvaluation && req.client_run_id) {
     const existing = await tx.evaluationRun.findUnique({
       where: {
         evaluationId_clientRunId: {
-          evaluationId: evaluation.id,
+          evaluationId: existingEvaluation.id,
           clientRunId: req.client_run_id,
         },
       },
@@ -209,7 +184,7 @@ async function registerRun(
       if (conflict) return { httpError: { message: conflict, status: 409 } };
       return {
         response: {
-          evaluation_id: evaluation.id,
+          evaluation_id: existingEvaluation.id,
           evaluation_run_id: existing.id,
           run_number: existing.runNumber,
           dataset_version_id: existing.datasetVersionId,
@@ -218,6 +193,36 @@ async function registerRun(
       };
     }
   }
+
+  // A declared total must be the pinned version's real size. It is the denominator every
+  // coverage label and "full dataset" verdict rests on, and it is the one coverage fact
+  // the server can check for itself. Trusting it would store a run that counted a stale,
+  // filtered or truncated local list as "full" against a version it never covered.
+  if (req.dataset_case_count != null) {
+    const versionCaseCount = await tx.testCase.count({ where: { datasetVersionId: versionId } });
+    if (req.dataset_case_count !== versionCaseCount) {
+      return {
+        httpError: {
+          message:
+            `dataset_case_count is ${req.dataset_case_count}, but dataset version ` +
+            `${versionId} has ${versionCaseCount} cases`,
+          status: 400,
+        },
+      };
+    }
+  }
+
+  const evaluation =
+    existingEvaluation ??
+    (await tx.evaluation.create({
+      data: {
+        projectId,
+        datasetId: dataset.id,
+        name: req.evaluation_name,
+        evaluationKey,
+      },
+      select: { id: true },
+    }));
 
   // Precedence matters. `case_count` stays first so an SDK that sends it keeps its
   // existing meaning verbatim. `selected_case_count` comes next because it is the count
