@@ -78,7 +78,9 @@ instrumentPiAgentCore(piAgentCore, {
   // 'unless-nested' attaches tool/LLM spans directly to the ambient active span.
   agentSpan: 'unless-nested',
 
-  // Controls whether prompt/completion text is captured on spans
+  // Captures prompt/completion text on LLM spans. Note the boolean form stores the
+  // raw text verbatim; use a function here to route content through the same
+  // redaction/cap policy as tool I/O instead.
   captureContent: true,
 
   // Redact or transform tool arguments and results per call

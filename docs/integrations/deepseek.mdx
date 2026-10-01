@@ -116,6 +116,9 @@ DeepSeek has no dedicated instrumentor: tracing goes through `Integration.OPENAI
     });
 
     console.log(response.choices[0].message.content);
+
+    // Flush pending traces before the process exits
+    await TraceRoot.shutdown();
     ```
   </Tab>
 </Tabs>

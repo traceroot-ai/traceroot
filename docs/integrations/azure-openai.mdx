@@ -120,6 +120,9 @@ Azure OpenAI has no dedicated instrumentor: tracing is provided directly through
     });
 
     console.log(response.choices[0].message.content);
+
+    // Flush pending traces before the process exits
+    await TraceRoot.shutdown();
     ```
   </Tab>
 </Tabs>

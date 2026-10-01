@@ -100,6 +100,9 @@ TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and 
 
     const response = await client.send(command);
     console.log(response.output?.message?.content?.[0]?.text);
+
+    // Flush pending traces before the process exits
+    await TraceRoot.shutdown();
     ```
   </Tab>
 </Tabs>
