@@ -82,6 +82,19 @@ Helpful defaults:
 - Reference the issue in the PR body when relevant, for example `Closes #581`.
 - Make sure pre-commit and the relevant tests pass before requesting review.
 
+## Integration Documentation Template
+
+All integration pages under `docs/integrations/` follow a standard structure with eight sections in order:
+
+1. **Install**: Provide installation commands (`pip install` and/or `npm install`) for all supported languages, naming `traceroot` or `@traceroot-ai/traceroot`, any required pip extras, and the underlying framework/provider package.
+2. **Set up**: The initialization snippet (`traceroot.initialize()` or `TraceRoot.initialize()`).
+3. **Usage**: A concise, runnable code sample demonstrating tracing with the provider or framework.
+4. **Verify**: Explains where the trace appears in the TraceRoot UI (under **Tracing > Traces**), which CLI command to run (`traceroot traces list`), and the root span name.
+5. **What gets captured**: A table listing captured attributes (Model, Messages, Response, Tool calls, Tokens, Latency).
+6. **Limitations**: Documents any caveats, required extras, version constraints, or states "None known".
+7. **Run the example**: Links to the runnable sample under `examples/`.
+8. **Next steps**: Contains at least two internal documentation links (such as SDK reference and cost tracking).
+
 ## License
 
 This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise features](./ee/LICENSE).
