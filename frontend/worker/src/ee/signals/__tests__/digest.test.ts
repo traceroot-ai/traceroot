@@ -280,8 +280,10 @@ function fakeDb(signals: PendingSignal[], lastSentAt: Date | null = null) {
       ]),
     },
     signal: {
-      findMany: vi.fn(async () =>
-        signals.map((s) => ({ projectId: "p1", detectorId: s.detectorId })),
+      findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+        signals
+          .filter((s) => where.id.in.includes(s.id))
+          .map((s) => ({ projectId: "p1", detectorId: s.detectorId })),
       ),
     },
     signalHit: {
@@ -316,7 +318,11 @@ describe("loadDigestInput", () => {
 
 describe("recordDigest", () => {
   it("marks only the snapshot hits, follows moves, and recounts their current owners", async () => {
-    const { db, raws } = fakeDb([sig()]);
+    const { db, raws } = fakeDb([
+      sig({ id: "a", detectorId: "d2" }),
+      sig({ id: "b", detectorId: "d1" }),
+      sig({ id: "unconsumed", detectorId: "d3" }),
+    ]);
     await recordDigest(
       db as never,
       {
@@ -332,7 +338,12 @@ describe("recordDigest", () => {
       sql: expect.stringContaining("AND reported_at IS NULL"),
       values: [new Date(T0), ["reported-before-move", "silent"]],
     });
-    expect(raws[0].sql).toContain("pg_advisory_xact_lock");
+    expect(
+      raws.filter((r) => r.sql.includes("pg_advisory_xact_lock")).map((r) => r.values),
+    ).toEqual([
+      ["p1", "d1"],
+      ["p1", "d2"],
+    ]);
     expect(
       raws.filter((r) => r.sql.includes("SET notified_reopen_seq")).map((r) => r.values),
     ).toEqual([
