@@ -343,6 +343,23 @@ const SOURCE_BY_ALERT_MEASURE: Record<string, AlertMetricSource> = {
   unique_session_ids: { view: "traces", field: "session_id" },
 };
 
+/**
+ * The unit of a number the engine already computed, looked up from the source
+ * it was computed on. For a chart drawing a returned result, which may be a
+ * query older than the rule now on screen.
+ */
+export function getAlertUnitForSource(
+  source: AlertMetricSource,
+  aggregation: string,
+  view: AlertView = DEFAULT_ALERT_VIEW,
+): AlertMeasureUnit | undefined {
+  const measureId = Object.keys(SOURCE_BY_ALERT_MEASURE).find((id) => {
+    const candidate = SOURCE_BY_ALERT_MEASURE[id];
+    return candidate.view === source.view && candidate.field === source.field;
+  });
+  return measureId === undefined ? undefined : getAlertUnit(measureId, aggregation, view);
+}
+
 // The engine's AGGS_NUMBER. `count` is absent because the engine reserves it
 // for the count(*) sentinel, and count(column) is not that query.
 const ENGINE_NUMBER_AGGREGATIONS: readonly AlertAggregation[] = [

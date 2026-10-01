@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ALERT_WINDOWS, getAlertUnit } from "@traceroot/core";
+import { ALERT_WINDOWS } from "@traceroot/core";
 import { AlertPreviewChart, MAX_PREVIEW_BUCKETS } from "@/features/alerts/components/alert-preview";
 import { buildPreviewSpec } from "@/features/alerts/preview";
 import { useWidgetPreview } from "@/features/dashboards/hooks/use-widget-data";
@@ -65,7 +65,6 @@ function Plot({ chart }: { chart: AlertChart }) {
       thresholdValue={chart.threshold}
       operator={chart.operator}
       bucketMs={bucketMs}
-      unit={getAlertUnit(chart.measure, chart.aggregation, chart.view)}
     />
   );
 }
