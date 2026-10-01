@@ -27,6 +27,7 @@ function fakeDb(
     signalId: string;
     score?: number | null;
     criteriaVersion?: number | null;
+    traceStartTime?: Date | null;
   }[] = [],
   rcas: { signalId: string; createTime: Date }[] = [],
 ) {
@@ -50,10 +51,23 @@ function fakeDb(
         const s = signals.find((x) => x.id === h.signalId)!;
         return {
           score: h.score ?? null,
+          traceStartTime: h.traceStartTime === undefined ? t("08:00:00") : h.traceStartTime,
           criteriaVersion: h.criteriaVersion ?? null,
           assignedAt: ASSIGNED_AT,
           signal: { id: s.id, reopenSeq: s.reopenSeq },
         };
+      },
+      update: async ({
+        where,
+        data,
+      }: {
+        where: { runId: string };
+        data: { traceStartTime: Date };
+      }) => {
+        log.push("hit-time");
+        const h = hits.find((x) => x.runId === where.runId)!;
+        h.traceStartTime = data.traceStartTime;
+        return h;
       },
       create: async ({ data }: { data: Record<string, unknown> }) => {
         log.push("hit+");
@@ -211,6 +225,26 @@ describe("applyAssignment", () => {
       rcaFindingId: null,
     });
     expect(f.log).toEqual(["lock:p/d", "hit?"]);
+  });
+
+  it("fills a missing trace time on retry without changing placement or lifecycle", async () => {
+    const stored = [{ runId: "run1", signalId: "sigA", traceStartTime: null as Date | null }];
+    const rows = [signal({ hitCount: 4, reopenSeq: 2 })];
+    const f = fakeDb(rows, stored);
+    const r = await applyAssignment(f.db, hit(), attach(), NO_RCA);
+    expect(stored[0].traceStartTime).toEqual(hit().traceStartTime);
+    expect(r.outcome).toBe("duplicate");
+    expect(r.assignedAt).toBe(ASSIGNED_AT);
+    expect(rows[0]).toMatchObject({ hitCount: 4, reopenSeq: 2 });
+    expect(f.log).toEqual(["lock:p/d", "hit?", "hit-time"]);
+    await applyAssignment(f.db, hit(), attach(), NO_RCA);
+    expect(f.log.filter((x) => x === "hit-time")).toHaveLength(1);
+  });
+
+  it("keeps an unknown trace time null instead of substituting detection time", async () => {
+    const f = fakeDb([signal({})]);
+    await applyAssignment(f.db, hit({ traceStartTime: null }), attach(), NO_RCA);
+    expect(f.hitRows[0]).toMatchObject({ traceStartTime: null, seenAt: hit().seenAt });
   });
 
   it("follows a merge made after the decision and drops the criteria version", async () => {

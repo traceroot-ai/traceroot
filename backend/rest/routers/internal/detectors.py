@@ -745,7 +745,7 @@ async def list_detector_window_summary(
     response_model=TraceCountsResponse,
     dependencies=[Depends(verify_internal_secret)],
 )
-async def list_trace_counts(
+def list_trace_counts(
     project_id: str,
     start_after: datetime = Query(..., description="Window start (inclusive)"),
     end_before: datetime = Query(..., description="Window end (exclusive)"),
@@ -760,15 +760,9 @@ async def list_trace_counts(
 ):
     """Traces per LOCAL hour or day in ``tz``: the ones a detector checked, or all of them.
 
-    With ``detector_id``, a bucket counts the detector's runs. ``detector_runs`` is a
-    ``ReplacingMergeTree`` whose duplicates are idempotent retries sharing a
-    deterministic ``run_id``, so the inner query collapses each ``run_id`` to its
-    latest version via ``max(timestamp)`` over the project's whole history (no FINAL;
-    see :func:`list_detector_window_summary`), and the outer query then windows and
-    buckets on that collapsed ``ts``: a retried run is placed by its latest version,
-    not an earlier retry's. Every evaluation counts, triggered or not.
-
-    Without it, a bucket counts the project's distinct traces by start time.
+    Both populations count distinct traces by trace start time. With
+    ``detector_id``, only traces this detector has evaluated are included; retries
+    never count twice or move a trace into the detection-time bucket.
 
     Args:
         project_id (str): Project to count in.
@@ -802,28 +796,36 @@ async def list_trace_counts(
         if granularity == "hour"
         else "toString(toDate(ts, {tz:String}))"
     )
+    checked = ""
     if detector_id is not None:
         params["detector_id"] = detector_id
-        # Window on the collapsed timestamp (outer), not the raw rows (inner), so the
-        # dedup happens first.
-        source = """
-            SELECT run_id AS id, max(timestamp) AS ts
-            FROM detector_runs
-            WHERE project_id = {project_id:String}
-              AND detector_id = {detector_id:String}
-            GROUP BY run_id
+        checked = """
+              AND trace_id IN (
+                  SELECT trace_id FROM detector_runs
+                  WHERE project_id = {project_id:String}
+                    AND detector_id = {detector_id:String}
+                    AND trace_id IN (
+                        SELECT trace_id FROM traces
+                        WHERE project_id = {project_id:String}
+                          AND trace_start_time >= {start_after:DateTime64(3)}
+                          AND trace_start_time < {end_before:DateTime64(3)}
+                    )
+              )
         """
-        counted = "count()"
-    else:
-        source = """
-            SELECT trace_id AS id, trace_start_time AS ts
-            FROM traces
-            WHERE project_id = {project_id:String}
-              AND trace_start_time >= {start_after:DateTime64(3)}
-              AND trace_start_time < {end_before:DateTime64(3)}
-        """
-        # A trace's row can have several versions until merges collapse them.
-        counted = "uniqExact(id)"
+    source = f"""
+        SELECT trace_id AS id, argMax(trace_start_time, ch_update_time) AS ts
+        FROM traces
+        WHERE project_id = {{project_id:String}}
+          AND trace_id IN (
+              SELECT trace_id FROM traces
+              WHERE project_id = {{project_id:String}}
+                AND trace_start_time >= {{start_after:DateTime64(3)}}
+                AND trace_start_time < {{end_before:DateTime64(3)}}
+          )
+          {checked}
+        GROUP BY trace_id
+    """
+    counted = "uniqExact(id)"
 
     query = f"""
         SELECT {bucket} AS bucket, {counted} AS count

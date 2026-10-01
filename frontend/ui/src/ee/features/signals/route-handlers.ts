@@ -5,7 +5,7 @@
  * when, why and the note in signal_status_events, and hand edits are audited.
  */
 import { NextRequest } from "next/server";
-import { prisma, Role } from "@traceroot/core";
+import { prisma, Role, PlanType } from "@traceroot/core";
 import {
   SIGNAL_STATUSES,
   editSignalCriteria,
@@ -28,6 +28,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { clampStartAfter } from "@/lib/server/retention";
 import { writeAudit } from "@/lib/write-services/audit";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
@@ -49,7 +50,7 @@ async function authorize(projectId: string, role?: Role) {
   if (authResult.error) return { error: authResult.error };
   const access = await requireProjectAccess(authResult.user.id, projectId, role);
   if (access.error) return { error: access.error };
-  return { user: authResult.user };
+  return { user: authResult.user, project: access.project };
 }
 
 /**
@@ -84,6 +85,8 @@ async function rewriteCopies(moved: MovedHits): Promise<void> {
 
 // Keeps the offset a query can ask for bounded, like the alerts list.
 const MAX_PAGE = 10_000;
+// Bound chart allocation and query work for custom ranges on unlimited-retention plans.
+const MAX_WINDOW_DAYS = 10_000;
 
 /**
  * The list page's filter chips, in the predicate shape the trace filters use:
@@ -118,12 +121,34 @@ function parseWindow(searchParams: URLSearchParams): {
   if (!from || isNaN(from.getTime()) || isNaN(to.getTime())) {
     return { error: "start_after and end_before must be ISO timestamps" };
   }
-  if (from.getTime() >= to.getTime()) return { error: "start_after must be before end_before" };
+  if (from.getTime() > to.getTime()) return { error: "start_after must not be after end_before" };
+  if (to.getTime() - from.getTime() > MAX_WINDOW_DAYS * 86_400_000) {
+    return { error: `Signal windows must not exceed ${MAX_WINDOW_DAYS} days` };
+  }
   return { window: { from, to } };
 }
 
+/** A single retained window for list counts, panel traces and chart populations. */
+async function retainedWindow(window: { from: Date; to: Date } | undefined, workspaceId: string) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { billingPlan: true },
+  });
+  const to = window?.to ?? new Date();
+  const requested = window?.from ?? new Date(to.getTime() - 7 * 86_400_000);
+  const from = new Date(
+    clampStartAfter(workspace?.billingPlan ?? PlanType.FREE, requested.toISOString())!,
+  );
+  return { from: from > to ? to : from, to };
+}
+
 /** One page of signals for the query in `req`, as `{ data, meta }` like the other list endpoints. */
-async function listResponse(req: NextRequest, projectId: string, detectorId?: string) {
+async function listResponse(
+  req: NextRequest,
+  projectId: string,
+  workspaceId: string,
+  detectorId?: string,
+) {
   const { searchParams } = req.nextUrl;
   // The window does not filter signals: it only counts each one's hits in it.
   const { window, error } = parseWindow(searchParams);
@@ -166,7 +191,7 @@ async function listResponse(req: NextRequest, projectId: string, detectorId?: st
     statuses: statuses.size > 0 ? [...statuses] : undefined,
     title,
     signalId,
-    hitsIn: window,
+    hitsIn: window ? await retainedWindow(window, workspaceId) : undefined,
     page,
     limit,
   });
@@ -181,7 +206,7 @@ export async function handleListSignals(
   const { projectId } = await params;
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
-  return listResponse(req, projectId);
+  return listResponse(req, projectId, auth.project.workspaceId);
 }
 
 // GET /api/projects/[projectId]/detectors/[detectorId]/signals?status=open&page=0&limit=50
@@ -192,7 +217,7 @@ export async function handleListDetectorSignals(
   const { projectId, detectorId } = await params;
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
-  return listResponse(req, projectId, detectorId);
+  return listResponse(req, projectId, auth.project.workspaceId, detectorId);
 }
 
 /** Whether `tz` is an IANA zone name this runtime (and so Postgres and ClickHouse) knows. */
@@ -261,11 +286,12 @@ export async function handleGetSignal(
   if (!(POPULATIONS as readonly string[]).includes(population)) {
     return errorResponse(`population must be one of ${POPULATIONS.join(", ")}`, 400);
   }
+  const effectiveWindow = await retainedWindow(window, auth.project.workspaceId);
   const result = await getSignal(prisma, {
     projectId,
     signalId,
-    from: window?.from,
-    to: window?.to,
+    from: effectiveWindow.from,
+    to: effectiveWindow.to,
     tz,
   });
   if (!result) return errorResponse("Signal not found", 404);

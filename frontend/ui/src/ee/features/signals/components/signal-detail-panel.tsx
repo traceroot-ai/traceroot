@@ -430,7 +430,7 @@ function AffectedTraces({
 }) {
   const traceIds = [...new Set(hits.map((h) => h.traceId))].slice(0, TRACES_SHOWN);
   const { data: traces, isPending } = useSignalTraces(projectId, traceIds);
-  const seenAt = new Map(hits.map((h) => [h.traceId, h.seenAt]));
+  const traceStartTimes = new Map(hits.map((h) => [h.traceId, h.traceStartTime]));
 
   return (
     <Block
@@ -471,7 +471,7 @@ function AffectedTraces({
                   className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
                 >
                   <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
-                    {formatDate(t?.trace_start_time ?? seenAt.get(traceId))}
+                    {formatDate(t?.trace_start_time ?? traceStartTimes.get(traceId))}
                   </td>
                   <td className={cn(TD, "text-foreground")}>
                     {t?.name || (

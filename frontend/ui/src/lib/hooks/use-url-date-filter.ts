@@ -61,8 +61,8 @@ export function useUrlDateFilter(
   const initialCustomEnd = urlEndDate ? new Date(urlEndDate) : null;
 
   const [rawDateFilter, setRawDateFilter] = useState<DateFilterOption>(initialDateFilter);
-  const [customStartDate, setCustomStartDateState] = useState<Date | null>(initialCustomStart);
-  const [customEndDate, setCustomEndDateState] = useState<Date | null>(initialCustomEnd);
+  const [rawCustomStartDate, setCustomStartDateState] = useState<Date | null>(initialCustomStart);
+  const [rawCustomEndDate, setCustomEndDateState] = useState<Date | null>(initialCustomEnd);
   const [filterVersion, setFilterVersion] = useState(0);
 
   // Use ref for callback to avoid dependency issues
@@ -139,18 +139,18 @@ export function useUrlDateFilter(
 
     if (newStartDate) {
       const parsed = new Date(newStartDate);
-      if (!customStartDate || parsed.getTime() !== customStartDate.getTime()) {
+      if (!rawCustomStartDate || parsed.getTime() !== rawCustomStartDate.getTime()) {
         setCustomStartDateState(parsed);
       }
     }
 
     if (newEndDate) {
       const parsed = new Date(newEndDate);
-      if (!customEndDate || parsed.getTime() !== customEndDate.getTime()) {
+      if (!rawCustomEndDate || parsed.getTime() !== rawCustomEndDate.getTime()) {
         setCustomEndDateState(parsed);
       }
     }
-  }, [searchParams, rawDateFilter, customStartDate, customEndDate]);
+  }, [searchParams, rawDateFilter, rawCustomStartDate, rawCustomEndDate]);
 
   // Update URL when state changes
   const updateUrl = useCallback(
@@ -228,6 +228,29 @@ export function useUrlDateFilter(
     prevFilterIdsRef.current = { rawId: rawDateFilter.id, effectiveId: dateFilter.id };
     if (clampChanged) onFilterChangeRef.current?.();
   }, [rawDateFilter.id, dateFilter.id]);
+
+  // Keep the picker, query and outgoing links on the same retained custom range.
+  const { customStartDate, customEndDate } = useMemo(() => {
+    if (retentionDays == null || !dateFilter.isCustom) {
+      return { customStartDate: rawCustomStartDate, customEndDate: rawCustomEndDate };
+    }
+    const cutoff = Date.now() - retentionDays * 86_400_000;
+    const clamp = (date: Date | null) => (date ? new Date(Math.max(date.getTime(), cutoff)) : null);
+    return { customStartDate: clamp(rawCustomStartDate), customEndDate: clamp(rawCustomEndDate) };
+  }, [dateFilter.isCustom, rawCustomStartDate, rawCustomEndDate, retentionDays, filterVersion]);
+
+  const previousRetention = useRef(retentionDays);
+  useEffect(() => {
+    const changed = previousRetention.current !== retentionDays;
+    previousRetention.current = retentionDays;
+    if (
+      changed &&
+      dateFilter.isCustom &&
+      customStartDate?.getTime() !== rawCustomStartDate?.getTime()
+    ) {
+      onFilterChangeRef.current?.();
+    }
+  }, [retentionDays, dateFilter.isCustom, customStartDate, rawCustomStartDate]);
 
   // Calculate timestamps
   const timestamps = useMemo(() => {

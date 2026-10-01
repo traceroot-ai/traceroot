@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { PlanType } from "@traceroot/core";
@@ -77,13 +77,10 @@ export default function SignalsPage() {
   const params = useParams();
   const projectId = params.projectId as string;
   const searchParams = useSearchParams();
-  const [selectedSignalId, setSelectedSignal] = useState<string | null>(
-    searchParams.get("signalId"),
-  );
+  const selectedSignalId = searchParams.get("signalId");
   // The open signal lives in the URL too, so a link to it can be shared and
   // the back button returns to it from a trace.
   const setSelectedSignalId = (id: string | null) => {
-    setSelectedSignal(id);
     setOpenTrace(null);
     if (!id) setFullscreen(false);
     const url = new URL(window.location.href);
@@ -135,6 +132,10 @@ export default function SignalsPage() {
   // traces its up/down buttons step through.
   const [openTrace, setOpenTrace] = useState<{ traceId: string; traceIds: string[] } | null>(null);
   const traceIndex = openTrace ? openTrace.traceIds.indexOf(openTrace.traceId) : -1;
+  useEffect(() => {
+    setOpenTrace(null);
+    if (!selectedSignalId) setFullscreen(false);
+  }, [selectedSignalId]);
 
   const { data: detectorData } = useDetectorList(projectId, { limit: 200 });
   const fields = useMemo(

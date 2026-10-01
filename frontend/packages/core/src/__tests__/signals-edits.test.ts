@@ -541,7 +541,7 @@ describe("reads", () => {
     expect(count).toHaveBeenCalledWith({ where: { projectId: "p", mergedIntoId: null } });
     expect(groupBy).toHaveBeenCalledWith({
       by: ["signalId"],
-      where: { signalId: { in: ["a", "b"] }, seenAt: { gte: from, lt: to } },
+      where: { signalId: { in: ["a", "b"] }, traceStartTime: { gte: from, lt: to } },
       _count: { _all: true },
     });
     expect(list.signals.map((s) => [s.id, s.rangeHitCount])).toEqual([
@@ -604,7 +604,10 @@ describe("reads", () => {
       expect.objectContaining({
         where: {
           signalId: "a",
-          seenAt: { gte: new Date("2026-09-01T00:00:00Z"), lt: new Date("2026-10-01T00:00:00Z") },
+          traceStartTime: {
+            gte: new Date("2026-09-01T00:00:00Z"),
+            lt: new Date("2026-10-01T00:00:00Z"),
+          },
         },
       }),
     );
@@ -665,7 +668,7 @@ describe("reads", () => {
       { bucket: "2026-09-30", hits: 0 },
       { bucket: "2026-10-01", hits: 2 },
     ]);
-    // The zone reaches $queryRaw as a bound parameter, used to convert seen_at.
+    // The zone reaches $queryRaw as a bound parameter, used to convert trace_start_time.
     const [strings, ...values] = queryRaw.mock.calls[0];
     expect(strings.join("")).toContain("AT TIME ZONE");
     expect(values).toContain("Asia/Shanghai");
@@ -696,7 +699,7 @@ describe("reads", () => {
     expect(queryRaw.mock.calls[0].slice(1)).toContain("hour");
   });
 
-  it("reads the last 7 days when no window is given, and at most 90", async () => {
+  it("reads the last 7 days when no window is given, without silently shortening explicit windows", async () => {
     const now = new Date("2026-10-01T12:00:00Z");
     const { db } = bareSignalDb([]);
     const r = await getSignal(db as never, { projectId: "p", signalId: "a", now });
@@ -710,7 +713,7 @@ describe("reads", () => {
       to: now,
     });
     expect((long as unknown as { window: { from: Date } }).window.from).toEqual(
-      new Date("2026-07-03T12:00:00Z"),
+      new Date("2025-01-01T00:00:00Z"),
     );
   });
 

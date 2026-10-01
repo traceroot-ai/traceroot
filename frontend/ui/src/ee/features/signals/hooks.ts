@@ -17,7 +17,7 @@ export interface SignalListItem {
   firstSeenAt: string;
   lastSeenAt: string;
   createTime: string;
-  /** Hits seen in the list's time window; present when the list was read with one. */
+  /** Affected traces starting in the list's time window; present when the list was read with one. */
   rangeHitCount?: number;
 }
 
@@ -56,8 +56,14 @@ export interface SignalDetail {
       completedAt: string | null;
     } | null;
   };
-  /** The latest hits seen in the window. */
-  hits: { runId: string; traceId: string; findingId: string; seenAt: string }[];
+  /** The latest affected traces starting in the window. */
+  hits: {
+    runId: string;
+    traceId: string;
+    findingId: string;
+    seenAt: string;
+    traceStartTime: string;
+  }[];
   window: { from: string; to: string; granularity: "hour" | "day" };
   /**
    * Per local hour or day of the window: the signal's traces, and the other
@@ -128,7 +134,6 @@ export function useSignal(
     queryFn: () =>
       getJson<SignalResponse>(`/api/projects/${projectId}/signals/${signalId}?${qs}`, "signal"),
     enabled: !!projectId && !!signalId,
-    placeholderData: (prev) => prev,
   });
 }
 

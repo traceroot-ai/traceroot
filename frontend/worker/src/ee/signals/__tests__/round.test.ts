@@ -327,11 +327,11 @@ describe("runAssignmentRound", () => {
     expect(vi.mocked(backend.waitingHits).mock.calls[1][2]).toBe(T0 - 7 * 24 * 3_600_000);
   });
 
-  it("uses the trace start for the reopen rule, and the detection time when the trace is gone", async () => {
+  it("preserves the trace start and keeps a missing trace time unknown", async () => {
     const { backend } = fakeBackend([row(1), row(2, { trace_start_ms: null })]);
     await runAssignmentRound(deps(fakeDb().db, backend), "p", "d");
     expect(mockApply.mock.calls[0][1].traceStartTime).toEqual(new Date(T0 - 120_000));
-    expect(mockApply.mock.calls[1][1].traceStartTime).toEqual(new Date(T0 - 60_000 + 2));
+    expect(mockApply.mock.calls[1][1].traceStartTime).toBeNull();
   });
 
   it("rewrites the copy of a hit already recorded in Postgres without asking a model", async () => {

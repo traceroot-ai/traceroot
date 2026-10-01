@@ -786,25 +786,23 @@ class TestListTraceCounts:
             ]
         }
 
-    def test_with_a_detector_counts_its_runs(self, client, mock_ch, secret):
+    def test_with_a_detector_counts_checked_traces(self, client, mock_ch, secret):
         sql, params = self._sql(client, mock_ch, secret, detector_id="d-a")
         assert "FROM detector_runs" in sql
         assert "detector_id = {detector_id:String}" in sql
         assert params["project_id"] == "p1"
         assert params["detector_id"] == "d-a"
 
-    def test_runs_collapse_by_run_id_without_final(self, client, mock_ch, secret):
-        """Same dedup as /detector-window-summary: latest version per run_id via
-        max(timestamp), no FINAL (the OOM-prone merge-on-read)."""
+    def test_retries_and_trace_versions_count_once_at_latest_trace_start(
+        self, client, mock_ch, secret
+    ):
         sql, _ = self._sql(client, mock_ch, secret, detector_id="d-a")
         assert "FINAL" not in sql
-        assert "GROUP BY run_id" in sql
-        assert "max(timestamp) AS ts" in sql
-
-    def test_runs_dedup_before_the_window_filter(self, client, mock_ch, secret):
-        sql, _ = self._sql(client, mock_ch, secret, detector_id="d-a")
-        assert sql.index("GROUP BY run_id") < sql.index("ts >=")
-        assert sql.index("GROUP BY run_id") < sql.index("ts <")
+        assert "argMax(trace_start_time, ch_update_time) AS ts" in sql
+        assert "GROUP BY trace_id" in sql
+        assert "uniqExact(id)" in sql
+        assert "max(timestamp)" not in sql
+        assert sql.index("GROUP BY trace_id") < sql.index("ts >=")
 
     def test_without_a_detector_counts_distinct_traces(self, client, mock_ch, secret):
         sql, params = self._sql(client, mock_ch, secret)

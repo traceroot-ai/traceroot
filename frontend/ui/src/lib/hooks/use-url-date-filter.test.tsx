@@ -18,6 +18,36 @@ vi.mock("next/navigation", () => ({
 
 const KEY = dateFilterStorageKey("p1");
 
+it("clamps a linked custom range when retention resolves and keeps its raw selection", async () => {
+  const now = Date.now();
+  const start = new Date(now - 60 * 86_400_000).toISOString();
+  const end = new Date(now - 2 * 86_400_000).toISOString();
+  search = `date_filter=custom&start=${start}&end=${end}`;
+  const { result, rerender } = renderHook(
+    ({ retention }: { retention: number | null | undefined }) =>
+      useUrlDateFilter(undefined, undefined, retention),
+    { initialProps: { retention: undefined as number | null | undefined } },
+  );
+  expect(result.current.timestamps.startAfter).toBe(start);
+  rerender({ retention: 15 });
+  await waitFor(() =>
+    expect(new Date(result.current.timestamps.startAfter!).getTime()).toBeGreaterThanOrEqual(
+      now - 15 * 86_400_000,
+    ),
+  );
+  expect(result.current.customStartDate?.toISOString()).toBe(result.current.timestamps.startAfter);
+  expect(result.current.customEndDate?.toISOString()).toBe(end);
+  rerender({ retention: null });
+  await waitFor(() => expect(result.current.timestamps.startAfter).toBe(start));
+});
+
+it("keeps a wholly expired custom range empty", () => {
+  const now = Date.now();
+  search = `date_filter=custom&start=${new Date(now - 60 * 86_400_000).toISOString()}&end=${new Date(now - 50 * 86_400_000).toISOString()}`;
+  const { result } = renderHook(() => useUrlDateFilter(undefined, undefined, 15));
+  expect(result.current.timestamps.startAfter).toBe(result.current.timestamps.endBefore);
+});
+
 beforeEach(() => {
   search = "";
   localStorage.clear();

@@ -11,8 +11,6 @@ const DETAIL_LIMIT = 50;
 const DAY_MS = 86_400_000;
 /** The window a signal's hits are counted in when the caller names none: the last 7 days. */
 const DEFAULT_RANGE_MS = 7 * DAY_MS;
-/** The longest window a caller can ask for. */
-const MAX_RANGE_MS = 90 * DAY_MS;
 /** At or below this window the hit series is per hour, as on the dashboards; above, per day. */
 const HOUR_BUCKET_MAX_MS = 2 * DAY_MS;
 
@@ -56,7 +54,7 @@ export async function listSignals(
     signalId?: string;
     /**
      * A time window that does not filter the list: each signal also gets
-     * `rangeHitCount`, the number of its hits seen in [from, to).
+     * `rangeHitCount`, the number of affected traces starting in [from, to).
      */
     hitsIn?: { from: Date; to: Date };
     page: number;
@@ -120,7 +118,7 @@ export async function listSignals(
           by: ["signalId"],
           where: {
             signalId: { in: rows.map((r) => r.id) },
-            seenAt: { gte: params.hitsIn.from, lt: params.hitsIn.to },
+            traceStartTime: { gte: params.hitsIn.from, lt: params.hitsIn.to },
           },
           _count: { _all: true },
         })
@@ -172,6 +170,7 @@ function bucketFormatter(tz: string, granularity: HitGranularity) {
 
 /** Every local bucket the window [from, to) touches, oldest first. */
 function windowBuckets(from: Date, to: Date, tz: string, granularity: HitGranularity): string[] {
+  if (from.getTime() >= to.getTime()) return [];
   const bucketOf = bucketFormatter(tz, granularity);
   // A step shorter than any bucket lands in each of them, whatever the zone's
   // offset: local hours can start on a quarter hour, local days last 23h or more.
@@ -198,14 +197,14 @@ async function hitSeries(
   granularity: HitGranularity,
 ) {
   const format = granularity === "hour" ? 'YYYY-MM-DD"T"HH24:00' : "YYYY-MM-DD";
-  // seen_at is UTC without a zone: read it as UTC, then shift it to the viewer's zone.
+  // trace_start_time is UTC without a zone: read it as UTC, then shift it to the viewer's zone.
   const rows = await db.$queryRaw<{ bucket: string; hits: number }[]>`
-    SELECT to_char(date_trunc(${granularity}, (seen_at AT TIME ZONE 'UTC') AT TIME ZONE ${tz}), ${format}) AS bucket,
+    SELECT to_char(date_trunc(${granularity}, (trace_start_time AT TIME ZONE 'UTC') AT TIME ZONE ${tz}), ${format}) AS bucket,
       count(*)::int AS hits
     FROM signal_hits
     WHERE signal_id = ${signalId}
-      AND seen_at >= (${window.from.toISOString()}::timestamptz AT TIME ZONE 'UTC')
-      AND seen_at < (${window.to.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+      AND trace_start_time >= (${window.from.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+      AND trace_start_time < (${window.to.toISOString()}::timestamptz AT TIME ZONE 'UTC')
     GROUP BY 1`;
   const byBucket = new Map(rows.map((r) => [r.bucket, Number(r.hits)]));
   return windowBuckets(window.from, window.to, tz, granularity).map((bucket) => ({
@@ -216,14 +215,12 @@ async function hitSeries(
 
 /**
  * The window a signal is read in: [from, to) as asked, or the last 7 days,
- * kept within 90 days, and whether its hits are counted per hour or per day.
+ * and whether its hits are counted per hour or per day. Retention is enforced by the caller.
  */
 function readWindow(from?: Date, to?: Date, now = new Date()) {
   const end = to ?? now;
   let start = from ?? new Date(end.getTime() - DEFAULT_RANGE_MS);
-  if (end.getTime() - start.getTime() > MAX_RANGE_MS)
-    start = new Date(end.getTime() - MAX_RANGE_MS);
-  if (start.getTime() >= end.getTime()) start = new Date(end.getTime() - 3_600_000);
+  if (start.getTime() > end.getTime()) start = end;
   const granularity: HitGranularity =
     end.getTime() - start.getTime() <= HOUR_BUCKET_MAX_MS ? "hour" : "day";
   return { from: start, to: end, granularity };
@@ -284,14 +281,15 @@ export async function getSignal(
   const tz = params.tz ?? "UTC";
   const [hits, events, names, series, analysed] = await Promise.all([
     db.signalHit.findMany({
-      where: { signalId: signal.id, seenAt: { gte: window.from, lt: window.to } },
-      orderBy: { seenAt: "desc" },
+      where: { signalId: signal.id, traceStartTime: { gte: window.from, lt: window.to } },
+      orderBy: [{ traceStartTime: "desc" }, { runId: "asc" }],
       take: DETAIL_LIMIT,
       select: {
         runId: true,
         traceId: true,
         findingId: true,
         seenAt: true,
+        traceStartTime: true,
         score: true,
         criteriaVersion: true,
         assignedAt: true,
@@ -344,7 +342,7 @@ export async function getSignal(
         createTime: r.createTime,
       })),
     },
-    /** The latest hits seen in the window. */
+    /** The latest affected traces starting in the window. */
     hits,
     window: { from: window.from, to: window.to, granularity: window.granularity },
     /** Hits per local bucket of the window, oldest first. */

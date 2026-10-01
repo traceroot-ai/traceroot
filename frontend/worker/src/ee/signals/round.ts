@@ -113,7 +113,7 @@ function toWaitingHit(row: WaitingHitRow, projectId: string, detectorId: string)
     traceId: row.trace_id,
     findingId: row.finding_id,
     seenAt,
-    traceStartTime: row.trace_start_ms === null ? seenAt : new Date(row.trace_start_ms),
+    traceStartTime: row.trace_start_ms === null ? null : new Date(row.trace_start_ms),
     summary: row.summary,
     data: row.data,
     groupKey: jevGroupKey(row.data),

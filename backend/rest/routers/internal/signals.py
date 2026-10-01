@@ -139,7 +139,7 @@ def list_waiting_hits(
     entry_by_finding = {fid: entry for fid, entry in entries.result_rows}
     starts = ch.query(
         """
-        SELECT trace_id, toUnixTimestamp64Milli(min(trace_start_time)) AS start_ms
+        SELECT trace_id, toUnixTimestamp64Milli(argMax(trace_start_time, ch_update_time)) AS start_ms
         FROM traces
         WHERE project_id = {project_id:String}
           AND trace_id IN {trace_ids:Array(String)}
