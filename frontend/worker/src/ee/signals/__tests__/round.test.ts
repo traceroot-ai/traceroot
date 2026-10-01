@@ -66,7 +66,14 @@ function fakeDb(opts: { recorded?: string[]; detector?: unknown } = {}) {
           : opts.detector,
       ),
     },
-    signalHit: { findMany: vi.fn(async () => (opts.recorded ?? []).map((runId) => ({ runId }))) },
+    signalHit: {
+      findMany: vi.fn(async ({ where }: { where: { copyPending?: boolean } }) =>
+        where.copyPending
+          ? []
+          : (opts.recorded ?? []).map((runId) => ({ runId, embedding: [1, 0] })),
+      ),
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
     signal: { findMany: vi.fn(async () => []) },
     aIMessage: {
       createMany: vi.fn(async ({ data }: { data: Record<string, unknown>[] }) =>
