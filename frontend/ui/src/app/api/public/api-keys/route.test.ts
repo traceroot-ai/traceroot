@@ -232,7 +232,11 @@ describe("POST /api/public/api-keys", () => {
 describe("POST with an oversized body", () => {
   /** A request that declares more bytes than the handler will accept. */
   function oversized() {
-    return {
+    // `json` is a spy, so the test can assert the body was never parsed. Without
+    // that, a handler that parsed first and only then returned 413 would pass a
+    // test whose whole claim is that it refuses before parsing.
+    const json = vi.fn(async () => ({ name: "x" }));
+    const request = {
       headers: {
         get: (n: string) => {
           const name = n.toLowerCase();
@@ -241,17 +245,21 @@ describe("POST with an oversized body", () => {
           return null;
         },
       },
-      json: async () => ({ name: "x" }),
+      json,
     } as unknown as Parameters<typeof POST>[0];
+    return { request, json };
   }
 
   it("is refused before the body is parsed or a key is minted", async () => {
     // The gateway's ceiling only covers callers who come through it; a project
     // key can POST here directly. The schema's 100-character `name` is checked
     // after the parse, so it bounds nothing on the wire.
-    const res = await POST(oversized());
+    const { request, json } = oversized();
+
+    const res = await POST(request);
 
     expect(res.status).toBe(413);
+    expect(json).not.toHaveBeenCalled();
     expect(createMock).not.toHaveBeenCalled();
   });
 });
