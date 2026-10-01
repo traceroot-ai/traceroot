@@ -25,6 +25,7 @@ import {
   KEYED_ALERT_FILTER_FIELDS,
   canonicalizeAlertFilters,
   clampRenotifyInterval,
+  getAlertUnit,
   getValidAggregations,
   isAlertAggregation,
   isAlertFilterField,
@@ -41,6 +42,7 @@ import {
   type AlertFilter,
   alertFiltersToTracePredicates,
   describeAlertFilter,
+  withAlertUnit,
 } from "../alerts.ts";
 
 describe("canonicalizeAlertFilters", () => {
@@ -256,6 +258,44 @@ describe("what the form offers and what the engine can run", () => {
     }
 
     expect(problems).toEqual([]);
+  });
+});
+
+describe("getAlertUnit", () => {
+  it("states a unit only for the measures whose bare number would mislead", () => {
+    const units = Object.fromEntries(
+      ALERT_MEASURES_BY_VIEW.SPANS.flatMap((m) => (m.unit ? [[m.id, m.unit]] : [])),
+    );
+    expect(units).toEqual({
+      latency: { suffix: "ms" },
+      cost: { prefix: "$" },
+      total_tokens_per_second: { suffix: "tok/s" },
+    });
+  });
+
+  it("keeps the unit under every aggregation that returns a value of the column", () => {
+    for (const aggregation of ["sum", "avg", "min", "max", "p50", "p99"]) {
+      expect(getAlertUnit("latency", aggregation)).toEqual({ suffix: "ms" });
+    }
+  });
+
+  it("drops the unit when the aggregation counts instead", () => {
+    // A count of latency rows, or of distinct latencies, is not milliseconds.
+    expect(getAlertUnit("latency", "count")).toBeUndefined();
+    expect(getAlertUnit("cost", "uniq")).toBeUndefined();
+  });
+
+  it("has nothing to say about a measure the registry does not know", () => {
+    expect(getAlertUnit("span_count", "avg")).toBeUndefined();
+  });
+});
+
+describe("withAlertUnit", () => {
+  it("puts a prefix before and a suffix after, with the gap on the suffix only", () => {
+    expect(withAlertUnit("5", { prefix: "$" }, " ")).toBe("$5");
+    expect(withAlertUnit("500", { suffix: "ms" })).toBe("500ms");
+    expect(withAlertUnit("500", { suffix: "ms" }, " ")).toBe("500 ms");
+    expect(withAlertUnit("12", undefined, " ")).toBe("12");
   });
 });
 

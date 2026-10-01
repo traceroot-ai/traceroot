@@ -4,6 +4,8 @@ import {
   ALERT_THRESHOLD_OPERATOR_PHRASES,
   alertFiltersToTracePredicates,
   describeAlertFilter,
+  getAlertUnit,
+  withAlertUnit,
   type AlertFilter,
   type AlertSeverity,
   type AlertThresholdOperator,
@@ -18,11 +20,6 @@ export const ALERT_SEVERITY_COLORS: Record<AlertSeverity, string> = {
   OK: "#1a7f4e",
   NO_DATA: "#8a8f98",
   UNKNOWN: "#8a8f98",
-};
-
-// Only latency's raw value is meaningless without a unit; other measures name theirs.
-const MEASURE_UNIT_SUFFIX: Record<string, string> = {
-  latency: "ms",
 };
 
 export interface AlertBlockParams {
@@ -110,8 +107,8 @@ function formatNumber(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
-function formatMeasureValue(measure: string, value: number): string {
-  return `${formatNumber(value)}${MEASURE_UNIT_SUFFIX[measure] ?? ""}`;
+function formatMeasureValue(measure: string, aggregation: string, value: number): string {
+  return withAlertUnit(formatNumber(value), getAlertUnit(measure, aggregation));
 }
 
 // Call form reads as the aggregation applied to the measure. The row-count
@@ -123,7 +120,7 @@ function measureLabel(aggregation: string, measure: string): string {
 function describeOutcome(params: AlertBlockParams): string {
   const { severity, value, threshold, thresholdOperator, measure, aggregation, window } = params;
   const label = measureLabel(aggregation, measure);
-  const thresholdText = formatMeasureValue(measure, threshold);
+  const thresholdText = formatMeasureValue(measure, aggregation, threshold);
 
   if (severity === "NO_DATA") {
     return `No data for ${label} over the last ${window}, so the ${thresholdText} threshold could not be evaluated.`;
@@ -131,7 +128,7 @@ function describeOutcome(params: AlertBlockParams): string {
 
   // A null value under ALERT or OK is ZERO mode's reading of an empty window,
   // so the sentence states the zero the threshold was compared against.
-  const valueText = formatMeasureValue(measure, value ?? 0);
+  const valueText = formatMeasureValue(measure, aggregation, value ?? 0);
   if (severity === "OK") {
     return `${label} recovered to ${valueText}, back within the ${thresholdText} threshold, over the last ${window}.`;
   }
