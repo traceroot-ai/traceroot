@@ -62,15 +62,28 @@ export async function finishFindingIfLatest(
     status: "done" | "failed";
     result?: string | null;
     completedAt?: Date;
+    /** Signal openings actually analysed; omitted for legacy per-finding jobs. */
+    coveredOpenings?: readonly string[];
   },
 ): Promise<boolean> {
   return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM detector_rcas WHERE finding_id = ${params.findingId} FOR UPDATE`;
+    // Opening creation updates this same finding row before inserting its
+    // signal_rcas row. Holding the row lock makes coverage and completion one
+    // atomic decision, including when this was the final failed attempt.
+    let uncovered = false;
+    if (params.coveredOpenings) {
+      const openings = await tx.$queryRaw<{ signalId: string; reopenSeq: number }[]>`
+        SELECT signal_id AS "signalId", reopen_seq AS "reopenSeq"
+        FROM signal_rcas WHERE finding_id = ${params.findingId}`;
+      const covered = new Set(params.coveredOpenings);
+      uncovered = openings.some((o) => !covered.has(`${o.signalId}:${o.reopenSeq}`));
+    }
     const count = await tx.$executeRaw`
       UPDATE detector_rcas
-      SET status = ${params.status},
-          result = ${params.result ?? null},
-          completed_at = ${params.completedAt ?? new Date()}
+      SET status = ${uncovered ? "pending" : params.status},
+          result = ${uncovered ? null : (params.result ?? null)},
+          completed_at = ${uncovered ? null : (params.completedAt ?? new Date())}
       WHERE finding_id = ${params.findingId}
         AND NOT EXISTS (
           SELECT 1 FROM detector_rca_executions

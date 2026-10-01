@@ -77,7 +77,7 @@ export async function applyAssignment(
   db: Pick<PrismaClient, "$transaction">,
   hit: WaitingHit,
   placement: Placement,
-  opts: { rca: boolean; now?: number },
+  opts: { rca: boolean; now?: number; embedding?: number[] },
 ): Promise<AssignmentResult> {
   return db.$transaction(async (tx) => {
     await lockSignalPartition(tx, hit.projectId, hit.detectorId);
@@ -184,8 +184,8 @@ export async function applyAssignment(
         // The row goes back to pending even when an earlier run of this trace
         // finished or is still running, so the pending sweeper retries an
         // opening whose enqueue was lost or was absorbed by a job that was
-        // just finishing. A running job overwrites this with its own result,
-        // and its final check then sees this opening and runs again.
+        // just finishing. The upsert holds the finding row lock until the
+        // opening commits; completion checks coverage under that same lock.
         await tx.detectorRca.upsert({
           where: { findingId: hit.findingId },
           create: { findingId: hit.findingId, projectId: hit.projectId, status: "pending" },
@@ -207,6 +207,8 @@ export async function applyAssignment(
         seenAt: hit.seenAt,
         score,
         criteriaVersion,
+        embedding: opts.embedding ?? (placement.kind === "create" ? placement.anchorEmbedding : []),
+        assignedAt: new Date(opts.now ?? Date.now()),
       },
       select: { assignedAt: true },
     });

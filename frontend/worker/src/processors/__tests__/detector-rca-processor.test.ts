@@ -1038,6 +1038,26 @@ describe("signal RCAs", () => {
     error.mockRestore();
   });
 
+  it("keeps a final failed job alive when a new opening was added", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    hasUncoveredOpeningsMock.mockResolvedValue(true);
+    await stubRun();
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    const { DelayedError } = await import("bullmq");
+    const job = signalJob({ attemptsMade: 2, opts: { attempts: 3 } });
+    await expect(processRcaJob(job, "tok")).rejects.toBeInstanceOf(DelayedError);
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ status: "failed", coveredOpenings: ["s1:0", "s2:1"] }),
+    );
+    expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "tok");
+    expect(digestAddMock).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it("builds a prompt for a single hit", async () => {
     const { signalRcaPrompt } = await import("../detector-rca-processor.js");
     const prompt = signalRcaPrompt([context.findings[0]], "t", "");

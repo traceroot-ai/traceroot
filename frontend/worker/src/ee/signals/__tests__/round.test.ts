@@ -52,7 +52,15 @@ function fakeBackend(rows: WaitingHitRow[], opts: { failWrites?: boolean } = {})
   return { backend, written, waiting };
 }
 
-function fakeDb(opts: { recorded?: string[]; detector?: unknown } = {}) {
+type CurrentHit = {
+  runId: string;
+  signalId: string;
+  score: number | null;
+  criteriaVersion: number | null;
+  assignedAt: Date;
+};
+
+function fakeDb(opts: { recorded?: string[]; detector?: unknown; current?: CurrentHit[] } = {}) {
   const aiRows: Record<string, unknown>[] = [];
   const db = {
     detector: {
@@ -68,7 +76,24 @@ function fakeDb(opts: { recorded?: string[]; detector?: unknown } = {}) {
           : opts.detector,
       ),
     },
-    signalHit: { findMany: vi.fn(async () => (opts.recorded ?? []).map((runId) => ({ runId }))) },
+    signalHit: {
+      // The duplicate check reads run ids; the copy flush reads each hit's placement.
+      findMany: vi.fn(
+        async ({
+          where,
+          select,
+        }: {
+          where: { copyPending?: boolean };
+          select: Record<string, boolean>;
+        }) =>
+          where.copyPending
+            ? []
+            : select.signalId
+              ? (opts.current ?? [])
+              : (opts.recorded ?? []).map((runId) => ({ runId, embedding: [1, 0] })),
+      ),
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
     signal: { findMany: vi.fn(async () => []) },
     aIMessage: {
       createMany: vi.fn(async ({ data }: { data: Record<string, unknown>[] }) =>
@@ -247,7 +272,7 @@ describe("runAssignmentRound", () => {
     );
     const d = deps(fakeDb().db, backend);
     const stats = await runAssignmentRound(d, "p", "d");
-    expect(mockApply.mock.calls[0][3]).toEqual({ rca: true, now: T0 });
+    expect(mockApply.mock.calls[0][3]).toMatchObject({ rca: true, now: T0 });
     // Two hits of one finding opened signals: one RCA job for the finding.
     expect(d.enqueueRca).toHaveBeenCalledTimes(1);
     expect(d.enqueueRca).toHaveBeenCalledWith("f-shared", "p");
@@ -324,6 +349,30 @@ describe("runAssignmentRound", () => {
       signal_id: "sigOld",
       score: 0.8,
       embedding: [1, 0],
+    });
+  });
+
+  it("copies the signal a user moved the hit to before its copy was written", async () => {
+    const { backend, written } = fakeBackend([row(1)]);
+    const moved = new Date(ASSIGNED_AT.getTime() + 5_000);
+    const db = fakeDb({
+      current: [
+        {
+          runId: "run1",
+          signalId: "sigUser",
+          score: null,
+          criteriaVersion: null,
+          assignedAt: moved,
+        },
+      ],
+    }).db;
+    await runAssignmentRound(deps(db, backend), "p", "d");
+    expect(written[0]).toMatchObject({
+      run_id: "run1",
+      signal_id: "sigUser",
+      score: null,
+      criteria_version: null,
+      assigned_at_ms: moved.getTime(),
     });
   });
 
