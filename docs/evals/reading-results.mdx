@@ -30,7 +30,7 @@ A boolean score passes or fails on its own value. A numeric score needs a `thres
   </Tab>
 </Tabs>
 
-Token counts, LLM calls, and cost aren't in the local summary. The platform derives them for each case from the task's spans: open a result in the UI for that case's numbers, or run [`evals runs get`](/evals/cli#read-a-run) for their mean per case across the run.
+Token counts, LLM calls, time spent in the model (`llm_duration`), and cost aren't in the local summary. The platform derives them for each case from the task's spans: open a result in the UI to see that case's trace, or run [`evals runs get`](/evals/cli#read-a-run) for their mean per case across the run.
 
 ## Per-case results
 
