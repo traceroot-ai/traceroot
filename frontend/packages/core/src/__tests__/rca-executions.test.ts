@@ -47,13 +47,14 @@ function fakeDb(
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = strings.join("?");
       sql.push({ text, values });
-      if (/FOR UPDATE/.test(text)) opts.onLock?.();
+      if (/FOR (?:NO KEY )?UPDATE/.test(text)) opts.onLock?.();
       if (text.includes("FROM signal_rcas")) return opts.openings ?? [];
       return [{ id: "rca-row" }];
     }),
     $executeRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = strings.join("?");
       sql.push({ text, values });
+      if (text.includes("DELETE FROM signal_rcas")) return 0;
       // Params, in template order: status, result, completed_at, finding_id, finding_id, attempt.
       const [, , , findingId, , attempt] = values as [
         string,
@@ -148,8 +149,9 @@ describe("finishFindingIfLatest", () => {
         coveredOpenings: ["old:0"],
       });
       expect(f.sql.at(-1)?.values.slice(0, 3)).toEqual(["pending", null, null]);
-      expect(f.sql[0].text).toContain("FOR UPDATE");
-      expect(f.sql[1].text).toContain("FROM signal_rcas");
+      expect(f.sql[0].text).toContain("FOR NO KEY UPDATE");
+      expect(f.sql[1].text).toContain("DELETE FROM signal_rcas");
+      expect(f.sql[2].text).toContain("FROM signal_rcas");
     },
   );
 
@@ -201,7 +203,9 @@ describe("finishFindingIfLatest", () => {
     await finishFindingIfLatest(db as any, { findingId: "f-1", attempt: 1, status: "done" });
     expect(db.$transaction).toHaveBeenCalledTimes(1);
     expect(sql.map((s) => s.text)).toEqual([
-      expect.stringMatching(/^SELECT id FROM detector_rcas WHERE finding_id = \? FOR UPDATE$/),
+      expect.stringMatching(
+        /^SELECT id FROM detector_rcas WHERE finding_id = \? FOR NO KEY UPDATE$/,
+      ),
       expect.stringMatching(/UPDATE detector_rcas/),
     ]);
     expect(sql[0].values).toEqual(["f-1"]);

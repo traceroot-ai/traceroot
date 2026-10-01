@@ -32,9 +32,11 @@ vi.mock("../../queues/digest-queue.js", async (importOriginal) => {
 
 const loadSignalRcaContextMock = vi.fn();
 const hasUncoveredOpeningsMock = vi.fn().mockResolvedValue(false);
+const closeEmptySignalRcaMock = vi.fn().mockResolvedValue(true);
 vi.mock("../../ee/signals/rca.js", () => ({
   loadSignalRcaContext: (...a: any[]) => loadSignalRcaContextMock(...a),
   hasUncoveredOpenings: (...a: any[]) => hasUncoveredOpeningsMock(...a),
+  closeEmptySignalRca: (...a: any[]) => closeEmptySignalRcaMock(...a),
 }));
 
 vi.mock("@traceroot/core/rca-executions", () => ({
@@ -77,6 +79,7 @@ afterEach(() => {
   markFindingRunningIfLatestMock.mockReset().mockResolvedValue(true);
   loadSignalRcaContextMock.mockReset();
   hasUncoveredOpeningsMock.mockReset().mockResolvedValue(false);
+  closeEmptySignalRcaMock.mockReset().mockResolvedValue(true);
 });
 
 describe("resolveProjectModel", () => {
@@ -938,18 +941,24 @@ describe("signal RCAs", () => {
 
   it("runs nothing when no signal of the finding needs an RCA, and closes a pending row", async () => {
     loadSignalRcaContextMock.mockResolvedValue(null);
-    const { prisma: p } = await import("@traceroot/core");
-    const updateMany = vi.spyOn(p.detectorRca, "updateMany").mockResolvedValue({ count: 1 } as any);
     const { processRcaJob } = await import("../detector-rca-processor.js");
     await processRcaJob(signalJob());
-    expect(updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { findingId: "f1", status: "pending" },
-        data: expect.objectContaining({ status: "failed" }),
-      }),
-    );
+    expect(closeEmptySignalRcaMock).toHaveBeenCalledWith(expect.anything(), "f1", "p1");
     expect(allocateExecutionMock).not.toHaveBeenCalled();
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("retries if an opening arrived after the empty-context read", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(null);
+    closeEmptySignalRcaMock.mockResolvedValue(false);
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    const { DelayedError } = await import("bullmq");
+    const job = signalJob();
+    await expect(processRcaJob(job, "tok")).rejects.toBeInstanceOf(DelayedError);
+    expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "tok");
+    expect(allocateExecutionMock).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(digestAddMock).not.toHaveBeenCalled();
   });
 
   it("analyses the hits whose signals the trace opened, one section per hit", async () => {

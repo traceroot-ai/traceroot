@@ -17,6 +17,7 @@ import { signalsBackend } from "../ee/signals/backend-client.js";
 import { RCA_DELAY_MS } from "../ee/signals/config.js";
 import {
   hasUncoveredOpenings,
+  closeEmptySignalRca,
   loadSignalRcaContext,
   type SignalRcaContext,
 } from "../ee/signals/rca.js";
@@ -390,14 +391,10 @@ export async function processRcaJob(job: Job<RcaJob>, token?: string) {
     if (!signalContext) {
       // Its hits were removed with their project or detector: close the seeded
       // row rather than leave it pending (the sweeper would retry it forever).
-      await prisma.detectorRca.updateMany({
-        where: { findingId: job.data.findingId, status: "pending" },
-        data: {
-          status: "failed",
-          result: "No hit is left to analyse.",
-          completedAt: new Date(),
-        },
-      });
+      if (!(await closeEmptySignalRca(prisma, job.data.findingId, job.data.projectId))) {
+        await job.moveToDelayed(Date.now() + RCA_DELAY_MS, token);
+        throw new DelayedError();
+      }
       console.log(`[RCA] finding ${job.data.findingId}: no signal needs an RCA; nothing to run`);
       return;
     }

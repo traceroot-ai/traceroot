@@ -1,5 +1,6 @@
 import { Queue } from "bullmq";
 import type { PrismaClient } from "@traceroot/core";
+import { removeOrphanSignalRcas } from "@traceroot/core/rca-executions";
 import {
   DETECTOR_RCA_QUEUE,
   createRedisConnection,
@@ -163,6 +164,34 @@ export async function hasUncoveredOpenings(
   });
   const seen = new Set(covered);
   return rows.some((r) => !seen.has(openingKey(r)));
+}
+
+/** Close an empty finding only if no analysable opening arrived since the read. */
+export async function closeEmptySignalRca(
+  db: Pick<PrismaClient, "$transaction">,
+  findingId: string,
+  projectId: string,
+): Promise<boolean> {
+  return db.$transaction(async (tx) => {
+    // Opening creation updates this same row before inserting its opening.
+    // Permit FK checks by a merge carrying a link while serializing the
+    // finding's status writes, just as completion does.
+    await tx.$queryRaw`SELECT id FROM detector_rcas WHERE finding_id = ${findingId} FOR NO KEY UPDATE`;
+    await removeOrphanSignalRcas(tx, findingId);
+    const hits = await tx.$queryRaw<{ present: number }[]>`
+      SELECT 1 AS present FROM signal_rcas r
+      JOIN signals s ON s.id = r.signal_id
+      JOIN signal_hits h ON h.finding_id = r.finding_id
+        AND h.project_id = s.project_id AND h.detector_id = s.detector_id
+      WHERE r.finding_id = ${findingId} AND s.project_id = ${projectId}
+      LIMIT 1`;
+    if (hits.length > 0) return false;
+    await tx.detectorRca.updateMany({
+      where: { findingId, projectId, status: "pending" },
+      data: { status: "failed", result: "No hit is left to analyse.", completedAt: new Date() },
+    });
+    return true;
+  });
 }
 
 /**
