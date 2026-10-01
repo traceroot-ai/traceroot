@@ -609,7 +609,7 @@ model Signal {
   firstSeenAt       DateTime  @map("first_seen_at") @db.Timestamp(6)
   lastSeenAt        DateTime  @map("last_seen_at") @db.Timestamp(6)
   // Digest state. notifiedReopenSeq: the opening last announced (null = never);
-  // notifiedHitCount: hitCount when last included; notifiedAt: last digest that
+  // notifiedHitCount: number of hits with reportedAt; notifiedAt: last digest that
   // included this signal (rate-limits ongoing-only digests).
   notifiedReopenSeq Int?      @map("notified_reopen_seq")
   notifiedHitCount  Int       @default(0) @map("notified_hit_count")
@@ -637,27 +637,34 @@ model Signal {
 // deterministic per (project, trace, detector): a re-detected trace lands on
 // the same row instead of counting twice.
 model SignalHit {
-  runId           String   @id @map("run_id") @db.VarChar
-  signalId        String   @map("signal_id") @db.VarChar
-  projectId       String   @map("project_id") @db.VarChar
-  detectorId      String   @map("detector_id") @db.VarChar
-  traceId         String   @map("trace_id") @db.VarChar
-  findingId       String   @map("finding_id") @db.VarChar
+  runId           String    @id @map("run_id") @db.VarChar
+  signalId        String    @map("signal_id") @db.VarChar
+  projectId       String    @map("project_id") @db.VarChar
+  detectorId      String    @map("detector_id") @db.VarChar
+  traceId         String    @map("trace_id") @db.VarChar
+  findingId       String    @map("finding_id") @db.VarChar
   // The detector_runs timestamp; firstSeenAt/lastSeenAt are recomputed from it
   // when hits move between signals.
-  seenAt          DateTime @map("seen_at") @db.Timestamp(6)
+  seenAt          DateTime  @map("seen_at") @db.Timestamp(6)
   // Assignment model's probability for the chosen signal; null when the chat
   // model or a user placed the hit.
   score           Float?
   // Criteria version the hit was judged under; null when a user placed it.
-  criteriaVersion Int?     @map("criteria_version")
-  assignedAt      DateTime @default(now()) @map("assigned_at") @db.Timestamp(6)
+  criteriaVersion Int?      @map("criteria_version")
+  assignedAt      DateTime  @default(now()) @map("assigned_at") @db.Timestamp(6)
+  // Retained in Postgres so a missing/stale projection needs no model call.
+  embedding       Float[]   @default([])
+  // Cleared only after this placement version was copied successfully.
+  copyPending     Boolean   @default(true) @map("copy_pending")
+  // The digest consumed this specific hit, including silently counted hits.
+  reportedAt      DateTime? @map("reported_at") @db.Timestamp(6)
 
   signal Signal @relation(fields: [signalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([signalId, seenAt], map: "ix_signal_hit_signal_seen")
   @@index([findingId], map: "ix_signal_hit_finding")
   @@index([projectId, traceId], map: "ix_signal_hit_project_trace")
+  // The pending-copy partial index is defined in the signals migration.
   @@map("signal_hits")
 }
 
