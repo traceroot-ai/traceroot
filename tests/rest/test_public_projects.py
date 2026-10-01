@@ -263,7 +263,7 @@ def test_a_live_session_mints_and_is_actually_checked(monkeypatch):
 
 
 @respx.mock
-def test_an_oversized_body_is_refused_before_it_is_parsed():
+def test_an_oversized_declared_length_is_refused_before_the_body_is_read():
     """Nothing downstream bounds this: `name` is only checked after the parse."""
     _mock_account_auth()
     internal = _mock_internal("user-create-project-key", CREATED_KEY)
@@ -276,6 +276,36 @@ def test_an_oversized_body_is_refused_before_it_is_parsed():
             "Content-Type": "application/json",
             "Content-Length": str(128 * 1024),
         },
+    )
+
+    assert resp.status_code == 413
+    assert resp.json() == {"detail": "Request body too large"}
+    assert not internal.called
+
+
+@respx.mock
+def test_a_body_that_declares_no_length_is_still_refused():
+    """The branch that actually enforces the cap.
+
+    A declared ``Content-Length`` is only a hint, and the docstring on
+    ``_read_capped_body`` says as much: a chunked or mis-declared body has no
+    trustworthy length, so the streaming check is what does the work. Sending the
+    bytes without a usable length is the only way to exercise it — the
+    declared-length test above still passes with that check deleted.
+    """
+    _mock_account_auth()
+    internal = _mock_internal("user-create-project-key", CREATED_KEY)
+
+    def chunks():
+        # 80 KiB in ten chunks, over the 64 KiB ceiling, streamed so httpx uses
+        # chunked transfer encoding and sends no Content-Length at all.
+        for _ in range(10):
+            yield b"x" * 8192
+
+    resp = TestClient(app).post(
+        "/api/v1/public/projects/proj-1/api-keys",
+        content=chunks(),
+        headers={**USER_HEADER, "Content-Type": "application/json"},
     )
 
     assert resp.status_code == 413
