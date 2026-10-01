@@ -302,13 +302,31 @@ class RunSelection(BaseModel):
     SDK sending a richer selection descriptor is not a 400 that loses the whole run.
     """
 
-    mode: RunSelectionMode
+    mode: RunSelectionMode = Field(
+        description=(
+            'How the run chose its cases: "full" runs every case in the pinned version, '
+            '"first" runs the first selected_case_count cases, and "sample" runs a random '
+            'selected_case_count cases. "full" requires selected_case_count to equal '
+            "dataset_case_count."
+        )
+    )
     # How many cases this run set out to measure. mode="full" ⇒ the whole version.
-    selected_case_count: JsonNonNegativeInt4
+    selected_case_count: JsonNonNegativeInt4 = Field(
+        description=(
+            "How many cases the run set out to measure. Must not exceed dataset_case_count, "
+            "and must equal case_count when case_count is also sent."
+        )
+    )
     # The seed that made a ``sample`` reproducible. Absent for an unseeded sample, which
     # is legitimate — it simply cannot be reproduced. An opaque token, not a count, so it
     # is deliberately unconstrained in sign.
-    sample_seed: JsonInt | None = None
+    sample_seed: JsonInt | None = Field(
+        default=None,
+        description=(
+            'The seed that makes a "sample" reproducible. Only valid when mode is "sample"; '
+            "omit it for an unseeded sample."
+        ),
+    )
 
 
 # --- (a) Register / start a run ---------------------------------------------
@@ -337,11 +355,24 @@ class RegisterRunRequest(BaseModel):
     # `selected / total`. Sent together with run_selection (see the model validator): a
     # selected count without a total is not displayable, and a total without a selection
     # says nothing about what the run actually measured.
-    dataset_case_count: JsonNonNegativeInt4 | None = None
+    dataset_case_count: JsonNonNegativeInt4 | None = Field(
+        default=None,
+        description=(
+            "The pinned dataset version's total case count. Must be sent together with "
+            "run_selection (one without the other is rejected), and must equal the pinned "
+            "version's real size."
+        ),
+    )
     # The run's deliberate case selection. Omitted by an SDK older than this field, which
     # reads back as coverage UNKNOWN — never silently relabelled full, because full
     # coverage that cannot be proven must not be claimed.
-    run_selection: RunSelection | None = None
+    run_selection: RunSelection | None = Field(
+        default=None,
+        description=(
+            "The run's case selection. Must be sent together with dataset_case_count. "
+            "Omitting both records the run's coverage as unknown."
+        ),
+    )
     # Free-form run metadata — arbitrary user key/values, kept verbatim.
     metadata: dict[str, Any] | None = None
 

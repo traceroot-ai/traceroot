@@ -679,6 +679,57 @@ describe("dataset coverage", () => {
       expect(stored().selectedCaseCount).toBe(20);
     });
 
+    it("replays a run after the dataset's current version changed size", async () => {
+      // The original pinned the then-current dv500. A new 2-case version is published
+      // before the retry lands; the identical retry must still get its run back, not a
+      // 400 for disagreeing with a version it never pinned.
+      db.rows.dataset[0].currentVersionId = "dv500";
+      const declared = {
+        dataset_case_count: 500,
+        run_selection: { mode: "full", selected_case_count: 500 },
+        client_run_id: "ci-42",
+      };
+      const first = await POST(post(body(declared)));
+      expect(first.status).toBe(201);
+      db.rows.dataset[0].currentVersionId = "dv1";
+      const retry = await POST(post(body(declared)));
+      expect(retry.status).toBe(201);
+      const replayed = await retry.json();
+      expect(replayed.evaluation_run_id).toBe((await first.json()).evaluation_run_id);
+      expect(replayed.dataset_version_id).toBe("dv500");
+      expect(db.rows.evaluationRun).toHaveLength(1);
+    });
+
+    it("still checks the declared total for a new client_run_id on an existing evaluation", async () => {
+      await POST(post(body({ ...coverage("first", 20), client_run_id: "ci-42" })));
+      const res = await POST(
+        post(
+          body({
+            dataset_version_id: "dv500",
+            dataset_case_count: 499,
+            run_selection: { mode: "first", selected_case_count: 20 },
+            client_run_id: "ci-43",
+          }),
+        ),
+      );
+      expect(res.status).toBe(400);
+      expect(db.rows.evaluationRun).toHaveLength(1);
+    });
+
+    it("creates no evaluation when the declared total is rejected", async () => {
+      const res = await POST(
+        post(
+          body({
+            dataset_version_id: "dv500",
+            dataset_case_count: 499,
+            run_selection: { mode: "full", selected_case_count: 499 },
+          }),
+        ),
+      );
+      expect(res.status).toBe(400);
+      expect(db.rows.evaluation).toHaveLength(0);
+    });
+
     it("reports a legacy run's unknown coverage when a newer SDK replays over it", async () => {
       await POST(post(body({ client_run_id: "ci-42" })));
       const res = await POST(post(body({ ...coverage("first", 20), client_run_id: "ci-42" })));
