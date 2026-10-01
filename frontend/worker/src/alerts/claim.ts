@@ -144,6 +144,7 @@ function claimStatement(tick: AlertTick): Prisma.Sql {
       last_notify_status AS "lastNotifyStatus",
       last_notify_error AS "lastNotifyError",
       last_notify_at AS "lastNotifyAt",
+      last_notify_severity AS "lastNotifySeverity",
       -- Only a failed page can be waiting on Slack, so every other row skips the lookup.
       CASE WHEN last_notify_status = ${FAILED} THEN (
         SELECT s.update_time
@@ -255,6 +256,8 @@ export type AlertNotifyStatus = (typeof ALERT_NOTIFY_STATUSES)[number];
 export interface AlertNotifyOutcome {
   readonly alertId: string;
   readonly status: AlertNotifyStatus;
+  /** What the attempt announced, which the rule's own severity may since have left. */
+  readonly severity: AlertSeverity;
   readonly error: string | null;
   readonly at: Date;
   /**
@@ -388,6 +391,7 @@ export async function recordAlertNotifyOutcome(outcome: AlertNotifyOutcome): Pro
         lastNotifyStatus: outcome.status,
         lastNotifyError: outcome.error === null ? null : truncate(outcome.error),
         lastNotifyAt: outcome.at,
+        lastNotifySeverity: outcome.severity,
       },
     });
     // Either the rule is gone, or a newer notification already reported: do not
