@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runAssignmentRound } from "../round.js";
 import { repairAssignmentCopies } from "../projection.js";
 import type { AssignmentRow } from "../backend-client.js";
 
@@ -29,6 +30,67 @@ function fixture() {
 }
 
 describe("assignment projection repair", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("keeps the partition alive when an entire raw page consists of just-repaired copies", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    const { hit } = fixture();
+    const pending = Array.from({ length: 200 }, (_, i) => ({ ...hit, runId: `r${i}` }));
+    const rows = [
+      ...pending.map((h) => ({
+        run_id: h.runId,
+        trace_id: h.traceId,
+        finding_id: "f",
+        timestamp_ms: 1000,
+        trace_start_ms: 900,
+        summary: "Failure",
+        data: {},
+      })),
+      {
+        run_id: "later",
+        trace_id: "later",
+        finding_id: "later",
+        timestamp_ms: 1001,
+        trace_start_ms: 900,
+        summary: "Failure",
+        data: {},
+      },
+    ];
+    const embed = vi.fn();
+    const models = vi.fn();
+    const deps = {
+      db: {
+        signalHit: {
+          findMany: vi.fn(async () => pending),
+          updateMany: vi.fn(async () => ({ count: 1 })),
+        },
+        detector: {
+          findFirst: vi.fn(async () => ({
+            name: "Failure",
+            enableSignals: true,
+            signalsEnabledAt: new Date(0),
+            project: { workspaceId: "w" },
+          })),
+        },
+      } as never,
+      backend: {
+        writeAssignments: vi.fn(async () => {}),
+        waitingHits: vi.fn(async () => rows.slice(0, 200)),
+        traceFindings: vi.fn(async () => []),
+      },
+      embed,
+      models,
+      failures: { record: vi.fn() },
+      enqueueRca: vi.fn(async () => {}),
+      enqueueDigest: vi.fn(async () => {}),
+      now: () => 2000,
+    };
+    const result = await runAssignmentRound(deps, "project", "detector");
+    expect(result).toMatchObject({ waiting: 0, duplicate: 200, remaining: true });
+    expect(embed).not.toHaveBeenCalled();
+    expect(models).not.toHaveBeenCalled();
+  });
+
   it("retries a committed copy failure with the original embedding", async () => {
     const { hit, db } = fixture();
     const writeAssignments = vi

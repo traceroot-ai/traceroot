@@ -154,7 +154,16 @@ export async function runAssignmentRound(
   // Hits from before the switch was turned on are never grouped.
   const sinceMs = Math.max(detector.signalsEnabledAt.getTime(), started - WAITING_LOOKBACK_MS);
   stats.readAt = deps.now();
-  const waiting = (await deps.backend.waitingHits(projectId, detectorId, sinceMs, ROUND_MAX_HITS))
+  const waitingRows = await deps.backend.waitingHits(
+    projectId,
+    detectorId,
+    sinceMs,
+    ROUND_MAX_HITS,
+  );
+  // ClickHouse may still return just-repaired copies while they become visible.
+  // A full raw page can hide later hits even when filtering removes every row.
+  stats.remaining ||= waitingRows.length === ROUND_MAX_HITS;
+  const waiting = waitingRows
     .filter((row) => !repaired.runIds.has(row.run_id))
     .map((row) => toWaitingHit(row, projectId, detectorId));
   stats.waiting = waiting.length;
