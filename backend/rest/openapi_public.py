@@ -681,10 +681,14 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "value is its mean and a boolean score's is its pass rate. A categorical or "
             "mixed-type score, or one no result reported, has a null value: it has no "
             "mean, and is not a score of 0. dataset_case_count and run_selection say which "
-            "slice of the dataset the run measured: a run_selection mode of first or "
-            "sample covered selected_case_count of dataset_case_count cases, so its means "
-            "describe that subset, not the whole dataset. Both are null when the run did "
-            "not report its coverage, which does not mean it covered the whole dataset."
+            "slice of the dataset the run measured. run_selection.mode says how cases were "
+            "chosen: full ran every case, first ran the first selected_case_count cases, and "
+            "sample ran a random selected_case_count of them. The run covered "
+            "selected_case_count of dataset_case_count cases; when the two are equal it "
+            "covered the whole dataset, whatever the mode, and when selected_case_count is "
+            "smaller its means describe that subset, not the whole dataset. Both are null "
+            "when the run did not report its coverage, which does not mean it covered the "
+            "whole dataset."
         ),
         "enabled": True,
     },

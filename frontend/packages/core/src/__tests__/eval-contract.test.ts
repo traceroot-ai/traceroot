@@ -313,9 +313,11 @@ describe("ReadRunResponseSchema dataset coverage", () => {
     const unknown = ReadRunResponseSchema.parse(
       summary({ dataset_case_count: null, run_selection: null }),
     );
+    expect(unknown.dataset_case_count).toBeNull();
     expect(unknown.run_selection).toBeNull();
     // A client re-vendored against this contract still reads an older server's body.
     const older = ReadRunResponseSchema.parse(summary());
+    expect(older.dataset_case_count).toBeUndefined();
     expect(older.run_selection).toBeUndefined();
   });
 
