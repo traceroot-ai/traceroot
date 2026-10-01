@@ -147,7 +147,7 @@ export async function loadSignalRcaContext(
     workspaceId: project.workspaceId,
     findingTimestamp: Math.min(...hits.map((h) => h.seenAt.getTime())),
     findings,
-    covered: openings.map(openingKey),
+    covered: openings.filter((o) => analysed.has(o.signal.detectorId)).map(openingKey),
   };
 }
 

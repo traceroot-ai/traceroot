@@ -599,6 +599,7 @@ export async function processRcaJob(job: Job<RcaJob>, token?: string) {
       attempt: execution.attempt,
       status: "done",
       result: rcaResult,
+      ...(signalContext ? { coveredOpenings: signalContext.covered } : {}),
     });
     if (!applied) {
       // Execution rows don't store `result` — only the shared finding row
@@ -629,6 +630,7 @@ export async function processRcaJob(job: Job<RcaJob>, token?: string) {
       attempt: execution.attempt,
       status: "failed",
       result: `RCA failed: ${message}`,
+      ...(signalContext ? { coveredOpenings: signalContext.covered } : {}),
     })
       .then((applied) => {
         if (!applied) {
@@ -639,6 +641,12 @@ export async function processRcaJob(job: Job<RcaJob>, token?: string) {
       })
       .catch(() => {}); // best-effort
 
+    // A later opening is still pending even if this attempt exhausted its
+    // retry budget. Keep the job alive to analyse that opening separately.
+    if (signalContext && (await hasUncoveredOpenings(prisma, findingId, signalContext.covered))) {
+      await job.moveToDelayed(Date.now() + RCA_DELAY_MS, token);
+      throw new DelayedError();
+    }
     await scheduleDigestFlush();
 
     throw e; // re-throw so BullMQ marks job as failed
