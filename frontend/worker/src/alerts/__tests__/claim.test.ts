@@ -65,6 +65,7 @@ function row(overrides: Partial<AlertRowLike> = {}): AlertRowLike {
     lastNotifyStatus: null,
     lastNotifyError: null,
     lastNotifyAt: null,
+    lastNotifySeverity: null,
     slackUpdatedAt: null,
     ...overrides,
   };
@@ -203,6 +204,8 @@ describe("claimDueAlerts — taking ownership", () => {
     // A page that never went out for want of Slack is retried once Slack is set up,
     // so the tick needs both sides of that comparison without a query per rule.
     expect(sql).toContain('last_notify_at AS "lastNotifyAt"');
+    // What the page said, which the rule's own severity may have moved on from.
+    expect(sql).toContain('last_notify_severity AS "lastNotifySeverity"');
     expect(sql).toContain("CASE WHEN last_notify_status = 'FAILED' THEN");
     expect(sql).toContain("JOIN slack_integrations s ON s.workspace_id = sp.workspace_id");
     expect(sql).toContain('END AS "slackUpdatedAt"');
@@ -653,11 +656,22 @@ describe("recordAlertNotifyOutcome", () => {
   const at = new Date("2026-08-12T10:40:00.000Z");
 
   it("records a delivery against the rule alone, with no claim to match on", async () => {
-    await recordAlertNotifyOutcome({ alertId: "alert-1", status: "DELIVERED", error: null, at });
+    await recordAlertNotifyOutcome({
+      alertId: "alert-1",
+      status: "DELIVERED",
+      severity: "ALERT",
+      error: null,
+      at,
+    });
 
     expect(updateMany.mock.calls[0][0]).toEqual({
       where: { id: "alert-1" },
-      data: { lastNotifyStatus: "DELIVERED", lastNotifyError: null, lastNotifyAt: at },
+      data: {
+        lastNotifyStatus: "DELIVERED",
+        lastNotifyError: null,
+        lastNotifyAt: at,
+        lastNotifySeverity: "ALERT",
+      },
     });
   });
 
@@ -669,6 +683,7 @@ describe("recordAlertNotifyOutcome", () => {
     await recordAlertNotifyOutcome({
       alertId: "alert-1",
       status: "SUPERSEDED",
+      severity: "OK",
       error: "superseded",
       at,
       notAfter: emittedAt,
@@ -679,7 +694,12 @@ describe("recordAlertNotifyOutcome", () => {
         id: "alert-1",
         OR: [{ lastNotifyAt: null }, { lastNotifyAt: { lt: emittedAt } }],
       },
-      data: { lastNotifyStatus: "SUPERSEDED", lastNotifyError: "superseded", lastNotifyAt: at },
+      data: {
+        lastNotifyStatus: "SUPERSEDED",
+        lastNotifyError: "superseded",
+        lastNotifyAt: at,
+        lastNotifySeverity: "OK",
+      },
     });
   });
 
@@ -687,7 +707,13 @@ describe("recordAlertNotifyOutcome", () => {
     updateMany.mockRejectedValue(new Error("pool timeout"));
 
     await expect(
-      recordAlertNotifyOutcome({ alertId: "alert-1", status: "DELIVERED", error: null, at }),
+      recordAlertNotifyOutcome({
+        alertId: "alert-1",
+        status: "DELIVERED",
+        severity: "ALERT",
+        error: null,
+        at,
+      }),
     ).resolves.toBeUndefined();
   });
 });

@@ -21,7 +21,7 @@ import {
   type AlertNotifyOutcome,
   type AlertNotifyStatus,
 } from "../alerts/claim.js";
-import { SLACK_CONFIGURATION_FAILURES } from "../alerts/delivery.js";
+import { RETRIES_EXHAUSTED, SLACK_CONFIGURATION_FAILURES } from "../alerts/delivery.js";
 import { revertAlertEmission } from "../alerts/emission.js";
 import { logError, logInfo } from "../alerts/log.js";
 
@@ -105,12 +105,16 @@ const ACTIVE: AlertStatus = "ACTIVE";
 type AlertSendCheck = { ok: true } | { ok: false; outcome: AlertNotifyOutcome };
 
 function blocked(
-  alertId: string,
+  payload: AlertNotificationJob,
   status: AlertNotifyStatus,
   reason: string,
   notAfter?: Date,
 ): AlertSendCheck {
-  return { ok: false, outcome: { alertId, status, error: reason, at: new Date(), notAfter } };
+  const { alertId, severity } = payload;
+  return {
+    ok: false,
+    outcome: { alertId, status, severity, error: reason, at: new Date(), notAfter },
+  };
 }
 
 /**
@@ -144,14 +148,14 @@ async function checkAlertStillSendable(payload: AlertNotificationJob): Promise<A
     where: { id: payload.alertId },
     select: { status: true, severity: true, alertedAt: true },
   });
-  if (alert === null) return blocked(payload.alertId, "FAILED", "alert-deleted");
-  if (alert.status !== ACTIVE) return blocked(payload.alertId, "FAILED", "alert-paused");
+  if (alert === null) return blocked(payload, "FAILED", "alert-deleted");
+  if (alert.status !== ACTIVE) return blocked(payload, "FAILED", "alert-paused");
 
   // A job enqueued before the claim travelled cannot be placed against the row, so
   // it is delivered on the same terms it was queued under.
   const { emission } = payload;
   if (emission !== undefined && !isCurrentEmission(alert, payload, emission)) {
-    return blocked(payload.alertId, "SUPERSEDED", "superseded", new Date(emission.evaluatedAt));
+    return blocked(payload, "SUPERSEDED", "superseded", new Date(emission.evaluatedAt));
   }
   return { ok: true };
 }
@@ -272,6 +276,7 @@ async function compensateNonDelivery(payload: AlertNotificationJob, reason: stri
   await recordAlertNotifyOutcome({
     alertId: payload.alertId,
     status: compensated ? "COMPENSATED" : "FAILED",
+    severity: payload.severity,
     error: reason,
     at: new Date(),
     // A failed revert means the row may be newer than this emission: never bury its record.
@@ -288,7 +293,7 @@ async function compensateNonDelivery(payload: AlertNotificationJob, reason: stri
  * first breach. So it is recorded the way `alert-paused` is: the outcome lands on
  * the row, the severity stays where the evaluation put it, and the owner reads a
  * rule in ALERT whose notification says which setting to go and fix. Fixing it is
- * then enough: the scheduler re-pages once the Slack settings change (`isAwaitingSlackRetry`).
+ * then enough: the scheduler re-pages once the Slack settings change (`isAwaitingRedelivery`).
  */
 const PERMANENT_DELIVERY_FAILURES = new Set([
   ...SLACK_CONFIGURATION_FAILURES,
@@ -311,6 +316,7 @@ async function recordNonDelivery(payload: AlertNotificationJob, reason: string):
   await recordAlertNotifyOutcome({
     alertId: payload.alertId,
     status: "FAILED",
+    severity: payload.severity,
     error: reason,
     at: new Date(),
   });
@@ -393,6 +399,7 @@ export async function sendAlertNotification(payload: AlertNotificationJob): Prom
   await recordAlertNotifyOutcome({
     alertId: payload.alertId,
     status: "DELIVERED",
+    severity: payload.severity,
     error: null,
     at: new Date(),
   });
@@ -416,7 +423,7 @@ export function startAlertNotificationWorker(): Worker<AlertNotificationJob> {
     const attempts = job?.opts?.attempts ?? 1;
     const isExhausted = (job?.attemptsMade ?? 0) >= attempts;
     if (!isExhausted || job?.data === undefined) return;
-    void recordNonDelivery(job.data, "retries-exhausted");
+    void recordNonDelivery(job.data, RETRIES_EXHAUSTED);
   });
 
   return worker;

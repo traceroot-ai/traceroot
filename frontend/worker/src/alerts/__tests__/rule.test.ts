@@ -24,6 +24,7 @@ const VALID_ROW: AlertRowLike = {
   lastNotifyStatus: "FAILED",
   lastNotifyError: "no-channel",
   lastNotifyAt: ALERTED_AT,
+  lastNotifySeverity: "ALERT",
   slackUpdatedAt: null,
 };
 
@@ -38,7 +39,9 @@ const filtersOf = (value: unknown): unknown =>
 describe("parseAlertRule — a well-formed row", () => {
   it("returns the rule with every column carried through, the state and delivery ones nested", () => {
     const { severity, severityChangedAt, alertedAt, ...rest } = VALID_ROW;
-    const { lastNotifyStatus, lastNotifyError, lastNotifyAt, slackUpdatedAt, ...columns } = rest;
+    const { lastNotifyStatus, lastNotifyError, lastNotifyAt, lastNotifySeverity, ...delivery } =
+      rest;
+    const { slackUpdatedAt, ...columns } = delivery;
 
     expect(parseAlertRule(VALID_ROW)).toEqual({
       ...columns,
@@ -47,6 +50,7 @@ describe("parseAlertRule — a well-formed row", () => {
         status: lastNotifyStatus,
         error: lastNotifyError,
         at: lastNotifyAt,
+        severity: lastNotifySeverity,
         slackUpdatedAt,
       },
     });
@@ -189,6 +193,22 @@ describe("parseAlertRule — renotify", () => {
       { mode: "EVERY", intervalMinutes: "soon" },
     ]) {
       expect(parseAlertRule(rowWith({ renotify }))).toBeNull();
+    }
+  });
+});
+
+describe("parseAlertRule — the severity the last notification announced", () => {
+  it("is null rather than a guess when it predates the column or cannot be read", () => {
+    // A replay announces exactly this, so the rule's own severity is no stand-in.
+    for (const stored of [null, "CRITICAL", "alert"]) {
+      expect(parseAlertRule(rowWith({ lastNotifySeverity: stored }))?.lastDelivery.severity).toBe(
+        null,
+      );
+    }
+    for (const severity of ["OK", "ALERT", "NO_DATA"]) {
+      expect(parseAlertRule(rowWith({ lastNotifySeverity: severity }))?.lastDelivery.severity).toBe(
+        severity,
+      );
     }
   });
 });

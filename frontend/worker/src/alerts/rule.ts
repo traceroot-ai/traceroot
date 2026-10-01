@@ -11,6 +11,7 @@ import {
   type AlertFilter,
   type AlertNoDataMode,
   type AlertRenotify,
+  type AlertSeverity,
   type AlertThresholdOperator,
   type AlertView,
   type AlertWindow,
@@ -37,6 +38,7 @@ export interface AlertRowLike {
   readonly lastNotifyStatus: string | null;
   readonly lastNotifyError: string | null;
   readonly lastNotifyAt: Date | null;
+  readonly lastNotifySeverity: string | null;
   /** The workspace Slack integration's `updateTime`; the claim reads it only for a failed page. */
   readonly slackUpdatedAt: Date | null;
 }
@@ -46,6 +48,8 @@ export interface AlertLastDelivery {
   readonly status: string | null;
   readonly error: string | null;
   readonly at: Date | null;
+  /** What that attempt announced. Null when it predates the column, or cannot be read. */
+  readonly severity: AlertSeverity | null;
   readonly slackUpdatedAt: Date | null;
 }
 
@@ -132,6 +136,14 @@ function parseState(row: AlertRowLike): AlertRuntimeState {
   };
 }
 
+/**
+ * Never defaulted, unlike the rule's own severity: a replay announces exactly this,
+ * so a value it cannot read leaves nothing to announce.
+ */
+function parseNotifySeverity(value: string | null): AlertSeverity | null {
+  return value !== null && isAlertSeverity(value) ? value : null;
+}
+
 /** Null when the stored rule can no longer be evaluated; the caller skips it. */
 export function parseAlertRule(row: AlertRowLike): AlertRule | null {
   const threshold = toFiniteNumber(row.threshold);
@@ -170,6 +182,7 @@ export function parseAlertRule(row: AlertRowLike): AlertRule | null {
       status: row.lastNotifyStatus,
       error: row.lastNotifyError,
       at: row.lastNotifyAt,
+      severity: parseNotifySeverity(row.lastNotifySeverity),
       slackUpdatedAt: row.slackUpdatedAt,
     },
   };

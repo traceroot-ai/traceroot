@@ -6,7 +6,7 @@ import type {
   AlertFailureRecord,
   ClaimedAlert,
 } from "../claim.js";
-import type { AlertRule } from "../rule.js";
+import type { AlertLastDelivery, AlertRule } from "../rule.js";
 import type { AlertEvaluationRequest, AlertEvaluationResult } from "../evaluator-client.js";
 import type { AlertNotification } from "../../queues/alert-notification-queue.js";
 
@@ -74,7 +74,7 @@ const claimWith = (id: string, overrides: Partial<AlertRule> = {}): ClaimedAlert
     renotify: { mode: "OFF" },
     noDataMode: "HOLD",
     state: { severity: "OK", severityChangedAt: null, alertedAt: null },
-    lastDelivery: { status: null, error: null, at: null, slackUpdatedAt: null },
+    lastDelivery: { status: null, error: null, at: null, severity: null, slackUpdatedAt: null },
     ...overrides,
   },
   claimStamp: NOW,
@@ -438,14 +438,14 @@ describe("runAlertTick — the page a transition produces", () => {
   });
 });
 
-describe("runAlertTick — a page that failed before Slack was set up", () => {
+describe("runAlertTick — a page that never reached anyone", () => {
   const ALERTED_AT = new Date("2026-08-12T10:20:00.000Z");
   const FAILED_AT = new Date("2026-08-12T10:20:05.000Z");
   const CONNECTED_AT = new Date("2026-08-12T10:30:00.000Z");
 
   const undelivered = (
     id: string,
-    lastDelivery: Partial<AlertRule["lastDelivery"]> = {},
+    lastDelivery: Partial<AlertLastDelivery> = {},
     state: Partial<AlertRule["state"]> = {},
   ): ClaimedAlert =>
     claimWith(id, {
@@ -454,10 +454,76 @@ describe("runAlertTick — a page that failed before Slack was set up", () => {
         status: "FAILED",
         error: "no-channel",
         at: FAILED_AT,
+        severity: "ALERT",
         slackUpdatedAt: CONNECTED_AT,
         ...lastDelivery,
       },
     });
+
+  const minutesAfter = (minutes: number, seconds = 0): Date =>
+    new Date(BOUNDARY.getTime() + minutes * 60_000 + seconds * 1000);
+
+  /**
+   * One rule driven through consecutive ticks, each claim reading back the state the
+   * last completion wrote, so a sequence is proved through the real state machine
+   * rather than from a hand-built state that may not be reachable. Delivery outcomes
+   * are written in by the test, as the notification worker would.
+   */
+  const ruleOverTicks = (overrides: Partial<AlertRule> = {}) => {
+    let rule = claimWith("seq", overrides).rule;
+    return {
+      get rule() {
+        return rule;
+      },
+      deliver(lastDelivery: Partial<AlertLastDelivery>): void {
+        rule = { ...rule, lastDelivery: { ...rule.lastDelivery, ...lastDelivery } };
+      },
+      /** What `revertAlertEmissionState` and the COMPENSATED record leave behind. */
+      exhaust(payload: AlertNotification, at: Date): void {
+        const { emission } = payload;
+        if (emission === undefined) throw new Error("only an emission can be given back");
+        expect(rule.state.alertedAt?.getTime()).toBe(emission.evaluatedAt);
+        rule = {
+          ...rule,
+          state: {
+            severity: emission.priorSeverity,
+            severityChangedAt:
+              emission.priorSeverityChangedAt === null
+                ? null
+                : new Date(emission.priorSeverityChangedAt),
+            alertedAt: emission.priorAlertedAt === null ? null : new Date(emission.priorAlertedAt),
+          },
+          lastDelivery: {
+            ...rule.lastDelivery,
+            status: "COMPENSATED",
+            error: "retries-exhausted",
+            at,
+            severity: payload.severity,
+          },
+        };
+      },
+      async tick(minute: number, value: number | null): Promise<AlertNotification | undefined> {
+        const now = minutesAfter(minute, 42);
+        const enqueuedBefore = enqueueAlertNotification.mock.calls.length;
+        claimDueAlerts.mockResolvedValue([{ rule, claimStamp: now }]);
+        evaluateAlerts.mockResolvedValue([
+          {
+            alert_id: "seq",
+            value,
+            row_count: value === null ? 0 : 12,
+            error: null,
+            errorKind: null,
+          },
+        ]);
+
+        await runAlertTick(now);
+
+        const [completion] = completeAlertEvaluation.mock.calls.at(-1) ?? [];
+        if (completion !== undefined) rule = { ...rule, state: completion.state };
+        return enqueueAlertNotification.mock.calls.slice(enqueuedBefore).at(0)?.[0];
+      },
+    };
+  };
 
   it("re-pages the standing breach once Slack's settings change after the failure", async () => {
     claimDueAlerts.mockResolvedValue([undelivered("hot-1")]);
@@ -518,11 +584,113 @@ describe("runAlertTick — a page that failed before Slack was set up", () => {
     expect(enqueueAlertNotification).not.toHaveBeenCalled();
   });
 
-  it("leaves a failure Slack's settings cannot clear, or one that was not a failure, alone", async () => {
+  it("re-pages a breach that went quiet under HOLD and returned before Slack was connected", async () => {
+    // The reported sequence, renotify off throughout: the gap moves `severityChangedAt`
+    // past the failed page's stamp, but the breach the page announced never ended.
+    const rule = ruleOverTicks({ noDataMode: "HOLD" });
+
+    expect((await rule.tick(0, 250))?.severity).toBe("ALERT");
+    rule.deliver({
+      status: "FAILED",
+      error: "no-channel",
+      at: minutesAfter(0, 50),
+      severity: "ALERT",
+    });
+    expect(await rule.tick(1, null)).toBeUndefined();
+    expect(await rule.tick(2, 250)).toBeUndefined();
+    const { state } = rule.rule;
+    expect(state.severity).toBe("ALERT");
+    expect(state.severityChangedAt!.getTime()).toBeGreaterThan(state.alertedAt!.getTime());
+
+    // Nothing to retry into while Slack is still missing.
+    expect(await rule.tick(3, 250)).toBeUndefined();
+    rule.deliver({ slackUpdatedAt: minutesAfter(3, 55) });
+
+    const replay = await rule.tick(4, 250);
+    expect(replay?.severity).toBe("ALERT");
+    expect(replay?.previousSeverity).toBe("ALERT");
+    rule.deliver({ status: "DELIVERED", error: null, at: minutesAfter(4, 50), severity: "ALERT" });
+    expect(await rule.tick(5, 250)).toBeUndefined();
+  });
+
+  it("restarts delivery on the next tick once a replay's retries run out", async () => {
+    // The reported sequence: configuration failure, Slack set up, replay, transient
+    // failures outlast the job, then a successful re-emission.
+    const rule = ruleOverTicks();
+
+    expect((await rule.tick(0, 250))?.severity).toBe("ALERT");
+    rule.deliver({
+      status: "FAILED",
+      error: "no-channel",
+      at: minutesAfter(0, 50),
+      severity: "ALERT",
+    });
+    rule.deliver({ slackUpdatedAt: minutesAfter(0, 55) });
+
+    const replay = await rule.tick(1, 250);
+    expect(replay?.severity).toBe("ALERT");
+    // In flight: the outcome on the row is older than the replay's stamp, so later
+    // ticks leave it to the job rather than queueing a second one.
+    expect(await rule.tick(2, 250)).toBeUndefined();
+
+    // The rollback restores the replay's prior state, which is the failed page's own.
+    // The state machine has nothing left to say about a breach it reads as paged.
+    rule.exhaust(replay!, minutesAfter(31));
+    expect(rule.rule.state.alertedAt).toEqual(BOUNDARY);
+
+    const again = await rule.tick(32, 250);
+    expect(again?.severity).toBe("ALERT");
+    expect(again?.emission?.priorAlertedAt).toBe(BOUNDARY.getTime());
+    rule.deliver({ status: "DELIVERED", error: null, at: minutesAfter(32, 50), severity: "ALERT" });
+    expect(await rule.tick(33, 250)).toBeUndefined();
+  });
+
+  it("re-pages on the tick traffic returns, when Slack was connected during the gap", async () => {
+    claimDueAlerts.mockResolvedValue([
+      undelivered("back", {}, { severity: "NO_DATA", severityChangedAt: CONNECTED_AT }),
+    ]);
+    evaluateAlerts.mockResolvedValue([breachResult("back")]);
+
+    await runAlertTick(NOW);
+
+    expect(
+      enqueueAlertNotification.mock.calls.map(([p]) => [p.previousSeverity, p.severity]),
+    ).toEqual([["NO_DATA", "ALERT"]]);
+  });
+
+  it("never replays an attempt recorded before its severity was kept", async () => {
+    // Null is every attempt from before the column: what it announced is unknown, and
+    // the rule's current severity is no evidence of it.
+    claimDueAlerts.mockResolvedValue([
+      undelivered("legacy-failed", { severity: null }),
+      undelivered("legacy-exhausted", {
+        status: "COMPENSATED",
+        error: "retries-exhausted",
+        severity: null,
+      }),
+    ]);
+    evaluateAlerts.mockResolvedValue([
+      breachResult("legacy-failed"),
+      breachResult("legacy-exhausted"),
+    ]);
+
+    await runAlertTick(NOW);
+
+    expect(completeAlertEvaluation).toHaveBeenCalledTimes(2);
+    expect(enqueueAlertNotification).not.toHaveBeenCalled();
+  });
+
+  it("leaves every other outcome alone, including a rule paused, deleted or superseded", async () => {
     claimDueAlerts.mockResolvedValue([
       undelivered("rejected", { error: "permanent-slack-error" }),
       undelivered("entitlement", { error: "no-entitlement plan=free" }),
-      undelivered("compensated", { status: "COMPENSATED" }),
+      undelivered("paused", { error: "alert-paused" }),
+      undelivered("deleted", { error: "alert-deleted" }),
+      undelivered("superseded", { status: "SUPERSEDED", error: "superseded" }),
+      // Compensated for a reason about the project rather than the send.
+      undelivered("project-gone", { status: "COMPENSATED", error: "project-missing" }),
+      undelivered("compensated-config", { status: "COMPENSATED" }),
+      undelivered("failed-exhausted", { error: "retries-exhausted" }),
       undelivered("delivered", { status: "DELIVERED", error: null }),
     ]);
     evaluateAlerts.mockImplementation(async (request) =>
@@ -531,7 +699,27 @@ describe("runAlertTick — a page that failed before Slack was set up", () => {
 
     await runAlertTick(NOW);
 
+    expect(completeAlertEvaluation).toHaveBeenCalledTimes(9);
     expect(enqueueAlertNotification).not.toHaveBeenCalled();
+  });
+
+  it("leaves a compensated first breach to the state machine, which re-emits it already", async () => {
+    // Its rollback restored the severity before the breach, so this is an ordinary
+    // entry into ALERT: paged once, as a transition, not twice.
+    claimDueAlerts.mockResolvedValue([
+      undelivered(
+        "first",
+        { status: "COMPENSATED", error: "retries-exhausted" },
+        { severity: "OK", severityChangedAt: null, alertedAt: null },
+      ),
+    ]);
+    evaluateAlerts.mockResolvedValue([breachResult("first")]);
+
+    await runAlertTick(NOW);
+
+    expect(
+      enqueueAlertNotification.mock.calls.map(([p]) => [p.previousSeverity, p.severity]),
+    ).toEqual([["OK", "ALERT"]]);
   });
 
   it("does not replay a failure about an emission the rule has since replaced or left", async () => {
@@ -570,6 +758,7 @@ describe("runAlertTick — a page that failed before Slack was set up", () => {
           status: "FAILED",
           error: "no-channel",
           at: FAILED_AT,
+          severity: "ALERT",
           slackUpdatedAt: CONNECTED_AT,
         },
         renotify: { mode: "EVERY", intervalMinutes: 60 },

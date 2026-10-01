@@ -9,7 +9,7 @@ import {
   type ClaimedAlert,
 } from "./claim.js";
 import { mapWithConcurrency } from "./concurrency.js";
-import { isAwaitingSlackRetry } from "./delivery.js";
+import { isAwaitingRedelivery } from "./delivery.js";
 import { revertAlertEmission } from "./emission.js";
 import {
   evaluateAlerts,
@@ -184,10 +184,10 @@ async function settleClaim(
     rule.noDataMode,
     rule.window,
   );
-  // The standing page never reached anyone and Slack is set up now: send it, as the
-  // emission it always should have been, so it is stamped and compensated like one.
-  const isSlackRetry = !decided.emit && isAwaitingSlackRetry(rule, severity);
-  const transition = isSlackRetry
+  // The standing page never reached anyone and can now: send it, as the emission it
+  // always should have been, so it is stamped and compensated like one.
+  const isRedelivery = !decided.emit && isAwaitingRedelivery(rule, severity);
+  const transition = isRedelivery
     ? { emit: true, nextState: { ...decided.nextState, alertedAt: tick.boundary } }
     : decided;
 
@@ -207,8 +207,11 @@ async function settleClaim(
   }
 
   if (!transition.emit) return;
-  if (isSlackRetry) {
-    logInfo(`re-paging after slack was configured alert=${rule.id} project=${rule.projectId}`);
+  if (isRedelivery) {
+    logInfo(
+      `re-paging an undelivered page alert=${rule.id} project=${rule.projectId} ` +
+        `reason=${rule.lastDelivery.error}`,
+    );
   }
 
   // Write-then-enqueue, deliberately: the reverse order pages first and records
