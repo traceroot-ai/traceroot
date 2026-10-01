@@ -15,7 +15,6 @@ import {
   type DotItemDotProps,
 } from "recharts";
 import { ALERT_WINDOWS, type AlertWindow } from "@traceroot/core";
-import { FIELD_UNIT } from "@/features/filters/filter-controls";
 import {
   useWidgetPreview,
   type WidgetPreviewData,
@@ -37,7 +36,15 @@ import { DateFilterSelect } from "@/components/date-filter-select";
 import { makeRange } from "@/features/dashboards/range-presets";
 import { DEFAULT_DATE_FILTER, type DateFilterOption } from "@/lib/date-filter";
 import type { TimeRange } from "@/features/dashboards/types";
-import type { AlertAggregation, AlertFilter, AlertOperator, AlertView } from "../rule-model";
+import {
+  getAlertUnit,
+  withAlertUnit,
+  type AlertAggregation,
+  type AlertFilter,
+  type AlertMeasureUnit,
+  type AlertOperator,
+  type AlertView,
+} from "../rule-model";
 import { buildPreviewSpec, parseThreshold } from "../preview";
 
 interface AlertPreviewProps {
@@ -110,15 +117,18 @@ export function AlertPreviewChart({
   thresholdValue,
   operator,
   bucketMs,
+  unit,
 }: {
   data: WidgetPreviewData;
   thresholdValue: number | null;
   operator: AlertOperator;
   bucketMs: number;
+  // The rule's unit, not the engine field's: `count` and `uniq` of a latency
+  // column are not milliseconds.
+  unit?: AlertMeasureUnit;
 }) {
   const { spec, result } = data;
   const additive = isAdditiveAgg(spec.metric.agg);
-  const unit = FIELD_UNIT[spec.metric.measure];
   const { data: rows } = useMemo(
     () => pivotRows(result.columns, result.rows, additive ? 0 : null),
     [result, additive],
@@ -208,7 +218,7 @@ export function AlertPreviewChart({
             >
               <Label
                 className={THRESHOLD_TEXT_CLASS}
-                value={`Alert ${operator} ${thresholdValue}`}
+                value={`Alert ${operator} ${withAlertUnit(String(thresholdValue), unit, " ")}`}
                 position={side === "below" ? "insideBottomLeft" : "insideTopLeft"}
                 fill="currentColor"
                 fontSize={12}
@@ -303,6 +313,7 @@ export function AlertPreview({
             thresholdValue={thresholdValue}
             operator={operator}
             bucketMs={bucketMs}
+            unit={getAlertUnit(measureId, aggregation, view)}
           />
         ) : null}
       </div>

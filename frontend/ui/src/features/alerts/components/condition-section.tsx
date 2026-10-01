@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -9,222 +7,166 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { ALERT_WINDOWS, type AlertWindow } from "@traceroot/core";
 import { cn } from "@/lib/utils";
-import { FieldLabel, SectionBox } from "@/features/dashboards/components/SectionBox";
+import { SectionBox } from "@/features/dashboards/components/SectionBox";
+import { getMeasureDoc } from "../measure-docs";
 import {
-  ALERT_NO_DATA_MODES,
-  ALERT_NO_DATA_MODE_HINTS,
-  ALERT_NO_DATA_MODE_LABELS,
+  ALERT_MEASURES_BY_VIEW,
   ALERT_OPERATORS,
   ALERT_OPERATOR_LABELS,
-  ALERT_RENOTIFY_MAX_MINUTES,
-  ALERT_RENOTIFY_MIN_MINUTES,
-  DEFAULT_ALERT_RENOTIFY_INTERVAL_MINUTES,
-  clampRenotifyInterval,
-  type AlertNoDataMode,
+  getAlertUnit,
+  getMeasure,
+  getValidAggregations,
+  type AlertAggregation,
   type AlertOperator,
-  type AlertRenotify,
+  type AlertView,
 } from "../rule-model";
 import { CONTROL_SIZE } from "./form-controls";
+import { MeasureOption } from "./measure-option";
 
-interface RenotifyIntervalFieldProps {
-  intervalMinutes: number;
-  onIntervalChange: (intervalMinutes: number) => void;
-}
-
-/**
- * The raw input string is the state the user types into, as with threshold, and
- * only a value that survives the clamp unchanged is handed up. Clamping every
- * keystroke instead turns a cleared field into 1 and the next digit into 1x.
- *
- * The field owns the raw string for as long as it is mounted; a parent that
- * needs to reset it must remount it (key it by the rule's identity).
- */
-function RenotifyIntervalField({ intervalMinutes, onIntervalChange }: RenotifyIntervalFieldProps) {
-  const [draft, setDraft] = useState(String(intervalMinutes));
-
-  const handleChange = (value: string) => {
-    setDraft(value);
-    const parsed = Number(value);
-    if (clampRenotifyInterval(parsed) === parsed) onIntervalChange(parsed);
-  };
-
-  // Blank or unparseable leaves the last committed interval standing rather
-  // than inventing one.
-  const handleBlur = () => {
-    const parsed = Number(draft);
-    const next =
-      draft.trim() === "" || !Number.isFinite(parsed)
-        ? intervalMinutes
-        : clampRenotifyInterval(parsed);
-    setDraft(String(next));
-    onIntervalChange(next);
-  };
-
-  return (
-    <div>
-      <FieldLabel>Re-alert every (minutes)</FieldLabel>
-      <Input
-        type="number"
-        value={draft}
-        onChange={(e) => handleChange(e.target.value)}
-        onBlur={handleBlur}
-        aria-label="renotify interval"
-        required
-        min={ALERT_RENOTIFY_MIN_MINUTES}
-        max={ALERT_RENOTIFY_MAX_MINUTES}
-        step="1"
-        className={CONTROL_SIZE}
-      />
-    </div>
-  );
+function Connective({ children }: { children: React.ReactNode }) {
+  return <span className="shrink-0 text-[12px] text-muted-foreground">{children}</span>;
 }
 
 interface ConditionSectionProps {
+  view: AlertView;
+  measureId: string;
+  aggregation: AlertAggregation;
   operator: AlertOperator;
   threshold: string;
   window: AlertWindow;
-  noDataMode: AlertNoDataMode;
-  renotify: AlertRenotify;
+  onMeasureChange: (measureId: string) => void;
+  onAggregationChange: (aggregation: AlertAggregation) => void;
   onOperatorChange: (operator: AlertOperator) => void;
   onThresholdChange: (threshold: string) => void;
   onWindowChange: (window: AlertWindow) => void;
-  onNoDataModeChange: (noDataMode: AlertNoDataMode) => void;
-  onRenotifyChange: (renotify: AlertRenotify) => void;
 }
 
 /**
- * The single trigger condition. One threshold, no warning tier; a user who
- * wants two levels creates two alerts.
+ * The single trigger condition, laid out as the sentence it is: aggregation of
+ * measure, operator, value with its unit, over the last window. The measure
+ * sits beside the value because it decides what the value means. One
+ * threshold, no warning tier; a user who wants two levels creates two alerts.
  *
- * Window items read "Last 10m", not the detector settings' "Every 10m": the
- * token is a lookback, and a cadence label would promise a notification rate
- * this field does not control. Renotify is the field that does, hence its place
- * here rather than in the notifications section.
- *
- * The no-data mode decides what an empty window means, which only this section's
- * window defines. NOTIFY is the mode for sources whose silence is the incident.
+ * The window reads "over the last 10m": the token is a lookback, not a cadence.
  */
 export function ConditionSection({
+  view,
+  measureId,
+  aggregation,
   operator,
   threshold,
   window,
-  noDataMode,
-  renotify,
+  onMeasureChange,
+  onAggregationChange,
   onOperatorChange,
   onThresholdChange,
   onWindowChange,
-  onNoDataModeChange,
-  onRenotifyChange,
 }: ConditionSectionProps) {
+  const measure = getMeasure(view, measureId);
+  const validAggregations = measure ? getValidAggregations(measure, view) : [];
+  const unit = getAlertUnit(measureId, aggregation, view);
+
   return (
-    <SectionBox label="Conditions">
-      <div className="p-3">
-        <FieldLabel>Trigger</FieldLabel>
-        <div className="flex gap-1.5">
-          <Select value={operator} onValueChange={(o) => onOperatorChange(o as AlertOperator)}>
-            <SelectTrigger className={cn(CONTROL_SIZE, "w-36 shrink-0")} aria-label="operator">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ALERT_OPERATORS.map((o) => (
-                <SelectItem key={o} value={o} className="text-[12px]">
-                  {ALERT_OPERATOR_LABELS[o]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input
-            type="number"
-            value={threshold}
-            onChange={(e) => onThresholdChange(e.target.value)}
-            placeholder="Threshold"
-            aria-label="threshold"
-            required
-            step="any"
-            className={cn(CONTROL_SIZE, "min-w-0 flex-1")}
-          />
-        </div>
-      </div>
-      <div className="p-3">
-        <FieldLabel>Window</FieldLabel>
-        <Select value={window} onValueChange={(w) => onWindowChange(w as AlertWindow)}>
-          <SelectTrigger className={CONTROL_SIZE} aria-label="window">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(Object.keys(ALERT_WINDOWS) as AlertWindow[]).map((w) => (
-              <SelectItem key={w} value={w} className="text-[12px]">
-                {`Last ${w}`}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="p-3">
-        <FieldLabel>When a window has no data</FieldLabel>
-        <Select
-          value={noDataMode}
-          onValueChange={(mode) => onNoDataModeChange(mode as AlertNoDataMode)}
-        >
-          <SelectTrigger className={CONTROL_SIZE} aria-label="no data mode">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ALERT_NO_DATA_MODES.map((mode) => (
-              <SelectItem key={mode} value={mode} className="text-[12px]">
-                {ALERT_NO_DATA_MODE_LABELS[mode]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-          {ALERT_NO_DATA_MODE_HINTS[noDataMode]}
-        </p>
-      </div>
-      <div className="p-3">
-        <div className="flex flex-col gap-3">
-          <div>
-            <FieldLabel>Renotify</FieldLabel>
+    <SectionBox label="Condition">
+      {/* Scoped here rather than at the app root, matching how the repo mounts
+          tooltip providers. Context still reaches the portalled dropdown. */}
+      <TooltipProvider delayDuration={150}>
+        <div className="flex flex-col gap-2 p-3">
+          <div className="flex items-center gap-1.5">
             <Select
-              value={renotify.mode}
-              // A mode change builds a new renotify rather than editing one,
-              // so "off" can never carry a stale interval.
-              onValueChange={(mode) =>
-                onRenotifyChange(
-                  mode === "EVERY"
-                    ? {
-                        mode: "EVERY",
-                        intervalMinutes: DEFAULT_ALERT_RENOTIFY_INTERVAL_MINUTES,
-                      }
-                    : { mode: "OFF" },
-                )
-              }
+              value={aggregation}
+              // Radix re-syncs its hidden native select when the item list
+              // swaps under a measure change and emits onValueChange("") for
+              // the not-yet-remounted value. "" is never a legal aggregation.
+              onValueChange={(a) => {
+                if (a) onAggregationChange(a as AlertAggregation);
+              }}
+              disabled={validAggregations.length <= 1}
             >
-              <SelectTrigger className={CONTROL_SIZE} aria-label="renotify">
-                <SelectValue />
+              <SelectTrigger className={cn(CONTROL_SIZE, "w-20 shrink-0")} aria-label="aggregation">
+                <SelectValue placeholder="Aggregation" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="OFF" className="text-[12px]">
-                  Off (alert only on transitions)
-                </SelectItem>
-                <SelectItem value="EVERY" className="text-[12px]">
-                  Re-alert at a regular interval
-                </SelectItem>
+                {validAggregations.map((a) => (
+                  <SelectItem key={a} value={a} className="text-[12px]">
+                    {a}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Connective>of</Connective>
+            <Select value={measureId} onValueChange={onMeasureChange}>
+              <SelectTrigger className={cn(CONTROL_SIZE, "min-w-0 flex-1")} aria-label="measure">
+                <SelectValue placeholder="Measure" />
+              </SelectTrigger>
+              <SelectContent>
+                {ALERT_MEASURES_BY_VIEW[view].map((m) => (
+                  <MeasureOption key={m.id} measure={m} doc={getMeasureDoc(view, m.id)} />
+                ))}
               </SelectContent>
             </Select>
           </div>
-          {renotify.mode === "EVERY" && (
-            <RenotifyIntervalField
-              intervalMinutes={renotify.intervalMinutes}
-              onIntervalChange={(intervalMinutes) =>
-                onRenotifyChange({ mode: "EVERY", intervalMinutes })
-              }
-            />
-          )}
+          <div className="flex items-center gap-1.5">
+            <Select value={operator} onValueChange={(o) => onOperatorChange(o as AlertOperator)}>
+              <SelectTrigger className={cn(CONTROL_SIZE, "w-14 shrink-0")} aria-label="operator">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ALERT_OPERATORS.map((o) => (
+                  <SelectItem key={o} value={o} className="text-[12px]">
+                    {ALERT_OPERATOR_LABELS[o]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* The unit lives inside the field's border so it reads as part of
+                the value. A bare input, not NumberField: that one refuses
+                negatives, and a threshold may be one. */}
+            <div
+              className={cn(
+                CONTROL_SIZE,
+                "flex min-w-0 flex-1 items-center gap-1 rounded-md border border-input bg-transparent px-3 shadow-sm focus-within:ring-1 focus-within:ring-ring",
+              )}
+            >
+              {unit?.prefix && (
+                <span className="shrink-0 text-muted-foreground">{unit.prefix}</span>
+              )}
+              <input
+                type="number"
+                value={threshold}
+                onChange={(e) => onThresholdChange(e.target.value)}
+                placeholder="Threshold"
+                aria-label="threshold"
+                required
+                step="any"
+                className="min-w-0 flex-1 bg-transparent outline-none [appearance:textfield] placeholder:text-muted-foreground [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+              {unit?.suffix && (
+                <span className="shrink-0 text-muted-foreground">{unit.suffix}</span>
+              )}
+            </div>
+            <Connective>over the last</Connective>
+            <Select value={window} onValueChange={(w) => onWindowChange(w as AlertWindow)}>
+              <SelectTrigger
+                className={cn(CONTROL_SIZE, "w-[4.5rem] shrink-0")}
+                aria-label="window"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(ALERT_WINDOWS) as AlertWindow[]).map((w) => (
+                  <SelectItem key={w} value={w} className="text-[12px]">
+                    {w}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-      </div>
+      </TooltipProvider>
     </SectionBox>
   );
 }

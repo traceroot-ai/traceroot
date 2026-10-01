@@ -256,22 +256,36 @@ export function canonicalizeAlertFilters(filters: readonly AlertFilter[]): Alert
 // the only aggregation that means anything on it.
 export type AlertMeasureType = "number" | "string" | "count";
 
+/** Rendered around a number: `$` before a cost, `ms` after a latency. */
+export interface AlertMeasureUnit {
+  prefix?: string;
+  suffix?: string;
+}
+
 export interface AlertMeasure {
   id: string;
   label: string;
   type: AlertMeasureType;
+  // Only where the bare number would mislead: a token count names itself, and
+  // the id measures have no unit to state.
+  unit?: AlertMeasureUnit;
 }
 
 export const ALERT_MEASURES_BY_VIEW: Record<AlertView, readonly AlertMeasure[]> = {
   SPANS: [
     { id: "count", label: "Count", type: "count" },
     { id: "trace_id", label: "Trace ID", type: "string" },
-    { id: "latency", label: "Latency", type: "number" },
-    { id: "cost", label: "Cost", type: "number" },
+    { id: "latency", label: "Latency", type: "number", unit: { suffix: "ms" } },
+    { id: "cost", label: "Cost", type: "number", unit: { prefix: "$" } },
     { id: "input_tokens", label: "Input tokens", type: "number" },
     { id: "output_tokens", label: "Output tokens", type: "number" },
     { id: "total_tokens", label: "Total tokens", type: "number" },
-    { id: "total_tokens_per_second", label: "Total tokens per second", type: "number" },
+    {
+      id: "total_tokens_per_second",
+      label: "Total tokens per second",
+      type: "number",
+      unit: { suffix: "tok/s" },
+    },
     { id: "unique_user_ids", label: "Unique user ids", type: "string" },
     { id: "unique_session_ids", label: "Unique session ids", type: "string" },
   ],
@@ -279,6 +293,30 @@ export const ALERT_MEASURES_BY_VIEW: Record<AlertView, readonly AlertMeasure[]> 
 
 export function getMeasure(view: AlertView, measureId: string): AlertMeasure | undefined {
   return ALERT_MEASURES_BY_VIEW[view].find((m) => m.id === measureId);
+}
+
+// These count rows or distinct values, so the column's unit does not survive them.
+const UNITLESS_AGGREGATIONS: readonly string[] = ["count", "uniq"];
+
+/**
+ * The unit a rule's threshold and reading are stated in, or undefined when the
+ * number is bare. The one copy the form, the preview, the assistant cards and
+ * the Slack message read. Takes plain strings because a stored rule is not
+ * typed by the registry.
+ */
+export function getAlertUnit(
+  measureId: string,
+  aggregation: string,
+  view: AlertView = DEFAULT_ALERT_VIEW,
+): AlertMeasureUnit | undefined {
+  if (UNITLESS_AGGREGATIONS.includes(aggregation)) return undefined;
+  return getMeasure(view, measureId)?.unit;
+}
+
+/** `gap` separates the suffix only: "$5", "500ms", or "500 ms" with a space. */
+export function withAlertUnit(text: string, unit: AlertMeasureUnit | undefined, gap = ""): string {
+  if (!unit) return text;
+  return `${unit.prefix ?? ""}${text}${unit.suffix ? `${gap}${unit.suffix}` : ""}`;
 }
 
 /** The query-engine view and field that compute a measure. */
