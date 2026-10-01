@@ -99,13 +99,18 @@ const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
  *   Full dataset · 500 cases
  *   Subset · 20 of 500 cases · first
  *   Subset · 20 of 500 cases · sample · seed 7
+ *   All 500 cases · first
  *   Coverage unknown
+ *
+ * A `first`/`sample` run that selected every case is not a subset (see `isSubset`), so
+ * it is labelled as covering all of them rather than as "Subset · 500 of 500".
  */
 export function formatCoverage(coverage: RunCoverage): string {
   const { mode, datasetCaseCount, selectedCaseCount, sampleSeed } = coverage;
   if (mode === "unknown") return "Coverage unknown";
   if (mode === "full") return `Full dataset · ${plural(datasetCaseCount ?? 0, "case")}`;
   const seed = sampleSeed != null ? ` · seed ${sampleSeed}` : "";
+  if (!isSubset(coverage)) return `All ${plural(datasetCaseCount ?? 0, "case")} · ${mode}${seed}`;
   return `Subset · ${selectedCaseCount} of ${plural(datasetCaseCount ?? 0, "case")} · ${mode}${seed}`;
 }
 

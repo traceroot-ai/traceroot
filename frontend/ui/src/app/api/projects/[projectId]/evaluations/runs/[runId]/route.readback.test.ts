@@ -259,6 +259,7 @@ describe("run/result read-back", () => {
     // sample_seed is BIGINT, so Prisma hands back a bigint that JSON cannot serialize.
     db.run = {
       ...(db.run as Record<string, unknown>),
+      datasetCaseCount: 3,
       selectionMode: "sample",
       selectedCaseCount: 2,
       sampleSeed: BigInt(1726000000000),
@@ -267,7 +268,12 @@ describe("run/result read-back", () => {
     expect(status).toBe(200);
     const run = body.run as Record<string, unknown>;
     expect(run).not.toHaveProperty("sampleSeed");
-    expect(run.coverage).toMatchObject({ mode: "sample", sampleSeed: 1726000000000 });
+    expect(run.coverage).toEqual({
+      mode: "sample",
+      datasetCaseCount: 3,
+      selectedCaseCount: 2,
+      sampleSeed: 1726000000000,
+    });
   });
 
   it("404s an unknown run", async () => {

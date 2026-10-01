@@ -170,8 +170,13 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
        * `--first`. Coverage answers "which cases did this run measure"; this answers
        * "did we hand you all the rows it produced". Conversely a run whose SDK sent
        * case_count = 20 could exceed the cap and have its truncation go unreported.
+       *
+       * The page and the count are separate reads, so a run still receiving results can
+       * gain rows between them. Only a page that actually hit the cap can have been
+       * truncated, which keeps a short in-progress page from reporting an API limit.
        */
-      resultsTruncated: resultCount > run.results.length,
+      resultsTruncated:
+        run.results.length >= MAX_RUN_DETAIL_RESULTS && resultCount > run.results.length,
     },
     results,
   });

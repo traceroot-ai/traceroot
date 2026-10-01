@@ -127,6 +127,17 @@ describe("formatCoverage", () => {
     );
   });
 
+  it("labels a first/sample run that selected every case as all cases, not a subset", () => {
+    expect(formatCoverage(toRunCoverage(stored({ selectedCaseCount: 500 })))).toBe(
+      "All 500 cases · first",
+    );
+    expect(
+      formatCoverage(
+        toRunCoverage(stored({ selectionMode: "sample", selectedCaseCount: 500, sampleSeed: 7 })),
+      ),
+    ).toBe("All 500 cases · sample · seed 7");
+  });
+
   it("pluralises the dataset size", () => {
     expect(
       formatCoverage(
