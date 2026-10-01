@@ -1,5 +1,22 @@
 import { createHash } from "node:crypto";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
+
+/** Caller holds the finding row lock shared with signal opening creation. */
+export async function removeOrphanSignalRcas(
+  tx: Pick<Prisma.TransactionClient, "$executeRaw">,
+  findingId: string,
+): Promise<void> {
+  // Match by detector, not signal: moving a hit preserves its RCA evidence.
+  // Remove only links with no evidence left, so they cannot inherit another
+  // detector's section when this shared finding completes.
+  await tx.$executeRaw`
+    DELETE FROM signal_rcas r USING signals s
+    WHERE r.signal_id = s.id AND r.finding_id = ${findingId}
+      AND NOT EXISTS (
+        SELECT 1 FROM signal_hits h WHERE h.finding_id = r.finding_id
+          AND h.project_id = s.project_id AND h.detector_id = s.detector_id
+      )`;
+}
 
 /** First attempt's trace id IS the finding id (dashless); later attempts hash (finding, attempt). */
 export function executionTraceId(findingId: string, attempt: number): string {
@@ -67,12 +84,15 @@ export async function finishFindingIfLatest(
   },
 ): Promise<boolean> {
   return db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM detector_rcas WHERE finding_id = ${params.findingId} FOR UPDATE`;
+    // Serialize status writes without blocking FK checks when a merge
+    // carries an RCA link; a stronger lock would invert finding/link locks.
+    await tx.$queryRaw`SELECT id FROM detector_rcas WHERE finding_id = ${params.findingId} FOR NO KEY UPDATE`;
     // Opening creation updates this same finding row before inserting its
     // signal_rcas row. Holding the row lock makes coverage and completion one
     // atomic decision, including when this was the final failed attempt.
     let uncovered = false;
     if (params.coveredOpenings) {
+      await removeOrphanSignalRcas(tx, params.findingId);
       const openings = await tx.$queryRaw<{ signalId: string; reopenSeq: number }[]>`
         SELECT signal_id AS "signalId", reopen_seq AS "reopenSeq"
         FROM signal_rcas WHERE finding_id = ${params.findingId}`;
