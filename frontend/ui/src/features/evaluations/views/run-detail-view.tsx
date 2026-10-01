@@ -253,6 +253,8 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           <div className="flex min-h-0 flex-1 flex-col">
             <ResultsSection
               coverage={data.run.coverage}
+              resultCount={data.run.resultCount}
+              resultsTruncated={data.run.resultsTruncated}
               results={results}
               onOpen={setOpenResultId}
               openResultId={openResultId}
@@ -398,11 +400,15 @@ function PendingTracePanel({
 function ResultsSection({
   results,
   coverage,
+  resultCount,
+  resultsTruncated,
   onOpen,
   openResultId,
 }: {
   results: ResultRow[];
   coverage: RunCoverage;
+  resultCount: number;
+  resultsTruncated: boolean;
   onOpen: (id: string) => void;
   openResultId: string | null;
 }) {
@@ -459,9 +465,17 @@ function ResultsSection({
           the results it qualifies — this page deliberately has no stat tiles. */}
         <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
           <CoverageBadge coverage={coverage} />
-          <span className="text-[11px] text-muted-foreground">
-            {results.length} {results.length === 1 ? "result" : "results"} reported
-          </span>
+          {/* A capped response is the API's limit, not the run's coverage, so it is
+            called out separately and only when the API says it happened. */}
+          {resultsTruncated ? (
+            <span className="text-[11px] text-amber-700 dark:text-amber-400">
+              Showing the first {results.length} of {resultCount} results (API limit)
+            </span>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">
+              {results.length} {results.length === 1 ? "result" : "results"} reported
+            </span>
+          )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto">

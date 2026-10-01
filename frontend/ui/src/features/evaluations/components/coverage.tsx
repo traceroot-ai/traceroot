@@ -33,14 +33,19 @@ export function CoverageCell({ coverage }: { coverage: RunCoverage }) {
       {formatCoverageRatio(coverage)}
       {/* One character carries the whole distinction in a dense table: a subset is
           partial, unknown coverage was never reported. Both are spelled out on hover, and
-          the aria-label keeps them available without one. */}
+          the role="img" + aria-label names each one for a screen reader, which would
+          otherwise skip a label on a generic span and announce the bare glyph. */}
       {isSubset(coverage) && (
-        <span className="text-[10px] text-amber-700 dark:text-amber-400" aria-label="subset run">
+        <span
+          role="img"
+          className="text-[10px] text-amber-700 dark:text-amber-400"
+          aria-label="subset run"
+        >
           ◗
         </span>
       )}
       {coverage.mode === "unknown" && (
-        <span className="text-muted-foreground" aria-label="coverage unknown">
+        <span role="img" className="text-muted-foreground" aria-label="coverage unknown">
           ?
         </span>
       )}
@@ -49,8 +54,11 @@ export function CoverageCell({ coverage }: { coverage: RunCoverage }) {
   if (!reason) return cell;
   return (
     <Tooltip>
+      {/* Focusable so a keyboard user can open the explanation, not just a mouse. */}
       <TooltipTrigger asChild>
-        <span className="cursor-default">{cell}</span>
+        <span tabIndex={0} className="cursor-default">
+          {cell}
+        </span>
       </TooltipTrigger>
       <TooltipContent side="top" align="end" className="max-w-[320px]">
         {/* TooltipContent is primary-on-primary, so the two lines separate by weight
@@ -80,7 +88,9 @@ export function CoverageBadge({ coverage }: { coverage: RunCoverage }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="cursor-default">{badge}</span>
+        <span tabIndex={0} className="cursor-default">
+          {badge}
+        </span>
       </TooltipTrigger>
       <TooltipContent side="bottom" align="start" className="max-w-[360px]">
         {reason}

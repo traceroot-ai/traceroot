@@ -159,6 +159,14 @@ const RESULT = {
   },
 };
 
+// Every row the detail endpoint returns for RUN: its resultCount is 24 and nothing was
+// capped, so the payload carries all 24, not a lone representative row.
+const RESULTS = Array.from({ length: 24 }, (_, i) =>
+  i === 0
+    ? RESULT
+    : { ...RESULT, id: `res${i + 1}`, testCaseId: `case-${i + 1}`, traceId: `tr_${i + 1}` },
+);
+
 // An older run of the SAME evaluation lineage, distinct candidate, so grouping and
 // latest-only are meaningful in the run-centric table.
 const RUN_OLDER = {
@@ -187,7 +195,7 @@ const RUN_LEGACY = {
 };
 
 function payloadFor(url: string): unknown {
-  if (url.includes("/evaluations/runs/run1")) return { run: RUN, results: [RESULT] };
+  if (url.includes("/evaluations/runs/run1")) return { run: RUN, results: RESULTS };
   if (url.includes("/evaluations/runs"))
     return { data: [RUN, RUN_OLDER, RUN_LEGACY], meta: { page: 0, limit: 50, total: 3 } };
   if (url.includes("/evaluations/scorers"))
@@ -344,8 +352,11 @@ describe("real Datasets + Evaluations views render server data", () => {
       mount(<EvaluationsView projectId="p1" />);
       await screen.findByText("24 / 24");
       // The marker is what stops a subset's aggregates reading as a whole-dataset result.
-      expect(screen.getAllByLabelText("subset run")).toHaveLength(1);
-      expect(screen.getAllByLabelText("coverage unknown")).toHaveLength(1);
+      expect(screen.getAllByRole("img", { name: "subset run" })).toHaveLength(1);
+      expect(screen.getAllByRole("img", { name: "coverage unknown" })).toHaveLength(1);
+      // The hover explanation is reachable from the keyboard too.
+      const trigger = screen.getByRole("img", { name: "subset run" }).closest("[tabindex]");
+      expect(trigger?.getAttribute("tabindex")).toBe("0");
     });
   });
 
@@ -374,7 +385,7 @@ describe("real Datasets + Evaluations views render server data", () => {
                     sampleSeed: 7,
                   },
                 },
-                results: [RESULT],
+                results: RESULTS,
               }
             : payloadFor(String(url)),
       })) as unknown as typeof fetch;
@@ -383,13 +394,60 @@ describe("real Datasets + Evaluations views render server data", () => {
       expect(screen.getByText(/not final/)).toBeDefined();
     });
 
+    it("warns that the API capped the rows only when the response says it did", async () => {
+      // The single-run table is a partial view when the run has more rows than the cap.
+      global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
+        ok: true,
+        status: 200,
+        json: async () =>
+          String(url).includes("/evaluations/runs/run1")
+            ? { run: { ...RUN, resultCount: 1200, resultsTruncated: true }, results: RESULTS }
+            : payloadFor(String(url)),
+      })) as unknown as typeof fetch;
+      mount(<RunDetailView projectId="p1" runId="run1" />);
+      expect(
+        await screen.findByText("Showing the first 24 of 1200 results (API limit)"),
+      ).toBeDefined();
+    });
+
+    it("reports the row count without an API-limit warning when nothing was capped", async () => {
+      mount(<RunDetailView projectId="p1" runId="run1" />);
+      expect(await screen.findByText(withText(/^24 results reported$/))).toBeDefined();
+      expect(screen.queryByText(/API limit/)).toBeNull();
+    });
+
+    it("labels a first-N run that selected every case as all cases, not a subset", async () => {
+      global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
+        ok: true,
+        status: 200,
+        json: async () =>
+          String(url).includes("/evaluations/runs/run1")
+            ? {
+                run: {
+                  ...RUN,
+                  coverage: {
+                    mode: "first",
+                    datasetCaseCount: 24,
+                    selectedCaseCount: 24,
+                    sampleSeed: null,
+                  },
+                },
+                results: RESULTS,
+              }
+            : payloadFor(String(url)),
+      })) as unknown as typeof fetch;
+      mount(<RunDetailView projectId="p1" runId="run1" />);
+      expect(await screen.findByText("All 24 cases · first")).toBeDefined();
+      expect(screen.queryByText(/not final/)).toBeNull();
+    });
+
     it("says so plainly when a run never reported its coverage, without calling it non-final", async () => {
       global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
         ok: true,
         status: 200,
         json: async () =>
           String(url).includes("/evaluations/runs/run1")
-            ? { run: { ...RUN, coverage: RUN_LEGACY.coverage }, results: [RESULT] }
+            ? { run: { ...RUN, coverage: RUN_LEGACY.coverage }, results: RESULTS }
             : payloadFor(String(url)),
       })) as unknown as typeof fetch;
       mount(<RunDetailView projectId="p1" runId="run1" />);
