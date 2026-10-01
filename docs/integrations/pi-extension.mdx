@@ -1,0 +1,57 @@
+---
+title: pi CLI Extension
+description: Trace interactive pi CLI coding sessions with TraceRoot
+---
+
+The [TraceRoot pi extension](https://github.com/traceroot-ai/traceroot-pi-extension) automatically captures traces from interactive [pi](https://pi.dev) coding-agent terminal sessions.
+
+Each session sends live traces to TraceRoot with conversation turns, LLM requests, tool executions, token usage, and session continuity metadata.
+
+<Note>
+If you are embedding pi inside your own Node.js application instead of using the interactive CLI, see [pi SDK (`@earendil-works/pi-coding-agent`)](/integrations/pi) or [pi Agent Core](/integrations/pi-agent-core).
+</Note>
+
+## Installation
+
+Install the extension directly via `pi`:
+
+```bash
+pi install npm:@traceroot-ai/pi-extension
+```
+
+Alternatively, install from source:
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot-pi-extension.git
+cd traceroot-pi-extension
+pi install .
+```
+
+## Configuration
+
+Tracing is opt-in. Set your TraceRoot environment variables in your shell profile (e.g. `~/.bashrc`, `~/.zshrc`):
+
+```bash
+export TRACEROOT_ENABLED=true
+export TRACEROOT_API_KEY="your-api-key-from-app.traceroot.ai"
+
+# Optional: Set host URL if self-hosting TraceRoot
+# export TRACEROOT_HOST_URL="https://your-traceroot.example.com"
+```
+
+| Variable | Required | Description |
+| -------- | -------- | ----------- |
+| `TRACEROOT_ENABLED` | Yes | Set to `true` to enable session tracing. |
+| `TRACEROOT_API_KEY` | Yes | Your TraceRoot API key from [app.traceroot.ai](https://app.traceroot.ai). |
+| `TRACEROOT_HOST_URL` | No | Base TraceRoot URL. Defaults to `https://app.traceroot.ai`. |
+| `TRACEROOT_OTLP_ENDPOINT` | No | Custom OTLP endpoint override. |
+
+Restart your terminal or `source ~/.zshrc`, then launch `pi`. All interactions are streamed to your TraceRoot dashboard in real time.
+
+## Repository
+
+The extension is open-source on GitHub:
+
+<Card title="traceroot-pi-extension" icon="github" href="https://github.com/traceroot-ai/traceroot-pi-extension">
+  View source code, releases, and documentation on GitHub
+</Card>

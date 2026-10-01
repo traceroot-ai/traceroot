@@ -1,0 +1,136 @@
+---
+title: Azure OpenAI
+description: Trace Azure OpenAI Service calls with TraceRoot
+---
+
+Trace calls to Azure OpenAI Service deployments using the official OpenAI SDK's `AzureOpenAI` client.
+
+<Note>
+Azure OpenAI has no dedicated instrumentor: tracing is provided directly through `Integration.OPENAI` in Python and `instrumentModules: { openAI }` in TypeScript, which instrument the `AzureOpenAI` client class alongside standard OpenAI clients.
+</Note>
+
+## Installation
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot openai
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot openai
+    ```
+  </Tab>
+</Tabs>
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    Initialize TraceRoot with `Integration.OPENAI`, then instantiate `AzureOpenAI`:
+
+    ```python
+    import os
+    from openai import AzureOpenAI
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = AzureOpenAI(
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        api_version="2024-08-01-preview",
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    Initialize TraceRoot with `instrumentModules: { openAI: AzureOpenAI }`:
+
+    ```typescript
+    import { AzureOpenAI } from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: AzureOpenAI },
+    });
+
+    const client = new AzureOpenAI({
+      endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+      apiKey: process.env.AZURE_OPENAI_API_KEY,
+      apiVersion: '2024-08-01-preview',
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    Once initialized, calls to your Azure OpenAI deployments are automatically traced:
+
+    ```python
+    import os
+    from openai import AzureOpenAI
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = AzureOpenAI(
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        api_version="2024-08-01-preview",
+    )
+
+    # This call is automatically traced
+    response = client.chat.completions.create(
+        model="gpt-4o",  # Deployment name in Azure
+        messages=[
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    Deployment requests and tool invocations are traced automatically:
+
+    ```typescript
+    import { AzureOpenAI } from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: AzureOpenAI },
+    });
+
+    const client = new AzureOpenAI({
+      endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+      apiKey: process.env.AZURE_OPENAI_API_KEY,
+      apiVersion: '2024-08-01-preview',
+    });
+
+    // This call is automatically traced
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o',  // Deployment name in Azure
+      messages: [{ role: 'user', content: 'What is the capital of France?' }],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute  | Description                                                       |
+| ---------- | ----------------------------------------------------------------- |
+| Model      | Deployment name and base model ID                                 |
+| Messages   | Input prompt messages                                             |
+| Response   | Completion message and choices                                    |
+| Tool calls | Function and tool call arguments and outputs                      |
+| Tokens     | Prompt, completion, and total tokens                              |
+| Latency    | Request duration                                                  |

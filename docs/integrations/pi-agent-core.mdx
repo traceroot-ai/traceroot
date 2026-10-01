@@ -1,0 +1,109 @@
+---
+title: pi Agent Core
+description: Trace @earendil-works/pi-agent-core executions with TraceRoot
+---
+
+Automatically trace agent runs, LLM calls, and tool executions from applications built with [`@earendil-works/pi-agent-core`](https://github.com/earendil-works/pi) — the lower-level standalone `Agent` foundation behind the pi coding agent.
+
+<Note>
+**Version Requirement**: Instrumenting `pi-agent-core` requires **`@traceroot-ai/traceroot` 0.4.0 or later**.
+
+Looking for other forms of pi?
+- For embedded `AgentSession` runs, see [pi SDK (`@earendil-works/pi-coding-agent`)](/integrations/pi).
+- For the interactive CLI tool, see [pi CLI Extension](/integrations/pi-extension).
+</Note>
+
+## Installation
+
+```bash
+npm install @traceroot-ai/traceroot@^0.4.0 @earendil-works/pi-agent-core
+```
+
+## Setup
+
+TraceRoot exports `instrumentPiAgentCore` directly to patch `@earendil-works/pi-agent-core`'s `Agent` class before creating instances:
+
+```typescript
+import * as piAgentCore from '@earendil-works/pi-agent-core';
+import { instrumentPiAgentCore, TraceRoot } from '@traceroot-ai/traceroot';
+
+// Initialize the TraceRoot SDK
+TraceRoot.initialize();
+
+// Instrument the pi-agent-core module
+instrumentPiAgentCore(piAgentCore);
+```
+
+Alternatively, pass `piAgentCore` through `TraceRoot.initialize()`:
+
+```typescript
+import * as piAgentCore from '@earendil-works/pi-agent-core';
+import { TraceRoot } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({
+  instrumentModules: { piAgentCore },
+});
+```
+
+## Usage
+
+Once instrumented, every `agent.prompt()` execution is automatically recorded as an agent span containing nested tool and LLM spans:
+
+```typescript
+import * as piAgentCore from '@earendil-works/pi-agent-core';
+import { Agent } from '@earendil-works/pi-agent-core';
+import { instrumentPiAgentCore, TraceRoot } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize();
+instrumentPiAgentCore(piAgentCore);
+
+const agent = new Agent({
+  // configure models, tools, and options
+});
+
+// Automatically creates an Agent.prompt span with nested tool and LLM calls
+await agent.prompt('Analyze the recent logs and identify any recurring errors.');
+```
+
+### Advanced Configuration
+
+`instrumentPiAgentCore` accepts configuration options for fine-grained privacy and attribute policing:
+
+```typescript
+import * as piAgentCore from '@earendil-works/pi-agent-core';
+import { instrumentPiAgentCore } from '@traceroot-ai/traceroot';
+
+instrumentPiAgentCore(piAgentCore, {
+  // 'always' (default) opens an Agent.prompt root span.
+  // 'unless-nested' attaches tool/LLM spans directly to the ambient active span.
+  agentSpan: 'unless-nested',
+
+  // Controls whether prompt/completion text is captured on spans
+  captureContent: true,
+
+  // Redact or transform tool arguments and results per call
+  captureToolIo: {
+    args: (toolName, args, ctx) => {
+      if (toolName === 'fetchSecret') return '[REDACTED]';
+      return args;
+    },
+    result: (toolName, result, ctx) => {
+      return typeof result === 'string' ? result : JSON.stringify(result);
+    },
+  },
+
+  // Hook into tool span IDs (e.g. to associate with external step storage)
+  onToolSpan: ({ toolCallId, spanId, traceId }) => {
+    console.log(`Tool ${toolCallId} mapped to span ${spanId} in trace ${traceId}`);
+  },
+});
+```
+
+## What Gets Captured
+
+| Attribute  | Description                                                         |
+| ---------- | ------------------------------------------------------------------- |
+| Agent runs | Root span representing each `agent.prompt()` call                   |
+| Tool calls | Individual spans for each tool execution with inputs and outputs    |
+| LLM calls  | Underlying model requests, responses, and token consumption counts  |
+| Latency    | Duration per step and across the entire agent prompt execution      |

@@ -1,0 +1,145 @@
+---
+title: DeepSeek
+description: Trace DeepSeek model calls through OpenAI-compatible instrumentation
+---
+
+DeepSeek provides an OpenAI-wire-compatible API. Because of this compatibility, you can use the official `openai` SDK pointing to DeepSeek's base URL (`https://api.deepseek.com`), and TraceRoot captures these calls through its existing OpenAI integration without requiring a separate instrumentor.
+
+<Note>
+DeepSeek has no dedicated instrumentor: tracing goes through `Integration.OPENAI` in Python and `instrumentModules: { openAI }` in TypeScript.
+</Note>
+
+## Installation
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot openai
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot openai
+    ```
+  </Tab>
+</Tabs>
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    Initialize TraceRoot with `Integration.OPENAI` and configure the OpenAI client with DeepSeek's base URL:
+
+    ```python
+    import os
+    import openai
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = openai.OpenAI(
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+        base_url="https://api.deepseek.com",
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    Initialize TraceRoot with `instrumentModules: { openAI: OpenAI }` and configure the OpenAI client with DeepSeek's base URL:
+
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: OpenAI },
+    });
+
+    const openai = new OpenAI({
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      baseURL: 'https://api.deepseek.com',
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    Once initialized, calls using models such as `deepseek-chat` or `deepseek-reasoner` are automatically captured:
+
+    ```python
+    import os
+    import openai
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = openai.OpenAI(
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+        base_url="https://api.deepseek.com",
+    )
+
+    # This call is automatically traced
+    response = client.chat.completions.create(
+        model="deepseek-chat",
+        messages=[
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    All completion and tool-calling requests are traced:
+
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: OpenAI },
+    });
+
+    const openai = new OpenAI({
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      baseURL: 'https://api.deepseek.com',
+    });
+
+    // This call is automatically traced
+    const response = await openai.chat.completions.create({
+      model: 'deepseek-chat',
+      messages: [{ role: 'user', content: 'What is the capital of France?' }],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute  | Description                                                       |
+| ---------- | ----------------------------------------------------------------- |
+| Model      | `deepseek-chat` (V3), `deepseek-reasoner` (R1), etc.              |
+| Messages   | Input messages array including system prompt                      |
+| Response   | Completion text and reasoning output                              |
+| Tool calls | Function and tool call arguments and results                      |
+| Tokens     | Prompt, completion, and reasoning token counts                    |
+| Latency    | Request duration                                                  |
+
+## Run the example
+
+Clone the repository and run a complete ReAct tool-agent using DeepSeek:
+
+<CardGroup cols={2}>
+  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/deepseek-tool-agent">
+    Run the Python DeepSeek tool-agent example
+  </Card>
+  <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/deepseek">
+    Run the TypeScript DeepSeek tool-agent example
+  </Card>
+</CardGroup>
