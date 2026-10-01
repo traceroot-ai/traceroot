@@ -14,6 +14,7 @@ vi.mock("../../../queues/detector-run-queue.js", () => ({
 import {
   enqueueSignalRca,
   hasUncoveredOpenings,
+  closeEmptySignalRca,
   loadSignalRcaContext,
   sweepSignalRcas,
 } from "../rca.js";
@@ -151,6 +152,23 @@ describe("loadSignalRcaContext", () => {
     expect(ctx?.covered).toEqual(["s1:0", "s2:3", "s9:-1"]);
   });
 
+  it("does not claim analysis coverage for an opening whose hit is gone", async () => {
+    const orphan = {
+      signalId: "orphan",
+      reopenSeq: 0,
+      signal: { title: "Removed hit", detectorId: "removed" },
+    };
+    const db = fakeDb({ openings: [...openings, orphan], hits });
+    const ctx = await loadSignalRcaContext(
+      db as never,
+      { traceFindings: vi.fn(async () => []) },
+      "f1",
+      "p1",
+    );
+    expect(ctx?.findings.map((f) => f.detectorId)).toEqual(["d1", "d2"]);
+    expect(ctx?.covered).toEqual(["s1:0", "s2:3"]);
+  });
+
   it("falls back to signal titles when the finding payload is malformed", async () => {
     const backend = { traceFindings: vi.fn(async () => [{ finding_id: "f1", payload: "{oops" }]) };
     const ctx = await loadSignalRcaContext(
@@ -179,6 +197,36 @@ describe("hasUncoveredOpenings", () => {
       expect.objectContaining({ where: { findingId: "f1" } }),
     );
   });
+});
+
+describe("closeEmptySignalRca", () => {
+  it.each([false, true])(
+    "guards empty-context cleanup when a matching hit exists: %s",
+    async (present) => {
+      const tx = {
+        $queryRaw: vi
+          .fn()
+          .mockResolvedValueOnce([{ id: "rca" }])
+          .mockResolvedValueOnce(present ? [{ present: 1 }] : []),
+        $executeRaw: vi.fn().mockResolvedValue(0),
+        detectorRca: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      };
+      const db = { $transaction: vi.fn(async (run) => run(tx)) };
+      expect(await closeEmptySignalRca(db as never, "f1", "p1")).toBe(!present);
+      expect(tx.$queryRaw.mock.calls[0][0].join("")).toContain("FOR NO KEY UPDATE");
+      expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        tx.$executeRaw.mock.invocationCallOrder[0],
+      );
+      if (present) expect(tx.detectorRca.updateMany).not.toHaveBeenCalled();
+      else
+        expect(tx.detectorRca.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { findingId: "f1", projectId: "p1", status: "pending" },
+            data: expect.objectContaining({ status: "failed" }),
+          }),
+        );
+    },
+  );
 });
 
 describe("sweepSignalRcas", () => {
