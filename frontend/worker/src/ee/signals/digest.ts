@@ -1,4 +1,5 @@
 import { prisma, type PrismaClient } from "@traceroot/core";
+import { lockSignalPartition } from "@traceroot/core/signals";
 import { resolveRecipients } from "../../notifications/digest-recipients.js";
 import { getDigestQueue } from "../../notifications/digest-schedule.js";
 import { sendEmail } from "../../notifications/email.js";
@@ -47,6 +48,8 @@ export interface PendingSignal {
   notifiedReopenSeq: number | null;
   notifiedHitCount: number;
   mergedIntoId: string | null;
+  /** Exact unreported hits visible in the same snapshot as the counts. */
+  runIds: string[];
 }
 
 /** The RCA of one opening of a signal (signal_rcas joined to detector_rcas). */
@@ -74,7 +77,7 @@ export interface DigestPlan {
   /** What to send now; empty means send nothing. */
   items: DigestItem[];
   /** Signals whose state is recorded as reported: the sent ones and the silently counted ones. */
-  consumed: { id: string; reopenSeq: number; hitCount: number; sent: boolean }[];
+  consumed: { id: string; reopenSeq: number; hitCount: number; sent: boolean; runIds: string[] }[];
 }
 
 /**
@@ -84,8 +87,11 @@ export interface DigestPlan {
 export function rootCauseLine(result: string, detectorName: string): string | null {
   const sections = result.split(/\n(?=#{2,4}\s)/);
   const name = detectorName.toLowerCase();
-  const section = sections.find((s) => s.split("\n")[0].toLowerCase().includes(name)) ?? result;
-  const match = section.match(/root cause:\**\s*(.+)/i) ?? result.match(/root cause:\**\s*(.+)/i);
+  const matching = sections.find((s) => s.split("\n")[0].toLowerCase().includes(name));
+  // A missing section in a multi-hit RCA must not borrow another detector's root cause.
+  if (!matching && /(?:^|\n)#{2,4}\s/.test(result)) return null;
+  const section = matching ?? result;
+  const match = section.match(/root cause:\**\s*(.+)/i);
   return match ? match[1].replace(/\*+/g, "").trim() : null;
 }
 
@@ -132,9 +138,13 @@ export function planSignalDigest(input: {
       // inside the RCA cooldown has none of its own, while an earlier opening's
       // RCA may still be running or just have finished.
       const since = s.notifiedReopenSeq ?? -1;
-      const rca = (input.rcas.get(s.id) ?? [])
-        .filter((r) => r.reopenSeq > since && r.reopenSeq <= s.reopenSeq)
-        .sort((a, b) => b.reopenSeq - a.reopenSeq)[0];
+      const available = (input.rcas.get(s.id) ?? []).filter((r) => r.reopenSeq <= s.reopenSeq);
+      const rca =
+        available
+          .filter((r) => r.reopenSeq > since && r.reopenSeq <= s.reopenSeq)
+          .sort((a, b) => b.reopenSeq - a.reopenSeq)[0] ??
+        // No new analysis inside the cooldown: display the completed canonical RCA.
+        available.filter((r) => r.status === "done").sort((a, b) => b.reopenSeq - a.reopenSeq)[0];
       const finished = rca && (rca.status === "done" || rca.status === "failed");
       if (rca && !finished && now - rca.createTime.getTime() < DIGEST_RCA_WAIT_MS) {
         held++;
@@ -171,16 +181,28 @@ export function planSignalDigest(input: {
   const consumed = [
     ...items.map((i) => {
       const s = byId.get(i.signalId)!;
-      return { id: s.id, reopenSeq: s.reopenSeq, hitCount: s.hitCount, sent: true };
+      return {
+        id: s.id,
+        reopenSeq: s.reopenSeq,
+        hitCount: s.hitCount,
+        sent: true,
+        runIds: s.runIds,
+      };
     }),
-    ...silent.map((s) => ({ id: s.id, reopenSeq: s.reopenSeq, hitCount: s.hitCount, sent: false })),
+    ...silent.map((s) => ({
+      id: s.id,
+      reopenSeq: s.reopenSeq,
+      hitCount: s.hitCount,
+      sent: false,
+      runIds: s.runIds,
+    })),
   ];
   return { items, consumed };
 }
 
 type DigestDb = Pick<
   PrismaClient,
-  "$queryRaw" | "$transaction" | "detector" | "signalRca" | "signal"
+  "$queryRaw" | "$executeRaw" | "$transaction" | "detector" | "signalRca" | "signal" | "signalHit"
 >;
 
 /** Read the project's signals with unreported changes and what the plan needs. */
@@ -188,7 +210,9 @@ export async function loadDigestInput(db: DigestDb, projectId: string, now: numb
   const signals = await db.$queryRaw<PendingSignal[]>`
     SELECT id, title, detector_id AS "detectorId", status, hit_count AS "hitCount",
            reopen_seq AS "reopenSeq", notified_reopen_seq AS "notifiedReopenSeq",
-           notified_hit_count AS "notifiedHitCount", merged_into_id AS "mergedIntoId"
+           notified_hit_count AS "notifiedHitCount", merged_into_id AS "mergedIntoId",
+           ARRAY(SELECT h.run_id FROM signal_hits h
+                 WHERE h.signal_id = signals.id AND h.reported_at IS NULL) AS "runIds"
     FROM signals
     WHERE project_id = ${projectId}
       AND (notified_reopen_seq IS DISTINCT FROM reopen_seq OR hit_count <> notified_hit_count)
@@ -234,24 +258,43 @@ export async function loadDigestInput(db: DigestDb, projectId: string, now: numb
 }
 
 /**
- * Record what the digest reported: the reopen_seq and hit count read, not the
- * current ones, so a hit that landed after the read is reported next time.
- * Only sent signals get notified_at, which rate-limits ongoing-only digests.
+ * Consume the exact hit snapshot, even if those hits moved while sending.
+ * The partition lock serialises marking/recounting with moves and merges;
+ * hits that arrived after the snapshot remain unreported.
  */
 export async function recordDigest(db: DigestDb, plan: DigestPlan, sentAt: Date): Promise<void> {
   if (plan.consumed.length === 0) return;
-  await db.$transaction(
-    plan.consumed.map((c) =>
-      db.signal.update({
-        where: { id: c.id },
-        data: {
-          notifiedReopenSeq: c.reopenSeq,
-          notifiedHitCount: c.hitCount,
-          ...(c.sent ? { notifiedAt: sentAt } : {}),
-        },
-      }),
-    ),
-  );
+  const ids = plan.consumed.map((c) => c.id);
+  await db.$transaction(async (tx) => {
+    const signals = await tx.signal.findMany({
+      where: { id: { in: ids } },
+      select: { projectId: true, detectorId: true },
+    });
+    const partitions = [
+      ...new Map(signals.map((s) => [`${s.projectId}:${s.detectorId}`, s] as const)).entries(),
+    ].sort(([a], [b]) => a.localeCompare(b));
+    for (const [, s] of partitions) await lockSignalPartition(tx, s.projectId, s.detectorId);
+    const runIds = [...new Set(plan.consumed.flatMap((c) => c.runIds))];
+    // Array parameters keep a large backlog below Postgres's bind-parameter
+    // limit; return distinct current owners rather than every hit again.
+    const owners = await tx.$queryRaw<{ signalId: string }[]>`
+      SELECT DISTINCT signal_id AS "signalId" FROM signal_hits WHERE run_id = ANY(${runIds})`;
+    await tx.$executeRaw`
+      UPDATE signal_hits SET reported_at = ${sentAt}
+      WHERE run_id = ANY(${runIds}) AND reported_at IS NULL`;
+    for (const c of plan.consumed) {
+      await tx.$executeRaw`
+        UPDATE signals
+        SET notified_reopen_seq = GREATEST(COALESCE(notified_reopen_seq, -1), ${c.reopenSeq}),
+            notified_at = CASE WHEN ${c.sent} THEN GREATEST(notified_at, ${sentAt}) ELSE notified_at END
+        WHERE id = ${c.id}`;
+    }
+    const affected = [...new Set([...ids, ...owners.map((h) => h.signalId)])];
+    await tx.$executeRaw`
+      UPDATE signals SET notified_hit_count = (
+        SELECT count(*) FROM signal_hits h WHERE h.signal_id = signals.id AND h.reported_at IS NOT NULL
+      ) WHERE id = ANY(${affected})`;
+  });
 }
 
 /**
