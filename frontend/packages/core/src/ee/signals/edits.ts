@@ -43,7 +43,7 @@ function placedAt(previous: Date | null | undefined): Date {
 async function recount(tx: Tx, signalId: string): Promise<void> {
   const agg = await tx.signalHit.aggregate({
     where: { signalId },
-    _count: { _all: true },
+    _count: { _all: true, reportedAt: true },
     _min: { seenAt: true },
     _max: { seenAt: true },
   });
@@ -52,6 +52,7 @@ async function recount(tx: Tx, signalId: string): Promise<void> {
     where: { id: signalId },
     data: {
       hitCount: count,
+      notifiedHitCount: agg._count.reportedAt,
       ...(count > 0 ? { firstSeenAt: agg._min.seenAt!, lastSeenAt: agg._max.seenAt! } : {}),
     },
   });
@@ -150,15 +151,11 @@ export async function mergeSignals(
     );
     await tx.signalHit.updateMany({
       where: { signalId: s.id },
-      data: { signalId: t.id, criteriaVersion: null, score: null, assignedAt },
+      data: { signalId: t.id, criteriaVersion: null, score: null, assignedAt, copyPending: true },
     });
     await tx.signal.update({
       where: { id: s.id },
-      data: { mergedIntoId: t.id, hitCount: 0 },
-    });
-    await tx.signal.update({
-      where: { id: t.id },
-      data: { notifiedHitCount: { increment: s.notifiedHitCount } },
+      data: { mergedIntoId: t.id, hitCount: 0, notifiedHitCount: 0 },
     });
     await recount(tx, t.id);
 
@@ -240,25 +237,16 @@ export async function moveHit(
     const assignedAt = placedAt(current.assignedAt);
     await tx.signalHit.update({
       where: { runId: params.runId },
-      data: { signalId: params.targetId, criteriaVersion: null, score: null, assignedAt },
+      data: {
+        signalId: params.targetId,
+        criteriaVersion: null,
+        score: null,
+        assignedAt,
+        copyPending: true,
+      },
     });
     await recount(tx, current.signalId);
     await recount(tx, params.targetId);
-    const source = await tx.signal.findUniqueOrThrow({
-      where: { id: current.signalId },
-      select: { hitCount: true, notifiedHitCount: true },
-    });
-    const reported = Math.max(0, source.notifiedHitCount - source.hitCount);
-    if (reported > 0) {
-      await tx.signal.update({
-        where: { id: current.signalId },
-        data: { notifiedHitCount: source.hitCount },
-      });
-      await tx.signal.update({
-        where: { id: params.targetId },
-        data: { notifiedHitCount: { increment: reported } },
-      });
-    }
     return { ok: true, moved: { ...moved, assignedAt, runIds: [params.runId] } };
   });
 }

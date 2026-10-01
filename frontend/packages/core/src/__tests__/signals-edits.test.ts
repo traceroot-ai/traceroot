@@ -28,6 +28,8 @@ type HitRow = {
   score?: number | null;
   criteriaVersion?: number | null;
   assignedAt?: Date;
+  reportedAt?: Date | null;
+  copyPending?: boolean;
 };
 
 const t = (m: number) => new Date(Date.UTC(2026, 8, 30, 10, m));
@@ -121,7 +123,11 @@ function fakeDb(signals: SignalRow[], hits: HitRow[] = [], rcas: RcaRow[] = []) 
           .filter((h) => h.signalId === where.signalId)
           .map((h) => h.seenAt.getTime());
         return {
-          _count: { _all: mine.length },
+          _count: {
+            _all: mine.length,
+            reportedAt: hits.filter((h) => h.signalId === where.signalId && h.reportedAt != null)
+              .length,
+          },
           _min: { seenAt: mine.length ? new Date(Math.min(...mine)) : null },
           _max: { seenAt: mine.length ? new Date(Math.max(...mine)) : null },
         };
@@ -186,12 +192,29 @@ describe("mergeSignals", () => {
       projectId: "p",
       detectorId: "d",
       seenAt: t(1),
+      reportedAt: t(0),
       score: 0.97,
       criteriaVersion: 2,
       assignedAt: later,
     },
-    { runId: "r2", signalId: "a", projectId: "p", detectorId: "d", seenAt: t(9), score: 0.95 },
-    { runId: "r3", signalId: "b", projectId: "p", detectorId: "d", seenAt: t(5), score: 0.99 },
+    {
+      runId: "r2",
+      signalId: "a",
+      projectId: "p",
+      detectorId: "d",
+      seenAt: t(9),
+      reportedAt: t(0),
+      score: 0.95,
+    },
+    {
+      runId: "r3",
+      signalId: "b",
+      projectId: "p",
+      detectorId: "d",
+      seenAt: t(5),
+      reportedAt: t(0),
+      score: 0.99,
+    },
   ];
 
   it("moves the hits, points the source at the target, and recounts the target", async () => {
@@ -301,9 +324,30 @@ describe("moveHit", () => {
 
   it("moves an already reported hit's report with it", async () => {
     const hits = (): HitRow[] => [
-      { runId: "r1", signalId: "a", projectId: "p", detectorId: "d", seenAt: t(1) },
-      { runId: "r2", signalId: "a", projectId: "p", detectorId: "d", seenAt: t(2) },
-      { runId: "r3", signalId: "b", projectId: "p", detectorId: "d", seenAt: t(3) },
+      {
+        runId: "r1",
+        signalId: "a",
+        projectId: "p",
+        detectorId: "d",
+        seenAt: t(1),
+        reportedAt: t(0),
+      },
+      {
+        runId: "r2",
+        signalId: "a",
+        projectId: "p",
+        detectorId: "d",
+        seenAt: t(2),
+        reportedAt: t(0),
+      },
+      {
+        runId: "r3",
+        signalId: "b",
+        projectId: "p",
+        detectorId: "d",
+        seenAt: t(3),
+        reportedAt: t(0),
+      },
     ];
     // Both of a's hits were reported: a keeps 1 of 1, b now counts r2 as reported.
     const reported = fakeDb(
@@ -324,13 +368,44 @@ describe("moveHit", () => {
         signal({ id: "a", hitCount: 2, notifiedHitCount: 1 }),
         signal({ id: "b", hitCount: 1, notifiedHitCount: 1 }),
       ],
-      hits(),
+      hits().map((h) => (h.runId === "r2" ? { ...h, reportedAt: null } : h)),
     );
     await moveHit(unreported.db, { projectId: "p", runId: "r2", targetId: "b" });
     expect(unreported.signals.map((s) => [s.hitCount, s.notifiedHitCount])).toEqual([
       [1, 1],
       [2, 1],
     ]);
+  });
+
+  it("moving the old reported hit leaves the newer source hit unreported", async () => {
+    const f = fakeDb(
+      [signal({ id: "a", hitCount: 2, notifiedHitCount: 1 }), signal({ id: "b" })],
+      [
+        {
+          runId: "old",
+          signalId: "a",
+          projectId: "p",
+          detectorId: "d",
+          seenAt: t(1),
+          reportedAt: t(2),
+        },
+        {
+          runId: "new",
+          signalId: "a",
+          projectId: "p",
+          detectorId: "d",
+          seenAt: t(3),
+          reportedAt: null,
+        },
+      ],
+    );
+    await moveHit(f.db, { projectId: "p", runId: "old", targetId: "b" });
+    expect(f.signals.map((s) => [s.hitCount, s.notifiedHitCount])).toEqual([
+      [1, 0],
+      [1, 1],
+    ]);
+    expect(f.hits[0]).toMatchObject({ reportedAt: t(2), copyPending: true });
+    expect(f.hits[1].reportedAt).toBe(null);
   });
 
   it("is a no-op when the hit is already there, and refuses other detectors and missing hits", async () => {
