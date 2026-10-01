@@ -74,6 +74,7 @@ export async function applyAssignment(
   db: Pick<PrismaClient, "$transaction">,
   hit: WaitingHit,
   placement: Placement,
+  opts: { embedding?: number[]; now?: number } = {},
 ): Promise<AssignmentResult> {
   return db.$transaction(async (tx) => {
     await lockSignalPartition(tx, hit.projectId, hit.detectorId);
@@ -176,6 +177,8 @@ export async function applyAssignment(
         seenAt: hit.seenAt,
         score,
         criteriaVersion,
+        embedding: opts.embedding ?? (placement.kind === "create" ? placement.anchorEmbedding : []),
+        assignedAt: new Date(opts.now ?? Date.now()),
       },
       select: { assignedAt: true },
     });

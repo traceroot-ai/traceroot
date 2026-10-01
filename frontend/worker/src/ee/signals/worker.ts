@@ -50,9 +50,20 @@ function productionDeps(): RoundDeps {
  * Enqueueing a partition whose job is alive is a no-op.
  */
 export async function sweepPartitions(now: number = Date.now()): Promise<number> {
-  // Without the key no job can assign anything; keep the records for when it returns.
-  if (!signalsAvailable()) return 0;
-  const partitions = await partitionsToSweep(now);
+  // Projection repair is independent of the model key and ClickHouse's
+  // waiting query. The partial index only scans unacknowledged placements.
+  const pending = await prisma.signalHit.findMany({
+    where: { copyPending: true },
+    select: { projectId: true, detectorId: true },
+    distinct: ["projectId", "detectorId"],
+    take: 500,
+  });
+  const waiting = signalsAvailable() ? await partitionsToSweep(now) : [];
+  const partitions = [
+    ...new Map(
+      [...pending, ...waiting].map((p) => [`${p.projectId}:${p.detectorId}`, p] as const),
+    ).values(),
+  ];
   for (const p of partitions) await enqueueAssignment(p.projectId, p.detectorId, 0);
   if (partitions.length > 0)
     console.log(`[Signals] sweeper re-enqueued ${partitions.length} partition(s)`);
