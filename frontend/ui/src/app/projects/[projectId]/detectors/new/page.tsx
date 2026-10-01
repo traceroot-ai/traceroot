@@ -85,7 +85,7 @@ export default function NewDetectorPage() {
       await createMutation.mutateAsync(input);
       router.push(`/projects/${projectId}/detectors`);
     } catch {
-      // Handled by createMutation.isError and displayed in footer
+      // Handled by createMutation.isError and displayed under Name input
     }
   };
 
@@ -146,11 +146,19 @@ export default function NewDetectorPage() {
                   onChange={(e) => {
                     setName(e.target.value);
                     setNameEdited(true);
+                    if (createMutation.isError) {
+                      createMutation.reset();
+                    }
                   }}
                   placeholder="e.g. error detector"
                   className="h-7 text-[13px]"
                   required
                 />
+                {createMutation.isError && (
+                  <p className="mt-1.5 text-[12px] text-destructive">
+                    {createMutation.error.message}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -243,11 +251,6 @@ export default function NewDetectorPage() {
 
             {/* Footer */}
             <div className="flex items-center justify-end gap-2 pt-1">
-              {createMutation.isError && (
-                <span className="mr-auto text-[12px] text-destructive">
-                  {createMutation.error.message}
-                </span>
-              )}
               {conditionsError && (
                 <span className="text-[12px] text-destructive">{conditionsError}</span>
               )}
