@@ -42,6 +42,7 @@ const sig = (over: Partial<PendingSignal> = {}): PendingSignal => ({
   detectorId: "d1",
   status: "open",
   hitCount: 3,
+  runIds: ["r1", "r2", "r3"],
   reopenSeq: 0,
   notifiedReopenSeq: null,
   notifiedHitCount: 0,
@@ -85,6 +86,9 @@ describe("rootCauseLine", () => {
     expect(rootCauseLine(sectioned, "Logic")).toBe("the city is copied from the wrong field");
     expect(rootCauseLine(sectioned, "Failure")).toBe("the timeout is swallowed");
   });
+  it("does not use another detector section when the requested section is absent", () => {
+    expect(rootCauseLine(sectioned, "Hallucination")).toBe(null);
+  });
   it("falls back to the first root cause, and to null", () => {
     expect(rootCauseLine("- Root cause: one cause", "Other")).toBe("one cause");
     expect(rootCauseLine("no structure", "Other")).toBe(null);
@@ -115,7 +119,9 @@ describe("planSignalDigest", () => {
         rca: { state: "done", rootCause: "swallowed timeout" },
       }),
     ]);
-    expect(p.consumed).toEqual([{ id: "s1", reopenSeq: 0, hitCount: 3, sent: true }]);
+    expect(p.consumed).toEqual([
+      { id: "s1", reopenSeq: 0, hitCount: 3, runIds: ["r1", "r2", "r3"], sent: true },
+    ]);
   });
 
   it("holds a new signal while its RCA runs, for up to thirty minutes", () => {
@@ -156,6 +162,26 @@ describe("planSignalDigest", () => {
       { status: "running", result: null, createTime: new Date(T0 - MIN) },
     ];
     expect(plan([s], [old]).items[0]).toMatchObject({ kind: "reopened", rca: null });
+  });
+
+  it("reuses the completed canonical RCA for a reopening inside the cooldown", () => {
+    const p = plan(
+      [sig({ reopenSeq: 1, notifiedReopenSeq: 0, notifiedHitCount: 2 })],
+      [
+        [
+          "s1:0",
+          {
+            status: "done",
+            result: "- Root cause: original cause",
+            createTime: new Date(T0 - MIN),
+          },
+        ],
+      ],
+    );
+    expect(p.items[0]).toMatchObject({
+      kind: "reopened",
+      rca: { state: "done", rootCause: "original cause" },
+    });
   });
 
   it("labels a reopening, and reports a failed RCA", () => {
@@ -210,7 +236,9 @@ describe("planSignalDigest", () => {
   it("records a drop in hits (a hit moved away) without reporting it", () => {
     const p = plan([sig({ notifiedReopenSeq: 0, notifiedHitCount: 5, hitCount: 4 })], [], null);
     expect(p.items).toEqual([]);
-    expect(p.consumed).toEqual([{ id: "s1", reopenSeq: 0, hitCount: 4, sent: false }]);
+    expect(p.consumed).toEqual([
+      { id: "s1", reopenSeq: 0, hitCount: 4, runIds: ["r1", "r2", "r3"], sent: false },
+    ]);
   });
 });
 
@@ -222,6 +250,7 @@ function fakeDb(signals: PendingSignal[], lastSentAt: Date | null = null) {
     $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
       const sql = strings.join("?");
       queries.push(sql);
+      if (sql.includes("SELECT DISTINCT signal_id")) return [{ signalId: "moved-target" }];
       if (sql.includes("max(notified_at)")) return [{ lastSentAt }];
       if (sql.includes("SELECT DISTINCT project_id"))
         return [{ projectId: "p1" }, { projectId: "p2" }];
@@ -230,9 +259,10 @@ function fakeDb(signals: PendingSignal[], lastSentAt: Date | null = null) {
     $executeRaw: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
       const op = { sql: strings.join("?"), values };
       raws.push(op);
+      if (op.sql.includes("SET notified_reopen_seq")) updates.push(op);
       return op;
     }),
-    $transaction: vi.fn(async (ops: unknown[]) => ops),
+    $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(db)),
     detector: {
       findMany: vi.fn(async () => [
         { id: "d1", name: "Failure", enableSignals: true },
@@ -249,7 +279,15 @@ function fakeDb(signals: PendingSignal[], lastSentAt: Date | null = null) {
         },
       ]),
     },
-    signal: { update: vi.fn((args: unknown) => (updates.push(args), args)) },
+    signal: {
+      findMany: vi.fn(async () =>
+        signals.map((s) => ({ projectId: "p1", detectorId: s.detectorId })),
+      ),
+    },
+    signalHit: {
+      findMany: vi.fn(async () => [{ signalId: "moved-target" }]),
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
   };
   return { db, updates, raws, queries };
 }
@@ -277,33 +315,34 @@ describe("loadDigestInput", () => {
 });
 
 describe("recordDigest", () => {
-  it("records the values read, and the send time only for sent signals", async () => {
-    const { db, updates, raws } = fakeDb([]);
+  it("marks only the snapshot hits, follows moves, and recounts their current owners", async () => {
+    const { db, raws } = fakeDb([sig()]);
     await recordDigest(
       db as never,
       {
         items: [],
         consumed: [
-          { id: "a", reopenSeq: 1, hitCount: 7, sent: true },
-          { id: "b", reopenSeq: 0, hitCount: 2, sent: false },
+          { id: "a", reopenSeq: 1, hitCount: 7, runIds: ["reported-before-move"], sent: true },
+          { id: "b", reopenSeq: 0, hitCount: 2, runIds: ["silent"], sent: false },
         ],
       },
       new Date(T0),
     );
-    expect(updates).toEqual([
-      {
-        where: { id: "a" },
-        data: { notifiedReopenSeq: 1, notifiedHitCount: 7, notifiedAt: new Date(T0) },
-      },
-      { where: { id: "b" }, data: { notifiedReopenSeq: 0, notifiedHitCount: 2 } },
+    expect(raws.find((r) => r.sql.includes("UPDATE signal_hits"))).toEqual({
+      sql: expect.stringContaining("AND reported_at IS NULL"),
+      values: [new Date(T0), ["reported-before-move", "silent"]],
+    });
+    expect(raws[0].sql).toContain("pg_advisory_xact_lock");
+    expect(
+      raws.filter((r) => r.sql.includes("SET notified_reopen_seq")).map((r) => r.values),
+    ).toEqual([
+      [1, true, new Date(T0), "a"],
+      [0, false, new Date(T0), "b"],
     ]);
-    // Then, in the same transaction, a count above a hit count lowered by a
-    // concurrent move is cut to it.
-    expect(raws).toEqual([
-      { sql: expect.stringContaining("SET notified_hit_count = hit_count"), values: [["a", "b"]] },
-    ]);
-    expect(raws[0].sql).toContain("notified_hit_count > hit_count");
-    expect(db.$transaction).toHaveBeenCalledWith([updates[0], updates[1], raws[0]]);
+    expect(raws.at(-1)).toEqual({
+      sql: expect.stringContaining("h.reported_at IS NOT NULL"),
+      values: [["a", "b", "moved-target"]],
+    });
   });
 });
 

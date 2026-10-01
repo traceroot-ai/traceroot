@@ -78,9 +78,21 @@ function fakeDb(opts: { recorded?: string[]; detector?: unknown; current?: Curre
     },
     signalHit: {
       // The duplicate check reads run ids; the copy flush reads each hit's placement.
-      findMany: vi.fn(async ({ select }: { select: Record<string, boolean> }) =>
-        select.signalId ? (opts.current ?? []) : (opts.recorded ?? []).map((runId) => ({ runId })),
+      findMany: vi.fn(
+        async ({
+          where,
+          select,
+        }: {
+          where: { copyPending?: boolean };
+          select: Record<string, boolean>;
+        }) =>
+          where.copyPending
+            ? []
+            : select.signalId
+              ? (opts.current ?? [])
+              : (opts.recorded ?? []).map((runId) => ({ runId, embedding: [1, 0] })),
       ),
+      updateMany: vi.fn(async () => ({ count: 1 })),
     },
     signal: { findMany: vi.fn(async () => []) },
     aIMessage: {
@@ -260,7 +272,7 @@ describe("runAssignmentRound", () => {
     );
     const d = deps(fakeDb().db, backend);
     const stats = await runAssignmentRound(d, "p", "d");
-    expect(mockApply.mock.calls[0][3]).toEqual({ rca: true, now: T0 });
+    expect(mockApply.mock.calls[0][3]).toMatchObject({ rca: true, now: T0 });
     // Two hits of one finding opened signals: one RCA job for the finding.
     expect(d.enqueueRca).toHaveBeenCalledTimes(1);
     expect(d.enqueueRca).toHaveBeenCalledWith("f-shared", "p");

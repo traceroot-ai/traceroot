@@ -85,7 +85,10 @@ vi.mock("../digest.js", () => ({
   enqueueSignalDigest: mockEnqueueDigest,
   sweepSignalDigests: mockSweepDigests,
 }));
-vi.mock("@traceroot/core", () => ({ prisma: { tag: "prisma" } }));
+const { mockPendingCopies } = vi.hoisted(() => ({ mockPendingCopies: vi.fn() }));
+vi.mock("@traceroot/core", () => ({
+  prisma: { tag: "prisma", signalHit: { findMany: mockPendingCopies } },
+}));
 const { mockEmbed, mockChat, mockJev, mockFindJev } = vi.hoisted(() => ({
   mockEmbed: vi.fn(),
   mockChat: vi.fn(() => ({ tag: "chat" })),
@@ -115,6 +118,7 @@ const T0 = Date.parse("2026-09-30T10:00:00Z");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockPendingCopies.mockResolvedValue([]);
   fakeRedis.sets.clear();
   fakeRedis.hashes.clear();
   vi.stubEnv("OPENAI_API_KEY", "sk-test");
@@ -293,8 +297,8 @@ describe("sweepPartitions", () => {
     await fakeRedis.zadd("signals:assign:enqueued", T0 - 180_000, "p:d");
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     expect(await sweepPartitions(T0)).toBe(1);
-    expect(mockSweepRcas).toHaveBeenCalledWith({ tag: "prisma" }, T0);
-    expect(mockSweepDigests).toHaveBeenCalledWith({ tag: "prisma" }, T0);
+    expect(mockSweepRcas).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), T0);
+    expect(mockSweepDigests).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), T0);
     expect(mockAdd).toHaveBeenCalledWith(
       "assign",
       { projectId: "p", detectorId: "d" },
@@ -304,12 +308,27 @@ describe("sweepPartitions", () => {
   });
 });
 
+describe("pending copy recovery", () => {
+  it("enqueues durable projection repairs without a model key", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    mockPendingCopies.mockResolvedValue([{ projectId: "p1", detectorId: "d1" }]);
+    expect(await sweepPartitions(T0)).toBe(1);
+    expect(mockAdd).toHaveBeenCalledWith(
+      "assign",
+      { projectId: "p1", detectorId: "d1" },
+      expect.objectContaining({ delay: 0 }),
+    );
+    expect(mockSweepRcas).not.toHaveBeenCalled();
+    expect(mockSweepDigests).not.toHaveBeenCalled();
+  });
+});
+
 describe("production wiring", () => {
   it("embeds with the deployment key and uses Jev only when the workspace has a TypeSafe key", async () => {
     mockRound.mockResolvedValue({ waiting: 0, remaining: false, readAt: T0 });
     await processSignalAssignJob(job({ projectId: "p", detectorId: "d" }), "tok");
     const deps = mockRound.mock.calls[0][0] as RoundDeps;
-    expect(deps.db).toEqual({ tag: "prisma" });
+    expect(deps.db).toMatchObject({ tag: "prisma" });
     expect(deps.backend).toBeDefined();
     expect(deps.failures.record).toBe(recordHitFailure);
     await deps.enqueueRca("f1", "p");
@@ -325,7 +344,7 @@ describe("production wiring", () => {
     expect(await deps.models("ws", [])).toEqual({ chat: { tag: "chat" }, jev: null });
     mockFindJev.mockResolvedValueOnce({ key: "ts" });
     expect(await deps.models("ws", [])).toEqual({ chat: { tag: "chat" }, jev: { tag: "jev" } });
-    expect(mockFindJev).toHaveBeenCalledWith({ tag: "prisma" }, "ws");
+    expect(mockFindJev).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), "ws");
   });
 });
 

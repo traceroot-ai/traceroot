@@ -38,13 +38,17 @@ type Execution = { id: string; findingId: string; attempt: number; traceId: stri
  * the `FOR UPDATE` statement executes, standing in for a concurrent transaction
  * that committed just before the lock was granted.
  */
-function fakeDb(executions: Execution[] = [], opts: { onLock?: () => void } = {}) {
+function fakeDb(
+  executions: Execution[] = [],
+  opts: { onLock?: () => void; openings?: { signalId: string; reopenSeq: number }[] } = {},
+) {
   const sql: { text: string; values: unknown[] }[] = [];
   const tx = {
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = strings.join("?");
       sql.push({ text, values });
       if (/FOR UPDATE/.test(text)) opts.onLock?.();
+      if (text.includes("FROM signal_rcas")) return opts.openings ?? [];
       return [{ id: "rca-row" }];
     }),
     $executeRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -128,6 +132,39 @@ describe("allocateExecution", () => {
 });
 
 describe("finishFindingIfLatest", () => {
+  it.each(["done", "failed"] as const)(
+    "keeps new openings pending after an old %s attempt",
+    async (status) => {
+      const openings = [{ signalId: "old", reopenSeq: 0 }];
+      const f = fakeDb([], {
+        openings,
+        onLock: () => openings.push({ signalId: "new", reopenSeq: 1 }),
+      });
+      await finishFindingIfLatest(f.db as never, {
+        findingId: "f-1",
+        attempt: 1,
+        status,
+        result: "old result",
+        coveredOpenings: ["old:0"],
+      });
+      expect(f.sql.at(-1)?.values.slice(0, 3)).toEqual(["pending", null, null]);
+      expect(f.sql[0].text).toContain("FOR UPDATE");
+      expect(f.sql[1].text).toContain("FROM signal_rcas");
+    },
+  );
+
+  it("finishes when every opening was covered", async () => {
+    const f = fakeDb([], { openings: [{ signalId: "old", reopenSeq: 0 }] });
+    await finishFindingIfLatest(f.db as never, {
+      findingId: "f-1",
+      attempt: 1,
+      status: "done",
+      result: "complete",
+      coveredOpenings: ["old:0"],
+    });
+    expect(f.sql.at(-1)?.values.slice(0, 2)).toEqual(["done", "complete"]);
+  });
+
   const exec = (attempt: number): Execution => ({
     id: `exec-${attempt}`,
     findingId: "f-1",

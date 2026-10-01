@@ -19,6 +19,7 @@ import type { EmbeddingResult } from "./embedding.js";
 import { groupSignalText, jevGroupKey } from "./jev-group.js";
 import { embeddingText, hitMaterial } from "./material.js";
 import { shortlist } from "./shortlist.js";
+import { repairAssignmentCopies, writeAssignmentCopies } from "./projection.js";
 import type { AssignmentModels, Candidate, ModelUsage } from "./types.js";
 import {
   applyAssignment,
@@ -152,6 +153,10 @@ export async function runAssignmentRound(
     readAt: started,
   };
 
+  const repaired = await repairAssignmentCopies(db, deps.backend, projectId, detectorId);
+  stats.duplicate = repaired.runIds.size;
+  stats.remaining = repaired.remaining;
+
   const detector = await db.detector.findFirst({
     where: { id: detectorId, projectId },
     select: {
@@ -180,9 +185,9 @@ export async function runAssignmentRound(
   // Hits from before the switch was turned on are never grouped.
   const sinceMs = Math.max(detector.signalsEnabledAt.getTime(), started - WAITING_LOOKBACK_MS);
   stats.readAt = deps.now();
-  const waiting = (
-    await deps.backend.waitingHits(projectId, detectorId, sinceMs, ROUND_MAX_HITS)
-  ).map((row) => toWaitingHit(row, projectId, detectorId));
+  const waiting = (await deps.backend.waitingHits(projectId, detectorId, sinceMs, ROUND_MAX_HITS))
+    .filter((row) => !repaired.runIds.has(row.run_id))
+    .map((row) => toWaitingHit(row, projectId, detectorId));
   stats.waiting = waiting.length;
   if (waiting.length === 0) {
     stats.durationMs = deps.now() - started;
@@ -199,7 +204,7 @@ export async function runAssignmentRound(
     const batch = copies.splice(0);
     try {
       await followMoves(db, batch);
-      await deps.backend.writeAssignments(batch);
+      await writeAssignmentCopies(db, deps.backend, batch);
     } catch (err) {
       flushError = err;
       console.error(
@@ -215,16 +220,16 @@ export async function runAssignmentRound(
   let lastError: unknown = null;
   try {
     // Hits recorded in Postgres whose ClickHouse copy is missing need no model call.
-    const recorded = new Set(
+    const recorded = new Map(
       (
         await db.signalHit.findMany({
           where: { runId: { in: waiting.map((h) => h.runId) } },
-          select: { runId: true },
+          select: { runId: true, embedding: true },
         })
-      ).map((r) => r.runId),
+      ).map((r) => [r.runId, r.embedding]),
     );
 
-    const modelHits = waiting.filter((h) => !h.groupKey);
+    const modelHits = waiting.filter((h) => !h.groupKey && !recorded.has(h.runId));
     const vectors = new Map<string, number[]>();
     // Embed in chunks as the round reaches them, so hits left for the next
     // round are not embedded twice.
@@ -278,7 +283,11 @@ export async function runAssignmentRound(
 
     const assignOne = async (hit: WaitingHit): Promise<void> => {
       const material = hitMaterial(detector.name, hit.summary, hit.data);
-      const vector = hit.groupKey ? undefined : await vectorFor(hit);
+      const vector = recorded.has(hit.runId)
+        ? recorded.get(hit.runId)!
+        : hit.groupKey
+          ? undefined
+          : await vectorFor(hit);
       let placement: Placement;
       if (recorded.has(hit.runId)) {
         // The write finds the existing assignment and returns it unchanged.
@@ -322,6 +331,7 @@ export async function runAssignmentRound(
 
       const result: AssignmentResult = await applyAssignment(db, hit, placement, {
         rca: detector.enableRca,
+        embedding: vector ?? [],
         now: deps.now(),
       });
       if (result.rcaFindingId) rcaFindings.add(result.rcaFindingId);
@@ -359,6 +369,12 @@ export async function runAssignmentRound(
           `[Signals] failed to assign project=${projectId} detector=${detectorId} run=${hit.runId}:`,
           err,
         );
+        // A committed assignment only needs its projection repaired. It must
+        // never acquire an empty-signal give-up row because a provider is down.
+        if (recorded.has(hit.runId)) {
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
+          continue;
+        }
         const failure = await deps.failures.record(hit.runId, deps.now());
         if (
           failure.count >= GIVE_UP_AFTER_FAILURES &&
@@ -416,7 +432,7 @@ export async function runAssignmentRound(
   // Nothing moved forward: back off rather than retry the same hits at once.
   if (stats.failed > 0 && succeeded === 0 && stats.gaveUp === 0) throw lastError;
 
-  stats.remaining = waiting.length === ROUND_MAX_HITS || processed < waiting.length;
+  stats.remaining ||= waiting.length === ROUND_MAX_HITS || processed < waiting.length;
   stats.durationMs = deps.now() - started;
   console.log(
     `[Signals] round project=${projectId} detector=${detectorId} waiting=${stats.waiting} ` +
