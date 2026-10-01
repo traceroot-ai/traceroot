@@ -747,6 +747,135 @@ class TestListDetectorWindowSummary:
 
 
 # =============================================================================
+# /trace-counts
+# =============================================================================
+
+
+class TestListTraceCounts:
+    URL = "/api/v1/internal/trace-counts"
+
+    def _rows(self, rows: list[tuple]):
+        # Rows are (bucket, count) from the bucketed query.
+        return _make_query_result(rows=rows, column_names=["bucket", "count"])
+
+    def _get(self, client, secret, **extra_params):
+        return client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+                **extra_params,
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+
+    def _sql(self, client, mock_ch, secret, **extra_params):
+        mock_ch.query.side_effect = [self._rows([])]
+        self._get(client, secret, **extra_params)
+        return mock_ch.query.call_args.args[0], mock_ch.query.call_args.kwargs["parameters"]
+
+    def test_returns_counts_per_bucket(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._rows([("2026-04-20", 3), ("2026-04-21", 5)])]
+        resp = self._get(client, secret, detector_id="d-a")
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "data": [
+                {"bucket": "2026-04-20", "count": 3},
+                {"bucket": "2026-04-21", "count": 5},
+            ]
+        }
+
+    def test_with_a_detector_counts_its_runs(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "FROM detector_runs" in sql
+        assert "detector_id = {detector_id:String}" in sql
+        assert params["project_id"] == "p1"
+        assert params["detector_id"] == "d-a"
+
+    def test_runs_collapse_by_run_id_without_final(self, client, mock_ch, secret):
+        """Same dedup as /detector-window-summary: latest version per run_id via
+        max(timestamp), no FINAL (the OOM-prone merge-on-read)."""
+        sql, _ = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "FINAL" not in sql
+        assert "GROUP BY run_id" in sql
+        assert "max(timestamp) AS ts" in sql
+
+    def test_runs_dedup_before_the_window_filter(self, client, mock_ch, secret):
+        sql, _ = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert sql.index("GROUP BY run_id") < sql.index("ts >=")
+        assert sql.index("GROUP BY run_id") < sql.index("ts <")
+
+    def test_without_a_detector_counts_distinct_traces(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret)
+        assert "FROM traces" in sql
+        assert "detector_runs" not in sql
+        assert "uniqExact(id)" in sql
+        # The inner range keeps the scan inside the window's partitions.
+        assert "trace_start_time >= {start_after:DateTime64(3)}" in sql
+        assert "detector_id" not in params
+
+    def test_day_buckets_by_local_day(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, tz="America/New_York")
+        assert "toString(toDate(ts, {tz:String}))" in sql
+        assert "GROUP BY bucket" in sql
+        assert "ORDER BY bucket" in sql
+        assert params["tz"] == "America/New_York"
+
+    def test_hour_buckets_by_local_hour(self, client, mock_ch, secret):
+        sql, _ = self._sql(client, mock_ch, secret, granularity="hour")
+        assert "toStartOfHour(ts, {tz:String})" in sql
+        assert "'%Y-%m-%dT%H:00'" in sql
+
+    def test_unknown_granularity_is_422(self, client, mock_ch, secret):
+        resp = self._get(client, secret, granularity="week")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_tz_defaults_to_utc(self, client, mock_ch, secret):
+        _, params = self._sql(client, mock_ch, secret)
+        assert params["tz"] == "UTC"
+
+    def test_invalid_tz_is_422(self, client, mock_ch, secret):
+        resp = self._get(client, secret, tz="Not/AZone")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_malformed_tz_is_422_not_500(self, client, mock_ch, secret):
+        resp = self._get(client, secret, tz="../../etc/passwd")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_window_bounds_both_ends(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "ts >= {start_after:DateTime64(3)}" in sql
+        assert "ts < {end_before:DateTime64(3)}" in sql
+        assert "start_after" in params and "end_before" in params
+
+    def test_requires_internal_secret(self, client, mock_ch):
+        resp = client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            },
+        )
+        assert resp.status_code == 403
+
+    def test_requires_both_bounds(self, client, mock_ch, secret):
+        for missing in ("start_after", "end_before"):
+            params = {
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            }
+            del params[missing]
+            resp = client.get(self.URL, params=params, headers={"X-Internal-Secret": secret})
+            assert resp.status_code == 422
+
+
+# =============================================================================
 # /traces (internal OTLP ingest for detector self-traces)
 # =============================================================================
 

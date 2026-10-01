@@ -21,12 +21,14 @@ MEMBERSHIP_FIELDS = {"model_name", "environment", "span_kind", "status", "error_
 KEYED_MAP_FIELDS = {"metadata"}
 AGGREGATE_FIELDS = {"cost", "total_tokens", "duration_ms", "errors"}
 TRACE_FIELDS = {"trace_id"}
+# Signal: the traces holding a hit of one signal, read from signal_assignments.
+SIGNAL_FIELDS = {"signal_id"}
 
 
 def test_registry_column_set_is_exactly_the_declared_tiers():
     """The registry holds precisely the membership + aggregate + trace fields."""
     assert {c.name for c in reg.FILTER_COLUMNS} == (
-        MEMBERSHIP_FIELDS | KEYED_MAP_FIELDS | AGGREGATE_FIELDS | TRACE_FIELDS
+        MEMBERSHIP_FIELDS | KEYED_MAP_FIELDS | AGGREGATE_FIELDS | TRACE_FIELDS | SIGNAL_FIELDS
     )
 
 
@@ -65,6 +67,17 @@ def test_trace_id_is_a_text_trace_level_field():
     assert col.ch_type == "String"
     assert col.aggregate_expr is None
     assert col.source_columns == ()
+
+
+def test_signal_id_is_an_exact_text_field_on_its_own_level():
+    """signal_id lowers to a semi-join over signal_assignments, not a span or trace-row
+    predicate, and matches only exactly: an id is copied, never typed in part."""
+    col = reg.get_column("signal_id")
+    assert col.level is reg.FilterLevel.SIGNAL
+    assert col.type is reg.FilterType.TEXT
+    assert col.operators == (reg.FilterOperator.EQ,)
+    assert col.ch_type == "String"
+    assert col.detector_trigger is False
 
 
 def test_metadata_is_a_keyed_map_text_field_on_its_own_level():
@@ -147,7 +160,7 @@ def test_aggregate_source_columns_name_the_referenced_spans_columns():
     assert reg.get_column("total_tokens").source_columns == ("total_tokens",)
     assert reg.get_column("duration_ms").source_columns == ("span_start_time", "span_end_time")
     assert reg.get_column("errors").source_columns == ("status",)
-    for name in MEMBERSHIP_FIELDS | KEYED_MAP_FIELDS | TRACE_FIELDS:
+    for name in MEMBERSHIP_FIELDS | KEYED_MAP_FIELDS | TRACE_FIELDS | SIGNAL_FIELDS:
         assert reg.get_column(name).source_columns == ()
 
 
@@ -164,6 +177,10 @@ def test_filter_columns_are_immutable():
 # Derived fields with no stored-column equivalent (computed aggregates) are exempt
 # from the curated-column cross-check — they reference real columns via aggregate_expr.
 _DERIVED_FIELDS = {"errors"}
+
+# Fields read from a table the Gateway does not curate: signal_id comes from
+# signal_assignments, not from the traces or spans the Gateway exposes.
+_NON_GATEWAY_TABLE_FIELDS = {"signal_id"}
 
 # Stored columns not yet exposed through the SQL Gateway. Each is a tracked
 # follow-up; remove the entry when the curated schema gains the column.
@@ -196,6 +213,7 @@ def test_registry_columns_exist_in_gateway_public_tables():
         {c.name for c in reg.FILTER_COLUMNS}
         - gateway_cols
         - _DERIVED_FIELDS
+        - _NON_GATEWAY_TABLE_FIELDS
         - _PENDING_GATEWAY_FIELDS
     )
     assert not missing, f"registry columns absent from Gateway curated schema: {missing}"

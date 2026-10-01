@@ -51,6 +51,11 @@ interface TraceViewerPanelProps {
   autoOpenRca?: boolean;
   /** When true, the panel mounts already expanded to full width (e.g. opened in a new tab). */
   initialFullscreen?: boolean;
+  /**
+   * Width of the overlay when not fullscreen; defaults to 70% of the viewport. A
+   * narrower value lets the panel the trace was opened from show beneath it.
+   */
+  overlayWidthClassName?: string;
   /** Span to select once the trace loads — the deep link behind a chat tool step's "Open span". */
   initialSpanId?: string;
   /**
@@ -178,6 +183,7 @@ export function TraceViewerPanel({
   customEndDate,
   autoOpenRca,
   initialFullscreen,
+  overlayWidthClassName,
   embedded,
   initialSpanId,
   newTabPath,
@@ -420,7 +426,7 @@ export function TraceViewerPanel({
                 ? sidebarCollapsed
                   ? "top-14 w-[calc(100%-3.5rem)]"
                   : "top-14 w-[calc(100%-12rem)]"
-                : "top-0 w-[70%]",
+                : cn("top-0", overlayWidthClassName ?? "w-[70%]"),
             ),
       )}
     >

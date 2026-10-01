@@ -5,9 +5,10 @@ Every read is secret-gated and scoped by project id.
 
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from db.clickhouse.client import ClickHouseClient, get_clickhouse_client
@@ -15,6 +16,7 @@ from rest.routers.internal.auth import verify_internal_secret
 from rest.schemas.detectors import (
     DetectorWindowSummaryResponse,
     RunListResponse,
+    TraceCountsResponse,
 )
 from rest.sql_utils import escape_ilike, to_utc_naive
 
@@ -735,4 +737,102 @@ async def list_detector_window_summary(
             if detector_id in data:
                 data[detector_id]["sample_summaries"] = summaries
 
+    return {"data": data}
+
+
+@router.get(
+    "/trace-counts",
+    response_model=TraceCountsResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def list_trace_counts(
+    project_id: str,
+    start_after: datetime = Query(..., description="Window start (inclusive)"),
+    end_before: datetime = Query(..., description="Window end (exclusive)"),
+    detector_id: str | None = Query(
+        None, description="Count the traces this detector checked; all traces when omitted"
+    ),
+    granularity: Literal["hour", "day"] = Query("day", description="Bucket width"),
+    tz: str = Query(
+        "UTC",
+        description="IANA zone name local buckets are computed in, e.g. 'America/New_York'",
+    ),
+):
+    """Traces per LOCAL hour or day in ``tz``: the ones a detector checked, or all of them.
+
+    With ``detector_id``, a bucket counts the detector's runs. ``detector_runs`` is a
+    ``ReplacingMergeTree`` whose duplicates are idempotent retries sharing a
+    deterministic ``run_id``, so the inner query collapses each ``run_id`` to its
+    latest version via ``max(timestamp)`` over the project's whole history (no FINAL;
+    see :func:`list_detector_window_summary`), and the outer query then windows and
+    buckets on that collapsed ``ts``: a retried run is placed by its latest version,
+    not an earlier retry's. Every evaluation counts, triggered or not.
+
+    Without it, a bucket counts the project's distinct traces by start time.
+
+    Args:
+        project_id (str): Project to count in.
+        start_after (datetime): Window start (inclusive).
+        end_before (datetime): Window end (exclusive).
+        detector_id (str | None): Detector whose checked traces to count.
+        granularity (str): ``hour`` or ``day``.
+        tz (str): IANA zone name the buckets are computed in. Validated against the
+            system's tz database before it reaches SQL, so an unknown name is a 422,
+            not a ClickHouse error.
+
+    Returns:
+        TraceCountsResponse: One row per bucket with at least one trace, ordered
+        ascending; a bucket is ``YYYY-MM-DD`` (day) or ``YYYY-MM-DDTHH:00`` (hour)
+        in ``tz``. Empty buckets are omitted.
+    """
+    try:
+        ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=f"Unknown timezone: {tz!r}") from e
+
+    ch = get_clickhouse_client()
+    params: dict = {
+        "project_id": project_id,
+        "start_after": to_utc_naive(start_after),
+        "end_before": to_utc_naive(end_before),
+        "tz": tz,
+    }
+    bucket = (
+        "formatDateTime(toStartOfHour(ts, {tz:String}), '%Y-%m-%dT%H:00', {tz:String})"
+        if granularity == "hour"
+        else "toString(toDate(ts, {tz:String}))"
+    )
+    if detector_id is not None:
+        params["detector_id"] = detector_id
+        # Window on the collapsed timestamp (outer), not the raw rows (inner), so the
+        # dedup happens first.
+        source = """
+            SELECT run_id AS id, max(timestamp) AS ts
+            FROM detector_runs
+            WHERE project_id = {project_id:String}
+              AND detector_id = {detector_id:String}
+            GROUP BY run_id
+        """
+        counted = "count()"
+    else:
+        source = """
+            SELECT trace_id AS id, trace_start_time AS ts
+            FROM traces
+            WHERE project_id = {project_id:String}
+              AND trace_start_time >= {start_after:DateTime64(3)}
+              AND trace_start_time < {end_before:DateTime64(3)}
+        """
+        # A trace's row can have several versions until merges collapse them.
+        counted = "uniqExact(id)"
+
+    query = f"""
+        SELECT {bucket} AS bucket, {counted} AS count
+        FROM ({source})
+        WHERE ts >= {{start_after:DateTime64(3)}} AND ts < {{end_before:DateTime64(3)}}
+        GROUP BY bucket
+        ORDER BY bucket
+    """
+
+    result = ch.query(query, parameters=params)
+    data = [{"bucket": row[0], "count": int(row[1])} for row in result.result_rows]
     return {"data": data}

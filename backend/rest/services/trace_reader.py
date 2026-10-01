@@ -451,6 +451,7 @@ class TraceReaderService:
         limit: int = 50,
         name: str | None = None,
         user_id: str | None = None,
+        trace_ids: list[str] | None = None,
         start_after: datetime | None = None,
         end_before: datetime | None = None,
         search_query: str | None = None,
@@ -464,6 +465,11 @@ class TraceReaderService:
         them. The exclusion goes into the SHARED ``conditions`` list, so it reaches the
         page query and the count query identically and ``meta.total`` always matches the
         rows the caller can page through. See :func:`_evaluation_exclusion`.
+
+        ``trace_ids`` looks up a known set of traces (e.g. a signal's member traces).
+        On its own it applies no time window, since those traces can be weeks old.
+        An explicit ``start_after``/``end_before`` still applies, and ``filters`` keep
+        their default lookback because their span scans need a lower bound.
         """
         offset = page * limit
 
@@ -481,6 +487,10 @@ class TraceReaderService:
         if user_id:
             conditions.append("t.user_id = {user_id:String}")
             params["user_id"] = user_id
+
+        if trace_ids:
+            conditions.append("t.trace_id IN {trace_ids:Array(String)}")
+            params["trace_ids"] = list(trace_ids)
 
         # Date range filtering (convert to UTC naive datetime for ClickHouse)
         if start_after is not None:
@@ -506,6 +516,8 @@ class TraceReaderService:
         # would be an unbounded full-project span scan in both the page and count queries.
         # Default a lookback window so those sub-queries prune monthly partitions, and bound
         # the trace query to the same window so the page, count, and span scans stay consistent.
+        # A trace_ids lookup without filters scans no spans, so no window applies to it and
+        # old named traces are still found; with filters the window applies as usual.
         if filters and start_after is None:
             params["start_after"] = default_lookback_start(normalized_end)
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")

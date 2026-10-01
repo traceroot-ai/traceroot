@@ -37,6 +37,20 @@ export async function getTraces(
   return fetchTraceApi<TraceListResponse>(endpoint, {}, user);
 }
 
+/**
+ * Summaries (name, errors, cost, latency) of a known set of traces, at most 100,
+ * whatever their age: no default time window applies to an id list.
+ */
+export async function getTracesByIds(
+  projectId: string,
+  traceIds: string[],
+  user?: TraceApiUser,
+): Promise<TraceListResponse> {
+  const params = new URLSearchParams({ limit: String(traceIds.length) });
+  for (const id of traceIds) params.append("trace_ids", id);
+  return fetchTraceApi<TraceListResponse>(`/projects/${projectId}/traces?${params}`, {}, user);
+}
+
 export async function tracesExist(
   projectId: string,
   user?: TraceApiUser,

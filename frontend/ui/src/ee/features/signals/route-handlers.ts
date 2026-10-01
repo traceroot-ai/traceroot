@@ -85,19 +85,75 @@ async function rewriteCopies(moved: MovedHits): Promise<void> {
 // Keeps the offset a query can ask for bounded, like the alerts list.
 const MAX_PAGE = 10_000;
 
-// GET /api/projects/[projectId]/detectors/[detectorId]/signals?status=open&page=0&limit=50
-// Returns `{ data, meta }` like the other list endpoints.
-export async function handleListDetectorSignals(
-  req: NextRequest,
-  { params }: Params<{ projectId: string; detectorId: string }>,
-) {
-  const { projectId, detectorId } = await params;
-  const auth = await authorize(projectId);
-  if (auth.error) return auth.error;
+/**
+ * The list page's filter chips, in the predicate shape the trace filters use:
+ * status and detector name are picked from lists, the name and id are typed.
+ */
+const signalFilterSchema = z.array(
+  z.discriminatedUnion("field", [
+    z.object({
+      field: z.literal("status"),
+      op: z.literal("in"),
+      value: z.array(z.enum(SIGNAL_STATUSES)),
+    }),
+    z.object({ field: z.literal("detector"), op: z.literal("in"), value: z.array(z.string()) }),
+    z.object({ field: z.literal("title"), op: z.literal("contains"), value: z.string() }),
+    z.object({ field: z.literal("signal_id"), op: z.literal("eq"), value: z.string() }),
+  ]),
+);
+
+/**
+ * The time window in `start_after` / `end_before` (ISO), or an error message.
+ * Both are optional; a missing end is now.
+ */
+function parseWindow(searchParams: URLSearchParams): {
+  window?: { from: Date; to: Date };
+  error?: string;
+} {
+  const start = searchParams.get("start_after");
+  const end = searchParams.get("end_before");
+  if (!start && !end) return {};
+  const from = start ? new Date(start) : null;
+  const to = end ? new Date(end) : new Date();
+  if (!from || isNaN(from.getTime()) || isNaN(to.getTime())) {
+    return { error: "start_after and end_before must be ISO timestamps" };
+  }
+  if (from.getTime() >= to.getTime()) return { error: "start_after must be before end_before" };
+  return { window: { from, to } };
+}
+
+/** One page of signals for the query in `req`, as `{ data, meta }` like the other list endpoints. */
+async function listResponse(req: NextRequest, projectId: string, detectorId?: string) {
   const { searchParams } = req.nextUrl;
+  // The window does not filter signals: it only counts each one's hits in it.
+  const { window, error } = parseWindow(searchParams);
+  if (error) return errorResponse(error, 400);
   const status = searchParams.get("status");
   if (status && !(SIGNAL_STATUSES as readonly string[]).includes(status)) {
     return errorResponse(`status must be one of ${SIGNAL_STATUSES.join(", ")}`, 400);
+  }
+  let filters: z.infer<typeof signalFilterSchema> = [];
+  const rawFilters = searchParams.get("filters");
+  if (rawFilters) {
+    let json: unknown;
+    try {
+      json = JSON.parse(rawFilters);
+    } catch {
+      return errorResponse("filters must be JSON", 400);
+    }
+    const parsed = signalFilterSchema.safeParse(json);
+    if (!parsed.success) return errorResponse("Unsupported signal filter", 400);
+    filters = parsed.data;
+  }
+  const statuses = new Set<string>(status ? [status] : []);
+  const detectorNames: string[] = [];
+  let title: string | undefined;
+  let signalId: string | undefined;
+  for (const f of filters) {
+    if (f.field === "status") f.value.forEach((v) => statuses.add(v));
+    else if (f.field === "detector") detectorNames.push(...f.value);
+    else if (f.field === "title") title = f.value.trim() || undefined;
+    else signalId = f.value.trim() || undefined;
   }
   const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);
   const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
@@ -105,25 +161,130 @@ export async function handleListDetectorSignals(
   const page = isNaN(rawPage) ? 0 : Math.min(Math.max(rawPage, 0), MAX_PAGE);
   const { signals, total } = await listSignals(prisma, {
     projectId,
-    detectorId,
-    status: status ?? undefined,
+    detectorIds: detectorId ? [detectorId] : undefined,
+    detectorNames: detectorNames.length > 0 ? detectorNames : undefined,
+    statuses: statuses.size > 0 ? [...statuses] : undefined,
+    title,
+    signalId,
+    hitsIn: window,
     page,
     limit,
   });
   return successResponse({ data: signals, meta: { page, limit, total } });
 }
 
-// GET /api/projects/[projectId]/signals/[signalId]
+// GET /api/projects/[projectId]/signals?filters=&page=&limit=
+export async function handleListSignals(
+  req: NextRequest,
+  { params }: Params<{ projectId: string }>,
+) {
+  const { projectId } = await params;
+  const auth = await authorize(projectId);
+  if (auth.error) return auth.error;
+  return listResponse(req, projectId);
+}
+
+// GET /api/projects/[projectId]/detectors/[detectorId]/signals?status=open&page=0&limit=50
+export async function handleListDetectorSignals(
+  req: NextRequest,
+  { params }: Params<{ projectId: string; detectorId: string }>,
+) {
+  const { projectId, detectorId } = await params;
+  const auth = await authorize(projectId);
+  if (auth.error) return auth.error;
+  return listResponse(req, projectId, detectorId);
+}
+
+/** Whether `tz` is an IANA zone name this runtime (and so Postgres and ClickHouse) knows. */
+function isValidTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Which traces the chart compares the signal's against. */
+const POPULATIONS = ["similar", "all"] as const;
+type Population = (typeof POPULATIONS)[number];
+
+/**
+ * Traces per local bucket of the window, read from the backend: the ones the
+ * signal's detector checked ("similar"), or all of the project's. Null when the
+ * backend cannot be reached, so the chart still shows the signal's own traces.
+ */
+async function tracesPerBucket(
+  projectId: string,
+  detectorId: string,
+  population: Population,
+  window: { from: Date; to: Date; granularity: "hour" | "day" },
+  tz: string,
+): Promise<Map<string, number> | null> {
+  const qs = new URLSearchParams({
+    project_id: projectId,
+    start_after: window.from.toISOString(),
+    end_before: window.to.toISOString(),
+    granularity: window.granularity,
+    tz,
+  });
+  if (population === "similar") qs.set("detector_id", detectorId);
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/v1/internal/trace-counts?${qs}`, {
+      headers: { "X-Internal-Secret": env.INTERNAL_API_SECRET || "" },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = (await res.json()) as { data: { bucket: string; count: number }[] };
+    return new Map(body.data.map((d) => [d.bucket, d.count]));
+  } catch (err) {
+    console.error(`[signals] failed to read the trace counts of project ${projectId}:`, err);
+    return null;
+  }
+}
+
+// GET /api/projects/[projectId]/signals/[signalId]?start_after=&end_before=&tz=&population=similar
+// Buckets are the viewer's local hours or days. Each carries the signal's traces
+// and, when the backend answers, the other traces of the population.
 export async function handleGetSignal(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: Params<{ projectId: string; signalId: string }>,
 ) {
   const { projectId, signalId } = await params;
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
-  const result = await getSignal(prisma, { projectId, signalId });
+  const { searchParams } = req.nextUrl;
+  const { window, error } = parseWindow(searchParams);
+  if (error) return errorResponse(error, 400);
+  const tz = searchParams.get("tz") || "UTC";
+  if (!isValidTimeZone(tz)) return errorResponse("tz must be an IANA time zone", 400);
+  const population = searchParams.get("population") || "similar";
+  if (!(POPULATIONS as readonly string[]).includes(population)) {
+    return errorResponse(`population must be one of ${POPULATIONS.join(", ")}`, 400);
+  }
+  const result = await getSignal(prisma, {
+    projectId,
+    signalId,
+    from: window?.from,
+    to: window?.to,
+    tz,
+  });
   if (!result) return errorResponse("Signal not found", 404);
-  return successResponse(result);
+  if (result.merged) return successResponse(result);
+  const counted = await tracesPerBucket(
+    projectId,
+    result.signal.detectorId,
+    population as Population,
+    result.window,
+    tz,
+  );
+  return successResponse({
+    ...result,
+    hitSeries: result.hitSeries.map((b) => ({
+      ...b,
+      // The bucket's other traces; the clamp covers a hit counted before its trace lands.
+      unaffected: counted ? Math.max(0, (counted.get(b.bucket) ?? 0) - b.hits) : null,
+    })),
+  });
 }
 
 // PATCH /api/projects/[projectId]/signals/[signalId] — title and criteria

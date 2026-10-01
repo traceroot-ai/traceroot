@@ -22,6 +22,7 @@ class FilterLevel(StrEnum):
     SPAN_MEMBERSHIP = "SPAN_MEMBERSHIP"  # trace_id IN (SELECT … FROM spans WHERE …)
     SPAN_AGGREGATE = "SPAN_AGGREGATE"  # trace_id IN (SELECT … GROUP BY trace_id HAVING …)
     KEYED_MAP = "KEYED_MAP"  # inline traces-row Map match OR the span semi-join, by key
+    SIGNAL = "SIGNAL"  # trace_id IN (SELECT … FROM signal_assignments WHERE …)
 
 
 class FilterType(StrEnum):
@@ -151,6 +152,20 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         value_source=ValueSource.FREE_TEXT,
         # Detectors evaluate live traces as they complete: pinning one known
         # trace id is not a meaningful trigger.
+        detector_trigger=False,
+    ),
+    # Signal tier — the traces holding a hit of one signal (a signal semi-join), so a
+    # signal can link to its traces in the list. Exact match only: a signal id is
+    # copied, never typed in part.
+    FilterColumn(
+        name="signal_id",
+        label="Signal ID",
+        ch_type="String",
+        level=FilterLevel.SIGNAL,
+        type=FilterType.TEXT,
+        operators=(FilterOperator.EQ,),
+        value_source=ValueSource.FREE_TEXT,
+        # A signal exists only after detectors ran on the trace.
         detector_trigger=False,
     ),
     # Membership tier — "trace has ≥1 span where …" (span semi-join).

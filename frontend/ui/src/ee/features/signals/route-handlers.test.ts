@@ -46,6 +46,7 @@ import {
   handleEditSignal,
   handleGetSignal,
   handleListDetectorSignals,
+  handleListSignals,
   handleMergeSignal,
   handleMoveHit,
   handleSetSignalStatus,
@@ -151,12 +152,12 @@ describe("reads", () => {
     });
     expect(core.listSignals).toHaveBeenCalledWith(
       { tag: "prisma" },
-      { projectId: "p1", detectorId: "d1", status: "open", page: 1, limit: 50 },
+      { projectId: "p1", detectorIds: ["d1"], statuses: ["open"], page: 1, limit: 50 },
     );
     await handleListDetectorSignals(req(), params({ projectId: "p1", detectorId: "d1" }));
     expect(core.listSignals).toHaveBeenLastCalledWith(
       { tag: "prisma" },
-      { projectId: "p1", detectorId: "d1", status: undefined, page: 0, limit: 50 },
+      { projectId: "p1", detectorIds: ["d1"], page: 0, limit: 50 },
     );
     await handleListDetectorSignals(
       req(undefined, "?page=99999999999999999999&limit=1000"),
@@ -164,7 +165,7 @@ describe("reads", () => {
     );
     expect(core.listSignals).toHaveBeenLastCalledWith(
       { tag: "prisma" },
-      { projectId: "p1", detectorId: "d1", status: undefined, page: 10_000, limit: 200 },
+      { projectId: "p1", detectorIds: ["d1"], page: 10_000, limit: 200 },
     );
     const bad = await handleListDetectorSignals(
       req(undefined, "?status=closed"),
@@ -173,13 +174,169 @@ describe("reads", () => {
     expect(bad.status).toBe(400);
   });
 
-  it("returns one signal, or 404", async () => {
-    core.getSignal.mockResolvedValueOnce({ merged: false, signal: { id: "s1" } });
-    expect(await (await handleGetSignal(req(), signalParams)).json()).toMatchObject({
-      signal: { id: "s1" },
+  it("lists a project's signals by the page's filter chips", async () => {
+    core.listSignals.mockResolvedValue({ signals: [], total: 0 });
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        { field: "status", op: "in", value: ["open", "resolved"] },
+        { field: "detector", op: "in", value: ["Failure"] },
+        { field: "title", op: "contains", value: " timeout " },
+        { field: "signal_id", op: "eq", value: "s9" },
+      ]),
+    );
+    const res = await handleListSignals(
+      req(undefined, `?filters=${filters}`),
+      params({ projectId: "p1" }),
+    );
+    expect(res.status).toBe(200);
+    expect(core.listSignals).toHaveBeenCalledWith(
+      { tag: "prisma" },
+      {
+        projectId: "p1",
+        detectorNames: ["Failure"],
+        statuses: ["open", "resolved"],
+        title: "timeout",
+        signalId: "s9",
+        page: 0,
+        limit: 50,
+      },
+    );
+    for (const bad of [
+      "?filters=not-json",
+      `?filters=${encodeURIComponent(JSON.stringify([{ field: "cost", op: "gt", value: 1 }]))}`,
+      `?filters=${encodeURIComponent(JSON.stringify([{ field: "status", op: "in", value: ["closed"] }]))}`,
+    ]) {
+      expect(
+        (await handleListSignals(req(undefined, bad), params({ projectId: "p1" }))).status,
+      ).toBe(400);
+    }
+    core.requireProjectAccess.mockResolvedValueOnce({ error: Response.json({}, { status: 403 }) });
+    expect((await handleListSignals(req(), params({ projectId: "p1" }))).status).toBe(403);
+  });
+
+  it("counts each listed signal's hits in the page's window, and rejects a bad window", async () => {
+    core.listSignals.mockResolvedValue({ signals: [], total: 0 });
+    await handleListSignals(
+      req(undefined, "?start_after=2026-09-24T00:00:00.000Z&end_before=2026-10-01T00:00:00.000Z"),
+      params({ projectId: "p1" }),
+    );
+    expect(core.listSignals).toHaveBeenLastCalledWith(
+      { tag: "prisma" },
+      {
+        projectId: "p1",
+        hitsIn: {
+          from: new Date("2026-09-24T00:00:00.000Z"),
+          to: new Date("2026-10-01T00:00:00.000Z"),
+        },
+        page: 0,
+        limit: 50,
+      },
+    );
+    for (const bad of [
+      "?start_after=yesterday",
+      "?start_after=2026-10-01T00:00:00Z&end_before=2026-09-01T00:00:00Z",
+    ]) {
+      expect(
+        (await handleListSignals(req(undefined, bad), params({ projectId: "p1" }))).status,
+      ).toBe(400);
+    }
+  });
+
+  it("returns one signal with its traces and the detector's other traces per bucket, or 404", async () => {
+    const window = {
+      from: new Date("2026-09-29T00:00:00.000Z"),
+      to: new Date("2026-10-01T00:00:00.000Z"),
+      granularity: "hour",
+    };
+    core.getSignal.mockResolvedValueOnce({
+      merged: false,
+      signal: { id: "s1", detectorId: "d1" },
+      window,
+      hitSeries: [
+        { bucket: "2026-09-29T08:00", hits: 2 },
+        { bucket: "2026-09-29T09:00", hits: 5 },
+      ],
     });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ bucket: "2026-09-29T08:00", count: 10 }] }),
+    });
+    const res = await handleGetSignal(
+      req(
+        undefined,
+        "?start_after=2026-09-29T00:00:00.000Z&end_before=2026-10-01T00:00:00.000Z&tz=Asia%2FShanghai",
+      ),
+      signalParams,
+    );
+    expect(await res.json()).toMatchObject({
+      signal: { id: "s1" },
+      // A bucket without traces counts none; a hit counted before its run row cannot go negative.
+      hitSeries: [
+        { bucket: "2026-09-29T08:00", hits: 2, unaffected: 8 },
+        { bucket: "2026-09-29T09:00", hits: 5, unaffected: 0 },
+      ],
+    });
+    expect(core.getSignal).toHaveBeenCalledWith(
+      { tag: "prisma" },
+      { projectId: "p1", signalId: "s1", from: window.from, to: window.to, tz: "Asia/Shanghai" },
+    );
+    const [url, init] = mockFetch.mock.calls[0];
+    const sent = new URL(url);
+    expect(sent.pathname).toBe("/api/v1/internal/trace-counts");
+    expect(Object.fromEntries(sent.searchParams)).toEqual({
+      project_id: "p1",
+      detector_id: "d1",
+      start_after: "2026-09-29T00:00:00.000Z",
+      end_before: "2026-10-01T00:00:00.000Z",
+      granularity: "hour",
+      tz: "Asia/Shanghai",
+    });
+    expect(init.headers["X-Internal-Secret"]).toBe("sec");
+
     core.getSignal.mockResolvedValueOnce(null);
     expect((await handleGetSignal(req(), signalParams)).status).toBe(404);
+    for (const bad of ["?tz=Mars%2FBase", "?population=some", "?start_after=soon"]) {
+      expect((await handleGetSignal(req(undefined, bad), signalParams)).status).toBe(400);
+    }
+  });
+
+  it("compares against all of the project's traces when asked", async () => {
+    core.getSignal.mockResolvedValueOnce({
+      merged: false,
+      signal: { id: "s1", detectorId: "d1" },
+      window: { from: new Date(0), to: new Date(86_400_000 * 7), granularity: "day" },
+      hitSeries: [{ bucket: "1970-01-02", hits: 1 }],
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ bucket: "1970-01-02", count: 40 }] }),
+    });
+    const res = await handleGetSignal(req(undefined, "?population=all"), signalParams);
+    expect(await res.json()).toMatchObject({
+      hitSeries: [{ bucket: "1970-01-02", hits: 1, unaffected: 39 }],
+    });
+    const sent = new URL(mockFetch.mock.calls[0][0]);
+    expect(sent.searchParams.has("detector_id")).toBe(false);
+  });
+
+  it("still returns the signal's own traces per bucket when the backend is down", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    core.getSignal.mockResolvedValueOnce({
+      merged: false,
+      signal: { id: "s1", detectorId: "d1" },
+      window: { from: new Date(0), to: new Date(86_400_000 * 7), granularity: "day" },
+      hitSeries: [{ bucket: "2026-09-30", hits: 3 }],
+    });
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+    const res = await handleGetSignal(req(), signalParams);
+    expect(await res.json()).toMatchObject({
+      hitSeries: [{ bucket: "2026-09-30", hits: 3, unaffected: null }],
+    });
+    expect(core.getSignal).toHaveBeenCalledWith(
+      { tag: "prisma" },
+      expect.objectContaining({ tz: "UTC" }),
+    );
+    error.mockRestore();
   });
 
   it("returns a trace's signals", async () => {

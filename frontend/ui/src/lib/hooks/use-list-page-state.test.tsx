@@ -37,4 +37,18 @@ describe("useListPageState filters integration", () => {
     const url = new URL(replace.mock.calls.at(-1)![0] as string, "http://x");
     expect(JSON.parse(url.searchParams.get("filters")!)).toEqual(next);
   });
+
+  it("passes defaultFilters through to the URL filters hook", () => {
+    const defaultFilters: Predicate[] = [{ field: "status", op: "in", value: ["ERROR"] }];
+    const { result } = renderHook(() => useListPageState({ defaultFilters }));
+
+    // Absent key -> the configured default surfaces in both queryOptions and state.
+    expect(result.current.filters).toEqual(defaultFilters);
+    expect(result.current.queryOptions.filters).toEqual(defaultFilters);
+
+    // Clearing it writes the explicit marker rather than deleting the key.
+    act(() => result.current.updateFilters([]));
+    const url = new URL(replace.mock.calls.at(-1)![0] as string, "http://x");
+    expect(url.searchParams.get("filters")).toBe("[]");
+  });
 });

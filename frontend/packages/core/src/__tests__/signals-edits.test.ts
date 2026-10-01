@@ -447,6 +447,7 @@ describe("reads", () => {
     const findMany = vi.fn(async () => [
       {
         id: "a",
+        detectorId: "d",
         title: "A",
         status: "open",
         reopenSeq: 1,
@@ -455,18 +456,98 @@ describe("reads", () => {
       },
     ]);
     const count = vi.fn(async () => 120);
-    const list = await listSignals({ signal: { findMany, count } } as never, {
+    const detector = { findMany: vi.fn(async () => [{ id: "d", name: "Failure" }]) };
+    const list = await listSignals({ signal: { findMany, count }, detector } as never, {
       projectId: "p",
-      detectorId: "d",
-      status: "open",
+      detectorIds: ["d"],
+      statuses: ["open"],
       page: 2,
       limit: 50,
     });
     expect(list.total).toBe(120);
-    expect(list.signals[0].rca).toEqual({ currentState: "running", canonicalFindingId: "f0" });
-    const where = { projectId: "p", detectorId: "d", mergedIntoId: null, status: "open" };
+    expect(list.signals[0]).toMatchObject({
+      detectorName: "Failure",
+      rca: { currentState: "running", canonicalFindingId: "f0" },
+    });
+    const where = {
+      projectId: "p",
+      mergedIntoId: null,
+      detectorId: { in: ["d"] },
+      status: { in: ["open"] },
+    };
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where, skip: 100, take: 50 }));
     expect(count).toHaveBeenCalledWith({ where });
+    expect(detector.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ["d"] } } }),
+    );
+  });
+
+  it("lists a project's signals by title and id", async () => {
+    const findMany = vi.fn(async () => []);
+    const count = vi.fn(async () => 0);
+    const detector = { findMany: vi.fn() };
+    await listSignals({ signal: { findMany, count }, detector } as never, {
+      projectId: "p",
+      title: "timeout",
+      signalId: "a",
+      page: 0,
+      limit: 50,
+    });
+    expect(count).toHaveBeenCalledWith({
+      where: {
+        projectId: "p",
+        mergedIntoId: null,
+        title: { contains: "timeout", mode: "insensitive" },
+        id: "a",
+      },
+    });
+    // No rows, no detector lookup.
+    expect(detector.findMany).not.toHaveBeenCalled();
+  });
+
+  it("lists the signals of detectors picked by name", async () => {
+    const findMany = vi.fn(async () => []);
+    const count = vi.fn(async () => 0);
+    const detector = { findMany: vi.fn(async () => [{ id: "d1" }, { id: "d2" }]) };
+    await listSignals({ signal: { findMany, count }, detector } as never, {
+      projectId: "p",
+      detectorNames: ["Failure"],
+      page: 0,
+      limit: 50,
+    });
+    expect(detector.findMany).toHaveBeenCalledWith({
+      where: { projectId: "p", name: { in: ["Failure"] } },
+      select: { id: true },
+    });
+    expect(count).toHaveBeenCalledWith({
+      where: { projectId: "p", mergedIntoId: null, detectorId: { in: ["d1", "d2"] } },
+    });
+  });
+
+  it("counts each listed signal's hits in a window without filtering the list", async () => {
+    const findMany = vi.fn(async () => [
+      { id: "a", detectorId: "d", reopenSeq: 0, rcas: [] },
+      { id: "b", detectorId: "d", reopenSeq: 0, rcas: [] },
+    ]);
+    const count = vi.fn(async () => 2);
+    const detector = { findMany: vi.fn(async () => [{ id: "d", name: "Failure" }]) };
+    const groupBy = vi.fn(async () => [{ signalId: "a", _count: { _all: 4 } }]);
+    const from = new Date("2026-09-24T00:00:00Z");
+    const to = new Date("2026-10-01T00:00:00Z");
+    const list = await listSignals(
+      { signal: { findMany, count }, signalHit: { groupBy }, detector } as never,
+      { projectId: "p", hitsIn: { from, to }, page: 0, limit: 50 },
+    );
+    expect(count).toHaveBeenCalledWith({ where: { projectId: "p", mergedIntoId: null } });
+    expect(groupBy).toHaveBeenCalledWith({
+      by: ["signalId"],
+      where: { signalId: { in: ["a", "b"] }, seenAt: { gte: from, lt: to } },
+      _count: { _all: true },
+    });
+    expect(list.signals.map((s) => [s.id, s.rangeHitCount])).toEqual([
+      ["a", 4],
+      ["b", 0],
+    ]);
   });
 
   it("returns a signal with its canonical RCA, hits and status history", async () => {
@@ -474,16 +555,30 @@ describe("reads", () => {
       signal: {
         findFirst: vi.fn(async () => ({
           id: "a",
+          detectorId: "d",
           title: "A",
           reopenSeq: 2,
           mergedIntoId: null,
           rcas: [rca(2, "failed"), rca(1, "done", "cause one"), rca(0, "done", "cause zero")],
         })),
       },
-      signalHit: { findMany: vi.fn(async () => [{ runId: "r1" }]) },
+      signalHit: {
+        findMany: vi.fn(async () => [{ runId: "r1" }]),
+        findFirst: vi.fn(async () => ({ traceId: "trace-1" })),
+      },
       signalStatusEvent: { findMany: vi.fn(async () => [{ toStatus: "open", reason: "new_hit" }]) },
+      detector: { findMany: vi.fn(async () => [{ id: "d", name: "Failure" }]) },
+      $queryRaw: vi.fn(async () => [
+        { bucket: "2026-09-30", hits: 4 },
+        { bucket: "2026-09-28", hits: 1 },
+      ]),
     };
-    const r = await getSignal(db as never, { projectId: "p", signalId: "a" });
+    const r = await getSignal(db as never, {
+      projectId: "p",
+      signalId: "a",
+      from: new Date("2026-09-01T00:00:00Z"),
+      to: new Date("2026-10-01T00:00:00Z"),
+    });
     expect(db.signal.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "a", projectId: "p" } }),
     );
@@ -497,6 +592,126 @@ describe("reads", () => {
       statusEvents: [{ reason: "new_hit" }],
     });
     expect((r as { signal: { rcaHistory: unknown[] } }).signal.rcaHistory).toHaveLength(3);
+    // The analysed trace of the canonical RCA, and the detector's name.
+    expect(db.signalHit.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { findingId: "f1" } }),
+    );
+    expect(r).toMatchObject({
+      signal: { detectorName: "Failure", canonicalRca: { traceId: "trace-1" } },
+    });
+    // Only the window's hits are listed.
+    expect(db.signalHit.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          signalId: "a",
+          seenAt: { gte: new Date("2026-09-01T00:00:00Z"), lt: new Date("2026-10-01T00:00:00Z") },
+        },
+      }),
+    );
+    // A 30-day window is counted per local day (UTC, with no tz given), with
+    // days without hits as zero.
+    const { hitSeries, window } = r as unknown as {
+      hitSeries: { bucket: string; hits: number }[];
+      window: { granularity: string };
+    };
+    expect(window.granularity).toBe("day");
+    expect(hitSeries).toHaveLength(30);
+    expect(hitSeries[0]).toEqual({ bucket: "2026-09-01", hits: 0 });
+    expect(hitSeries.slice(-3)).toEqual([
+      { bucket: "2026-09-28", hits: 1 },
+      { bucket: "2026-09-29", hits: 0 },
+      { bucket: "2026-09-30", hits: 4 },
+    ]);
+  });
+
+  const bareSignalDb = (rows: { bucket: string; hits: number }[]) => {
+    const queryRaw = vi.fn(async (_strings: TemplateStringsArray, ..._values: unknown[]) => rows);
+    return {
+      queryRaw,
+      db: {
+        signal: {
+          findFirst: vi.fn(async () => ({
+            id: "a",
+            detectorId: "d",
+            title: "A",
+            reopenSeq: 0,
+            mergedIntoId: null,
+            rcas: [],
+          })),
+        },
+        signalHit: { findMany: vi.fn(async () => []), findFirst: vi.fn() },
+        signalStatusEvent: { findMany: vi.fn(async () => []) },
+        detector: { findMany: vi.fn(async () => [{ id: "d", name: "Failure" }]) },
+        $queryRaw: queryRaw,
+      },
+    };
+  };
+
+  it("buckets a signal's hits by the viewer's local day when tz is given", async () => {
+    const { db, queryRaw } = bareSignalDb([{ bucket: "2026-10-01", hits: 2 }]);
+    const r = await getSignal(db as never, {
+      projectId: "p",
+      signalId: "a",
+      // Ends 23:30 UTC on the 30th, already Oct 1st in Shanghai (UTC+8).
+      from: new Date("2026-09-27T23:30:00Z"),
+      to: new Date("2026-09-30T23:30:00Z"),
+      tz: "Asia/Shanghai",
+    });
+    // The labels are the viewer's local dates, a day ahead of the UTC ones.
+    const { hitSeries } = r as unknown as { hitSeries: { bucket: string; hits: number }[] };
+    expect(hitSeries).toEqual([
+      { bucket: "2026-09-28", hits: 0 },
+      { bucket: "2026-09-29", hits: 0 },
+      { bucket: "2026-09-30", hits: 0 },
+      { bucket: "2026-10-01", hits: 2 },
+    ]);
+    // The zone reaches $queryRaw as a bound parameter, used to convert seen_at.
+    const [strings, ...values] = queryRaw.mock.calls[0];
+    expect(strings.join("")).toContain("AT TIME ZONE");
+    expect(values).toContain("Asia/Shanghai");
+    expect(values).toContain("day");
+  });
+
+  it("counts a window of two days or less per local hour", async () => {
+    const { db, queryRaw } = bareSignalDb([{ bucket: "2026-10-01T05:00", hits: 3 }]);
+    const r = await getSignal(db as never, {
+      projectId: "p",
+      signalId: "a",
+      // 3 hours in India (UTC+5:30): local hours start on the half hour UTC.
+      from: new Date("2026-09-30T23:00:00Z"),
+      to: new Date("2026-10-01T02:00:00Z"),
+      tz: "Asia/Kolkata",
+    });
+    const { hitSeries, window } = r as unknown as {
+      hitSeries: { bucket: string; hits: number }[];
+      window: { granularity: string };
+    };
+    expect(window.granularity).toBe("hour");
+    expect(hitSeries).toEqual([
+      { bucket: "2026-10-01T04:00", hits: 0 },
+      { bucket: "2026-10-01T05:00", hits: 3 },
+      { bucket: "2026-10-01T06:00", hits: 0 },
+      { bucket: "2026-10-01T07:00", hits: 0 },
+    ]);
+    expect(queryRaw.mock.calls[0].slice(1)).toContain("hour");
+  });
+
+  it("reads the last 7 days when no window is given, and at most 90", async () => {
+    const now = new Date("2026-10-01T12:00:00Z");
+    const { db } = bareSignalDb([]);
+    const r = await getSignal(db as never, { projectId: "p", signalId: "a", now });
+    expect((r as unknown as { window: { from: Date } }).window.from).toEqual(
+      new Date("2026-09-24T12:00:00Z"),
+    );
+    const long = await getSignal(db as never, {
+      projectId: "p",
+      signalId: "a",
+      from: new Date("2025-01-01T00:00:00Z"),
+      to: now,
+    });
+    expect((long as unknown as { window: { from: Date } }).window.from).toEqual(
+      new Date("2026-07-03T12:00:00Z"),
+    );
   });
 
   it("points at the target of a merged signal, and is null for a missing one", async () => {
