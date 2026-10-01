@@ -54,23 +54,37 @@ function productionDeps(): RoundDeps {
 export async function sweepPartitions(now: number = Date.now()): Promise<number> {
   // Projection repair is independent of the model key and ClickHouse's
   // waiting query. The partial index only scans unacknowledged placements.
-  const pending = await prisma.signalHit.findMany({
-    where: { copyPending: true },
-    select: { projectId: true, detectorId: true },
-    distinct: ["projectId", "detectorId"],
-    take: 500,
-  });
   const waiting = signalsAvailable() ? await partitionsToSweep(now) : [];
-  const partitions = [
-    ...new Map(
-      [...pending, ...waiting].map((p) => [`${p.projectId}:${p.detectorId}`, p] as const),
-    ).values(),
-  ];
-  for (const p of partitions) await enqueueAssignment(p.projectId, p.detectorId, 0);
-  if (partitions.length > 0)
-    console.log(`[Signals] sweeper re-enqueued ${partitions.length} partition(s)`);
+  const waitingKeys = new Set(waiting.map((p) => `${p.projectId}:${p.detectorId}`));
+  let cursor: { projectId: string; detectorId: string } | null = null;
+  let count = 0;
+  // Page all pending partitions, rather than repeatedly retrying the first
+  // batch during an outage. Retain only a page and the bounded Redis overlap.
+  const pageSize = 500;
+  for (;;) {
+    const pending: { projectId: string; detectorId: string }[] = await prisma.$queryRaw`
+      SELECT DISTINCT project_id AS "projectId", detector_id AS "detectorId"
+      FROM signal_hits
+      WHERE copy_pending
+        AND (${cursor?.projectId ?? null}::text IS NULL OR
+             (project_id, detector_id) > (${cursor?.projectId ?? null}, ${cursor?.detectorId ?? null}))
+      ORDER BY project_id, detector_id LIMIT ${pageSize}`;
+    for (const p of pending) {
+      await enqueueAssignment(p.projectId, p.detectorId, 0);
+      waitingKeys.delete(`${p.projectId}:${p.detectorId}`);
+      count++;
+    }
+    if (pending.length < pageSize) break;
+    cursor = pending[pending.length - 1];
+  }
+  for (const p of waiting) {
+    if (!waitingKeys.has(`${p.projectId}:${p.detectorId}`)) continue;
+    await enqueueAssignment(p.projectId, p.detectorId, 0);
+    count++;
+  }
+  if (count > 0) console.log(`[Signals] sweeper re-enqueued ${count} partition(s)`);
   if (signalsAvailable()) await sweepSignalRcas(prisma, now);
-  return partitions.length;
+  return count;
 }
 
 /**
