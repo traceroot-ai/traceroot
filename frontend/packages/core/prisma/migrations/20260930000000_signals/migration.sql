@@ -68,6 +68,14 @@ CREATE INDEX "ix_signal_hit_signal_seen" ON "signal_hits"("signal_id", "seen_at"
 CREATE INDEX "ix_signal_hit_finding" ON "signal_hits"("finding_id");
 CREATE INDEX "ix_signal_hit_project_trace" ON "signal_hits"("project_id", "trace_id");
 
+ALTER TABLE "signal_hits"
+  ADD COLUMN "embedding" DOUBLE PRECISION[] NOT NULL DEFAULT ARRAY[]::DOUBLE PRECISION[],
+  ADD COLUMN "copy_pending" BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN "reported_at" TIMESTAMP(6);
+CREATE INDEX "ix_signal_hit_pending_copy"
+  ON "signal_hits"("project_id", "detector_id", "assigned_at") WHERE "copy_pending";
+CREATE INDEX "ix_signal_hit_unreported" ON "signal_hits"("signal_id") WHERE "reported_at" IS NULL;
+
 CREATE TABLE "signal_rcas" (
   "signal_id"   VARCHAR NOT NULL,
   "reopen_seq"  INTEGER NOT NULL,
