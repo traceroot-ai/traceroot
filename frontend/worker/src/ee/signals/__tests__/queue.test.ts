@@ -74,7 +74,7 @@ vi.mock("../../../queues/detector-run-queue.js", () => ({
 vi.mock("../round.js", () => ({ runAssignmentRound: mockRound }));
 const { mockPendingCopies } = vi.hoisted(() => ({ mockPendingCopies: vi.fn() }));
 vi.mock("@traceroot/core", () => ({
-  prisma: { tag: "prisma", signalHit: { findMany: mockPendingCopies } },
+  prisma: { tag: "prisma", $queryRaw: mockPendingCopies },
 }));
 const { mockEmbed, mockChat, mockJev, mockFindJev } = vi.hoisted(() => ({
   mockEmbed: vi.fn(),
@@ -294,6 +294,26 @@ describe("sweepPartitions", () => {
 });
 
 describe("pending copy recovery", () => {
+  it("reaches later partitions even while the first full page stays pending", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    mockPendingCopies
+      .mockResolvedValueOnce(
+        Array.from({ length: 500 }, (_, i) => ({
+          projectId: "p",
+          detectorId: `d${String(i).padStart(3, "0")}`,
+        })),
+      )
+      .mockResolvedValueOnce([{ projectId: "p", detectorId: "d500" }]);
+    expect(await sweepPartitions(T0)).toBe(501);
+    expect(mockPendingCopies.mock.calls[1].slice(1)).toEqual(["p", "p", "d499", 500]);
+    expect(mockAdd).toHaveBeenCalledTimes(501);
+    expect(mockAdd).toHaveBeenLastCalledWith(
+      "assign",
+      { projectId: "p", detectorId: "d500" },
+      expect.objectContaining({ delay: 0 }),
+    );
+  });
+
   it("enqueues durable repairs without a model key", async () => {
     vi.stubEnv("OPENAI_API_KEY", "");
     mockPendingCopies.mockResolvedValue([{ projectId: "p1", detectorId: "d1" }]);
