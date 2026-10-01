@@ -5,20 +5,34 @@ description: Auto-instrument AutoGen multi-agent conversations and tool calls
 
 Automatically capture agent loops, message histories, and tool executions within the AutoGen framework.
 
-## Setup
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot ag2 google-genai
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
 
 To capture the complete picture—including both the agent orchestrations and the underlying token costs—we highly recommend initializing both the AutoGen integration and your specific LLM provider (e.g., Google GenAI, OpenAI, Anthropic).
 
-```python
-import traceroot
-from traceroot import Integration
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
 
-# Initialize AutoGen alongside your LLM provider to capture tokens and costs
-traceroot.initialize(integrations=[
-    Integration.AUTOGEN,
-    Integration.GOOGLE_GENAI  # Or OPENAI, ANTHROPIC, etc.
-])
-```
+    # Initialize AutoGen alongside your LLM provider to capture tokens and costs
+    traceroot.initialize(integrations=[
+        Integration.AUTOGEN,
+        Integration.GOOGLE_GENAI  # Or OPENAI, ANTHROPIC, etc.
+    ])
+    ```
+  </Tab>
+</Tabs>
 
 ## Usage
 
@@ -79,7 +93,13 @@ user_proxy.initiate_chat(
 )
 ```
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `ConversableAgent.initiate_chat`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
@@ -90,11 +110,25 @@ user_proxy.initiate_chat(
 | LLM calls | Raw completion requests to the provider |
 | Tokens & Cost | Aggregated usage and pricing for the chat session |
 
+## Limitations
+
+- AutoGen (AG2) requires initializing both `Integration.AUTOGEN` and your underlying LLM provider integration (such as `Integration.GOOGLE_GENAI` or `Integration.OPENAI`) to capture full token usage and pricing.
 
 ## Run the example
 
 Clone the repo and run a complete agent end-to-end.
 
-  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/autogen-tool-agent">
-    Run the Python example
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/autogen-tool-agent">
+  Run the Python example
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
   </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>

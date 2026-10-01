@@ -5,7 +5,22 @@ description: Auto-instrument LangChain and LangGraph agent frameworks
 
 Automatically capture agent steps, tool calls, and LLM invocations within LangChain chains and LangGraph graphs.
 
-## Setup
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot langchain-core langchain-openai langgraph
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot @langchain/core @langchain/openai @langchain/langgraph
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
 
 <Tabs>
   <Tab title="Python">
@@ -28,7 +43,9 @@ Automatically capture agent steps, tool calls, and LLM invocations within LangCh
   </Tab>
 </Tabs>
 
-## Usage with LangGraph
+## Usage
+
+### Usage with LangGraph
 
 <Tabs>
   <Tab title="Python">
@@ -76,7 +93,7 @@ Automatically capture agent steps, tool calls, and LLM invocations within LangCh
   </Tab>
 </Tabs>
 
-## Usage with LangChain
+### Usage with LangChain
 
 <Tabs>
   <Tab title="Python">
@@ -115,7 +132,13 @@ Automatically capture agent steps, tool calls, and LLM invocations within LangCh
   </Tab>
 </Tabs>
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `RunnableSequence` or `CompiledStateGraph`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
@@ -126,6 +149,9 @@ Automatically capture agent steps, tool calls, and LLM invocations within LangCh
 | Token usage | Aggregated across all LLM calls |
 | Cost | Total cost for the full chain/graph execution |
 
+## Limitations
+
+- For TypeScript, `instrumentModules` must be configured with `@langchain/core/callbacks/manager` to enable automatic callback tracing.
 
 ## Run the example
 
@@ -137,5 +163,16 @@ Clone the repo and run a complete agent end-to-end.
   </Card>
   <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/langchain">
     Run the TypeScript example
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="TypeScript SDK Reference" icon="code" href="/tracing/typescript-sdk">
+    Explore the full TypeScript SDK reference and configuration options.
   </Card>
 </CardGroup>
