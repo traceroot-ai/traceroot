@@ -26,6 +26,7 @@ import {
   canonicalizeAlertFilters,
   clampRenotifyInterval,
   getAlertUnit,
+  getAlertUnitForSource,
   getValidAggregations,
   isAlertAggregation,
   isAlertFilterField,
@@ -287,6 +288,23 @@ describe("getAlertUnit", () => {
 
   it("has nothing to say about a measure the registry does not know", () => {
     expect(getAlertUnit("span_count", "avg")).toBeUndefined();
+  });
+});
+
+describe("getAlertUnitForSource", () => {
+  it("gives a computed number the unit of the measure its source belongs to", () => {
+    // The chart holds the engine's field, not the measure id the rule was written with.
+    expect(getAlertUnitForSource({ view: "spans", field: "duration_ms" }, "p95")).toEqual({
+      suffix: "ms",
+    });
+    expect(getAlertUnitForSource({ view: "spans", field: "tokens_per_second" }, "avg")).toEqual({
+      suffix: "tok/s",
+    });
+  });
+
+  it("drops the unit under a counting aggregation, and for a source no measure reads", () => {
+    expect(getAlertUnitForSource({ view: "spans", field: "duration_ms" }, "uniq")).toBeUndefined();
+    expect(getAlertUnitForSource({ view: "traces", field: "duration_ms" }, "p95")).toBeUndefined();
   });
 });
 
