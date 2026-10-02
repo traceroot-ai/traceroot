@@ -582,6 +582,19 @@ def test_get_finding_keeps_the_last_successful_answer_while_a_later_attempt_is_n
     assert "order by sr.create_time desc" in kept_sql
 
 
+def test_get_finding_reports_the_latest_attempt_when_the_kept_answer_lookup_fails(
+    reader, monkeypatch
+):
+    _two_detector_finding(reader)
+    monkeypatch.setattr(
+        reader,
+        "_pg_rows",
+        _signals_pg(own_rca=[("pending", None)], fail="from signal_rcas sr join detector_rcas"),
+    )
+    detail = reader.get_finding("p1", "f1")
+    assert (detail.rca.status, detail.rca.result) == ("pending", None)
+
+
 def test_get_finding_reports_a_failed_attempt_when_no_answer_was_kept(reader, monkeypatch):
     _two_detector_finding(reader)
     monkeypatch.setattr(reader, "_pg_rows", _signals_pg(own_rca=[("failed", None)]))
