@@ -23,6 +23,8 @@ interface AiChatProviderProps {
   // continues attribution there. Clearing it lets the chat fall back to lazy
   // session creation on the next user message.
   initialSessionId?: string;
+  // True while a worker is still writing the pre-loaded session's answer.
+  initialSessionPending?: boolean;
   children: ReactNode;
 }
 
@@ -30,6 +32,7 @@ export function AiChatProvider({
   projectId,
   initialContext,
   initialSessionId,
+  initialSessionPending,
   children,
 }: AiChatProviderProps) {
   // The plan's retention clamps the window sent with each message, the same
@@ -41,6 +44,7 @@ export function AiChatProvider({
     traceSessionId: initialContext?.traceSessionId,
     initialSessionId,
     retentionDays: projectId ? retentionDays : undefined,
+    initialSessionPending,
   });
   return <AiChatContext.Provider value={chat}>{children}</AiChatContext.Provider>;
 }

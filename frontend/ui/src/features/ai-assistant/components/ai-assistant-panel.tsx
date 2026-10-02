@@ -117,6 +117,7 @@ export function AiAssistantPanel({
   const {
     messages,
     isStreaming,
+    isLoadingSession,
     sessions,
     historyOpen,
     currentSessionId,
@@ -262,7 +263,9 @@ export function AiAssistantPanel({
           <MessageList
             known={known}
             messages={messages}
-            sessionStreaming={isStreaming}
+            sessionStreaming={isStreaming || isLoadingSession}
+            // Only this wait gets a label; a live stream is its own feedback.
+            waitingLabel={isLoadingSession ? "Analyzing the trace…" : undefined}
             // The sheet below mounts only with a projectId; without one the
             // links would open nothing.
             onOpenTrace={

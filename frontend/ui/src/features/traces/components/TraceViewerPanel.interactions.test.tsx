@@ -25,6 +25,7 @@ vi.mock("@/components/layout/app-layout", () => ({
     setAiPanelOpen: mocks.setAiPanelOpen,
     setAiContext: mocks.setAiContext,
     setAiInitialSessionId: mocks.setAiInitialSessionId,
+    setAiInitialSessionPending: vi.fn(),
     registerAiHost: () => () => {},
     sidebarCollapsed: false,
   }),

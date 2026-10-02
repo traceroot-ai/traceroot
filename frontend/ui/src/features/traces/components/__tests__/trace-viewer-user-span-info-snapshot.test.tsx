@@ -60,6 +60,7 @@ vi.mock("@/components/layout/app-layout", () => ({
     setAiPanelOpen: vi.fn(),
     setAiContext: vi.fn(),
     setAiInitialSessionId: vi.fn(),
+    setAiInitialSessionPending: vi.fn(),
     registerAiHost: () => () => {},
     sidebarCollapsed: false,
   }),

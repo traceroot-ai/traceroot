@@ -924,3 +924,27 @@ describe("MessageList reloaded tool-step capture notes", () => {
     expect(screen.queryByText(/withheld|truncated/)).toBeNull();
   });
 });
+
+// The label is for waits with no other feedback on screen: a pre-loaded
+// session whose answer a worker is still writing. A live stream shows its own
+// text arriving, so labelling it would flash between tokens.
+describe("MessageList waiting indicator", () => {
+  it("names what is being waited on when given a label", () => {
+    render(
+      <MessageList messages={[user("u1")]} sessionStreaming waitingLabel="Analyzing the trace…" />,
+    );
+    // LoadingState's role=status is what a screen reader announces; the bare
+    // spinner announces nothing.
+    expect(screen.getByRole("status").textContent).toContain("Analyzing the trace…");
+  });
+
+  it("stays unlabelled for a live stream", () => {
+    render(<MessageList messages={[user("u1")]} sessionStreaming />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("shows no indicator at all once the session is idle", () => {
+    render(<MessageList messages={[user("u1")]} waitingLabel="Analyzing the trace…" />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+});

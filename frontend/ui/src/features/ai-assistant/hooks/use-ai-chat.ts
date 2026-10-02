@@ -49,6 +49,11 @@ export type PendingDecisionAction = "create" | "skip";
 interface UseAiChatOptions extends AiTraceContext {
   projectId: string | undefined;
   initialSessionId?: string; // pre-load an existing session (e.g. RCA session from Step 2)
+  /** True while a worker is still writing that session's answer out-of-band
+   *  (an RCA run). Shows the working indicator; flipping to false re-reads
+   *  the session so the finished answer appears. Reported by the caller, so
+   *  the chat never polls for it. */
+  initialSessionPending?: boolean;
   /** The plan's retention, so the window sent with a message is already clamped; undefined while unknown. */
   retentionDays?: number | null;
 }
@@ -58,6 +63,7 @@ export function useAiChat({
   traceId,
   traceSessionId,
   initialSessionId,
+  initialSessionPending,
   retentionDays,
 }: UseAiChatOptions) {
   const queryClient = useQueryClient();
@@ -174,11 +180,35 @@ export function useAiChat({
     clearAll();
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reads a session's persisted messages into its bucket. The hook drops the
+  // write if a send happens while the read is in flight, and a stale read
+  // can't clobber other sessions: the response is written to the bucket of
+  // the session it was fetched for.
+  const loadSessionMessages = useCallback(
+    (sessionId: string, signal: AbortSignal) => {
+      const asOf = sessionWriteEpoch(sessionId);
+      return fetch(`/api/projects/${projectId}/ai/sessions/${sessionId}/messages`, { signal })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (signal.aborted || !data) return;
+          setSessionMessages(sessionId, mapDbMessages(data.messages || []), asOf);
+        })
+        .catch((err) => {
+          if (err?.name !== "AbortError")
+            console.error("[AI Chat] Failed to load initial session:", err);
+        });
+    },
+    [projectId, sessionWriteEpoch, setSessionMessages],
+  );
+  // The read of the pre-loaded session still on the wire, so a later read of
+  // the same session (its answer landing, below) supersedes it instead of
+  // racing it for the bucket.
+  const initialLoadRef = useRef<AbortController | null>(null);
+
   // When initialSessionId is provided, load that session's messages on mount /
   // change — unless it is currently streaming, in which case its live bucket
   // is more complete than the DB (which only gets the assistant row at run
-  // end). Stale fetches can't clobber other sessions: the response is written
-  // to the bucket of the session it was fetched for.
+  // end).
   useEffect(() => {
     if (!initialSessionId || !projectId) return;
     // An externally chosen session (e.g. opening an RCA chat) is a session
@@ -187,23 +217,37 @@ export function useAiChat({
     setActiveSessionId(initialSessionId);
     if (isSessionStreaming(initialSessionId)) return;
 
-    // The hook drops this load if a send happens while it is in flight.
-    const asOf = sessionWriteEpoch(initialSessionId);
     const ac = new AbortController();
-    fetch(`/api/projects/${projectId}/ai/sessions/${initialSessionId}/messages`, {
-      signal: ac.signal,
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (ac.signal.aborted || !data) return;
-        setSessionMessages(initialSessionId, mapDbMessages(data.messages || []), asOf);
-      })
-      .catch((err) => {
-        if (err?.name !== "AbortError")
-          console.error("[AI Chat] Failed to load initial session:", err);
-      });
+    initialLoadRef.current?.abort();
+    initialLoadRef.current = ac;
+    loadSessionMessages(initialSessionId, ac.signal);
     return () => ac.abort();
   }, [initialSessionId, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A pre-loaded session's answer can be written out-of-band by a worker (an
+  // RCA run), so no stream here delivers it: initialSessionPending flipping
+  // false for the session on screen is the signal to read it again. While the
+  // user's own turn streams into that session the live bucket is
+  // authoritative, so the read waits for the run to settle; one read then
+  // picks up both the worker's answer and the finished turn.
+  const lastPendingRef = useRef<{ sessionId?: string; pending: boolean }>({ pending: false });
+  useEffect(() => {
+    const last = lastPendingRef.current;
+    lastPendingRef.current = { sessionId: initialSessionId, pending: !!initialSessionPending };
+    // Only a same-session flip is an answer landing; a session change is the
+    // effect above's to load.
+    const landed = last.pending && !initialSessionPending && last.sessionId === initialSessionId;
+    if (!landed || !initialSessionId || !projectId) return;
+
+    const ac = new AbortController();
+    void runSettled(initialSessionId).then(() => {
+      if (ac.signal.aborted) return;
+      initialLoadRef.current?.abort();
+      initialLoadRef.current = ac;
+      loadSessionMessages(initialSessionId, ac.signal);
+    });
+    return () => ac.abort();
+  }, [initialSessionPending, initialSessionId, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lazy session creation — only when first message is sent. The fetch is
   // cancellable so handleClose can prevent a pending response from resurrecting
@@ -633,6 +677,11 @@ export function useAiChat({
 
   const messages: AIMessage[] = activeSessionId ? (messagesBySession[activeSessionId] ?? []) : [];
   const activeStreaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
+  // True while a worker is still writing the session on screen. Separate from
+  // isStreaming so the Stop button, which aborts a live stream, stays hidden:
+  // there is no stream here to abort.
+  const isLoadingSession =
+    !!initialSessionPending && !!initialSessionId && activeSessionId === initialSessionId;
   // The visible session's parked step — the same one findActiveParkedStep
   // targets, minus the in-flight exclusion (a ref, so it cannot drive a
   // render; the bar tracks its own in-flight click). Read off render state
@@ -670,6 +719,7 @@ export function useAiChat({
     // State
     messages,
     isStreaming: activeSends > 0 || activeStreaming || messages.some((m) => m.isStreaming),
+    isLoadingSession,
     sessions,
     historyOpen,
     currentSessionId: activeSessionId,
