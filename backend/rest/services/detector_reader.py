@@ -6,8 +6,9 @@ Findings live in ClickHouse (`detector_findings`, a `ReplacingMergeTree` keyed b
 live in Postgres. All reads are scoped to the caller's `project_id`.
 
 Postgres is best-effort for enrichment: an RCA or template lookup that is missing
-or fails degrades to ``None`` and never prevents a finding from being returned. A
-ClickHouse failure on the finding read itself propagates (the router maps it to a
+or fails degrades to ``None`` (or, for the kept-answer fallback of an RCA, to the
+latest attempt) and never prevents a finding from being returned. A ClickHouse
+failure on the finding read itself propagates (the router maps it to a
 controlled 500).
 """
 
@@ -459,7 +460,8 @@ class DetectorReaderService:
         The finding's row holds only the latest attempt, which a later signal on
         the same trace resets and may fail. While that attempt is not done, the
         newest successful answer kept on one of the finding's signal openings
-        stands for it.
+        stands for it; if that second lookup fails, the latest attempt is
+        returned as it is.
         """
         try:
             rows = self._pg_rows(
