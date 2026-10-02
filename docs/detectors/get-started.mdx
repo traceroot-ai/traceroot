@@ -26,7 +26,7 @@ New detectors evaluate **25%** of the traces that match their trigger conditions
 
 The create sheet — and the edit panel for an existing detector — includes a **Run root cause analysis on findings** toggle, on by default. Leave it on and the AI agent investigates each new signal (a recurring problem the detector's findings are grouped into); turn it off for a noisy or low-stakes detector where you want findings recorded without paying agent-model cost. Detection and notifications are unaffected either way: the detector still fires, records findings and announces new signals.
 
-RCA runs once per signal, not once per finding. See [Root cause analysis](/detectors/introduction#root-cause-analysis) for the exact rule.
+RCA runs per signal, not per finding: a new signal gets an analysis, and so does a signal reopened more than 24 hours after its last one. See [Root cause analysis](/detectors/introduction#root-cause-analysis) for the exact rule.
 
 ## How it works
 
