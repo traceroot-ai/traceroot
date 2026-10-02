@@ -118,6 +118,7 @@ def build_command_reference() -> list[tuple[str, str]]:
                     "range",
                     "evaluation_id",
                     "name",
+                    "reason",
                 ):
                     flags.append(f"`--{p_name.replace('_', '-')}`")
 

@@ -91,28 +91,28 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 | `alerts create` | Create a threshold alert in a project the authenticated user can write to. |
 | `alerts update <id>` | Edit an alert's rule in a project the authenticated user can write to. |
 | `alerts status <id>` | Pause or resume an alert without touching its rule. |
-| `alerts delete <id>` | Hard-delete an alert. |
+| `alerts delete <id>` | Hard-delete an alert. (Flags: `--reason`) |
 | `dashboards list` | List the dashboards in the caller's project (default first). |
 | `dashboards get <id>` | Get one dashboard with its widgets for the caller's project. |
 | `dashboards create` | Create a dashboard in a project the authenticated user can write to. |
 | `dashboards update <id>` | Edit a dashboard's name or description. |
-| `dashboards delete <id>` | Hard-delete a dashboard together with its widgets. |
+| `dashboards delete <id>` | Hard-delete a dashboard together with its widgets. (Flags: `--reason`) |
 | `workspaces list` | List the workspaces the authenticated user belongs to. |
 | `projects list` | List the projects the authenticated user can access, across workspaces. |
 | `workspaces create` | Create a workspace administered by the authenticated user. |
 | `workspaces update <workspace-id>` | Rename a workspace the authenticated user administers. |
-| `workspaces delete <workspace-id>` | Hard-delete a workspace and everything in it. (Flags: `--name`) |
+| `workspaces delete <workspace-id>` | Hard-delete a workspace and everything in it. (Flags: `--name`, `--reason`) |
 | `projects create` | Create a project in a workspace the authenticated user can write to. |
 | `projects update <project-id>` | Edit a project's name or trace retention. |
-| `projects delete <project-id>` | Soft-delete a project. |
+| `projects delete <project-id>` | Soft-delete a project. (Flags: `--reason`) |
 | `detectors create` | Create a detector in a project the authenticated user can write to. |
 | `detectors update <id>` | Edit a detector in a project the authenticated user can write to. |
-| `detectors delete <id>` | Hard-delete a detector; its existing findings stay readable. |
+| `detectors delete <id>` | Hard-delete a detector; its existing findings stay readable. (Flags: `--reason`) |
 | `widgets get <id>` | Get one saved widget's definition, with its dashboard, for the caller's project. |
 | `widgets data <id>` | Answer one saved widget for a window, with a status instead of an exception. (Flags: `--range`) |
 | `widgets create` | Create a widget on a dashboard the authenticated user can write to. |
 | `widgets update <id>` | Edit a widget's title, spec, or display config. |
-| `widgets delete <id>` | Hard-delete a widget and its entry in the dashboard's layout. |
+| `widgets delete <id>` | Hard-delete a widget and its entry in the dashboard's layout. (Flags: `--reason`) |
 | `sql` | Run one read-only SQL query scoped to the caller's project. |
 | `sql schema` | Return the curated tables and columns available to public SQL. |
 | `datasets list` | List datasets, newest first. (Flags: `--limit`, `--name`) |
