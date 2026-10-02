@@ -48,10 +48,11 @@ export async function enqueueAssignment(
   delayMs: number = ASSIGN_DELAY_MS,
 ): Promise<void> {
   const jobId = signalAssignJobId(projectId, detectorId);
-  await prisma.detector.updateMany({
-    where: { id: detectorId, projectId },
-    data: { assignmentPendingAt: new Date() },
-  });
+  // Raw SQL: a client update would also advance the detector's updateTime,
+  // which the detector list shows as its last edit.
+  await prisma.$executeRaw`
+    UPDATE detectors SET assignment_pending_at = ${new Date()}
+    WHERE id = ${detectorId} AND project_id = ${projectId}`;
   await getSignalAssignQueue().add(
     ASSIGN_JOB_NAME,
     { projectId, detectorId },
@@ -103,14 +104,11 @@ export async function markDrained(
   detectorId: string,
   readAtMs: number,
 ): Promise<void> {
-  await prisma.detector.updateMany({
-    where: {
-      id: detectorId,
-      projectId,
-      assignmentPendingAt: { lte: new Date(readAtMs - DRAIN_MARGIN_MS) },
-    },
-    data: { assignmentPendingAt: null },
-  });
+  // Raw SQL, as in enqueueAssignment, so the detector's updateTime stays put.
+  await prisma.$executeRaw`
+    UPDATE detectors SET assignment_pending_at = NULL
+    WHERE id = ${detectorId} AND project_id = ${projectId}
+      AND assignment_pending_at <= ${new Date(readAtMs - DRAIN_MARGIN_MS)}`;
 }
 
 /**
