@@ -188,7 +188,7 @@ if __name__ == "__main__":
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `invocation [<app>]` (or `invoke_workflow <name>`).
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `invocation [<app>]`, or `invoke_workflow <name>` for workflow runs (requires a `traceroot` release newer than 0.2.0).
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
