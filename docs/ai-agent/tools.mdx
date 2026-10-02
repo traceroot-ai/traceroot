@@ -1,0 +1,104 @@
+---
+title: Agent Tools
+description: Read and analysis tools bound to the TraceRoot AI agent
+---
+
+The TraceRoot AI agent's tool library is generated directly from the shared tool registry (`@traceroot-ai/tools`), the exact same registry that defines the Public REST API.
+
+Because the tools derive from a single unified schema, the agent operates with the exact same parameters, validation rules, query capabilities, and limits as the public API—scoped strictly to your current project.
+
+## Project Scope Boundary
+
+The agent's tenancy is force-injected from the active chat session:
+
+- **Strictly Project-Scoped**: Every tool call automatically targets the current project.
+- **No Workspace or Project Writes**: The agent **cannot create, modify, or delete workspaces or projects**. Administrative lifecycle operations are deliberately restricted to the CLI, Public REST API, and web workspace settings.
+
+---
+
+## Read Tools by Area
+
+The agent can query telemetry, analyze metrics, and inspect configuration across five main areas:
+
+### 1. Traces and Sessions
+
+Tools for querying end-to-end trace telemetry, latency, error stacks, and user sessions:
+
+| Tool | Description |
+| :--- | :--- |
+| `list_traces` | Query traces using filters (such as duration, cost, status, span kinds, or custom tags). |
+| `list_sessions` | Retrieve grouped user interaction sessions within a time window. |
+| `get_session` | Inspect a specific session, including total traces, duration, and error summary. |
+
+### 2. Detectors and Findings
+
+Tools for evaluating LLM-as-a-judge monitoring rules and reviewing flagged issues:
+
+| Tool | Description |
+| :--- | :--- |
+| `list_detectors` | List all configured detectors in the project, including prompts and trigger conditions. |
+| `get_detector` | Inspect detailed configuration, sample rates, model settings, and output schemas for a detector. |
+| `list_findings` | List detected issues flagged across sampled production traces. |
+| `get_finding` | Inspect a specific detector finding, including its analysis results. |
+| `get_finding_by_trace` | Retrieve all detector findings associated with a given trace ID. |
+
+### 3. Dashboards and Widgets
+
+Tools for inspecting project analytics and running ad-hoc metric queries:
+
+| Tool | Description |
+| :--- | :--- |
+| `list_dashboards` | List all dashboards in the project (returns Default dashboard first). |
+| `get_dashboard` | Retrieve dashboard metadata, tile layout, and contained widgets. |
+| `run_widget_query` | Run a stateless `WidgetSpec` query across spans or traces over a time window without saving a widget. |
+| `get_dashboard_data` | Compute and retrieve data for all widgets in a dashboard over a time window. |
+| `get_widget` | Inspect a saved widget's specification, metric, breakdown, and display settings. |
+| `get_widget_data` | Execute an existing widget's query over a specified time window. |
+
+<Note>
+When querying dashboard or widget data from the assistant drawer, the agent automatically defaults its query window to the time range currently displayed on your active page.
+</Note>
+
+### 4. Alerts
+
+Tools for checking threshold notification rules:
+
+| Tool | Description |
+| :--- | :--- |
+| `list_alerts` | List all metric threshold alert rules and their active/disabled status. |
+| `get_alert` | Inspect an alert rule's thresholds, evaluation window, conditions, and notification settings. |
+
+### 5. Evaluations and Datasets
+
+Tools for reviewing offline test suites, scorers, and benchmark experiment runs:
+
+| Tool | Description |
+| :--- | :--- |
+| `get_evaluation_run` | Retrieve metrics, scorers, and pass/fail outcomes of an evaluation run. |
+| `list_datasets` | List benchmark test datasets available in the project. |
+| `get_dataset` | Retrieve metadata and column schemas for a dataset. |
+| `list_dataset_versions` | List version releases and changes for a dataset. |
+| `get_dataset_version` | Inspect specific test cases within a dataset version. |
+
+---
+
+## Deep Investigation Tools
+
+In addition to API registry tools, the agent possesses dedicated investigation tools for root cause analysis:
+
+- `download_traces`: Downloads full trace metadata, span hierarchy trees (`tree.json`), and individual span JSON lines into the agent's sandbox.
+- `download_session`: Downloads all traces belonging to a multi-turn user session in parallel for chronological session debugging.
+- `check_github_access`: Verifies repository access permissions and GitHub App connection before attempting source-level code investigation or opening fix pull requests.
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Write Actions & Approvals" icon="shield-check" href="/ai-agent/write-actions">
+    Learn how the agent modifies project resources with human confirmation cards.
+  </Card>
+  <Card title="Root Cause Analysis" icon="magnifying-glass" href="/ai-agent/root-cause-analysis">
+    See how the agent debugs failing code using sandbox environments.
+  </Card>
+</CardGroup>

@@ -1,0 +1,55 @@
+---
+title: Home Assistant
+description: Full-page AI assistant interface with starter prompts and persistent chat sessions
+---
+
+The TraceRoot AI agent is accessible as a first-class project section via the **Home** item in the sidebar (`/projects/{projectId}/home`).
+
+Home provides a full-page workspace where you can query telemetry, analyze error trends, investigate root causes, and manage project configurations in natural language.
+
+<Frame>
+  <img src="/images/rca_v1.png" alt="TraceRoot AI Agent on the Home page" />
+</Frame>
+
+## Starter Prompts
+
+When starting a new conversation session, Home presents starter prompts to quickly trigger high-value investigative tasks:
+
+- **Investigate the most recent errored trace**: Locates the latest failed trace in your project, inspects stack traces, and analyzes the root cause.
+- **Summarize today's sessions**: Aggregates user interaction sessions over the current day, highlighting high-latency queries, frequent failure points, and token costs.
+- **What did detector findings flag this week?**: Reviews active LLM-as-a-judge detector findings flagged over the past 7 days.
+
+Clicking any starter prompt immediately initiates the conversation turn. You can also type free-form queries in the input box.
+
+---
+
+## Persistent Conversations Across Navigation
+
+Chat state in TraceRoot is managed through an application-wide provider (`AiChatProvider`):
+
+- **Survives page navigation**: A conversation started on the Home page remains active as you navigate to other sections of the project (such as Traces, Dashboards, Detectors, or Alerts).
+- **Assistant Drawer**: When leaving the Home page, the conversation smoothly transitions to the collapsible right-rail assistant drawer, letting you reference chat findings while viewing dashboard charts or inspecting trace trees.
+- **Project Scoping**: Conversations are scoped to your active project, automatically binding project credentials and context to every tool call.
+
+---
+
+## Chat History & Stored Sessions
+
+Every conversation is persisted in the database as an AI session (`AISession`):
+
+- **Session History**: You can review past debugging trajectories, tool invocations, and answers across previous sessions.
+- **One Pending Action per Session**: To ensure safety, each session can have at most one pending approval card at a time.
+- **Turn-Level Trace Links**: For full observability, each assistant reply includes a **View trace** button (when the trace is available or uploading). Clicking it opens the trace of that specific turn, showing exact model prompts, tool arguments, latency, and token consumption.
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Tools" icon="wrench" href="/ai-agent/tools">
+    Explore the full library of read and analysis tools available to the agent.
+  </Card>
+  <Card title="Write Actions & Approvals" icon="shield-check" href="/ai-agent/write-actions">
+    Learn how the agent proposes changes with approval cards and audit logging.
+  </Card>
+</CardGroup>
