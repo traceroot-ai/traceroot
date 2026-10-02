@@ -19,10 +19,10 @@ import {
   hasUncoveredOpenings,
   closeEmptySignalRca,
   loadSignalRcaContext,
+  rootCausesByOpening,
   type SignalRcaContext,
 } from "../ee/signals/rca.js";
 import { scheduleFindingDigest } from "../notifications/digest-schedule.js";
-import { enqueueSignalDigest } from "../ee/signals/digest.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
@@ -108,7 +108,9 @@ async function resolveLegacyByok(
  * The prompt for an RCA started by signals: each listed hit started or reopened
  * a tracked signal, and hits on one trace can have unrelated causes, so the
  * answer has one section per hit, may say a hit shares another's cause, and may
- * say the trace does not explain a hit.
+ * say the trace does not explain a hit. Sections are read back by position
+ * (rootCausesByOpening), so their order, the order of `findings`, is part of
+ * the contract.
  */
 export function signalRcaPrompt(
   findings: DetectorRcaJob["findings"],
@@ -482,12 +484,13 @@ export async function processRcaJob(job: Job<RcaJob>, token?: string) {
   let alertWindow: string | null = null;
 
   // Legacy per-finding jobs (in flight from before signals) still key the
-  // per-finding digest; a signal RCA instead lets the project's signal digest
-  // announce the signal it was waiting on. Runs on both the success and failure
-  // paths: findings must never fail silently.
+  // per-finding digest, on both the success and failure paths: findings must
+  // never fail silently. A signal RCA schedules nothing: the signal digest goes
+  // out on the project's window whatever the RCA's state, and an RCA finishing
+  // later does not notify again.
   const scheduleDigestFlush = () =>
     signalContext
-      ? enqueueSignalDigest(projectId, 0)
+      ? Promise.resolve()
       : scheduleFindingDigest(projectId, findingTimestamp, alertWindow);
 
   // Remembered across the catch below: once the run itself has settled, a
@@ -549,7 +552,13 @@ export async function processRcaJob(job: Job<RcaJob>, token?: string) {
       attempt: execution.attempt,
       status: "done",
       result: rcaResult,
-      ...(signalContext ? { coveredOpenings: signalContext.covered } : {}),
+      ...(signalContext
+        ? {
+            coveredOpenings: signalContext.covered,
+            openingResults: rootCausesByOpening(rcaResult, signalContext),
+            sessionId,
+          }
+        : {}),
     });
     if (!applied) {
       // Execution rows don't store `result` — only the shared finding row

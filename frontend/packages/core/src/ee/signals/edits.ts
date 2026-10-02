@@ -159,10 +159,11 @@ export async function mergeSignals(
     });
     await recount(tx, t.id);
 
+    // Each opening keeps its last successful answer, which moves with it.
     const carried = await tx.signalRca.findMany({
       where: { signalId: s.id },
       orderBy: { createTime: "desc" },
-      select: { findingId: true, createTime: true },
+      select: { findingId: true, createTime: true, result: true, rootCause: true, sessionId: true },
     });
     if (carried.length > 0) {
       const lowest = await tx.signalRca.aggregate({
@@ -173,12 +174,7 @@ export async function mergeSignals(
       await tx.signalRca.deleteMany({ where: { signalId: s.id } });
       for (const r of carried) {
         await tx.signalRca.create({
-          data: {
-            signalId: t.id,
-            reopenSeq: seq--,
-            findingId: r.findingId,
-            createTime: r.createTime,
-          },
+          data: { ...r, signalId: t.id, reopenSeq: seq-- },
         });
       }
     }

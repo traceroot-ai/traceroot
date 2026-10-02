@@ -18,15 +18,13 @@ type OpeningRow = {
   reopenSeq: number;
   findingId: string;
   createTime: Date;
-  rca: {
-    status: string;
-    result?: string | null;
-    completedAt?: Date | null;
-    sessionId?: string | null;
-  };
+  /** The last successful answer that covered this opening, kept on it. */
+  result: string | null;
+  /** The finding's latest attempt. */
+  rca: { status: string };
 };
 
-/** The RCA state of the signal's current opening, and whether any RCA finished. */
+/** The RCA state of the signal's current opening, and whether any RCA succeeded. */
 function rcaSummary(rcas: OpeningRow[], reopenSeq: number) {
   const current = rcas.find((r) => r.reopenSeq === reopenSeq);
   const canonical = pickCanonicalRca(rcas);
@@ -101,6 +99,7 @@ export async function listSignals(
             reopenSeq: true,
             findingId: true,
             createTime: true,
+            result: true,
             rca: { select: { status: true } },
           },
         },
@@ -266,7 +265,9 @@ export async function getSignal(
           reopenSeq: true,
           findingId: true,
           createTime: true,
-          rca: { select: { status: true, result: true, completedAt: true, sessionId: true } },
+          result: true,
+          sessionId: true,
+          rca: { select: { status: true } },
         },
         orderBy: { reopenSeq: "desc" },
       },
@@ -310,7 +311,7 @@ export async function getSignal(
     }),
     detectorNames(db, [signal.detectorId]),
     hitSeries(db, signal.id, window, tz, window.granularity),
-    // The trace the canonical RCA analysed, to link it from the signal.
+    // The trace the canonical RCA analysed: the assistant's context when it is reopened.
     canonical
       ? db.signalHit.findFirst({
           where: { findingId: canonical.findingId },
@@ -324,15 +325,16 @@ export async function getSignal(
       ...rest,
       detectorName: names.get(rest.detectorId) ?? null,
       rca: rcaSummary(rcas, rest.reopenSeq),
+      // The newest opening that kept a successful answer: a later failed or
+      // pending attempt on a shared finding does not take it away.
       canonicalRca: canonical
         ? {
             findingId: canonical.findingId,
             traceId: analysed?.traceId ?? null,
-            // The agent session of the RCA, to reopen it in the assistant.
-            sessionId: canonical.rca.sessionId ?? null,
+            // The agent session of the kept answer, to reopen it in the assistant.
+            sessionId: canonical.sessionId,
             reopenSeq: canonical.reopenSeq,
-            result: canonical.rca.result ?? null,
-            completedAt: canonical.rca.completedAt ?? null,
+            result: canonical.result,
           }
         : null,
       rcaHistory: rcas.map((r) => ({

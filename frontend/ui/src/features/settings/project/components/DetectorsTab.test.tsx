@@ -78,7 +78,7 @@ describe("DetectorsTab alert window", () => {
   it("describes email notifications as windowed digests", () => {
     renderTab();
     expect(
-      screen.getByText("Findings are batched into one email digest per alert window."),
+      screen.getByText("New and reopened signals are batched into one email per alert window."),
     ).toBeTruthy();
   });
 

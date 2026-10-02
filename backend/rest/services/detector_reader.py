@@ -496,7 +496,9 @@ class DetectorReaderService:
         """The RCAs a finding inherits from the signals its hits joined.
 
         A hit that joins a known signal runs no RCA of its own; the signal's
-        canonical RCA (the finished RCA of its newest opening) stands for it.
+        canonical RCA (the successful answer kept on its newest opening that has
+        one; a later failed attempt on a shared finding does not remove it)
+        stands for it.
         One section per grouped detector, labelled with the signal and the trace
         the RCA analysed. None when no signal has a finished RCA or the lookup
         fails.
@@ -506,11 +508,11 @@ class DetectorReaderService:
             return None
         try:
             rows = self._pg_rows(
-                "SELECT DISTINCT ON (sr.signal_id) sr.signal_id, dr.result, "
+                "SELECT DISTINCT ON (sr.signal_id) sr.signal_id, sr.result, "
                 "(SELECT sh.trace_id FROM signal_hits sh "
                 " WHERE sh.finding_id = sr.finding_id LIMIT 1) "
                 "FROM signal_rcas sr JOIN detector_rcas dr ON dr.finding_id = sr.finding_id "
-                "WHERE sr.signal_id = ANY(%s) AND dr.project_id = %s AND dr.status = 'done' "
+                "WHERE sr.signal_id = ANY(%s) AND dr.project_id = %s AND sr.result IS NOT NULL "
                 "ORDER BY sr.signal_id, sr.reopen_seq DESC",
                 ([r.signal_id for r in grouped], project_id),
             )

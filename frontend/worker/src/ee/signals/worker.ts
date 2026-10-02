@@ -50,8 +50,9 @@ function productionDeps(): RoundDeps {
 }
 
 /**
- * Re-enqueue partitions whose job may have been lost (see partitionsToSweep).
- * Enqueueing a partition whose job is alive is a no-op.
+ * Re-enqueue partitions whose job may have been lost or whose enqueue failed
+ * (see partitionsToSweep), and partitions with placements not yet copied to
+ * ClickHouse. Enqueueing a partition whose job is alive is a no-op.
  */
 export async function sweepPartitions(now: number = Date.now()): Promise<number> {
   // Projection repair is independent of the model key and ClickHouse's
@@ -61,7 +62,7 @@ export async function sweepPartitions(now: number = Date.now()): Promise<number>
   let cursor: { projectId: string; detectorId: string } | null = null;
   let count = 0;
   // Page all pending partitions, rather than repeatedly retrying the first
-  // batch during an outage. Retain only a page and the bounded Redis overlap.
+  // batch during an outage. Retain only a page and the bounded waiting batch.
   const pageSize = 500;
   for (;;) {
     const pending: { projectId: string; detectorId: string }[] = await prisma.$queryRaw`

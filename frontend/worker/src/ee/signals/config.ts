@@ -46,23 +46,25 @@ export const ASSIGN_LOCK_DURATION_MS = 180_000;
 export const ASSIGN_CONCURRENCY = 4;
 
 /**
- * The sweeper runs this often and re-enqueues partitions enqueued more than
- * the stale age ago whose job has not drained them since (queue.ts keeps both
- * times in Redis, so a sweep costs a few Redis calls).
+ * The sweeper runs this often and re-enqueues partitions marked pending more
+ * than the stale age ago that no job has drained since (queue.ts keeps the mark
+ * on the detector row, so a sweep is one read of the detectors table), at
+ * most SWEEP_BATCH of them per run.
  */
 export const SWEEP_EVERY_MS = 60_000;
 export const SWEEP_STALE_MS = 120_000;
+export const SWEEP_BATCH = 500;
 
 /**
- * A drain covers enqueues up to this long before its empty read, allowing for
- * clock skew between worker processes and for a just-written hit not yet
- * visible to the read.
+ * A drain clears pending marks written up to this long before its empty read,
+ * allowing for clock skew between worker processes and for a just-written hit
+ * not yet visible to the read.
  */
 export const DRAIN_MARGIN_MS = 10_000;
 
 /**
- * How far back the job looks for waiting hits, and how long the sweeper keeps
- * its records. It bounds the ClickHouse scan; a hit left unassigned for longer
+ * How far back the job looks for waiting hits, and how long a hit's failure
+ * count is kept. It bounds the ClickHouse scan; a hit left unassigned for longer
  * (an outage of a week) is given up.
  */
 export const WAITING_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -113,15 +115,3 @@ export const RCA_DELAY_MS = 60_000;
 
 /** A signal RCA still pending after this long lost its job; the sweeper re-enqueues it. */
 export const RCA_STALE_MS = 10 * 60 * 1000;
-
-/** Delay before a project's signal digest is built after a round, collecting nearby changes. */
-export const SIGNAL_DIGEST_DELAY_MS = 60_000;
-
-/** A new or reopened signal waits this long at most for its RCA before it is announced. */
-export const DIGEST_RCA_WAIT_MS = 30 * 60 * 1000;
-
-/** A digest with only ongoing signals goes out at most this often per project. */
-export const ONGOING_DIGEST_INTERVAL_MS = 60 * 60 * 1000;
-
-/** The sweeper builds the digest of projects whose signals changed at least this long ago. */
-export const DIGEST_SWEEP_STALE_MS = 5 * 60 * 1000;

@@ -51,3 +51,14 @@ export function signalAssignJobId(projectId: string, detectorId: string): string
   }
   return `assign:${projectId}:${detectorId}`;
 }
+
+/** The query parameter the Signals page opens a signal by. */
+export const SIGNAL_ID_PARAM = "signalId";
+
+/**
+ * Path of the page that opens one signal, for links built outside the UI
+ * (notifications). The Signals page reads SIGNAL_ID_PARAM from it.
+ */
+export function signalDeepLinkPath(projectId: string, signalId: string): string {
+  return `/projects/${encodeURIComponent(projectId)}/signals?${SIGNAL_ID_PARAM}=${encodeURIComponent(signalId)}`;
+}

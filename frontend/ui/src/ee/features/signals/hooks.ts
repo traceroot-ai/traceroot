@@ -53,7 +53,6 @@ export interface SignalDetail {
       traceId: string | null;
       sessionId: string | null;
       result: string | null;
-      completedAt: string | null;
     } | null;
   };
   /** The latest affected traces starting in the window. */
