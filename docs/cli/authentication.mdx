@@ -1,0 +1,161 @@
+---
+title: Authentication
+description: Manage credentials, precedence, project scoping, and sessions
+---
+
+The TraceRoot CLI supports two primary authentication modes:
+1. **Browser Login (Device Flow)**: Best for local, interactive terminal use. Authenticates *you* as an individual user.
+2. **Project API Key**: Best for CI/CD pipelines, automated scripts, and headless agents. Scoped directly to a specific project.
+
+## Authentication Modes
+
+### Browser Login
+
+Run `traceroot login` without arguments to start an interactive OAuth device flow:
+
+```bash
+traceroot login
+```
+
+The CLI opens your default browser (or prints a verification URL and code) directing you to sign in. Once authorized, a session credential is saved with restricted file permissions (`0600`) to your user configuration directory:
+
+```text
+~/.config/traceroot/credentials.json
+```
+*(On systems respecting `$XDG_CONFIG_HOME`, this defaults to `$XDG_CONFIG_HOME/traceroot/credentials.json`. You can override the path via `TRACEROOT_CREDENTIALS_PATH`).*
+
+Before every API request, the CLI automatically exchanges this stored session token for a short-lived access JWT.
+
+### Project API Key
+
+To authenticate with a project API key (`tr_...`), pass `--api-key` to `login`:
+
+```bash
+traceroot login --api-key tr_your_project_key
+```
+
+The CLI validates the key with the server, then writes it (`0600`, automatically added to `.gitignore`) to:
+
+```text
+./.traceroot/config.json
+```
+*(Override this path via `TRACEROOT_CONFIG_PATH`).*
+
+You can also provide your API key via the `TRACEROOT_API_KEY` environment variable or the global `--api-key` flag without writing a file:
+
+```bash
+export TRACEROOT_API_KEY="tr_your_project_key"
+traceroot traces list
+```
+
+## Credential Precedence (7 Levels)
+
+When you execute a command, the CLI determines which credential to use by evaluating sources in the following strict order of precedence (highest to lowest):
+
+| Priority | Source | Description |
+| :--- | :--- | :--- |
+| **1** | `--api-key <key>` | Command-line flag |
+| **2** | `--env-file <path>` | `TRACEROOT_TOKEN`, then `TRACEROOT_API_KEY` from explicit env file |
+| **3** | `TRACEROOT_TOKEN` | Session token from process environment |
+| **4** | Credentials File | Stored browser session (`~/.config/traceroot/credentials.json`) |
+| **5** | `TRACEROOT_API_KEY` | Project API key from process environment |
+| **6** | Local Config File | `./.traceroot/config.json` (`api_key`) |
+| **7** | Auto-discovered `.env` | `TRACEROOT_API_KEY` found in working directory `.env` |
+
+<Warning>
+**The Precedence Gotcha: Stored Login Outranks `TRACEROOT_API_KEY`**
+
+Notice that a stored browser login (Priority 4) outranks `TRACEROOT_API_KEY` in your environment (Priority 5) or config file (Priority 6). This is intentional: it prevents a forgotten API key in a shell session or project folder from silently impersonating a different identity.
+
+However, if you set `TRACEROOT_API_KEY` in your environment and run a command without specifying a project, and you previously logged in with `traceroot login`, the CLI will attempt to authenticate with your user session and error with:
+`project_id query parameter is required`
+
+To force the CLI to use your API key when a stored session exists:
+- Pass the flag explicitly: `traceroot traces list --api-key $TRACEROOT_API_KEY`
+- Or log out of the browser session: `traceroot logout`
+</Warning>
+
+## Project Scoping
+
+Understanding project scope depends on your credential type:
+
+- **Project API Keys (`tr_...`)**: The key is tied directly to a single project in TraceRoot. You do not need to specify a project ID for any command.
+- **Browser Login (User Session)**: Identifies you across all workspaces and projects you have access to. Therefore, all project-scoped reads and writes (such as `traces`, `detectors`, `alerts`, `dashboards`) require an explicit project ID.
+
+### Discovering Projects
+
+List the projects you have access to across workspaces:
+
+```bash
+traceroot projects list
+```
+
+Optionally filter by workspace:
+
+```bash
+traceroot projects list --workspace-id wrk_...
+```
+
+The `PROJECT ID` column contains the ID needed for `--project`.
+
+### Supplying the Project ID
+
+You can provide the project ID in three ways (in order of precedence):
+1. Command flag: `traceroot traces list --project <project-id>`
+2. Environment variable: `export TRACEROOT_PROJECT_ID=<project-id>`
+3. Config file setting: `"project_id": "<project-id>"` in `./.traceroot/config.json`
+
+## Custom Hosts and `--auth-host`
+
+By default, the CLI communicates with TraceRoot Cloud (`https://app.traceroot.ai`).
+
+The host resolves in the following order:
+`--host` > `--env-file` > `TRACEROOT_HOST_URL` > `./.traceroot/config.json` > auto-discovered `./.env` > default (`https://app.traceroot.ai`).
+
+### Split Development Setups
+
+For self-hosted or local development environments where the frontend web application (which handles OAuth/device login and token minting) and the API backend run on separate ports or domains:
+
+```bash
+traceroot login --host https://api.mycompany.internal --auth-host https://app.mycompany.internal
+```
+
+You can also set the `TRACEROOT_AUTH_URL` environment variable.
+
+## Checking Authentication Status
+
+Use `traceroot status` to inspect how your credentials, host, and active projects resolve:
+
+```bash
+traceroot status
+```
+
+For a browser session:
+```text
+Host:       https://app.traceroot.ai
+Auth type:  Session token
+Source:     credentials-file (~/.config/traceroot/credentials.json)
+User:       alice@example.com
+Workspaces: 2 accessible
+Project:    proj_demo (from TRACEROOT_PROJECT_ID)
+```
+
+For an API key:
+```text
+Host:       https://app.traceroot.ai
+Auth type:  API key
+Source:     environment (TRACEROOT_API_KEY)
+Key:        tr_live_...9f2a
+Workspace:  Engineering
+Project:    Production Agents
+```
+
+## Logging Out
+
+To invalidate your local session and revoke credentials:
+
+```bash
+traceroot logout
+```
+
+This performs a best-effort server-side revocation of the active session token and deletes the stored credential file (`~/.config/traceroot/credentials.json`).
