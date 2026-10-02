@@ -18,6 +18,7 @@ from rest.schemas.detectors import (
     RunListResponse,
     TraceCountsResponse,
 )
+from rest.services.trace_reader import _evaluation_exclusion, customer_traffic_only
 from rest.sql_utils import escape_ilike, to_utc_naive
 
 logger = logging.getLogger(__name__)
@@ -812,18 +813,23 @@ def list_trace_counts(
                     )
               )
         """
+    # Same customer-traffic and evaluation exclusions the Traces list applies, so this
+    # chart's "all traces" population matches what the user can actually see there
+    # instead of also counting detector/assistant self-traces and offline-eval runs.
     source = f"""
-        SELECT trace_id AS id, argMax(trace_start_time, ch_update_time) AS ts
-        FROM traces
-        WHERE project_id = {{project_id:String}}
-          AND trace_id IN (
+        SELECT t.trace_id AS id, argMax(t.trace_start_time, t.ch_update_time) AS ts
+        FROM traces t
+        WHERE t.project_id = {{project_id:String}}
+          AND t.trace_id IN (
               SELECT trace_id FROM traces
               WHERE project_id = {{project_id:String}}
                 AND trace_start_time >= {{start_after:DateTime64(3)}}
                 AND trace_start_time < {{end_before:DateTime64(3)}}
           )
+          AND {customer_traffic_only("t")}
+          AND {_evaluation_exclusion(params)}
           {checked}
-        GROUP BY trace_id
+        GROUP BY t.trace_id
     """
     counted = "uniqExact(id)"
 

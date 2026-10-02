@@ -26,7 +26,8 @@ SIGNAL_FIELDS = {"signal_id"}
 
 
 def test_registry_column_set_is_exactly_the_declared_tiers():
-    """The registry holds precisely the membership + aggregate + trace fields."""
+    """The registry holds precisely the membership, keyed-map, aggregate, trace,
+    and signal fields."""
     assert {c.name for c in reg.FILTER_COLUMNS} == (
         MEMBERSHIP_FIELDS | KEYED_MAP_FIELDS | AGGREGATE_FIELDS | TRACE_FIELDS | SIGNAL_FIELDS
     )

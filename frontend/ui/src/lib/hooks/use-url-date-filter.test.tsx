@@ -35,16 +35,49 @@ it("clamps a linked custom range when retention resolves and keeps its raw selec
       now - 15 * 86_400_000,
     ),
   );
-  expect(result.current.customStartDate?.toISOString()).toBe(result.current.timestamps.startAfter);
+  // The clamp itself is verified against the retention cutoff directly;
+  // comparing to customStartDate here would be true by construction
+  // (toTimestampBounds derives startAfter from customStartDate in the same
+  // render) and could never catch a wrong clamp.
+  const cutoff = now - 15 * 86_400_000;
+  expect(result.current.customStartDate!.getTime()).toBeGreaterThanOrEqual(cutoff);
+  expect(result.current.customStartDate!.getTime()).toBeLessThan(cutoff + 60_000);
   expect(result.current.customEndDate?.toISOString()).toBe(end);
   rerender({ retention: null });
   await waitFor(() => expect(result.current.timestamps.startAfter).toBe(start));
+});
+
+it("fires onFilterChange when retention lifts and a clamped custom range widens back", async () => {
+  const now = Date.now();
+  const start = new Date(now - 60 * 86_400_000).toISOString();
+  const end = new Date(now - 2 * 86_400_000).toISOString();
+  search = `date_filter=custom&start=${start}&end=${end}`;
+  const onFilterChange = vi.fn();
+  const { result, rerender } = renderHook(
+    ({ retention }: { retention: number | null | undefined }) =>
+      useUrlDateFilter(onFilterChange, undefined, retention),
+    { initialProps: { retention: 15 as number | null | undefined } },
+  );
+  // Starts clamped: the raw 60-day-old start is outside the 15-day window.
+  await waitFor(() =>
+    expect(new Date(result.current.timestamps.startAfter!).getTime()).toBeGreaterThan(
+      new Date(start).getTime(),
+    ),
+  );
+  onFilterChange.mockClear();
+
+  // Retention lifts: the effective start widens back to the raw start even
+  // though nothing was picked by the user, so pagination must reset.
+  rerender({ retention: null });
+  await waitFor(() => expect(result.current.timestamps.startAfter).toBe(start));
+  expect(onFilterChange).toHaveBeenCalledTimes(1);
 });
 
 it("keeps a wholly expired custom range empty", () => {
   const now = Date.now();
   search = `date_filter=custom&start=${new Date(now - 60 * 86_400_000).toISOString()}&end=${new Date(now - 50 * 86_400_000).toISOString()}`;
   const { result } = renderHook(() => useUrlDateFilter(undefined, undefined, 15));
+  expect(result.current.timestamps.startAfter).toBeDefined();
   expect(result.current.timestamps.startAfter).toBe(result.current.timestamps.endBefore);
 });
 

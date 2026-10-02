@@ -240,17 +240,29 @@ export function useUrlDateFilter(
   }, [dateFilter.isCustom, rawCustomStartDate, rawCustomEndDate, retentionDays, filterVersion]);
 
   const previousRetention = useRef(retentionDays);
+  // Compare the *effective* bounds across renders rather than against the raw
+  // selection: once retention lifts, the clamp memo above returns the raw
+  // dates directly, so effective-vs-raw is equal by construction right after
+  // a widen and would miss the very change this effect exists to report.
+  const previousEffectiveBounds = useRef({
+    start: customStartDate?.getTime() ?? null,
+    end: customEndDate?.getTime() ?? null,
+  });
   useEffect(() => {
-    const changed = previousRetention.current !== retentionDays;
+    const retentionChanged = previousRetention.current !== retentionDays;
     previousRetention.current = retentionDays;
-    if (
-      changed &&
-      dateFilter.isCustom &&
-      customStartDate?.getTime() !== rawCustomStartDate?.getTime()
-    ) {
+    const prevBounds = previousEffectiveBounds.current;
+    const nextBounds = {
+      start: customStartDate?.getTime() ?? null,
+      end: customEndDate?.getTime() ?? null,
+    };
+    previousEffectiveBounds.current = nextBounds;
+    const boundsChanged =
+      prevBounds.start !== nextBounds.start || prevBounds.end !== nextBounds.end;
+    if (retentionChanged && dateFilter.isCustom && boundsChanged) {
       onFilterChangeRef.current?.();
     }
-  }, [retentionDays, dateFilter.isCustom, customStartDate, rawCustomStartDate]);
+  }, [retentionDays, dateFilter.isCustom, customStartDate, customEndDate]);
 
   // Calculate timestamps
   const timestamps = useMemo(() => {

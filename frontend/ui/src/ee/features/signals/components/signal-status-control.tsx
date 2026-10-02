@@ -127,7 +127,7 @@ export function SignalStatusControl({
         <span className="ml-2 text-[11px] text-destructive">{mutation.error.message}</span>
       )}
 
-      <Dialog open={!!closing} onOpenChange={(open) => !open && reset()}>
+      <Dialog open={!!closing} onOpenChange={(open) => !open && !mutation.isPending && reset()}>
         <DialogContent className="max-w-[480px]">
           <DialogHeader>
             <DialogTitle className="text-[14px] font-semibold">{copy?.title}</DialogTitle>
@@ -178,7 +178,13 @@ export function SignalStatusControl({
               <p className="text-[12px] text-destructive">{mutation.error.message}</p>
             )}
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={reset}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={reset}
+                disabled={mutation.isPending}
+              >
                 Cancel
               </Button>
               <Button

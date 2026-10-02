@@ -173,7 +173,9 @@ function windowBuckets(from: Date, to: Date, tz: string, granularity: HitGranula
   const bucketOf = bucketFormatter(tz, granularity);
   // A step shorter than any bucket lands in each of them, whatever the zone's
   // offset: local hours can start on a quarter hour, local days last 23h or more.
-  const step = granularity === "hour" ? 15 * 60_000 : 3_600_000;
+  // Days step by 12h rather than 1h: a local day lasts far longer, even across a
+  // DST change, and a 10,000-day window would otherwise format every hour.
+  const step = granularity === "hour" ? 15 * 60_000 : 12 * 3_600_000;
   const buckets: string[] = [];
   const add = (t: number) => {
     const b = bucketOf(new Date(t));

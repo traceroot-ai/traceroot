@@ -5,6 +5,7 @@
  * when, why and the note in signal_status_events, and hand edits are audited.
  */
 import { NextRequest } from "next/server";
+import { isValid, parseISO } from "date-fns";
 import { prisma, Role, PlanType } from "@traceroot/core";
 import {
   SIGNAL_STATUSES,
@@ -111,7 +112,12 @@ const signalFilterSchema = z.array(
 
 /**
  * The time window in `start_after` / `end_before` (ISO), or an error message.
- * Both are optional; a missing end is now.
+ * Both are optional: a missing end is now, and a missing start defaults to
+ * seven days before the end, matching the page's own default window.
+ *
+ * Dates are parsed with date-fns (parseISO + isValid) rather than the `Date`
+ * constructor, which silently rolls an impossible calendar date (e.g.
+ * 2026-02-30) into the next valid day instead of rejecting it.
  */
 function parseWindow(searchParams: URLSearchParams): {
   window?: { from: Date; to: Date };
@@ -120,9 +126,12 @@ function parseWindow(searchParams: URLSearchParams): {
   const start = searchParams.get("start_after");
   const end = searchParams.get("end_before");
   if (!start && !end) return {};
-  const from = start ? new Date(start) : null;
-  const to = end ? new Date(end) : new Date();
-  if (!from || isNaN(from.getTime()) || isNaN(to.getTime())) {
+  const to = end ? parseISO(end) : new Date();
+  if (!isValid(to)) {
+    return { error: "start_after and end_before must be ISO timestamps" };
+  }
+  const from = start ? parseISO(start) : new Date(to.getTime() - 7 * 86_400_000);
+  if (!isValid(from)) {
     return { error: "start_after and end_before must be ISO timestamps" };
   }
   if (from.getTime() > to.getTime()) return { error: "start_after must not be after end_before" };

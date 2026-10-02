@@ -578,6 +578,19 @@ class TestRetentionGate:
         expected = _now_naive() - timedelta(days=15, hours=1)
         assert abs((kw["start_after"] - expected).total_seconds()) < 2
 
+    def test_trace_ids_lookup_still_clamped_on_free_plan(self, free_plan_client, mock_trace_reader):
+        """An id-only lookup is not a loophole around retention: a signal's older
+        member traces stay out of reach on a finite-retention plan, same as any
+        other read."""
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = free_plan_client.get("/api/v1/projects/test-project/traces?trace_ids=old-trace")
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_traces.call_args.kwargs
+        assert kw["start_after"] is not None
+
     def test_get_filter_values_clamps_when_outside_window(
         self, free_plan_client, mock_trace_discovery
     ):

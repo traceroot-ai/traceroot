@@ -45,7 +45,7 @@ It references #2399 and #2404 without closing the full UX issue.
 | Original scope or contract | Implemented behavior and reason |
 | --- | --- |
 | Detector-local Signals tab | A project-level Signals list with a detector filter. |
-| Detection-time window counts | Window counts and charts use trace start time, matching Tracing. Detection time remains the lifecycle and digest timestamp. |
+| Detection-time window counts | Window counts and charts use trace start time, matching Tracing. Reopen eligibility uses trace start time when available, falling back to detection time; lifecycle counters and digests use detection time. |
 | No separate trace-time snapshot | A nullable indexed signal-hit trace start is necessary for Postgres membership counts; the writer and all window readers consume it. |
 | Historical hits already exist | Unknown trace times do not enter window counts. A project-scoped repair script reads retained trace rows without inventing times. |
 | Root spans can arrive late | Assignment takes the latest trace-row start time. Existing snapshots are corrected explicitly with the repair script; continuous refresh is not implemented. |
@@ -62,7 +62,7 @@ trace time null; it does not rewrite lifecycle, digest or assignment-copy state.
 With the existing DATABASE_URL and CLICKHOUSE_* settings configured, run:
 
 ```sh
-PYTHONPATH=backend python scripts/backfill_signal_trace_times.py --project-id <project-id>
+python scripts/backfill_signal_trace_times.py --project-id <project-id>
 ```
 
 Review the dry-run counts before adding `--apply`. Add `--refresh-existing` when

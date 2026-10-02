@@ -113,7 +113,10 @@ export function useSignals(projectId: string, query: SignalListQuery) {
     queryFn: () =>
       getJson<SignalListResponse>(`/api/projects/${projectId}/signals?${qs}`, "signals"),
     enabled: !!projectId,
-    placeholderData: (prev) => prev,
+    // Keep the previous page while refetching, but only within the same
+    // project — otherwise switching projects would show the old project's
+    // rows with isLoading false. Mirrors evaluations/hooks.ts.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === projectId ? prev : undefined),
   });
 }
 

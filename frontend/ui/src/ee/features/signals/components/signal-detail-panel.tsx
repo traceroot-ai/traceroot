@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TR } from "@/components/ui/table";
 import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { QueryWidgetRenderer } from "@/features/dashboards/components/renderers";
@@ -112,8 +113,18 @@ export function SignalDetailPanel({
   const [population, setPopulation] = useState<SignalPopulation>("similar");
   const { data, isPending, error } = useSignal(projectId, signalId, range, population);
 
-  // Claim the AI slot for this panel, as the session panel does.
-  useEffect(() => registerAiHost(), [registerAiHost]);
+  // Claim the AI slot for this panel, as the session panel does. On unmount,
+  // also clear the AI state: otherwise aiPanelOpen stays true after this host
+  // releases the slot, and the assistant reappears as the global rail panel.
+  useEffect(() => {
+    const release = registerAiHost();
+    return () => {
+      release();
+      setAiPanelOpen(false);
+      setAiContext(null);
+      setAiInitialSessionId(undefined);
+    };
+  }, [registerAiHost, setAiPanelOpen, setAiContext, setAiInitialSessionId]);
 
   // Escape closes the panel unless a nested overlay or a trace layer over it
   // takes the key.
@@ -467,11 +478,7 @@ function AffectedTraces({
               const t = traces?.get(traceId);
               const pending = isPending ? "…" : "-";
               return (
-                <tr
-                  key={traceId}
-                  onClick={() => onOpenTrace(traceId, traceIds)}
-                  className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
-                >
+                <TR key={traceId} interactive onClick={() => onOpenTrace(traceId, traceIds)}>
                   <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
                     {formatDate(t?.trace_start_time ?? traceStartTimes.get(traceId))}
                   </td>
@@ -497,7 +504,7 @@ function AffectedTraces({
                   <td className={cn(TD, "text-muted-foreground")}>
                     {t ? formatDuration(t.duration_ms) : pending}
                   </td>
-                </tr>
+                </TR>
               );
             })}
           </tbody>

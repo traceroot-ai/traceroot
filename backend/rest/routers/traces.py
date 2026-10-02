@@ -85,7 +85,7 @@ async def list_traces(
         None,
         max_length=MAX_TRACE_IDS,
         description="Return only these trace ids (repeatable, e.g. ?trace_ids=a&trace_ids=b), "
-        "whatever their age unless a window or filters are also given.",
+        "still subject to the caller's plan retention window like any other lookup.",
     ),
     start_after: datetime | None = Query(None, description="Filter traces after this timestamp"),
     end_before: datetime | None = Query(None, description="Filter traces before this timestamp"),
@@ -104,9 +104,12 @@ async def list_traces(
     """List traces for a project with pagination and filtering.
 
     ``trace_ids`` looks up a known, bounded set of traces (e.g. the member traces
-    of a signal). On its own it applies no time window, since those traces can be
-    weeks old; an explicit ``start_after``/``end_before`` still narrows the set,
-    and ``filters`` bring their usual default lookback.
+    of a signal), but the lookup still stays inside the caller's plan retention
+    window: the same clamp applied to every other read here also narrows an
+    id-only request, so a trace older than the plan's cutoff is omitted even
+    when it is named explicitly. An explicit ``start_after``/``end_before`` can
+    only narrow that window further, and ``filters`` bring their usual default
+    lookback.
     """
     # Parse + validate filters before the DB try-block so a bad predicate surfaces as a
     # 422 rather than being swallowed by the broad 500 handler below.

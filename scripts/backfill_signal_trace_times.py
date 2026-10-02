@@ -7,8 +7,14 @@ also repairs snapshots changed by a late root span. Never substitutes detection 
 
 import argparse
 import os
+import sys
 from datetime import UTC
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+# Run directly, `db` resolves only with `backend` on sys.path; add it here, as
+# scripts/sync_public_openapi.py does, so operators need not set PYTHONPATH.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
 import psycopg2
 from psycopg2 import sql
@@ -44,22 +50,31 @@ def latest_trace_times(ch, project_id, trace_ids):
     }
 
 
-def repair(pg, ch, project_id, *, apply=False, refresh_existing=False, batch_size=500):
+def repair(
+    pg,
+    ch,
+    project_id,
+    *,
+    apply=False,
+    refresh_existing=False,
+    batch_size=500,
+    lookup_batch_size=5000,
+):
+    """Walk ``signal_hits`` in ``batch_size`` keyset pages, repairing each page's
+    snapshot from ClickHouse.
+
+    ``traces`` has no index on ``trace_id`` alone, so every ``latest_trace_times``
+    call rescans the project's whole retained partition range regardless of how
+    few ids it asks for. Looking one Postgres page up at a time turns a large
+    repair into one such rescan per page; instead, several pages' worth of distinct
+    trace ids (up to ``lookup_batch_size``) are buffered and resolved in a single
+    ClickHouse call. Postgres updates still commit (or roll back, for a dry run)
+    one original page at a time, so a crash mid-repair loses at most one page of
+    progress.
+    """
     counts = dict(scanned=0, missing=0, changed=0, updated=0)
-    after = None
-    while True:
-        with pg.cursor() as cursor:
-            cursor.execute(
-                """SELECT run_id, trace_id, trace_start_time FROM signal_hits
-                WHERE project_id = %s AND (%s OR trace_start_time IS NULL)
-                  AND (%s IS NULL OR run_id > %s)
-                ORDER BY run_id LIMIT %s""",
-                (project_id, refresh_existing, after, after, batch_size),
-            )
-            rows = cursor.fetchall()
-        if not rows:
-            break
-        times = latest_trace_times(ch, project_id, list({row[1] for row in rows}))
+
+    def apply_page(rows, times):
         for run_id, trace_id, previous in rows:
             counts["scanned"] += 1
             moment = times.get(trace_id)
@@ -82,7 +97,37 @@ def repair(pg, ch, project_id, *, apply=False, refresh_existing=False, batch_siz
             pg.commit()
         else:
             pg.rollback()
+
+    def flush(pending_pages, pending_trace_ids):
+        if not pending_pages:
+            return
+        times = latest_trace_times(ch, project_id, list(pending_trace_ids))
+        for rows in pending_pages:
+            apply_page(rows, times)
+
+    after = None
+    pending_pages = []
+    pending_trace_ids = set()
+    while True:
+        with pg.cursor() as cursor:
+            cursor.execute(
+                """SELECT run_id, trace_id, trace_start_time FROM signal_hits
+                WHERE project_id = %s AND (%s OR trace_start_time IS NULL)
+                  AND (%s IS NULL OR run_id > %s)
+                ORDER BY run_id LIMIT %s""",
+                (project_id, refresh_existing, after, after, batch_size),
+            )
+            rows = cursor.fetchall()
+        if not rows:
+            break
+        pending_pages.append(rows)
+        pending_trace_ids.update(row[1] for row in rows)
         after = rows[-1][0]
+        if len(pending_trace_ids) >= lookup_batch_size:
+            flush(pending_pages, pending_trace_ids)
+            pending_pages = []
+            pending_trace_ids = set()
+    flush(pending_pages, pending_trace_ids)
     return counts
 
 

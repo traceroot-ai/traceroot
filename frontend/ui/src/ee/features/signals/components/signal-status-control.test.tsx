@@ -2,13 +2,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-const mocks = vi.hoisted(() => ({ mutate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false }));
 
 vi.mock("../hooks", () => ({
   useSetSignalStatus: () => ({
     mutate: mocks.mutate,
     reset: vi.fn(),
-    isPending: false,
+    isPending: mocks.isPending,
     error: null,
   }),
 }));
@@ -51,6 +51,7 @@ import { SignalStatusControl } from "./signal-status-control";
 afterEach(() => {
   cleanup();
   mocks.mutate.mockReset();
+  mocks.isPending = false;
 });
 
 describe("SignalStatusControl", () => {
@@ -87,5 +88,16 @@ describe("SignalStatusControl", () => {
       change: { status: "open" },
       expectedStatus: "resolved",
     });
+  });
+
+  it("disables Cancel while the status save is pending", () => {
+    mocks.isPending = true;
+    render(
+      <SignalStatusControl projectId="p1" signalId="s1" title="Tool times out" status="open" />,
+    );
+    fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "resolved" } });
+
+    const cancelButton = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+    expect(cancelButton.disabled).toBe(true);
   });
 });

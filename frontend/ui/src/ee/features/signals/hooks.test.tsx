@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { rcaInProgress, useRequestSignalRca, useSignal } from "./hooks";
+import { rcaInProgress, useRequestSignalRca, useSignal, useSignals } from "./hooks";
 
 vi.mock("@/lib/hooks/use-trace-api-user", () => ({ useTraceApiUser: () => ({}) }));
 afterEach(() => vi.unstubAllGlobals());
@@ -13,15 +13,13 @@ it("clears the previous signal while the newly selected signal is loading", asyn
   const second = new Promise<Response>((resolve) => {
     resolveSecond = resolve;
   });
-  vi.stubGlobal(
-    "fetch",
-    vi
-      .fn()
-      .mockResolvedValueOnce(
-        Response.json({ merged: false, signal: { id: "a", rca: { currentState: null } } }),
-      )
-      .mockReturnValueOnce(second),
-  );
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({ merged: false, signal: { id: "a", rca: { currentState: null } } }),
+    )
+    .mockReturnValueOnce(second);
+  vi.stubGlobal("fetch", fetchMock);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -31,6 +29,10 @@ it("clears the previous signal while the newly selected signal is loading", asyn
     wrapper,
   });
   await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    1,
+    expect.stringMatching(/^\/api\/projects\/p\/signals\/a\?tz=[^&]+&population=similar$/),
+  );
   rerender({ id: "b" });
   expect(result.current.data).toBeUndefined();
   expect(result.current.isPending).toBe(true);
@@ -40,6 +42,45 @@ it("clears the previous signal while the newly selected signal is loading", asyn
     ),
   );
   await waitFor(() => expect(result.current.data).toMatchObject({ signal: { id: "b" } }));
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    2,
+    expect.stringMatching(/^\/api\/projects\/p\/signals\/b\?tz=[^&]+&population=similar$/),
+  );
+  unmount();
+  client.clear();
+});
+
+it("drops the previous project's placeholder rows when the project changes", async () => {
+  let resolveSecond!: (response: Response) => void;
+  const second = new Promise<Response>((resolve) => {
+    resolveSecond = resolve;
+  });
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({ data: [{ id: "a" }], meta: { page: 0, limit: 20, total: 1 } }),
+    )
+    .mockReturnValueOnce(second);
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  const { result, rerender, unmount } = renderHook(({ projectId }) => useSignals(projectId, {}), {
+    initialProps: { projectId: "p1" },
+    wrapper,
+  });
+  await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+  // Switching to a different project must not show p1's rows as a placeholder.
+  rerender({ projectId: "p2" });
+  expect(result.current.data).toBeUndefined();
+  expect(result.current.isPlaceholderData).toBe(false);
+
+  await act(async () =>
+    resolveSecond(Response.json({ data: [{ id: "b" }], meta: { page: 0, limit: 20, total: 1 } })),
+  );
+  await waitFor(() => expect(result.current.data?.data[0].id).toBe("b"));
   unmount();
   client.clear();
 });

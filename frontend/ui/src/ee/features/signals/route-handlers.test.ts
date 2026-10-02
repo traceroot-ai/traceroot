@@ -270,11 +270,30 @@ describe("reads", () => {
     for (const bad of [
       "?start_after=yesterday",
       "?start_after=2026-10-01T00:00:00Z&end_before=2026-09-01T00:00:00Z",
+      // 2026-02-30 does not exist; a lenient parser would roll it into March.
+      "?start_after=2026-02-30T00:00:00Z&end_before=2026-10-01T00:00:00Z",
     ]) {
       expect(
         (await handleListSignals(req(undefined, bad), params({ projectId: "p1" }))).status,
       ).toBe(400);
     }
+  });
+
+  it("defaults a missing start to seven days before the given end", async () => {
+    core.listSignals.mockResolvedValue({ signals: [], total: 0 });
+    await handleListSignals(
+      req(undefined, "?end_before=2026-10-01T00:00:00.000Z"),
+      params({ projectId: "p1" }),
+    );
+    expect(core.listSignals).toHaveBeenLastCalledWith(expect.objectContaining({ tag: "prisma" }), {
+      projectId: "p1",
+      hitsIn: {
+        from: new Date("2026-09-24T00:00:00.000Z"),
+        to: new Date("2026-10-01T00:00:00.000Z"),
+      },
+      page: 0,
+      limit: 50,
+    });
   });
 
   it("returns one signal with its traces and the detector's other traces per bucket, or 404", async () => {
