@@ -15,6 +15,7 @@ import gzip
 import logging
 import uuid
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -98,6 +99,8 @@ async def ingest_traces(
     Body:
         OTLP trace data in protobuf format
     """
+    ingest_started_at = perf_counter()
+
     # Check if ingestion is blocked (free plan limit exceeded)
     # This flag is updated hourly by the billing worker
     # Skip enforcement when billing is disabled (e.g. self-hosted)
@@ -167,11 +170,16 @@ async def ingest_traces(
     )
 
     # 5. Upload JSON to S3
+    storage_started_at = perf_counter()
     try:
         s3_service = get_s3_service()
         s3_service.ensure_bucket_exists()
         s3_service.upload_json(s3_key, trace_data)
-        logger.info(f"Stored OTEL JSON to {s3_key} for project {project_id}")
+        logger.info(
+            f"Stored OTEL JSON to {s3_key} for project {project_id} "
+            f"(payload_bytes={len(body)}, "
+            f"storage_duration_ms={(perf_counter() - storage_started_at) * 1000:.2f})"
+        )
     except Exception as e:
         logger.error(f"Failed to upload OTEL JSON to S3: {e}")
         raise HTTPException(
@@ -180,9 +188,14 @@ async def ingest_traces(
         ) from e
 
     # 6. Enqueue Celery task for async processing (S3 reference only, not full payload)
+    enqueue_started_at = perf_counter()
     try:
         process_s3_traces.delay(s3_key=s3_key, project_id=project_id)
-        logger.info(f"Enqueued Celery task for {s3_key}")
+        logger.info(
+            f"Enqueued Celery task for {s3_key} "
+            f"(enqueue_duration_ms={(perf_counter() - enqueue_started_at) * 1000:.2f}, "
+            f"total_duration_ms={(perf_counter() - ingest_started_at) * 1000:.2f})"
+        )
     except Exception as e:
         # Log but don't fail the request - S3 has the data, can retry later
         logger.error(f"Failed to enqueue Celery task for {s3_key}: {e}")
