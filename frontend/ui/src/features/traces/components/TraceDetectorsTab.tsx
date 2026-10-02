@@ -145,17 +145,12 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
         </thead>
         <tbody>
           {runs.map((r) => {
-            // Deep-link to the detector's Runs tab; the Findings tab is just that
-            // runs list filtered to identified runs, so Runs is canonical. A
-            // self-traced run additionally carries its own trace id + source so
-            // the page auto-opens the run's actual trace on arrival.
+            // Deep-link to the detector's runs. A self-traced run also carries its
+            // own trace id + source so the page auto-opens the run's actual trace
+            // on arrival.
             const detectorHref = buildUrlWithFilters(
               `/projects/${projectId}/detectors/${r.detector_id}`,
-              {
-                extraParams: r.self_traced
-                  ? { tab: "runs", traceId: selfTraceId(r), source: "detector" }
-                  : { tab: "runs" },
-              },
+              r.self_traced ? { extraParams: { traceId: selfTraceId(r), source: "detector" } } : {},
             );
             const signal = runSignal(
               r,

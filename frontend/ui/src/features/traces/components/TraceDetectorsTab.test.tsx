@@ -170,12 +170,10 @@ describe("TraceDetectorsTab", () => {
 
   const nameLink = (name: string) => screen.getByRole("link", { name });
 
-  it("links the detector's name to its runs tab", () => {
+  it("links the detector's name to its runs", () => {
     mocks.runs = [run({ run_id: "1", detector_id: "det-9", name: "Safety", finding_id: null })];
     render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
-    expect(nameLink("Safety").getAttribute("href")).toBe(
-      "URL(/projects/proj-1/detectors/det-9?tab=runs)",
-    );
+    expect(nameLink("Safety").getAttribute("href")).toBe("URL(/projects/proj-1/detectors/det-9)");
   });
 
   it("deep-links a self-traced run straight to its own trace on the detector page", () => {
@@ -190,16 +188,14 @@ describe("TraceDetectorsTab", () => {
     ];
     render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
     expect(nameLink("Safety").getAttribute("href")).toBe(
-      "URL(/projects/proj-1/detectors/det-9?tab=runs&traceId=aaaa1111bbbb2222cccc3333dddd4444&source=detector)",
+      "URL(/projects/proj-1/detectors/det-9?traceId=aaaa1111bbbb2222cccc3333dddd4444&source=detector)",
     );
   });
 
-  it("keeps the plain runs-tab link for a run without a self-trace", () => {
+  it("keeps the plain runs link for a run without a self-trace", () => {
     mocks.runs = [run({ run_id: "1", detector_id: "det-9", name: "Safety", self_traced: false })];
     render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
-    expect(nameLink("Safety").getAttribute("href")).toBe(
-      "URL(/projects/proj-1/detectors/det-9?tab=runs)",
-    );
+    expect(nameLink("Safety").getAttribute("href")).toBe("URL(/projects/proj-1/detectors/det-9)");
   });
 
   it("links a hit to the signal it was grouped into", () => {

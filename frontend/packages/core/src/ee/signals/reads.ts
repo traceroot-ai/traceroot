@@ -441,6 +441,64 @@ export async function signalsForTrace(
 }
 
 /**
+ * The signal each of these runs' hits belongs to, for a detector's runs table,
+ * with the agent trace of that signal's RCA: the newest successful one, as the
+ * signal's page shows it, found through the session its answer was kept with.
+ * Runs that are not hits, and signals without a successful RCA or whose trace
+ * did not land, have no trace.
+ */
+export async function signalsForRuns(
+  db: Pick<PrismaClient, "signalHit" | "signalRca" | "detectorRcaExecution">,
+  params: { projectId: string; runIds: readonly string[] },
+) {
+  if (params.runIds.length === 0) return [];
+  const hits = await db.signalHit.findMany({
+    where: { projectId: params.projectId, runId: { in: [...params.runIds] } },
+    select: { runId: true, signalId: true },
+  });
+  const signalIds = [...new Set(hits.map((h) => h.signalId))];
+  const openings =
+    signalIds.length === 0
+      ? []
+      : await db.signalRca.findMany({
+          where: { signalId: { in: signalIds } },
+          select: { signalId: true, reopenSeq: true, result: true, sessionId: true },
+        });
+  const openingsBySignal = new Map<string, typeof openings>();
+  for (const o of openings) {
+    const rows = openingsBySignal.get(o.signalId) ?? [];
+    rows.push(o);
+    openingsBySignal.set(o.signalId, rows);
+  }
+  const sessionBySignal = new Map<string, string>();
+  for (const [signalId, rows] of openingsBySignal) {
+    const sessionId = pickCanonicalRca(rows)?.sessionId;
+    if (sessionId) sessionBySignal.set(signalId, sessionId);
+  }
+  const sessionIds = [...new Set(sessionBySignal.values())];
+  const executions =
+    sessionIds.length === 0
+      ? []
+      : await db.detectorRcaExecution.findMany({
+          where: {
+            projectId: params.projectId,
+            sessionId: { in: sessionIds },
+            traceStatus: "available",
+          },
+          select: { sessionId: true, traceId: true },
+        });
+  const traceBySession = new Map(executions.map((e) => [e.sessionId, e.traceId]));
+  return hits.map((h) => {
+    const sessionId = sessionBySignal.get(h.signalId);
+    return {
+      runId: h.runId,
+      signalId: h.signalId,
+      agentTraceId: (sessionId && traceBySession.get(sessionId)) || null,
+    };
+  });
+}
+
+/**
  * Whether this deployment can group hits at all: assignment runs on the
  * OpenAI key, which the worker and the web app read from the same setting.
  */

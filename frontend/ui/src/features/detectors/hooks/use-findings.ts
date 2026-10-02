@@ -12,38 +12,6 @@ export interface BackendFinding {
   payload: string;
 }
 
-/** How a run's `rca_status` renders in the "Agent analysis" column. */
-export interface RcaStatusPresentation {
-  label: string;
-  className: string;
-  title?: string;
-}
-
-/**
- * Single source of truth for the agent-analysis status vocabulary:
- * absent field (enrichment unavailable) -> "—", null (no stored RCA row) ->
- * "Skipped", terminal/in-flight statuses -> their labels. An unrecognized
- * future status renders as its raw value rather than a misleading "Running…".
- */
-export function describeRcaStatus(status: BackendRun["rca_status"]): RcaStatusPresentation {
-  if (status === undefined) {
-    return { label: "—", className: "font-mono text-[11px] text-muted-foreground" };
-  }
-  if (status === null) {
-    return {
-      label: "Skipped",
-      className: "text-muted-foreground",
-      title: "Root cause analysis was off for the detector(s) that fired",
-    };
-  }
-  if (status === "failed") return { label: "Failed", className: "text-destructive" };
-  if (status === "done") return { label: "Done", className: "text-foreground" };
-  if (status === "pending" || status === "running") {
-    return { label: "Running…", className: "text-muted-foreground" };
-  }
-  return { label: status, className: "text-muted-foreground" };
-}
-
 /** Pagination metadata returned alongside data arrays. */
 export interface PaginationMeta {
   page: number;
@@ -129,20 +97,22 @@ export interface BackendRun {
    */
   name?: string;
   /**
-   * Stored RCA status for a triggered run, enriched by the runs proxy route.
-   * null = no DetectorRca row (RCA skipped — disabled on every detector that
-   * fired); absent = enrichment unavailable or the run never triggered.
+   * The signal this triggered run's hit belongs to, enriched by the runs proxy.
+   * null = not grouped (yet); absent = enrichment unavailable or the run never
+   * triggered.
    */
-  rca_status?: "pending" | "running" | "done" | "failed" | null;
+  signal_id?: string | null;
+  /**
+   * The agent trace of the RCA that signal's page shows, enriched by the runs
+   * proxy; null when the signal has no successful RCA or its trace did not land.
+   */
+  agent_trace_id?: string | null;
   /**
    * True when the worker emitted a self-trace for this run (trace_id = run_id);
    * gates the runs-tab link to the run's own trace. Optional for back-compat
    * with reads from an un-migrated backend, which imply false.
    */
   self_traced?: boolean;
-  /** Latest RCA execution's agent trace, enriched by the runs proxy. Absent when un-enriched. */
-  execution_trace_id?: string | null;
-  execution_trace_status?: TraceStatus | null;
 }
 
 /**
@@ -152,19 +122,6 @@ export interface BackendRun {
  */
 export function selfTraceId(run: Pick<BackendRun, "run_id">): string {
   return run.run_id.replaceAll("-", "");
-}
-
-/**
- * The openable agent trace behind a finding: its execution's trace id, only
- * once that trace's export landed. Null while it is pending/failed/disabled
- * or when the run is un-enriched — one gate shared by the Finding ID cell
- * and the ?source=agent deep link, so neither can open a trace that is not
- * there yet.
- */
-export function agentTraceId(
-  run: Pick<BackendRun, "execution_trace_id" | "execution_trace_status">,
-): string | null {
-  return run.execution_trace_status === "available" ? (run.execution_trace_id ?? null) : null;
 }
 
 export interface RunsQuery {

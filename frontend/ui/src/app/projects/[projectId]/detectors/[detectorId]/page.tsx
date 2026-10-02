@@ -1,20 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight, Flag, History } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { cn, buildUrlWithFilters } from "@/lib/utils";
+import { buildUrlWithFilters } from "@/lib/utils";
 import { useDetector } from "@/features/detectors/hooks/use-detectors";
-import {
-  useRuns,
-  selfTraceId,
-  agentTraceId,
-  type BackendRun,
-} from "@/features/detectors/hooks/use-findings";
+import { useRuns, selfTraceId, type BackendRun } from "@/features/detectors/hooks/use-findings";
 import { DetectorRunsTable } from "@/features/detectors/components/detector-runs-table";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
@@ -22,35 +17,35 @@ import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel"
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
+import type { Predicate } from "@/types/api";
 
 /**
  * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
  * "original" (the run's source trace) opens its RCA when one exists; "self"
  * (the detector run's own self-trace) opens quietly, with no RCA auto-open;
- * "finding" (the RCA's own agent trace, opened from the Finding ID cell) also
- * opens quietly.
+ * "agent" (the agent trace of the RCA the run's signal shows, opened from the
+ * Agent Run ID cell) also opens quietly.
  */
 type SelectedTrace = {
   traceId: string;
-  kind: "original" | "self" | "finding";
+  kind: "original" | "self" | "agent";
 } | null;
 
-// A self-trace is identified by its run row (dashless run_id), and a finding's
-// agent trace by its execution's available trace id — neither is a trace_id
-// in the list, so match on the right key per kind. Module-scope so effects
-// can use it without a dependency-list entry.
+// A self-trace is identified by its run row (dashless run_id), and an agent
+// trace by the run's signal RCA trace — neither is a trace_id in the list, so
+// match on the right key per kind. Module-scope so effects can use it without
+// a dependency-list entry.
 const rowMatchesSelection = (r: BackendRun, sel: SelectedTrace) =>
   sel != null &&
   (sel.kind === "self"
     ? selfTraceId(r) === sel.traceId
-    : sel.kind === "finding"
-      ? agentTraceId(r) === sel.traceId
+    : sel.kind === "agent"
+      ? r.agent_trace_id === sel.traceId
       : r.trace_id === sel.traceId);
 
-const tabs = [
-  { id: "findings", label: "Findings", icon: Flag },
-  { id: "runs", label: "Runs", icon: History },
-];
+/** The URL filter for the detector's findings: its runs with Identified = Yes. */
+const isIdentifiedFilter = (p: Predicate) =>
+  p.field === "identified" && p.op === "in" && p.value.includes("Yes");
 
 export default function DetectorDetailPage() {
   const params = useParams();
@@ -68,20 +63,10 @@ export default function DetectorDetailPage() {
   const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
   const [autoOpenedKey, setAutoOpenedKey] = useState<string | null>(null);
 
-  // Deep-link the tab (e.g. the trace detectors tab sends clean runs to "runs"
-  // and findings to "findings"); default to findings for any other value.
-  const tabParam = searchParams.get("tab");
-  const [activeTab, setActiveTab] = useState(tabParam === "runs" ? "runs" : "findings");
-  // Re-honor ?tab= when it changes without a remount (navigating detector→detector
-  // from the trace panel's Detectors table). Keyed on the param value only, so a
-  // manual tab switch — which doesn't touch the URL — is never overridden.
-  useEffect(() => {
-    if (tabParam === "runs" || tabParam === "findings") setActiveTab(tabParam);
-  }, [tabParam]);
   const [selectedTrace, setSelectedTrace] = useState<SelectedTrace>(null);
 
-  // Single shared state across both tabs — same pattern as traces/sessions/users.
-  // Pagination, search, and date filter live in the URL so a tab switch keeps them.
+  // Pagination, search, filters and date filter live in the URL, as on the
+  // traces/sessions/users pages.
   const retention = useRetention(projectId);
 
   const {
@@ -90,6 +75,7 @@ export default function DetectorDetailPage() {
     updateDateFilter,
     updateCustomRange,
     updateKeyword,
+    updateFilters,
     updateLimit,
     goToPage,
   } = useListPageState({
@@ -109,31 +95,15 @@ export default function DetectorDetailPage() {
 
   const { data: detector } = useDetector(projectId, detectorId);
 
-  // The Findings tab is a filtered Runs view: the same runs query restricted to
-  // triggered runs (identified = Yes, i.e. finding_id IS NOT NULL).
-  const {
-    data: findingsData,
-    isLoading,
-    error,
-  } = useRuns(projectId, detectorId, { ...queryOptions, identified: true });
-
+  // Findings are the same runs filtered to Identified = Yes (finding_id IS NOT
+  // NULL), carried in the URL like any filter so the detector list can link them.
+  const identifiedOnly = state.filters.some(isIdentifiedFilter);
   const {
     data: runsData,
-    isLoading: runsLoading,
-    error: runsError,
-  } = useRuns(projectId, detectorId, queryOptions);
-
-  const findings = findingsData?.data ?? [];
-  const runs = runsData?.data ?? [];
-
-  // The active tab's rows back both pagination and the panel's ↑/↓ navigation.
-  const activeRows = activeTab === "runs" ? runs : findings;
-
-  // Active tab's meta drives pagination. Both tabs share the same page/limit
-  // since `useListPageState` is one shared instance — switching tabs keeps you
-  // on the same page index. The other tab's data may show empty if it has
-  // fewer pages; clicking "first" recovers.
-  const activeMeta = activeTab === "runs" ? runsData?.meta : findingsData?.meta;
+    isLoading,
+    error,
+  } = useRuns(projectId, detectorId, { ...queryOptions, identified: identifiedOnly });
+  const runs = useMemo(() => runsData?.data ?? [], [runsData]);
 
   // Clicking a row's trace_id cell opens that run's original trace, with its RCA
   // auto-opening if one exists (the panel gates auto-open on a real RCA session,
@@ -145,19 +115,27 @@ export default function DetectorDetailPage() {
   const openSelfTrace = (run: BackendRun) =>
     setSelectedTrace({ traceId: selfTraceId(run), kind: "self" });
 
-  // Clicking a triggered run's Finding ID cell opens the RCA's agent trace.
+  // Clicking a run's Agent Run ID cell opens the agent trace of its signal's RCA.
   const openAgentTrace = (run: BackendRun) => {
-    const id = agentTraceId(run);
-    if (id) setSelectedTrace({ traceId: id, kind: "finding" });
+    if (run.agent_trace_id) setSelectedTrace({ traceId: run.agent_trace_id, kind: "agent" });
   };
 
-  // Clear the selection if its run/trace is no longer in the active list (e.g. the
-  // user paginated, refetched, switched tabs, or changed filters).
+  // A Signal ID cell opens the Signals page with that signal, keeping the range.
+  const signalHref = (signalId: string) =>
+    buildUrlWithFilters(`/projects/${projectId}/signals`, {
+      dateFilter: state.dateFilter,
+      customStartDate: state.customStartDate,
+      customEndDate: state.customEndDate,
+      extraParams: { signalId },
+    });
+
+  // Clear the selection if its run/trace is no longer in the list (e.g. the
+  // user paginated, refetched, or changed filters).
   useEffect(() => {
-    if (selectedTrace && !activeRows.some((r) => rowMatchesSelection(r, selectedTrace))) {
+    if (selectedTrace && !runs.some((r) => rowMatchesSelection(r, selectedTrace))) {
       setSelectedTrace(null);
     }
-  }, [activeRows, selectedTrace]);
+  }, [runs, selectedTrace]);
 
   // Deep-link: when arriving with ?traceId=... (popped out from another tab or
   // linked from a trace's Detectors tab), open that trace once the list has loaded.
@@ -166,23 +144,23 @@ export default function DetectorDetailPage() {
   // must not reopen the same trace, but a different deep link has to still work.
   // Navigating detector -> same detector from a trace's Detectors tab changes only the
   // query string, which does not remount, so a boolean would swallow every later link
-  // for the life of the mount. (The ?tab= effect above already learned this.)
+  // for the life of the mount.
   const deepLinkKey = traceIdFromUrl ? `${sourceFromUrl ?? ""}:${traceIdFromUrl}` : null;
   useEffect(() => {
     if (!traceIdFromUrl || autoOpenedKey === deepLinkKey) return;
     const sel: SelectedTrace = {
       traceId: traceIdFromUrl,
       kind:
-        sourceFromUrl === "detector" ? "self" : sourceFromUrl === "agent" ? "finding" : "original",
+        sourceFromUrl === "detector" ? "self" : sourceFromUrl === "agent" ? "agent" : "original",
     };
-    if (activeRows.some((r) => rowMatchesSelection(r, sel))) {
+    if (runs.some((r) => rowMatchesSelection(r, sel))) {
       setSelectedTrace(sel);
       setAutoOpenedKey(deepLinkKey);
     }
-  }, [autoOpenedKey, deepLinkKey, traceIdFromUrl, sourceFromUrl, activeRows]);
+  }, [autoOpenedKey, deepLinkKey, traceIdFromUrl, sourceFromUrl, runs]);
 
   const selectedIndex = selectedTrace
-    ? activeRows.findIndex((r) => rowMatchesSelection(r, selectedTrace))
+    ? runs.findIndex((r) => rowMatchesSelection(r, selectedTrace))
     : -1;
 
   // Up/down steps through original traces only; a self-trace is a point-open with
@@ -192,8 +170,8 @@ export default function DetectorDetailPage() {
   function handleNavigate(direction: "up" | "down") {
     if (!canNavigate || selectedIndex === -1) return;
     const nextIndex = direction === "up" ? selectedIndex - 1 : selectedIndex + 1;
-    if (nextIndex >= 0 && nextIndex < activeRows.length) {
-      setSelectedTrace({ traceId: activeRows[nextIndex].trace_id, kind: "original" });
+    if (nextIndex >= 0 && nextIndex < runs.length) {
+      setSelectedTrace({ traceId: runs[nextIndex].trace_id, kind: "original" });
     }
   }
 
@@ -215,32 +193,6 @@ export default function DetectorDetailPage() {
           <span className="text-[13px] font-medium">{detector?.name ?? detectorId}</span>
         </div>
 
-        {/* Tabs */}
-        <div className="border-b border-border bg-background">
-          <div className="flex">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  className={cn(
-                    "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
-                    isActive
-                      ? "border-foreground bg-muted text-foreground"
-                      : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         {/* Filter bar — identical instantiation to traces/sessions/users. */}
         <SearchFilterBar
           searchValue={state.keyword}
@@ -253,31 +205,39 @@ export default function DetectorDetailPage() {
           onCustomRangeChange={updateCustomRange}
           retentionDays={retention.retentionDays}
           onUpgradeClick={retention.onUpgradeClick}
-        />
+        >
+          {identifiedOnly && (
+            <button
+              type="button"
+              onClick={() => updateFilters(state.filters.filter((p) => !isIdentifiedFilter(p)))}
+              className="flex h-7 items-center gap-1 rounded-md border border-border bg-muted px-2 text-[12px] text-foreground hover:bg-muted/70"
+              aria-label="Remove filter Identified is Yes"
+            >
+              Identified: Yes
+              <X className="h-3 w-3 text-muted-foreground" />
+            </button>
+          )}
+        </SearchFilterBar>
 
-        {/* Content — both tabs render the same DetectorRunsTable; Findings is
-            just the runs query filtered to triggered runs (identified=true). */}
         <div className="flex-1 overflow-auto bg-background">
           {(() => {
-            const loading = activeTab === "runs" ? runsLoading : isLoading;
-            const err = activeTab === "runs" ? runsError : error;
-            const noun = activeTab === "runs" ? "runs" : "findings";
+            const noun = identifiedOnly ? "findings" : "runs";
 
-            if (loading) {
+            if (isLoading) {
               return (
                 <div className="flex h-64 items-center justify-center">
                   <LoadingState label={`Loading ${noun}...`} />
                 </div>
               );
             }
-            if (err) {
+            if (error) {
               return (
                 <div className="flex h-64 flex-col items-center justify-center gap-3">
                   <p className="text-[13px] text-destructive">Error loading {noun}</p>
                 </div>
               );
             }
-            if (activeRows.length === 0) {
+            if (runs.length === 0) {
               return (
                 <div className="flex h-64 flex-col items-center justify-center gap-3">
                   <p className="text-[13px] text-muted-foreground">No {noun} found</p>
@@ -289,10 +249,11 @@ export default function DetectorDetailPage() {
             }
             return (
               <DetectorRunsTable
-                rows={activeRows}
+                rows={runs}
                 onTraceClick={openOriginalTrace}
                 onRunClick={openSelfTrace}
-                onFindingClick={openAgentTrace}
+                onAgentRunClick={openAgentTrace}
+                signalHref={signalHref}
               />
             );
           })()}
@@ -301,7 +262,7 @@ export default function DetectorDetailPage() {
         <ListPagination
           page={state.page}
           limit={state.limit}
-          total={activeMeta?.total ?? 0}
+          total={runsData?.meta?.total ?? 0}
           onPageChange={goToPage}
           onLimitChange={updateLimit}
         />
@@ -320,9 +281,7 @@ export default function DetectorDetailPage() {
           }}
           onNavigate={handleNavigate}
           canNavigateUp={canNavigate && selectedIndex > 0}
-          canNavigateDown={
-            canNavigate && selectedIndex !== -1 && selectedIndex < activeRows.length - 1
-          }
+          canNavigateDown={canNavigate && selectedIndex !== -1 && selectedIndex < runs.length - 1}
           dateFilter={state.dateFilter}
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
@@ -332,16 +291,14 @@ export default function DetectorDetailPage() {
           source={
             selectedTrace.kind === "self"
               ? "detector"
-              : selectedTrace.kind === "finding"
+              : selectedTrace.kind === "agent"
                 ? "agent"
                 : "user"
           }
           // The run's timestamp bounds the self-trace "still being recorded"
-          // window. It says nothing about the finding's analysis trace, which
+          // window. It says nothing about the signal's analysis trace, which
           // starts after the run and takes minutes — so it is withheld there.
-          runTimestamp={
-            selectedTrace.kind === "finding" ? undefined : activeRows[selectedIndex]?.timestamp
-          }
+          runTimestamp={selectedTrace.kind === "agent" ? undefined : runs[selectedIndex]?.timestamp}
         />
       )}
 

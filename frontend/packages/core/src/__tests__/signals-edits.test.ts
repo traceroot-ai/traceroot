@@ -8,6 +8,7 @@ import {
   requestSignalRca,
   signalCriteriaEditSchema,
   signalsForTrace,
+  signalsForRuns,
   detectorSignalSettings,
   signalSetup,
   signalsKeyConfigured,
@@ -793,6 +794,62 @@ describe("reads", () => {
         signalStatus: "open",
       },
     ]);
+  });
+
+  it("gives each run its signal and the agent trace of the RCA the signal shows", async () => {
+    const db = {
+      signalHit: {
+        findMany: vi.fn(async () => [
+          { runId: "r1", signalId: "a" },
+          { runId: "r2", signalId: "a" },
+          { runId: "r3", signalId: "b" },
+        ]),
+      },
+      signalRca: {
+        findMany: vi.fn(async () => [
+          // Signal a: the newest opening that succeeded is 1; opening 2 is still running.
+          { signalId: "a", reopenSeq: 0, result: "old", sessionId: "s0" },
+          { signalId: "a", reopenSeq: 1, result: "kept", sessionId: "s1" },
+          { signalId: "a", reopenSeq: 2, result: null, sessionId: null },
+          // Signal b: no RCA has succeeded yet.
+          { signalId: "b", reopenSeq: 0, result: null, sessionId: null },
+        ]),
+      },
+      detectorRcaExecution: {
+        findMany: vi.fn(async () => [{ sessionId: "s1", traceId: "t1" }]),
+      },
+    };
+    const rows = await signalsForRuns(db as never, {
+      projectId: "p",
+      runIds: ["r1", "r2", "r3", "r4"],
+    });
+    expect(rows).toEqual([
+      { runId: "r1", signalId: "a", agentTraceId: "t1" },
+      { runId: "r2", signalId: "a", agentTraceId: "t1" },
+      { runId: "r3", signalId: "b", agentTraceId: null },
+    ]);
+    expect(db.signalHit.findMany).toHaveBeenCalledWith({
+      where: { projectId: "p", runId: { in: ["r1", "r2", "r3", "r4"] } },
+      select: { runId: true, signalId: true },
+    });
+    // Only the kept session's trace, only once it landed, only in the project.
+    expect(db.detectorRcaExecution.findMany).toHaveBeenCalledWith({
+      where: { projectId: "p", sessionId: { in: ["s1"] }, traceStatus: "available" },
+      select: { sessionId: true, traceId: true },
+    });
+  });
+
+  it("reads nothing for no runs, and no RCAs when no run is a hit", async () => {
+    const db = {
+      signalHit: { findMany: vi.fn(async () => []) },
+      signalRca: { findMany: vi.fn(async () => []) },
+      detectorRcaExecution: { findMany: vi.fn(async () => []) },
+    };
+    expect(await signalsForRuns(db as never, { projectId: "p", runIds: [] })).toEqual([]);
+    expect(db.signalHit.findMany).not.toHaveBeenCalled();
+    expect(await signalsForRuns(db as never, { projectId: "p", runIds: ["r1"] })).toEqual([]);
+    expect(db.signalRca.findMany).not.toHaveBeenCalled();
+    expect(db.detectorRcaExecution.findMany).not.toHaveBeenCalled();
   });
 
   it("reads the signals settings of the named detectors, in the project only", async () => {

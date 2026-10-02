@@ -13,6 +13,7 @@ export {
   listSignals,
   getSignal,
   signalsForTrace,
+  signalsForRuns,
   detectorSignalSettings,
   signalSetup,
   signalsKeyConfigured,
