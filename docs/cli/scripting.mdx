@@ -92,7 +92,7 @@ traceroot alerts create --from-file base_alert.json --threshold 5000
 ### Target Project Scoping
 
 - **Under Browser Login (Session Token)**: The target project is determined by `--project <id>` or `TRACEROOT_PROJECT_ID`. The JSON body describes the resource itself, not where it is stored.
-- **Under Project API Key (`tr_...`)**: The target project is intrinsically bound to the key. If needed, pass `--project-id <id>` or include `"project_id": "<id>"` in the file.
+- **Under Project API Key (`tr_...`)**: The target project is intrinsically bound to the API key. No project scoping flag is required for write commands.
 
 ---
 

@@ -45,7 +45,12 @@ You can also provide your API key via the `TRACEROOT_API_KEY` environment variab
 
 ```bash
 export TRACEROOT_API_KEY="tr_your_project_key"
+
+# In CI or a fresh terminal with no stored browser session:
 traceroot traces list
+
+# Or pass --api-key explicitly to ensure the key is used even if a stored session exists:
+traceroot traces list --api-key $TRACEROOT_API_KEY
 ```
 
 ## Credential Precedence (7 Levels)
@@ -132,22 +137,22 @@ traceroot status
 
 For a browser session:
 ```text
-Host:       https://app.traceroot.ai
-Auth type:  Session token
-Source:     credentials-file (~/.config/traceroot/credentials.json)
-User:       alice@example.com
-Workspaces: 2 accessible
-Project:    proj_demo (from TRACEROOT_PROJECT_ID)
+Logged in as:  user@example.com
+Credential:    session (browser login)
+Host:          https://app.traceroot.ai
+Project:       proj_91a0c8b21e054fbb8b1234567890abcd (environment (TRACEROOT_PROJECT_ID))
+Workspaces:    Acme Corp Engineering (wrk_11223344556677889900aabbccddeeff)
+Config source: ~/.config/traceroot/credentials.json
 ```
 
 For an API key:
 ```text
-Host:       https://app.traceroot.ai
-Auth type:  API key
-Source:     environment (TRACEROOT_API_KEY)
-Key:        tr_live_...9f2a
-Workspace:  Engineering
-Project:    Production Agents
+Workspace:     Acme Corp Engineering (wrk_11223344556677889900aabbccddeeff)
+Project:       Support Bot (proj_91a0c8b21e054fbb8b1234567890abcd)
+API key:       ci-key (tr_live_...9f2a)
+Host:          https://app.traceroot.ai
+UI base URL:   https://app.traceroot.ai
+Config source: environment (TRACEROOT_API_KEY / TRACEROOT_TOKEN / TRACEROOT_HOST_URL)
 ```
 
 ## Logging Out
