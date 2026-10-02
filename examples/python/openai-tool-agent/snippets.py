@@ -20,11 +20,17 @@ client = OpenAI()
 # [start:tracing-cost-tracking-python]
 import traceroot
 from traceroot import Integration
+from openai import OpenAI
 
 traceroot.initialize(integrations=[Integration.OPENAI])
 
+client = OpenAI()
+
 # All OpenAI calls are now automatically tracked — tokens, cost, model
-client.chat.completions.create(...)
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
 # [end:tracing-cost-tracking-python]
 
 
@@ -49,12 +55,12 @@ from traceroot import observe
 
 @observe(name="my_function", type="tool")
 def my_function(query: str) -> str:
-    return do_work(query)
+    return f"Processed: {query}"
 
 
 @observe(name="async_agent", type="agent")
 async def async_agent(query: str) -> str:
-    return await process(query)
+    return f"Result: {query}"
 
 
 # [end:python-sdk-observe]

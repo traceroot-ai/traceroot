@@ -38,16 +38,6 @@ def _clean_description(desc: str) -> str:
     return first.rstrip(".") + "."
 
 
-def _format_param_placeholder(param_name: str) -> str:
-    """Format path param name as CLI argument placeholder."""
-    # E.g. trace_id -> <id> or <trace-id>, dataset_id -> <dataset-id>
-    name = param_name.replace("_", "-")
-    if name.endswith("-id"):
-        # e.g. trace-id -> <id> for simple nouns, or keep noun for nested
-        return f"<{name}>"
-    return f"<{name}>"
-
-
 def build_command_reference() -> list[tuple[str, str]]:
     """Build a list of (command_syntax, description) tuples in deterministic order."""
     with open(OPENAPI_PATH, encoding="utf-8") as f:
@@ -119,7 +109,16 @@ def build_command_reference() -> list[tuple[str, str]]:
         for param in op.get("parameters", []):
             if param.get("in") == "query":
                 p_name = param.get("name")
-                if p_name in ("limit", "page", "search", "since", "status", "range"):
+                if p_name in (
+                    "limit",
+                    "page",
+                    "search",
+                    "since",
+                    "status",
+                    "range",
+                    "evaluation_id",
+                    "name",
+                ):
                     flags.append(f"`--{p_name.replace('_', '-')}`")
 
         flag_suffix = ""

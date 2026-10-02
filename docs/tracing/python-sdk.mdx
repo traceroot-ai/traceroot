@@ -34,12 +34,12 @@ from traceroot import observe
 
 @observe(name="my_function", type="tool")
 def my_function(query: str) -> str:
-    return do_work(query)
+    return f"Processed: {query}"
 
 
 @observe(name="async_agent", type="agent")
 async def async_agent(query: str) -> str:
-    return await process(query)
+    return f"Result: {query}"
 ```
 <!-- [end:snippet:python-sdk-observe] -->
 

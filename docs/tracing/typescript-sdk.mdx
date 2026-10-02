@@ -31,7 +31,7 @@ Wrap any async function to create a span:
 import { observe } from '@traceroot-ai/traceroot';
 
 const result = await observe({ name: 'my_function', type: 'tool' }, async () => {
-  return doWork('your input here');
+  return 'your result here';
 });
 ```
 <!-- [end:snippet:typescript-sdk-observe] -->

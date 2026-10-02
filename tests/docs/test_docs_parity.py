@@ -113,26 +113,39 @@ def test_integrations_overview_parity() -> None:
 
     # Check vendored Python integration enum fixture
     py_fixture = FIXTURES_DIR / "python-integrations.json"
-    if py_fixture.exists():
-        py_data = json.loads(py_fixture.read_text(encoding="utf-8"))
-        py_integrations = {i.replace("_", "-") for i in py_data.get("integrations", [])}
-        # Python enum names to doc page slug mappings
-        py_slug_aliases = {
-            "agent-framework": "microsoft-agent-framework",
-            "google-genai": "gemini",
-            "llama-index": "llamaindex",
-            "openai-agents": "openai-agents-sdk",
+    assert py_fixture.exists(), f"Missing {py_fixture.relative_to(REPO_ROOT)}"
+    py_data = json.loads(py_fixture.read_text(encoding="utf-8"))
+    py_integrations = {i.replace("_", "-") for i in py_data.get("integrations", [])}
+    # Python enum names to doc page slug mappings
+    py_slug_aliases = {
+        "agent-framework": "microsoft-agent-framework",
+        "google-genai": "gemini",
+        "llama-index": "llamaindex",
+        "openai-agents": "openai-agents-sdk",
+    }
+    py_mapped = {py_slug_aliases.get(s, s) for s in py_integrations}
+    known_docs_or_native = docs_integrations | {
+        "python-sdk",
+        "typescript-sdk",
+        "groq",
+        "bedrock",
+    }
+    unexpected_py = py_mapped - known_docs_or_native
+    assert not unexpected_py, (
+        f"Python Integration enum entries not documented in docs or known aliases: {sorted(unexpected_py)}"
+    )
+
+    # Check vendored SDK READMEs integration list fixture
+    sdk_fixture = FIXTURES_DIR / "sdk-readmes-integrations.json"
+    assert sdk_fixture.exists(), f"Missing {sdk_fixture.relative_to(REPO_ROOT)}"
+    sdk_data = json.loads(sdk_fixture.read_text(encoding="utf-8"))
+    for lang, sdk_integrations in sdk_data.items():
+        sdk_slugs = {
+            py_slug_aliases.get(i.replace("_", "-"), i.replace("_", "-")) for i in sdk_integrations
         }
-        py_mapped = {py_slug_aliases.get(s, s) for s in py_integrations}
-        known_docs_or_native = docs_integrations | {
-            "python-sdk",
-            "typescript-sdk",
-            "groq",
-            "bedrock",
-        }
-        unexpected_py = py_mapped - known_docs_or_native
-        assert not unexpected_py, (
-            f"Python Integration enum entries not documented in docs or known aliases: {sorted(unexpected_py)}"
+        missing_sdk = sdk_slugs - known_docs_or_native
+        assert not missing_sdk, (
+            f"SDK README ({lang}) integrations missing from docs/integrations/overview.mdx: {sorted(missing_sdk)}"
         )
 
 
@@ -211,12 +224,26 @@ def test_public_openapi_reference() -> None:
     docs_json_path = DOCS_DIR / "docs.json"
     docs_json = json.loads(docs_json_path.read_text(encoding="utf-8"))
 
+    expected_rel_path = "../backend/rest/openapi/public.json"
+
+    # 1. Top-level api config
     api_config = docs_json.get("api")
     assert api_config is not None, "Missing 'api' key in docs/docs.json"
     assert "openapi" in api_config, "Missing 'openapi' path in docs/docs.json 'api' config"
+    assert api_config["openapi"] == expected_rel_path, (
+        f"api.openapi expected '{expected_rel_path}', got '{api_config['openapi']}'"
+    )
 
-    openapi_rel_path = api_config["openapi"]
-    target_openapi = (DOCS_DIR / openapi_rel_path).resolve()
+    # 2. Navigation tab config
+    tabs = docs_json.get("navigation", {}).get("tabs", [])
+    api_tab = next((t for t in tabs if t.get("tab") == "API Reference"), None)
+    assert api_tab is not None, "Missing 'API Reference' tab in docs.json navigation.tabs"
+    assert api_tab.get("openapi") == expected_rel_path, (
+        f"API Reference tab expected openapi='{expected_rel_path}', got '{api_tab.get('openapi')}'"
+    )
+
+    # 3. Target file exists
+    target_openapi = (DOCS_DIR / expected_rel_path).resolve()
     assert target_openapi.exists(), (
         f"Referenced OpenAPI spec does not exist: {target_openapi.relative_to(REPO_ROOT)}"
     )

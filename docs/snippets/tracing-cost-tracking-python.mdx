@@ -1,9 +1,15 @@
 ```python
 import traceroot
 from traceroot import Integration
+from openai import OpenAI
 
 traceroot.initialize(integrations=[Integration.OPENAI])
 
+client = OpenAI()
+
 # All OpenAI calls are now automatically tracked — tokens, cost, model
-client.chat.completions.create(...)
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
 ```

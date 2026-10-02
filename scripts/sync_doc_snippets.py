@@ -88,13 +88,23 @@ def sync_doc_file(
     doc_path: Path,
     snippets: dict[str, dict[str, str]],
     check_mode: bool,
+    expected_snippets: list[str] | None = None,
 ) -> tuple[bool, list[str]]:
     """Sync snippet blocks inside a documentation file."""
     if not doc_path.exists():
-        return True, []
+        return False, [f"Document does not exist: {doc_path.relative_to(REPO_ROOT)}"]
 
     content = doc_path.read_text(encoding="utf-8")
     mismatches: list[str] = []
+
+    # Validate that all expected snippet markers exist on the page
+    if expected_snippets:
+        found_markers = set(re.findall(r"(?:<!--|\{/\*)\s*\[start:snippet:([\w-]+)\]", content))
+        for exp_id in expected_snippets:
+            if exp_id not in found_markers:
+                mismatches.append(
+                    f"{doc_path.relative_to(REPO_ROOT)}: missing expected snippet marker '[start:snippet:{exp_id}]'",
+                )
 
     def replacer(match: re.Match[str]) -> str:
         open_tag = match.group(1)
@@ -169,15 +179,29 @@ def main() -> int:
             snippet_file.write_text(expected_content, encoding="utf-8")
 
     # 2. Sync / check docs target pages
-    doc_targets = [
-        DOCS_DIR / "tracing" / "get-started.mdx",
-        DOCS_DIR / "tracing" / "cost-tracking.mdx",
-        DOCS_DIR / "tracing" / "python-sdk.mdx",
-        DOCS_DIR / "tracing" / "typescript-sdk.mdx",
-    ]
+    expected_page_snippets: dict[Path, list[str]] = {
+        DOCS_DIR / "tracing" / "get-started.mdx": [
+            "tracing-get-started-python",
+            "tracing-get-started-typescript",
+        ],
+        DOCS_DIR / "tracing" / "cost-tracking.mdx": [
+            "tracing-cost-tracking-python",
+            "tracing-cost-tracking-typescript",
+        ],
+        DOCS_DIR / "tracing" / "python-sdk.mdx": [
+            "python-sdk-init",
+            "python-sdk-observe",
+        ],
+        DOCS_DIR / "tracing" / "typescript-sdk.mdx": [
+            "typescript-sdk-init",
+            "typescript-sdk-observe",
+        ],
+    }
 
-    for doc_target in doc_targets:
-        ok, mismatches = sync_doc_file(doc_target, snippets, check_mode=args.check)
+    for doc_target, expected_ids in expected_page_snippets.items():
+        ok, mismatches = sync_doc_file(
+            doc_target, snippets, check_mode=args.check, expected_snippets=expected_ids
+        )
         if args.check and not ok:
             errors.extend(mismatches)
 

@@ -22,8 +22,13 @@ import { TraceRoot } from '@traceroot-ai/traceroot';
 
 TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
 
+const client = new OpenAI();
+
 // All OpenAI calls are now automatically tracked — tokens, cost, model
-await client.chat.completions.create({ ... });
+await client.chat.completions.create({
+  model: 'gpt-4o-mini',
+  messages: [{ role: 'user', content: 'Hello!' }],
+});
 // [end:tracing-cost-tracking-typescript]
 
 // [start:typescript-sdk-init]
@@ -41,6 +46,6 @@ const openai = new OpenAI();
 import { observe } from '@traceroot-ai/traceroot';
 
 const result = await observe({ name: 'my_function', type: 'tool' }, async () => {
-  return doWork('your input here');
+  return 'your result here';
 });
 // [end:typescript-sdk-observe]
