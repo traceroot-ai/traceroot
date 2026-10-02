@@ -35,13 +35,17 @@ By default, the SQL Gateway is **disabled** on self-hosted instances unless you 
   ```
 - The `sql_gateway_ro` user is not provisioned (and any existing one is dropped).
 - On cloud (`ENABLE_BILLING=true`), user SQL queries are rejected immediately with HTTP 500/503.
-- On self-hosted (`ENABLE_BILLING=false`), the API falls back to the default client with runtime resource limits.
+- On self-hosted (`ENABLE_BILLING=false`; set it explicitly in `.env`, since `docker-compose.prod.yml` defaults to `true`), the API falls back to the default client with runtime resource limits.
 
 ### Enabling the Gateway:
 
-1. Open your `.env` file and set `CLICKHOUSE_RO_PASSWORD`:
+1. Open your `.env` file and set `CLICKHOUSE_RO_PASSWORD` (and ensure `ENABLE_BILLING=false` is set):
    ```bash .env
-   CLICKHOUSE_RO_PASSWORD=generate_a_secure_ro_password_here
+   # Mandatory for self-hosted instances to bypass cloud billing gates:
+   ENABLE_BILLING=false
+
+   # Set a strong password to provision the sql_gateway_ro account:
+   CLICKHOUSE_RO_PASSWORD=<generate-strong-password>
    ```
 
 2. Re-run `clickhouse-init` and restart the `rest` service:

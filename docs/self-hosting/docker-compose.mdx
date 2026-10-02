@@ -55,12 +55,18 @@ sed -i.bak "s/^# SQL_GATEWAY_BOOTSTRAP_PASSWORD=.*/SQL_GATEWAY_BOOTSTRAP_PASSWOR
 rm -f .env.bak
 ```
 
-Or open `.env` in a text editor and ensure these keys have secure 32-byte hexadecimal values:
+Or generate each secret manually using `openssl` and paste unique values into your `.env`:
 
+```bash
+# Run this command to generate distinct 32-byte hex strings:
+openssl rand -hex 32
+```
+
+In `.env`:
 ```bash .env
-BETTER_AUTH_SECRET=9f8c6e2b1a4d7e0f8c6e2b1a4d7e0f8c9f8c6e2b1a4d7e0f8c6e2b1a4d7e0f8c
-INTERNAL_API_SECRET=e4a7b2c9d0f1e8a3b5c7d9e1f3a5b7c9e4a7b2c9d0f1e8a3b5c7d9e1f3a5b7c9
-SQL_GATEWAY_BOOTSTRAP_PASSWORD=c1d3e5f7a9b0c2d4e6f8a1b3c5d7e9f0c1d3e5f7a9b0c2d4e6f8a1b3c5d7e9f0
+BETTER_AUTH_SECRET=<unique-32-byte-hex-from-openssl>
+INTERNAL_API_SECRET=<unique-32-byte-hex-from-openssl>
+SQL_GATEWAY_BOOTSTRAP_PASSWORD=<unique-32-byte-hex-from-openssl>
 ```
 
 ### 4. Optional: Configure AI Provider Keys
@@ -135,7 +141,7 @@ Once running, access the services on your host machine:
 | :--- | :--- | :--- |
 | **Web Console** | `http://localhost:3000` | Sign up / log in to access your dashboard |
 | **REST API** | `http://localhost:8000` | Ingestion, healthchecks, and public endpoints |
-| **MinIO Console** | `http://localhost:9001` | Default credentials: `minio` / `minio-password` |
+| **MinIO Console** | `http://localhost:9091` | Default credentials: `minio` / `minio-password` (local only; change for production) |
 
 ---
 

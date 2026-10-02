@@ -17,12 +17,12 @@ TraceRoot is structured as a collection of specialized microservices defined in 
 
 | Service | Port | Runtime | Primary Role |
 | :--- | :--- | :--- | :--- |
-| **`web`** | `3000` | Node.js (Next.js) | Frontend web console, user authentication (Better-Auth), session management, and client API route proxying. |
+| **`web`** | `3000` | Node.js (Next.js) | Frontend web console, user authentication (Better-Auth), session management, Stripe webhook processing, and client API route proxying. |
 | **`rest`** | `8000` | Python (FastAPI) | High-throughput telemetry ingestion (`/api/v1/public/traces`), analytics querying, public management endpoints, and SQL gateway execution. |
 | **`worker`** | _Internal_ | Python (Celery) | Asynchronous background worker handling trace processing, offline evaluations, and ingestion pipeline tasks. |
-| **`billing`** | _Internal_ | Node.js | Processes Stripe webhooks and hourly usage metering cron (`5 * * * *`). **Optional** on self-hosted instances (`ENABLE_BILLING=false`). |
+| **`billing`** | _Internal_ | Node.js | Hourly usage metering cron (`5 * * * *`). **Optional** on self-hosted instances (`ENABLE_BILLING=false`). |
 | **`detector`** | _Internal_ | Node.js (BullMQ) | Executes LLM-as-a-judge eval runs, automated RCA, digest summaries, **alert delivery notifications**, and the **once-a-minute threshold alert scheduler**. |
-| **`agent`** | `8100` | Python / FastAPI | Interactive AI agent service executing conversational turns, sandbox actions (via `/var/run/docker.sock`), and multi-tool workspace investigations. |
+| **`agent`** | `8100` | Node.js (TypeScript) | Interactive AI agent service executing conversational turns, sandbox actions (via `/var/run/docker.sock`), and multi-tool workspace investigations. |
 
 ### Critical Dependency: Alerting Runs in the Detector Service
 

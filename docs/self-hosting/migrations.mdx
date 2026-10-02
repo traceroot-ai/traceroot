@@ -37,7 +37,7 @@ In `docker-compose.prod.yml`, migrations are handled by dedicated one-shot conta
                      └───────────────┘
 ```
 
-All application services (`web`, `rest`, `worker`, `detector`, `agent`) declare strict `depends_on` conditions waiting for `service_completed_successfully` on both `migrate` and `migrate-clickhouse`. If any migration fails, the application services will not boot.
+Application services gate their start on the migrations they need: `web` and `agent` wait only on `migrate`; `worker` waits only on `migrate-clickhouse`; and `rest`, `detector`, and `billing` wait on both completing successfully. Services without the corresponding dependency can boot even if the other engine's migrations fail.
 
 ---
 

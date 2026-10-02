@@ -18,7 +18,7 @@ Docker Compose checks secrets at load time using variable substitution syntax (`
 | **`SQL_GATEWAY_BOOTSTRAP_PASSWORD`** | Password for the ClickHouse `sql_gateway_bootstrap` account. **Mandatory for all stacks**, because ClickHouse migrations run under this account. | `openssl rand -hex 32` |
 
 <Note>
-**Password Character Note**: Avoid unescaped ampersands (`&`) in ClickHouse passwords, as ClickHouse XML parser configuration may fail at container startup.
+**Password Character Note**: Avoid ampersands (`&`) in `CLICKHOUSE_PASSWORD` — the ClickHouse image inserts that value unescaped into its generated `users.xml`, and an unescaped `&` breaks XML parsing at container startup. Gateway passwords (`SQL_GATEWAY_BOOTSTRAP_PASSWORD`, `SQL_GATEWAY_WRITER_PASSWORD`, `CLICKHOUSE_RO_PASSWORD`) may contain `&`, since they are read from the environment or sha256-hashed before use.
 </Note>
 
 ---
@@ -79,18 +79,18 @@ docker compose -f docker-compose.prod.yml build \
 
 | Variable | Default (Local Compose) | Description |
 | :--- | :--- | :--- |
-| `DATABASE_URL` | `postgresql://postgres:postgres@postgres:5432/postgres` | PostgreSQL connection string used by `web`, `rest`, `worker`, `detector`, and `agent`. |
+| `DATABASE_URL` | `postgresql://postgres:<password>@postgres:5432/postgres` | Local Compose default uses `postgres` as password; set a unique password before production deployment. Connection string used by `web`, `rest`, `worker`, `detector`, and `agent`. |
 | `CLICKHOUSE_HOST` | `clickhouse` | ClickHouse host address. |
 | `CLICKHOUSE_PORT` | `8123` | ClickHouse HTTP interface port. |
 | `CLICKHOUSE_NATIVE_PORT` | `9000` | ClickHouse TCP native protocol port (used for Goose migrations). |
 | `CLICKHOUSE_USER` | `clickhouse` | Standard application database account. |
-| `CLICKHOUSE_PASSWORD` | `clickhouse` | Password for application ClickHouse user. |
+| `CLICKHOUSE_PASSWORD` | `<clickhouse-password>` | Local Compose default only (`clickhouse`); set a unique password before production deployment. |
 | `CLICKHOUSE_DATABASE` | `default` | ClickHouse database name. |
 | `REDIS_URL` | `redis://redis:6379/0` | Primary Redis broker and cache. |
 | `REDIS_RESULT_URL` | `redis://redis:6379/1` | Redis database for asynchronous Celery results. |
 | `S3_ENDPOINT_URL` | `http://minio:9000` | S3-compatible object storage endpoint. |
-| `S3_ACCESS_KEY_ID` | `minio` | S3 access key ID. |
-| `S3_SECRET_ACCESS_KEY` | `minio-password` | S3 secret access key. |
+| `S3_ACCESS_KEY_ID` | `minio` | S3 access key ID (default in local Compose is `minio`). |
+| `S3_SECRET_ACCESS_KEY` | `<minio-password>` | S3 secret access key (local Compose default only; set a unique key before production deployment). |
 | `S3_BUCKET_NAME` | `traceroot` | S3 bucket name. |
 | `S3_REGION` | `us-east-1` | S3 AWS region. |
 

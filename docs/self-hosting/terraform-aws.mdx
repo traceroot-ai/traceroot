@@ -67,12 +67,41 @@ provider "aws" {
   region = "us-east-1"
 }
 
+# Input Variables for Sensitive Credentials
+variable "better_auth_secret" {
+  description = "Session encryption secret for web service (generate with: openssl rand -hex 32)"
+  type        = string
+  sensitive   = true
+}
+
+variable "internal_api_secret" {
+  description = "Shared secret for inter-service communication (generate with: openssl rand -hex 32)"
+  type        = string
+  sensitive   = true
+}
+
+variable "sql_gateway_bootstrap_password" {
+  description = "ClickHouse bootstrap user password (generate with: openssl rand -hex 32)"
+  type        = string
+  sensitive   = true
+}
+
+variable "clickhouse_ro_password" {
+  description = "Read-only gateway user password (optional; enables the SQL gateway if set)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 module "traceroot" {
   source  = "traceroot-ai/traceroot/aws"
   version = "1.5.0"
 
   # Environment Name
   environment = "production"
+
+  # Disable cloud billing on self-hosted instances to avoid rate limiting and seat locks
+  enable_billing = false
 
   # CRITICAL: Must be >= 1.1.0 when enable_sql_gateway = true
   traceroot_helm_chart_version = "1.1.0"
@@ -82,7 +111,7 @@ module "traceroot" {
   domain_name = "traceroot.example.com"
   enable_tls  = true
 
-  # Core Secrets (Store securely, e.g. AWS Secrets Manager or env vars)
+  # Core Secrets (Supplied via terraform.tfvars or TF_VAR_* environment variables)
   better_auth_secret             = var.better_auth_secret
   internal_api_secret            = var.internal_api_secret
   sql_gateway_bootstrap_password = var.sql_gateway_bootstrap_password

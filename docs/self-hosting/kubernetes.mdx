@@ -38,11 +38,11 @@ global:
   apiUrl: "https://traceroot.example.com/api/v1"
   enableBilling: false
 
-# Required Secrets
+# Required Secrets (generate 32-byte hex strings via: openssl rand -hex 32)
 secrets:
-  betterAuthSecret: "REPLACE_WITH_HEX_32_SECRET"
-  internalApiSecret: "REPLACE_WITH_HEX_32_SECRET"
-  sqlGatewayBootstrapPassword: "REPLACE_WITH_STRONG_PASSWORD"
+  betterAuthSecret: "<generate-with-openssl-rand-hex-32>"
+  internalApiSecret: "<generate-with-openssl-rand-hex-32>"
+  sqlGatewayBootstrapPassword: "<generate-strong-password>"
 
 # External Database Connections
 postgres:
@@ -50,7 +50,7 @@ postgres:
   port: 5432
   database: "traceroot"
   user: "traceroot"
-  password: "YOUR_POSTGRES_PASSWORD"
+  password: "<your-postgres-password>"
 
 redis:
   url: "redis://redis.internal.net:6379/0"
@@ -60,8 +60,8 @@ s3:
   endpoint: "https://s3.amazonaws.com"
   bucket: "my-traceroot-telemetry"
   region: "us-east-1"
-  accessKeyId: "YOUR_AWS_ACCESS_KEY"
-  secretAccessKey: "YOUR_AWS_SECRET_KEY"
+  accessKeyId: "<your-aws-access-key-id>"
+  secretAccessKey: "<your-aws-secret-access-key>"
 
 # ClickHouse Configuration
 clickhouse:
@@ -88,7 +88,20 @@ ingress:
         - traceroot.example.com
 ```
 
-### 3. Install the Release
+### 3. Create TLS Secret (If Ingress TLS is Enabled)
+
+If using Ingress with TLS enabled, create the TLS secret referenced in `my-values.yaml` before running Helm:
+
+```bash
+kubectl create namespace traceroot --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl create secret tls traceroot-tls \
+  --cert=tls.crt \
+  --key=tls.key \
+  --namespace traceroot
+```
+
+### 4. Install the Release
 
 Deploy the Helm chart to your target namespace:
 
