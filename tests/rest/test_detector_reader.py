@@ -484,7 +484,7 @@ def _signals_pg(own_rca=None, inherited=None, fail=None, calls=None):
                 return [("f1", "d1", "sig-1", "Timeout swallowed", "open")]
             return []
         if "from signal_rcas" in s:
-            if "dr.project_id = %s" in s and params == (["sig-1"], "p1"):
+            if "dr.project_id = %s" in s and params[:2] == (["sig-1"], "p1"):
                 return inherited or []
             return []
         if "from detector_rcas" in s:
@@ -600,6 +600,32 @@ def test_get_finding_reports_a_failed_attempt_when_no_answer_was_kept(reader, mo
     monkeypatch.setattr(reader, "_pg_rows", _signals_pg(own_rca=[("failed", None)]))
     detail = reader.get_finding("p1", "f1")
     assert (detail.rca.status, detail.rca.result) == ("failed", None)
+
+
+@pytest.mark.parametrize("plan", [None, "enterprise"])
+def test_inherited_rca_reads_any_age_without_a_retention_limit(reader, monkeypatch, plan):
+    _two_detector_finding(reader)
+    calls = []
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(inherited=[], calls=calls))
+    reader.get_finding("p1", "f1", plan)
+    sql, params = next((sql, p) for sql, p in calls if "from signal_rcas" in sql)
+    assert "rh.seen_at >= %s" not in sql
+    assert params == (["sig-1"], "p1")
+
+
+def test_inherited_rca_is_read_only_from_findings_inside_the_plans_retention(reader, monkeypatch):
+    """The answer comes from another trace; a plan sees it only while that trace's
+    finding is inside its retention window, as for the finding itself."""
+    _two_detector_finding(reader)
+    calls = []
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(inherited=[], calls=calls))
+    reader.get_finding_by_trace("p1", "t1", "free")
+    sql, params = next((sql, p) for sql, p in calls if "from signal_rcas" in sql)
+    assert "exists (select 1 from signal_hits rh" in sql and "rh.seen_at >= %s" in sql
+    assert params[:2] == (["sig-1"], "p1")
+    cutoff = params[2]
+    assert isinstance(cutoff, datetime)
+    assert abs((datetime.utcnow() - cutoff).days - 15) <= 1
 
 
 def test_get_finding_has_no_rca_when_the_signal_has_no_finished_one(reader, monkeypatch):

@@ -52,14 +52,16 @@ class FakeReader:
             raise RuntimeError("boom")
         return self.list_return
 
-    def get_finding(self, project_id, finding_id):
+    def get_finding(self, project_id, finding_id, billing_plan=None):
         self.last_get = (project_id, finding_id)
+        self.last_plan = billing_plan
         if self.raise_on_get_finding:
             raise RuntimeError("boom")
         return self.finding
 
-    def get_finding_by_trace(self, project_id, trace_id):
+    def get_finding_by_trace(self, project_id, trace_id, billing_plan=None):
         self.last_by_trace = (project_id, trace_id)
+        self.last_plan = billing_plan
         if self.raise_on_get_finding_by_trace:
             raise RuntimeError("boom")
         return self.by_trace
@@ -214,6 +216,8 @@ class TestGetFinding:
         assert body["results"][0]["detector_name"] == "Detector 1"
         assert body["rca"]["result"] == "Root cause: bad deploy"
         assert reader.last_get == ("proj-A", "f-1")
+        # The project's plan bounds an RCA inherited from another trace.
+        assert reader.last_plan == "enterprise"
 
     def test_missing_finding_is_404(self, client, reader):
         reader.finding = None
