@@ -273,7 +273,8 @@ describe("DetectorRunsTable", () => {
         signalHref={signalHref}
       />,
     );
-    expect(screen.queryByText("No")).toBeNull();
-    expect(screen.getByText("failed")).toBeTruthy();
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    const row = screen.getByText("failed").closest("tr")!;
+    expect(row.querySelectorAll("td")[headers.indexOf("Identified")].textContent).toBe("—");
   });
 });

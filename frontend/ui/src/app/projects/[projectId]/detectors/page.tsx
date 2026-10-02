@@ -110,17 +110,15 @@ export default function DetectorsPage() {
     search_query: queryOptions.search_query,
   });
 
-  const {
-    data: counts,
-    isLoading: countsLoading,
-    error: countsError,
-  } = useDetectorCounts(projectId, {
+  // A count shows only once it has loaded: a dash while loading or when its
+  // query failed, never a clickable 0 that is not a real count.
+  const { data: counts } = useDetectorCounts(projectId, {
     start_after: queryOptions.start_after,
     end_before: queryOptions.end_before,
   });
 
   // Every signal a detector has, as the Signals page lists it for that detector.
-  const { data: signalCounts, isLoading: signalCountsLoading } = useSignalCounts(projectId);
+  const { data: signalCounts } = useSignalCounts(projectId);
 
   const deleteMutation = useDeleteDetector(projectId);
   const detectors = data?.data ?? [];
@@ -313,21 +311,21 @@ export default function DetectorsPage() {
                         <CountLink
                           href={countLinks.findings}
                           label={`View findings for ${detector.name}`}
-                          value={countsLoading ? null : findingCount}
+                          value={counts ? findingCount : null}
                         />
                       </td>
                       <td className={countClass}>
                         <CountLink
                           href={countLinks.runs}
                           label={`View runs for ${detector.name}`}
-                          value={countsLoading ? null : runCount}
+                          value={counts ? runCount : null}
                         />
                       </td>
                       <td className={countClass}>
                         <CountLink
                           href={countLinks.signals}
                           label={`View signals for ${detector.name}`}
-                          value={signalCountsLoading ? null : signalCount}
+                          value={signalCounts ? signalCount : null}
                         />
                       </td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">

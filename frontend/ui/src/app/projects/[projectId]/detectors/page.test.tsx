@@ -3,7 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 
-const mocks = vi.hoisted(() => ({ push: vi.fn(), useDetectorList: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  push: vi.fn(),
+  useDetectorList: vi.fn(),
+  signalCounts: {
+    data: { counts: { "det-1": 2 } } as { counts: Record<string, number> } | undefined,
+  },
+}));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "proj-1" }),
@@ -98,7 +104,7 @@ vi.mock("@/features/detectors/hooks/use-detectors", () => ({
 }));
 
 vi.mock("@/ee/features/signals/hooks", () => ({
-  useSignalCounts: () => ({ data: { counts: { "det-1": 2 } }, isLoading: false }),
+  useSignalCounts: () => mocks.signalCounts,
 }));
 
 vi.mock("@/features/projects/hooks", () => ({ useProject: () => ({ data: undefined }) }));
@@ -130,6 +136,7 @@ afterEach(() => {
   mocks.push.mockClear();
   mocks.useDetectorList.mockReset();
   mocks.useDetectorList.mockReturnValue(defaultDetectorList);
+  mocks.signalCounts = { data: { counts: { "det-1": 2 } } };
 });
 
 describe("DetectorsPage", () => {
@@ -228,6 +235,15 @@ describe("DetectorsPage", () => {
     // Following a count does not also run the row's own navigation.
     fireEvent.click(screen.getByRole("link", { name: "View findings for My Detector" }));
     expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("shows a dash, not a clickable 0, when the signal counts could not be read", () => {
+    mocks.signalCounts = { data: undefined };
+    render(<DetectorsPage />);
+
+    expect(screen.queryByRole("link", { name: "View signals for My Detector" })).toBeNull();
+    // The other counts loaded, so they still link.
+    expect(screen.getByRole("link", { name: "View runs for My Detector" })).toBeTruthy();
   });
 
   it("shows the empty state with its glyph when the project has no detectors", () => {
