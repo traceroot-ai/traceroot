@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -65,6 +65,7 @@ export default function DetectorsPage() {
     updateKeyword,
     updateLimit,
     goToPage,
+    clampToTotal,
   } = useListPageState({
     defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
     retentionDays: retention.retentionDays,
@@ -81,7 +82,7 @@ export default function DetectorsPage() {
       customEndDate: state.customEndDate,
     });
 
-  const { data, isLoading, error } = useDetectorList(projectId, {
+  const { data, isLoading, error, isPlaceholderData } = useDetectorList(projectId, {
     page: queryOptions.page,
     limit: queryOptions.limit,
     search_query: queryOptions.search_query,
@@ -99,6 +100,11 @@ export default function DetectorsPage() {
   const deleteMutation = useDeleteDetector(projectId);
   const detectors = data?.data ?? [];
   const meta = data?.meta;
+
+  useEffect(() => {
+    if (isLoading || isPlaceholderData) return;
+    clampToTotal?.(meta?.total ?? 0);
+  }, [clampToTotal, meta?.total, isLoading, isPlaceholderData]);
 
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return;
@@ -324,8 +330,8 @@ export default function DetectorsPage() {
 
         {meta && (
           <ListPagination
-            page={meta.page}
-            limit={meta.limit}
+            page={state.page}
+            limit={state.limit}
             total={meta.total}
             onPageChange={goToPage}
             onLimitChange={updateLimit}

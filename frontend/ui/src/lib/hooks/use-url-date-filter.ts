@@ -36,6 +36,7 @@ export function useUrlDateFilter(
   onFilterChange?: () => void,
   defaultId?: string,
   retentionDays?: number | null,
+  syncStorage: boolean = true,
 ): UseUrlDateFilterReturn {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -80,7 +81,7 @@ export function useUrlDateFilter(
   // every consumer query on a restoration flag.)
   const restoredRef = useRef(false);
   useIsomorphicLayoutEffect(() => {
-    if (restoredRef.current) return;
+    if (!syncStorage || restoredRef.current) return;
     restoredRef.current = true;
     if (!projectId || searchParams.get("date_filter")) return;
     const stored = readStoredDateFilter(projectId);
@@ -112,7 +113,7 @@ export function useUrlDateFilter(
   // overwrite the preference the user picked themselves.
   const persistSelection = useCallback(
     (id: string, start: Date | null, end: Date | null) => {
-      if (!projectId) return;
+      if (!syncStorage || !projectId) return;
       writeStoredDateFilter(
         projectId,
         id === "custom" && start && end
@@ -120,7 +121,7 @@ export function useUrlDateFilter(
           : { id },
       );
     },
-    [projectId],
+    [syncStorage, projectId],
   );
 
   // Sync state from URL when it changes (e.g., navigating from another page)
@@ -169,6 +170,9 @@ export function useUrlDateFilter(
         params.delete("start");
         params.delete("end");
       }
+
+      // Reset to first page in the same mutation so date filter and page reset don't race
+      params.delete("page_index");
 
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     },
