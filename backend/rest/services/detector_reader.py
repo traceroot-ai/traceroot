@@ -458,10 +458,14 @@ class DetectorReaderService:
                 "WHERE project_id = %s AND finding_id = %s LIMIT 1",
                 (project_id, finding_id),
             )
-            if not rows:
-                return None
-            status, result = rows[0]
-            if status != "done":
+        except Exception:
+            logger.warning("RCA lookup failed; returning rca=None", exc_info=True)
+            return None
+        if not rows:
+            return None
+        status, result = rows[0]
+        if status != "done":
+            try:
                 kept = self._pg_rows(
                     "SELECT sr.result FROM signal_rcas sr "
                     "JOIN detector_rcas dr ON dr.finding_id = sr.finding_id "
@@ -470,11 +474,14 @@ class DetectorReaderService:
                     "ORDER BY sr.create_time DESC LIMIT 1",
                     (project_id, finding_id),
                 )
-                if kept:
-                    return RCAResult(status="done", result=kept[0][0])
-        except Exception:
-            logger.warning("RCA lookup failed; returning rca=None", exc_info=True)
-            return None
+            except Exception:
+                # The latest attempt's state is still worth returning.
+                logger.warning(
+                    "kept RCA lookup failed; returning the latest attempt", exc_info=True
+                )
+                kept = []
+            if kept:
+                return RCAResult(status="done", result=kept[0][0])
         return RCAResult(status=status, result=result)
 
     def _read_signals(
