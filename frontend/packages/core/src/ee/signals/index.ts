@@ -22,6 +22,7 @@ export {
   editSignalCriteria,
   mergeSignals,
   moveHit,
+  requestSignalRca,
   type SignalCriteriaEdit,
   type MovedHits,
   type EditResult,

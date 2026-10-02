@@ -11,6 +11,7 @@ const core = vi.hoisted(() => ({
   setSignalStatus: vi.fn(),
   mergeSignals: vi.fn(),
   moveHit: vi.fn(),
+  requestSignalRca: vi.fn(),
   signalsForTrace: vi.fn(),
   detectorSignalSettings: vi.fn(),
   signalSetup: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock("@traceroot/core/signals", async (importOriginal) => {
     setSignalStatus: core.setSignalStatus,
     mergeSignals: core.mergeSignals,
     moveHit: core.moveHit,
+    requestSignalRca: core.requestSignalRca,
     signalsForTrace: core.signalsForTrace,
     detectorSignalSettings: core.detectorSignalSettings,
     signalSetup: core.signalSetup,
@@ -58,6 +60,7 @@ import {
   handleListSignals,
   handleMergeSignal,
   handleMoveHit,
+  handleRequestSignalRca,
   handleSetSignalStatus,
   handleSignalSetup,
   handleTraceSignals,
@@ -528,5 +531,29 @@ describe("hand edits", () => {
     expect((await handleMoveHit(req({}), hitParams)).status).toBe(400);
     core.moveHit.mockResolvedValueOnce({ ok: false, status: 404, error: "Hit not found" });
     expect((await handleMoveHit(req({ signalId: "s2" }), hitParams)).status).toBe(404);
+  });
+});
+
+describe("hand-run RCA", () => {
+  it("records the request as a member and audits it", async () => {
+    core.requestSignalRca.mockResolvedValue({ ok: true, findingId: "f1" });
+    const res = await handleRequestSignalRca(req(), signalParams);
+    expect(await res.json()).toEqual({ status: "pending" });
+    expect(core.requireProjectAccess).toHaveBeenCalledWith("u1", "p1", "MEMBER");
+    expect(core.requestSignalRca).toHaveBeenCalledWith(expect.anything(), {
+      projectId: "p1",
+      signalId: "s1",
+    });
+    expect(core.writeAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ operation: "request_signal_rca", resourceId: "s1" }),
+    );
+  });
+
+  it("passes a refusal through without auditing", async () => {
+    core.requestSignalRca.mockResolvedValue({ ok: false, status: 409, error: "no hits" });
+    const res = await handleRequestSignalRca(req(), signalParams);
+    expect(res.status).toBe(409);
+    expect(core.writeAudit).not.toHaveBeenCalled();
   });
 });

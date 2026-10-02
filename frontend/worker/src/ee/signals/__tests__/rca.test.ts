@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockAdd } = vi.hoisted(() => ({ mockAdd: vi.fn() }));
+const { mockAdd, mockGetJob } = vi.hoisted(() => ({ mockAdd: vi.fn(), mockGetJob: vi.fn() }));
 vi.mock("bullmq", () => ({
   Queue: class {
     add = mockAdd;
+    getJob = mockGetJob;
   },
 }));
 vi.mock("../../../queues/detector-run-queue.js", () => ({
@@ -25,6 +26,7 @@ const T0 = Date.parse("2026-09-30T10:00:00Z");
 beforeEach(() => {
   vi.clearAllMocks();
   mockAdd.mockResolvedValue(undefined);
+  mockGetJob.mockResolvedValue(undefined);
 });
 
 describe("enqueueSignalRca", () => {
@@ -280,21 +282,30 @@ describe("closeEmptySignalRca", () => {
 });
 
 describe("sweepSignalRcas", () => {
-  it("re-enqueues RCAs pending for more than ten minutes, within the lookback", async () => {
+  it("starts pending RCAs without a job, newest first, past the enqueue grace", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const db = {
-      signalRca: { findMany: vi.fn(async () => [{ findingId: "f1", rca: { projectId: "p1" } }]) },
+      signalRca: {
+        findMany: vi.fn(async () => [
+          { findingId: "f1", rca: { projectId: "p1" } },
+          { findingId: "f2", rca: { projectId: "p1" } },
+        ]),
+      },
     };
+    // f2's job is still waiting or running: left to it.
+    mockGetJob.mockImplementation(async (id: string) => (id === "signal-rca-f2" ? {} : undefined));
     expect(await sweepSignalRcas(db as never, T0)).toBe(1);
     expect(db.signalRca.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          createTime: { gt: new Date(T0 - 7 * 24 * 3_600_000), lt: new Date(T0 - 600_000) },
+          createTime: { gt: new Date(T0 - 7 * 24 * 3_600_000), lt: new Date(T0 - 15_000) },
           rca: { status: "pending" },
         },
+        orderBy: { createTime: "desc" },
         distinct: ["findingId"],
       }),
     );
+    expect(mockAdd).toHaveBeenCalledTimes(1);
     expect(mockAdd).toHaveBeenCalledWith(
       "signal-rca-f1",
       expect.anything(),

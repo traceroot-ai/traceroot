@@ -27,6 +27,7 @@ import {
   type SignalPopulation,
   type SignalTimeRange,
 } from "../hooks";
+import { RunRca } from "./run-rca";
 import { SignalStatusControl } from "./signal-status-control";
 
 /**
@@ -321,11 +322,7 @@ function SignalBlocks({
               <MarkdownView content={rca.result} />
             </div>
           ) : (
-            <p className="text-[12px] text-muted-foreground">
-              {signal.rca.currentState === "pending" || signal.rca.currentState === "running"
-                ? "The root cause analysis is still running."
-                : "No root cause analysis yet. It runs when the signal opens and its detector has RCA on."}
-            </p>
+            <RunRca projectId={projectId} signalId={signal.id} state={signal.rca.currentState} />
           )}
         </div>
       </Block>

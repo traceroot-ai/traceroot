@@ -5,6 +5,7 @@ import {
   listSignals,
   mergeSignals,
   moveHit,
+  requestSignalRca,
   signalCriteriaEditSchema,
   signalsForTrace,
   detectorSignalSettings,
@@ -828,5 +829,149 @@ describe("reads", () => {
     expect(signalsKeyConfigured({ OPENAI_API_KEY: "sk" })).toBe(true);
     expect(signalsKeyConfigured({ OPENAI_API_KEY: "  " })).toBe(false);
     expect(signalsKeyConfigured({})).toBe(false);
+  });
+});
+
+describe("requestSignalRca", () => {
+  type Opening = {
+    signalId: string;
+    reopenSeq: number;
+    findingId: string;
+    createTime: Date;
+    result: string | null;
+  };
+  /** One signal of detector d at opening 2, with its hits and RCA rows. */
+  function rcaDb(opts: {
+    opening?: Partial<Opening>;
+    status?: string;
+    hits?: { findingId: string; seenAt: Date }[];
+    merged?: boolean;
+  }) {
+    const log: string[] = [];
+    const openings: Opening[] = opts.opening
+      ? [
+          {
+            signalId: "a",
+            reopenSeq: 2,
+            findingId: "f-old",
+            createTime: t(0),
+            result: null,
+            ...opts.opening,
+          },
+        ]
+      : [];
+    const rcas = new Map<string, string>(
+      opts.opening ? [[openings[0].findingId, opts.status ?? "failed"]] : [],
+    );
+    const tx = {
+      $executeRaw: async () => {
+        log.push("lock");
+        return 1;
+      },
+      signal: {
+        findFirst: async ({ where }: { where: { id: string; projectId: string } }) =>
+          where.id === "a" && where.projectId === "p" ? { detectorId: "d" } : null,
+        findUniqueOrThrow: async () => ({ reopenSeq: 2, mergedIntoId: opts.merged ? "b" : null }),
+      },
+      signalRca: {
+        findUnique: async ({ where }: { where: { signalId_reopenSeq: Opening } }) => {
+          const o = openings.find(
+            (x) =>
+              x.signalId === where.signalId_reopenSeq.signalId &&
+              x.reopenSeq === where.signalId_reopenSeq.reopenSeq,
+          );
+          return o
+            ? { findingId: o.findingId, result: o.result, rca: { status: rcas.get(o.findingId)! } }
+            : null;
+        },
+        update: async ({ data }: { data: { createTime: Date } }) => {
+          log.push("opening:requested");
+          openings[0].createTime = data.createTime;
+        },
+        create: async ({ data }: { data: Opening }) => {
+          log.push(`opening:${data.signalId}:${data.reopenSeq}:${data.findingId}`);
+          openings.push({ ...data, createTime: new Date(), result: null });
+        },
+      },
+      signalHit: {
+        findFirst: async (args: {
+          where: { signalId: string; projectId: string };
+          orderBy: unknown;
+        }) => {
+          log.push(`latest:${JSON.stringify(args.orderBy)}`);
+          const sorted = [...(opts.hits ?? [])].sort(
+            (x, y) => y.seenAt.getTime() - x.seenAt.getTime(),
+          );
+          return sorted[0] ? { findingId: sorted[0].findingId } : null;
+        },
+      },
+      detectorRca: {
+        upsert: async ({
+          where,
+          update,
+        }: {
+          where: { findingId: string };
+          update: { status: string };
+        }) => {
+          log.push(`rca:${where.findingId}:${update.status}`);
+          rcas.set(where.findingId, update.status);
+        },
+      },
+    };
+    const db = { $transaction: async (fn: (x: typeof tx) => unknown) => fn(tx) };
+    return { db: db as never, log, rcas };
+  }
+
+  it("pairs the current opening with the signal's latest hit and leaves the RCA pending", async () => {
+    const f = rcaDb({
+      hits: [
+        { findingId: "f1", seenAt: t(1) },
+        { findingId: "f2", seenAt: t(5) },
+      ],
+    });
+    expect(await requestSignalRca(f.db, { projectId: "p", signalId: "a" })).toEqual({
+      ok: true,
+      findingId: "f2",
+    });
+    // Locked first; the finding row before the opening, as an automatic opening.
+    expect(f.log).toEqual(["lock", 'latest:{"seenAt":"desc"}', "rca:f2:pending", "opening:a:2:f2"]);
+  });
+
+  it("retries a failed attempt on the same finding, marking it requested now", async () => {
+    const f = rcaDb({ opening: {}, status: "failed", hits: [{ findingId: "f9", seenAt: t(9) }] });
+    expect(await requestSignalRca(f.db, { projectId: "p", signalId: "a" })).toEqual({
+      ok: true,
+      findingId: "f-old",
+    });
+    expect(f.log).toEqual(["lock", "rca:f-old:pending", "opening:requested"]);
+  });
+
+  it("changes nothing while an analysis is pending", async () => {
+    const f = rcaDb({ opening: {}, status: "pending" });
+    expect(await requestSignalRca(f.db, { projectId: "p", signalId: "a" })).toEqual({
+      ok: true,
+      findingId: "f-old",
+    });
+    expect(f.log).toEqual(["lock"]);
+  });
+
+  it("refuses an analysed opening, a signal without hits, a merged signal and another project's", async () => {
+    const done = rcaDb({ opening: { result: "## Root cause" }, status: "done" });
+    expect(await requestSignalRca(done.db, { projectId: "p", signalId: "a" })).toMatchObject({
+      status: 409,
+    });
+    const empty = rcaDb({});
+    expect(await requestSignalRca(empty.db, { projectId: "p", signalId: "a" })).toMatchObject({
+      status: 409,
+    });
+    const merged = rcaDb({ merged: true });
+    expect(await requestSignalRca(merged.db, { projectId: "p", signalId: "a" })).toMatchObject({
+      status: 409,
+    });
+    const other = rcaDb({});
+    expect(await requestSignalRca(other.db, { projectId: "q", signalId: "a" })).toMatchObject({
+      status: 404,
+    });
+    expect(empty.rcas.size).toBe(0);
   });
 });

@@ -13,6 +13,7 @@ import {
   listSignals,
   mergeSignals,
   moveHit,
+  requestSignalRca,
   setSignalStatus,
   signalCriteriaEditSchema,
   signalStatusChangeSchema,
@@ -420,6 +421,30 @@ export async function handleMergeSignal(
     mergedInto: body.data.targetSignalId,
     movedHits: result.moved.runIds.length,
   });
+}
+
+// POST /api/projects/[projectId]/signals/[signalId]/rca
+// Run the signal's root cause analysis by hand. Records the request; the
+// worker starts it within a minute.
+export async function handleRequestSignalRca(
+  _req: NextRequest,
+  { params }: Params<{ projectId: string; signalId: string }>,
+) {
+  const { projectId, signalId } = await params;
+  const auth = await authorize(projectId, Role.MEMBER);
+  if (auth.error) return auth.error;
+  const result = await requestSignalRca(prisma, { projectId, signalId });
+  if (!result.ok) return errorResponse(result.error, result.status);
+  await writeAudit(prisma, {
+    actorUserId: auth.user.id,
+    operation: "request_signal_rca",
+    resourceType: "signal",
+    resourceId: signalId,
+    projectId,
+    summary: { findingId: result.findingId },
+    transport: "ui",
+  });
+  return successResponse({ status: "pending" });
 }
 
 const moveBodySchema = z.object({ signalId: z.string().min(1) });

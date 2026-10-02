@@ -8,7 +8,7 @@ import {
   type RcaJob,
 } from "../../queues/detector-run-queue.js";
 import type { SignalsBackend } from "./backend-client.js";
-import { RCA_DELAY_MS, RCA_STALE_MS, WAITING_LOOKBACK_MS } from "./config.js";
+import { RCA_DELAY_MS, RCA_ENQUEUE_GRACE_MS, WAITING_LOOKBACK_MS } from "./config.js";
 
 let rcaQueue: Queue<RcaJob> | null = null;
 function getRcaQueue(): Queue<RcaJob> {
@@ -234,23 +234,34 @@ export async function closeEmptySignalRca(
 }
 
 /**
- * Re-enqueue signal RCAs still pending well after their job should have run
- * (the enqueue after the assignment commit failed, or the job was lost).
+ * Start the signal RCAs that are pending without a job: the enqueue after the
+ * assignment commit failed, the job was lost, or a user asked for the RCA from
+ * the Signals page. A pending RCA whose job is waiting or running is left to it.
  */
 export async function sweepSignalRcas(
   db: Pick<PrismaClient, "signalRca">,
   now: number = Date.now(),
 ): Promise<number> {
-  const stale = await db.signalRca.findMany({
+  const pending = await db.signalRca.findMany({
     where: {
-      createTime: { gt: new Date(now - WAITING_LOOKBACK_MS), lt: new Date(now - RCA_STALE_MS) },
+      createTime: {
+        gt: new Date(now - WAITING_LOOKBACK_MS),
+        lt: new Date(now - RCA_ENQUEUE_GRACE_MS),
+      },
       rca: { status: "pending" },
     },
     select: { findingId: true, rca: { select: { projectId: true } } },
+    // Newest first, so a request made by hand is not stuck behind a backlog.
+    orderBy: { createTime: "desc" },
     distinct: ["findingId"],
     take: 200,
   });
-  for (const r of stale) await enqueueSignalRca(r.findingId, r.rca.projectId, 0);
-  if (stale.length > 0) console.log(`[Signals] re-enqueued ${stale.length} pending RCA(s)`);
-  return stale.length;
+  let started = 0;
+  for (const r of pending) {
+    if (await getRcaQueue().getJob(signalRcaJobId(r.findingId))) continue;
+    await enqueueSignalRca(r.findingId, r.rca.projectId, 0);
+    started++;
+  }
+  if (started > 0) console.log(`[Signals] started ${started} pending RCA(s) without a job`);
+  return started;
 }

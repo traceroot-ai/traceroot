@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { useSignal } from "./hooks";
+import { rcaInProgress, useRequestSignalRca, useSignal } from "./hooks";
 
 vi.mock("@/lib/hooks/use-trace-api-user", () => ({ useTraceApiUser: () => ({}) }));
 afterEach(() => vi.unstubAllGlobals());
@@ -17,7 +17,9 @@ it("clears the previous signal while the newly selected signal is loading", asyn
     "fetch",
     vi
       .fn()
-      .mockResolvedValueOnce(Response.json({ merged: false, signal: { id: "a" } }))
+      .mockResolvedValueOnce(
+        Response.json({ merged: false, signal: { id: "a", rca: { currentState: null } } }),
+      )
       .mockReturnValueOnce(second),
   );
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -32,8 +34,35 @@ it("clears the previous signal while the newly selected signal is loading", asyn
   rerender({ id: "b" });
   expect(result.current.data).toBeUndefined();
   expect(result.current.isPending).toBe(true);
-  await act(async () => resolveSecond(Response.json({ merged: false, signal: { id: "b" } })));
+  await act(async () =>
+    resolveSecond(
+      Response.json({ merged: false, signal: { id: "b", rca: { currentState: null } } }),
+    ),
+  );
   await waitFor(() => expect(result.current.data).toMatchObject({ signal: { id: "b" } }));
   unmount();
   client.clear();
+});
+
+it("treats a waiting or running analysis as in progress", () => {
+  expect(rcaInProgress("pending")).toBe(true);
+  expect(rcaInProgress("running")).toBe(true);
+  expect(rcaInProgress("failed")).toBe(false);
+  expect(rcaInProgress(null)).toBe(false);
+});
+
+it("asks for a signal's analysis and rereads the signal", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(Response.json({ status: "pending" }));
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new QueryClient();
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  const { result } = renderHook(() => useRequestSignalRca("p", "s"), { wrapper });
+  await act(async () => {
+    await result.current.mutateAsync();
+  });
+  expect(fetchMock).toHaveBeenCalledWith("/api/projects/p/signals/s/rca", { method: "POST" });
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ["signals", "byId", "p"] });
 });

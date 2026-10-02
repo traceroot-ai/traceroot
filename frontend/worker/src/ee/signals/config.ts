@@ -114,5 +114,10 @@ export const RCA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
  */
 export const RCA_DELAY_MS = 60_000;
 
-/** A signal RCA still pending after this long lost its job; the sweeper re-enqueues it. */
-export const RCA_STALE_MS = 10 * 60 * 1000;
+/**
+ * How long after an opening is written the sweeper may start its RCA: the
+ * assignment round enqueues it right after its commit, so a pending RCA older
+ * than this with no job lost its job, or was asked for by hand from the
+ * Signals page (the web app cannot reach the job queue).
+ */
+export const RCA_ENQUEUE_GRACE_MS = 15_000;

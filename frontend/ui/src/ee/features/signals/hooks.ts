@@ -133,6 +133,37 @@ export function useSignal(
     queryFn: () =>
       getJson<SignalResponse>(`/api/projects/${projectId}/signals/${signalId}?${qs}`, "signal"),
     enabled: !!projectId && !!signalId,
+    // Follow a running root cause analysis until it finishes.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data && !data.merged && rcaInProgress(data.signal.rca.currentState)
+        ? RCA_POLL_MS
+        : false;
+    },
+  });
+}
+
+/** How often an open signal's panel rereads it while its analysis runs. */
+const RCA_POLL_MS = 10_000;
+
+/** Whether the current opening's analysis is waiting or running. */
+export const rcaInProgress = (state: string | null) => state === "pending" || state === "running";
+
+/** Run a signal's root cause analysis by hand; the worker starts it within a minute. */
+export function useRequestSignalRca(projectId: string, signalId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/signals/${signalId}/rca`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new ApiError(res.status, body.error ?? "Failed to start the analysis");
+      }
+      return res.json() as Promise<{ status: "pending" }>;
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["signals", "byId", projectId] }),
   });
 }
 
