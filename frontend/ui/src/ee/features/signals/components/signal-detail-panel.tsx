@@ -111,7 +111,12 @@ export function SignalDetailPanel({
   const { aiPanelOpen, setAiPanelOpen, setAiContext, setAiInitialSessionId, registerAiHost } =
     useLayout();
   const [population, setPopulation] = useState<SignalPopulation>("similar");
-  const { data, isPending, error } = useSignal(projectId, signalId, range, population);
+  const { data, isPending, isPlaceholderData, error } = useSignal(
+    projectId,
+    signalId,
+    range,
+    population,
+  );
 
   // Claim the AI slot for this panel, as the session panel does. On unmount,
   // also clear the AI state: otherwise aiPanelOpen stays true after this host
@@ -229,6 +234,7 @@ export function SignalDetailPanel({
                 </p>
               ) : (
                 <SignalBlocks
+                  refreshing={isPlaceholderData}
                   projectId={projectId}
                   detail={data}
                   rangePicker={rangePicker}
@@ -270,6 +276,7 @@ export function SignalDetailPanel({
 }
 
 function SignalBlocks({
+  refreshing = false,
   projectId,
   detail,
   rangePicker,
@@ -279,6 +286,8 @@ function SignalBlocks({
   onOpenAgent,
   onOpenTrace,
 }: {
+  /** The window or population changed and the previous answer shows until the new one arrives. */
+  refreshing?: boolean;
   projectId: string;
   detail: SignalDetail;
   rangePicker: ReactNode;
@@ -371,7 +380,10 @@ function SignalBlocks({
           </div>
         }
       >
-        <div className="px-3 pb-2.5 pt-1">
+        <div
+          className={cn("px-3 pb-2.5 pt-1 transition-opacity", refreshing && "opacity-50")}
+          aria-busy={refreshing}
+        >
           <p className="pb-2 text-[13px] text-muted-foreground">
             {total !== null ? (
               <>

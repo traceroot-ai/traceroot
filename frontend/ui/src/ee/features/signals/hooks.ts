@@ -140,6 +140,13 @@ export function useSignal(
     queryFn: () =>
       getJson<SignalResponse>(`/api/projects/${projectId}/signals/${signalId}?${qs}`, "signal"),
     enabled: !!projectId && !!signalId,
+    // A new time window or population of the same signal keeps showing the
+    // previous answer until the new one arrives, instead of blanking the panel;
+    // another signal starts empty, so its panel never shows the previous one.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[2] === projectId && previousQuery?.queryKey[3] === signalId
+        ? previous
+        : undefined,
     // Follow a running root cause analysis until it finishes.
     refetchInterval: (query) => {
       const data = query.state.data;

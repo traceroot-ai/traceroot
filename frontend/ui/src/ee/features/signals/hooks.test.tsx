@@ -85,6 +85,43 @@ it("drops the previous project's placeholder rows when the project changes", asy
   client.clear();
 });
 
+it("keeps the signal on screen while a new time window loads", async () => {
+  let resolveSecond!: (response: Response) => void;
+  const second = new Promise<Response>((resolve) => {
+    resolveSecond = resolve;
+  });
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({ merged: false, signal: { id: "a", rca: { currentState: null } } }),
+    )
+    .mockReturnValueOnce(second);
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  const { result, rerender, unmount } = renderHook(
+    ({ start }) => useSignal("p", "a", { startAfter: start }, "similar"),
+    { initialProps: { start: "2026-09-25T00:00:00.000Z" }, wrapper },
+  );
+  await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  rerender({ start: "2026-09-01T00:00:00.000Z" });
+  // The panel keeps the previous answer instead of blanking while the new window loads.
+  expect(result.current.data).toMatchObject({ signal: { id: "a" } });
+  expect(result.current.isPlaceholderData).toBe(true);
+  expect(result.current.isPending).toBe(false);
+  await act(async () =>
+    resolveSecond(
+      Response.json({ merged: false, signal: { id: "a", rca: { currentState: "done" } } }),
+    ),
+  );
+  await waitFor(() => expect(result.current.isPlaceholderData).toBe(false));
+  expect(fetchMock.mock.calls[1][0]).toContain("start_after=2026-09-01");
+  unmount();
+  client.clear();
+});
+
 it("treats a waiting or running analysis as in progress", () => {
   expect(rcaInProgress("pending")).toBe(true);
   expect(rcaInProgress("running")).toBe(true);
