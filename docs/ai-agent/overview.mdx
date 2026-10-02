@@ -5,7 +5,7 @@ description: Investigate traces, automate fixes, and manage project resources wi
 
 TraceRoot includes a built-in AI agent that serves as both an **investigative trace debugger** and an **interactive project assistant**.
 
-The agent can analyze execution traces, clone production code into sandboxes to locate root causes, and open fix pull requests on GitHub. Beyond investigation, the agent can also modify your project by creating, updating, and deleting monitoring resources—always requiring your explicit approval before running any change.
+The agent can analyze execution traces, clone production code into sandboxes to locate root causes, and open fix pull requests on GitHub. Beyond investigation, the agent can also modify your project by creating, updating, and deleting monitoring resources—in interactive chat sessions, write actions pause for your explicit confirmation before executing.
 
 <Frame>
   <img src="/images/rca_v1.png" alt="TraceRoot AI agent performing root cause analysis" />
@@ -61,19 +61,25 @@ Administrative changes to workspaces and projects are intentionally restricted t
 
 ## Safety: Interactive Approvals and Timeouts
 
-The agent cannot autonomously apply changes to your project. Every write action is guarded by human confirmation:
+In interactive user sessions, the agent cannot autonomously modify your project. Every write action is guarded by human confirmation:
 
 ### Confirmation Cards
 
-Whenever the agent decides to invoke a write tool, execution pauses and presents an interactive **confirmation card** in the chat:
+Whenever the agent decides to invoke a write tool during an attended session, execution pauses and presents an interactive **confirmation card** in the chat:
 - **Creates and Updates**: You can choose to **Approve** (execute the change), **Skip** (cancel the change), or **Revise** (provide feedback or changes in natural language so the agent re-proposes the action with adjustments).
 - **Deletes**: To protect against accidental deletions, destructive actions offer only **Approve** or **Skip**. A skipped deletion is never re-proposed from revisions. Deletes also require an audit justification reason of **3 to 500 characters**.
 
 If you skip or decline an action, the agent acknowledges the skip and continues the conversation without retrying the tool call.
 
+### Unattended Sessions Fail Closed on Deletes
+
+In unattended or background sessions (where no human user is present to answer confirmation cards):
+- Create and update operations execute without an approval card.
+- Destructive delete operations **fail closed** and are blocked immediately—the agent can never delete resources in an unattended session.
+
 ### 10-Minute Timeout
 
-Approval cards will not wait indefinitely:
+In attended sessions, approval cards will not wait indefinitely:
 - If an approval proposal is left unanswered for **10 minutes**, TraceRoot automatically skips that pending action.
 - No change from the unanswered proposal is applied; earlier approved actions in the same turn remain in effect.
 - Only one decision can be pending per chat session at any given time.

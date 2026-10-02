@@ -5,13 +5,16 @@ description: Read and analysis tools bound to the TraceRoot AI agent
 
 The TraceRoot AI agent's tool library is generated directly from the shared tool registry (`@traceroot-ai/tools`), the exact same registry that defines the Public REST API.
 
-Because the tools derive from a single unified schema, the agent operates with the exact same parameters, validation rules, query capabilities, and limits as the public API—scoped strictly to your current project.
+Because the tools derive from a single unified schema, the agent operates with the same underlying parameters and validation rules as the public API, with specific guardrails applied for agent interactions:
+- **Dataset pagination pinned off**: For dataset listings (`list_datasets`, `list_dataset_versions`), pagination cursors are pinned off and hidden from the model to prevent unconstrained paging loops, returning the first page.
+- **Dataset version case limits**: `get_dataset_version` is pinned to return at most **20 cases** (`DATASET_CASE_ROW_CAP = 20`) to keep model context windows focused; the response indicates when more cases exist.
 
-## Project Scope Boundary
+## Tenancy & Scope Boundaries
 
-The agent's tenancy is force-injected from the active chat session:
+The agent operates under clear tenancy boundaries derived from the active session:
 
-- **Strictly Project-Scoped**: Every tool call automatically targets the current project.
+- **Project-Scoped Registry Tools**: Telemetry, dashboard, alert, detector, and evaluation tools automatically target your active project.
+- **Workspace-Scoped Tools**: Certain operational checks—specifically GitHub repository access (`check_github_access`) and detector/BYOK model discovery—operate across the enclosing workspace.
 - **No Workspace or Project Writes**: The agent **cannot create, modify, or delete workspaces or projects**. Administrative lifecycle operations are deliberately restricted to the CLI, Public REST API, and web workspace settings.
 
 ---
@@ -75,10 +78,10 @@ Tools for reviewing offline test suites, scorers, and benchmark experiment runs:
 | Tool | Description |
 | :--- | :--- |
 | `get_evaluation_run` | Retrieve metrics, scorers, and pass/fail outcomes of an evaluation run. |
-| `list_datasets` | List benchmark test datasets available in the project. |
+| `list_datasets` | List benchmark test datasets available in the project (returns the first page). |
 | `get_dataset` | Retrieve metadata and column schemas for a dataset. |
-| `list_dataset_versions` | List version releases and changes for a dataset. |
-| `get_dataset_version` | Inspect specific test cases within a dataset version. |
+| `list_dataset_versions` | List version releases and changes for a dataset (returns the first page). |
+| `get_dataset_version` | Inspect test cases within a dataset version (returns at most 20 cases). |
 
 ---
 
