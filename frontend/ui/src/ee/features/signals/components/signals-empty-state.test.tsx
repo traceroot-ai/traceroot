@@ -5,11 +5,12 @@ import { SignalsEmptyState } from "./signals-empty-state";
 
 afterEach(cleanup);
 
-const setup = (over: Record<string, number> = {}) => ({
+const setup = (over: Record<string, number | boolean> = {}) => ({
   signalCount: 0,
   detectorCount: 1,
   signalDetectorCount: 1,
   sampledSignalDetectorCount: 1,
+  grouping: true,
   ...over,
 });
 
@@ -38,11 +39,19 @@ describe("SignalsEmptyState", () => {
     });
   });
 
-  it("asks to raise sampling when every grouping detector samples 0%", () => {
+  it("asks to turn a grouping detector on and raise its sampling when none evaluates traces", () => {
     expect(shown(setup({ sampledSignalDetectorCount: 0 }))).toEqual({
       title: "Finish detector setup",
       link: ["Configure detectors", "/projects/p1/detectors"],
     });
+    expect(
+      screen.getByText(/Make sure the detector is on and its sampling is above 0%/),
+    ).toBeTruthy();
+  });
+
+  it("says when the deployment cannot group hits", () => {
+    shown(setup({ grouping: false }));
+    expect(screen.getByText(/this deployment has no OpenAI API key/)).toBeTruthy();
   });
 
   it("waits for the first signal once setup is complete", () => {

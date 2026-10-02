@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   signalHits: [] as unknown[],
   signalDetectors: [] as unknown[],
   signalsPending: false,
+  signalsError: null as unknown,
+  grouping: true,
   traceSignalsArgs: [] as unknown[],
 }));
 
@@ -24,9 +26,13 @@ vi.mock("@/features/detectors/hooks/use-findings", () => ({
 vi.mock("@/ee/features/signals/hooks", () => ({
   useTraceSignals: (...args: unknown[]) => {
     mocks.traceSignalsArgs = args;
-    return mocks.signalsPending
-      ? { data: undefined, isPending: true }
-      : { data: { hits: mocks.signalHits, detectors: mocks.signalDetectors }, isPending: false };
+    if (mocks.signalsPending) return { data: undefined, isPending: true, error: null };
+    if (mocks.signalsError) return { data: undefined, isPending: false, error: mocks.signalsError };
+    return {
+      data: { hits: mocks.signalHits, detectors: mocks.signalDetectors, grouping: mocks.grouping },
+      isPending: false,
+      error: null,
+    };
   },
 }));
 
@@ -66,6 +72,8 @@ afterEach(() => {
   mocks.signalHits = [];
   mocks.signalDetectors = [];
   mocks.signalsPending = false;
+  mocks.signalsError = null;
+  mocks.grouping = true;
 });
 
 describe("sortDetectorRuns", () => {
@@ -94,12 +102,15 @@ describe("runSignal", () => {
   };
 
   it("links a grouped hit, whatever the settings say", () => {
-    expect(runSignal(run({ finding_id: "f" }), hit, undefined)).toEqual({ kind: "signal", hit });
+    expect(runSignal(run({ finding_id: "f" }), hit, undefined, true)).toEqual({
+      kind: "signal",
+      hit,
+    });
   });
 
   it("is pending for a hit detected after its detector started grouping", () => {
     expect(
-      runSignal(run({ finding_id: "f", timestamp: "2026-06-01T00:00:00" }), undefined, on),
+      runSignal(run({ finding_id: "f", timestamp: "2026-06-01T00:00:00" }), undefined, on, true),
     ).toEqual({
       kind: "pending",
     });
@@ -107,18 +118,28 @@ describe("runSignal", () => {
 
   it("is disabled for a hit detected before grouping started, or with grouping off", () => {
     expect(
-      runSignal(run({ finding_id: "f", timestamp: "2026-05-31T23:59:59" }), undefined, on),
+      runSignal(run({ finding_id: "f", timestamp: "2026-05-31T23:59:59" }), undefined, on, true),
     ).toEqual({
       kind: "disabled",
     });
-    expect(runSignal(run({ finding_id: "f" }), undefined, { ...on, enableSignals: false })).toEqual(
-      { kind: "disabled" },
-    );
+    expect(
+      runSignal(run({ finding_id: "f" }), undefined, { ...on, enableSignals: false }, true),
+    ).toEqual({ kind: "disabled" });
+  });
+
+  it("is disabled when the deployment does not group hits at all", () => {
+    expect(
+      runSignal(run({ finding_id: "f", timestamp: "2026-06-01T00:00:00" }), undefined, on, false),
+    ).toEqual({
+      kind: "disabled",
+    });
   });
 
   it("has no signal for a clean run or a detector that no longer exists", () => {
-    expect(runSignal(run({ finding_id: null }), undefined, on)).toEqual({ kind: "none" });
-    expect(runSignal(run({ finding_id: "f" }), undefined, undefined)).toEqual({ kind: "none" });
+    expect(runSignal(run({ finding_id: null }), undefined, on, true)).toEqual({ kind: "none" });
+    expect(runSignal(run({ finding_id: "f" }), undefined, undefined, true)).toEqual({
+      kind: "none",
+    });
   });
 });
 
@@ -224,10 +245,34 @@ describe("TraceDetectorsTab", () => {
       (screen.getByText(name).closest("tr") as HTMLElement).lastElementChild as HTMLElement;
     expect(cell("Grouping").textContent).toBe("Pending");
     expect(cell("Grouping").firstElementChild?.getAttribute("title")).toBe(
-      "This identified result is waiting for signal assignment",
+      "Not grouped into a signal yet",
     );
     expect(cell("Not grouping").textContent).toBe("Disabled");
     expect(cell("Clean").textContent).toBe("—");
+  });
+
+  it("says the signals are unavailable when they could not be loaded", () => {
+    mocks.runs = [
+      run({ run_id: "1", name: "Grouping", finding_id: "f-1" }),
+      run({ run_id: "2", name: "Clean", finding_id: null }),
+    ];
+    mocks.signalsError = new Error("boom");
+    render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
+    const cell = (name: string) =>
+      (screen.getByText(name).closest("tr") as HTMLElement).lastElementChild as HTMLElement;
+    expect(cell("Grouping").textContent).toBe("Unavailable");
+    expect(cell("Clean").textContent).toBe("—");
+  });
+
+  it("says Disabled for every ungrouped hit when the deployment does not group", () => {
+    mocks.runs = [run({ run_id: "1", detector_id: "on", name: "Grouping", finding_id: "f-1" })];
+    mocks.signalDetectors = [
+      { id: "on", enableSignals: true, signalsEnabledAt: "2026-05-01T00:00:00Z" },
+    ];
+    mocks.grouping = false;
+    render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
+    const row = screen.getByText("Grouping").closest("tr") as HTMLElement;
+    expect((row.lastElementChild as HTMLElement).textContent).toBe("Disabled");
   });
 
   it("leaves an identified hit's signal blank while the signals load", () => {

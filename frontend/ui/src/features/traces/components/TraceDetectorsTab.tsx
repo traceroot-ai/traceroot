@@ -40,15 +40,20 @@ export type RunSignal =
   | { kind: "disabled" }
   | { kind: "none" };
 
-/** Pure so it can be unit-tested without rendering. */
+/**
+ * Pure so it can be unit-tested without rendering. `grouping` is whether the
+ * deployment groups hits at all; without it nothing is ever assigned.
+ */
 export function runSignal(
   run: BackendRun,
   hit: TraceSignalHit | undefined,
   setting: DetectorSignalSetting | undefined,
+  grouping: boolean,
 ): RunSignal {
   if (hit) return { kind: "signal", hit };
   if (!isIdentified(run) || !setting) return { kind: "none" };
   const grouped =
+    grouping &&
     setting.enableSignals &&
     parseAsUTC(run.timestamp).getTime() >= new Date(setting.signalsEnabledAt).getTime();
   return { kind: grouped ? "pending" : "disabled" };
@@ -84,7 +89,11 @@ interface TraceDetectorsTabProps {
  */
 export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps) {
   const { data, isLoading, error } = useTraceDetectorRuns(projectId, traceId);
-  const { data: signalsData, isPending: signalsPending } = useTraceSignals(
+  const {
+    data: signalsData,
+    isPending: signalsPending,
+    error: signalsError,
+  } = useTraceSignals(
     projectId,
     traceId,
     (data?.runs ?? []).map((r) => r.detector_id),
@@ -148,6 +157,7 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
               r,
               signalByRun.get(r.run_id),
               settingByDetector.get(r.detector_id),
+              signalsData?.grouping ?? true,
             );
             return (
               <tr
@@ -181,11 +191,12 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
                     >
                       {signal.hit.signalTitle}
                     </Link>
-                  ) : signalsPending && isIdentified(r) ? null : signal.kind === "pending" ? (
-                    <span
-                      className="text-muted-foreground"
-                      title="This identified result is waiting for signal assignment"
-                    >
+                  ) : signalsPending && isIdentified(r) ? null : signalsError && isIdentified(r) ? (
+                    <span className="text-muted-foreground" title="Signals could not be loaded">
+                      Unavailable
+                    </span>
+                  ) : signal.kind === "pending" ? (
+                    <span className="text-muted-foreground" title="Not grouped into a signal yet">
                       Pending
                     </span>
                   ) : signal.kind === "disabled" ? (

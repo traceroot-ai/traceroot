@@ -9,6 +9,7 @@ import {
   signalsForTrace,
   detectorSignalSettings,
   signalSetup,
+  signalsKeyConfigured,
 } from "../ee/signals/index.ts";
 
 type SignalRow = {
@@ -821,5 +822,11 @@ describe("reads", () => {
       { where: { projectId: "p", enableSignals: true } },
       { where: { projectId: "p", enableSignals: true, enabled: true, sampleRate: { gt: 0 } } },
     ]);
+  });
+
+  it("groups only when the OpenAI key is set", () => {
+    expect(signalsKeyConfigured({ OPENAI_API_KEY: "sk" })).toBe(true);
+    expect(signalsKeyConfigured({ OPENAI_API_KEY: "  " })).toBe(false);
+    expect(signalsKeyConfigured({})).toBe(false);
   });
 });

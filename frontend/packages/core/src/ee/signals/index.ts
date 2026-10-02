@@ -15,6 +15,7 @@ export {
   signalsForTrace,
   detectorSignalSettings,
   signalSetup,
+  signalsKeyConfigured,
 } from "./reads.ts";
 export {
   signalCriteriaEditSchema,

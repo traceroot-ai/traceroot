@@ -14,6 +14,7 @@ const core = vi.hoisted(() => ({
   signalsForTrace: vi.fn(),
   detectorSignalSettings: vi.fn(),
   signalSetup: vi.fn(),
+  signalsKeyConfigured: vi.fn(),
   writeAudit: vi.fn(),
   requireAuth: vi.fn(),
   requireProjectAccess: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("@traceroot/core/signals", async (importOriginal) => {
     signalsForTrace: core.signalsForTrace,
     detectorSignalSettings: core.detectorSignalSettings,
     signalSetup: core.signalSetup,
+    signalsKeyConfigured: core.signalsKeyConfigured,
   };
 });
 vi.mock("@/lib/write-services/audit", () => ({ writeAudit: core.writeAudit }));
@@ -375,6 +377,7 @@ describe("reads", () => {
   it("returns a trace's signals and the named detectors' signals settings", async () => {
     core.signalsForTrace.mockResolvedValue([{ runId: "r1" }]);
     core.detectorSignalSettings.mockResolvedValue([{ id: "d1", enableSignals: true }]);
+    core.signalsKeyConfigured.mockReturnValue(true);
     const res = await handleTraceSignals(
       req(undefined, "?detector_ids=d1,d2,d1,"),
       params({ projectId: "p1", traceId: "t1" }),
@@ -382,6 +385,7 @@ describe("reads", () => {
     expect(await res.json()).toEqual({
       hits: [{ runId: "r1" }],
       detectors: [{ id: "d1", enableSignals: true }],
+      grouping: true,
     });
     expect(core.signalsForTrace).toHaveBeenCalledWith(expect.anything(), {
       projectId: "p1",
@@ -411,8 +415,9 @@ describe("reads", () => {
       sampledSignalDetectorCount: 0,
     };
     core.signalSetup.mockResolvedValue(setup);
+    core.signalsKeyConfigured.mockReturnValue(false);
     const res = await handleSignalSetup(req(), params({ projectId: "p1" }));
-    expect(await res.json()).toEqual(setup);
+    expect(await res.json()).toEqual({ ...setup, grouping: false });
     expect(core.signalSetup).toHaveBeenCalledWith(expect.anything(), "p1");
   });
 });

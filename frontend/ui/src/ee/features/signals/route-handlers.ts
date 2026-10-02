@@ -19,6 +19,7 @@ import {
   signalsForTrace,
   detectorSignalSettings,
   signalSetup,
+  signalsKeyConfigured,
   type MovedHits,
   type SignalStatus,
 } from "@traceroot/core/signals";
@@ -456,8 +457,9 @@ export async function handleMoveHit(
 const TRACE_DETECTORS_MAX = 200;
 
 // GET /api/projects/[projectId]/traces/[traceId]/signals?detector_ids=a,b
-// Each hit of the trace with its signal, and the signals settings of the
-// detectors named, so a hit not grouped yet reads as pending or disabled.
+// Each hit of the trace with its signal, the signals settings of the detectors
+// named, and whether this deployment groups hits at all, so a hit not grouped
+// yet reads as pending or disabled.
 export async function handleTraceSignals(
   req: NextRequest,
   { params }: Params<{ projectId: string; traceId: string }>,
@@ -480,7 +482,7 @@ export async function handleTraceSignals(
     signalsForTrace(prisma, { projectId, traceId }),
     detectorSignalSettings(prisma, { projectId, detectorIds }),
   ]);
-  return successResponse({ hits, detectors });
+  return successResponse({ hits, detectors, grouping: signalsKeyConfigured() });
 }
 
 // GET /api/projects/[projectId]/signals/setup
@@ -492,5 +494,8 @@ export async function handleSignalSetup(
   const { projectId } = await params;
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
-  return successResponse(await signalSetup(prisma, projectId));
+  return successResponse({
+    ...(await signalSetup(prisma, projectId)),
+    grouping: signalsKeyConfigured(),
+  });
 }

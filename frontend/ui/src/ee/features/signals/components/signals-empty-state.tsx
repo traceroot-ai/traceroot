@@ -26,8 +26,10 @@ export function SignalsEmptyState({ projectId, setup }: { projectId: string; set
     : needsSignals
       ? "Turn on Generate signals in a detector’s Signals section to group related findings into issues."
       : needsSampling
-        ? "Signal generation is enabled. Set the detector’s sampling above 0% so it can evaluate incoming traces."
-        : "Signal generation is enabled. Signals appear here when a detector groups related findings from your traces.";
+        ? "Signal generation is enabled. Make sure the detector is on and its sampling is above 0% so it can evaluate incoming traces."
+        : setup.grouping
+          ? "Signal generation is enabled. Signals appear here when a detector groups related findings from your traces."
+          : "Signal generation is enabled, but this deployment has no OpenAI API key, which grouping needs.";
 
   return (
     <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 py-12 text-center">

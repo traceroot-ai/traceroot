@@ -38,9 +38,14 @@ function setup() {
   return { wrapper, invalidateSpy };
 }
 
+// The detector lists, and the Signals page's setup check for this project.
 const expectNotified = (invalidateSpy: MockInstance) => {
   expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["detectors"] });
-  expect(FakeBroadcastChannel.posted).toEqual([{ type: "invalidate", queryKey: ["detectors"] }]);
+  expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["signals", "setup", "proj-1"] });
+  expect(FakeBroadcastChannel.posted).toEqual([
+    { type: "invalidate", queryKey: ["detectors"] },
+    { type: "invalidate", queryKey: ["signals", "setup", "proj-1"] },
+  ]);
 };
 
 describe("detector mutations notify other tabs on success", () => {

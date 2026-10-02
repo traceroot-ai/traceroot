@@ -85,6 +85,7 @@ const setup = (over: Record<string, number> = {}) => ({
   detectorCount: 0,
   signalDetectorCount: 0,
   sampledSignalDetectorCount: 0,
+  grouping: true,
   ...over,
 });
 

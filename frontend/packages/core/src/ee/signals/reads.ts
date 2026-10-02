@@ -378,6 +378,14 @@ export async function signalsForTrace(
 }
 
 /**
+ * Whether this deployment can group hits at all: assignment runs on the
+ * OpenAI key, which the worker and the web app read from the same setting.
+ */
+export function signalsKeyConfigured(env: Record<string, string | undefined> = process.env) {
+  return !!env.OPENAI_API_KEY?.trim();
+}
+
+/**
  * The signals settings of the detectors that ran on a trace, so the trace page
  * can tell a hit waiting for assignment from one whose detector does not group.
  */

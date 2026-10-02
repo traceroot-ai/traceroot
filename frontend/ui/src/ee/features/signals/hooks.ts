@@ -202,7 +202,7 @@ export function useTraceSignals(projectId: string, traceId: string, detectorIds:
   return useQuery({
     queryKey: ["signals", "trace", projectId, traceId, ids],
     queryFn: () =>
-      getJson<{ hits: TraceSignalHit[]; detectors: DetectorSignalSetting[] }>(
+      getJson<{ hits: TraceSignalHit[]; detectors: DetectorSignalSetting[]; grouping: boolean }>(
         `/api/projects/${projectId}/traces/${traceId}/signals?${new URLSearchParams({ detector_ids: ids })}`,
         "trace signals",
       ),
@@ -216,6 +216,8 @@ export interface SignalSetup {
   detectorCount: number;
   signalDetectorCount: number;
   sampledSignalDetectorCount: number;
+  /** Whether this deployment groups hits at all (it has the key signals run on). */
+  grouping: boolean;
 }
 
 export function useSignalSetup(projectId: string, enabled: boolean) {

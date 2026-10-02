@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
 import { ApiError } from "@/lib/api/client";
 
@@ -191,14 +191,22 @@ export function useDetectorCounts(
   });
 }
 
+/**
+ * After a detector changes: its lists, and the Signals page's setup check,
+ * which reads how far the project's detectors are set up.
+ */
+function invalidateDetectorReads(queryClient: QueryClient, projectId: string) {
+  for (const queryKey of [["detectors"], ["signals", "setup", projectId]]) {
+    void queryClient.invalidateQueries({ queryKey });
+    broadcastQueryInvalidation(queryKey);
+  }
+}
+
 export function useCreateDetector(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateDetectorInput) => createDetector(projectId, input),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["detectors"] });
-      broadcastQueryInvalidation(["detectors"]);
-    },
+    onSuccess: () => invalidateDetectorReads(queryClient, projectId),
   });
 }
 
@@ -206,10 +214,7 @@ export function useUpdateDetector(projectId: string, detectorId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: UpdateDetectorInput) => updateDetector(projectId, detectorId, input),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["detectors"] });
-      broadcastQueryInvalidation(["detectors"]);
-    },
+    onSuccess: () => invalidateDetectorReads(queryClient, projectId),
   });
 }
 
@@ -217,9 +222,6 @@ export function useDeleteDetector(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (detectorId: string) => deleteDetector(projectId, detectorId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["detectors"] });
-      broadcastQueryInvalidation(["detectors"]);
-    },
+    onSuccess: () => invalidateDetectorReads(queryClient, projectId),
   });
 }
