@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { signalDeepLinkPath } from "@traceroot/core/signals";
 import { cn, formatDate, buildUrlWithFilters, parseAsUTC } from "@/lib/utils";
 import {
@@ -77,14 +76,13 @@ interface TraceDetectorsTabProps {
  * Lists every detector that ran on a trace as a table, reusing the detector
  * page's table primitives for a consistent look. The trace-id and run-id
  * columns are dropped here — every row is this same trace, and the run id is
- * noise in this context. Clicking a row opens that detector's Runs tab; a
+ * noise in this context. A detector's name links to its Runs tab; a
  * self-traced run deep-links straight to the run's own trace there. The Signal
  * column links a hit to the signal it was grouped into, or says the hit is
  * waiting for assignment or that its detector did not group it. Fetches its own
  * data by traceId, independent of the trace fetch in the parent panel.
  */
 export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps) {
-  const router = useRouter();
   const { data, isLoading, error } = useTraceDetectorRuns(projectId, traceId);
   const { data: signalsData, isPending: signalsPending } = useTraceSignals(
     projectId,
@@ -122,12 +120,12 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
 
   return (
     <div className="h-full overflow-auto bg-background">
-      <table className="w-full">
+      <table aria-label="Trace detectors" className="w-full min-w-[820px] table-fixed">
         <thead className="sticky top-0 bg-background">
           <tr className="border-b border-border bg-muted/50">
-            <th className={cn(DETECTOR_TH, "w-[220px]")}>Name</th>
-            <th className={cn(DETECTOR_TH, "w-[160px]")}>Timestamp</th>
-            <th className={cn(DETECTOR_TH, "w-[90px]")}>Identified</th>
+            <th className={cn(DETECTOR_TH, "w-[150px]")}>Name</th>
+            <th className={cn(DETECTOR_TH, "w-[150px]")}>Timestamp</th>
+            <th className={cn(DETECTOR_TH, "w-[80px]")}>Identified</th>
             <th className={DETECTOR_TH}>Summary</th>
             <th className={cn(DETECTOR_TH, "w-[220px] border-r-0")}>Signal</th>
           </tr>
@@ -154,26 +152,31 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
             return (
               <tr
                 key={r.run_id}
-                onClick={() => router.push(detectorHref)}
-                onMouseEnter={() => router.prefetch(detectorHref)}
-                className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
+                className="border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
               >
-                <td className={cn(DETECTOR_TD, "text-foreground")}>{runName(r)}</td>
+                <td className={cn(DETECTOR_TD, "text-foreground")}>
+                  <Link
+                    href={detectorHref}
+                    title={runName(r)}
+                    className="block truncate hover:underline focus-visible:underline"
+                  >
+                    {runName(r)}
+                  </Link>
+                </td>
                 <td className={cn(DETECTOR_TD, "whitespace-nowrap text-muted-foreground")}>
                   {formatDate(r.timestamp)}
                 </td>
                 <td className={DETECTOR_TD}>
                   <IdentifiedBadge identified={isIdentified(r)} />
                 </td>
-                <td className={cn(DETECTOR_TD, "max-w-[400px] text-foreground")}>
+                <td className={cn(DETECTOR_TD, "text-foreground")}>
                   <SummaryText summary={r.summary} />
                 </td>
-                <td className={cn(DETECTOR_TD, "max-w-[220px] border-r-0")}>
+                <td className={cn(DETECTOR_TD, "border-r-0 text-foreground")}>
                   {signal.kind === "signal" ? (
                     <Link
                       href={signalDeepLinkPath(projectId, signal.hit.signalId)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="block truncate text-foreground underline-offset-2 hover:underline"
+                      className="block truncate hover:underline focus-visible:underline"
                       title={signal.hit.signalTitle}
                     >
                       {signal.hit.signalTitle}

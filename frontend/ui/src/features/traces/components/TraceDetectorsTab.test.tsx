@@ -1,13 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   runs: undefined as unknown,
   isLoading: false,
   error: null as unknown,
-  push: vi.fn(),
-  prefetch: vi.fn(),
   signalHits: [] as unknown[],
   signalDetectors: [] as unknown[],
   signalsPending: false,
@@ -30,10 +28,6 @@ vi.mock("@/ee/features/signals/hooks", () => ({
       ? { data: undefined, isPending: true }
       : { data: { hits: mocks.signalHits, detectors: mocks.signalDetectors }, isPending: false };
   },
-}));
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mocks.push, prefetch: mocks.prefetch }),
 }));
 
 vi.mock("@/lib/utils", async () => {
@@ -69,8 +63,6 @@ afterEach(() => {
   mocks.runs = undefined;
   mocks.isLoading = false;
   mocks.error = null;
-  mocks.push.mockReset();
-  mocks.prefetch.mockReset();
   mocks.signalHits = [];
   mocks.signalDetectors = [];
   mocks.signalsPending = false;
@@ -155,12 +147,14 @@ describe("TraceDetectorsTab", () => {
     expect(screen.queryByText(/triggered/i)).toBeNull();
   });
 
-  it("navigates to the detector's runs tab when a row is clicked", () => {
+  const nameLink = (name: string) => screen.getByRole("link", { name });
+
+  it("links the detector's name to its runs tab", () => {
     mocks.runs = [run({ run_id: "1", detector_id: "det-9", name: "Safety", finding_id: null })];
     render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
-
-    fireEvent.click(screen.getByText("Safety"));
-    expect(mocks.push).toHaveBeenCalledWith("URL(/projects/proj-1/detectors/det-9?tab=runs)");
+    expect(nameLink("Safety").getAttribute("href")).toBe(
+      "URL(/projects/proj-1/detectors/det-9?tab=runs)",
+    );
   });
 
   it("deep-links a self-traced run straight to its own trace on the detector page", () => {
@@ -174,9 +168,7 @@ describe("TraceDetectorsTab", () => {
       }),
     ];
     render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
-
-    fireEvent.click(screen.getByText("Safety"));
-    expect(mocks.push).toHaveBeenCalledWith(
+    expect(nameLink("Safety").getAttribute("href")).toBe(
       "URL(/projects/proj-1/detectors/det-9?tab=runs&traceId=aaaa1111bbbb2222cccc3333dddd4444&source=detector)",
     );
   });
@@ -184,18 +176,9 @@ describe("TraceDetectorsTab", () => {
   it("keeps the plain runs-tab link for a run without a self-trace", () => {
     mocks.runs = [run({ run_id: "1", detector_id: "det-9", name: "Safety", self_traced: false })];
     render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
-
-    fireEvent.click(screen.getByText("Safety"));
-    expect(mocks.push).toHaveBeenCalledWith("URL(/projects/proj-1/detectors/det-9?tab=runs)");
-  });
-
-  it("prefetches the detector route on row hover so navigation feels instant", () => {
-    mocks.runs = [run({ run_id: "1", detector_id: "det-9", name: "Safety", finding_id: null })];
-    render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
-
-    const row = screen.getByText("Safety").closest("tr") as HTMLElement;
-    fireEvent.mouseEnter(row);
-    expect(mocks.prefetch).toHaveBeenCalledWith("URL(/projects/proj-1/detectors/det-9?tab=runs)");
+    expect(nameLink("Safety").getAttribute("href")).toBe(
+      "URL(/projects/proj-1/detectors/det-9?tab=runs)",
+    );
   });
 
   it("links a hit to the signal it was grouped into", () => {
@@ -218,9 +201,6 @@ describe("TraceDetectorsTab", () => {
     expect(screen.getByRole("columnheader", { name: "Signal" })).toBeTruthy();
     const link = screen.getByRole("link", { name: "Unsafe reply" });
     expect(link.getAttribute("href")).toBe("/projects/proj-1/signals?signalId=sig-1");
-    // The link opens the signal, not the row's detector page.
-    fireEvent.click(link);
-    expect(mocks.push).not.toHaveBeenCalled();
     // A run with no grouped hit has no signal.
     const latencyRow = screen.getByText("Latency").closest("tr") as HTMLElement;
     expect(latencyRow.textContent).toContain("—");
