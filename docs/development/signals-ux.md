@@ -17,10 +17,16 @@ It references #2399 and #2404 without closing the full UX issue.
   controls and a recent affected-traces table. Similar counts distinct traces
   evaluated by the detector; All counts distinct project traces.
 - Resolve and dismiss require a reason; Other requires a note. Status writes
-  include the status the user saw so concurrent changes are refused.
+  include the status shown when the user acted (for resolve and dismiss, when
+  the dialog opened), so a change made meanwhile is refused.
+- Notification links open the Signals page with `?signalId=`; the path comes
+  from one helper in core, and a page test checks that the page opens it.
 - Affected counts and View all open Tracing with the signal filter and range.
   Opening an individual trace adds a trace-viewer layer over the signal panel.
   Tracing badges can reopen the signal panel.
+- A trace's Detectors tab has a Signal column linking each hit to its signal.
+  The trace header's Alert button is removed; arriving from the findings page
+  still opens the analysis chat.
 
 ## Design deltas
 
