@@ -22,6 +22,7 @@ export {
   type Entitlement,
   // Plan helpers
   getPlanConfig,
+  toPlanType,
   getPlanOrder,
   mapPriceIdToPlan,
   isUpgrade,

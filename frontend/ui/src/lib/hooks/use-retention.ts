@@ -21,6 +21,14 @@ export function useRetention(projectId: string) {
   const billingPlan = (workspace?.billingPlan as string) || PlanType.FREE;
   const retentionDays = resolving ? undefined : getRetentionDays(billingPlan);
 
+  // Whether the workspace already has a Stripe subscription. The pricing dialog
+  // routes an upgrade to `change-plan` when it does and to `checkout` when it does
+  // not (ee/features/billing/plan-actions.ts); defaulting to false for a workspace
+  // that IS subscribed opens a second checkout for the same customer. The billing
+  // settings page, RetentionGateBanner and SidebarUpgradeButton all pass this — the
+  // hook exposes it so its consumers can too.
+  const hasSubscription = !!workspace?.billingSubscriptionId;
+
   const [showPricing, setShowPricing] = useState(false);
   const onUpgradeClick = useCallback(() => setShowPricing(true), []);
   const closePricing = useCallback(() => setShowPricing(false), []);
@@ -32,5 +40,6 @@ export function useRetention(projectId: string) {
     closePricing,
     workspaceId,
     billingPlan,
+    hasSubscription,
   };
 }
