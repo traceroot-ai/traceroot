@@ -15,6 +15,7 @@ just as a candidate model call does, so a naive trace-wide sum would bill the ca
 for grading itself.
 """
 
+import logging
 from datetime import datetime, timedelta
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
@@ -509,10 +510,26 @@ class TestOutOfRangeMetricsCannotPoisonTheBatch:
         assert set(stamps[0][0][1][1]) == {"bad", "ok"}
 
     def test_the_bound_is_postgres_integer(self):
-        assert _int4_or_none(0, "llm_calls") == 0
-        assert _int4_or_none(2_147_483_647, "llm_calls") == 2_147_483_647
-        assert _int4_or_none(2_147_483_648, "llm_calls") is None
-        assert _int4_or_none(-1, "llm_calls") is None
+        assert _int4_or_none(0, "llm_calls", "proj-1", "t") == 0
+        assert _int4_or_none(2_147_483_647, "llm_calls", "proj-1", "t") == 2_147_483_647
+        assert _int4_or_none(2_147_483_648, "llm_calls", "proj-1", "t") is None
+        assert _int4_or_none(-1, "llm_calls", "proj-1", "t") is None
+
+    def test_the_warning_names_the_project_and_trace_of_the_nulled_row(self, caplog):
+        # A bare column name left no way to find which result row read NULL.
+        rows = [
+            _row("root", None, "EVALUATION", None, trace="bad"),
+            _row("llm", "root", "LLM", 0.10, ms=1_700_000_000_000, trace="bad"),
+            _row("root", None, "EVALUATION", None, trace="ok"),
+            _row("llm", "root", "LLM", 0.20, ms=40, trace="ok"),
+        ]
+        with caplog.at_level(logging.WARNING, logger="worker.ingest_tasks"):
+            self._run(rows, ["bad", "ok"])
+        warnings = [r.getMessage() for r in caplog.records if "INTEGER range" in r.getMessage()]
+        assert len(warnings) == 1
+        assert "llm_duration_ms=1700000000000" in warnings[0]
+        assert "project proj-1" in warnings[0]
+        assert "trace bad" in warnings[0]
 
 
 class TestOrdinaryIngestDoesNotTouchPostgres:

@@ -198,11 +198,19 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
 _PG_INT4_MAX = 2_147_483_647
 
 
-def _int4_or_none(value: int, column: str) -> int | None:
+def _int4_or_none(value: int, column: str, project_id: str, trace_id: str) -> int | None:
     """Return ``value`` if it fits a Postgres INTEGER, else None (stored as NULL)."""
     if 0 <= value <= _PG_INT4_MAX:
         return value
-    logger.warning("eval cost derivation: %s is out of INTEGER range, storing NULL", column)
+    # The result rows are keyed by (project_id, trace_id), so naming both lets the NULL be
+    # traced back to the row and the span that produced it.
+    logger.warning(
+        "eval cost derivation: %s=%d is out of INTEGER range for project %s trace %s, storing NULL",
+        column,
+        value,
+        project_id,
+        trace_id,
+    )
     return None
 
 
@@ -306,11 +314,15 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                         " WHERE project_id = %s AND trace_id = %s",
                         (
                             m.cost,
-                            _int4_or_none(m.prompt_tokens, "prompt_tokens"),
-                            _int4_or_none(m.completion_tokens, "completion_tokens"),
-                            _int4_or_none(m.total_tokens, "total_tokens"),
-                            _int4_or_none(m.llm_calls, "llm_calls"),
-                            _int4_or_none(m.llm_duration_ms, "llm_duration_ms"),
+                            _int4_or_none(m.prompt_tokens, "prompt_tokens", project_id, trace_id),
+                            _int4_or_none(
+                                m.completion_tokens, "completion_tokens", project_id, trace_id
+                            ),
+                            _int4_or_none(m.total_tokens, "total_tokens", project_id, trace_id),
+                            _int4_or_none(m.llm_calls, "llm_calls", project_id, trace_id),
+                            _int4_or_none(
+                                m.llm_duration_ms, "llm_duration_ms", project_id, trace_id
+                            ),
                             project_id,
                             trace_id,
                         ),
