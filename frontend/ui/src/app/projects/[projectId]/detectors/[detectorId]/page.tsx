@@ -43,6 +43,9 @@ const rowMatchesSelection = (r: BackendRun, sel: SelectedTrace) =>
       ? r.agent_trace_id === sel.traceId
       : r.trace_id === sel.traceId);
 
+/** The params a deep link uses to open a trace; the page's own list state is the rest. */
+const TRACE_PARAMS = new Set(["traceId", "source", "fullscreen"]);
+
 /** The URL filter for the detector's findings: its runs with Identified = Yes. */
 const isIdentifiedFilter = (p: Predicate) =>
   p.field === "identified" && p.op === "in" && p.value.includes("Yes");
@@ -158,6 +161,12 @@ export default function DetectorDetailPage() {
       setAutoOpenedKey(deepLinkKey);
     }
   }, [autoOpenedKey, deepLinkKey, traceIdFromUrl, sourceFromUrl, runs]);
+
+  // The new tab reopens this page in the same list state (filters, page), so a
+  // popped-out trace still has its row there. The viewer sets its own trace params.
+  const listParams = Object.fromEntries(
+    [...searchParams.entries()].filter(([key]) => !TRACE_PARAMS.has(key)),
+  );
 
   const selectedIndex = selectedTrace
     ? runs.findIndex((r) => rowMatchesSelection(r, selectedTrace))
@@ -288,6 +297,7 @@ export default function DetectorDetailPage() {
           autoOpenRca={selectedTrace.kind === "original"}
           initialFullscreen={startFullscreen}
           newTabPath={`/projects/${projectId}/detectors/${detectorId}`}
+          newTabParams={listParams}
           source={
             selectedTrace.kind === "self"
               ? "detector"

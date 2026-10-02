@@ -42,7 +42,7 @@ The pipeline for each incoming trace:
 
 ## View findings
 
-Open the detector to see its runs. Each row shows whether the detector identified a problem and links back to the trace it checked; clicking the trace opens the trace viewer, with the AI agent's RCA session in the chat panel when that trace was analysed. A finding also links to the signal it joined (**Signal ID**) and to that signal's root cause analysis (**Agent Run ID**), which opens the agent's own trace.
+Open the detector to see its runs; from the detector list, its **Findings** count opens just the runs that identified a problem. Every run links back to the trace it checked, and a run that reached a verdict shows whether the detector identified a problem. Clicking the trace opens the trace viewer, with the AI agent's RCA session in the chat panel when that trace was analysed. A finding also links to the signal it joined (**Signal ID**) and, once that signal's root cause analysis has recorded an agent trace, to that trace (**Agent Run ID**).
 
 <Frame>
   <img src="/images/detector_findings_v1.png" alt="Detector findings table with the detail panel open" />

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   useRuns: vi.fn(),
   searchParam: vi.fn((_key: string): string | null => null),
+  searchEntries: vi.fn((): [string, string][] => []),
   filters: [] as Array<{ field: string; op: "in"; value: string[] }>,
   updateFilters: vi.fn(),
 }));
@@ -13,7 +14,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "proj-1", detectorId: "det-1" }),
   useRouter: () => ({ push: mocks.push }),
-  useSearchParams: () => ({ get: (key: string) => mocks.searchParam(key) }),
+  useSearchParams: () => ({
+    get: (key: string) => mocks.searchParam(key),
+    entries: () => mocks.searchEntries()[Symbol.iterator](),
+  }),
 }));
 
 // Controlled list state so the test asserts the exact range carried back to the
@@ -118,6 +122,7 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
     autoOpenRca,
     source,
     runTimestamp,
+    newTabParams,
     onClose,
     onNavigate,
     canNavigateUp,
@@ -127,6 +132,7 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
     autoOpenRca?: boolean;
     source?: "detector" | "agent" | "user";
     runTimestamp?: string;
+    newTabParams?: Record<string, string>;
     onClose: () => void;
     onNavigate: (d: "up" | "down") => void;
     canNavigateUp: boolean;
@@ -137,6 +143,7 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
       data-auto-open-rca={String(autoOpenRca)}
       data-source={String(source)}
       data-run-timestamp={String(runTimestamp)}
+      data-new-tab-params={JSON.stringify(newTabParams ?? null)}
     >
       <span data-testid="panel-trace">{traceId}</span>
       <button type="button" onClick={onClose}>
@@ -161,6 +168,8 @@ afterEach(() => {
   mocks.useRuns.mockImplementation(defaultUseRuns);
   mocks.searchParam.mockReset();
   mocks.searchParam.mockReturnValue(null);
+  mocks.searchEntries.mockReset();
+  mocks.searchEntries.mockReturnValue([]);
   mocks.filters = [];
   mocks.updateFilters.mockClear();
 });
@@ -290,6 +299,25 @@ describe("DetectorDetailPage", () => {
     rerender(<DetectorDetailPage />);
 
     expect(screen.queryByTestId("trace-panel")).toBeNull();
+  });
+
+  it("hands its list state, not an earlier deep link, to the trace's new tab", () => {
+    const filters = JSON.stringify([{ field: "identified", op: "in", value: ["Yes"] }]);
+    mocks.searchEntries.mockReturnValue([
+      ["filters", filters],
+      ["page_index", "2"],
+      ["traceId", "old"],
+      ["source", "agent"],
+      ["fullscreen", "1"],
+    ]);
+    render(<DetectorDetailPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "trace-abc" }));
+    const params = JSON.parse(
+      screen.getByTestId("trace-panel").getAttribute("data-new-tab-params")!,
+    ) as Record<string, string>;
+    // A popped-out trace lands on the same filtered page, so its row is there.
+    expect(params).toEqual({ filters, page_index: "2" });
   });
 
   it("auto-opens the panel for a ?traceId= deep link", () => {

@@ -75,6 +75,11 @@ interface TraceViewerPanelProps {
    */
   newTabPath?: string;
   /**
+   * More query parameters the new tab keeps, such as the list's filters and
+   * page, so the page it reopens still holds the row this trace came from.
+   */
+  newTabParams?: Record<string, string>;
+  /**
    * When provided, this trace is used directly instead of fetching it, and the
    * live SSE stream + detector-findings lookups are disabled. Lets the
    * offline-eval surface render the genuine viewer from provided data.
@@ -186,6 +191,7 @@ export function TraceViewerPanel({
   embedded,
   initialSpanId,
   newTabPath,
+  newTabParams,
   traceOverride,
   hideDetectors,
   spanActions,
@@ -492,8 +498,8 @@ export function TraceViewerPanel({
                       // reopen it as one instead of looking it up as an original.
                       extraParams:
                         source === "detector" || source === "agent"
-                          ? { traceId: traceId, fullscreen: "1", source: source }
-                          : { traceId: traceId, fullscreen: "1" },
+                          ? { ...newTabParams, traceId: traceId, fullscreen: "1", source: source }
+                          : { ...newTabParams, traceId: traceId, fullscreen: "1" },
                     }),
                     "_blank",
                   )
