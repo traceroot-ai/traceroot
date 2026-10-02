@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, ArrowUpRight, Expand, Shrink, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,25 +9,12 @@ import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { LoadingState } from "@/components/ui/loading-state";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { TR } from "@/components/ui/table";
 import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { QueryWidgetRenderer } from "@/features/dashboards/components/renderers";
 import { cn, formatCost, formatDate, formatDuration } from "@/lib/utils";
-import {
-  useSignal,
-  useSignalTraces,
-  type SignalDetail,
-  type SignalPopulation,
-  type SignalTimeRange,
-} from "../hooks";
+import { useSignal, useSignalTraces, type SignalDetail, type SignalTimeRange } from "../hooks";
 import { RunRca } from "./run-rca";
 import { SignalStatusControl } from "./signal-status-control";
 
@@ -62,11 +49,6 @@ function Block({
     </section>
   );
 }
-
-const POPULATION_LABELS: Record<SignalPopulation, string> = {
-  similar: "Similar",
-  all: "All",
-};
 
 interface SignalDetailPanelProps {
   projectId: string;
@@ -110,13 +92,7 @@ export function SignalDetailPanel({
 }: SignalDetailPanelProps) {
   const { aiPanelOpen, setAiPanelOpen, setAiContext, setAiInitialSessionId, registerAiHost } =
     useLayout();
-  const [population, setPopulation] = useState<SignalPopulation>("similar");
-  const { data, isPending, isPlaceholderData, error } = useSignal(
-    projectId,
-    signalId,
-    range,
-    population,
-  );
+  const { data, isPending, isPlaceholderData, error } = useSignal(projectId, signalId, range);
 
   // Claim the AI slot for this panel, as the session panel does. On unmount,
   // also clear the AI state: otherwise aiPanelOpen stays true after this host
@@ -239,8 +215,6 @@ export function SignalDetailPanel({
                   detail={data}
                   rangePicker={rangePicker}
                   tracesHref={tracesHref}
-                  population={population}
-                  onPopulationChange={setPopulation}
                   onOpenAgent={openAgent}
                   onOpenTrace={onOpenTrace}
                 />
@@ -281,26 +255,22 @@ function SignalBlocks({
   detail,
   rangePicker,
   tracesHref,
-  population,
-  onPopulationChange,
   onOpenAgent,
   onOpenTrace,
 }: {
-  /** The window or population changed and the previous answer shows until the new one arrives. */
+  /** The window changed and the previous answer shows until the new one arrives. */
   refreshing?: boolean;
   projectId: string;
   detail: SignalDetail;
   rangePicker: ReactNode;
   tracesHref: string;
-  population: SignalPopulation;
-  onPopulationChange: (population: SignalPopulation) => void;
   onOpenAgent: (sessionId?: string) => void;
   onOpenTrace: (traceId: string, traceIds: string[]) => void;
 }) {
   const { signal, hits, hitSeries, window } = detail;
   const rca = signal.canonicalRca;
   const affected = hitSeries.reduce((sum, b) => sum + b.hits, 0);
-  // All traces of the population in the window; null when that count is unavailable.
+  // The traces the signal's detector checked in the window; null when that count is unavailable.
   const total = hitSeries.some((b) => b.unaffected === null)
     ? null
     : hitSeries.reduce((sum, b) => sum + b.hits + (b.unaffected ?? 0), 0);
@@ -352,34 +322,7 @@ function SignalBlocks({
         </div>
       </Block>
 
-      <Block
-        title="Count over time"
-        plain
-        headerAction={
-          <div className="flex items-center gap-2">
-            {rangePicker}
-            <Select
-              value={population}
-              onValueChange={(v) => onPopulationChange(v as SignalPopulation)}
-            >
-              <SelectTrigger
-                className="h-8 w-[110px] text-[13px]"
-                aria-label="Frequency population"
-                title="Similar: traces this signal's detector checked. All: every trace in the project."
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(POPULATION_LABELS) as SignalPopulation[]).map((p) => (
-                  <SelectItem key={p} value={p} className="text-[13px]">
-                    {POPULATION_LABELS[p]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        }
-      >
+      <Block title="Count over time" plain headerAction={rangePicker}>
         <div
           className={cn("px-3 pb-2.5 pt-1 transition-opacity", refreshing && "opacity-50")}
           aria-busy={refreshing}

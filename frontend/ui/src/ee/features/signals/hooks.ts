@@ -40,9 +40,6 @@ export interface SignalListQuery extends SignalTimeRange {
   filters?: Predicate[];
 }
 
-/** Which traces the chart compares a signal's against: its detector's, or the project's. */
-export type SignalPopulation = "similar" | "all";
-
 /** A signal with what its panel shows. */
 export interface SignalDetail {
   merged: false;
@@ -70,7 +67,7 @@ export interface SignalDetail {
   window: { from: string; to: string; granularity: "hour" | "day" };
   /**
    * Per local hour or day of the window: the signal's traces, and the other
-   * traces of the population (null when that count could not be read).
+   * traces its detector checked (null when that count could not be read).
    */
   hitSeries: { bucket: string; hits: number; unaffected: number | null }[];
   /** Newest first. */
@@ -125,13 +122,8 @@ export function useSignals(projectId: string, query: SignalListQuery) {
 /** The viewer's IANA time zone, so chart buckets are their local hours and days. */
 const viewerTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-export function useSignal(
-  projectId: string,
-  signalId: string | null,
-  range: SignalTimeRange,
-  population: SignalPopulation,
-) {
-  const params = new URLSearchParams({ tz: viewerTimeZone(), population });
+export function useSignal(projectId: string, signalId: string | null, range: SignalTimeRange) {
+  const params = new URLSearchParams({ tz: viewerTimeZone() });
   if (range.startAfter) params.set("start_after", range.startAfter);
   if (range.endBefore) params.set("end_before", range.endBefore);
   const qs = params.toString();
@@ -140,7 +132,7 @@ export function useSignal(
     queryFn: () =>
       getJson<SignalResponse>(`/api/projects/${projectId}/signals/${signalId}?${qs}`, "signal"),
     enabled: !!projectId && !!signalId,
-    // A new time window or population of the same signal keeps showing the
+    // A new time window of the same signal keeps showing the
     // previous answer until the new one arrives, instead of blanking the panel;
     // another signal starts empty, so its panel never shows the previous one.
     placeholderData: (previous, previousQuery) =>

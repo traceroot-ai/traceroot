@@ -141,7 +141,7 @@ function parseWindow(searchParams: URLSearchParams): {
   return { window: { from, to } };
 }
 
-/** A single retained window for list counts, panel traces and chart populations. */
+/** A single retained window for list counts, panel traces and the chart. */
 async function retainedWindow(window: { from: Date; to: Date } | undefined, workspaceId: string) {
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
@@ -243,19 +243,14 @@ function isValidTimeZone(tz: string): boolean {
   }
 }
 
-/** Which traces the chart compares the signal's against. */
-const POPULATIONS = ["similar", "all"] as const;
-type Population = (typeof POPULATIONS)[number];
-
 /**
- * Traces per local bucket of the window, read from the backend: the ones the
- * signal's detector checked ("similar"), or all of the project's. Null when the
- * backend cannot be reached, so the chart still shows the signal's own traces.
+ * Traces per local bucket of the window that the signal's detector checked, read
+ * from the backend. Null when the backend cannot be reached, so the chart still
+ * shows the signal's own traces.
  */
 async function tracesPerBucket(
   projectId: string,
   detectorId: string,
-  population: Population,
   window: { from: Date; to: Date; granularity: "hour" | "day" },
   tz: string,
 ): Promise<Map<string, number> | null> {
@@ -265,8 +260,8 @@ async function tracesPerBucket(
     end_before: window.to.toISOString(),
     granularity: window.granularity,
     tz,
+    detector_id: detectorId,
   });
-  if (population === "similar") qs.set("detector_id", detectorId);
   try {
     const res = await fetch(`${BACKEND_URL}/api/v1/internal/trace-counts?${qs}`, {
       headers: { "X-Internal-Secret": env.INTERNAL_API_SECRET || "" },
@@ -280,9 +275,9 @@ async function tracesPerBucket(
   }
 }
 
-// GET /api/projects/[projectId]/signals/[signalId]?start_after=&end_before=&tz=&population=similar
+// GET /api/projects/[projectId]/signals/[signalId]?start_after=&end_before=&tz=
 // Buckets are the viewer's local hours or days. Each carries the signal's traces
-// and, when the backend answers, the other traces of the population.
+// and, when the backend answers, the other traces its detector checked.
 export async function handleGetSignal(
   req: NextRequest,
   { params }: Params<{ projectId: string; signalId: string }>,
@@ -295,10 +290,6 @@ export async function handleGetSignal(
   if (error) return errorResponse(error, 400);
   const tz = searchParams.get("tz") || "UTC";
   if (!isValidTimeZone(tz)) return errorResponse("tz must be an IANA time zone", 400);
-  const population = searchParams.get("population") || "similar";
-  if (!(POPULATIONS as readonly string[]).includes(population)) {
-    return errorResponse(`population must be one of ${POPULATIONS.join(", ")}`, 400);
-  }
   const effectiveWindow = await retainedWindow(window, auth.project.workspaceId);
   const result = await getSignal(prisma, {
     projectId,
@@ -309,13 +300,7 @@ export async function handleGetSignal(
   });
   if (!result) return errorResponse("Signal not found", 404);
   if (result.merged) return successResponse(result);
-  const counted = await tracesPerBucket(
-    projectId,
-    result.signal.detectorId,
-    population as Population,
-    result.window,
-    tz,
-  );
+  const counted = await tracesPerBucket(projectId, result.signal.detectorId, result.window, tz);
   return successResponse({
     ...result,
     // Without the key the worker runs no signal RCA, so the panel offers none.

@@ -355,28 +355,9 @@ describe("reads", () => {
 
     core.getSignal.mockResolvedValueOnce(null);
     expect((await handleGetSignal(req(), signalParams)).status).toBe(404);
-    for (const bad of ["?tz=Mars%2FBase", "?population=some", "?start_after=soon"]) {
+    for (const bad of ["?tz=Mars%2FBase", "?start_after=soon"]) {
       expect((await handleGetSignal(req(undefined, bad), signalParams)).status).toBe(400);
     }
-  });
-
-  it("compares against all of the project's traces when asked", async () => {
-    core.getSignal.mockResolvedValueOnce({
-      merged: false,
-      signal: { id: "s1", detectorId: "d1" },
-      window: { from: new Date(0), to: new Date(86_400_000 * 7), granularity: "day" },
-      hitSeries: [{ bucket: "1970-01-02", hits: 1 }],
-    });
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ data: [{ bucket: "1970-01-02", count: 40 }] }),
-    });
-    const res = await handleGetSignal(req(undefined, "?population=all"), signalParams);
-    expect(await res.json()).toMatchObject({
-      hitSeries: [{ bucket: "1970-01-02", hits: 1, unaffected: 39 }],
-    });
-    const sent = new URL(mockFetch.mock.calls[0][0]);
-    expect(sent.searchParams.has("detector_id")).toBe(false);
   });
 
   it("joins the two real hours of a DST fall-back night to their own counts, not each other's", async () => {

@@ -764,26 +764,23 @@ def list_trace_counts(
     project_id: str,
     start_after: datetime = Query(..., description="Window start (inclusive)"),
     end_before: datetime = Query(..., description="Window end (exclusive)"),
-    detector_id: str | None = Query(
-        None, description="Count the traces this detector checked; all traces when omitted"
-    ),
+    detector_id: str = Query(..., description="Detector whose checked traces to count"),
     granularity: Literal["hour", "day"] = Query("day", description="Bucket width"),
     tz: str = Query(
         "UTC",
         description="IANA zone name local buckets are computed in, e.g. 'America/New_York'",
     ),
 ):
-    """Traces per LOCAL hour or day in ``tz``: the ones a detector checked, or all of them.
+    """Traces per LOCAL hour or day in ``tz`` that a detector checked.
 
-    Both populations count distinct traces by trace start time. With
-    ``detector_id``, only traces this detector has evaluated are included; retries
-    never count twice or move a trace into the detection-time bucket.
+    Counts distinct traces by trace start time, so retries never count twice or
+    move a trace into the detection-time bucket.
 
     Args:
         project_id (str): Project to count in.
         start_after (datetime): Window start (inclusive).
         end_before (datetime): Window end (exclusive).
-        detector_id (str | None): Detector whose checked traces to count.
+        detector_id (str): Detector whose checked traces to count.
         granularity (str): ``hour`` or ``day``.
         tz (str): IANA zone name the buckets are computed in. Validated against the
             system's tz database before it reaches SQL, so an unknown name is a 422,
@@ -805,29 +802,14 @@ def list_trace_counts(
     ch = get_clickhouse_client()
     params: dict = {
         "project_id": project_id,
+        "detector_id": detector_id,
         "start_after": to_utc_naive(start_after),
         "end_before": to_utc_naive(end_before),
         "tz": tz,
     }
-    checked = ""
-    if detector_id is not None:
-        params["detector_id"] = detector_id
-        checked = """
-              AND trace_id IN (
-                  SELECT trace_id FROM detector_runs
-                  WHERE project_id = {project_id:String}
-                    AND detector_id = {detector_id:String}
-                    AND trace_id IN (
-                        SELECT trace_id FROM traces
-                        WHERE project_id = {project_id:String}
-                          AND trace_start_time >= {start_after:DateTime64(3)}
-                          AND trace_start_time < {end_before:DateTime64(3)}
-                    )
-              )
-        """
-    # Same customer-traffic and evaluation exclusions the Traces list applies, so this
-    # chart's "all traces" population matches what the user can actually see there
-    # instead of also counting detector/assistant self-traces and offline-eval runs.
+    # Same customer-traffic and evaluation exclusions the Traces list applies, so the
+    # chart counts only traces the user can actually see there, never detector or
+    # assistant self-traces and offline-eval runs.
     source = f"""
         SELECT t.trace_id AS id, argMax(t.trace_start_time, t.ch_update_time) AS ts
         FROM traces t
@@ -840,7 +822,17 @@ def list_trace_counts(
           )
           AND {customer_traffic_only("t")}
           AND {_evaluation_exclusion(params)}
-          {checked}
+          AND t.trace_id IN (
+              SELECT trace_id FROM detector_runs
+              WHERE project_id = {{project_id:String}}
+                AND detector_id = {{detector_id:String}}
+                AND trace_id IN (
+                    SELECT trace_id FROM traces
+                    WHERE project_id = {{project_id:String}}
+                      AND trace_start_time >= {{start_after:DateTime64(3)}}
+                      AND trace_start_time < {{end_before:DateTime64(3)}}
+                )
+          )
         GROUP BY t.trace_id
     """
     counted = "uniqExact(id)"

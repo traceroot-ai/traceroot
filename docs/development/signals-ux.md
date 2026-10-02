@@ -13,9 +13,9 @@ It references #2399 and #2404 without closing the full UX issue.
   default is seven days; stored preferences and shared links take precedence.
   Plan retention clamps preset and custom ranges. The range counts affected
   traces without hiding signals that have no hits in it.
-- Signal title, criteria, canonical RCA, Similar/All chart populations, full-screen
-  controls and a recent affected-traces table. Similar counts distinct traces
-  evaluated by the detector; All counts distinct project traces.
+- Signal title, criteria, canonical RCA, a count-over-time chart, full-screen
+  controls and a recent affected-traces table. The chart compares the signal's
+  traces with the distinct traces its detector checked.
 - Resolve and dismiss require a reason; Other requires a note. Status writes
   include the status shown when the user acted (for resolve and dismiss, when
   the dialog opened), so a change made meanwhile is refused.
@@ -43,7 +43,7 @@ It references #2399 and #2404 without closing the full UX issue.
 - A Pending hit on a trace's Detectors tab is reread every 10 seconds until it is
   grouped, for at most ten minutes.
 - Hour buckets carry their UTC offset (e.g. `2026-11-01T01:00-04:00`) in the core
-  hit series, the ClickHouse chart population and the join between them, so the two
+  hit series, the ClickHouse count of checked traces and the join between them, so the two
   real 01:00 hours of a daylight-saving fall-back night stay apart. Day buckets are
   unchanged.
 
@@ -88,7 +88,7 @@ also lag a newly committed assignment or move until its copy is repaired.
 UI hook and route regressions cover signal switches and retained custom ranges.
 Core read tests cover list counts, local chart buckets and explicit long windows.
 Worker tests cover missing times and idempotent retry completion. REST tests cover
-signal filtering, scoped waiting hits and distinct trace chart populations.
+signal filtering, scoped waiting hits and the distinct checked traces behind the chart.
 
 Real Postgres checks additionally exercised delayed detection across a window,
 exclusive end bounds, unknown times, timezone buckets, project isolation, empty

@@ -763,6 +763,7 @@ class TestListTraceCounts:
             self.URL,
             params={
                 "project_id": "p1",
+                "detector_id": "d-a",
                 "start_after": "2026-04-20T00:00:00Z",
                 "end_before": "2026-04-27T00:00:00Z",
                 **extra_params,
@@ -804,14 +805,23 @@ class TestListTraceCounts:
         assert "max(timestamp)" not in sql
         assert sql.index("GROUP BY t.trace_id") < sql.index("ts >=")
 
-    def test_without_a_detector_counts_distinct_traces(self, client, mock_ch, secret):
-        sql, params = self._sql(client, mock_ch, secret)
-        assert "FROM traces" in sql
-        assert "detector_runs" not in sql
-        assert "uniqExact(id)" in sql
+    def test_requires_a_detector(self, client, mock_ch, secret):
+        resp = client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_scans_only_the_window(self, client, mock_ch, secret):
+        sql, _ = self._sql(client, mock_ch, secret)
         # The inner range keeps the scan inside the window's partitions.
         assert "trace_start_time >= {start_after:DateTime64(3)}" in sql
-        assert "detector_id" not in params
 
     def test_day_buckets_by_local_day(self, client, mock_ch, secret):
         sql, params = self._sql(client, mock_ch, secret, tz="America/New_York")
@@ -855,6 +865,7 @@ class TestListTraceCounts:
             self.URL,
             params={
                 "project_id": "p1",
+                "detector_id": "d-a",
                 "start_after": "2026-04-20T00:00:00Z",
                 "end_before": "2026-04-27T00:00:00Z",
             },
@@ -865,6 +876,7 @@ class TestListTraceCounts:
         for missing in ("start_after", "end_before"):
             params = {
                 "project_id": "p1",
+                "detector_id": "d-a",
                 "start_after": "2026-04-20T00:00:00Z",
                 "end_before": "2026-04-27T00:00:00Z",
             }

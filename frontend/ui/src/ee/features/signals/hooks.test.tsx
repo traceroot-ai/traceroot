@@ -24,14 +24,14 @@ it("clears the previous signal while the newly selected signal is loading", asyn
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
-  const { result, rerender, unmount } = renderHook(({ id }) => useSignal("p", id, {}, "similar"), {
+  const { result, rerender, unmount } = renderHook(({ id }) => useSignal("p", id, {}), {
     initialProps: { id: "a" },
     wrapper,
   });
   await waitFor(() => expect(result.current.isSuccess).toBe(true));
   expect(fetchMock).toHaveBeenNthCalledWith(
     1,
-    expect.stringMatching(/^\/api\/projects\/p\/signals\/a\?tz=[^&]+&population=similar$/),
+    expect.stringMatching(/^\/api\/projects\/p\/signals\/a\?tz=[^&]+$/),
   );
   rerender({ id: "b" });
   expect(result.current.data).toBeUndefined();
@@ -44,7 +44,7 @@ it("clears the previous signal while the newly selected signal is loading", asyn
   await waitFor(() => expect(result.current.data).toMatchObject({ signal: { id: "b" } }));
   expect(fetchMock).toHaveBeenNthCalledWith(
     2,
-    expect.stringMatching(/^\/api\/projects\/p\/signals\/b\?tz=[^&]+&population=similar$/),
+    expect.stringMatching(/^\/api\/projects\/p\/signals\/b\?tz=[^&]+$/),
   );
   unmount();
   client.clear();
@@ -102,7 +102,7 @@ it("keeps the signal on screen while a new time window loads", async () => {
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
   const { result, rerender, unmount } = renderHook(
-    ({ start }) => useSignal("p", "a", { startAfter: start }, "similar"),
+    ({ start }) => useSignal("p", "a", { startAfter: start }),
     { initialProps: { start: "2026-09-25T00:00:00.000Z" }, wrapper },
   );
   await waitFor(() => expect(result.current.isSuccess).toBe(true));

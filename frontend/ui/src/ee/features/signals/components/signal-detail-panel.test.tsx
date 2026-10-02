@@ -29,14 +29,6 @@ vi.mock("@/components/ui/resizable", () => ({
   ResizableHandle: () => null,
 }));
 
-vi.mock("@/components/ui/select", () => ({
-  Select: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  SelectTrigger: () => null,
-  SelectValue: () => null,
-  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  SelectItem: () => null,
-}));
-
 vi.mock("@/features/dashboards/components/renderers", () => ({
   QueryWidgetRenderer: () => null,
 }));
