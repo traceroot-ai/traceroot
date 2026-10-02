@@ -10,10 +10,13 @@ type OpeningRow = {
   reopenSeq: number;
   findingId: string;
   createTime: Date;
-  rca: { status: string; result?: string | null; completedAt?: Date | null };
+  /** The last successful answer that covered this opening, kept on it. */
+  result: string | null;
+  /** The finding's latest attempt. */
+  rca: { status: string };
 };
 
-/** The RCA state of the signal's current opening, and whether any RCA finished. */
+/** The RCA state of the signal's current opening, and whether any RCA succeeded. */
 function rcaSummary(rcas: OpeningRow[], reopenSeq: number) {
   const current = rcas.find((r) => r.reopenSeq === reopenSeq);
   const canonical = pickCanonicalRca(rcas);
@@ -60,6 +63,7 @@ export async function listSignals(
             reopenSeq: true,
             findingId: true,
             createTime: true,
+            result: true,
             rca: { select: { status: true } },
           },
         },
@@ -101,7 +105,9 @@ export async function getSignal(db: ReadDb, params: { projectId: string; signalI
           reopenSeq: true,
           findingId: true,
           createTime: true,
-          rca: { select: { status: true, result: true, completedAt: true } },
+          result: true,
+          sessionId: true,
+          rca: { select: { status: true } },
         },
         orderBy: { reopenSeq: "desc" },
       },
@@ -146,12 +152,14 @@ export async function getSignal(db: ReadDb, params: { projectId: string; signalI
     signal: {
       ...rest,
       rca: rcaSummary(rcas, rest.reopenSeq),
+      // The newest opening that kept a successful answer: a later failed or
+      // pending attempt on a shared finding does not take it away.
       canonicalRca: canonical
         ? {
             findingId: canonical.findingId,
             reopenSeq: canonical.reopenSeq,
-            result: canonical.rca.result ?? null,
-            completedAt: canonical.rca.completedAt ?? null,
+            result: canonical.result,
+            sessionId: canonical.sessionId,
           }
         : null,
       rcaHistory: rcas.map((r) => ({

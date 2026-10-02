@@ -46,7 +46,15 @@ const signal = (over: Partial<SignalRow>): SignalRow => ({
 });
 
 /** In-memory signals and hits behind a transaction, logging the lock. */
-type RcaRow = { signalId: string; reopenSeq: number; findingId: string; createTime: Date };
+type RcaRow = {
+  signalId: string;
+  reopenSeq: number;
+  findingId: string;
+  createTime: Date;
+  result?: string | null;
+  rootCause?: string | null;
+  sessionId?: string | null;
+};
 
 function fakeDb(signals: SignalRow[], hits: HitRow[] = [], rcas: RcaRow[] = []) {
   const log: string[] = [];
@@ -257,7 +265,15 @@ describe("mergeSignals", () => {
   it("carries the source's RCAs over, numbered below the target's own openings", async () => {
     const rcas: RcaRow[] = [
       { signalId: "a", reopenSeq: 0, findingId: "fa0", createTime: t(1) },
-      { signalId: "a", reopenSeq: 1, findingId: "fa1", createTime: t(8) },
+      {
+        signalId: "a",
+        reopenSeq: 1,
+        findingId: "fa1",
+        createTime: t(8),
+        result: "kept answer",
+        rootCause: "kept cause",
+        sessionId: "sess",
+      },
       { signalId: "b", reopenSeq: 0, findingId: "fb0", createTime: t(2) },
       { signalId: "b", reopenSeq: -1, findingId: "old", createTime: t(0) },
     ];
@@ -270,6 +286,13 @@ describe("mergeSignals", () => {
       [-2, "fa1"],
       [-3, "fa0"],
     ]);
+    // A carried opening keeps its last successful answer.
+    expect(f.rcas.find((r) => r.findingId === "fa1")).toMatchObject({
+      signalId: "b",
+      result: "kept answer",
+      rootCause: "kept cause",
+      sessionId: "sess",
+    });
     expect(f.rcas.some((r) => r.signalId === "a")).toBe(false);
   });
 
@@ -436,11 +459,14 @@ describe("moveHit", () => {
 });
 
 describe("reads", () => {
+  /** An opening: its kept answer (null if none succeeded) and the finding's latest attempt. */
   const rca = (reopenSeq: number, status: string, result: string | null = null) => ({
     reopenSeq,
     findingId: `f${reopenSeq}`,
     createTime: t(reopenSeq),
-    rca: { status, result, completedAt: status === "done" ? t(reopenSeq) : null },
+    result,
+    sessionId: result ? `sess-${reopenSeq}` : null,
+    rca: { status },
   });
 
   it("lists a detector's signals with the state of their RCAs", async () => {
@@ -451,7 +477,7 @@ describe("reads", () => {
         status: "open",
         reopenSeq: 1,
         hitCount: 3,
-        rcas: [rca(0, "done"), rca(1, "running")],
+        rcas: [rca(0, "done", "first answer"), rca(1, "running")],
       },
     ]);
     const count = vi.fn(async () => 120);
@@ -477,7 +503,8 @@ describe("reads", () => {
           title: "A",
           reopenSeq: 2,
           mergedIntoId: null,
-          rcas: [rca(2, "failed"), rca(1, "done", "cause one"), rca(0, "done", "cause zero")],
+          // Opening 1 kept its answer though the shared finding's latest attempt failed.
+          rcas: [rca(2, "failed"), rca(1, "failed", "cause one"), rca(0, "done", "cause zero")],
         })),
       },
       signalHit: { findMany: vi.fn(async () => [{ runId: "r1" }]) },
@@ -491,7 +518,7 @@ describe("reads", () => {
       merged: false,
       signal: {
         rca: { currentState: "failed", canonicalFindingId: "f1" },
-        canonicalRca: { findingId: "f1", reopenSeq: 1, result: "cause one" },
+        canonicalRca: { findingId: "f1", reopenSeq: 1, result: "cause one", sessionId: "sess-1" },
       },
       hits: [{ runId: "r1" }],
       statusEvents: [{ reason: "new_hit" }],

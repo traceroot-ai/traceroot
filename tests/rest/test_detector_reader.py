@@ -542,6 +542,19 @@ def test_get_finding_inherits_the_signal_rca_when_it_ran_none(reader, monkeypatc
     assert detail.rca.result.endswith("- Root cause: swallowed timeout")
 
 
+def test_inherited_rca_reads_the_answer_kept_on_the_opening(reader, monkeypatch):
+    """The signal's answer is the one kept on its opening, not the shared finding's
+    latest attempt, which a later signal on the same trace resets and may fail."""
+    _two_detector_finding(reader)
+    calls = []
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(inherited=[], calls=calls))
+    reader.get_finding("p1", "f1")
+    sql = next(sql for sql, _ in calls if "from signal_rcas" in sql)
+    assert "sr.result is not null" in sql
+    assert "dr.status" not in sql
+    assert "sr.signal_id, sr.result," in sql
+
+
 def test_get_finding_has_no_rca_when_the_signal_has_no_finished_one(reader, monkeypatch):
     _two_detector_finding(reader)
     monkeypatch.setattr(reader, "_pg_rows", _signals_pg(inherited=[]))
