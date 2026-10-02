@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   error: null as unknown,
   push: vi.fn(),
   prefetch: vi.fn(),
+  signalHits: [] as unknown[],
 }));
 
 vi.mock("@/features/detectors/hooks/use-findings", () => ({
@@ -17,6 +18,10 @@ vi.mock("@/features/detectors/hooks/use-findings", () => ({
     error: mocks.error,
   }),
   selfTraceId: (run: { run_id: string }) => run.run_id.replaceAll("-", ""),
+}));
+
+vi.mock("@/ee/features/signals/hooks", () => ({
+  useTraceSignals: () => ({ data: { hits: mocks.signalHits } }),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -58,6 +63,7 @@ afterEach(() => {
   mocks.error = null;
   mocks.push.mockReset();
   mocks.prefetch.mockReset();
+  mocks.signalHits = [];
 });
 
 describe("sortDetectorRuns", () => {
@@ -140,6 +146,34 @@ describe("TraceDetectorsTab", () => {
     const row = screen.getByText("Safety").closest("tr") as HTMLElement;
     fireEvent.mouseEnter(row);
     expect(mocks.prefetch).toHaveBeenCalledWith("URL(/projects/proj-1/detectors/det-9?tab=runs)");
+  });
+
+  it("links a hit to the signal it was grouped into", () => {
+    mocks.runs = [
+      run({ run_id: "1", detector_id: "det-9", name: "Safety", finding_id: "f-1" }),
+      run({ run_id: "2", detector_id: "det-8", name: "Latency", finding_id: null }),
+    ];
+    mocks.signalHits = [
+      {
+        runId: "1",
+        detectorId: "det-9",
+        findingId: "f-1",
+        signalId: "sig-1",
+        signalTitle: "Unsafe reply",
+        signalStatus: "open",
+      },
+    ];
+    render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
+
+    expect(screen.getByRole("columnheader", { name: "Signal" })).toBeTruthy();
+    const link = screen.getByRole("link", { name: "Unsafe reply" });
+    expect(link.getAttribute("href")).toBe("/projects/proj-1/signals?signalId=sig-1");
+    // The link opens the signal, not the row's detector page.
+    fireEvent.click(link);
+    expect(mocks.push).not.toHaveBeenCalled();
+    // A run with no grouped hit has no signal.
+    const latencyRow = screen.getByText("Latency").closest("tr") as HTMLElement;
+    expect(latencyRow.textContent).toContain("—");
   });
 
   it("shows an empty state when no detectors ran", () => {

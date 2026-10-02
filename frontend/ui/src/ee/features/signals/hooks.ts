@@ -175,3 +175,26 @@ export function useSignalTraces(projectId: string, traceIds: string[]) {
     staleTime: 60_000,
   });
 }
+
+/** A detector hit on one trace and the signal it was grouped into. */
+export interface TraceSignalHit {
+  runId: string;
+  detectorId: string;
+  findingId: string;
+  signalId: string;
+  signalTitle: string;
+  signalStatus: SignalStatus;
+}
+
+/** The signals a trace's detector hits were grouped into. */
+export function useTraceSignals(projectId: string, traceId: string) {
+  return useQuery({
+    queryKey: ["signals", "trace", projectId, traceId],
+    queryFn: () =>
+      getJson<{ hits: TraceSignalHit[] }>(
+        `/api/projects/${projectId}/traces/${traceId}/signals`,
+        "trace signals",
+      ),
+    enabled: !!projectId && !!traceId,
+  });
+}

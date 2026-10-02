@@ -246,19 +246,13 @@ describe("TraceViewerPanel header actions", () => {
   });
 });
 
-describe("TraceViewerPanel RCA alert", () => {
-  it("hides the Alert button when there is no RCA record", () => {
-    renderPanel();
-    expect(screen.queryByText("Alert")).toBeNull();
-  });
-
-  it("opens the RCA session from the Alert button", () => {
+describe("TraceViewerPanel RCA chat", () => {
+  it("shows no Alert button for a trace with an RCA", () => {
     mocks.findings = { findings: [{ finding_id: "f1" }] };
     mocks.rca = { rca: { sessionId: "sess-rca" } };
     renderPanel({ traceOverride: undefined });
-    fireEvent.click(screen.getByText("Alert"));
-    expect(mocks.setAiInitialSessionId).toHaveBeenCalledWith("sess-rca");
-    expect(mocks.setAiPanelOpen).toHaveBeenCalledWith(true);
+    expect(screen.queryByText("Alert")).toBeNull();
+    expect(mocks.setAiPanelOpen).not.toHaveBeenCalled();
   });
 
   it("auto-opens the RCA chat when arriving from the findings page", () => {

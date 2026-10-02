@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { signalDeepLinkPath } from "@traceroot/core/signals";
 import { cn, formatDate, buildUrlWithFilters } from "@/lib/utils";
 import {
   useTraceDetectorRuns,
@@ -14,6 +16,7 @@ import {
   IdentifiedBadge,
   SummaryText,
 } from "@/features/detectors/components/detector-table-cells";
+import { useTraceSignals } from "@/ee/features/signals/hooks";
 
 /** A run is "identified" when it produced a finding. */
 function isIdentified(run: BackendRun): boolean {
@@ -48,12 +51,14 @@ interface TraceDetectorsTabProps {
  * page's table primitives for a consistent look. The trace-id and run-id
  * columns are dropped here — every row is this same trace, and the run id is
  * noise in this context. Clicking a row opens that detector's Runs tab; a
- * self-traced run deep-links straight to the run's own trace there. Fetches
- * its own data by traceId, independent of the trace fetch in the parent panel.
+ * self-traced run deep-links straight to the run's own trace there. The Signal
+ * column links a hit to the signal it was grouped into. Fetches its own data by
+ * traceId, independent of the trace fetch in the parent panel.
  */
 export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps) {
   const router = useRouter();
   const { data, isLoading, error } = useTraceDetectorRuns(projectId, traceId);
+  const { data: signalsData } = useTraceSignals(projectId, traceId);
 
   if (isLoading) {
     return (
@@ -72,6 +77,7 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
   }
 
   const runs = sortDetectorRuns(data?.runs ?? []);
+  const signalByRun = new Map((signalsData?.hits ?? []).map((h) => [h.runId, h]));
 
   if (runs.length === 0) {
     return (
@@ -89,7 +95,8 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
             <th className={cn(DETECTOR_TH, "w-[220px]")}>Name</th>
             <th className={cn(DETECTOR_TH, "w-[160px]")}>Timestamp</th>
             <th className={cn(DETECTOR_TH, "w-[90px]")}>Identified</th>
-            <th className={cn(DETECTOR_TH, "border-r-0")}>Summary</th>
+            <th className={DETECTOR_TH}>Summary</th>
+            <th className={cn(DETECTOR_TH, "w-[220px] border-r-0")}>Signal</th>
           </tr>
         </thead>
         <tbody>
@@ -106,6 +113,7 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
                   : { tab: "runs" },
               },
             );
+            const hit = signalByRun.get(r.run_id);
             return (
               <tr
                 key={r.run_id}
@@ -120,8 +128,22 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
                 <td className={DETECTOR_TD}>
                   <IdentifiedBadge identified={isIdentified(r)} />
                 </td>
-                <td className={cn(DETECTOR_TD, "max-w-[400px] border-r-0 text-foreground")}>
+                <td className={cn(DETECTOR_TD, "max-w-[400px] text-foreground")}>
                   <SummaryText summary={r.summary} />
+                </td>
+                <td className={cn(DETECTOR_TD, "max-w-[220px] border-r-0")}>
+                  {hit ? (
+                    <Link
+                      href={signalDeepLinkPath(projectId, hit.signalId)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="block truncate text-foreground underline-offset-2 hover:underline"
+                      title={hit.signalTitle}
+                    >
+                      {hit.signalTitle}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
                 </td>
               </tr>
             );
