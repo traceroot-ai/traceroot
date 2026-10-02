@@ -431,6 +431,7 @@ function SignalBlocks({
       <AffectedTraces
         projectId={projectId}
         hits={hits}
+        refreshing={refreshing}
         viewAllHref={tracesHref}
         onOpenTrace={onOpenTrace}
       />
@@ -446,16 +447,19 @@ const TD = "px-3 py-1.5 text-[12px]";
 
 /**
  * The signal's latest traces in the window, as the traces list shows them; a row
- * opens the trace, "View all" opens the Tracing list narrowed to the signal.
+ * opens the trace, "View all" opens the Tracing list narrowed to the signal. While
+ * a new window loads, the previous window's rows stay up, faded like the chart.
  */
 function AffectedTraces({
   projectId,
   hits,
+  refreshing = false,
   viewAllHref,
   onOpenTrace,
 }: {
   projectId: string;
   hits: SignalDetail["hits"];
+  refreshing?: boolean;
   viewAllHref: string;
   onOpenTrace: (traceId: string, traceIds: string[]) => void;
 }) {
@@ -476,58 +480,62 @@ function AffectedTraces({
         </Link>
       }
     >
-      {traceIds.length === 0 ? (
-        <p className="px-3 py-2.5 text-[12px] text-muted-foreground">
-          No traces in this time range.
-        </p>
-      ) : (
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-border/50">
-              <th className={TH}>Timestamp</th>
-              <th className={TH}>Name</th>
-              <th className={TH}>Errors</th>
-              <th className={TH}>Cost</th>
-              <th className={TH}>Latency</th>
-            </tr>
-          </thead>
-          <tbody>
-            {traceIds.map((traceId) => {
-              const t = traces?.get(traceId);
-              const pending = isPending ? "…" : "-";
-              return (
-                <TR key={traceId} interactive onClick={() => onOpenTrace(traceId, traceIds)}>
-                  <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
-                    {formatDate(t?.trace_start_time ?? traceStartTimes.get(traceId))}
-                  </td>
-                  <td className={cn(TD, "text-foreground")}>
-                    {t?.name || (
-                      <span className="font-mono text-[11px] text-muted-foreground">{traceId}</span>
-                    )}
-                  </td>
-                  <td className={TD}>
-                    {!t ? (
-                      <span className="text-muted-foreground">{pending}</span>
-                    ) : t.error_count > 0 ? (
-                      <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
-                        {t.error_count}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">0</span>
-                    )}
-                  </td>
-                  <td className={cn(TD, "text-muted-foreground")}>
-                    {t?.total_cost != null ? formatCost(t.total_cost) : pending}
-                  </td>
-                  <td className={cn(TD, "text-muted-foreground")}>
-                    {t ? formatDuration(t.duration_ms) : pending}
-                  </td>
-                </TR>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+      <div className={cn("transition-opacity", refreshing && "opacity-50")} aria-busy={refreshing}>
+        {traceIds.length === 0 ? (
+          <p className="px-3 py-2.5 text-[12px] text-muted-foreground">
+            No traces in this time range.
+          </p>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border/50">
+                <th className={TH}>Timestamp</th>
+                <th className={TH}>Name</th>
+                <th className={TH}>Errors</th>
+                <th className={TH}>Cost</th>
+                <th className={TH}>Latency</th>
+              </tr>
+            </thead>
+            <tbody>
+              {traceIds.map((traceId) => {
+                const t = traces?.get(traceId);
+                const pending = isPending ? "…" : "-";
+                return (
+                  <TR key={traceId} interactive onClick={() => onOpenTrace(traceId, traceIds)}>
+                    <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
+                      {formatDate(t?.trace_start_time ?? traceStartTimes.get(traceId))}
+                    </td>
+                    <td className={cn(TD, "text-foreground")}>
+                      {t?.name || (
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {traceId}
+                        </span>
+                      )}
+                    </td>
+                    <td className={TD}>
+                      {!t ? (
+                        <span className="text-muted-foreground">{pending}</span>
+                      ) : t.error_count > 0 ? (
+                        <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+                          {t.error_count}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">0</span>
+                      )}
+                    </td>
+                    <td className={cn(TD, "text-muted-foreground")}>
+                      {t?.total_cost != null ? formatCost(t.total_cost) : pending}
+                    </td>
+                    <td className={cn(TD, "text-muted-foreground")}>
+                      {t ? formatDuration(t.duration_ms) : pending}
+                    </td>
+                  </TR>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
     </Block>
   );
 }

@@ -76,8 +76,16 @@ const signalDetail = vi.hoisted(() => ({
   statusEvents: [],
 }));
 
+/** Set per test: true while the previous window's answer stands in for a new one. */
+const signalQuery = vi.hoisted(() => ({ isPlaceholderData: false }));
+
 vi.mock("../hooks", () => ({
-  useSignal: () => ({ data: signalDetail, isPending: false, error: null }),
+  useSignal: () => ({
+    data: signalDetail,
+    isPending: false,
+    error: null,
+    isPlaceholderData: signalQuery.isPlaceholderData,
+  }),
   useSignalTraces: () => ({ data: new Map(), isPending: false }),
 }));
 
@@ -105,6 +113,7 @@ function renderPanel(onOpenTrace = vi.fn()) {
 
 afterEach(() => {
   cleanup();
+  signalQuery.isPlaceholderData = false;
   layoutMocks.setAiPanelOpen.mockReset();
   layoutMocks.setAiContext.mockReset();
   layoutMocks.setAiInitialSessionId.mockReset();
@@ -148,5 +157,25 @@ describe("SignalDetailPanel affected traces", () => {
     fireEvent.keyDown(row, { key: "Enter" });
 
     expect(onOpenTrace).toHaveBeenCalledWith("trace-1", ["trace-1"]);
+  });
+});
+
+describe("SignalDetailPanel time window refresh", () => {
+  it("marks the affected traces busy too while a new window loads", () => {
+    signalQuery.isPlaceholderData = true;
+    renderPanel();
+
+    // The rows still belong to the previous window, so they fade with the chart.
+    expect(screen.getByText("trace-1").closest('[aria-busy="true"]')).not.toBeNull();
+    const headline = screen.getByText(
+      (_, el) => el?.tagName === "P" && /affected$/.test(el.textContent ?? ""),
+    );
+    expect(headline.closest('[aria-busy="true"]')).not.toBeNull();
+  });
+
+  it("does not mark anything busy once the window has loaded", () => {
+    renderPanel();
+
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
   });
 });
