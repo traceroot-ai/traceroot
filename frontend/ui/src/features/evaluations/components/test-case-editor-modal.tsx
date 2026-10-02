@@ -41,7 +41,10 @@ export function TestCaseEditorModal({
   datasetId: string;
   mode: TestCaseEditorMode;
   onClose: () => void;
-  onSaved: () => void;
+  /** Called with the row the publish wants revealed (the server's `focusTestCaseId`)
+   *  and the version number it published, so the caller can wait for that snapshot
+   *  to load before revealing the row (null when no new version was published). */
+  onSaved: (focusTestCaseId: string | null, versionNumber: number | null) => void;
 }) {
   const { toast } = useToast();
   const save = useSaveTestCase(projectId, datasetId);
@@ -92,12 +95,19 @@ export function TestCaseEditorModal({
     const metadataObj: Record<string, unknown> | null = metadata.trim()
       ? (JSON.parse(metadata) as Record<string, unknown>)
       : null;
-    const onSuccess = () => {
+    // The row to reveal comes from the publish response, never re-derived here —
+    // the server decides where a case lands, and a duplicate POST short-circuits
+    // to an existing case rather than publishing a new one at all.
+    const onSuccess = (res: {
+      focusTestCaseId?: string;
+      testCaseId?: string;
+      versionNumber?: number;
+    }) => {
       toast({
         title: isEdit ? "Row saved — new version published" : "Row added",
         tone: "success",
       });
-      onSaved();
+      onSaved(res.focusTestCaseId || res.testCaseId || null, res.versionNumber ?? null);
       onClose();
     };
     const onError = (e: unknown) =>
