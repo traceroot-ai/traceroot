@@ -445,19 +445,37 @@ class DetectorReaderService:
             return {}
 
     def _read_rca(self, project_id: str, finding_id: str) -> RCAResult | None:
-        """Read the finding's free-text RCA from Postgres; None if missing/failed."""
+        """Read the finding's free-text RCA from Postgres; None if missing or the lookup fails.
+
+        The finding's row holds only the latest attempt, which a later signal on
+        the same trace resets and may fail. While that attempt is not done, the
+        newest successful answer kept on one of the finding's signal openings
+        stands for it.
+        """
         try:
             rows = self._pg_rows(
                 "SELECT status, result FROM detector_rcas "
                 "WHERE project_id = %s AND finding_id = %s LIMIT 1",
                 (project_id, finding_id),
             )
+            if not rows:
+                return None
+            status, result = rows[0]
+            if status != "done":
+                kept = self._pg_rows(
+                    "SELECT sr.result FROM signal_rcas sr "
+                    "JOIN detector_rcas dr ON dr.finding_id = sr.finding_id "
+                    "WHERE dr.project_id = %s AND sr.finding_id = %s "
+                    "AND sr.result IS NOT NULL "
+                    "ORDER BY sr.create_time DESC LIMIT 1",
+                    (project_id, finding_id),
+                )
+                if kept:
+                    return RCAResult(status="done", result=kept[0][0])
         except Exception:
             logger.warning("RCA lookup failed; returning rca=None", exc_info=True)
             return None
-        if not rows:
-            return None
-        return RCAResult(status=rows[0][0], result=rows[0][1])
+        return RCAResult(status=status, result=result)
 
     def _read_signals(
         self, project_id: str, finding_ids: list[str]

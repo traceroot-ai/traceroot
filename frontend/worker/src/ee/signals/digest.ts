@@ -349,4 +349,4 @@ export async function flushSignalDigest(
   return plan;
 }
 
-const SECTION_KINDS = ["new", "reopened", "ongoing"] as const;
+const SECTION_KINDS = ["new", "reopened"] as const;
