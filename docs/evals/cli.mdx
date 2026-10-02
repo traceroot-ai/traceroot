@@ -61,7 +61,7 @@ Each score is a **mean over the results that carried it**, not a headline number
 - A **boolean** score's value is the share that came back true, marked `(share true)`.
 - A **categorical** score has no mean. It prints `categorical` rather than a number — a label has no average.
 - **Cost** and **duration** are labelled `(mean per case)`. A run's total cost is a different, and usually much larger, number.
-- **Tokens and LLM calls** — `prompt_tokens`, `completion_tokens`, `total_tokens`, `llm_calls`, and `llm_duration` (time spent inside model calls) — are also means per case, taken over the results that reported them. They count the task's model calls only, not your scorers', and a case that made no model call is left out rather than averaged in as `0`.
+- **Tokens and LLM calls** — `prompt_tokens`, `completion_tokens`, `total_tokens`, `llm_calls`, and `llm_duration` (time spent in model calls, summed over a case's calls, so it can exceed the case's duration) — are also means per case, taken over the results that reported them. They count the task's model calls only, not your scorers', and a case that made no model call is left out rather than averaged in as `0`.
 
 ## Read a dataset
 
