@@ -55,6 +55,8 @@ export interface SignalDetail {
       result: string | null;
     } | null;
   };
+  /** Whether this deployment groups hits and runs their RCA (it has the key signals run on). */
+  grouping: boolean;
   /** The latest affected traces starting in the window. */
   hits: {
     runId: string;

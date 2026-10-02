@@ -11,13 +11,23 @@ export function RunRca({
   projectId,
   signalId,
   state,
+  available,
 }: {
   projectId: string;
   signalId: string;
   /** The current opening's analysis state; null when none was asked for. */
   state: string | null;
+  /** False when the deployment runs no signal RCA (it has no OpenAI API key). */
+  available: boolean;
 }) {
   const request = useRequestSignalRca(projectId, signalId);
+  if (!available) {
+    return (
+      <p className="text-[12px] text-muted-foreground">
+        No root cause analysis: this deployment has no OpenAI API key, which signals need.
+      </p>
+    );
+  }
   const running = rcaInProgress(state) || request.isPending;
   return (
     <div className="space-y-3" aria-live="polite">

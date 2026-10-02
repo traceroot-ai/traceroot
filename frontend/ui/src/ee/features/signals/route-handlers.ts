@@ -309,6 +309,8 @@ export async function handleGetSignal(
   );
   return successResponse({
     ...result,
+    // Without the key the worker runs no signal RCA, so the panel offers none.
+    grouping: signalsKeyConfigured(),
     hitSeries: result.hitSeries.map((b) => ({
       ...b,
       // The bucket's other traces; the clamp covers a hit counted before its trace lands.
@@ -433,6 +435,10 @@ export async function handleRequestSignalRca(
   const { projectId, signalId } = await params;
   const auth = await authorize(projectId, Role.MEMBER);
   if (auth.error) return auth.error;
+  // The worker starts signal RCAs only with the key; a request would wait forever.
+  if (!signalsKeyConfigured()) {
+    return errorResponse("This deployment has no OpenAI API key, which signals need", 409);
+  }
   const result = await requestSignalRca(prisma, { projectId, signalId });
   if (!result.ok) return errorResponse(result.error, result.status);
   await writeAudit(prisma, {

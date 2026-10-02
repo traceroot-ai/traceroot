@@ -322,7 +322,12 @@ function SignalBlocks({
               <MarkdownView content={rca.result} />
             </div>
           ) : (
-            <RunRca projectId={projectId} signalId={signal.id} state={signal.rca.currentState} />
+            <RunRca
+              projectId={projectId}
+              signalId={signal.id}
+              state={signal.rca.currentState}
+              available={detail.grouping}
+            />
           )}
         </div>
       </Block>

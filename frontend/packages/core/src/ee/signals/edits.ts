@@ -253,7 +253,7 @@ export async function moveHit(
  * paired with a finding the way an automatic opening is (an earlier attempt's
  * finding, else the signal's latest hit), and its RCA is left pending; the
  * worker's RCA sweep starts it, since only the worker reaches the job queue.
- * Asking again while it is pending changes nothing.
+ * Asking again while it is waiting or running changes nothing.
  */
 export async function requestSignalRca(
   db: Pick<PrismaClient, "$transaction">,
@@ -276,7 +276,9 @@ export async function requestSignalRca(
       where: { signalId_reopenSeq: opening },
       select: { findingId: true, result: true, rca: { select: { status: true } } },
     });
-    if (existing?.rca.status === "pending") return { ok: true, findingId: existing.findingId };
+    if (existing && (existing.rca.status === "pending" || existing.rca.status === "running")) {
+      return { ok: true, findingId: existing.findingId };
+    }
     if (existing?.result) {
       return { ok: false, status: 409, error: "The signal already has a root cause analysis" };
     }
@@ -298,7 +300,8 @@ export async function requestSignalRca(
       update: { status: "pending" },
     });
     if (existing) {
-      // Requested now: the sweep and the RCA cooldown read this time.
+      // Requested now: the sweep reads this time, and so does the reopen
+      // cooldown, which counts an analysis run by hand like an automatic one.
       await tx.signalRca.update({
         where: { signalId_reopenSeq: opening },
         data: { createTime: new Date() },

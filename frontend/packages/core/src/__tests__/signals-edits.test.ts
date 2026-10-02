@@ -946,8 +946,8 @@ describe("requestSignalRca", () => {
     expect(f.log).toEqual(["lock", "rca:f-old:pending", "opening:requested"]);
   });
 
-  it("changes nothing while an analysis is pending", async () => {
-    const f = rcaDb({ opening: {}, status: "pending" });
+  it.each(["pending", "running"])("changes nothing while an analysis is %s", async (status) => {
+    const f = rcaDb({ opening: {}, status });
     expect(await requestSignalRca(f.db, { projectId: "p", signalId: "a" })).toEqual({
       ok: true,
       findingId: "f-old",

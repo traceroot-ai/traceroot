@@ -296,6 +296,7 @@ describe("reads", () => {
       ok: true,
       json: async () => ({ data: [{ bucket: "2026-09-29T08:00", count: 10 }] }),
     });
+    core.signalsKeyConfigured.mockReturnValue(false);
     const res = await handleGetSignal(
       req(
         undefined,
@@ -305,6 +306,8 @@ describe("reads", () => {
     );
     expect(await res.json()).toMatchObject({
       signal: { id: "s1" },
+      // Without the key the panel offers no RCA.
+      grouping: false,
       // A bucket without traces counts none; a hit counted before its run row cannot go negative.
       hitSeries: [
         { bucket: "2026-09-29T08:00", hits: 2, unaffected: 8 },
@@ -536,6 +539,7 @@ describe("hand edits", () => {
 
 describe("hand-run RCA", () => {
   it("records the request as a member and audits it", async () => {
+    core.signalsKeyConfigured.mockReturnValue(true);
     core.requestSignalRca.mockResolvedValue({ ok: true, findingId: "f1" });
     const res = await handleRequestSignalRca(req(), signalParams);
     expect(await res.json()).toEqual({ status: "pending" });
@@ -550,7 +554,15 @@ describe("hand-run RCA", () => {
     );
   });
 
+  it("refuses when the deployment cannot run signal RCAs", async () => {
+    core.signalsKeyConfigured.mockReturnValue(false);
+    const res = await handleRequestSignalRca(req(), signalParams);
+    expect(res.status).toBe(409);
+    expect(core.requestSignalRca).not.toHaveBeenCalled();
+  });
+
   it("passes a refusal through without auditing", async () => {
+    core.signalsKeyConfigured.mockReturnValue(true);
     core.requestSignalRca.mockResolvedValue({ ok: false, status: 409, error: "no hits" });
     const res = await handleRequestSignalRca(req(), signalParams);
     expect(res.status).toBe(409);
