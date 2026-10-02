@@ -36,23 +36,28 @@ vi.mock("@/features/ai-assistant/components/model-selector", () => ({
     return null;
   },
 }));
-vi.mock("./rca-toggle", () => ({
-  RcaToggle: ({
-    id,
-    checked,
-    onCheckedChange,
+// Radix Select renders through a portal; a native <select> drives onValueChange.
+vi.mock("@/components/ui/select", () => ({
+  Select: ({
+    value,
+    onValueChange,
+    disabled,
+    children,
   }: {
-    id: string;
-    checked: boolean;
-    onCheckedChange: (checked: boolean) => void;
+    value: string;
+    onValueChange: (v: string) => void;
+    disabled?: boolean;
+    children: React.ReactNode;
   }) => (
-    <input
-      type="checkbox"
-      data-testid="rca-toggle"
-      id={id}
-      checked={checked}
-      onChange={(e) => onCheckedChange(e.target.checked)}
-    />
+    <select value={value} disabled={disabled} onChange={(e) => onValueChange(e.target.value)}>
+      {children}
+    </select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+    <option value={value}>{children}</option>
   ),
 }));
 
@@ -86,7 +91,11 @@ function renderPanel(detectorId = "det-1") {
   return { onClose, rerender };
 }
 
-const rcaToggle = () => screen.getByTestId("rca-toggle") as HTMLInputElement;
+/** The Root cause analysis select: "automatic" or "manual". */
+const rcaMode = () =>
+  [...document.querySelectorAll("select")].find((s) =>
+    [...s.options].some((o) => o.value === "automatic"),
+  ) as HTMLSelectElement;
 const promptBox = () => document.querySelector("textarea") as HTMLTextAreaElement;
 const saveButton = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
 const nameBox = () => screen.getByDisplayValue(baseDetector.name) as HTMLInputElement;
@@ -112,7 +121,7 @@ describe("DetectorPanel", () => {
     renderPanel();
     expect(screen.getByDisplayValue("Latency spikes")).toBeDefined();
     expect(promptBox().value).toBe("Find slow spans");
-    expect(rcaToggle().checked).toBe(true);
+    expect(rcaMode().value).toBe("automatic");
   });
 
   it("adopts a remote toggle change while preserving an in-progress prompt edit", () => {
@@ -123,7 +132,7 @@ describe("DetectorPanel", () => {
     mocks.detector = { ...baseDetector, enableRca: false };
     rerender();
 
-    expect(rcaToggle().checked).toBe(false);
+    expect(rcaMode().value).toBe("manual");
     expect(promptBox().value).toBe("my draft");
   });
 
@@ -144,11 +153,28 @@ describe("DetectorPanel", () => {
   it("saves the Generate signals switch", () => {
     mocks.detector = baseDetector;
     renderPanel();
-    const toggle = document.getElementById("edit-enable-signals") as HTMLElement;
+    const toggle = document.getElementById("edit-detector-signals") as HTMLElement;
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     fireEvent.click(toggle);
     fireEvent.click(saveButton());
     expect(mocks.mutate.mock.calls[0][0]).toEqual({ enableSignals: false });
+  });
+
+  it("saves a switch to Manual root cause analysis", () => {
+    mocks.detector = baseDetector;
+    renderPanel();
+    fireEvent.change(rcaMode(), { target: { value: "manual" } });
+    fireEvent.click(saveButton());
+    expect(mocks.mutate.mock.calls[0][0]).toEqual({ enableRca: false });
+  });
+
+  it("cannot pick how RCA runs while Generate signals is off", () => {
+    mocks.detector = { ...baseDetector, enableSignals: false };
+    renderPanel();
+    expect(rcaMode().disabled).toBe(true);
+    expect(
+      screen.getByText("The agent runs from signals, so it needs Generate signals."),
+    ).toBeTruthy();
   });
 
   it("closes without a network call when nothing changed", () => {

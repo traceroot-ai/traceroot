@@ -10,9 +10,7 @@ import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
 import type { TriggerCondition } from "./trigger-editor";
 import { normalizeTriggerConditions, validateTriggerConditions } from "../trigger-fields";
-import { AgentModelLink } from "./agent-model-link";
-import { RcaToggle } from "./rca-toggle";
-import { SignalsCard } from "./signals-toggle";
+import { SignalsCard } from "./signals-card";
 import {
   detectorToFormValues,
   buildDetectorPatch,
@@ -249,38 +247,18 @@ export function DetectorPanel({
           <div className="border-b border-border bg-muted/50 px-3 py-1.5">
             <span className="text-[12px] font-medium text-muted-foreground">Model</span>
           </div>
-          <div className="divide-y divide-border">
-            {/* Detector Model — per-detector, editable */}
-            <div className="p-3">
-              <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Detector Model</p>
-              <ModelSelector
-                value={editModelSelection}
-                onChange={setEditModelSelection}
-                workspaceId={workspaceId}
-                defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
-                allowDecisionModels
-              />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Used to evaluate each trace for this detector.
-              </p>
-            </div>
-            {/* Agent Model — project-scoped, click to configure in settings */}
-            <div className="p-3">
-              <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Agent Model</p>
-              <AgentModelLink
-                projectId={projectId}
-                rcaModel={project?.rca_model}
-                workspaceId={workspaceId}
-              />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Used for deep analysis when findings are triggered. Shared across all detectors.
-              </p>
-              <RcaToggle
-                id="edit-enable-rca"
-                checked={editEnableRca}
-                onCheckedChange={setEditEnableRca}
-              />
-            </div>
+          {/* Detector Model — per-detector, editable */}
+          <div className="p-3">
+            <ModelSelector
+              value={editModelSelection}
+              onChange={setEditModelSelection}
+              workspaceId={workspaceId}
+              defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
+              allowDecisionModels
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Used to evaluate each trace for this detector.
+            </p>
           </div>
         </div>
 
@@ -330,9 +308,14 @@ export function DetectorPanel({
         </div>
 
         <SignalsCard
-          id="edit-enable-signals"
-          checked={editEnableSignals}
-          onCheckedChange={setEditEnableSignals}
+          idPrefix="edit-detector"
+          enableSignals={editEnableSignals}
+          onEnableSignalsChange={setEditEnableSignals}
+          enableRca={editEnableRca}
+          onEnableRcaChange={setEditEnableRca}
+          projectId={projectId}
+          rcaModel={project?.rca_model}
+          workspaceId={workspaceId}
         />
 
         {/* Save / Cancel */}

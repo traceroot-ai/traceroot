@@ -42,8 +42,29 @@ vi.mock("@/features/detectors/components/trigger-editor", () => ({
 vi.mock("@/features/detectors/components/agent-model-link", () => ({
   AgentModelLink: () => null,
 }));
-vi.mock("@/features/detectors/components/rca-toggle", () => ({
-  RcaToggle: () => null,
+// Radix Select renders through a portal; a native <select> drives onValueChange.
+vi.mock("@/components/ui/select", () => ({
+  Select: ({
+    value,
+    onValueChange,
+    disabled,
+    children,
+  }: {
+    value: string;
+    onValueChange: (v: string) => void;
+    disabled?: boolean;
+    children: React.ReactNode;
+  }) => (
+    <select value={value} disabled={disabled} onChange={(e) => onValueChange(e.target.value)}>
+      {children}
+    </select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
 }));
 
 import NewDetectorPage from "./page";
@@ -75,7 +96,7 @@ describe("NewDetectorPage", () => {
       triggerConditions: failure.defaultConditions,
       sampleRate: 25,
       enabled: true,
-      enableRca: true,
+      enableRca: false,
       enableSignals: true,
       detectionModel: undefined,
       detectionProvider: undefined,
@@ -84,9 +105,24 @@ describe("NewDetectorPage", () => {
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors");
   });
 
+  it("creates a detector whose RCA runs automatically when Automatic is picked", async () => {
+    render(<NewDetectorPage />);
+    const mode = [...document.querySelectorAll("select")].find((s) =>
+      [...s.options].some((o) => o.value === "automatic"),
+    ) as HTMLSelectElement;
+    expect(mode.value).toBe("manual");
+    expect(screen.getByText("Run the agent from a signal when you need it.")).toBeTruthy();
+    fireEvent.change(mode, { target: { value: "automatic" } });
+    expect(screen.getByText("Run the agent when a signal is created or reopened.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ enableRca: true });
+  });
+
   it("creates a detector that does not group its hits when Generate signals is off", async () => {
     render(<NewDetectorPage />);
-    fireEvent.click(document.getElementById("enable-signals") as HTMLElement);
+    fireEvent.click(document.getElementById("new-detector-signals") as HTMLElement);
     fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
 
     await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));

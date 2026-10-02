@@ -4,7 +4,7 @@ description: Continuous monitoring for your AI agents
 ---
 
 
-A detector is an **LLM-as-a-judge** — an evaluator model that reads a sampled share of incoming traces that match its trigger conditions and decides whether a specific problem is present. When the judge flags one, TraceRoot records a finding and groups it with earlier findings of the same problem into a **signal**. When a finding starts a new signal and RCA is enabled, the AI agent investigates using the trace, your production source code, and recent GitHub activity. Notifications are sent on the configured digest window rather than waiting for the analysis to finish.
+A detector is an **LLM-as-a-judge** — an evaluator model that reads a sampled share of incoming traces that match its trigger conditions and decides whether a specific problem is present. When the judge flags one, TraceRoot records a finding and groups it with earlier findings of the same problem into a **signal**. The AI agent investigates a signal, automatically when it starts or when you run the analysis from the signal, using the trace, your production source code, and recent GitHub activity. Notifications are sent on the configured digest window rather than waiting for the analysis to finish.
 
 
 <Frame>
@@ -17,7 +17,7 @@ Detection runs in two stages so you pay deep-analysis costs only on real problem
 
 **Step 1 — LLM-as-a-judge.** An evaluator model reads the sampled traces that match the detector's trigger conditions. The judge returns a boolean: is the problem you defined present in this trace?
 
-**Step 2 — AI agent run.** When a flagged trace starts a new signal (or reopens a resolved one) and RCA is enabled, the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis with a code location and recommendation.
+**Step 2 — AI agent run.** When you run the analysis from a signal, or automatically when a flagged trace starts a new signal (or reopens a resolved one) if the detector's root cause analysis is Automatic, the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis with a code location and recommendation.
 
 Each step's model is configurable. For the judge we can choose a cheaper model and for the agent we can pick a stronger model since it only runs on real findings. You can swap either to any system model or a [BYOK](/ai-agent/byok) model — independently per step.
 
@@ -31,17 +31,22 @@ A detector has seven configurable parts:
 - **A sample rate** — what percentage of matching traces to evaluate (25% for a new detector).
 - **A detection model** — the system or BYOK model that evaluates the trace.
 - **A Generate signals toggle** — whether this detector's findings are grouped into signals (on by default). Turning it on groups findings from then on, not earlier ones.
-- **An RCA toggle** — whether the AI agent investigates this detector's signals (on by default).
+- **A root cause analysis setting** — Manual (the default) runs the AI agent when you ask from a signal; Automatic runs it when a signal is created or reopened.
 
-When `identified` is true, the detector emits a **finding**, which joins a signal; the AI agent investigates new signals when RCA is enabled. New and reopened signals are announced in the next notification digest, with the root cause if the analysis has already finished.
+When `identified` is true, the detector emits a **finding**, which joins a signal; the AI agent investigates the signal when you ask, or by itself if the detector's root cause analysis is Automatic. New and reopened signals are announced in the next notification digest, with the root cause if the analysis has already finished.
 
 Sampling is deterministic for each trace and detector. Sending the same trace again does not change whether it is sampled. Set the rate to **100%** to evaluate every matching trace, or to **0%** to pause the detector.
 
 ## Root cause analysis
 
-Every detector has a **Run root cause analysis on findings** toggle, available in the create sheet and the edit panel. It controls whether the AI agent (step 2) investigates the detector's signals — turn it off for a noisy detector whose analyses you don't need. It defaults to on, and detection and notifications are unaffected either way: a detector with the toggle off still fires, records findings and announces new signals.
+Every detector has a **Root cause analysis** setting in the Signals section of the create sheet and the edit panel:
 
-RCA runs **per signal, not per finding**. A signal is one recurring problem: the findings of one detector that describe the same problem. The agent investigates when a finding creates a signal, or reopens a resolved one, and that finding's detector has the toggle on. Consequences:
+- **Manual**, the default for new detectors: the AI agent (step 2) runs only when you click **Run root cause analysis** on a signal, so agent-model cost goes only to the problems you look into.
+- **Automatic**: the agent runs when a finding creates a signal or reopens a resolved one.
+
+Detection and notifications are the same either way: the detector fires, records findings and announces new signals. A signal without an analysis, because its detector is Manual or an attempt failed, can be analysed from its panel on the Signals page.
+
+RCA runs **per signal, not per finding**. A signal is one recurring problem: the findings of one detector that describe the same problem. With Automatic analysis:
 
 - A finding that joins an open signal starts no new analysis; the signal's existing analysis stands for it.
 - A resolved signal reopened within 24 hours of its last analysis keeps that analysis instead of starting a new one.

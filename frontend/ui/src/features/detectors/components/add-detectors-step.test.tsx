@@ -77,7 +77,7 @@ describe("AddDetectorsStep", () => {
         template: "failure",
         name: "Failure Detector",
         sampleRate: 25,
-        enableRca: true,
+        enableRca: false,
         detectionSource: "system",
       }),
     );

@@ -128,7 +128,8 @@ export function buildTemplateDetectorInput(template: DetectorTemplate): CreateDe
     outputSchema: template.outputSchema,
     triggerConditions: template.defaultConditions,
     sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
-    enableRca: true,
+    // Manual: the agent runs only when asked from a signal.
+    enableRca: false,
     detectionSource: "system",
   };
 }
