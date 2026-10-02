@@ -54,7 +54,7 @@ vi.mock("../../../queues/detector-run-queue.js", () => ({
   createRedisConnection: () => fakeRedis,
 }));
 vi.mock("../round.js", () => ({ runAssignmentRound: mockRound }));
-const { mockPendingCopies, detectorRows, detectorDb } = vi.hoisted(() => {
+const { mockPendingCopies, detectorRows, detectorDb, markWrites } = vi.hoisted(() => {
   /** The detectors table, reduced to the sweeper's pending mark. */
   const detectorRows = new Map<string, { projectId: string; assignmentPendingAt: Date | null }>();
   type Where = { id?: string; projectId?: string; assignmentPendingAt?: { lte?: Date; lt?: Date } };
@@ -71,18 +71,29 @@ const { mockPendingCopies, detectorRows, detectorDb } = vi.hoisted(() => {
           row.assignmentPendingAt <= w.assignmentPendingAt.lte) &&
         (w.assignmentPendingAt.lt === undefined ||
           row.assignmentPendingAt < w.assignmentPendingAt.lt)));
+  /**
+   * The two raw writes of the pending mark: set it (enqueue), or clear it if it
+   * is no newer than the cutoff (drain). Raw, so the detector's updateTime is
+   * left alone; a client update here would be a bug.
+   */
+  const markWrites = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const sql = strings.join("?");
+    if (sql.includes("assignment_pending_at = NULL")) {
+      const [id, projectId, cutoff] = values as [string, string, Date];
+      const row = detectorRows.get(id);
+      if (!row || row.projectId !== projectId || !row.assignmentPendingAt) return 0;
+      if (row.assignmentPendingAt > cutoff) return 0;
+      row.assignmentPendingAt = null;
+      return 1;
+    }
+    const [at, id, projectId] = values as [Date, string, string];
+    const row = detectorRows.get(id);
+    if (!row || row.projectId !== projectId) return 0;
+    row.assignmentPendingAt = at;
+    return 1;
+  });
   const detectorDb = {
-    updateMany: vi.fn(
-      async ({ where, data }: { where: Where; data: { assignmentPendingAt: Date | null } }) => {
-        let count = 0;
-        for (const [id, row] of detectorRows)
-          if (matches(id, row, where)) {
-            row.assignmentPendingAt = data.assignmentPendingAt;
-            count++;
-          }
-        return { count };
-      },
-    ),
+    updateMany: vi.fn(),
     findMany: vi.fn(async ({ where, take }: { where: Where; take: number }) =>
       [...detectorRows]
         .filter(([id, row]) => matches(id, row, where))
@@ -91,10 +102,15 @@ const { mockPendingCopies, detectorRows, detectorDb } = vi.hoisted(() => {
         .map(([id, row]) => ({ id, projectId: row.projectId })),
     ),
   };
-  return { mockPendingCopies: vi.fn(), detectorRows, detectorDb };
+  return { mockPendingCopies: vi.fn(), detectorRows, detectorDb, markWrites };
 });
 vi.mock("@traceroot/core", () => ({
-  prisma: { tag: "prisma", $queryRaw: mockPendingCopies, detector: detectorDb },
+  prisma: {
+    tag: "prisma",
+    $queryRaw: mockPendingCopies,
+    $executeRaw: markWrites,
+    detector: detectorDb,
+  },
 }));
 const { mockEmbed, mockChat, mockJev, mockFindJev } = vi.hoisted(() => ({
   mockEmbed: vi.fn(),
@@ -169,9 +185,22 @@ describe("enqueueAssignment", () => {
     expect(pendingAt("d1")).toBe(T0);
   });
 
+  it("writes the pending mark without touching the detector's last-edit time", async () => {
+    detector("d1", null, "p1");
+    await enqueueAssignment("p1", "d1");
+    await markDrained("p1", "d1", Date.now() + 60_000);
+    // Both writes are raw SQL that sets only the mark; a client update would
+    // advance updateTime, which the detector list shows as the last edit.
+    expect(detectorDb.updateMany).not.toHaveBeenCalled();
+    for (const [strings] of markWrites.mock.calls) {
+      expect((strings as TemplateStringsArray).join("?")).not.toContain("update_time");
+    }
+    expect(markWrites).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects ids that would corrupt the job id, before marking anything", async () => {
     await expect(enqueueAssignment("p:1", "d1")).rejects.toThrow();
-    expect(detectorDb.updateMany).not.toHaveBeenCalled();
+    expect(markWrites).not.toHaveBeenCalled();
     expect(mockAdd).not.toHaveBeenCalled();
   });
 });
@@ -299,7 +328,7 @@ describe("processSignalAssignJob", () => {
     const j = job({ projectId: "p", detectorId: "d" });
     await expect(processSignalAssignJob(j, "tok", deps)).rejects.toBeInstanceOf(DelayedError);
     expect(j.moveToDelayed).toHaveBeenCalledWith(T0 + 30_000, "tok");
-    expect(detectorDb.updateMany).not.toHaveBeenCalled();
+    expect(markWrites).not.toHaveBeenCalled();
   });
 });
 
