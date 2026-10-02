@@ -166,6 +166,13 @@
             ]
           },
           {
+            "group": "Dashboards",
+            "pages": [
+              "dashboards/introduction",
+              "dashboards/widgets"
+            ]
+          },
+          {
             "group": "TraceRoot Agent",
             "pages": [
               "ai-agent/overview",
