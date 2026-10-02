@@ -19,6 +19,7 @@ from typing import Any
 import psycopg2
 
 from db.clickhouse import get_clickhouse_client
+from rest.retention import get_retention_cutoff
 from rest.schemas.public import (
     DetectorDetail,
     DetectorItem,
@@ -353,7 +354,9 @@ class DetectorReaderService:
     # ------------------------------------------------------------------ #
     # detail
     # ------------------------------------------------------------------ #
-    def get_finding(self, project_id: str, finding_id: str) -> FindingDetail | None:
+    def get_finding(
+        self, project_id: str, finding_id: str, billing_plan: str | None = None
+    ) -> FindingDetail | None:
         """Get one finding by id.
 
         Stored finding ids are uuid-hyphenated, but display surfaces render
@@ -363,6 +366,8 @@ class DetectorReaderService:
         Args:
             project_id (str): Project that owns the finding.
             finding_id (str): The finding id, with or without hyphens.
+            billing_plan (str | None): The caller's plan; an RCA inherited from
+                a signal is read only from findings inside its retention window.
 
         Returns:
             FindingDetail | None: The finding, or None when no row matches.
@@ -371,14 +376,16 @@ class DetectorReaderService:
             "replaceAll(finding_id, '-', '') = replaceAll({finding_id:String}, '-', '')",
             {"project_id": project_id, "finding_id": finding_id},
         )
-        return self._build_detail(project_id, row) if row else None
+        return self._build_detail(project_id, row, billing_plan) if row else None
 
-    def get_finding_by_trace(self, project_id: str, trace_id: str) -> FindingDetail | None:
+    def get_finding_by_trace(
+        self, project_id: str, trace_id: str, billing_plan: str | None = None
+    ) -> FindingDetail | None:
         row = self._fetch_finding(
             "trace_id = {trace_id:String}",
             {"project_id": project_id, "trace_id": trace_id},
         )
-        return self._build_detail(project_id, row) if row else None
+        return self._build_detail(project_id, row, billing_plan) if row else None
 
     def _fetch_finding(self, predicate: str, params: dict) -> tuple | None:
         query = f"""
@@ -392,7 +399,9 @@ class DetectorReaderService:
         rows = result.result_rows
         return rows[0] if rows else None
 
-    def _build_detail(self, project_id: str, row: tuple) -> FindingDetail:
+    def _build_detail(
+        self, project_id: str, row: tuple, billing_plan: str | None = None
+    ) -> FindingDetail:
         finding_id, _project_id, trace_id, summary, payload, timestamp = row
         items = [item for item in self._parse_payload(payload) if isinstance(item, dict)]
         detector_ids = [str(item.get("detectorId") or "") for item in items]
@@ -412,7 +421,7 @@ class DetectorReaderService:
         ]
         rca = self._read_rca(project_id, finding_id)
         if rca is None and signals:
-            rca = self._read_inherited_rca(project_id, results)
+            rca = self._read_inherited_rca(project_id, results, billing_plan)
         return FindingDetail(
             finding_id=finding_id,
             project_id=project_id,
@@ -516,14 +525,19 @@ class DetectorReaderService:
         return out
 
     def _read_inherited_rca(
-        self, project_id: str, results: list[DetectorResultItem]
+        self,
+        project_id: str,
+        results: list[DetectorResultItem],
+        billing_plan: str | None = None,
     ) -> RCAResult | None:
         """The RCAs a finding inherits from the signals its hits joined.
 
         A hit that joins a known signal runs no RCA of its own; the signal's
         canonical RCA (the successful answer kept on its newest opening that has
         one; a later failed attempt on a shared finding does not remove it)
-        stands for it.
+        stands for it. The answer comes from another trace, so with a plan it is
+        read only from openings whose finding was detected inside the plan's
+        retention window, as the finding itself is.
         One section per grouped detector, labelled with the signal and the trace
         the RCA analysed. None when no signal has a finished RCA or the lookup
         fails.
@@ -531,15 +545,24 @@ class DetectorReaderService:
         grouped = [r for r in results if r.signal_id]
         if not grouped:
             return None
+        cutoff = get_retention_cutoff(billing_plan) if billing_plan else None
+        retained = (
+            " AND EXISTS (SELECT 1 FROM signal_hits rh "
+            "WHERE rh.finding_id = sr.finding_id AND rh.seen_at >= %s)"
+            if cutoff
+            else ""
+        )
+        params: tuple = ([r.signal_id for r in grouped], project_id)
         try:
             rows = self._pg_rows(
                 "SELECT DISTINCT ON (sr.signal_id) sr.signal_id, sr.result, "
                 "(SELECT sh.trace_id FROM signal_hits sh "
                 " WHERE sh.finding_id = sr.finding_id LIMIT 1) "
                 "FROM signal_rcas sr JOIN detector_rcas dr ON dr.finding_id = sr.finding_id "
-                "WHERE sr.signal_id = ANY(%s) AND dr.project_id = %s AND sr.result IS NOT NULL "
-                "ORDER BY sr.signal_id, sr.reopen_seq DESC",
-                ([r.signal_id for r in grouped], project_id),
+                "WHERE sr.signal_id = ANY(%s) AND dr.project_id = %s AND sr.result IS NOT NULL"
+                + retained
+                + " ORDER BY sr.signal_id, sr.reopen_seq DESC",
+                (*params, cutoff) if cutoff else params,
             )
         except Exception:
             logger.warning("inherited RCA lookup failed; returning rca=None", exc_info=True)
