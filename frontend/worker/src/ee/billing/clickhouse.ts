@@ -6,6 +6,9 @@
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
 
+// A not-yet-ready backend (e.g. at worker startup) must not hang this call forever.
+const REQUEST_TIMEOUT_MS = 10_000;
+
 /**
  * Make an authenticated request to the internal backend API.
  */
@@ -23,6 +26,7 @@ async function internalApiRequest<T>(path: string, params?: Record<string, strin
       "Content-Type": "application/json",
       "X-Internal-Secret": INTERNAL_API_SECRET,
     },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
   if (!response.ok) {
