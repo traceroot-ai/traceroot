@@ -216,15 +216,35 @@ describe("CompareRunsView — N-run diff table", () => {
 
     it("calls a subset comparison exploratory, and never blames the API for it", () => {
       // The user chose 20 of 500. Nothing was lost in transit, so the old "(API limit)"
-      // wording was simply wrong — and two runs measuring the same subset still only
-      // agree about that subset.
+      // wording was simply wrong. The baseline covered everything, so the two runs do
+      // not "agree about that subset" — that sentence is for subset-vs-subset only.
       withSonnetRun({
         coverage: { mode: "first", datasetCaseCount: 500, selectedCaseCount: 20, sampleSeed: null },
       });
       mount();
       expect(screen.getByText(/exploratory/)).toBeTruthy();
       expect(screen.getByText(/Subset · 20 of 500 cases · first/)).toBeTruthy();
+      expect(screen.queryByText(/only agree about that subset/)).toBeNull();
       expect(screen.queryByText(/API limit/)).toBeNull();
+    });
+
+    it("says two subsets only agree about that subset when every run is a subset", () => {
+      const subset = {
+        coverage: { mode: "first", datasetCaseCount: 500, selectedCaseCount: 20, sampleSeed: null },
+      };
+      hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+        ids.map((id) => {
+          const base = RESP[id] as typeof OPUS;
+          return {
+            data: { ...base, run: { ...base.run, ...subset } },
+            isLoading: false,
+            isError: false,
+          };
+        }),
+      );
+      mount();
+      expect(screen.getByText(/exploratory/)).toBeTruthy();
+      expect(screen.getByText(/only agree about that subset/)).toBeTruthy();
     });
 
     it("leaves a run whose coverage was never reported unflagged, as every run today is", () => {

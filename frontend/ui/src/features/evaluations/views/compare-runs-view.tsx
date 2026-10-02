@@ -426,8 +426,11 @@ export function CompareRunsView({
                 {subsetRuns
                   .map((b) => `${runLabel(b)} (${formatCoverage(b.run.coverage)})`)
                   .join(", ")}{" "}
-                — this comparison is exploratory, not an authoritative whole-dataset result. Two
-                runs measuring the same subset still only agree about that subset.
+                — this comparison is exploratory, not an authoritative whole-dataset result.
+                {/* Only when every run is a subset: a subset beside a full run does not
+                    "agree about that subset" — the full run measured everything. */}
+                {subsetRuns.length === ordered.length &&
+                  " Two runs measuring the same subset still only agree about that subset."}
               </div>
             )}
             {/* Separately: the API capped the rows it returned, so these aggregates are
