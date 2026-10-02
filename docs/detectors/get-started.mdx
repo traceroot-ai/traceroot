@@ -24,7 +24,7 @@ New detectors evaluate **25%** of the traces that match their trigger conditions
 
 ### Choose whether to run root cause analysis
 
-The create sheet — and the edit panel for an existing detector — includes a **Run root cause analysis on findings** toggle, on by default. Leave it on and the AI agent investigates each new signal (a recurring problem the detector's findings are grouped into); turn it off for a noisy or low-stakes detector where you want findings recorded without paying agent-model cost. Detection is unaffected either way: the detector still fires and records findings, but RCA-off findings are left out of email and Slack notification digests.
+The create sheet — and the edit panel for an existing detector — includes a **Run root cause analysis on findings** toggle, on by default. Leave it on and the AI agent investigates each new signal (a recurring problem the detector's findings are grouped into); turn it off for a noisy or low-stakes detector where you want findings recorded without paying agent-model cost. Detection and notifications are unaffected either way: the detector still fires, records findings and announces new signals.
 
 RCA runs once per signal, not once per finding. See [Root cause analysis](/detectors/introduction#root-cause-analysis) for the exact rule.
 
@@ -37,7 +37,7 @@ The pipeline for each incoming trace:
 3. **Sample.** Each matching detector applies its sample rate; new detectors default to 25%.
 4. **Evaluate.** The LLM-as-a-judge (Claude Haiku by default) reads the sampled trace and returns `identified` plus a short summary.
 5. **Diagnose.** When `identified` is true, the trace becomes a **finding** and joins a signal. When it starts a new signal (or reopens a resolved one) and its detector has **Run root cause analysis on findings** enabled, the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis.
-6. **Notify.** At the end of the configured window, TraceRoot sends one digest to each configured email and Slack channel for findings from RCA-enabled detectors. The digest does not wait for RCA or include it.
+6. **Notify.** At the end of the configured window, TraceRoot sends one digest to each configured email and Slack channel announcing new and reopened signals. Further findings on an open signal send nothing. The digest does not wait for RCA; it shows the root cause only if the analysis has already finished.
 
 
 ## View findings
@@ -58,7 +58,7 @@ Both stages of the pipeline — the LLM-as-a-judge and the AI agent — run on a
 
 <CardGroup cols={2}>
   <Card title="Notifications" icon="bell" href="/detectors/notifications">
-    Wire findings to email or Slack.
+    Send new signals to email or Slack.
   </Card>
   <Card title="AI Agent" icon="brain" href="/ai-agent/overview">
     Learn how the RCA agent behind every finding works.

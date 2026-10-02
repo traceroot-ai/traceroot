@@ -32,13 +32,13 @@ A detector has six configurable parts:
 - **A detection model** — the system or BYOK model that evaluates the trace.
 - **An RCA toggle** — whether the AI agent investigates this detector's signals (on by default).
 
-When `identified` is true, the detector emits a **finding**, which joins a signal; the AI agent investigates new signals when RCA is enabled. Findings from RCA-enabled detectors are included in the next configured notification digest; the RCA itself is read in TraceRoot, not in the digest.
+When `identified` is true, the detector emits a **finding**, which joins a signal; the AI agent investigates new signals when RCA is enabled. New and reopened signals are announced in the next notification digest, with the root cause if the analysis has already finished.
 
 Sampling is deterministic for each trace and detector. Sending the same trace again does not change whether it is sampled. Set the rate to **100%** to evaluate every matching trace, or to **0%** to pause the detector.
 
 ## Root cause analysis
 
-Every detector has a **Run root cause analysis on findings** toggle, available in the create sheet and the edit panel. It controls whether the AI agent (step 2) investigates the detector's signals — turn it off for a noisy detector whose analyses you don't need. It defaults to on, and detection itself is unaffected either way: a detector with the toggle off still fires and records findings, but its findings are excluded from email and Slack notification digests.
+Every detector has a **Run root cause analysis on findings** toggle, available in the create sheet and the edit panel. It controls whether the AI agent (step 2) investigates the detector's signals — turn it off for a noisy detector whose analyses you don't need. It defaults to on, and detection and notifications are unaffected either way: a detector with the toggle off still fires, records findings and announces new signals.
 
 RCA runs **per signal, not per finding**. A signal is one recurring problem: the findings of one detector that describe the same problem. The agent investigates when a finding creates a signal, or reopens a resolved one, and that finding's detector has the toggle on. Consequences:
 
@@ -55,6 +55,6 @@ On a self-hosted deployment, grouping into signals and RCA need `OPENAI_API_KEY`
     Create your first detector in a few minutes from a starting prompt.
   </Card>
   <Card title="Notifications" icon="bell" href="/detectors/notifications">
-    Configure email and Slack notifications for findings.
+    Configure email and Slack notifications for signals.
   </Card>
 </CardGroup>
