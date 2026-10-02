@@ -87,7 +87,7 @@ variable "sql_gateway_bootstrap_password" {
 }
 
 variable "clickhouse_ro_password" {
-  description = "Read-only gateway user password (optional; enables the SQL gateway if set)"
+  description = "Password for the sql_gateway_ro account (optional; provisions read-only account, falls back to default client if unset)"
   type        = string
   sensitive   = true
   default     = ""
