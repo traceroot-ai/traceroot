@@ -1,11 +1,13 @@
 ---
 title: Notifications
-description: Send detector finding digests to email and Slack
+description: Send new and reopened signals to email and Slack
 ---
 
-Detector notifications are **windowed digests**. At the end of each configured window, TraceRoot groups findings by detector and sends one digest to every configured channel. The default window is **10 minutes**; the available windows are **1 minute, 5 minutes, 10 minutes, 30 minutes, 1 hour, and 2 hours**.
+Detector notifications announce **signals**: the recurring problems that a detector's findings are grouped into. A signal is announced when it is created and when it is reopened, which happens when a trace that started after the signal was resolved hits it again. Further findings on an open signal update it in TraceRoot without sending anything, and dismissed signals stay silent.
 
-The digest does not wait for root cause analysis to finish and does not contain the RCA. Open the linked trace or finding in TraceRoot to read the analysis.
+Announcements are batched into **windowed digests**: TraceRoot sends one digest per project for each configured window to every configured channel. The default window is **10 minutes**; the available windows are **1 minute, 5 minutes, 10 minutes, 30 minutes, 1 hour, and 2 hours**.
+
+The digest does not wait for root cause analysis. If the analysis has already finished, the digest shows its root cause; otherwise it says the analysis is still running or failed. The full analysis is read in TraceRoot.
 
 ## Configure notifications
 
@@ -17,19 +19,17 @@ Open **Project Settings → Detectors → Notifications**. From there you can:
 
 If the project has no email recipients and no Slack destination channel, nothing is sent.
 
-Only findings from detectors with **Run root cause analysis on findings** enabled are included in notification digests. Detectors with RCA turned off still record findings in TraceRoot, but those findings are left out of email and Slack notifications.
+The **Run root cause analysis on findings** toggle does not affect notifications. On a self-hosted deployment, grouping into signals needs `OPENAI_API_KEY`; without it, detectors record findings and send no notifications.
 
 ## Digest contents
 
-Email and Slack receive the same digest content:
+Email and Slack receive the same digest content, in a **New** and a **Reopened** section. For each signal:
 
-- Each detector's name and number of findings in the window.
-- A link to the latest trace for each detector.
-- An optional short, one-paragraph LLM summary of the window.
+- Its title, linked to the signal on the **Signals** page.
+- The detector's name and the signal's number of hits.
+- When the detector runs RCA, the root cause if the analysis has finished, or whether it is still running or failed.
 
-The email also links to all findings. Slack links each detector name to its findings for the window.
-
-The summary is best effort, so a digest can arrive without it. It is also omitted for a Free workspace that has reached its RCA quota. Root cause analyses remain available in TraceRoot and are never embedded in the digest.
+A digest lists at most 45 signals and counts the rest. The email also links to the Signals page.
 
 ## Email
 
