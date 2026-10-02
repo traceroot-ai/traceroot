@@ -1,0 +1,121 @@
+---
+title: Terraform on AWS
+description: Provision production-grade TraceRoot infrastructure on AWS using Terraform
+---
+
+The official Terraform module at [traceroot-ai/traceroot-terraform-aws](https://github.com/traceroot-ai/traceroot-terraform-aws) provisions a complete, production-ready AWS environment for TraceRoot, including managed network, database, caching, storage, and EKS resources.
+
+---
+
+## Module Version
+
+The current module version is **v1.5.0**.
+
+### Resources Provisioned
+
+When applied, the module deploys:
+- **VPC & Networking**: Multi-AZ public and private subnets, NAT gateways, route tables, and security groups.
+- **Amazon EKS**: Managed Kubernetes cluster and node groups for application workloads.
+- **Amazon RDS PostgreSQL**: Managed PostgreSQL database instance with multi-AZ failover and automated backups.
+- **Amazon ElastiCache Redis**: High-availability Redis replication group.
+- **Amazon S3**: Dedicated object storage bucket for trace payloads and evaluation data.
+- **IAM Roles (IRSA)**: Fine-grained IAM policies mapped to Kubernetes service accounts.
+- **Helm Release**: Deploys the TraceRoot application chart directly onto the EKS cluster.
+
+---
+
+## Critical Configuration: Helm Chart Version Precondition
+
+<Warning>
+**SQL Gateway Precondition Failure**:
+The Terraform module `v1.5.0` defaults `traceroot_helm_chart_version` to `"1.0.0"`. However, enabling the SQL gateway (`enable_sql_gateway = true`) enforces a strict Terraform precondition check (`traceroot.tf:321-323`) requiring chart version **`1.1.0`** or higher.
+
+If you copy the default example from the module README and enable the SQL gateway without overriding the chart version, `terraform plan` will fail with:
+```text
+Error: Resource precondition failed: enable_sql_gateway requires traceroot_helm_chart_version >= 1.1.0
+```
+
+**Always explicitly set `traceroot_helm_chart_version = "1.1.0"` in your Terraform configuration.**
+</Warning>
+
+---
+
+## Example Terraform Configuration
+
+Here is a complete configuration using the `v1.5.0` module with the SQL gateway enabled:
+
+```hcl main.tf
+terraform {
+  required_version = ">= 1.5.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.24"
+    }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.12"
+    }
+  }
+}
+
+provider "aws" {
+  region = "us-east-1"
+}
+
+module "traceroot" {
+  source  = "traceroot-ai/traceroot/aws"
+  version = "1.5.0"
+
+  # Environment Name
+  environment = "production"
+
+  # CRITICAL: Must be >= 1.1.0 when enable_sql_gateway = true
+  traceroot_helm_chart_version = "1.1.0"
+  enable_sql_gateway           = true
+
+  # Domain and Ingress
+  domain_name = "traceroot.example.com"
+  enable_tls  = true
+
+  # Core Secrets (Store securely, e.g. AWS Secrets Manager or env vars)
+  better_auth_secret             = var.better_auth_secret
+  internal_api_secret            = var.internal_api_secret
+  sql_gateway_bootstrap_password = var.sql_gateway_bootstrap_password
+  clickhouse_ro_password         = var.clickhouse_ro_password
+
+  # Sizing
+  eks_node_instance_types = ["m6i.xlarge"]
+  eks_node_desired_count  = 3
+  rds_instance_class      = "db.r6g.large"
+}
+```
+
+---
+
+## Deployment Workflow
+
+### 1. Initialize and Validate
+
+```bash
+terraform init
+terraform validate
+```
+
+### 2. Plan and Review
+
+```bash
+terraform plan -out=tfplan
+```
+
+### 3. Apply Infrastructure
+
+```bash
+terraform apply tfplan
+```
+
+Once provisioning completes, configure your DNS record (Route 53 or external DNS) pointing your domain to the AWS Application Load Balancer created by the module.

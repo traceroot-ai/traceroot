@@ -1,0 +1,134 @@
+---
+title: Kubernetes Deployment
+description: Deploy TraceRoot to Kubernetes clusters using the official Helm chart
+---
+
+For scalable production deployments, TraceRoot provides an official Helm chart maintained at [traceroot-ai/traceroot-k8s](https://github.com/traceroot-ai/traceroot-k8s).
+
+---
+
+## Helm Chart Overview
+
+The current stable release is **v1.1.0**.
+
+### Key Infrastructure Model
+
+- **ClickHouse**: **Deployed by default** inside the chart via an embedded ClickHouse StatefulSet (`clickhouse.deploy: true`). You can optionally disable this if you connect to an external ClickHouse cluster.
+- **External Dependencies**: PostgreSQL, Redis, and S3-compatible object storage **must be provided externally** (e.g., AWS RDS PostgreSQL, AWS ElastiCache Redis, AWS S3, or in-cluster operators).
+
+---
+
+## Installation Steps
+
+### 1. Add the Helm Repository
+
+```bash
+helm repo add traceroot https://traceroot-ai.github.io/traceroot-k8s
+helm repo update
+```
+
+### 2. Prepare `values.yaml`
+
+Create a customized `my-values.yaml` file configuring your database endpoints, secrets, and URLs:
+
+```yaml my-values.yaml
+# Global Configuration
+global:
+  appUrl: "https://traceroot.example.com"
+  apiUrl: "https://traceroot.example.com/api/v1"
+  enableBilling: false
+
+# Required Secrets
+secrets:
+  betterAuthSecret: "REPLACE_WITH_HEX_32_SECRET"
+  internalApiSecret: "REPLACE_WITH_HEX_32_SECRET"
+  sqlGatewayBootstrapPassword: "REPLACE_WITH_STRONG_PASSWORD"
+
+# External Database Connections
+postgres:
+  host: "postgres.internal.net"
+  port: 5432
+  database: "traceroot"
+  user: "traceroot"
+  password: "YOUR_POSTGRES_PASSWORD"
+
+redis:
+  url: "redis://redis.internal.net:6379/0"
+  resultUrl: "redis://redis.internal.net:6379/1"
+
+s3:
+  endpoint: "https://s3.amazonaws.com"
+  bucket: "my-traceroot-telemetry"
+  region: "us-east-1"
+  accessKeyId: "YOUR_AWS_ACCESS_KEY"
+  secretAccessKey: "YOUR_AWS_SECRET_KEY"
+
+# ClickHouse Configuration
+clickhouse:
+  deploy: true # Deploys bundled ClickHouse server inside the cluster
+  persistence:
+    size: 200Gi
+
+# Ingress Configuration
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: traceroot.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: web
+        - path: /api/v1
+          pathType: Prefix
+          service: rest
+  tls:
+    - secretName: traceroot-tls
+      hosts:
+        - traceroot.example.com
+```
+
+### 3. Install the Release
+
+Deploy the Helm chart to your target namespace:
+
+```bash
+helm install traceroot traceroot/traceroot \
+  --namespace traceroot \
+  --create-namespace \
+  -f my-values.yaml
+```
+
+---
+
+## Verifying Pods and Migrations
+
+Once deployed, the Helm chart runs migration jobs before rolling out the application pods:
+
+```bash
+kubectl get pods -n traceroot
+```
+
+You should see:
+- `traceroot-migrate-postgres-*` (Completed)
+- `traceroot-migrate-clickhouse-*` (Completed)
+- `traceroot-web-*` (Running)
+- `traceroot-rest-*` (Running)
+- `traceroot-worker-*` (Running)
+- `traceroot-detector-*` (Running)
+- `traceroot-agent-*` (Running)
+- `traceroot-clickhouse-0` (Running)
+
+---
+
+## Upgrades
+
+To upgrade to a newer chart version:
+
+```bash
+helm repo update
+helm upgrade traceroot traceroot/traceroot \
+  --namespace traceroot \
+  -f my-values.yaml
+```
+Database migration jobs will execute automatically prior to the application deployment rollout.

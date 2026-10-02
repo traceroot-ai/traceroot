@@ -1,0 +1,85 @@
+---
+title: SQL Gateway on Self-Hosted
+description: Configure the ClickHouse SQL Gateway, account hierarchy, and security profiles on self-hosted TraceRoot
+---
+
+TraceRoot includes a direct analytical SQL Gateway allowing engineers to query historical traces and spans using standard ClickHouse SQL syntax via REST endpoints (`/api/v1/public/sql`) or the TraceRoot CLI.
+
+---
+
+## The Three ClickHouse Accounts
+
+To ensure security and defense-in-depth, TraceRoot separates ClickHouse permissions across three distinct identities:
+
+| Account | Managed By | Purpose | Password Variable |
+| :--- | :--- | :--- | :--- |
+| **`sql_gateway_bootstrap`** | `sql_gateway_bootstrap_user.xml` | The **only** account holding ClickHouse `ACCESS MANAGEMENT` privileges. Used exclusively by `clickhouse-init` to provision users and `migrate-clickhouse` to run DDL migrations. | `SQL_GATEWAY_BOOTSTRAP_PASSWORD` (**Required**) |
+| **`sql_gateway_writer`** | `clickhouse-init` | Designated as the `DEFINER` for curated analytical views (`012_create_public_sql_views.sql`). Holds `SELECT` on physical tables. No service authenticates as this user. | `SQL_GATEWAY_WRITER_PASSWORD` (Optional) |
+| **`sql_gateway_ro`** | `clickhouse-init` | The read-only identity used by the `rest` API to execute user SQL queries. Reads curated views only (`spans_public_v1`, `traces_public_v1`). | `CLICKHOUSE_RO_PASSWORD` (Optional / Activation flag) |
+
+<Important>
+**Application Account Separation**:
+The standard application account (`clickhouse`, set via `CLICKHOUSE_USER`) used by `rest`, `worker`, `billing`, and `detector` **deliberately does not hold access management privileges**. This ensures that any compromised application container cannot create additional database users or escalate privileges.
+</Important>
+
+---
+
+## How to Turn the SQL Gateway On
+
+By default, the SQL Gateway is **disabled** on self-hosted instances unless you supply a read-only account password.
+
+### Behavior When `CLICKHOUSE_RO_PASSWORD` is Unset:
+- `clickhouse-init` logs:
+  ```text
+  clickhouse-init: CLICKHOUSE_RO_PASSWORD is unset, so the SQL gateway read-only account is not provisioned and any existing one was dropped
+  ```
+- The `sql_gateway_ro` user is not provisioned (and any existing one is dropped).
+- On cloud (`ENABLE_BILLING=true`), user SQL queries are rejected immediately with HTTP 500/503.
+- On self-hosted (`ENABLE_BILLING=false`), the API falls back to the default client with runtime resource limits.
+
+### Enabling the Gateway:
+
+1. Open your `.env` file and set `CLICKHOUSE_RO_PASSWORD`:
+   ```bash .env
+   CLICKHOUSE_RO_PASSWORD=generate_a_secure_ro_password_here
+   ```
+
+2. Re-run `clickhouse-init` and restart the `rest` service:
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d clickhouse-init rest
+   ```
+
+3. `clickhouse-init` will hash the password, configure the `sql_readonly_profile`, and provision `sql_gateway_ro` with read-only grants on the curated views.
+
+---
+
+## Security Caps and Profile Constraints
+
+When queries run under `sql_gateway_ro`, ClickHouse enforces hard resource constraints via `sql_readonly_profile`:
+
+```sql
+CREATE SETTINGS PROFILE IF NOT EXISTS sql_readonly_profile SETTINGS
+    readonly = 1,
+    max_execution_time = 30 CONST,
+    max_result_rows = 100000 CONST,
+    max_result_bytes = 536870912 CONST,
+    max_memory_usage = 4294967296 CONST;
+```
+
+- **`readonly = 1`**: Prevents any data modification (`INSERT`, `UPDATE`, `ALTER`, `DROP`).
+- **`max_execution_time = 30`**: Queries timing out after 30 seconds are automatically terminated.
+- **`max_result_rows = 100,000`**: Maximum rows returned per query.
+- **`max_result_bytes = 512 MB`**: Buffer ceiling for response payloads.
+- **`max_memory_usage = 4 GB`**: Memory limit per query on the ClickHouse server.
+- **`CONST`**: Prevents users from overriding these settings using query parameters or inline session settings.
+
+---
+
+## Curated Public Views
+
+The SQL gateway exposes curated views rather than raw physical tables:
+
+- **`traces_public_v1`**: Sanitized trace records scoped to authorized project IDs.
+- **`spans_public_v1`**: Span records with token counts, latencies, and metadata.
+
+Queries against internal or non-public tables will fail with access denied errors.

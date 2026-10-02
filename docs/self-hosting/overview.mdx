@@ -1,0 +1,77 @@
+---
+title: Self-Hosting Overview
+description: Architecture, core application services, and deployment models for self-hosted TraceRoot
+---
+
+TraceRoot is open source and designed to run entirely on your own infrastructure. Self-hosting gives you complete ownership over telemetry data, eliminates multi-tenant rate limits, and allows deployment inside your private VPC or on-premise clusters.
+
+<Note>
+Prefer a managed SaaS solution without infrastructure management? [TraceRoot Cloud](https://app.traceroot.ai) provides zero-maintenance tracing with automated updates.
+</Note>
+
+---
+
+## Core Application Services
+
+TraceRoot is structured as a collection of specialized microservices defined in `docker-compose.prod.yml`:
+
+| Service | Port | Runtime | Primary Role |
+| :--- | :--- | :--- | :--- |
+| **`web`** | `3000` | Node.js (Next.js) | Frontend web console, user authentication (Better-Auth), session management, and client API route proxying. |
+| **`rest`** | `8000` | Python (FastAPI) | High-throughput telemetry ingestion (`/api/v1/public/traces`), analytics querying, public management endpoints, and SQL gateway execution. |
+| **`worker`** | _Internal_ | Python (Celery) | Asynchronous background worker handling trace processing, offline evaluations, and ingestion pipeline tasks. |
+| **`billing`** | _Internal_ | Node.js | Processes Stripe webhooks and hourly usage metering cron (`5 * * * *`). **Optional** on self-hosted instances (`ENABLE_BILLING=false`). |
+| **`detector`** | _Internal_ | Node.js (BullMQ) | Executes LLM-as-a-judge eval runs, automated RCA, digest summaries, **alert delivery notifications**, and the **once-a-minute threshold alert scheduler**. |
+| **`agent`** | `8100` | Python / FastAPI | Interactive AI agent service executing conversational turns, sandbox actions (via `/var/run/docker.sock`), and multi-tool workspace investigations. |
+
+### Critical Dependency: Alerting Runs in the Detector Service
+
+The `detector` service is not only responsible for LLM evaluations—it also powers TraceRoot's alerting engine:
+- It starts four BullMQ worker consumers: `detector run`, `detector RCA`, `detector digest`, and `alert notification`.
+- It runs the once-a-minute alert scheduler tick (`startAlertScheduler()`).
+- Setting `ALERTS_SCHEDULER_ENABLED=false` or stopping the `detector` container stops alert evaluations and outbound notifications immediately.
+
+---
+
+## Infrastructure Dependencies
+
+In addition to the six application services, TraceRoot relies on four core infrastructure components:
+
+- **PostgreSQL 17+**: Relational datastore for workspaces, projects, users, sessions, dashboard layouts, detector configurations, and alerts.
+- **ClickHouse 25.2+**: High-performance analytical columnar database for raw spans, traces, and execution events.
+- **Redis 7+**: In-memory cache and message broker for Celery tasks, BullMQ job queues, and websocket event dispatching.
+- **S3 / MinIO**: Object storage for large trace payloads, eval dataset uploads, and artifacts.
+
+---
+
+## Deployment Options
+
+Choose the deployment method that fits your operating model:
+
+<CardGroup cols={3}>
+  <Card title="Docker Compose" icon="docker" href="/self-hosting/docker-compose">
+    Fastest path for single-node installations, evaluations, and standalone VMs.
+  </Card>
+  <Card title="Kubernetes" icon="cubes" href="/self-hosting/kubernetes">
+    Production deployments on Kubernetes using the official Helm chart (`v1.1.0`).
+  </Card>
+  <Card title="Terraform on AWS" icon="cloud" href="/self-hosting/terraform-aws">
+    Automated VPC, RDS, ElastiCache, and EKS provisioning on AWS via Terraform (`v1.5.0`).
+  </Card>
+</CardGroup>
+
+---
+
+## Configuration & Administration
+
+<CardGroup cols={3}>
+  <Card title="Configuration" icon="sliders" href="/self-hosting/configuration">
+    Required secrets, optional variables, `ENABLE_BILLING=false`, and build args.
+  </Card>
+  <Card title="Database Migrations" icon="database" href="/self-hosting/migrations">
+    Understand the 21 Prisma and 13 ClickHouse automatic migrations.
+  </Card>
+  <Card title="SQL Gateway" icon="terminal" href="/self-hosting/sql-gateway">
+    Configure ClickHouse bootstrap, writer, and read-only accounts for SQL querying.
+  </Card>
+</CardGroup>
