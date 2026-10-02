@@ -17,6 +17,7 @@ import {
   closeEmptySignalRca,
   loadSignalRcaContext,
   sweepSignalRcas,
+  rootCausesByOpening,
 } from "../rca.js";
 
 const T0 = Date.parse("2026-09-30T10:00:00Z");
@@ -110,6 +111,7 @@ describe("loadSignalRcaContext", () => {
         },
       ],
       covered: ["s1:0", "s2:3"],
+      coveredDetectors: { "s1:0": "d1", "s2:3": "d2" },
     });
     expect(db.signalRca.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { findingId: "f1", signal: { projectId: "p1" } } }),
@@ -178,6 +180,54 @@ describe("loadSignalRcaContext", () => {
       "p1",
     );
     expect(ctx?.findings.map((f) => f.summary)).toEqual(["Timeout swallowed", "Wrong city"]);
+  });
+});
+
+describe("rootCausesByOpening", () => {
+  const ctx = (names: string[]) => ({
+    findings: names.map((n, i) => ({
+      detectorId: `d${i}`,
+      detectorName: n,
+      summary: "",
+      signalTitle: "",
+    })),
+    covered: names.map((_, i) => `s${i}:0`),
+    coveredDetectors: Object.fromEntries(names.map((_, i) => [`s${i}:0`, `d${i}`])),
+  });
+  const answer = (...causes: [string, string][]) =>
+    "Overview first.\n\n" +
+    causes
+      .map(([n, c], i) => `### ${i + 1}. ${n}\n- Root cause: ${c}\n- Recommendation: x`)
+      .join("\n\n");
+
+  it("takes each hit's section by position, not by a name another name contains", () => {
+    const r = answer(["Tool Failure", "parser drops the rate"], ["Failure", "retry loop"]);
+    expect(rootCausesByOpening(r, ctx(["Tool Failure", "Failure"]))).toEqual([
+      { opening: "s0:0", rootCause: "parser drops the rate" },
+      { opening: "s1:0", rootCause: "retry loop" },
+    ]);
+  });
+
+  it("tells apart two detectors that share a name", () => {
+    const r = answer(["Failure", "first cause"], ["Failure", "second cause"]);
+    expect(rootCausesByOpening(r, ctx(["Failure", "Failure"])).map((x) => x.rootCause)).toEqual([
+      "first cause",
+      "second cause",
+    ]);
+  });
+
+  it("gives no root cause when the answer does not have one section per hit", () => {
+    const r = answer(["Failure", "only one section"]);
+    expect(rootCausesByOpening(r, ctx(["Failure", "Logic"])).map((x) => x.rootCause)).toEqual([
+      null,
+      null,
+    ]);
+  });
+
+  it("reads a single hit's root cause from an answer without headings", () => {
+    expect(rootCausesByOpening("- **Root cause:** the key expired", ctx(["Failure"]))).toEqual([
+      { opening: "s0:0", rootCause: "the key expired" },
+    ]);
   });
 });
 
