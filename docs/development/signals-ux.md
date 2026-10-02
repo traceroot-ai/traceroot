@@ -16,6 +16,10 @@ It references #2399 and #2404 without closing the full UX issue.
 - Signal title, criteria, canonical RCA, a count-over-time chart, full-screen
   controls and a recent affected-traces table. The chart compares the signal's
   traces with the distinct traces its detector checked.
+- Detector page: one runs table; its findings are the Identified = Yes filter,
+  kept in the URL. Signal ID links a hit to its signal, and Agent Run ID opens
+  the agent trace of the RCA that signal shows. RCA runs per signal, so the
+  per-finding Finding ID and Agent analysis columns are gone.
 - Resolve and dismiss require a reason; Other requires a note. Status writes
   include the status shown when the user acted (for resolve and dismiss, when
   the dialog opened), so a change made meanwhile is refused.
