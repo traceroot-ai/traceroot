@@ -38,6 +38,9 @@ vi.mock("../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
 vi.mock("@/features/detectors/hooks/use-findings", () => ({
   useTraceFindings: () => ({ data: mocks.findings }),
   useRca: () => ({ data: mocks.rca }),
+  // No detection queued: the header shows no detecting badge.
+  useTraceDetectionState: () => ({ data: undefined }),
+  detectionInFlight: () => false,
   useTraceDetectorRuns: () => ({ data: undefined, isLoading: false, error: null }),
 }));
 

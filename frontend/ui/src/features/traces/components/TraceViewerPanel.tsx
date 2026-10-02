@@ -11,6 +11,7 @@ import {
   Expand,
   Shrink,
   SquareArrowOutUpRight,
+  Loader2,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn, buildUrlWithFilters, parseAsUTC } from "@/lib/utils";
@@ -32,7 +33,12 @@ import { useTraceStream } from "../hooks/use-trace-stream";
 import { traceQueryKey } from "../hooks";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { TREE_LAYOUT } from "../utils";
-import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-findings";
+import {
+  useTraceFindings,
+  useRca,
+  useTraceDetectionState,
+  detectionInFlight,
+} from "@/features/detectors/hooks/use-findings";
 import { TraceDetectorsTab } from "./TraceDetectorsTab";
 import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
 import { RetentionGateBanner } from "@/components/RetentionGateBanner";
@@ -258,6 +264,10 @@ export function TraceViewerPanel({
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
   const hasRca = !!traceFinding && !!rcaData?.rca;
   const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
+  // Detection is queued but has nothing to show yet. Evaluation is debounced by
+  // ~a minute, so without this the header sits empty for that whole time.
+  const { data: detection } = useTraceDetectionState(projectId, traceId);
+  const detecting = !hasRca && detectionInFlight(detection);
 
   // Detectors never target internal traces (the judge's read asserts
   // source = 'user' server-side), so a detector self-trace or an agent (RCA)
@@ -445,6 +455,15 @@ export function TraceViewerPanel({
             )}
           </div>
           <div className="flex items-center gap-1">
+            {detecting && (
+              <span
+                className="flex items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] font-medium text-muted-foreground"
+                title="Detectors are evaluating this trace — results appear here automatically"
+              >
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Detecting…
+              </span>
+            )}
             {headerStatus}
             {hasRca && (
               <button

@@ -19,6 +19,8 @@ import operator
 import uuid
 from decimal import Decimal
 
+from shared.detector_keys import detection_claim_key
+
 logger = logging.getLogger(__name__)
 
 # BullMQ queue name — must match TypeScript DETECTOR_RUN_QUEUE constant
@@ -54,19 +56,12 @@ def _get_redis():
 
 
 def _lock_key(project_id: str, trace_id: str) -> str:
-    """Build the Redis key for the per-trace enqueue claim (the NX dedup marker).
+    """Redis key for the per-trace enqueue claim (the NX dedup marker).
 
-    The key — not its value — is the exactly-once guard: a single ``SET NX`` on
-    it decides which batch is allowed to enqueue detection for the trace.
-
-    Args:
-        project_id (str): Project that owns the trace.
-        trace_id (str): Trace being claimed for enqueue.
-
-    Returns:
-        str: The namespaced Redis key for this ``(project, trace)`` claim.
+    The format lives in ``shared.detector_keys`` because the REST API reads these
+    records too; see :func:`shared.detector_keys.detection_claim_key`.
     """
-    return f"detector-enq:{project_id}:{trace_id}"
+    return detection_claim_key(project_id, trace_id)
 
 
 def _release_lock_if_value(redis_client, key: str, expected: str) -> None:

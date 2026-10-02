@@ -53,6 +53,9 @@ vi.mock("../../hooks", async (importOriginal) => ({
 vi.mock("@/features/detectors/hooks/use-findings", () => ({
   useTraceFindings: () => ({ data: { findings: [] } }),
   useRca: () => ({ data: { rca: null } }),
+  // No detection queued: the header shows no detecting badge.
+  useTraceDetectionState: () => ({ data: undefined }),
+  detectionInFlight: () => false,
 }));
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({
