@@ -1,0 +1,324 @@
+---
+title: Widgets
+description: Build query charts, trace feeds, custom metrics, and time-series visualizations
+---
+
+**Widgets** are the fundamental visual building blocks of TraceRoot dashboards. Each widget represents an analytical query, a summary metric card, or a live stream of execution traces anchored to a dashboard.
+
+TraceRoot provides two creatable widget types, rich filtering and aggregation capabilities, and flexible time-window controls.
+
+## Widget Types
+
+When adding a widget to a dashboard, you specify its `type`:
+
+| Type | Description | Content Specification |
+| :--- | :--- | :--- |
+| `query` | Computes metric aggregates and time-series distributions across spans or traces. | Full query specification (`view`, `filters`, `metric`, `breakdown`, `display`). |
+| `trace_feed` | Displays a live, reverse-chronological list of execution traces matching search criteria. | Trace filter predicates and an optional row limit (`filters`, `limit`). |
+
+<Note>
+Earlier database schemas mention a legacy third type (`detector`), but it has been deprecated. Only `query` and `trace_feed` widgets can be created.
+</Note>
+
+---
+
+## Query Widget Specification
+
+A `query` widget executes an analytical aggregation across ClickHouse telemetry data. The `spec` object requires five primary fields:
+
+```typescript
+interface QueryWidgetSpec {
+  view: "spans" | "traces";
+  filters: WidgetFilter[];
+  metric: {
+    measure: string;
+    agg: "count" | "sum" | "avg" | "min" | "max" | "p50" | "p75" | "p90" | "p95" | "p99" | "uniq";
+  };
+  breakdown: string | null;
+  display: {
+    type: "line" | "area" | "bar" | "pie" | "number" | "table" | "histogram";
+  };
+}
+```
+
+### 1. View (`view`)
+
+The underlying dataset to query:
+- `"spans"`: Individual units of work (LLM calls, tool executions, chain steps, or vector searches).
+- `"traces"`: End-to-end execution trees and top-level session requests.
+
+### 2. Filters (`filters`)
+
+An array of filter predicates applied to the query. Each filter includes:
+- `field` (string): The column or attribute to filter (e.g. `span_kind`, `service_name`, `error_type`).
+- `op` (string): One of `=`, `contains`, `>`, `>=`, `<`, `<=`.
+- `value` (string or number): The value to compare against. Empty strings and non-finite numbers (`NaN`, `Infinity`) are rejected.
+- `key` (string, optional): Required when querying keyed fields such as span attributes or custom trace metadata.
+
+Example filter:
+```json
+{
+  "field": "span_kind",
+  "op": "=",
+  "value": "LLM"
+}
+```
+
+### 3. Metric (`metric`)
+
+Defines the quantitative measure and the aggregation function plotted on the y-axis:
+- `measure` (string): Numeric metric to aggregate (e.g. `duration_ms`, `cost`, `total_tokens`, `prompt_tokens`, `completion_tokens`, or the `"count"` sentinel).
+- `agg` (string): One of the 11 supported aggregation functions:
+  - `count`: Count of matching records.
+  - `sum`: Total sum of the measure values.
+  - `avg`: Arithmetic mean.
+  - `min`: Minimum recorded value.
+  - `max`: Maximum recorded value.
+  - `p50`: 50th percentile (median).
+  - `p75`: 75th percentile.
+  - `p90`: 90th percentile.
+  - `p95`: 95th percentile.
+  - `p99`: 99th percentile.
+  - `uniq`: Approximate count of unique distinct values (HyperLogLog).
+
+### 4. Breakdown (`breakdown`)
+
+An optional grouping dimension string (`string | null`, default `null`). When provided, the metric is segmented by this dimension (e.g. `"model_name"`, `"service_name"`, or `"status"`).
+
+### 5. Display (`display`) and Breakdown Rules
+
+TraceRoot supports 7 display types. Depending on the visualization type, specific rules govern whether `breakdown` is required, optional, or forbidden:
+
+| Display Type | Description | Breakdown Rule |
+| :--- | :--- | :--- |
+| `line` | Multi-point time-series line chart | **Optional**. Plots overall metric or separate lines per category. |
+| `area` | Stacked or single-line time-series area chart | **Optional**. Highlights volume changes over time. |
+| `bar` | Categorical bar chart | **Required**. Must provide a breakdown dimension to plot categories. |
+| `pie` | Donut / pie distribution chart | **Required**. Must provide a breakdown dimension to calculate slices. |
+| `number` | Single stat counter / KPI tile | **Rejected**. Must be `null`; renders exactly one headline number. |
+| `table` | Tabular breakdown of values | **Optional**. Displays aggregated rows with optional groupings. |
+| `histogram` | Value frequency distribution | **Rejected**. Must be `null`; compiles into automated value bins. |
+
+<Warning>
+A `pie` or `bar` widget missing a breakdown is rejected with a validation error (`"<type> requires a breakdown dimension"`). Similarly, passing a breakdown to a `number` or `histogram` widget is rejected to prevent silent group truncation.
+</Warning>
+
+---
+
+## Trace Feed Widget Specification
+
+A `trace_feed` widget renders an embedded list of recent traces that match given filter conditions:
+
+```typescript
+interface TraceFeedSpec {
+  filters: Predicate[];
+  limit: number; // Integer between 1 and 200 (defaults to 10)
+}
+```
+
+- `filters`: An array of trace filter predicates (e.g. `[{ "field": "errors", "op": "gt", "value": 0 }]`).
+- `limit`: Maximum number of traces to return. Must be an integer between `1` and `200` (`TRACE_FEED_LIMIT_MAX = 200`). If omitted, it defaults to `10` (`TRACE_FEED_DEFAULT_LIMIT = 10`).
+
+---
+
+## Display Configuration (`displayConfig`)
+
+In addition to `spec`, widgets accept an optional `displayConfig` object (`display_config` in API requests). This is a free-form JSON dictionary (`Record<string, unknown>`) used by frontend renderers to store layout options, custom color palettes, metric formatting, or axis thresholds.
+
+```json
+{
+  "display_config": {
+    "color_scheme": "emerald",
+    "y_axis_label": "Latency (ms)",
+    "threshold_warning": 2500
+  }
+}
+```
+
+---
+
+## Time Windows
+
+When querying dashboard data or widget results, time windows are evaluated in one of three ways:
+
+1. **Preset Ranges**: Relative time windows anchored to the current moment. TraceRoot supports 10 preset identifiers:
+   - `30m`: Last 30 minutes
+   - `1h`: Last 1 hour
+   - `3h`: Last 3 hours
+   - `6h`: Last 6 hours
+   - `1d`: Last 24 hours
+   - `7d`: Last 7 days
+   - `14d`: Last 14 days
+   - `30d`: Last 30 days
+   - `60d`: Last 60 days
+   - `90d`: Last 90 days
+
+2. **Explicit Time Ranges**: Absolute ISO 8601 timestamps passed via `start_time` and `end_time` (e.g., `start_time=2026-10-01T00:00:00Z&end_time=2026-10-02T00:00:00Z`). Both bounds must be provided together.
+
+3. **Default Window**: If neither a preset `range` nor explicit `start_time`/`end_time` parameters are specified, TraceRoot automatically defaults to the past **24 hours** (`1d`).
+
+---
+
+## Testing Specs with `POST /widgets/query`
+
+Before saving a widget to a dashboard, you can test its query specification statelessly using the `POST /api/v1/public/widgets/query` route.
+
+This endpoint compiles and executes the `WidgetSpec` against your ClickHouse dataset without creating a persistent widget row in your database. It is especially useful for:
+- Testing filter combinations and syntax before committing to a dashboard.
+- Ad-hoc analytics scripts or CI assertions.
+- Tool use by autonomous AI agents.
+
+### Example: Stateless Query Request
+
+```bash
+curl -X POST https://app.traceroot.ai/api/v1/public/widgets/query \
+  -H "Authorization: Bearer $TRACEROOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "range": "7d",
+    "spec": {
+      "view": "spans",
+      "filters": [
+        { "field": "span_kind", "op": "=", "value": "LLM" }
+      ],
+      "metric": { "measure": "cost", "agg": "sum" },
+      "breakdown": "model_name",
+      "display": { "type": "bar" }
+    }
+  }'
+```
+
+Response:
+```json
+{
+  "columns": ["model_name", "cost"],
+  "rows": [
+    ["gpt-4o", 14.82],
+    ["claude-3-5-sonnet-20241022", 8.45],
+    ["gemini-1.5-pro", 3.12]
+  ],
+  "meta": {}
+}
+```
+
+---
+
+## Public Widget API Routes
+
+The TraceRoot Public REST API provides six dedicated routes for widgets:
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/v1/public/widgets` | Create a new widget on a dashboard. (Strict creation: every call creates a new widget). |
+| `POST` | `/api/v1/public/widgets/query` | Statelessly run a query specification over a time window without saving a widget. |
+| `GET` | `/api/v1/public/widgets/{widget_id}` | Retrieve widget configuration, type, spec, and display settings. |
+| `PATCH` | `/api/v1/public/widgets/{widget_id}` | Update a widget's title, spec, or display settings. |
+| `DELETE` | `/api/v1/public/widgets/{widget_id}` | Hard-delete a widget from its dashboard. |
+| `GET` | `/api/v1/public/widgets/{widget_id}/data` | Evaluate and return computed chart data for an existing widget over a time window. |
+
+---
+
+## Creating Widgets
+
+### Example 1: Create a Query Widget (cURL)
+
+The following example adds a P95 Latency line chart broken down by model name to an existing dashboard:
+
+```bash
+curl -X POST https://app.traceroot.ai/api/v1/public/widgets \
+  -H "Authorization: Bearer $TRACEROOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_91a0c8b21e054fbb8b1234567890abcd",
+    "dashboard_id": "dsh_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+    "title": "P95 Latency by Model",
+    "type": "query",
+    "spec": {
+      "view": "spans",
+      "filters": [
+        { "field": "span_kind", "op": "=", "value": "LLM" }
+      ],
+      "metric": {
+        "measure": "duration_ms",
+        "agg": "p95"
+      },
+      "breakdown": "model_name",
+      "display": {
+        "type": "line"
+      }
+    },
+    "display_config": {
+      "y_axis_label": "Duration (ms)"
+    }
+  }'
+```
+
+### Example 2: Create a Trace Feed Widget (cURL)
+
+The following example adds a filtered trace feed widget showing the latest error traces:
+
+```bash
+curl -X POST https://app.traceroot.ai/api/v1/public/widgets \
+  -H "Authorization: Bearer $TRACEROOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_91a0c8b21e054fbb8b1234567890abcd",
+    "dashboard_id": "dsh_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+    "title": "Recent Error Traces",
+    "type": "trace_feed",
+    "spec": {
+      "filters": [
+        { "field": "errors", "op": "gt", "value": 0 }
+      ],
+      "limit": 25
+    }
+  }'
+```
+
+### Example 3: Create a Widget Using the TraceRoot CLI
+
+You can also create widgets using the TraceRoot CLI by supplying a JSON specification file:
+
+```json widget.json
+{
+  "project_id": "proj_91a0c8b21e054fbb8b1234567890abcd",
+  "dashboard_id": "dsh_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+  "title": "Total Cost by Model",
+  "type": "query",
+  "spec": {
+    "view": "spans",
+    "filters": [
+      { "field": "span_kind", "op": "=", "value": "LLM" }
+    ],
+    "metric": {
+      "measure": "cost",
+      "agg": "sum"
+    },
+    "breakdown": "model_name",
+    "display": {
+      "type": "pie"
+    }
+  }
+}
+```
+
+```bash
+traceroot widgets create --from-file widget.json
+```
+
+Or query widget data over a 7-day window directly from your terminal:
+
+```bash
+traceroot widgets data wdg_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6 --range 7d
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Dashboards Introduction" icon="table-columns" href="/dashboards/introduction">
+    Learn about dashboard layouts, naming rules, and default seed configurations.
+  </Card>
+  <Card title="CLI Dashboards & Widgets" icon="terminal" href="/cli/dashboards-and-widgets">
+    Explore the full command-line reference for managing dashboards and widgets.
+  </Card>
+</CardGroup>

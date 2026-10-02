@@ -1,0 +1,103 @@
+---
+title: Introduction
+description: Monitor LLM applications with customizable dashboards and analytic widgets
+---
+
+TraceRoot provides real-time analytical dashboards composed of modular **widgets**. Dashboards aggregate span and trace telemetry into time-series charts, categorical breakdowns, summary counters, and filtered trace feeds.
+
+Every project comes pre-configured with a dashboard, and dashboards can be fully customized through the web UI, the public REST API, the TraceRoot CLI, or the in-app AI agent.
+
+## The Default Dashboard
+
+When you create a new project in TraceRoot, a **Default** dashboard is automatically seeded with an overview of your application's activity, costs, token usage, and latency.
+
+The Default dashboard includes eight pre-configured widgets:
+
+- **Trace count**: A stat counter showing the total number of traces.
+- **Total cost**: A stat counter aggregating total LLM spend.
+- **Tokens**: A stat counter summing total token consumption across spans.
+- **p95 latency**: A stat counter tracking the 95th percentile execution latency in milliseconds.
+- **Cost over time · by model**: A line chart breaking down cumulative cost across different LLM models over time.
+- **Tokens by model**: A bar chart comparing total token usage grouped by model name.
+- **Recent traces**: A live trace feed widget displaying the latest 10 traces.
+- **Recent failures**: A filtered trace feed widget showing the latest 10 traces that recorded errors (`errors > 0`).
+
+<Note>
+Once created, the Default dashboard is fully user-owned. TraceRoot never re-seeds or force-updates an existing dashboard, so you can freely rearrange the grid, edit widget specifications, or add new widgets.
+</Note>
+
+## Dashboard Rules & Constraints
+
+### Unique Names and Length Limits
+
+- **Project-scoped uniqueness**: Dashboard names must be unique within a project.
+- **Character limit**: Dashboard names are capped at **50 characters** (`DASHBOARD_NAME_MAX = 50`). This ensures dashboard titles remain readable across browser tabs and dialog inputs without horizontal clipping.
+- **Descriptions**: Dashboard descriptions support up to **500 characters** (`DASHBOARD_DESCRIPTION_MAX = 500`).
+
+### Idempotent API Creates vs. AI Agent Renaming
+
+Dashboard creation behavior differs depending on whether you create dashboards programmatically or interactively with the AI agent:
+
+- **Public API and CLI (Idempotent)**: The `POST /api/v1/public/dashboards` endpoint and `traceroot dashboards create` CLI command are idempotent on name. If you attempt to create a dashboard with a name that already exists in the project, TraceRoot returns the existing dashboard row with `created: false` rather than returning an error.
+- **In-App AI Agent (Auto-suffixing)**: When the in-app AI agent invokes dashboard creation tools following a user confirmation card, it does not reuse the existing dashboard. Instead, it appends a numeric suffix such as `" (2)"` (or `" (3)"`, trimmed to fit the 50-character limit) to preserve existing layouts while fulfilling the user's request.
+
+### Last-Dashboard Deletion Protection
+
+Every project must retain at least one dashboard. If you attempt to delete the only remaining dashboard in a project, the deletion request is rejected with an HTTP **409 Conflict** response:
+
+```json
+{
+  "detail": "Cannot delete a project's last dashboard"
+}
+```
+
+To replace the last dashboard, create a new one first before deleting the old one.
+
+## Public Dashboard API Routes
+
+The TraceRoot Public REST API exposes six dedicated routes for managing dashboards and querying dashboard-level data:
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/v1/public/dashboards` | List all dashboards in the authenticated project (Default dashboard returned first). |
+| `POST` | `/api/v1/public/dashboards` | Create a new dashboard (idempotent by name). |
+| `GET` | `/api/v1/public/dashboards/{dashboard_id}` | Retrieve dashboard metadata, grid layout, and associated widgets. |
+| `PATCH` | `/api/v1/public/dashboards/{dashboard_id}` | Rename a dashboard or update its description. |
+| `DELETE` | `/api/v1/public/dashboards/{dashboard_id}` | Hard-delete a dashboard and all of its widgets (returns `409` if it is the project's last dashboard). |
+| `GET` | `/api/v1/public/dashboards/{dashboard_id}/data` | Fetch evaluated time-series and aggregate data for all widgets in the dashboard for a specific time window. |
+
+## Creating a Dashboard
+
+You can create a new dashboard using the Public API or the CLI.
+
+### Using the Public API (cURL)
+
+```bash
+curl -X POST https://app.traceroot.ai/api/v1/public/dashboards \
+  -H "Authorization: Bearer $TRACEROOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "proj_91a0c8b21e054fbb8b1234567890abcd",
+    "name": "Production Agent Metrics",
+    "description": "Real-time cost, token, and latency metrics for customer support agents"
+  }'
+```
+
+### Using the CLI
+
+```bash
+traceroot dashboards create \
+  --name "Production Agent Metrics" \
+  --description "Real-time cost, token, and latency metrics for customer support agents"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Widgets" icon="chart-mixed" href="/dashboards/widgets">
+    Learn how to build query widgets, configure display types, set time ranges, and use trace feeds.
+  </Card>
+  <Card title="CLI Dashboards & Widgets" icon="terminal" href="/cli/dashboards-and-widgets">
+    Manage dashboards and widgets directly from the command line.
+  </Card>
+</CardGroup>
