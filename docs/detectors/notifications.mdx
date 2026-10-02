@@ -5,6 +5,8 @@ description: Send detector finding digests to email and Slack
 
 Detector notifications are **windowed digests**. At the end of each configured window, TraceRoot groups findings by detector and sends one digest to every configured channel. The default window is **10 minutes**; the available windows are **1 minute, 5 minutes, 10 minutes, 30 minutes, 1 hour, and 2 hours**.
 
+This page covers notifications for detector findings. To watch a metric over time and be notified when it crosses a threshold, see [Alerts](/alerts/introduction).
+
 The digest does not wait for root cause analysis to finish and does not contain the RCA. Open the linked trace or finding in TraceRoot to read the analysis.
 
 ## Configure notifications

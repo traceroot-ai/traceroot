@@ -1,0 +1,63 @@
+---
+title: Introduction
+description: Watch a metric over time and get notified in Slack when it crosses a threshold
+---
+
+An alert is a **threshold rule**. It takes a measure over the spans in a project, aggregates it over a time window, compares the result to a threshold, and posts to Slack when the threshold is breached and again when it recovers.
+
+Alerts are different from [detectors](/detectors/introduction): a detector judges one trace with a prompt; an alert watches a number over time. If you are looking for email and Slack digests of detector findings, see [detector notifications](/detectors/notifications).
+
+<Frame>
+  <img src="/images/alerts_list_v1.png" alt="Alerts list showing each rule's severity, window and last evaluation" />
+</Frame>
+
+## Anatomy of an alert
+
+A rule has five parts:
+
+- **A measure and an aggregation**: what to compute, such as `p95` of latency, `sum` of cost, or a `count` of spans.
+- **Filters**: which spans are counted, such as only LLM spans, one model, or one environment.
+- **A window**: how far back each evaluation looks, from 1 minute to 2 hours.
+- **A trigger**: an operator and a threshold the result is compared against.
+- **Notification settings**: what an empty window means, and whether a standing breach repeats.
+
+See the [rule reference](/alerts/rule-reference) for every option and its unit.
+
+## How evaluation works
+
+TraceRoot checks active rules once a minute. Each rule is measured again once it can hold new data: a rule with a window of 5 minutes or less is measured at its own window's pace, and wider windows are measured every 5 minutes. Each window ends 30 seconds behind the clock so spans that are still arriving are counted.
+
+Every evaluation gives the rule a severity:
+
+- **OK**: the value is within the threshold.
+- **Alert**: the value breaches the threshold.
+- **No Data**: the window had nothing to measure.
+
+A notification is sent when a rule enters **Alert** and when it recovers to **OK**. A rule that stays in **Alert** stays quiet unless you turn on renotify.
+
+## Beyond the UI
+
+Alerts can also be managed outside the Alerts page:
+
+- **Public API**: six routes under `/api/v1/public/alerts` list, create, read, update, pause or resume, and delete rules.
+- **CLI**: the `traceroot alerts` commands (`list`, `get`, `create`, `update`, `status`, `delete`). See the [CLI guide](/cli/get-started) for installing and signing in.
+- **AI agent**: the in-app [agent](/ai-agent/overview) can read rules (`list_alerts`, `get_alert`) and, with your approval, change them (`create_alert`, `update_alert`, `set_alert_status`, `delete_alert`).
+
+Alert names are not unique, so creating the same rule twice through any of these makes two rules.
+
+## Where to start
+
+<CardGroup cols={2}>
+  <Card title="Get Started" icon="rocket" href="/alerts/get-started">
+    Create your first alert and check it against the live preview.
+  </Card>
+  <Card title="Rule Reference" icon="list" href="/alerts/rule-reference">
+    Measures, units, aggregations, windows, filters and states.
+  </Card>
+  <Card title="Slack Delivery" icon="slack" href="/alerts/slack">
+    Connect Slack and read the messages an alert sends.
+  </Card>
+  <Card title="Detector Notifications" icon="bell" href="/detectors/notifications">
+    Email and Slack digests for detector findings.
+  </Card>
+</CardGroup>
