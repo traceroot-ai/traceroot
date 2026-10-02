@@ -143,3 +143,31 @@ def test_lookup_batching_preserves_per_page_commit_granularity():
 
     assert pg.rollbacks == 4
     assert pg.commits == 0
+
+
+def test_apply_commits_each_page_and_counts_the_updates():
+    """The write path commits once per Postgres page, whatever the lookup batch."""
+    pages = _paged_signal_hits(num_pages=4, rows_per_page=3)
+    all_trace_ids = {row[1] for page in pages for row in page}
+    pg = _FakeConnection(pages)
+    ch = _FakeClickHouse({tid: datetime(2026, 1, 1) for tid in all_trace_ids})
+
+    counts = repair(pg, ch, "p1", apply=True, batch_size=3, lookup_batch_size=100)
+
+    assert pg.commits == 4
+    assert pg.rollbacks == 0
+    assert counts["updated"] == 12
+
+
+def test_buffer_is_bounded_by_rows_when_hits_share_few_traces():
+    """Many hits on one trace never reach the id bound; the row bound still
+    flushes, so the repair does not hold every page until the end."""
+    pages = [[(page * 5 + i, "t-shared", None) for i in range(1, 6)] for page in range(10)]
+    pg = _FakeConnection(pages)
+    ch = _FakeClickHouse({"t-shared": datetime(2026, 1, 1)})
+
+    counts = repair(pg, ch, "p1", batch_size=5, lookup_batch_size=10)
+
+    assert counts["scanned"] == 50
+    # Two pages (10 rows) per lookup.
+    assert len(ch.calls) == 5

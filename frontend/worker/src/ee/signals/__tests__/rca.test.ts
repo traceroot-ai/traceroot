@@ -282,7 +282,7 @@ describe("closeEmptySignalRca", () => {
 });
 
 describe("sweepSignalRcas", () => {
-  it("starts pending RCAs without a job, newest first, past the enqueue grace", async () => {
+  it("starts pending RCAs without a job, newest first, once a round that wrote them has ended", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const db = {
       signalRca: {
@@ -298,7 +298,7 @@ describe("sweepSignalRcas", () => {
     expect(db.signalRca.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          createTime: { gt: new Date(T0 - 7 * 24 * 3_600_000), lt: new Date(T0 - 15_000) },
+          createTime: { gt: new Date(T0 - 7 * 24 * 3_600_000), lt: new Date(T0 - 75_000) },
           rca: { status: "pending" },
         },
         orderBy: { createTime: "desc" },

@@ -154,7 +154,7 @@ const RCA_POLL_MS = 10_000;
 /** Whether the current opening's analysis is waiting or running. */
 export const rcaInProgress = (state: string | null) => state === "pending" || state === "running";
 
-/** Run a signal's root cause analysis by hand; the worker starts it within a minute. */
+/** Run a signal's root cause analysis by hand; the worker starts it within about two minutes. */
 export function useRequestSignalRca(projectId: string, signalId: string) {
   const queryClient = useQueryClient();
   return useMutation({

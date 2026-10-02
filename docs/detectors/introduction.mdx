@@ -4,7 +4,7 @@ description: Continuous monitoring for your AI agents
 ---
 
 
-A detector is an **LLM-as-a-judge** — an evaluator model that reads a sampled share of incoming traces that match its trigger conditions and decides whether a specific problem is present. When the judge flags one, TraceRoot records a finding and groups it with earlier findings of the same problem into a **signal**. The AI agent investigates a signal, automatically when it starts or when you run the analysis from the signal, using the trace, your production source code, and recent GitHub activity. Notifications are sent on the configured digest window rather than waiting for the analysis to finish.
+A detector is an **LLM-as-a-judge** — an evaluator model that reads a sampled share of incoming traces that match its trigger conditions and decides whether a specific problem is present. When the judge flags one, TraceRoot records a finding and groups it with earlier findings of the same problem into a **signal**. The AI agent investigates a signal when you run the analysis from it, or automatically when the signal starts if the detector's root cause analysis is Automatic, using the trace, your production source code, and recent GitHub activity. Notifications are sent on the configured digest window rather than waiting for the analysis to finish.
 
 
 <Frame>

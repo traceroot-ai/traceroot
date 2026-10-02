@@ -436,7 +436,7 @@ export async function handleMergeSignal(
 
 // POST /api/projects/[projectId]/signals/[signalId]/rca
 // Run the signal's root cause analysis by hand. Records the request; the
-// worker starts it within a minute.
+// worker starts it within about two minutes.
 export async function handleRequestSignalRca(
   _req: NextRequest,
   { params }: Params<{ projectId: string; signalId: string }>,

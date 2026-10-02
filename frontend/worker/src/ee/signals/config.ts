@@ -115,9 +115,10 @@ export const RCA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export const RCA_DELAY_MS = 60_000;
 
 /**
- * How long after an opening is written the sweeper may start its RCA: the
- * assignment round enqueues it right after its commit, so a pending RCA older
- * than this with no job lost its job, or was asked for by hand from the
- * Signals page (the web app cannot reach the job queue).
+ * How long after an opening is written the sweeper may start its RCA. A round
+ * commits openings as it goes but enqueues their RCAs only when it ends, up to
+ * ROUND_MAX_MS later; starting one sooner would skip RCA_DELAY_MS. A pending
+ * RCA older than this with no job lost its job, or was asked for by hand from
+ * the Signals page (the web app cannot reach the job queue).
  */
-export const RCA_ENQUEUE_GRACE_MS = 15_000;
+export const RCA_ENQUEUE_GRACE_MS = ROUND_MAX_MS + 15_000;

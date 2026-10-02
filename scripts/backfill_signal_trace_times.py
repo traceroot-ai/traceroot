@@ -123,7 +123,12 @@ def repair(
         pending_pages.append(rows)
         pending_trace_ids.update(row[1] for row in rows)
         after = rows[-1][0]
-        if len(pending_trace_ids) >= lookup_batch_size:
+        # Bound the buffer by rows too: many hits on few traces would otherwise
+        # hold every page until the end.
+        if (
+            len(pending_trace_ids) >= lookup_batch_size
+            or len(pending_pages) * batch_size >= lookup_batch_size
+        ):
             flush(pending_pages, pending_trace_ids)
             pending_pages = []
             pending_trace_ids = set()

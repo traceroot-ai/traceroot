@@ -37,7 +37,7 @@ It references #2399 and #2404 without closing the full UX issue.
   or Automatic; the detector's enableRca), and the project's agent model.
 - A signal without an analysis offers Run root cause analysis. The request is
   recorded in Postgres (the web app cannot reach the job queue) and the
-  worker's RCA sweep starts it within a minute; the panel follows it until it
+  worker's RCA sweep starts it within about two minutes; the panel follows it until it
   finishes.
 
 ## Design deltas
