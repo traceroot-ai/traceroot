@@ -132,6 +132,15 @@
             ]
           },
           {
+            "group": "Alerts",
+            "pages": [
+              "alerts/introduction",
+              "alerts/get-started",
+              "alerts/rule-reference",
+              "alerts/slack"
+            ]
+          },
+          {
             "group": "Evaluations",
             "pages": [
               "evals/introduction",
