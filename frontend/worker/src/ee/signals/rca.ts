@@ -58,6 +58,8 @@ export interface SignalRcaContext {
   findings: DetectorRcaFinding[];
   /** The signal openings this run covers, as "signalId:reopenSeq". */
   covered: string[];
+  /** The detector whose hit each covered opening is; its section is that detector's place in `findings`. */
+  coveredDetectors: Record<string, string>;
 }
 
 const openingKey = (r: { signalId: string; reopenSeq: number }) => `${r.signalId}:${r.reopenSeq}`;
@@ -143,13 +145,50 @@ export async function loadSignalRcaContext(
     });
   }
   if (findings.length === 0) return null;
+  const coveredOpenings = openings.filter((o) => analysed.has(o.signal.detectorId));
   return {
     traceId,
     workspaceId: project.workspaceId,
     findingTimestamp: Math.min(...hits.map((h) => h.seenAt.getTime())),
     findings,
-    covered: openings.filter((o) => analysed.has(o.signal.detectorId)).map(openingKey),
+    covered: coveredOpenings.map(openingKey),
+    coveredDetectors: Object.fromEntries(
+      coveredOpenings.map((o) => [openingKey(o), o.signal.detectorId]),
+    ),
   };
+}
+
+/**
+ * The root cause a signal RCA gave for each covered opening: the "Root cause:"
+ * line of its hit's section. Sections are taken by position, in the order the
+ * prompt listed the hits, never by detector name, since one name can contain
+ * another and two detectors can share a name. An answer without one section
+ * per hit gives no root cause for any of them, rather than a misaligned one.
+ */
+export function rootCausesByOpening(
+  result: string,
+  context: Pick<SignalRcaContext, "findings" | "covered" | "coveredDetectors">,
+): { opening: string; rootCause: string | null }[] {
+  const sections = result.split(/\n(?=#{2,4}\s)/).filter((s) => /^#{2,4}\s/.test(s));
+  // A single hit may be answered without a heading; its root cause is the answer's.
+  const bodies =
+    context.findings.length === 1 && sections.length === 0
+      ? [result]
+      : sections.length === context.findings.length
+        ? sections
+        : null;
+  return context.covered.map((opening) => {
+    const index = context.findings.findIndex(
+      (f) => f.detectorId === context.coveredDetectors[opening],
+    );
+    const body = bodies && index >= 0 ? bodies[index] : null;
+    return { opening, rootCause: body ? rootCauseOf(body) : null };
+  });
+}
+
+function rootCauseOf(section: string): string | null {
+  const match = section.match(/root cause:\**\s*(.+)/i);
+  return match ? match[1].replace(/\*+/g, "").trim() || null : null;
 }
 
 /** Whether signals were opened for this finding that a finished run did not cover. */

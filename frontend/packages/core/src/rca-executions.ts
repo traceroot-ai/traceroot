@@ -81,6 +81,13 @@ export async function finishFindingIfLatest(
     completedAt?: Date;
     /** Signal openings actually analysed; omitted for legacy per-finding jobs. */
     coveredOpenings?: readonly string[];
+    /**
+     * For a successful signal RCA: each analysed opening ("signalId:reopenSeq")
+     * with the root cause given for its hit. The answer is kept on each opening.
+     */
+    openingResults?: readonly { opening: string; rootCause: string | null }[];
+    /** The agent session that produced a successful answer, kept with it. */
+    sessionId?: string | null;
   },
 ): Promise<boolean> {
   return db.$transaction(async (tx) => {
@@ -109,6 +116,22 @@ export async function finishFindingIfLatest(
           SELECT 1 FROM detector_rca_executions
           WHERE finding_id = ${params.findingId} AND attempt > ${params.attempt}
         )`;
+    // The finding row only holds the latest attempt, which a later signal on
+    // the same trace resets and may fail. Each opening the successful run
+    // analysed keeps its own copy of the answer, so no later attempt takes it
+    // away, and an opening this run did not cover never borrows it.
+    if (count === 1 && params.status === "done" && params.openingResults) {
+      for (const { opening, rootCause } of params.openingResults) {
+        const at = opening.indexOf(":");
+        await tx.$executeRaw`
+          UPDATE signal_rcas
+          SET result = ${params.result ?? null}, root_cause = ${rootCause},
+              session_id = ${params.sessionId ?? null}
+          WHERE finding_id = ${params.findingId}
+            AND signal_id = ${opening.slice(0, at)}
+            AND reopen_seq = ${Number(opening.slice(at + 1))}`;
+      }
+    }
     return count === 1;
   });
 }

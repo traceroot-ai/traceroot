@@ -55,6 +55,7 @@ function fakeDb(
       const text = strings.join("?");
       sql.push({ text, values });
       if (text.includes("DELETE FROM signal_rcas")) return 0;
+      if (text.includes("UPDATE signal_rcas")) return 1;
       // Params, in template order: status, result, completed_at, finding_id, finding_id, attempt.
       const [, , , findingId, , attempt] = values as [
         string,
@@ -165,6 +166,74 @@ describe("finishFindingIfLatest", () => {
       coveredOpenings: ["old:0"],
     });
     expect(f.sql.at(-1)?.values.slice(0, 2)).toEqual(["done", "complete"]);
+  });
+
+  it("keeps a successful answer on each analysed opening, with its own root cause", async () => {
+    const f = fakeDb([], {
+      openings: [
+        { signalId: "a", reopenSeq: 0 },
+        { signalId: "b", reopenSeq: -1 },
+      ],
+    });
+    await finishFindingIfLatest(f.db as never, {
+      findingId: "f-1",
+      attempt: 1,
+      status: "done",
+      result: "both",
+      sessionId: "sess-1",
+      coveredOpenings: ["a:0", "b:-1"],
+      openingResults: [
+        { opening: "a:0", rootCause: "cause a" },
+        { opening: "b:-1", rootCause: null },
+      ],
+    });
+    const kept = f.sql.filter((q) => q.text.includes("UPDATE signal_rcas"));
+    expect(kept.map((q) => q.values)).toEqual([
+      ["both", "cause a", "sess-1", "f-1", "a", 0],
+      ["both", null, "sess-1", "f-1", "b", -1],
+    ]);
+  });
+
+  it("keeps the covered openings' answer even when a new opening arrived during the run", async () => {
+    const openings = [{ signalId: "old", reopenSeq: 0 }];
+    const f = fakeDb([], {
+      openings,
+      onLock: () => openings.push({ signalId: "new", reopenSeq: 1 }),
+    });
+    await finishFindingIfLatest(f.db as never, {
+      findingId: "f-1",
+      attempt: 1,
+      status: "done",
+      result: "old only",
+      coveredOpenings: ["old:0"],
+      openingResults: [{ opening: "old:0", rootCause: "cause" }],
+    });
+    const kept = f.sql.filter((q) => q.text.includes("UPDATE signal_rcas"));
+    expect(kept.map((q) => q.values.slice(4))).toEqual([["old", 0]]);
+  });
+
+  it("never touches the kept answers when an attempt fails or a newer attempt owns the finding", async () => {
+    const failed = fakeDb([], { openings: [{ signalId: "a", reopenSeq: 0 }] });
+    await finishFindingIfLatest(failed.db as never, {
+      findingId: "f-1",
+      attempt: 1,
+      status: "failed",
+      result: "RCA failed: timeout",
+      coveredOpenings: ["a:0"],
+      openingResults: [{ opening: "a:0", rootCause: null }],
+    });
+    expect(failed.sql.some((q) => q.text.includes("UPDATE signal_rcas"))).toBe(false);
+
+    const stale = fakeDb([exec(1), exec(2)], { openings: [{ signalId: "a", reopenSeq: 0 }] });
+    await finishFindingIfLatest(stale.db as never, {
+      findingId: "f-1",
+      attempt: 1,
+      status: "done",
+      result: "older answer",
+      coveredOpenings: ["a:0"],
+      openingResults: [{ opening: "a:0", rootCause: "c" }],
+    });
+    expect(stale.sql.some((q) => q.text.includes("UPDATE signal_rcas"))).toBe(false);
   });
 
   const exec = (attempt: number): Execution => ({
