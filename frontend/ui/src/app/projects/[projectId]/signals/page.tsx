@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { PlanType } from "@traceroot/core";
-import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { LoadingState } from "@/components/ui/loading-state";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -20,7 +19,9 @@ import { useDetectorList } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { SIGNAL_ID_PARAM, SIGNAL_STATUSES } from "@traceroot/core/signals";
-import { useSignals } from "@/ee/features/signals/hooks";
+import { useSignalSetup, useSignals } from "@/ee/features/signals/hooks";
+import { SignalsEmptyState } from "@/ee/features/signals/components/signals-empty-state";
+import { Button } from "@/components/ui/button";
 import { SignalDetailPanel } from "@/ee/features/signals/components/signal-detail-panel";
 import { STATUS_LABELS } from "@/ee/features/signals/components/signal-status-control";
 import { serializeFiltersParam } from "@/features/filters/predicate";
@@ -157,6 +158,26 @@ export default function SignalsPage() {
   const signals = data?.data ?? [];
   const meta = data?.meta;
   const selectedIndex = signals.findIndex((s) => s.id === selectedSignalId);
+  // Nothing listed: ask whether the project has any signal at all, to tell
+  // "set up a detector" from "nothing matches these filters".
+  const listEmpty = !isLoading && !error && signals.length === 0;
+  const setup = useSignalSetup(projectId, listEmpty);
+
+  if (listEmpty && setup.data?.signalCount === 0) {
+    return (
+      <div className="relative flex h-full text-[13px]">
+        <ProjectBreadcrumb projectId={projectId} />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border px-4 py-2">
+            <h1 className="text-[13px] font-medium">Signals</h1>
+          </div>
+          <div className="flex-1 overflow-auto">
+            <SignalsEmptyState projectId={projectId} setup={setup.data} />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex h-full text-[13px]">
@@ -190,13 +211,32 @@ export default function SignalsPage() {
               <p className="text-[13px] text-destructive">Error loading signals</p>
             </div>
           ) : signals.length === 0 ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <DOMAIN_ICONS.signal className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-[13px] text-muted-foreground">No signals found</p>
-              <p className="text-[12px] text-muted-foreground">
-                Detector hits are grouped into signals, one per recurring problem.
-              </p>
-            </div>
+            setup.isPending ? (
+              <div className="flex h-64 items-center justify-center">
+                <LoadingState label="Loading signals..." />
+              </div>
+            ) : setup.error ? (
+              <div className="flex h-64 flex-col items-center justify-center gap-3">
+                <p className="text-[13px] text-muted-foreground">Unable to load signal setup.</p>
+                <Button variant="outline" size="sm" onClick={() => void setup.refetch()}>
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              <div className="flex h-64 flex-col items-center justify-center gap-3 text-muted-foreground">
+                <p>No signals match your filters.</p>
+                {state.filters.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[12px]"
+                    onClick={() => updateFilters([])}
+                  >
+                    Clear filters
+                  </Button>
+                )}
+              </div>
+            )
           ) : (
             <table className="w-full">
               <thead className="sticky top-0 bg-background">

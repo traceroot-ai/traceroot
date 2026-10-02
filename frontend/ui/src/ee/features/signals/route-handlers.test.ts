@@ -12,6 +12,8 @@ const core = vi.hoisted(() => ({
   mergeSignals: vi.fn(),
   moveHit: vi.fn(),
   signalsForTrace: vi.fn(),
+  detectorSignalSettings: vi.fn(),
+  signalSetup: vi.fn(),
   writeAudit: vi.fn(),
   requireAuth: vi.fn(),
   requireProjectAccess: vi.fn(),
@@ -35,6 +37,8 @@ vi.mock("@traceroot/core/signals", async (importOriginal) => {
     mergeSignals: core.mergeSignals,
     moveHit: core.moveHit,
     signalsForTrace: core.signalsForTrace,
+    detectorSignalSettings: core.detectorSignalSettings,
+    signalSetup: core.signalSetup,
   };
 });
 vi.mock("@/lib/write-services/audit", () => ({ writeAudit: core.writeAudit }));
@@ -53,6 +57,7 @@ import {
   handleMergeSignal,
   handleMoveHit,
   handleSetSignalStatus,
+  handleSignalSetup,
   handleTraceSignals,
 } from "./route-handlers";
 
@@ -367,10 +372,48 @@ describe("reads", () => {
     error.mockRestore();
   });
 
-  it("returns a trace's signals", async () => {
+  it("returns a trace's signals and the named detectors' signals settings", async () => {
     core.signalsForTrace.mockResolvedValue([{ runId: "r1" }]);
-    const res = await handleTraceSignals(req(), params({ projectId: "p1", traceId: "t1" }));
-    expect(await res.json()).toEqual({ hits: [{ runId: "r1" }] });
+    core.detectorSignalSettings.mockResolvedValue([{ id: "d1", enableSignals: true }]);
+    const res = await handleTraceSignals(
+      req(undefined, "?detector_ids=d1,d2,d1,"),
+      params({ projectId: "p1", traceId: "t1" }),
+    );
+    expect(await res.json()).toEqual({
+      hits: [{ runId: "r1" }],
+      detectors: [{ id: "d1", enableSignals: true }],
+    });
+    expect(core.signalsForTrace).toHaveBeenCalledWith(expect.anything(), {
+      projectId: "p1",
+      traceId: "t1",
+    });
+    expect(core.detectorSignalSettings).toHaveBeenCalledWith(expect.anything(), {
+      projectId: "p1",
+      detectorIds: ["d1", "d2"],
+    });
+  });
+
+  it("refuses too many detector ids", async () => {
+    const ids = Array.from({ length: 201 }, (_, i) => `d${i}`).join(",");
+    const res = await handleTraceSignals(
+      req(undefined, `?detector_ids=${ids}`),
+      params({ projectId: "p1", traceId: "t1" }),
+    );
+    expect(res.status).toBe(400);
+    expect(core.signalsForTrace).not.toHaveBeenCalled();
+  });
+
+  it("returns the project's signal setup", async () => {
+    const setup = {
+      signalCount: 0,
+      detectorCount: 2,
+      signalDetectorCount: 1,
+      sampledSignalDetectorCount: 0,
+    };
+    core.signalSetup.mockResolvedValue(setup);
+    const res = await handleSignalSetup(req(), params({ projectId: "p1" }));
+    expect(await res.json()).toEqual(setup);
+    expect(core.signalSetup).toHaveBeenCalledWith(expect.anything(), "p1");
   });
 });
 

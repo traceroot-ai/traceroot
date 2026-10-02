@@ -376,3 +376,37 @@ export async function signalsForTrace(
     signalStatus: h.signal.status,
   }));
 }
+
+/**
+ * The signals settings of the detectors that ran on a trace, so the trace page
+ * can tell a hit waiting for assignment from one whose detector does not group.
+ */
+export async function detectorSignalSettings(
+  db: Pick<PrismaClient, "detector">,
+  params: { projectId: string; detectorIds: readonly string[] },
+) {
+  if (params.detectorIds.length === 0) return [];
+  return db.detector.findMany({
+    where: { projectId: params.projectId, id: { in: [...params.detectorIds] } },
+    select: { id: true, enableSignals: true, signalsEnabledAt: true },
+  });
+}
+
+/**
+ * What the Signals page shows when it has nothing to list: whether the project
+ * has any signals, and how far its detectors are set up to produce them.
+ */
+export async function signalSetup(
+  db: Pick<PrismaClient, "signal" | "detector">,
+  projectId: string,
+) {
+  const signals = { projectId, enableSignals: true };
+  const [signalCount, detectorCount, signalDetectorCount, sampledSignalDetectorCount] =
+    await Promise.all([
+      db.signal.count({ where: { projectId, mergedIntoId: null } }),
+      db.detector.count({ where: { projectId } }),
+      db.detector.count({ where: signals }),
+      db.detector.count({ where: { ...signals, enabled: true, sampleRate: { gt: 0 } } }),
+    ]);
+  return { signalCount, detectorCount, signalDetectorCount, sampledSignalDetectorCount };
+}

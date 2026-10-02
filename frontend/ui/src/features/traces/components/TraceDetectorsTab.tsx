@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signalDeepLinkPath } from "@traceroot/core/signals";
-import { cn, formatDate, buildUrlWithFilters } from "@/lib/utils";
+import { cn, formatDate, buildUrlWithFilters, parseAsUTC } from "@/lib/utils";
 import {
   useTraceDetectorRuns,
   selfTraceId,
@@ -16,7 +16,11 @@ import {
   IdentifiedBadge,
   SummaryText,
 } from "@/features/detectors/components/detector-table-cells";
-import { useTraceSignals } from "@/ee/features/signals/hooks";
+import {
+  useTraceSignals,
+  type DetectorSignalSetting,
+  type TraceSignalHit,
+} from "@/ee/features/signals/hooks";
 
 /** A run is "identified" when it produced a finding. */
 function isIdentified(run: BackendRun): boolean {
@@ -26,6 +30,29 @@ function isIdentified(run: BackendRun): boolean {
 /** Display name for a run, falling back to its detector id. */
 function runName(run: BackendRun): string {
   return run.name ?? run.detector_id;
+}
+
+/** What the Signal column shows for one run. */
+export type RunSignal =
+  | { kind: "signal"; hit: TraceSignalHit }
+  /** Identified, and its detector groups hits detected since then: not assigned yet. */
+  | { kind: "pending" }
+  /** Identified, but its detector did not group hits when it ran. */
+  | { kind: "disabled" }
+  | { kind: "none" };
+
+/** Pure so it can be unit-tested without rendering. */
+export function runSignal(
+  run: BackendRun,
+  hit: TraceSignalHit | undefined,
+  setting: DetectorSignalSetting | undefined,
+): RunSignal {
+  if (hit) return { kind: "signal", hit };
+  if (!isIdentified(run) || !setting) return { kind: "none" };
+  const grouped =
+    setting.enableSignals &&
+    parseAsUTC(run.timestamp).getTime() >= new Date(setting.signalsEnabledAt).getTime();
+  return { kind: grouped ? "pending" : "disabled" };
 }
 
 /**
@@ -52,13 +79,18 @@ interface TraceDetectorsTabProps {
  * columns are dropped here — every row is this same trace, and the run id is
  * noise in this context. Clicking a row opens that detector's Runs tab; a
  * self-traced run deep-links straight to the run's own trace there. The Signal
- * column links a hit to the signal it was grouped into. Fetches its own data by
- * traceId, independent of the trace fetch in the parent panel.
+ * column links a hit to the signal it was grouped into, or says the hit is
+ * waiting for assignment or that its detector did not group it. Fetches its own
+ * data by traceId, independent of the trace fetch in the parent panel.
  */
 export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps) {
   const router = useRouter();
   const { data, isLoading, error } = useTraceDetectorRuns(projectId, traceId);
-  const { data: signalsData } = useTraceSignals(projectId, traceId);
+  const { data: signalsData, isPending: signalsPending } = useTraceSignals(
+    projectId,
+    traceId,
+    (data?.runs ?? []).map((r) => r.detector_id),
+  );
 
   if (isLoading) {
     return (
@@ -78,6 +110,7 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
 
   const runs = sortDetectorRuns(data?.runs ?? []);
   const signalByRun = new Map((signalsData?.hits ?? []).map((h) => [h.runId, h]));
+  const settingByDetector = new Map((signalsData?.detectors ?? []).map((d) => [d.id, d]));
 
   if (runs.length === 0) {
     return (
@@ -113,7 +146,11 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
                   : { tab: "runs" },
               },
             );
-            const hit = signalByRun.get(r.run_id);
+            const signal = runSignal(
+              r,
+              signalByRun.get(r.run_id),
+              settingByDetector.get(r.detector_id),
+            );
             return (
               <tr
                 key={r.run_id}
@@ -132,15 +169,29 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
                   <SummaryText summary={r.summary} />
                 </td>
                 <td className={cn(DETECTOR_TD, "max-w-[220px] border-r-0")}>
-                  {hit ? (
+                  {signal.kind === "signal" ? (
                     <Link
-                      href={signalDeepLinkPath(projectId, hit.signalId)}
+                      href={signalDeepLinkPath(projectId, signal.hit.signalId)}
                       onClick={(e) => e.stopPropagation()}
                       className="block truncate text-foreground underline-offset-2 hover:underline"
-                      title={hit.signalTitle}
+                      title={signal.hit.signalTitle}
                     >
-                      {hit.signalTitle}
+                      {signal.hit.signalTitle}
                     </Link>
+                  ) : signalsPending && isIdentified(r) ? null : signal.kind === "pending" ? (
+                    <span
+                      className="text-muted-foreground"
+                      title="This identified result is waiting for signal assignment"
+                    >
+                      Pending
+                    </span>
+                  ) : signal.kind === "disabled" ? (
+                    <span
+                      className="text-muted-foreground"
+                      title="Signal generation was disabled for this evaluation"
+                    >
+                      Disabled
+                    </span>
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}

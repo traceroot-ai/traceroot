@@ -17,6 +17,8 @@ import {
   signalCriteriaEditSchema,
   signalStatusChangeSchema,
   signalsForTrace,
+  detectorSignalSettings,
+  signalSetup,
   type MovedHits,
   type SignalStatus,
 } from "@traceroot/core/signals";
@@ -450,13 +452,45 @@ export async function handleMoveHit(
   return successResponse({ signalId: body.data.signalId });
 }
 
-// GET /api/projects/[projectId]/traces/[traceId]/signals
+/** Detectors whose signals settings one trace read returns, at most. */
+const TRACE_DETECTORS_MAX = 200;
+
+// GET /api/projects/[projectId]/traces/[traceId]/signals?detector_ids=a,b
+// Each hit of the trace with its signal, and the signals settings of the
+// detectors named, so a hit not grouped yet reads as pending or disabled.
 export async function handleTraceSignals(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: Params<{ projectId: string; traceId: string }>,
 ) {
   const { projectId, traceId } = await params;
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
-  return successResponse({ hits: await signalsForTrace(prisma, { projectId, traceId }) });
+  const detectorIds = [
+    ...new Set(
+      (req.nextUrl.searchParams.get("detector_ids") ?? "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (detectorIds.length > TRACE_DETECTORS_MAX) {
+    return errorResponse(`At most ${TRACE_DETECTORS_MAX} detector ids`, 400);
+  }
+  const [hits, detectors] = await Promise.all([
+    signalsForTrace(prisma, { projectId, traceId }),
+    detectorSignalSettings(prisma, { projectId, detectorIds }),
+  ]);
+  return successResponse({ hits, detectors });
+}
+
+// GET /api/projects/[projectId]/signals/setup
+// Read by the Signals page only when it has nothing to list.
+export async function handleSignalSetup(
+  _req: NextRequest,
+  { params }: Params<{ projectId: string }>,
+) {
+  const { projectId } = await params;
+  const auth = await authorize(projectId);
+  if (auth.error) return auth.error;
+  return successResponse(await signalSetup(prisma, projectId));
 }

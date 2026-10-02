@@ -11,6 +11,8 @@ export interface Detector {
   outputSchema: Array<{ name: string; type: string }>;
   sampleRate: number;
   enableRca: boolean;
+  /** Group this detector's hits into signals. */
+  enableSignals: boolean;
   detectionModel: string | null;
   detectionProvider: string | null;
   detectionSource: "system" | "byok" | null;
@@ -46,6 +48,7 @@ export interface CreateDetectorInput {
   sampleRate?: number;
   enabled?: boolean;
   enableRca?: boolean;
+  enableSignals?: boolean;
   triggerConditions?: Array<{ field: string; op: string; value: unknown; key?: string }>;
   detectionModel?: string;
   detectionProvider?: string;
@@ -97,6 +100,7 @@ export interface UpdateDetectorInput {
   sampleRate?: number;
   enabled?: boolean;
   enableRca?: boolean;
+  enableSignals?: boolean;
   triggerConditions?: Array<{ field: string; op: string; value: unknown; key?: string }>;
   detectionModel?: string;
   detectionProvider?: string;

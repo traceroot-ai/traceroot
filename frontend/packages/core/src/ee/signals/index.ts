@@ -9,7 +9,13 @@ export {
   type SetSignalStatusResult,
 } from "./status.ts";
 export { pickCanonicalRca } from "./canonical-rca.ts";
-export { listSignals, getSignal, signalsForTrace } from "./reads.ts";
+export {
+  listSignals,
+  getSignal,
+  signalsForTrace,
+  detectorSignalSettings,
+  signalSetup,
+} from "./reads.ts";
 export {
   signalCriteriaEditSchema,
   editSignalCriteria,

@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { signalDeepLinkPath } from "@traceroot/core/signals";
 
 // The query of the link a notification sends for signal s1 of project p1.
 const linkQuery = vi.hoisted(() => ({ value: "" }));
+const list = vi.hoisted(() => ({
+  filters: [] as unknown[],
+  updateFilters: vi.fn(),
+  setup: undefined as unknown,
+  setupEnabled: [] as boolean[],
+}));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
@@ -12,9 +18,14 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/hooks/use-list-page-state", () => ({
   useListPageState: () => ({
-    state: { dateFilter: { id: "7d" }, customStartDate: null, customEndDate: null, filters: [] },
-    queryOptions: { page: 0, limit: 50, filters: [] },
-    updateFilters: vi.fn(),
+    state: {
+      dateFilter: { id: "7d" },
+      customStartDate: null,
+      customEndDate: null,
+      filters: list.filters,
+    },
+    queryOptions: { page: 0, limit: 50, filters: list.filters },
+    updateFilters: list.updateFilters,
     updateDateFilter: vi.fn(),
     updateCustomRange: vi.fn(),
     updateLimit: vi.fn(),
@@ -36,6 +47,12 @@ vi.mock("@/ee/features/signals/hooks", () => ({
     isLoading: false,
     error: null,
   }),
+  useSignalSetup: (_projectId: string, enabled: boolean) => {
+    list.setupEnabled.push(enabled);
+    return list.setup === undefined
+      ? { data: undefined, isPending: true, error: null, refetch: vi.fn() }
+      : { data: list.setup, isPending: false, error: null, refetch: vi.fn() };
+  },
 }));
 // The panel opens one signal by id; the stub shows which.
 vi.mock("@/ee/features/signals/components/signal-detail-panel", () => ({
@@ -54,7 +71,22 @@ vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
 
 import SignalsPage from "./page";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  list.filters = [];
+  list.updateFilters.mockReset();
+  list.setup = undefined;
+  list.setupEnabled = [];
+  linkQuery.value = "";
+});
+
+const setup = (over: Record<string, number> = {}) => ({
+  signalCount: 0,
+  detectorCount: 0,
+  signalDetectorCount: 0,
+  sampledSignalDetectorCount: 0,
+  ...over,
+});
 
 describe("Signals page route contract", () => {
   it("opens the signal a notification links to", () => {
@@ -70,5 +102,37 @@ describe("Signals page route contract", () => {
     linkQuery.value = "";
     render(<SignalsPage />);
     expect(screen.queryByTestId("signal-panel")).toBeNull();
+  });
+});
+
+describe("Signals page with nothing listed", () => {
+  it("reads the project's setup only once the list is empty", () => {
+    render(<SignalsPage />);
+    expect(list.setupEnabled.at(-1)).toBe(true);
+  });
+
+  it("guides a project without signals to set up a detector", () => {
+    list.setup = setup();
+    render(<SignalsPage />);
+    expect(screen.getByRole("heading", { name: "No signals yet" })).toBeTruthy();
+    const link = screen.getByRole("link", { name: "Create detector" });
+    expect(link.getAttribute("href")).toBe("/projects/p1/detectors/new");
+    expect(screen.queryByText("No signals match your filters.")).toBeNull();
+  });
+
+  it("says nothing matches, and clears the filters, when the project has signals", () => {
+    list.setup = setup({ signalCount: 3, detectorCount: 1, signalDetectorCount: 1 });
+    list.filters = [{ field: "status", op: "in", value: ["open"] }];
+    render(<SignalsPage />);
+    expect(screen.getByText("No signals match your filters.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(list.updateFilters).toHaveBeenCalledWith([]);
+  });
+
+  it("still opens a linked signal that the filters hide", () => {
+    list.setup = setup({ signalCount: 1, detectorCount: 1, signalDetectorCount: 1 });
+    linkQuery.value = signalDeepLinkPath("p1", "s1").split("?")[1];
+    render(<SignalsPage />);
+    expect(screen.getByTestId("signal-panel").textContent).toBe("s1");
   });
 });

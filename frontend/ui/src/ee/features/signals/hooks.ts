@@ -186,15 +186,42 @@ export interface TraceSignalHit {
   signalStatus: SignalStatus;
 }
 
-/** The signals a trace's detector hits were grouped into. */
-export function useTraceSignals(projectId: string, traceId: string) {
+/** Whether a detector groups its hits, and since when (ISO). */
+export interface DetectorSignalSetting {
+  id: string;
+  enableSignals: boolean;
+  signalsEnabledAt: string;
+}
+
+/**
+ * The signals a trace's detector hits were grouped into, and the signals
+ * settings of the detectors that ran on it.
+ */
+export function useTraceSignals(projectId: string, traceId: string, detectorIds: string[]) {
+  const ids = [...new Set(detectorIds)].sort().join(",");
   return useQuery({
-    queryKey: ["signals", "trace", projectId, traceId],
+    queryKey: ["signals", "trace", projectId, traceId, ids],
     queryFn: () =>
-      getJson<{ hits: TraceSignalHit[] }>(
-        `/api/projects/${projectId}/traces/${traceId}/signals`,
+      getJson<{ hits: TraceSignalHit[]; detectors: DetectorSignalSetting[] }>(
+        `/api/projects/${projectId}/traces/${traceId}/signals?${new URLSearchParams({ detector_ids: ids })}`,
         "trace signals",
       ),
-    enabled: !!projectId && !!traceId,
+    enabled: !!projectId && !!traceId && ids.length > 0,
+  });
+}
+
+/** How far the project is set up to produce signals; read when the list is empty. */
+export interface SignalSetup {
+  signalCount: number;
+  detectorCount: number;
+  signalDetectorCount: number;
+  sampledSignalDetectorCount: number;
+}
+
+export function useSignalSetup(projectId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["signals", "setup", projectId],
+    queryFn: () => getJson<SignalSetup>(`/api/projects/${projectId}/signals/setup`, "signal setup"),
+    enabled: enabled && !!projectId,
   });
 }

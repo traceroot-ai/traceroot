@@ -76,11 +76,21 @@ describe("NewDetectorPage", () => {
       sampleRate: 25,
       enabled: true,
       enableRca: true,
+      enableSignals: true,
       detectionModel: undefined,
       detectionProvider: undefined,
       detectionSource: "system",
     });
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors");
+  });
+
+  it("creates a detector that does not group its hits when Generate signals is off", async () => {
+    render(<NewDetectorPage />);
+    fireEvent.click(document.getElementById("enable-signals") as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ enableSignals: false });
   });
 
   it("submits user-edited name and prompt over the template defaults", async () => {

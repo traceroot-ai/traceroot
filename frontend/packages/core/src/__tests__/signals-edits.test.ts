@@ -7,6 +7,8 @@ import {
   moveHit,
   signalCriteriaEditSchema,
   signalsForTrace,
+  detectorSignalSettings,
+  signalSetup,
 } from "../ee/signals/index.ts";
 
 type SignalRow = {
@@ -782,6 +784,42 @@ describe("reads", () => {
         signalTitle: "A",
         signalStatus: "open",
       },
+    ]);
+  });
+
+  it("reads the signals settings of the named detectors, in the project only", async () => {
+    const db = { detector: { findMany: vi.fn(async () => [{ id: "d" }]) } };
+    expect(
+      await detectorSignalSettings(db as never, { projectId: "p", detectorIds: ["d", "e"] }),
+    ).toEqual([{ id: "d" }]);
+    expect(db.detector.findMany).toHaveBeenCalledWith({
+      where: { projectId: "p", id: { in: ["d", "e"] } },
+      select: { id: true, enableSignals: true, signalsEnabledAt: true },
+    });
+    expect(await detectorSignalSettings(db as never, { projectId: "p", detectorIds: [] })).toEqual(
+      [],
+    );
+    expect(db.detector.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts the project's signals and how far its detectors are set up", async () => {
+    const counts = [2, 1, 0];
+    const db = {
+      signal: { count: vi.fn(async () => 0) },
+      detector: { count: vi.fn(async (_args: unknown) => counts.shift()) },
+    };
+    expect(await signalSetup(db as never, "p")).toEqual({
+      signalCount: 0,
+      detectorCount: 2,
+      signalDetectorCount: 1,
+      sampledSignalDetectorCount: 0,
+    });
+    // A merged signal is listed under its target, so it is not counted.
+    expect(db.signal.count).toHaveBeenCalledWith({ where: { projectId: "p", mergedIntoId: null } });
+    expect(db.detector.count.mock.calls.map((c) => c[0])).toEqual([
+      { where: { projectId: "p" } },
+      { where: { projectId: "p", enableSignals: true } },
+      { where: { projectId: "p", enableSignals: true, enabled: true, sampleRate: { gt: 0 } } },
     ]);
   });
 });

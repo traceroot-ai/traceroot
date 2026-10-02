@@ -67,6 +67,7 @@ const baseDetector: Detector = {
   outputSchema: [],
   sampleRate: 50,
   enableRca: true,
+  enableSignals: true,
   detectionModel: "model-a",
   detectionProvider: "provider-a",
   detectionSource: "system",
@@ -138,6 +139,16 @@ describe("DetectorPanel", () => {
     const options = mocks.mutate.mock.calls[0][1] as { onSuccess: () => void };
     options.onSuccess();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("saves the Generate signals switch", () => {
+    mocks.detector = baseDetector;
+    renderPanel();
+    const toggle = document.getElementById("edit-enable-signals") as HTMLElement;
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    fireEvent.click(saveButton());
+    expect(mocks.mutate.mock.calls[0][0]).toEqual({ enableSignals: false });
   });
 
   it("closes without a network call when nothing changed", () => {

@@ -24,6 +24,7 @@ import {
 } from "@/features/detectors/trigger-fields";
 import { AgentModelLink } from "@/features/detectors/components/agent-model-link";
 import { RcaToggle } from "@/features/detectors/components/rca-toggle";
+import { SignalsCard } from "@/features/detectors/components/signals-toggle";
 import { useProject } from "@/features/projects/hooks";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 
@@ -55,6 +56,7 @@ export default function NewDetectorPage() {
     adapter: "",
   });
   const [enableRca, setEnableRca] = useState(true);
+  const [enableSignals, setEnableSignals] = useState(true);
 
   const handleTemplateChange = (templateId: string) => {
     const template = DETECTOR_TEMPLATES.find((t) => t.id === templateId);
@@ -76,6 +78,7 @@ export default function NewDetectorPage() {
       sampleRate,
       enabled: sampleRate > 0,
       enableRca,
+      enableSignals,
       triggerConditions: normalizeTriggerConditions(triggerConditions),
       detectionModel: modelSelection.model || undefined,
       detectionProvider: modelSelection.provider || undefined,
@@ -236,6 +239,12 @@ export default function NewDetectorPage() {
                 </span>
               </div>
             </div>
+
+            <SignalsCard
+              id="enable-signals"
+              checked={enableSignals}
+              onCheckedChange={setEnableSignals}
+            />
 
             {/* Footer */}
             <div className="flex items-center justify-end gap-2 pt-1">

@@ -12,6 +12,7 @@ import type { TriggerCondition } from "./trigger-editor";
 import { normalizeTriggerConditions, validateTriggerConditions } from "../trigger-fields";
 import { AgentModelLink } from "./agent-model-link";
 import { RcaToggle } from "./rca-toggle";
+import { SignalsCard } from "./signals-toggle";
 import {
   detectorToFormValues,
   buildDetectorPatch,
@@ -58,12 +59,14 @@ export function DetectorPanel({
   });
   const [editConditions, setEditConditions] = useState<TriggerCondition[]>([]);
   const [editEnableRca, setEditEnableRca] = useState(true);
+  const [editEnableSignals, setEditEnableSignals] = useState(true);
 
   const emptyForm: DetectorFormValues = {
     name: "",
     prompt: "",
     sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
     enableRca: true,
+    enableSignals: true,
     detectionModel: "",
     detectionProvider: "",
     detectionSource: "system",
@@ -75,6 +78,7 @@ export function DetectorPanel({
     prompt: editPrompt,
     sampleRate: editSampleRate,
     enableRca: editEnableRca,
+    enableSignals: editEnableSignals,
     detectionModel: editModelSelection.model,
     detectionProvider: editModelSelection.provider,
     detectionSource: editModelSelection.source === "byok" ? "byok" : "system",
@@ -86,6 +90,7 @@ export function DetectorPanel({
     setEditPrompt(values.prompt);
     setEditSampleRate(values.sampleRate);
     setEditEnableRca(values.enableRca);
+    setEditEnableSignals(values.enableSignals);
     setEditModelSelection({
       model: values.detectionModel,
       provider: values.detectionProvider,
@@ -323,6 +328,12 @@ export function DetectorPanel({
             </span>
           </div>
         </div>
+
+        <SignalsCard
+          id="edit-enable-signals"
+          checked={editEnableSignals}
+          onCheckedChange={setEditEnableSignals}
+        />
 
         {/* Save / Cancel */}
         <div className="flex items-center justify-end gap-2 pt-1">
