@@ -11,6 +11,8 @@ import {
   signalAssignJobId,
   signalStatusChangeSchema,
   type SignalStatusChange,
+  SIGNAL_ID_PARAM,
+  signalDeepLinkPath,
 } from "../ee/signals/index.ts";
 
 describe("signalStatusChangeSchema", () => {
@@ -309,5 +311,14 @@ describe("partition keys", () => {
     await lockSignalPartition(tx as any, "proj1", "det1");
     expect(calls[0].text).toContain("pg_advisory_xact_lock(hashtext('signals')");
     expect(calls[0].values).toEqual(["proj1", "det1"]);
+  });
+});
+
+describe("signal deep link", () => {
+  // Notifications are sent with this link and the Signals page opens a signal
+  // from SIGNAL_ID_PARAM; changing either side must fail here first.
+  it("opens one signal on the project's Signals page", () => {
+    expect(SIGNAL_ID_PARAM).toBe("signalId");
+    expect(signalDeepLinkPath("p 1", "s/1")).toBe("/projects/p%201/signals?signalId=s%2F1");
   });
 });

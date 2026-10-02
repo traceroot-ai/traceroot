@@ -523,7 +523,7 @@ describe("processTrace — signals call site", () => {
   });
 });
 
-describe("processTrace — per-finding digest", () => {
+describe("processTrace — notifications", () => {
   const spans = JSON.stringify({ span_id: "s", span_start_time: "2026-09-30T09:00:00" });
   function trigger(enableSignals: boolean) {
     mockPrisma.detector.findMany.mockResolvedValue([
@@ -543,47 +543,22 @@ describe("processTrace — per-finding digest", () => {
     mockPrisma.project.findUnique.mockResolvedValue({
       workspaceId: "w1",
       workspace: { billingPlan: "pro", detectorBlocked: false },
-      alertConfig: { alertWindow: "30m" },
     });
   }
 
-  it("schedules the per-finding digest for a detector not grouping into signals", async () => {
+  // Only the signal digest notifies, for new and reopened signals: a finding
+  // never schedules a per-finding notification, whatever its detector does.
+  it.each([
+    ["grouping into signals", true, "sk"],
+    ["not grouping into signals", false, "sk"],
+    ["in a deployment without the signals key", true, ""],
+  ])("schedules no per-finding notification for a detector %s", async (_, enableSignals, key) => {
+    vi.stubEnv("OPENAI_API_KEY", key);
     mockFetches(60_000, spans);
-    trigger(false);
+    trigger(enableSignals);
     await processTrace("t1", "p1", ["d1"]);
-    const ts = mockWriteFinding.mock.calls[0][0].timestampMs;
-    expect(mockScheduleFindingDigest).toHaveBeenCalledWith("p1", ts, "30m");
-  });
-
-  it("retries a failed digest enqueue instead of failing the job", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout"] });
-    mockFetches(60_000, spans);
-    trigger(false);
-    mockScheduleFindingDigest
-      .mockRejectedValueOnce(new Error("READONLY"))
-      .mockRejectedValueOnce(new Error("READONLY"));
-    const run = processTrace("t1", "p1", ["d1"]);
-    await vi.runAllTimersAsync();
-    await run;
-    expect(mockScheduleFindingDigest).toHaveBeenCalledTimes(3);
-    vi.useRealTimers();
-  });
-
-  it("leaves a detector grouping into signals to the signal digest", async () => {
-    vi.stubEnv("OPENAI_API_KEY", "sk");
-    mockFetches(60_000, spans);
-    trigger(true);
-    await processTrace("t1", "p1", ["d1"]);
+    expect(mockWriteFinding).toHaveBeenCalled();
     expect(mockScheduleFindingDigest).not.toHaveBeenCalled();
-    vi.unstubAllEnvs();
-  });
-
-  it("uses the per-finding digest when the deployment has no signals key", async () => {
-    vi.stubEnv("OPENAI_API_KEY", "");
-    mockFetches(60_000, spans);
-    trigger(true);
-    await processTrace("t1", "p1", ["d1"]);
-    expect(mockScheduleFindingDigest).toHaveBeenCalledOnce();
     vi.unstubAllEnvs();
   });
 });

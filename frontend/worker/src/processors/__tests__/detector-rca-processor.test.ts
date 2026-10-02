@@ -1039,7 +1039,7 @@ describe("signal RCAs", () => {
     error.mockRestore();
   });
 
-  it("fails the RCA and schedules the digest on the last attempt", async () => {
+  it("fails the RCA on the last attempt without scheduling a digest", async () => {
     loadSignalRcaContextMock.mockResolvedValue(context);
     await stubRun();
     const { prisma: p } = await import("@traceroot/core");
@@ -1053,11 +1053,9 @@ describe("signal RCAs", () => {
       expect.anything(),
       expect.objectContaining({ findingId: "f1", status: "failed" }),
     );
-    expect(digestAddMock).toHaveBeenCalledWith(
-      "signal-digest-p1",
-      expect.anything(),
-      expect.anything(),
-    );
+    // The signal digest goes out on the project's window whatever the RCA's
+    // state; an RCA finishing, or failing, never sends another notification.
+    expect(digestAddMock).not.toHaveBeenCalled();
     error.mockRestore();
   });
 

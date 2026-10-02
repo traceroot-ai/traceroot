@@ -23,7 +23,6 @@ import {
   type SignalRcaContext,
 } from "../ee/signals/rca.js";
 import { scheduleFindingDigest } from "../notifications/digest-schedule.js";
-import { enqueueSignalDigest } from "../ee/signals/digest.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
@@ -485,12 +484,13 @@ export async function processRcaJob(job: Job<RcaJob>, token?: string) {
   let alertWindow: string | null = null;
 
   // Legacy per-finding jobs (in flight from before signals) still key the
-  // per-finding digest; a signal RCA instead lets the project's signal digest
-  // announce the signal it was waiting on. Runs on both the success and failure
-  // paths: findings must never fail silently.
+  // per-finding digest, on both the success and failure paths: findings must
+  // never fail silently. A signal RCA schedules nothing: the signal digest goes
+  // out on the project's window whatever the RCA's state, and an RCA finishing
+  // later does not notify again.
   const scheduleDigestFlush = () =>
     signalContext
-      ? enqueueSignalDigest(projectId, 0)
+      ? Promise.resolve()
       : scheduleFindingDigest(projectId, findingTimestamp, alertWindow);
 
   // Remembered across the catch below: once the run itself has settled, a

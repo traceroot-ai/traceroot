@@ -1,7 +1,7 @@
 import { prisma, type PrismaClient } from "@traceroot/core";
 import { lockSignalPartition } from "@traceroot/core/signals";
 import { resolveRecipients } from "../../notifications/digest-recipients.js";
-import { getDigestQueue } from "../../notifications/digest-schedule.js";
+import { alertWindowMs, getDigestQueue } from "../../notifications/digest-schedule.js";
 import { sendEmail } from "../../notifications/email.js";
 import { postSlackMessage } from "../../notifications/slack.js";
 import {
@@ -9,28 +9,34 @@ import {
   buildSignalDigestEmail,
   digestHeadline,
 } from "./digest-render.js";
-import {
-  DIGEST_RCA_WAIT_MS,
-  DIGEST_SWEEP_STALE_MS,
-  ONGOING_DIGEST_INTERVAL_MS,
-  SIGNAL_DIGEST_DELAY_MS,
-  signalsAvailable,
-} from "./config.js";
+import { signalsAvailable } from "./config.js";
+
+/** The project's notification window in ms (its alert window setting). */
+async function projectWindowMs(
+  db: Pick<PrismaClient, "detectorAlertConfig">,
+  projectId: string,
+): Promise<number> {
+  const config = await db.detectorAlertConfig.findUnique({
+    where: { projectId },
+    select: { alertWindow: true },
+  });
+  return alertWindowMs(config?.alertWindow);
+}
 
 /**
- * Enqueue the project's signal digest. One job per project; while one is
- * waiting, later enqueues are no-ops, so changes close together share a digest.
+ * Enqueue the project's signal digest, by default to send one notification
+ * window (the project's alert window) after this change. One job per project;
+ * while one is waiting, later enqueues are no-ops, so the changes of a window
+ * share a digest.
  */
-export async function enqueueSignalDigest(
-  projectId: string,
-  delayMs: number = SIGNAL_DIGEST_DELAY_MS,
-): Promise<void> {
+export async function enqueueSignalDigest(projectId: string, delayMs?: number): Promise<void> {
+  const delay = delayMs ?? (await projectWindowMs(prisma, projectId));
   await getDigestQueue().add(
     `signal-digest-${projectId}`,
     { kind: "signals", projectId },
     {
       jobId: `signal-digest-${projectId}`,
-      delay: delayMs,
+      delay,
       removeOnComplete: true,
       removeOnFail: true,
     },
@@ -52,12 +58,15 @@ export interface PendingSignal {
   runIds: string[];
 }
 
-/** The RCA of one opening of a signal (signal_rcas joined to detector_rcas). */
+/** The RCA of one opening of a signal. */
 export interface OpeningRca {
   reopenSeq: number;
+  /** The finding's latest attempt (detector_rcas.status). */
   status: string;
-  result: string | null;
-  createTime: Date;
+  /** Whether a successful answer is kept on this opening. */
+  answered: boolean;
+  /** The root cause the kept answer gave for this opening's hit. */
+  rootCause: string | null;
 }
 
 export interface DigestItem {
@@ -65,11 +74,9 @@ export interface DigestItem {
   title: string;
   detectorId: string;
   detectorName: string;
-  kind: "new" | "reopened" | "ongoing";
+  kind: "new" | "reopened";
   hitCount: number;
-  /** Hits since the last digest that reported this signal. */
-  newHits: number;
-  /** For new and reopened signals: what the RCA found, if it ran. */
+  /** What the RCA has found by the time the digest is sent, if it ran. */
   rca: { state: "done" | "failed" | "running"; rootCause: string | null } | null;
 }
 
@@ -81,27 +88,11 @@ export interface DigestPlan {
 }
 
 /**
- * The root cause an RCA gave for one detector's hit: the "Root cause:" line of
- * the section that names the detector, or the first one in the text.
- */
-export function rootCauseLine(result: string, detectorName: string): string | null {
-  const sections = result.split(/\n(?=#{2,4}\s)/);
-  const name = detectorName.toLowerCase();
-  const matching = sections.find((s) => s.split("\n")[0].toLowerCase().includes(name));
-  // A missing section in a multi-hit RCA must not borrow another detector's root cause.
-  if (!matching && /(?:^|\n)#{2,4}\s/.test(result)) return null;
-  const section = matching ?? result;
-  const match = section.match(/root cause:\**\s*(.+)/i);
-  return match ? match[1].replace(/\*+/g, "").trim() : null;
-}
-
-/**
  * Decide the project's next signal digest. New and reopened signals are
- * announced once each, when their RCA has finished or after DIGEST_RCA_WAIT_MS;
- * ongoing signals (open, with new hits) ride along, or go out alone at most
- * every ONGOING_DIGEST_INTERVAL_MS and never while an announcement is waiting
- * for its RCA. Dismissed, resolved and merged signals, and detectors no longer
- * grouping, are counted silently.
+ * announced once each, with whatever their RCA has found by then: the digest
+ * never waits for an RCA, and an RCA finishing later sends nothing. Further
+ * hits on an announced signal are counted silently, as are dismissed, resolved
+ * and merged signals and detectors no longer grouping.
  */
 export function planSignalDigest(input: {
   signals: readonly PendingSignal[];
@@ -109,74 +100,42 @@ export function planSignalDigest(input: {
   groupingDetectors: ReadonlyMap<string, string>;
   /** Each signal's RCAs, by signal id. */
   rcas: ReadonlyMap<string, readonly OpeningRca[]>;
-  lastSentAt: number | null;
-  now: number;
 }): DigestPlan {
-  const { now } = input;
-  const announce: DigestItem[] = [];
-  const ongoing: DigestItem[] = [];
+  const items: DigestItem[] = [];
   const silent: PendingSignal[] = [];
-  let held = 0;
 
   for (const s of input.signals) {
     const detectorName = input.groupingDetectors.get(s.detectorId);
-    if (s.mergedIntoId || detectorName === undefined || s.status !== "open") {
+    const unannounced = s.notifiedReopenSeq === null || s.notifiedReopenSeq < s.reopenSeq;
+    if (s.mergedIntoId || detectorName === undefined || s.status !== "open" || !unannounced) {
       silent.push(s);
       continue;
     }
-    const base = {
+    // The newest RCA of any opening since the last announcement: a reopening
+    // inside the RCA cooldown has none of its own, while an earlier opening's
+    // RCA may still be running or have finished.
+    const since = s.notifiedReopenSeq ?? -1;
+    const available = (input.rcas.get(s.id) ?? []).filter((r) => r.reopenSeq <= s.reopenSeq);
+    const newest = (rows: OpeningRca[]) => rows.sort((a, b) => b.reopenSeq - a.reopenSeq)[0];
+    const rca =
+      newest(available.filter((r) => r.reopenSeq > since)) ??
+      // No new analysis inside the cooldown: display the kept canonical answer.
+      newest(available.filter((r) => r.answered));
+    items.push({
       signalId: s.id,
       title: s.title,
       detectorId: s.detectorId,
       detectorName,
       hitCount: s.hitCount,
-      newHits: Math.max(0, s.hitCount - s.notifiedHitCount),
-    };
-    const unannounced = s.notifiedReopenSeq === null || s.notifiedReopenSeq < s.reopenSeq;
-    if (unannounced) {
-      // The newest RCA of any opening since the last announcement: a reopening
-      // inside the RCA cooldown has none of its own, while an earlier opening's
-      // RCA may still be running or just have finished.
-      const since = s.notifiedReopenSeq ?? -1;
-      const available = (input.rcas.get(s.id) ?? []).filter((r) => r.reopenSeq <= s.reopenSeq);
-      const rca =
-        available
-          .filter((r) => r.reopenSeq > since && r.reopenSeq <= s.reopenSeq)
-          .sort((a, b) => b.reopenSeq - a.reopenSeq)[0] ??
-        // No new analysis inside the cooldown: display the completed canonical RCA.
-        available.filter((r) => r.status === "done").sort((a, b) => b.reopenSeq - a.reopenSeq)[0];
-      const finished = rca && (rca.status === "done" || rca.status === "failed");
-      if (rca && !finished && now - rca.createTime.getTime() < DIGEST_RCA_WAIT_MS) {
-        held++;
-        continue;
-      }
-      announce.push({
-        ...base,
-        kind: s.notifiedReopenSeq === null ? "new" : "reopened",
-        rca: !rca
-          ? null
-          : rca.status === "done"
-            ? {
-                state: "done",
-                rootCause: rca.result ? rootCauseLine(rca.result, detectorName) : null,
-              }
-            : { state: rca.status === "failed" ? "failed" : "running", rootCause: null },
-      });
-    } else if (s.hitCount > s.notifiedHitCount) {
-      ongoing.push({ ...base, kind: "ongoing", rca: null });
-    } else {
-      silent.push(s);
-    }
+      kind: s.notifiedReopenSeq === null ? "new" : "reopened",
+      rca: !rca
+        ? null
+        : rca.answered
+          ? { state: "done", rootCause: rca.rootCause }
+          : { state: rca.status === "failed" ? "failed" : "running", rootCause: null },
+    });
   }
 
-  const ongoingDue =
-    input.lastSentAt === null || now - input.lastSentAt >= ONGOING_DIGEST_INTERVAL_MS;
-  const items =
-    announce.length > 0
-      ? [...announce, ...ongoing]
-      : ongoing.length > 0 && held === 0 && ongoingDue
-        ? ongoing
-        : [];
   const byId = new Map(input.signals.map((s) => [s.id, s]));
   const consumed = [
     ...items.map((i) => {
@@ -202,11 +161,18 @@ export function planSignalDigest(input: {
 
 type DigestDb = Pick<
   PrismaClient,
-  "$queryRaw" | "$executeRaw" | "$transaction" | "detector" | "signalRca" | "signal" | "signalHit"
+  | "$queryRaw"
+  | "$executeRaw"
+  | "$transaction"
+  | "detector"
+  | "signalRca"
+  | "signal"
+  | "signalHit"
+  | "detectorAlertConfig"
 >;
 
 /** Read the project's signals with unreported changes and what the plan needs. */
-export async function loadDigestInput(db: DigestDb, projectId: string, now: number) {
+export async function loadDigestInput(db: DigestDb, projectId: string) {
   const signals = await db.$queryRaw<PendingSignal[]>`
     SELECT id, title, detector_id AS "detectorId", status, hit_count AS "hitCount",
            reopen_seq AS "reopenSeq", notified_reopen_seq AS "notifiedReopenSeq",
@@ -218,8 +184,6 @@ export async function loadDigestInput(db: DigestDb, projectId: string, now: numb
       AND (notified_reopen_seq IS DISTINCT FROM reopen_seq OR hit_count <> notified_hit_count)
     ORDER BY create_time
     LIMIT 1000`;
-  const [last] = await db.$queryRaw<{ lastSentAt: Date | null }[]>`
-    SELECT max(notified_at) AS "lastSentAt" FROM signals WHERE project_id = ${projectId}`;
   const detectors = await db.detector.findMany({
     where: { id: { in: [...new Set(signals.map((s) => s.detectorId))] } },
     select: { id: true, name: true, enableSignals: true },
@@ -233,8 +197,9 @@ export async function loadDigestInput(db: DigestDb, projectId: string, now: numb
     select: {
       signalId: true,
       reopenSeq: true,
-      createTime: true,
-      rca: { select: { status: true, result: true } },
+      result: true,
+      rootCause: true,
+      rca: { select: { status: true } },
     },
   });
   const rcas = new Map<string, OpeningRca[]>();
@@ -243,18 +208,12 @@ export async function loadDigestInput(db: DigestDb, projectId: string, now: numb
     list.push({
       reopenSeq: r.reopenSeq,
       status: r.rca.status,
-      result: r.rca.result,
-      createTime: r.createTime,
+      answered: r.result !== null,
+      rootCause: r.rootCause,
     });
     rcas.set(r.signalId, list);
   }
-  return {
-    signals,
-    groupingDetectors,
-    rcas,
-    lastSentAt: last?.lastSentAt ? last.lastSentAt.getTime() : null,
-    now,
-  };
+  return { signals, groupingDetectors, rcas };
 }
 
 /**
@@ -298,22 +257,28 @@ export async function recordDigest(db: DigestDb, plan: DigestPlan, sentAt: Date)
 }
 
 /**
- * Enqueue the digest of projects whose signals changed over DIGEST_SWEEP_STALE_MS
- * ago and are still unreported: announcements whose RCA finished while no digest
- * job was queued, ongoing hits waiting out the hourly limit, a lost job.
+ * Enqueue the digest of projects with unreported signal changes older than the
+ * project's notification window, whose digest job was lost or failed to send.
  */
 export async function sweepSignalDigests(
   db: Pick<PrismaClient, "$queryRaw">,
   now: number = Date.now(),
 ): Promise<number> {
-  const rows = await db.$queryRaw<{ projectId: string }[]>`
-    SELECT DISTINCT project_id AS "projectId"
-    FROM signals
-    WHERE (notified_reopen_seq IS DISTINCT FROM reopen_seq OR hit_count <> notified_hit_count)
-      AND update_time < ${new Date(now - DIGEST_SWEEP_STALE_MS)}
+  const rows = await db.$queryRaw<
+    { projectId: string; oldest: Date; alertWindow: string | null }[]
+  >`
+    SELECT s.project_id AS "projectId", min(s.update_time) AS oldest,
+           max(c.alert_window) AS "alertWindow"
+    FROM signals s
+    LEFT JOIN detector_alert_configs c ON c.project_id = s.project_id
+    WHERE (s.notified_reopen_seq IS DISTINCT FROM s.reopen_seq
+           OR s.hit_count <> s.notified_hit_count)
+    GROUP BY s.project_id
+    ORDER BY oldest
     LIMIT 500`;
-  for (const r of rows) await enqueueSignalDigest(r.projectId, 0);
-  return rows.length;
+  const due = rows.filter((r) => now - r.oldest.getTime() >= alertWindowMs(r.alertWindow));
+  for (const r of due) await enqueueSignalDigest(r.projectId, 0);
+  return due.length;
 }
 
 /**
@@ -327,7 +292,7 @@ export async function flushSignalDigest(
   now: number = Date.now(),
   db: DigestDb = prisma,
 ): Promise<DigestPlan | null> {
-  const input = await loadDigestInput(db, projectId, now);
+  const input = await loadDigestInput(db, projectId);
   if (input.signals.length === 0) return null;
   const plan = planSignalDigest(input);
   if (plan.items.length > 0) {
