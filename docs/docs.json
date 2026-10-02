@@ -146,7 +146,18 @@
           {
             "group": "CLI",
             "pages": [
-              "cli/get-started"
+              "cli/introduction",
+              "cli/get-started",
+              "cli/authentication",
+              "cli/traces",
+              "cli/detectors-and-findings",
+              "cli/alerts",
+              "cli/dashboards-and-widgets",
+              "cli/workspaces-and-projects",
+              "cli/sql",
+              "cli/skills-instrument-doctor",
+              "cli/reference",
+              "cli/scripting"
             ]
           }
         ]

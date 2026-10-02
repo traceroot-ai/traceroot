@@ -1,0 +1,125 @@
+---
+title: Scripting & Automation
+description: Automation contracts, exit codes, JSON error envelopes, and CI/CD pipelines
+---
+
+The TraceRoot CLI is designed from the ground up for reliable automation in shell scripts, GitHub Actions, CI/CD pipelines, and AI agent tool calling. It implements a strict scripting contract covering standard exit codes, consistent error envelopes, and machine-readable data streams.
+
+## Exit Codes
+
+Every CLI execution terminates with a class-specific exit code so your scripts can branch deterministically on the failure category without parsing error strings:
+
+| Exit Code | Class | JSON `code` | Description & Action |
+| :---: | :--- | :--- | :--- |
+| `0` | **success** | — | The command completed successfully. |
+| `1` | **internal** | `internal` | Unexpected or unhandled internal error. Inspect stderr. |
+| `2` | **usage** | `usage` | Invalid arguments or option values, missing required fields, or validation rejected by the server (HTTP 400/422). Do not retry without modifying inputs. |
+| `3` | **auth** | `auth` | Authentication required or invalid (HTTP 401/403, missing credentials, or expired session). Refresh credentials or verify your API key. |
+| `4` | **not_found** | `not_found` | The requested trace, detector, alert, or resource does not exist (HTTP 404). |
+| `5` | **network** | `network` | Network connectivity failure or timeout. Transient error; safe to retry with exponential backoff. |
+
+### Shell Branching Example
+
+```bash
+#!/usr/bin/env bash
+set -uo pipefail
+
+if ! traceroot traces get "$TRACE_ID" --json > trace.json; then
+  exit_code=$?
+  case $exit_code in
+    2) echo "Usage error: Invalid trace ID syntax" ;;
+    3) echo "Auth error: Please check TRACEROOT_API_KEY" ;;
+    4) echo "Not found: Trace $TRACE_ID does not exist" ;;
+    5) echo "Network error: Server unreachable, scheduling retry..." ;;
+    *) echo "Failed with internal error ($exit_code)" ;;
+  esac
+  exit $exit_code
+fi
+```
+
+---
+
+## Machine-Readable Output & Error Envelope
+
+Adding `--json` to any command enforces strict output behavior:
+
+1. **Stdout is Reserved for Data**: On success, the complete payload is written as formatted JSON to `stdout`.
+2. **Stdout is Empty on Failure**: If any error occurs, `stdout` remains completely empty so downstream JSON parsers (like `jq`) are never corrupted by error text.
+3. **Stderr Emits a Single-Line Envelope**: On failure, the CLI prints exactly one structured JSON line to `stderr`:
+
+```json
+{"error":{"code":"<class>","message":"<explanation>"}}
+```
+
+### Clean Pipeline Example
+
+Because stderr and stdout are strictly separated, you can pipe stdout directly to `jq` while logging or redirecting stderr:
+
+```bash
+# Errors flow to stderr; valid trace data pipes cleanly to jq
+error_count=$(traceroot traces get "$TRACE_ID" --json 2> error.log | jq '[.spans[] | select(.status == "ERROR")] | length')
+
+if [ -s error.log ]; then
+  err_code=$(jq -r '.error.code' error.log)
+  err_msg=$(jq -r '.error.message' error.log)
+  echo "CLI Failed [$err_code]: $err_msg" >&2
+fi
+```
+
+---
+
+## Writing Resources via JSON
+
+All resource creation commands (`alerts create`, `detectors create`, `dashboards create`, `widgets create`, `workspaces create`, `projects create`) accept a full JSON document via `--from-file <path>` or `-` for standard input:
+
+```bash
+# Create an alert from a local JSON file
+traceroot alerts create --from-file ./alert.json
+
+# Read from standard input using '-'
+cat detector.json | traceroot detectors create --from-file -
+```
+
+### Overriding Fields
+
+Individual command-line flags override matching fields from the JSON payload. This makes templating simple:
+
+```bash
+# Take a base template and override the threshold
+traceroot alerts create --from-file base_alert.json --threshold 5000
+```
+
+### Target Project Scoping
+
+- **Under Browser Login (Session Token)**: The target project is determined by `--project <id>` or `TRACEROOT_PROJECT_ID`. The JSON body describes the resource itself, not where it is stored.
+- **Under Project API Key (`tr_...`)**: The target project is intrinsically bound to the key. If needed, pass `--project-id <id>` or include `"project_id": "<id>"` in the file.
+
+---
+
+## End-to-End CI Pipeline Example
+
+The following script demonstrates checking production error rates in a CI/CD deployment verification step:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Require project API key
+: "${TRACEROOT_API_KEY:?TRACEROOT_API_KEY must be set in CI environment}"
+
+echo "Checking for high-severity findings in the last 1 hour..."
+
+# Query findings as JSON
+findings_json=$(traceroot findings list --since 1h --json)
+
+# Count critical findings
+critical_count=$(echo "$findings_json" | jq '[.data[] | select(.severity == "CRITICAL")] | length')
+
+if [ "$critical_count" -gt 0 ]; then
+  echo "DEPLOYMENT BLOCKED: Found $critical_count critical findings in recent traces."
+  echo "$findings_json" | jq -r '.data[] | select(.severity == "CRITICAL") | "- [\(.finding_id)] \(.title)"'
+  exit 1
+fi
+
+echo "TraceRoot health check passed: no critical findings detected."
+```
