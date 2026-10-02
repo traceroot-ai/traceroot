@@ -1,0 +1,102 @@
+---
+title: Data Retention
+description: Understand subscription retention policies and configure custom project trace TTL
+---
+
+TraceRoot automatically manages the lifecycle of your telemetry in ClickHouse. Traces and spans are retained for a designated retention window, after which expired partitions are safely purged from storage.
+
+## Plan Retention Defaults
+
+Every TraceRoot subscription plan includes a default retention period:
+
+| Plan | Default Retention | Best For |
+| :--- | :--- | :--- |
+| **Free** | **15 days** | Prototyping, testing, and hobbyist projects. |
+| **Starter** | **30 days** | Standard monthly production tracking and triage. |
+| **Pro** | **90 days** | Multi-month trend analysis, quarterly reviews, and regression testing. |
+| **Enterprise** | **Custom** | Tailored retention policies to satisfy SOC2, HIPAA, or custom compliance mandates. |
+
+---
+
+## Configuring Per-Project Retention (`trace_ttl_days`)
+
+While your workspace subscription establishes the baseline retention, you can override retention on a per-project basis using the `trace_ttl_days` parameter.
+
+### Configuration Rules
+
+- **Allowed Range**: Integer between **1 and 365 days**.
+- **Reverting to Default**: Passing `null` resets the project's retention back to the workspace plan default.
+- **Permission**: Changing project retention requires the **ADMIN** role in the project's workspace.
+
+### Example: Setting Project Retention via REST API
+
+```bash
+curl -X PATCH https://app.traceroot.ai/api/v1/public/projects/proj_91a0c8b21e054fbb8b1234567890abcd \
+  -H "Authorization: Bearer $TRACEROOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "trace_ttl_days": 60
+  }'
+```
+
+Response:
+```json
+{
+  "id": "proj_91a0c8b21e054fbb8b1234567890abcd",
+  "name": "Production Agent Service",
+  "trace_ttl_days": 60,
+  "changed_fields": ["trace_ttl_days"]
+}
+```
+
+### Example: Setting Retention via the TraceRoot CLI
+
+```bash
+traceroot projects update proj_91a0c8b21e054fbb8b1234567890abcd --trace-ttl-days 60
+```
+
+To reset the project back to the plan default:
+
+```bash
+curl -X PATCH https://app.traceroot.ai/api/v1/public/projects/proj_91a0c8b21e054fbb8b1234567890abcd \
+  -H "Authorization: Bearer $TRACEROOT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "trace_ttl_days": null
+  }'
+```
+
+---
+
+## Query Window Clamping
+
+When querying telemetry through the REST API, dashboards, or widgets, requested time ranges are compared against your retention window:
+
+- If you query a time window whose start date extends earlier than your retention boundary, TraceRoot automatically clamps the query's `start_time` forward to the retention limit.
+- The returned `QueryWindow` object sets `clamped: true`:
+
+```json
+{
+  "window": {
+    "start_time": "2026-09-02T00:00:00Z",
+    "end_time": "2026-10-02T00:00:00Z",
+    "range": "30d",
+    "clamped": true
+  }
+}
+```
+
+This prevents queries from failing or returning inaccurate partial aggregates without explanation.
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Rate Limits" icon="gauge" href="/platform/rate-limits">
+    Check API and ingestion rate limit thresholds across plan tiers.
+  </Card>
+  <Card title="Usage and Billing" icon="credit-card" href="/platform/usage-and-billing">
+    Learn how storage and AI message runs are calculated.
+  </Card>
+</CardGroup>
