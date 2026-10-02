@@ -3,7 +3,7 @@ title: Data Retention
 description: Understand subscription retention policies and configure custom project trace TTL
 ---
 
-TraceRoot automatically manages the lifecycle of your telemetry in ClickHouse. Traces and spans are retained for a designated retention window, after which expired partitions are safely purged from storage.
+TraceRoot automatically manages query access to your telemetry in ClickHouse. Traces and spans are queryable only within the retention window, after which out-of-window reads are clamped or rejected.
 
 ## Plan Retention Defaults
 
@@ -42,10 +42,13 @@ curl -X PATCH https://app.traceroot.ai/api/v1/public/projects/proj_91a0c8b21e054
 Response:
 ```json
 {
-  "id": "proj_91a0c8b21e054fbb8b1234567890abcd",
-  "name": "Production Agent Service",
-  "trace_ttl_days": 60,
-  "changed_fields": ["trace_ttl_days"]
+  "updated": true,
+  "changed": ["trace_ttl_days"],
+  "project": {
+    "id": "proj_91a0c8b21e054fbb8b1234567890abcd",
+    "name": "Production Agent Service",
+    "workspace_id": "wrk_11223344556677889900aabbccddeeff"
+  }
 }
 ```
 

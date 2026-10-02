@@ -48,7 +48,9 @@ When a client exceeds its per-minute rate limit, TraceRoot responds with HTTP **
 
 ```json
 {
-  "detail": "Rate limit exceeded: 60 per 1 minute"
+  "error": "too_many_requests",
+  "detail": "Rate limit exceeded. Slow down and retry after the cooldown.",
+  "retry_after": 60
 }
 ```
 

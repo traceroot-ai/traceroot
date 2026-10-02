@@ -3,7 +3,7 @@ title: API Keys
 description: Authenticate SDKs, ingestion pipelines, and CLI requests with project API keys
 ---
 
-TraceRoot uses project API keys (prefixed with `tr_live_`) to authenticate telemetry ingestion from Python and TypeScript SDKs, OpenTelemetry exporters, and CLI requests.
+TraceRoot uses project API keys (prefixed with `tr-`) to authenticate telemetry ingestion from Python and TypeScript SDKs, OpenTelemetry exporters, and CLI requests.
 
 ## Project Scoping
 
@@ -25,7 +25,7 @@ API keys are created directly in the TraceRoot web interface:
 5. Click **Generate Key**.
 
 <Note>
-**Role Requirement**: Creating, renaming, or deleting an API key requires the **MEMBER** role or above within the project.
+**Role Requirement**: Creating or renaming an API key requires the **MEMBER** role or above; deleting a key requires the **ADMIN** role.
 </Note>
 
 ## The Key is Shown Only Once
@@ -37,7 +37,7 @@ TraceRoot displays the full API key **only once** immediately upon creation. Tra
 Copy the key immediately and save it securely in your secret manager or local `.env` configuration:
 
 ```bash .env
-TRACEROOT_API_KEY=tr_live_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6
+TRACEROOT_API_KEY=tr-d0a3ee92-659e-4f63-ae11-8ca6f57657e3
 TRACEROOT_HOST_URL=https://app.traceroot.ai
 ```
 
@@ -50,7 +50,7 @@ In the TraceRoot UI, you can inspect and track existing keys:
 | Property | Description |
 | :--- | :--- |
 | **Name** | The custom label assigned to the key. Can be renamed at any time. |
-| **Key Hint** | A non-sensitive truncated prefix (e.g., `tr_live_9f2a...`) used to safely identify which key is deployed in an environment. |
+| **Key Hint** | A non-sensitive identifier (e.g., `tr-d0a3-57e3`) formatted as the key prefix and suffix, used to safely identify which key is deployed in an environment. |
 | **Created** | Timestamp indicating when the key was originally generated. |
 | **Last Used** | Real-time timestamp updated whenever the key authenticates an incoming request. |
 | **Expires** | The expiration timestamp, or `Never` if no expiration was set. |
