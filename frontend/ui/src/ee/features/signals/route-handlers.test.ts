@@ -15,6 +15,7 @@ const core = vi.hoisted(() => ({
   signalsForTrace: vi.fn(),
   detectorSignalSettings: vi.fn(),
   signalSetup: vi.fn(),
+  signalCountsByDetector: vi.fn(),
   signalsKeyConfigured: vi.fn(),
   writeAudit: vi.fn(),
   requireAuth: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock("@traceroot/core/signals", async (importOriginal) => {
     signalsForTrace: core.signalsForTrace,
     detectorSignalSettings: core.detectorSignalSettings,
     signalSetup: core.signalSetup,
+    signalCountsByDetector: core.signalCountsByDetector,
     signalsKeyConfigured: core.signalsKeyConfigured,
   };
 });
@@ -63,6 +65,7 @@ import {
   handleRequestSignalRca,
   handleSetSignalStatus,
   handleSignalSetup,
+  handleSignalCounts,
   handleTraceSignals,
 } from "./route-handlers";
 
@@ -467,6 +470,16 @@ describe("reads", () => {
     const res = await handleSignalSetup(req(), params({ projectId: "p1" }));
     expect(await res.json()).toEqual({ ...setup, grouping: false });
     expect(core.signalSetup).toHaveBeenCalledWith(expect.anything(), "p1");
+  });
+
+  it("returns each detector's signal count, for project members only", async () => {
+    core.signalCountsByDetector.mockResolvedValue({ d1: 3 });
+    const res = await handleSignalCounts(req(), params({ projectId: "p1" }));
+    expect(await res.json()).toEqual({ counts: { d1: 3 } });
+    expect(core.signalCountsByDetector).toHaveBeenCalledWith(expect.anything(), "p1");
+
+    core.requireProjectAccess.mockResolvedValueOnce({ error: Response.json({}, { status: 403 }) });
+    expect((await handleSignalCounts(req(), params({ projectId: "p1" }))).status).toBe(403);
   });
 });
 

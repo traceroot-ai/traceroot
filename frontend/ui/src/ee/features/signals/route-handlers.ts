@@ -21,6 +21,7 @@ import {
   signalsForTrace,
   detectorSignalSettings,
   signalSetup,
+  signalCountsByDetector,
   signalsKeyConfigured,
   type MovedHits,
   type SignalStatus,
@@ -527,4 +528,16 @@ export async function handleSignalSetup(
     ...(await signalSetup(prisma, projectId)),
     grouping: signalsKeyConfigured(),
   });
+}
+
+// GET /api/projects/[projectId]/signals/counts
+// Each detector's signal count, for the detector list's Signals column.
+export async function handleSignalCounts(
+  _req: NextRequest,
+  { params }: Params<{ projectId: string }>,
+) {
+  const { projectId } = await params;
+  const auth = await authorize(projectId);
+  if (auth.error) return auth.error;
+  return successResponse({ counts: await signalCountsByDetector(prisma, projectId) });
 }

@@ -9,6 +9,7 @@ import {
   signalCriteriaEditSchema,
   signalsForTrace,
   signalsForRuns,
+  signalCountsByDetector,
   detectorSignalSettings,
   signalSetup,
   signalsKeyConfigured,
@@ -865,6 +866,23 @@ describe("reads", () => {
       [],
     );
     expect(db.detector.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts each detector's signals, leaving merged ones out", async () => {
+    const db = {
+      signal: {
+        groupBy: vi.fn(async () => [
+          { detectorId: "d1", _count: { _all: 3 } },
+          { detectorId: "d2", _count: { _all: 1 } },
+        ]),
+      },
+    };
+    expect(await signalCountsByDetector(db as never, "p")).toEqual({ d1: 3, d2: 1 });
+    expect(db.signal.groupBy).toHaveBeenCalledWith({
+      by: ["detectorId"],
+      where: { projectId: "p", mergedIntoId: null },
+      _count: { _all: true },
+    });
   });
 
   it("counts the project's signals and how far its detectors are set up", async () => {

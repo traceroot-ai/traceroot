@@ -20,6 +20,10 @@ It references #2399 and #2404 without closing the full UX issue.
   kept in the URL. Signal ID links a hit to its signal, and Agent Run ID opens
   the agent trace of the RCA that signal shows. RCA runs per signal, so the
   per-finding Finding ID and Agent analysis columns are gone.
+- Detector list: a Signals column counts each detector's signals (merged ones
+  left out, any status and time range, as the Signals page lists them). Its
+  Findings, Runs and Signals counts link to the detector's runs filtered to
+  Identified = Yes, its runs, and the Signals page narrowed to the detector.
 - Resolve and dismiss require a reason; Other requires a note. Status writes
   include the status shown when the user acted (for resolve and dismiss, when
   the dialog opened), so a change made meanwhile is refused.

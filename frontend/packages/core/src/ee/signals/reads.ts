@@ -522,6 +522,23 @@ export async function detectorSignalSettings(
 }
 
 /**
+ * How many signals each of the project's detectors has, merged ones left out:
+ * what the Signals page lists for that detector, in any status and any time
+ * range. Detectors without a signal are absent.
+ */
+export async function signalCountsByDetector(
+  db: Pick<PrismaClient, "signal">,
+  projectId: string,
+): Promise<Record<string, number>> {
+  const rows = await db.signal.groupBy({
+    by: ["detectorId"],
+    where: { projectId, mergedIntoId: null },
+    _count: { _all: true },
+  });
+  return Object.fromEntries(rows.map((r) => [r.detectorId, r._count._all]));
+}
+
+/**
  * What the Signals page shows when it has nothing to list: whether the project
  * has any signals, and how far its detectors are set up to produce them.
  */

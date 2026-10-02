@@ -362,3 +362,17 @@ export function useSignalSetup(projectId: string, enabled: boolean) {
     enabled: enabled && !!projectId,
   });
 }
+
+/** Each detector's signal count (merged ones left out), keyed by detector id. */
+export function useSignalCounts(projectId: string) {
+  return useQuery({
+    queryKey: ["signals", "counts", projectId],
+    queryFn: () =>
+      getJson<{ counts: Record<string, number> }>(
+        `/api/projects/${projectId}/signals/counts`,
+        "signal counts",
+      ),
+    enabled: !!projectId,
+    staleTime: 30_000,
+  });
+}

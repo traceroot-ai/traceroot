@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -26,6 +27,8 @@ import { PlanType } from "@traceroot/core";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
 import { getTemplate } from "@/features/detectors/templates";
+import { serializeFiltersParam } from "@/features/filters/predicate";
+import { useSignalCounts } from "@/ee/features/signals/hooks";
 
 function formatDetectorModel(detector: {
   detectionModel: string | null;
@@ -43,6 +46,25 @@ function formatDetectorModel(detector: {
   // Both "system" and a never-set null source resolve to the screening
   // default at eval time, so an unpinned detector reads the same either way.
   return DETECTOR_SYSTEM_DEFAULT_MODEL_ID;
+}
+
+/**
+ * A count that opens what it counts. It stops the click from reaching the row,
+ * whose own click opens the detector unfiltered. A dash while loading.
+ */
+function CountLink({ href, label, value }: { href: string; label: string; value: number | null }) {
+  if (value === null) return <>—</>;
+  return (
+    <Link
+      href={href}
+      aria-label={label}
+      title={label}
+      onClick={(e) => e.stopPropagation()}
+      className="hover:text-foreground hover:underline"
+    >
+      {value}
+    </Link>
+  );
 }
 
 export default function DetectorsPage() {
@@ -74,11 +96,12 @@ export default function DetectorsPage() {
   // across the list <-> detail navigation, mirroring how the Traces tabs
   // propagate the range via the URL. Arriving from the sidebar carries no
   // param, so the section resets to its default — the same as Traces.
-  const buildUrl = (path: string) =>
+  const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
       dateFilter: state.dateFilter,
       customStartDate: state.customStartDate,
       customEndDate: state.customEndDate,
+      extraParams,
     });
 
   const { data, isLoading, error } = useDetectorList(projectId, {
@@ -95,6 +118,9 @@ export default function DetectorsPage() {
     start_after: queryOptions.start_after,
     end_before: queryOptions.end_before,
   });
+
+  // Every signal a detector has, as the Signals page lists it for that detector.
+  const { data: signalCounts, isLoading: signalCountsLoading } = useSignalCounts(projectId);
 
   const deleteMutation = useDeleteDetector(projectId);
   const detectors = data?.data ?? [];
@@ -216,6 +242,9 @@ export default function DetectorsPage() {
                   <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
                     Runs
                   </th>
+                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    Signals
+                  </th>
                   <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Created At
                   </th>
@@ -237,8 +266,26 @@ export default function DetectorsPage() {
                   const c = counts?.[detector.id];
                   const findingCount = c?.finding_count ?? 0;
                   const runCount = c?.run_count ?? 0;
+                  const signalCount = signalCounts?.counts[detector.id] ?? 0;
                   const countClass =
                     "border-r border-border/50 px-3 py-1.5 text-right text-[12px] text-muted-foreground tabular-nums";
+                  const detectorPath = `/projects/${projectId}/detectors/${detector.id}`;
+                  // Each count opens what it counts, in the same time range:
+                  // findings and runs on the detector page, signals on the
+                  // Signals page narrowed to this detector (names are unique).
+                  const countLinks = {
+                    findings: buildUrl(detectorPath, {
+                      filters: serializeFiltersParam([
+                        { field: "identified", op: "in", value: ["Yes"] },
+                      ])!,
+                    }),
+                    runs: buildUrl(detectorPath),
+                    signals: buildUrl(`/projects/${projectId}/signals`, {
+                      filters: serializeFiltersParam([
+                        { field: "detector", op: "in", value: [detector.name] },
+                      ])!,
+                    }),
+                  };
                   return (
                     <tr
                       key={detector.id}
@@ -262,8 +309,27 @@ export default function DetectorsPage() {
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {detector.sampleRate}%
                       </td>
-                      <td className={countClass}>{countsLoading ? "—" : findingCount}</td>
-                      <td className={countClass}>{countsLoading ? "—" : runCount}</td>
+                      <td className={countClass}>
+                        <CountLink
+                          href={countLinks.findings}
+                          label={`View findings for ${detector.name}`}
+                          value={countsLoading ? null : findingCount}
+                        />
+                      </td>
+                      <td className={countClass}>
+                        <CountLink
+                          href={countLinks.runs}
+                          label={`View runs for ${detector.name}`}
+                          value={countsLoading ? null : runCount}
+                        />
+                      </td>
+                      <td className={countClass}>
+                        <CountLink
+                          href={countLinks.signals}
+                          label={`View signals for ${detector.name}`}
+                          value={signalCountsLoading ? null : signalCount}
+                        />
+                      </td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {formatDate(detector.createTime)}
                       </td>
