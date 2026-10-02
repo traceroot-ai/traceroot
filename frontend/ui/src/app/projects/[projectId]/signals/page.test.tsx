@@ -148,9 +148,9 @@ describe("Signals page with nothing listed", () => {
 
 describe("Signals page detector filter options", () => {
   it("builds the Detector filter from every detector name, deduped and sorted", () => {
-    // useAllDetectorNames already pages through the list endpoint, so the
-    // page only needs to turn whatever it returns into sorted, unique options
-    // — exercised here with more names than the endpoint's own page size.
+    // useAllDetectorNames pages through the list endpoint (tested with its
+    // hook); the page only turns the names it returns into sorted, unique
+    // options.
     detectorNames.data = [
       { id: "d1", name: "Beta" },
       { id: "d2", name: "alpha" },

@@ -150,7 +150,7 @@ class TestHourBucketOffsets:
         ]
         sql = mock_ch.query.call_args.args[0]
         assert "toStartOfHour(ts, {tz:String})" in sql
-        assert "timeZoneOffset(bucket_start)" in sql
+        assert "timeZoneOffset(toTimeZone(bucket_start, {tz:String}))" in sql
         assert "GROUP BY bucket_start" in sql
 
     def test_half_hour_offset_zone_formats_minutes(self, client, mock_ch, secret):

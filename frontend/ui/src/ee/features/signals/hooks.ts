@@ -278,6 +278,18 @@ export function traceSignalsPollDelay(pendingSince: number | null, now: number):
 }
 
 /**
+ * The pending window to bound polling by: the same one while the query key is
+ * the same, a fresh one from `now` for another trace (or detector set).
+ */
+export function pendingWindow(
+  previous: { key: string; since: number } | null,
+  key: string,
+  now: number,
+): { key: string; since: number } {
+  return previous?.key === key ? previous : { key, since: now };
+}
+
+/**
  * The signals a trace's detector hits were grouped into, and the signals
  * settings of the detectors that ran on it. Nothing else refetches this query
  * once the worker groups a hit after the page loads, so it polls while
@@ -296,7 +308,8 @@ export function useTraceSignals(
   const ids = [...new Set(detectorIds)].sort().join(",");
   // When the pending window started, so polling can be bounded; cleared once
   // nothing is pending, so a later run that becomes pending gets a fresh one.
-  const pendingSinceRef = useRef<number | null>(null);
+  // Kept per query key, so a trace opened after another one starts its own.
+  const pendingSinceRef = useRef<{ key: string; since: number } | null>(null);
   return useQuery({
     queryKey: ["signals", "trace", projectId, traceId, ids],
     queryFn: () =>
@@ -322,8 +335,13 @@ export function useTraceSignals(
         pendingSinceRef.current = null;
         return false;
       }
-      if (pendingSinceRef.current == null) pendingSinceRef.current = Date.now();
-      return traceSignalsPollDelay(pendingSinceRef.current, Date.now());
+      const now = Date.now();
+      pendingSinceRef.current = pendingWindow(
+        pendingSinceRef.current,
+        JSON.stringify(query.queryKey),
+        now,
+      );
+      return traceSignalsPollDelay(pendingSinceRef.current.since, now);
     },
   });
 }

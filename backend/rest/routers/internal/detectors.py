@@ -865,11 +865,12 @@ def list_trace_counts(
     # "01:00" hours ARE two different instants here, so they stay two groups; grouping
     # by the formatted text instead (the earlier bug) would merge them before the
     # offset ever entered the picture. timeZoneOffset reads tz's offset at that same
-    # instant, so each group gets the offset of the hour it actually occurred in.
+    # instant (toTimeZone pins tz, whatever the server's zone), so each group gets the
+    # offset of the hour it actually occurred in.
     query = f"""
         SELECT
             formatDateTime(bucket_start, '%Y-%m-%dT%H:00', {{tz:String}}) AS label,
-            toInt32(timeZoneOffset(bucket_start)) AS offset_seconds,
+            toInt32(timeZoneOffset(toTimeZone(bucket_start, {{tz:String}}))) AS offset_seconds,
             {counted} AS count
         FROM (
             SELECT toStartOfHour(ts, {{tz:String}}) AS bucket_start, id

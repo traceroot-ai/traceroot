@@ -2,15 +2,14 @@
 import { describe, expect, it } from "vitest";
 import {
   isStillPendingGrouping,
+  pendingWindow,
   traceSignalsPollDelay,
   type DetectorSignalSetting,
   type IdentifiedTraceRun,
 } from "./hooks";
 
-// New tests for the S5 fix: TraceDetectorsTab's "Pending" status used to
-// never refetch, so it could stay stale until the page itself reloaded.
-// These cover the two pure pieces useTraceSignals' refetchInterval is built
-// from, the same way rcaInProgress is tested for useSignal's polling.
+// The trace Detectors tab rereads its signals while a hit is Pending. These
+// cover the pure pieces useTraceSignals' refetchInterval is built from.
 
 describe("isStillPendingGrouping", () => {
   const run: IdentifiedTraceRun = {
@@ -67,5 +66,15 @@ describe("traceSignalsPollDelay", () => {
   it("stops polling once a hit has been pending for about ten minutes", () => {
     const pendingSince = now - 10 * 60 * 1000;
     expect(traceSignalsPollDelay(pendingSince, now)).toBe(false);
+  });
+});
+
+describe("pendingWindow", () => {
+  it("keeps the window for the same trace and starts a new one for another", () => {
+    const first = pendingWindow(null, "trace-a", 1_000);
+    expect(first).toEqual({ key: "trace-a", since: 1_000 });
+    expect(pendingWindow(first, "trace-a", 900_000)).toBe(first);
+    // A trace opened after the first one reached its limit still polls.
+    expect(pendingWindow(first, "trace-b", 900_000)).toEqual({ key: "trace-b", since: 900_000 });
   });
 });
