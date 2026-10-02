@@ -55,11 +55,12 @@ traceroot status
 Example output for a browser login:
 
 ```text
-Host:       https://app.traceroot.ai
-Auth type:  Session token
-Email:      user@example.com
-Workspaces: 2 accessible
-Active:     Personal Workspace
+Logged in as:  user@example.com
+Credential:    session (browser login)
+Host:          https://app.traceroot.ai
+Project:       (none — pass --project or run `traceroot projects list`)
+Workspaces:    Acme Corp Engineering (wrk_11223344556677889900aabbccddeeff)
+Config source: ~/.config/traceroot/credentials.json
 ```
 
 ## 4. Find Your Project ID
@@ -71,9 +72,9 @@ traceroot projects list
 ```
 
 ```text
-PROJECT ID                            NAME               WORKSPACE
-proj_91a0c8b21e054fbb8b1234567890abcd  Production Agent   Default
-proj_09b8f7e6d5c4321a9876543210fedcba  Staging Service    Default
+PROJECT ID                            NAME            WORKSPACE ID
+proj_91a0c8b21e054fbb8b1234567890abcd  Support Bot     wrk_11223344556677889900aabbccddeeff
+proj_09b8f7e6d5c4321a9876543210fedcba  Coding Copilot  wrk_11223344556677889900aabbccddeeff
 ```
 
 Set `TRACEROOT_PROJECT_ID` in your environment (or pass `--project <id>`) so you don't need to specify it for every command:

@@ -173,7 +173,7 @@ traceroot projects update proj_91a0c8b21e054fbb8b1234567890abcd --trace-ttl-days
 
 ### `traceroot projects delete <id>`
 
-Permanently delete a project. Any API keys issued for this project immediately stop authenticating.
+Delete a project (soft delete). The project drops out of lists and reads, its API keys immediately stop authenticating, and its data is retained until the project's trace retention window expires.
 
 ```bash
 traceroot projects delete <project-id> --reason <text>

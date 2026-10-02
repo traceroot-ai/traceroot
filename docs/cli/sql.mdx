@@ -82,32 +82,39 @@ traceroot sql schema
 
 ```text
 TABLE: spans
-COLUMN             TYPE         DESCRIPTION
-span_id            String       Unique identifier for the span
-trace_id           String       Parent trace identifier
-name               String       Operation or span name
-span_kind          String       INTERNAL, CLIENT, SERVER, AGENT, TOOL, LLM
-span_start_time    DateTime64   Start timestamp (UTC)
-span_end_time      DateTime64   End timestamp (UTC)
-duration_ms        Float64      Duration in milliseconds
-status             String       OK, ERROR, UNSET
-status_message     String       Error description when status is ERROR
-model_name         String       Underlying LLM model identifier
-input_tokens       UInt32       Prompt/input token count
-output_tokens      UInt32       Completion token count
-cost               Float64      Estimated cost in USD
-service_name       String       Instrumented service or application name
+COLUMN               TYPE
+span_id              String
+trace_id             String
+parent_span_id       Nullable(String)
+span_start_time      DateTime64(3)
+span_end_time        Nullable(DateTime64(3))
+duration_ms          Nullable(Int64)
+name                 String
+span_kind            String
+status               String
+status_message       Nullable(String)
+model_name           Nullable(String)
+cost                 Nullable(Decimal64(9))
+input_tokens         Nullable(Int64)
+output_tokens        Nullable(Int64)
+total_tokens         Nullable(Int64)
+environment          Nullable(String)
+metadata             Map(LowCardinality(String), String)
+git_source_file      Nullable(String)
+git_source_line      Nullable(Int32)
+git_source_function  Nullable(String)
 
 TABLE: traces
-COLUMN             TYPE         DESCRIPTION
-trace_id           String       Unique identifier for the trace
-root_span_name     String       Name of the root span
-trace_start_time   DateTime64   Start timestamp of the root span (UTC)
-trace_end_time     DateTime64   End timestamp of the final child span (UTC)
-duration_ms        Float64      Total trace duration in milliseconds
-status             String       Overall status of the trace
-total_spans        UInt32       Number of spans in the trace
-total_cost         Float64      Total aggregated token cost in USD
+COLUMN               TYPE
+trace_id             String
+trace_start_time     DateTime64(3)
+name                 String
+user_id              Nullable(String)
+session_id           Nullable(String)
+git_ref              Nullable(String)
+git_repo             Nullable(String)
+environment          Nullable(String)
+metadata             Map(LowCardinality(String), String)
 ```
 
 <Note>

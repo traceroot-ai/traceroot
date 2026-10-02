@@ -76,7 +76,7 @@ Create a definition file `detector.json`:
   "template": "security_check",
   "prompt": "Evaluate whether any tool call contains unsanitized SQL syntax or injection risks.",
   "enabled": true,
-  "sample_rate": 1.0
+  "sample_rate": 100
 }
 ```
 
@@ -107,7 +107,7 @@ traceroot detectors update <detector-id> [options]
 | `--name <string>` | string | New detector name |
 | `--prompt <string>` | string | Updated prompt |
 | `--enabled <boolean>` | boolean | Enable or disable the detector (`true` / `false`) |
-| `--sample-rate <float>` | number | Evaluation sample rate (between `0.0` and `1.0`) |
+| `--sample-rate <n>` | integer | Evaluation sample percentage (`1` to `100`) |
 
 ```bash
 # Disable a detector
