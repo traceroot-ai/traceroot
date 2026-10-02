@@ -24,9 +24,15 @@ It references #2399 and #2404 without closing the full UX issue.
 - Affected counts and View all open Tracing with the signal filter and range.
   Opening an individual trace adds a trace-viewer layer over the signal panel.
   Tracing badges can reopen the signal panel.
-- A trace's Detectors tab has a Signal column linking each hit to its signal.
-  The trace header's Alert button is removed; arriving from the findings page
-  still opens the analysis chat.
+- A trace's Detectors tab has a Signal column linking each hit to its signal,
+  or saying Pending (waiting for assignment) or Disabled (its detector did not
+  group hits when it ran). The detector name links to its runs. The trace
+  header's Alert button is removed; arriving from the findings page still
+  opens the analysis chat.
+- A project with no signals sees its next setup step instead of an empty list:
+  create a detector, turn on Generate signals, or raise sampling above 0%.
+  Filters that match nothing say so and offer to clear them.
+- The detector create form and edit panel have a Generate signals switch.
 
 ## Design deltas
 
