@@ -246,7 +246,7 @@ describe("response shape", () => {
     ]);
   });
 
-  it("reports token, LLM-call and LLM-latency means over the cases that made a model call", async () => {
+  it("reports token, LLM-call and model-call-time means over the cases that made a model call", async () => {
     const llm = (promptTokens: number, completionTokens: number, llmCalls: number) => ({
       ...run().results[0],
       promptTokens,

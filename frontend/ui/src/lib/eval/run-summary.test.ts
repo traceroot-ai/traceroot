@@ -307,7 +307,7 @@ describe("summarizeRun — derived metrics", () => {
     expect(byName(metrics).cost).toMatchObject({ value: null, observedCount: 0 });
   });
 
-  it("averages token, call and LLM-latency metrics per case, skipping cases with no LLM call", () => {
+  it("averages token, call and model-call-time metrics per case, skipping cases with no LLM call", () => {
     const { metrics } = summarizeRun(
       [],
       [
