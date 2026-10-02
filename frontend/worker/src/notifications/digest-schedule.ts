@@ -18,6 +18,13 @@ export function getDigestQueue(): Queue<DigestJob> {
   return digestQueue;
 }
 
+/** The project's notification window in ms: its alert window, or the default one. */
+export function alertWindowMs(alertWindow: string | null | undefined): number {
+  return ALERT_WINDOWS[
+    alertWindow && isAlertWindow(alertWindow) ? alertWindow : DEFAULT_ALERT_WINDOW
+  ];
+}
+
 /**
  * Schedule the per-finding digest flush for the window a finding falls in. One
  * deduped flush per (project, windowStart), keyed off the finding timestamp the
@@ -32,8 +39,7 @@ export async function scheduleFindingDigest(
   findingTimestamp: number | undefined,
   alertWindow: string | null | undefined,
 ): Promise<void> {
-  const token = alertWindow && isAlertWindow(alertWindow) ? alertWindow : DEFAULT_ALERT_WINDOW;
-  const windowMs = ALERT_WINDOWS[token];
+  const windowMs = alertWindowMs(alertWindow);
   // Legacy/in-flight RCA jobs enqueued before findingTimestamp existed carry no
   // timestamp; fall back to now so the window key never goes NaN.
   const ts =

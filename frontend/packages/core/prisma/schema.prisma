@@ -441,28 +441,33 @@ model StandardModelPrice {
 // Detectors — automatic production monitoring for AI agents
 
 model Detector {
-  id                String   @id @default(cuid()) @db.VarChar
-  projectId         String   @map("project_id") @db.VarChar
-  name              String   @db.VarChar
-  template          String   @db.VarChar // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
-  prompt            String   @db.Text
-  outputSchema      Json     @map("output_schema") @db.JsonB
-  sampleRate        Int      @default(25) @map("sample_rate") // 0–100
-  enabled           Boolean  @default(true)
-  enableRca         Boolean  @default(true) @map("enable_rca") // run agent-model RCA on this detector's findings
+  id                  String    @id @default(cuid()) @db.VarChar
+  projectId           String    @map("project_id") @db.VarChar
+  name                String    @db.VarChar
+  template            String    @db.VarChar // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
+  prompt              String    @db.Text
+  outputSchema        Json      @map("output_schema") @db.JsonB
+  sampleRate          Int       @default(25) @map("sample_rate") // 0–100
+  enabled             Boolean   @default(true)
+  enableRca           Boolean   @default(true) @map("enable_rca") // run agent-model RCA on this detector's findings
   // Group this detector's hits into signals (ee/signals). RCA follows signals: it
   // runs only when a signal is created or reopened, and only if enableRca is also
-  // on. Off, or on in a deployment without the embedding and assignment keys: no
-  // grouping and no RCA; the digest still reports findings per finding.
-  enableSignals     Boolean  @default(true) @map("enable_signals")
+  // on. Notifications announce new and reopened signals only. Off, or on in a
+  // deployment without the embedding and assignment keys: no grouping, no RCA
+  // and no notifications.
+  enableSignals       Boolean   @default(true) @map("enable_signals")
   // Hits detected before this are never grouped (no backfill). Set when signals
   // are switched on; the migration set it to the upgrade time.
-  signalsEnabledAt  DateTime @default(now()) @map("signals_enabled_at") @db.Timestamp(6)
-  detectionModel    String?  @map("detection_model") @db.VarChar // model id; null = worker picks default
-  detectionProvider String?  @map("detection_provider") @db.VarChar // provider label (system: "anthropic"/"openai"; BYOK: ModelProvider.provider row label)
-  detectionSource   String?  @map("detection_source") @db.VarChar // "system" | "byok" | null (legacy/seeded)
-  createTime        DateTime @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime        DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+  signalsEnabledAt    DateTime  @default(now()) @map("signals_enabled_at") @db.Timestamp(6)
+  // When hits were last handed to signal assignment and not yet seen drained.
+  // Written before the Redis enqueue, so a hit whose enqueue failed is still
+  // found by the sweeper; cleared once a round reads nothing waiting.
+  assignmentPendingAt DateTime? @map("assignment_pending_at") @db.Timestamp(6)
+  detectionModel      String?   @map("detection_model") @db.VarChar // model id; null = worker picks default
+  detectionProvider   String?   @map("detection_provider") @db.VarChar // provider label (system: "anthropic"/"openai"; BYOK: ModelProvider.provider row label)
+  detectionSource     String?   @map("detection_source") @db.VarChar // "system" | "byok" | null (legacy/seeded)
+  createTime          DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime          DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
 
   project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   trigger DetectorTrigger?
@@ -679,6 +684,12 @@ model SignalRca {
   reopenSeq  Int      @map("reopen_seq")
   findingId  String   @map("finding_id") @db.VarChar
   createTime DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  // The last successful RCA that analysed this opening, kept here because the
+  // finding's detector_rcas row only holds the latest attempt: the full answer,
+  // the root cause given for this opening's hit, and the agent session.
+  result     String?  @db.Text
+  rootCause  String?  @map("root_cause") @db.Text
+  sessionId  String?  @map("session_id") @db.VarChar
 
   signal Signal      @relation(fields: [signalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   rca    DetectorRca @relation(fields: [findingId], references: [findingId], onDelete: Cascade, onUpdate: NoAction)

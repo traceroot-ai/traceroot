@@ -1,26 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockAdd, mockUpsertScheduler, mockRound, fakeRedis } = vi.hoisted(() => {
-  /** Just the sorted-set commands the sweeper records use. */
-  const sets = new Map<string, Map<string, number>>();
-  const zset = (key: string) => {
-    if (!sets.has(key)) sets.set(key, new Map());
-    return sets.get(key)!;
-  };
-  const bound = (v: string | number) => (v === "-inf" ? -Infinity : Number(v));
+  /** Just the hash commands the hit failure records use. */
   const fakeRedis = {
-    sets,
-    zadd: async (key: string, score: number, member: string) => void zset(key).set(member, score),
-    zremrangebyscore: async (key: string, min: string | number, max: string | number) => {
-      for (const [m, s] of zset(key)) if (s >= bound(min) && s <= bound(max)) zset(key).delete(m);
-    },
-    zrangebyscore: async (key: string, min: string | number, max: string | number) =>
-      [...zset(key)]
-        .filter(([, s]) => s >= bound(min) && s <= bound(max))
-        .sort((a, b) => a[1] - b[1])
-        .flatMap(([m, s]) => [m, String(s)]),
-    zmscore: async (key: string, ...members: string[]) =>
-      members.map((m) => (zset(key).has(m) ? String(zset(key).get(m)) : null)),
     hashes: new Map<string, Map<string, string>>(),
     expiries: new Map<string, number>(),
     hash(key: string) {
@@ -85,9 +67,47 @@ vi.mock("../digest.js", () => ({
   enqueueSignalDigest: mockEnqueueDigest,
   sweepSignalDigests: mockSweepDigests,
 }));
-const { mockPendingCopies } = vi.hoisted(() => ({ mockPendingCopies: vi.fn() }));
+const { mockPendingCopies, detectorRows, detectorDb } = vi.hoisted(() => {
+  /** The detectors table, reduced to the sweeper's pending mark. */
+  const detectorRows = new Map<string, { projectId: string; assignmentPendingAt: Date | null }>();
+  type Where = { id?: string; projectId?: string; assignmentPendingAt?: { lte?: Date; lt?: Date } };
+  const matches = (
+    id: string,
+    row: { projectId: string; assignmentPendingAt: Date | null },
+    w: Where,
+  ) =>
+    (w.id === undefined || w.id === id) &&
+    (w.projectId === undefined || w.projectId === row.projectId) &&
+    (w.assignmentPendingAt === undefined ||
+      (row.assignmentPendingAt !== null &&
+        (w.assignmentPendingAt.lte === undefined ||
+          row.assignmentPendingAt <= w.assignmentPendingAt.lte) &&
+        (w.assignmentPendingAt.lt === undefined ||
+          row.assignmentPendingAt < w.assignmentPendingAt.lt)));
+  const detectorDb = {
+    updateMany: vi.fn(
+      async ({ where, data }: { where: Where; data: { assignmentPendingAt: Date | null } }) => {
+        let count = 0;
+        for (const [id, row] of detectorRows)
+          if (matches(id, row, where)) {
+            row.assignmentPendingAt = data.assignmentPendingAt;
+            count++;
+          }
+        return { count };
+      },
+    ),
+    findMany: vi.fn(async ({ where, take }: { where: Where; take: number }) =>
+      [...detectorRows]
+        .filter(([id, row]) => matches(id, row, where))
+        .sort((a, b) => a[1].assignmentPendingAt!.getTime() - b[1].assignmentPendingAt!.getTime())
+        .slice(0, take)
+        .map(([id, row]) => ({ id, projectId: row.projectId })),
+    ),
+  };
+  return { mockPendingCopies: vi.fn(), detectorRows, detectorDb };
+});
 vi.mock("@traceroot/core", () => ({
-  prisma: { tag: "prisma", $queryRaw: mockPendingCopies },
+  prisma: { tag: "prisma", $queryRaw: mockPendingCopies, detector: detectorDb },
 }));
 const { mockEmbed, mockChat, mockJev, mockFindJev } = vi.hoisted(() => ({
   mockEmbed: vi.fn(),
@@ -116,10 +136,18 @@ import type { RoundDeps } from "../round.js";
 
 const T0 = Date.parse("2026-09-30T10:00:00Z");
 
+/** A detector row of project "p" with the given pending mark. */
+const detector = (id: string, pendingAt: number | null, projectId = "p") =>
+  detectorRows.set(id, {
+    projectId,
+    assignmentPendingAt: pendingAt === null ? null : new Date(pendingAt),
+  });
+const pendingAt = (id: string) => detectorRows.get(id)?.assignmentPendingAt?.getTime() ?? null;
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockPendingCopies.mockResolvedValue([]);
-  fakeRedis.sets.clear();
+  detectorRows.clear();
   fakeRedis.hashes.clear();
   vi.stubEnv("OPENAI_API_KEY", "sk-test");
   mockAdd.mockResolvedValue(undefined);
@@ -146,16 +174,18 @@ describe("enqueueAssignment", () => {
     );
   });
 
-  it("records the enqueue before adding the job, so a lost add is still swept", async () => {
+  it("marks the partition pending in Postgres before adding the job, so a failed add is still swept", async () => {
     vi.useFakeTimers({ now: T0 });
-    mockAdd.mockRejectedValueOnce(new Error("redis blip"));
-    await expect(enqueueAssignment("p1", "d1")).rejects.toThrow("redis blip");
-    expect(fakeRedis.sets.get("signals:assign:enqueued")?.get("p1:d1")).toBe(T0);
+    detector("d1", null, "p1");
+    mockAdd.mockRejectedValueOnce(new Error("redis down"));
+    await expect(enqueueAssignment("p1", "d1")).rejects.toThrow("redis down");
+    expect(pendingAt("d1")).toBe(T0);
   });
 
-  it("rejects ids that would corrupt the job id or the sweeper's records", async () => {
+  it("rejects ids that would corrupt the job id, before marking anything", async () => {
     await expect(enqueueAssignment("p:1", "d1")).rejects.toThrow();
-    expect(fakeRedis.sets.size).toBe(0);
+    expect(detectorDb.updateMany).not.toHaveBeenCalled();
+    expect(mockAdd).not.toHaveBeenCalled();
   });
 });
 
@@ -194,34 +224,33 @@ describe("enqueueSignalHits", () => {
 });
 
 describe("partitionsToSweep", () => {
-  const enqueuedAt = (member: string, t: number) =>
-    fakeRedis.zadd("signals:assign:enqueued", t, member);
-
-  it("returns partitions enqueued over two minutes ago and not drained since", async () => {
-    await enqueuedAt("p:never", T0 - 180_000);
-    await enqueuedAt("p:drained", T0 - 180_000);
-    await markDrained("p", "drained", T0 - 150_000);
-    await enqueuedAt("p:after", T0 - 180_000);
-    await markDrained("p", "after", T0 - 200_000);
-    await enqueuedAt("p:fresh", T0 - 60_000);
+  it("returns partitions marked pending over two minutes ago, oldest first", async () => {
+    detector("fresh", T0 - 60_000);
+    detector("newer", T0 - 150_000);
+    detector("older", T0 - 600_000);
+    detector("idle", null);
     expect(await partitionsToSweep(T0)).toEqual([
-      { projectId: "p", detectorId: "never" },
-      { projectId: "p", detectorId: "after" },
+      { projectId: "p", detectorId: "older" },
+      { projectId: "p", detectorId: "newer" },
     ]);
   });
 
-  it("does not trust a drain read just before the enqueue (clock skew, lagging reads)", async () => {
-    await enqueuedAt("p:skew", T0 - 180_000);
-    await markDrained("p", "skew", T0 - 175_000);
-    expect(await partitionsToSweep(T0)).toEqual([{ projectId: "p", detectorId: "skew" }]);
+  it("forgets a partition once a round drained it", async () => {
+    detector("d", T0 - 180_000);
+    await markDrained("p", "d", T0 - 150_000);
+    expect(pendingAt("d")).toBeNull();
+    expect(await partitionsToSweep(T0)).toEqual([]);
   });
 
-  it("forgets records older than the lookback", async () => {
-    await enqueuedAt("p:ancient", T0 - 8 * 24 * 3_600_000);
-    await markDrained("p", "ancient", T0 - 8 * 24 * 3_600_000 - 1);
-    expect(await partitionsToSweep(T0)).toEqual([]);
-    expect(fakeRedis.sets.get("signals:assign:enqueued")?.size).toBe(0);
-    expect(fakeRedis.sets.get("signals:assign:drained")?.size).toBe(0);
+  it("keeps a mark written after the drain's read, or too close before it (clock skew)", async () => {
+    detector("after", T0 - 180_000);
+    await markDrained("p", "after", T0 - 200_000);
+    detector("skew", T0 - 180_000);
+    await markDrained("p", "skew", T0 - 175_000);
+    expect(await partitionsToSweep(T0)).toEqual([
+      { projectId: "p", detectorId: "after" },
+      { projectId: "p", detectorId: "skew" },
+    ]);
   });
 });
 
@@ -252,13 +281,14 @@ describe("processSignalAssignJob", () => {
     expect(mockRound).not.toHaveBeenCalled();
   });
 
-  it("completes after a round that found nothing, and records the read as a drain", async () => {
+  it("completes after a round that found nothing, and clears the partition's pending mark", async () => {
+    detector("d", T0 - 60_000);
     mockRound.mockResolvedValueOnce(stats({}));
     const j = job({ projectId: "p", detectorId: "d" });
     await processSignalAssignJob(j, "tok", deps);
     expect(mockRound).toHaveBeenCalledWith(deps, "p", "d");
     expect(j.moveToDelayed).not.toHaveBeenCalled();
-    expect(fakeRedis.sets.get("signals:assign:drained")?.get("p:d")).toBe(T0);
+    expect(pendingAt("d")).toBeNull();
   });
 
   it("continues at once while hits remain", async () => {
@@ -270,9 +300,10 @@ describe("processSignalAssignJob", () => {
   });
 
   it("leaves a partition skipped for a missing key to the sweeper", async () => {
+    detector("d", T0 - 60_000);
     mockRound.mockResolvedValueOnce(stats({ skipped: "no-key" }));
     await processSignalAssignJob(job({ projectId: "p", detectorId: "d" }), "tok", deps);
-    expect(fakeRedis.sets.get("signals:assign:drained")).toBeUndefined();
+    expect(pendingAt("d")).toBe(T0 - 60_000);
   });
 
   it("takes one more look after a round that did work, before completing", async () => {
@@ -281,20 +312,20 @@ describe("processSignalAssignJob", () => {
     const j = job({ projectId: "p", detectorId: "d" });
     await expect(processSignalAssignJob(j, "tok", deps)).rejects.toBeInstanceOf(DelayedError);
     expect(j.moveToDelayed).toHaveBeenCalledWith(T0 + 30_000, "tok");
-    expect(fakeRedis.sets.get("signals:assign:drained")).toBeUndefined();
+    expect(detectorDb.updateMany).not.toHaveBeenCalled();
   });
 });
 
 describe("sweepPartitions", () => {
   it("does nothing without the signals key", async () => {
     vi.stubEnv("OPENAI_API_KEY", "");
-    await fakeRedis.zadd("signals:assign:enqueued", T0 - 180_000, "p:d");
+    detector("d", T0 - 180_000);
     expect(await sweepPartitions(T0)).toBe(0);
     expect(mockAdd).not.toHaveBeenCalled();
   });
 
   it("re-enqueues the partitions that may have lost their job, without delay", async () => {
-    await fakeRedis.zadd("signals:assign:enqueued", T0 - 180_000, "p:d");
+    detector("d", T0 - 180_000);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     expect(await sweepPartitions(T0)).toBe(1);
     expect(mockSweepRcas).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), T0);
@@ -303,6 +334,33 @@ describe("sweepPartitions", () => {
       "assign",
       { projectId: "p", detectorId: "d" },
       expect.objectContaining({ jobId: "assign:p:d", delay: 0 }),
+    );
+    log.mockRestore();
+  });
+});
+
+describe("recovery of a failed first enqueue", () => {
+  it("assigns the hit later without another hit arriving", async () => {
+    vi.useFakeTimers({ now: T0 });
+    detector("d1", null, "p1");
+    mockAdd.mockRejectedValueOnce(new Error("redis down"));
+    await expect(
+      enqueueSignalHits({
+        projectId: "p1",
+        detectors: [{ id: "d1", enableSignals: true }],
+        triggered: [{ detectorId: "d1" }],
+      }),
+    ).rejects.toThrow("redis down");
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+
+    // No further hit: the sweeper alone finds the partition once the mark is stale.
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    expect(await sweepPartitions(T0 + 60_000)).toBe(0);
+    expect(await sweepPartitions(T0 + 180_000)).toBe(1);
+    expect(mockAdd).toHaveBeenLastCalledWith(
+      "assign",
+      { projectId: "p1", detectorId: "d1" },
+      expect.objectContaining({ jobId: "assign:p1:d1", delay: 0 }),
     );
     log.mockRestore();
   });

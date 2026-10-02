@@ -12,15 +12,9 @@ import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-
 import { withSelfTrace } from "../detection/self-trace-emitter.js";
 import { boundedJson } from "../detection/traced-complete.js";
 import { enqueueSignalHits } from "../ee/signals/queue.js";
-import { signalsAvailable } from "../ee/signals/config.js";
-import { scheduleFindingDigest } from "../notifications/digest-schedule.js";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
-// A failed per-finding digest enqueue is retried this many times, waiting
-// 1 s, then 2 s.
-const DIGEST_ENQUEUE_ATTEMPTS = 3;
-const DIGEST_ENQUEUE_RETRY_MS = 1_000;
 
 /**
  * Returns the AGE of the trace's most recent span arrival in milliseconds —
@@ -340,7 +334,6 @@ async function evaluateTrace(
       select: {
         workspaceId: true,
         workspace: { select: { billingPlan: true, detectorBlocked: true } },
-        alertConfig: { select: { alertWindow: true } },
       },
     }),
   ]);
@@ -482,37 +475,11 @@ async function evaluateTrace(
     `[Detector] Finding ${findingId} created for trace ${traceId} (${triggered.length} detector(s) triggered)`,
   );
 
-  // Detectors not grouping into signals report through the per-finding digest;
-  // the signal digest covers the rest once their hits are assigned.
-  const grouping = signalsAvailable();
-  const reportsPerFinding = triggered.some((t) => {
-    const d = detectors.find((x) => x.id === t.detectorId);
-    return !(d?.enableSignals && grouping);
-  });
-  if (reportsPerFinding) {
-    // Retried here rather than by failing the job, which would run every
-    // detector on the trace again.
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await scheduleFindingDigest(
-          projectId,
-          findingTimestamp,
-          project?.alertConfig?.alertWindow ?? null,
-        );
-        break;
-      } catch (err) {
-        if (attempt >= DIGEST_ENQUEUE_ATTEMPTS) {
-          console.error(`[Detector] Failed to schedule the digest for finding ${findingId}:`, err);
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, attempt * DIGEST_ENQUEUE_RETRY_MS));
-      }
-    }
-  }
-
   // Signals (ee): enqueue assignment for detectors with signals on; the job
-  // reads the hits back from ClickHouse. A failure here must not fail the
-  // finding, which is written; the sweeper picks the hits up later.
+  // reads the hits back from ClickHouse. Notifications come only from the
+  // signal digest, for new and reopened signals. A failure here must not fail
+  // the finding, which is written: the partition is marked pending in Postgres
+  // before the Redis enqueue, so the sweeper picks the hits up later.
   await enqueueSignalHits({ projectId, detectors, triggered }).catch((err) =>
     console.error(`[Detector] Failed to enqueue signal assignment for finding ${findingId}:`, err),
   );

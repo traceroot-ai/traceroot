@@ -33,7 +33,10 @@ vi.mock("../../queues/digest-queue.js", async (importOriginal) => {
 const loadSignalRcaContextMock = vi.fn();
 const hasUncoveredOpeningsMock = vi.fn().mockResolvedValue(false);
 const closeEmptySignalRcaMock = vi.fn().mockResolvedValue(true);
-vi.mock("../../ee/signals/rca.js", () => ({
+vi.mock("../../ee/signals/rca.js", async (importOriginal) => ({
+  // The section parsing is pure: the real one shows what the finish receives.
+  rootCausesByOpening: (await importOriginal<typeof import("../../ee/signals/rca.js")>())
+    .rootCausesByOpening,
   loadSignalRcaContext: (...a: any[]) => loadSignalRcaContextMock(...a),
   hasUncoveredOpenings: (...a: any[]) => hasUncoveredOpeningsMock(...a),
   closeEmptySignalRca: (...a: any[]) => closeEmptySignalRcaMock(...a),
@@ -911,6 +914,7 @@ describe("signal RCAs", () => {
       },
     ],
     covered: ["s1:0", "s2:1"],
+    coveredDetectors: { "s1:0": "d1", "s2:1": "d2" },
   };
 
   async function stubRun() {
@@ -986,7 +990,17 @@ describe("signal RCAs", () => {
     expect(body.message).not.toContain("shared across these findings");
     expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ findingId: "f1", status: "done" }),
+      expect.objectContaining({
+        findingId: "f1",
+        status: "done",
+        coveredOpenings: ["s1:0", "s2:1"],
+        // The stub answer has no section per hit: no opening gets a misaligned root cause.
+        openingResults: [
+          { opening: "s1:0", rootCause: null },
+          { opening: "s2:1", rootCause: null },
+        ],
+        sessionId: expect.any(String),
+      }),
     );
   });
 
@@ -1025,7 +1039,7 @@ describe("signal RCAs", () => {
     error.mockRestore();
   });
 
-  it("fails the RCA and schedules the digest on the last attempt", async () => {
+  it("fails the RCA on the last attempt without scheduling a digest", async () => {
     loadSignalRcaContextMock.mockResolvedValue(context);
     await stubRun();
     const { prisma: p } = await import("@traceroot/core");
@@ -1039,11 +1053,9 @@ describe("signal RCAs", () => {
       expect.anything(),
       expect.objectContaining({ findingId: "f1", status: "failed" }),
     );
-    expect(digestAddMock).toHaveBeenCalledWith(
-      "signal-digest-p1",
-      expect.anything(),
-      expect.anything(),
-    );
+    // The signal digest goes out on the project's window whatever the RCA's
+    // state; an RCA finishing, or failing, never sends another notification.
+    expect(digestAddMock).not.toHaveBeenCalled();
     error.mockRestore();
   });
 

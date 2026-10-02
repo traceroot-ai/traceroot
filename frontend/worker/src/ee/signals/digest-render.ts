@@ -1,12 +1,13 @@
 import { escapeHtml, renderEmailCard } from "@traceroot/core";
+import { signalDeepLinkPath } from "@traceroot/core/signals";
 import { escapeMrkdwn, truncate, truncateEscaped } from "@traceroot/slack";
 import type { DigestItem } from "./digest.js";
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 // Slack rejects a message with more than 50 blocks: header, one heading per
-// section (three), the footer and a divider leave 44 for signal lines.
-const MAX_SLACK_LINES = 44;
+// section (two), the footer and a divider leave 45 for signal lines.
+const MAX_SLACK_LINES = 45;
 // Gmail clips a message over about 102 KB; like the detector digest, an email
 // lists at most this many signals and counts the rest.
 const MAX_EMAIL_ROWS = 45;
@@ -17,23 +18,15 @@ const ROOT_CAUSE_CAP = 400;
 const SECTIONS = [
   { kind: "new", heading: "New" },
   { kind: "reopened", heading: "Reopened" },
-  { kind: "ongoing", heading: "Ongoing" },
 ] as const;
 
-/** Link to the signal on its detector's page. */
-export function signalUrl(
-  projectId: string,
-  item: Pick<DigestItem, "detectorId" | "signalId">,
-): string {
-  return (
-    `${APP_BASE_URL}/projects/${encodeURIComponent(projectId)}` +
-    `/detectors/${encodeURIComponent(item.detectorId)}?signal=${encodeURIComponent(item.signalId)}`
-  );
+/** Link to the signal, opened on the Signals page. */
+export function signalUrl(projectId: string, item: Pick<DigestItem, "signalId">): string {
+  return `${APP_BASE_URL}${signalDeepLinkPath(projectId, item.signalId)}`;
 }
 
 function hitsText(item: DigestItem): string {
-  const total = `${item.hitCount} ${item.hitCount === 1 ? "hit" : "hits"}`;
-  return item.kind === "ongoing" ? `+${item.newHits} since the last digest (${total})` : total;
+  return `${item.hitCount} ${item.hitCount === 1 ? "hit" : "hits"}`;
 }
 
 function rcaText(item: DigestItem): string | null {
@@ -160,8 +153,8 @@ ${htmlSections.join("\n")}
           </table>
         </td>
       </tr>`,
-    buttonLabel: "View detectors",
-    buttonUrl: `${APP_BASE_URL}/projects/${encodeURIComponent(params.projectId)}/detectors`,
+    buttonLabel: "View signals",
+    buttonUrl: `${APP_BASE_URL}/projects/${encodeURIComponent(params.projectId)}/signals`,
     footerText: `You are receiving this because detector alerts are enabled for the ${safeProject} project on TraceRoot.`,
   });
   return { subject: `[TraceRoot] ${headline}`, text: text.join("\n"), html };

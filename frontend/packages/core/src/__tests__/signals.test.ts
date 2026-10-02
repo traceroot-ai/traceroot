@@ -11,6 +11,8 @@ import {
   signalAssignJobId,
   signalStatusChangeSchema,
   type SignalStatusChange,
+  SIGNAL_ID_PARAM,
+  signalDeepLinkPath,
 } from "../ee/signals/index.ts";
 
 describe("signalStatusChangeSchema", () => {
@@ -275,19 +277,15 @@ describe("reopenSignalForHit", () => {
 });
 
 describe("pickCanonicalRca", () => {
-  const row = (reopenSeq: number, status: string) => ({ reopenSeq, rca: { status } });
-  it("takes the newest opening whose RCA is done, whatever finished last", () => {
-    expect(pickCanonicalRca([row(2, "done"), row(0, "done"), row(1, "done")])).toEqual(
-      row(2, "done"),
-    );
+  const row = (reopenSeq: number, result: string | null) => ({ reopenSeq, result });
+  it("takes the newest opening that kept a successful answer, whatever finished last", () => {
+    expect(pickCanonicalRca([row(2, "c"), row(0, "a"), row(1, "b")])).toEqual(row(2, "c"));
   });
-  it("falls back to an older done RCA while the newest is still running or failed", () => {
-    expect(pickCanonicalRca([row(0, "done"), row(1, "failed"), row(2, "running")])).toEqual(
-      row(0, "done"),
-    );
+  it("falls back to an older answer while the newest opening has none yet", () => {
+    expect(pickCanonicalRca([row(0, "a"), row(1, null), row(2, null)])).toEqual(row(0, "a"));
   });
-  it("is null until some RCA is done", () => {
-    expect(pickCanonicalRca([row(0, "pending")])).toBe(null);
+  it("is null until some opening kept an answer", () => {
+    expect(pickCanonicalRca([row(0, null)])).toBe(null);
     expect(pickCanonicalRca([])).toBe(null);
   });
 });
@@ -313,5 +311,14 @@ describe("partition keys", () => {
     await lockSignalPartition(tx as any, "proj1", "det1");
     expect(calls[0].text).toContain("pg_advisory_xact_lock(hashtext('signals')");
     expect(calls[0].values).toEqual(["proj1", "det1"]);
+  });
+});
+
+describe("signal deep link", () => {
+  // Notifications are sent with this link and the Signals page opens a signal
+  // from SIGNAL_ID_PARAM; changing either side must fail here first.
+  it("opens one signal on the project's Signals page", () => {
+    expect(SIGNAL_ID_PARAM).toBe("signalId");
+    expect(signalDeepLinkPath("p 1", "s/1")).toBe("/projects/p%201/signals?signalId=s%2F1");
   });
 });

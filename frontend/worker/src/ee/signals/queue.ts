@@ -1,10 +1,12 @@
 import { Queue } from "bullmq";
 import type { Redis } from "ioredis";
+import { prisma } from "@traceroot/core";
 import { SIGNAL_ASSIGN_QUEUE, signalAssignJobId } from "@traceroot/core/signals";
 import { createRedisConnection } from "../../queues/detector-run-queue.js";
 import {
   ASSIGN_DELAY_MS,
   DRAIN_MARGIN_MS,
+  SWEEP_BATCH,
   SWEEP_STALE_MS,
   WAITING_LOOKBACK_MS,
   signalsAvailable,
@@ -26,14 +28,6 @@ export function getSignalAssignQueue(): Queue<SignalAssignJobData> {
   return queue;
 }
 
-/**
- * The sweeper's records, two Redis sorted sets keyed by "project:detector": when
- * a partition was last enqueued, and when its job last read no waiting hits.
- * Ids never contain ":" (signalAssignJobId rejects them), so the key splits back.
- */
-const ENQUEUED_KEY = "signals:assign:enqueued";
-const DRAINED_KEY = "signals:assign:drained";
-
 let bookkeeping: Redis | null = null;
 function redis(): Redis {
   bookkeeping ??= createRedisConnection();
@@ -45,8 +39,8 @@ function redis(): Redis {
  * while the partition's job is waiting, delayed or running, so a partition has
  * at most one job. Finished and failed jobs are removed at once: a kept job
  * would swallow every later add under the same id. The enqueue time is recorded
- * first, so an add that is lost (or swallowed by a job that is just finishing)
- * is still seen by the sweeper.
+ * in Postgres first (detectors.assignment_pending_at), so an add that fails or
+ * is lost, Redis outage included, is still found by the sweeper.
  */
 export async function enqueueAssignment(
   projectId: string,
@@ -54,7 +48,10 @@ export async function enqueueAssignment(
   delayMs: number = ASSIGN_DELAY_MS,
 ): Promise<void> {
   const jobId = signalAssignJobId(projectId, detectorId);
-  await redis().zadd(ENQUEUED_KEY, Date.now(), `${projectId}:${detectorId}`);
+  await prisma.detector.updateMany({
+    where: { id: detectorId, projectId },
+    data: { assignmentPendingAt: new Date() },
+  });
   await getSignalAssignQueue().add(
     ASSIGN_JOB_NAME,
     { projectId, detectorId },
@@ -96,40 +93,41 @@ export async function enqueueSignalHits(params: {
   return partitions.length;
 }
 
-/** Record that the partition's job read no waiting hits at `readAtMs`. */
+/**
+ * Record that the partition's job read no waiting hits at `readAtMs`: clear its
+ * pending mark, unless the mark was written after that read (less a margin for
+ * clock skew between workers), when hits may have arrived after the read.
+ */
 export async function markDrained(
   projectId: string,
   detectorId: string,
   readAtMs: number,
 ): Promise<void> {
-  await redis().zadd(DRAINED_KEY, readAtMs, `${projectId}:${detectorId}`);
+  await prisma.detector.updateMany({
+    where: {
+      id: detectorId,
+      projectId,
+      assignmentPendingAt: { lte: new Date(readAtMs - DRAIN_MARGIN_MS) },
+    },
+    data: { assignmentPendingAt: null },
+  });
 }
 
 /**
- * Partitions whose job may have been lost: enqueued more than SWEEP_STALE_MS
- * ago and not drained since. Records older than the lookback are dropped first.
+ * Partitions whose job may have been lost or never enqueued: marked pending
+ * more than SWEEP_STALE_MS ago and not drained since, oldest first. Re-enqueuing
+ * one refreshes its mark, so a batch limit never starves the rest.
  */
 export async function partitionsToSweep(
   now: number = Date.now(),
 ): Promise<{ projectId: string; detectorId: string }[]> {
-  const r = redis();
-  await r.zremrangebyscore(ENQUEUED_KEY, "-inf", now - WAITING_LOOKBACK_MS);
-  await r.zremrangebyscore(DRAINED_KEY, "-inf", now - WAITING_LOOKBACK_MS);
-  const stale = await r.zrangebyscore(ENQUEUED_KEY, "-inf", now - SWEEP_STALE_MS, "WITHSCORES");
-  const members: string[] = [];
-  const enqueuedAt: number[] = [];
-  for (let i = 0; i < stale.length; i += 2) {
-    members.push(stale[i]);
-    enqueuedAt.push(Number(stale[i + 1]));
-  }
-  if (members.length === 0) return [];
-  const drained = await r.zmscore(DRAINED_KEY, ...members);
-  return members
-    .filter((_, i) => drained[i] === null || Number(drained[i]) - DRAIN_MARGIN_MS < enqueuedAt[i])
-    .map((m) => {
-      const [projectId, detectorId] = m.split(":");
-      return { projectId, detectorId };
-    });
+  const rows = await prisma.detector.findMany({
+    where: { assignmentPendingAt: { lt: new Date(now - SWEEP_STALE_MS) } },
+    select: { id: true, projectId: true },
+    orderBy: { assignmentPendingAt: "asc" },
+    take: SWEEP_BATCH,
+  });
+  return rows.map((r) => ({ projectId: r.projectId, detectorId: r.id }));
 }
 
 /**
