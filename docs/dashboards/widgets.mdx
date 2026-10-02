@@ -112,7 +112,7 @@ A `trace_feed` widget renders an embedded list of recent traces that match given
 ```typescript
 interface TraceFeedSpec {
   filters: Predicate[];
-  limit: number; // Integer between 1 and 200 (defaults to 10)
+  limit?: number; // Integer between 1 and 200 (defaults to 10)
 }
 ```
 
@@ -197,7 +197,13 @@ Response:
     ["claude-3-5-sonnet-20241022", 8.45],
     ["gemini-1.5-pro", 3.12]
   ],
-  "meta": {}
+  "meta": {},
+  "window": {
+    "start_time": "2026-02-16T00:00:00Z",
+    "end_time": "2026-02-23T00:00:00Z",
+    "range": "7d",
+    "clamped": false
+  }
 }
 ```
 
