@@ -23,7 +23,7 @@ The first item in the TraceRoot project sidebar is **Home** (`/projects/{project
 Chat state is managed at the project layout level:
 - **Navigates with you**: A conversation started on the Home page survives navigating across different pages (such as Traces, Dashboards, or Detectors) and remains accessible in the right-hand assistant drawer.
 - **Stored sessions**: Conversations are saved as project sessions, allowing you to review past debugging trajectories and findings at any time.
-- **Turn-level trace links**: Every assistant response includes a **View trace** button that links directly to the trace of that specific turn, giving you complete visibility into the tools the agent ran, retrieved context, and execution timing.
+- **Turn-level trace links**: Assistant responses include a **View trace** button when their trace is available or still uploading; failed trace exports are marked unavailable.
 
 ---
 
@@ -73,7 +73,7 @@ If you skip or decline an action, the agent acknowledges the skip and continues 
 
 ### 10-Minute Timeout
 
-Approval cards will not wait indefinitely. If an approval proposal is left unanswered for **10 minutes**, TraceRoot automatically skips the pending decision. The turn completes with no changes applied to your project.
+Approval cards will not wait indefinitely. If an approval proposal is left unanswered for **10 minutes**, TraceRoot automatically skips that pending action. No change from the unanswered proposal is applied; earlier approved actions in the same turn remain in effect.
 
 ---
 
@@ -82,7 +82,7 @@ Approval cards will not wait indefinitely. If an approval proposal is left unans
 Every write executed by the agent is permanently recorded in your workspace's append-only audit trail:
 
 - **Transport distinction**: Audit rows created by the agent are marked with `transport: "agent"` (differentiating them from `"public-api"` or manual UI writes).
-- **Session correlation**: Each entry stores the `agentSessionId`, linking the modified resource directly back to the exact chat turn and user approval card that authorized the change.
+- **Session correlation**: Each entry stores the `agentSessionId`, linking the modified resource to the agent conversation that authorized the change.
 - **Persistence**: Audit rows survive resource deletion so administrators retain a complete historical record of who approved what change, when, and through which conversation.
 
 ---
