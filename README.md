@@ -29,7 +29,7 @@
 
 <p align="center">
   <a href="https://traceroot.ai/docs/detectors/get-started">
-    <img src="docs/images/detector_findings_v1.png" alt="TraceRoot detector findings with a selected finding and its trace context" width="100%">
+    <img src="docs/detectors/images/detector_findings_v1.png" alt="TraceRoot detector findings with a selected finding and its trace context" width="100%">
   </a>
 </p>
 <p align="center"><em>Detectors surface findings from production traces so you can decide what to improve next.</em></p>

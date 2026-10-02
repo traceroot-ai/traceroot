@@ -45,7 +45,7 @@ On Windows or in environments without tmux, use `make dev-lite` instead.
 The tmux-based commands handle deps, Docker containers, migrations, and launch services in tmux (one window per service).
 
 <div align="center">
-  <kbd><img src="docs/images/local_dev_mode_v1.png" alt="Local dev mode"></kbd>
+  <kbd><img src="docs/developer/images/local_dev_mode_v1.png" alt="Local dev mode"></kbd>
 </div>
 
 ## Workflow
@@ -71,6 +71,15 @@ Helpful defaults:
 - Add a scope when it helps, for example `feat(frontend): add trace filters`.
 - Use the imperative mood, for example `fix: avoid duplicate span writes`.
 - Keep the summary short and specific.
+
+## Documentation Screenshots
+
+When adding or updating screenshots for documentation (`docs/`):
+
+- **Theme**: Always capture screenshots using the **light theme**.
+- **Crop**: Crop closely to the relevant panel, card, or content area. Do not include full browser window frames, OS title bars, or outer desktop elements.
+- **Location**: Store screenshots in an `images/` folder colocated next to the pages that use them (for example, `docs/tracing/images/`, `docs/detectors/images/`, `docs/evals/images/`).
+- **Referencing**: In MDX docs files, reference screenshots using docs-relative paths (for example, `/tracing/images/<filename>.png`).
 
 ## Pull Request Best Practices
 

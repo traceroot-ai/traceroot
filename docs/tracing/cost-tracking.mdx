@@ -36,6 +36,10 @@ When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChai
 2. **Fallback estimation** — When token counts aren't in the response, TraceRoot estimates using tiktoken.
 3. **Cost calculation** — Token counts are multiplied by the model's pricing from TraceRoot's pricing table.
 
+<Frame caption="TraceRoot metrics dashboard showing token consumption, cost breakdown, and latency">
+  <img src="/tracing/images/dashboard_v1.png" alt="TraceRoot Analytics Dashboard" />
+</Frame>
+
 ## What Gets Tracked
 
 Each LLM span captures:
