@@ -555,6 +555,40 @@ def test_inherited_rca_reads_the_answer_kept_on_the_opening(reader, monkeypatch)
     assert "sr.signal_id, sr.result," in sql
 
 
+@pytest.mark.parametrize("status", ["failed", "pending"])
+def test_get_finding_keeps_the_last_successful_answer_while_a_later_attempt_is_not_done(
+    reader, monkeypatch, status
+):
+    """A later signal on the same trace resets the finding's RCA, and that attempt
+    may fail; the answer kept on the finding's openings still stands for it."""
+    _two_detector_finding(reader)
+    calls = []
+
+    def fake_pg(sql, params):
+        s = sql.lower()
+        calls.append((s, params))
+        if "from signal_rcas sr join detector_rcas" in s and "sr.finding_id = %s" in s:
+            return [("- Root cause: kept answer",)] if params == ("p1", "f1") else []
+        if "from detector_rcas" in s:
+            return [(status, None)]
+        return []
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg)
+    detail = reader.get_finding("p1", "f1")
+    assert (detail.rca.status, detail.rca.result) == ("done", "- Root cause: kept answer")
+    assert detail.rca.inherited is False
+    kept_sql = next(s for s, _ in calls if "sr.finding_id = %s" in s)
+    assert "dr.project_id = %s" in kept_sql and "sr.result is not null" in kept_sql
+    assert "order by sr.create_time desc" in kept_sql
+
+
+def test_get_finding_reports_a_failed_attempt_when_no_answer_was_kept(reader, monkeypatch):
+    _two_detector_finding(reader)
+    monkeypatch.setattr(reader, "_pg_rows", _signals_pg(own_rca=[("failed", None)]))
+    detail = reader.get_finding("p1", "f1")
+    assert (detail.rca.status, detail.rca.result) == ("failed", None)
+
+
 def test_get_finding_has_no_rca_when_the_signal_has_no_finished_one(reader, monkeypatch):
     _two_detector_finding(reader)
     monkeypatch.setattr(reader, "_pg_rows", _signals_pg(inherited=[]))
