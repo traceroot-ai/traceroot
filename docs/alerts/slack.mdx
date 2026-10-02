@@ -1,0 +1,76 @@
+---
+title: Slack Delivery
+description: Where alerts are sent, what each message contains, and how to fix a failed delivery
+---
+
+Alerts are delivered to **Slack only**. There is no email delivery for alerts. Slack delivery is available on every plan, including Free.
+
+Alerts post to the Slack channel connected to your TraceRoot workspace. The integration is workspace-level: one Slack workspace per TraceRoot workspace, with a single destination channel shared by every project's alerts and by [detector notifications](/detectors/notifications).
+
+<Frame>
+  <img src="/images/alerts_slack_v1.png" alt="Alert notification posted to a Slack channel with View alert and View traces links" />
+</Frame>
+
+## Connect Slack
+
+1. Open **Settings** then **Integrations** as a workspace admin.
+2. Click **Connect** and complete the OAuth flow in your Slack workspace.
+3. Pick the channel TraceRoot should post to.
+
+The alert form and the Alerts onboarding page both show the connected workspace and channel, and link to these settings.
+
+<Warning>
+  A rule can be created before Slack is connected, but it has nowhere to send. If it breaches in that state, the notification is recorded as not delivered and is not sent later when Slack is connected. Pause and resume the rule to have it evaluated and announced again.
+</Warning>
+
+## What a message contains
+
+Every message has:
+
+- A header with the new severity and the rule's name, such as `[ALERT] p95 LLM latency above 2s`.
+- One sentence stating the measured value, the threshold and the window, followed by the rule's filters.
+- The evaluated time range in UTC and the transition, such as `OK to ALERT`.
+
+The links depend on the kind of message:
+
+| Message | When it is sent | Links |
+| --- | --- | --- |
+| Breach (`ALERT`) | The rule enters **Alert**, and on each renotify interval while it stays there | **View alert**, **View traces** |
+| Recovery (`OK`) | A rule that had announced a breach returns within its threshold | **View alert** |
+| No data (`NO_DATA`) | Only under **Notify when data stops**, once the gap has lasted long enough | **View alert** |
+
+**View alert** opens the rule. **View traces** opens the trace list over the evaluated time window.
+
+### What View traces shows
+
+The trace list can be broader than the spans the rule counted:
+
+- The alert evaluates spans, while the list shows traces that contain at least one matching span.
+- The link carries `=` filters on model, environment, status, span kind and span name, and metadata filters. A `contains` filter on those fields and an `is_root` filter are not applied to the list.
+
+The sentence in the message always lists every filter on the rule, so read it for the exact conditions.
+
+## When a notification is not delivered
+
+If Slack is briefly unavailable or rate limits the request, TraceRoot retries for about 30 minutes. If the message still cannot be sent, the alert is rolled back so the next evaluation raises it again.
+
+Other failures need a change on your side. Click the rule's badge in the Alerts list to see the reason:
+
+| Reason shown | Fix |
+| --- | --- |
+| No Slack channel is set for this workspace | Choose a channel under **Settings → Integrations**. |
+| This workspace's Slack connection is incomplete | Reconnect Slack under **Settings → Integrations**. |
+| Slack rejected the message | Check that the channel still exists and that the TraceRoot app is still in it. |
+
+A notification is never sent for a rule that was paused or deleted while the message was waiting to be delivered.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Get Started" icon="rocket" href="/alerts/get-started">
+    Create your first alert.
+  </Card>
+  <Card title="Rule Reference" icon="list" href="/alerts/rule-reference">
+    No-data modes, renotify, severities and statuses.
+  </Card>
+</CardGroup>
