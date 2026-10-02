@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SignalStatus } from "@traceroot/core/signals";
 import { ApiError } from "@/lib/api/client";
@@ -5,6 +6,7 @@ import { serializeFiltersParam } from "@/features/filters/predicate";
 import type { Predicate, TraceListItem } from "@/types/api";
 import { getTracesByIds } from "@/lib/api/traces";
 import { useTraceApiUser } from "@/lib/hooks/use-trace-api-user";
+import { parseAsUTC } from "@/lib/utils";
 
 /** One row of the Signals list (dates arrive as ISO strings). */
 export interface SignalListItem {
@@ -229,12 +231,72 @@ export interface DetectorSignalSetting {
   signalsEnabledAt: string;
 }
 
+/** Just enough about an identified run to tell whether it is still waiting to be grouped. */
+export interface IdentifiedTraceRun {
+  runId: string;
+  detectorId: string;
+  timestamp: string;
+}
+
+/** How often the trace-signals query rereads while a hit is still waiting to be grouped. */
+const TRACE_SIGNALS_POLL_MS = 10_000;
+
+/**
+ * Stop polling after this long: a hit can stay ungrouped for good once the
+ * worker has given up on it, so polling forever would never end for it.
+ */
+const TRACE_SIGNALS_POLL_LIMIT_MS = 10 * 60 * 1000;
+
+/**
+ * Whether an identified run is still waiting to be grouped into a signal —
+ * the same condition the trace's Detectors tab renders as "Pending". Pure so
+ * it (and the polling it drives) can be unit-tested without a real query.
+ */
+export function isStillPendingGrouping(
+  run: IdentifiedTraceRun,
+  hitRunIds: ReadonlySet<string>,
+  setting: DetectorSignalSetting | undefined,
+  grouping: boolean,
+): boolean {
+  if (hitRunIds.has(run.runId) || !setting) return false;
+  return (
+    grouping &&
+    setting.enableSignals &&
+    parseAsUTC(run.timestamp).getTime() >= new Date(setting.signalsEnabledAt).getTime()
+  );
+}
+
+/**
+ * The trace-signals query's next poll delay given when the current pending
+ * window started (null when nothing is pending): keep polling at the normal
+ * cadence until the ~10-minute bound passes, then stop. Pure so the bound can
+ * be unit-tested without real timers.
+ */
+export function traceSignalsPollDelay(pendingSince: number | null, now: number): number | false {
+  if (pendingSince == null) return false;
+  return now - pendingSince < TRACE_SIGNALS_POLL_LIMIT_MS ? TRACE_SIGNALS_POLL_MS : false;
+}
+
 /**
  * The signals a trace's detector hits were grouped into, and the signals
- * settings of the detectors that ran on it.
+ * settings of the detectors that ran on it. Nothing else refetches this query
+ * once the worker groups a hit after the page loads, so it polls while
+ * `identifiedRuns` has a run that is grouped-but-not-yet-assigned (its
+ * detector groups hits and was already doing so when the run happened, but no
+ * hit for it is in the response yet) — the same condition the trace's
+ * Detectors tab renders as "Pending". A run whose detector doesn't group
+ * hits ("Disabled") never matches, so it never polls.
  */
-export function useTraceSignals(projectId: string, traceId: string, detectorIds: string[]) {
+export function useTraceSignals(
+  projectId: string,
+  traceId: string,
+  detectorIds: string[],
+  identifiedRuns: IdentifiedTraceRun[] = [],
+) {
   const ids = [...new Set(detectorIds)].sort().join(",");
+  // When the pending window started, so polling can be bounded; cleared once
+  // nothing is pending, so a later run that becomes pending gets a fresh one.
+  const pendingSinceRef = useRef<number | null>(null);
   return useQuery({
     queryKey: ["signals", "trace", projectId, traceId, ids],
     queryFn: () =>
@@ -243,6 +305,26 @@ export function useTraceSignals(projectId: string, traceId: string, detectorIds:
         "trace signals",
       ),
     enabled: !!projectId && !!traceId && ids.length > 0,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      const hitRunIds = new Set(data.hits.map((h) => h.runId));
+      const settingByDetector = new Map(data.detectors.map((d) => [d.id, d]));
+      const stillPending = identifiedRuns.some((run) =>
+        isStillPendingGrouping(
+          run,
+          hitRunIds,
+          settingByDetector.get(run.detectorId),
+          data.grouping,
+        ),
+      );
+      if (!stillPending) {
+        pendingSinceRef.current = null;
+        return false;
+      }
+      if (pendingSinceRef.current == null) pendingSinceRef.current = Date.now();
+      return traceSignalsPollDelay(pendingSinceRef.current, Date.now());
+    },
   });
 }
 

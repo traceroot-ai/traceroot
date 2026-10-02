@@ -239,8 +239,17 @@ describe("TraceDetectorsTab", () => {
     ];
     render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
 
-    // Asks for the settings of the detectors that ran.
-    expect(mocks.traceSignalsArgs).toEqual(["proj-1", "trace-1", ["on", "off", "on"]]);
+    // Asks for the settings of the detectors that ran, and which identified
+    // runs to poll for (the clean run is dropped: it is never Pending).
+    expect(mocks.traceSignalsArgs).toEqual([
+      "proj-1",
+      "trace-1",
+      ["on", "off", "on"],
+      [
+        { runId: "1", detectorId: "on", timestamp: "2026-06-01T00:00:00" },
+        { runId: "2", detectorId: "off", timestamp: "2026-06-01T00:00:00" },
+      ],
+    ]);
     const cell = (name: string) =>
       (screen.getByText(name).closest("tr") as HTMLElement).lastElementChild as HTMLElement;
     expect(cell("Grouping").textContent).toBe("Pending");

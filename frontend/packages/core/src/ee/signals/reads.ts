@@ -148,8 +148,56 @@ async function detectorNames(db: Pick<PrismaClient, "detector">, ids: string[]) 
 export type HitGranularity = "hour" | "day";
 
 /**
+ * `tz`'s UTC offset at `date`, in minutes east of UTC (negative west). Computed by
+ * reading the zone's wall clock at this instant and comparing it to the instant
+ * itself, so a DST change elsewhere in the year has no bearing on the answer.
+ */
+function tzOffsetMinutes(date: Date, tz: string): number {
+  const format = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const part = Object.fromEntries(format.formatToParts(date).map((p) => [p.type, p.value]));
+  const asIfUtc = Date.UTC(
+    Number(part.year),
+    Number(part.month) - 1,
+    Number(part.day),
+    Number(part.hour),
+    Number(part.minute),
+    Number(part.second),
+  );
+  return Math.round((asIfUtc - date.getTime()) / 60_000);
+}
+
+/**
+ * "+HH:MM" / "-HH:MM" for an offset in minutes. The backend's chart population
+ * (ClickHouse, `_format_tz_offset` in `detectors.py`) must format identically, since
+ * route-handlers.ts joins the two series by this bucket key.
+ */
+function formatOffset(totalMinutes: number): string {
+  const sign = totalMinutes < 0 ? "-" : "+";
+  const abs = Math.abs(totalMinutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+  return `${sign}${hh}:${mm}`;
+}
+
+/**
  * Formats a moment as its local bucket in `tz`: "YYYY-MM-DD" for a day,
- * "YYYY-MM-DDTHH:00" for an hour.
+ * "YYYY-MM-DDTHH:00±HH:MM" for an hour.
+ *
+ * The hour form carries `tz`'s UTC offset AT THIS INSTANT, not just the local hour
+ * number: on a DST fall-back night, two real instants both print "01:00", and the
+ * offset is the only thing that tells them apart. Every layer that buckets by local
+ * hour (this function, the Postgres query in hitSeries below, and the ClickHouse chart
+ * query in detectors.py) has to key hours the same way, or the two never counted
+ * separately and the UI's bucket-key join between them silently drops one.
  */
 function bucketFormatter(tz: string, granularity: HitGranularity) {
   const format = new Intl.DateTimeFormat("en-CA", {
@@ -163,7 +211,8 @@ function bucketFormatter(tz: string, granularity: HitGranularity) {
   return (date: Date) => {
     const part = Object.fromEntries(format.formatToParts(date).map((p) => [p.type, p.value]));
     const day = `${part.year}-${part.month}-${part.day}`;
-    return granularity === "day" ? day : `${day}T${part.hour}:00`;
+    if (granularity === "day") return day;
+    return `${day}T${part.hour}:00${formatOffset(tzOffsetMinutes(date, tz))}`;
   };
 }
 
@@ -199,15 +248,27 @@ async function hitSeries(
 ) {
   const format = granularity === "hour" ? 'YYYY-MM-DD"T"HH24:00' : "YYYY-MM-DD";
   // trace_start_time is UTC without a zone: read it as UTC, then shift it to the viewer's zone.
-  const rows = await db.$queryRaw<{ bucket: string; hits: number }[]>`
+  // For hour buckets, also compute each row's own UTC offset (not the truncated
+  // bucket's) and group by it alongside the label: on a DST fall-back night this is
+  // what keeps the two real local "01:00" hours in separate SQL groups instead of
+  // merging them before the offset ever reaches bucketFormatter's output format.
+  const rows = await db.$queryRaw<{ bucket: string; offsetMinutes: number; hits: number }[]>`
     SELECT to_char(date_trunc(${granularity}, (trace_start_time AT TIME ZONE 'UTC') AT TIME ZONE ${tz}), ${format}) AS bucket,
+      round(extract(epoch from (((trace_start_time AT TIME ZONE 'UTC') AT TIME ZONE ${tz}) - trace_start_time)) / 60)::int AS "offsetMinutes",
       count(*)::int AS hits
     FROM signal_hits
     WHERE signal_id = ${signalId}
       AND trace_start_time >= (${window.from.toISOString()}::timestamptz AT TIME ZONE 'UTC')
       AND trace_start_time < (${window.to.toISOString()}::timestamptz AT TIME ZONE 'UTC')
-    GROUP BY 1`;
-  const byBucket = new Map(rows.map((r) => [r.bucket, Number(r.hits)]));
+    GROUP BY 1, 2`;
+  const byBucket = new Map<string, number>();
+  for (const r of rows) {
+    // Day buckets drop the offset (a local day never repeats); two rows that share a
+    // day label but straddle a DST change (different offsetMinutes) are merged here.
+    const key =
+      granularity === "day" ? r.bucket : `${r.bucket}${formatOffset(Number(r.offsetMinutes))}`;
+    byBucket.set(key, (byBucket.get(key) ?? 0) + Number(r.hits));
+  }
   return windowBuckets(window.from, window.to, tz, granularity).map((bucket) => ({
     bucket,
     hits: byBucket.get(bucket) ?? 0,

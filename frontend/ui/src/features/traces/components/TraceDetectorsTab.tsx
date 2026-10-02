@@ -97,6 +97,10 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
     projectId,
     traceId,
     (data?.runs ?? []).map((r) => r.detector_id),
+    // So the query can poll on its own while one of these is still Pending.
+    (data?.runs ?? [])
+      .filter(isIdentified)
+      .map((r) => ({ runId: r.run_id, detectorId: r.detector_id, timestamp: r.timestamp })),
   );
 
   if (isLoading) {

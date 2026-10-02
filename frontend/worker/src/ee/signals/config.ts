@@ -122,3 +122,18 @@ export const RCA_DELAY_MS = 60_000;
  * the Signals page (the web app cannot reach the job queue).
  */
 export const RCA_ENQUEUE_GRACE_MS = ROUND_MAX_MS + 15_000;
+
+/** Rows read per page while the RCA sweep pages past ones that already have a job. */
+export const RCA_SWEEP_PAGE_SIZE = 200;
+
+/**
+ * Ceiling on rows the RCA sweep reads in one call. A busy queue can leave most
+ * pending rows with a job in flight, so this is well above RCA_SWEEP_PAGE_SIZE:
+ * it lets a sweep page past a long run of those to reach an older, job-less
+ * request instead of stopping at the first page (at the cost of one more sweep,
+ * a minute later, if even this generous a scan is not enough).
+ */
+export const RCA_SWEEP_EXAMINE_CAP = 5_000;
+
+/** RCAs actually (re)started in one sweep call; the real per-run cost (one queue add each). */
+export const RCA_SWEEP_START_CAP = 200;

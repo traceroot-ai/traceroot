@@ -15,7 +15,7 @@ import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-i
 import type { FilterFieldDef } from "@/features/filters/registry";
 import type { Predicate } from "@/types/api";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
-import { useDetectorList } from "@/features/detectors/hooks/use-detectors";
+import { useAllDetectorNames } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { SIGNAL_ID_PARAM, SIGNAL_STATUSES } from "@traceroot/core/signals";
@@ -138,15 +138,15 @@ export default function SignalsPage() {
     if (!selectedSignalId) setFullscreen(false);
   }, [selectedSignalId]);
 
-  const { data: detectorData } = useDetectorList(projectId, { limit: 200 });
+  // Every detector's name, not just the first page, so a project with more
+  // than one page of detectors can still filter signals by all of them.
+  const { data: detectorNames } = useAllDetectorNames(projectId);
   const fields = useMemo(
     () =>
       signalFilterFields(
-        [...new Set((detectorData?.data ?? []).map((d) => d.name))].sort((a, b) =>
-          a.localeCompare(b),
-        ),
+        [...new Set((detectorNames ?? []).map((d) => d.name))].sort((a, b) => a.localeCompare(b)),
       ),
-    [detectorData],
+    [detectorNames],
   );
 
   const { data, isLoading, error } = useSignals(projectId, {

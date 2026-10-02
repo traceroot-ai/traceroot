@@ -146,6 +146,40 @@ export function useDetectorList(projectId: string, query: DetectorListQuery = {}
   });
 }
 
+/** Just the id and name the Signals page's Detector filter needs. */
+export interface DetectorNameItem {
+  id: string;
+  name: string;
+}
+
+/**
+ * Every detector's id and name, paging through the list endpoint (which caps
+ * `limit` at 200) so a project with more detectors than that still gets a
+ * complete filter. Reads page 0 first for `meta.total`, then the rest in
+ * parallel; the endpoint's own page is unaffected.
+ */
+async function fetchAllDetectorNames(projectId: string): Promise<DetectorNameItem[]> {
+  const limit = 200;
+  const first = await fetchDetectorList(projectId, { page: 0, limit });
+  const pageCount = Math.ceil(first.meta.total / limit);
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(pageCount - 1, 0) }, (_, i) =>
+      fetchDetectorList(projectId, { page: i + 1, limit }),
+    ),
+  );
+  return [first, ...rest].flatMap((page) => page.data.map((d) => ({ id: d.id, name: d.name })));
+}
+
+/** Every detector's name in the project, for the Signals page's Detector filter options. */
+export function useAllDetectorNames(projectId: string) {
+  return useQuery({
+    queryKey: ["detectors", "allNames", projectId],
+    queryFn: () => fetchAllDetectorNames(projectId),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+}
+
 /** Look up a single detector by ID (used by detail page + edit panel). */
 export function useDetector(projectId: string, detectorId: string) {
   return useQuery({

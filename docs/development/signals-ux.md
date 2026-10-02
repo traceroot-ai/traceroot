@@ -38,7 +38,14 @@ It references #2399 and #2404 without closing the full UX issue.
 - A signal without an analysis offers Run root cause analysis. The request is
   recorded in Postgres (the web app cannot reach the job queue) and the
   worker's RCA sweep starts it within about two minutes; the panel follows it until it
-  finishes.
+  finishes. The sweep pages past requests whose job is already queued, and a request
+  still without a job after seven days is marked failed so it can be run again.
+- A Pending hit on a trace's Detectors tab is reread every 10 seconds until it is
+  grouped, for at most ten minutes.
+- Hour buckets carry their UTC offset (e.g. `2026-11-01T01:00-04:00`) in the core
+  hit series, the ClickHouse chart population and the join between them, so the two
+  real 01:00 hours of a daylight-saving fall-back night stay apart. Day buckets are
+  unchanged.
 
 ## Design deltas
 

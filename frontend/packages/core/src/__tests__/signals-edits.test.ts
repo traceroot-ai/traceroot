@@ -658,7 +658,7 @@ describe("reads", () => {
     ]);
   });
 
-  const bareSignalDb = (rows: { bucket: string; hits: number }[]) => {
+  const bareSignalDb = (rows: { bucket: string; hits: number; offsetMinutes?: number }[]) => {
     const queryRaw = vi.fn(async (_strings: TemplateStringsArray, ..._values: unknown[]) => rows);
     return {
       queryRaw,
@@ -707,7 +707,11 @@ describe("reads", () => {
   });
 
   it("counts a window of two days or less per local hour", async () => {
-    const { db, queryRaw } = bareSignalDb([{ bucket: "2026-10-01T05:00", hits: 3 }]);
+    // offsetMinutes is +330 (UTC+5:30): the row's own offset, as the real query
+    // would compute it, not just the bucket label.
+    const { db, queryRaw } = bareSignalDb([
+      { bucket: "2026-10-01T05:00", hits: 3, offsetMinutes: 330 },
+    ]);
     const r = await getSignal(db as never, {
       projectId: "p",
       signalId: "a",
@@ -721,11 +725,13 @@ describe("reads", () => {
       window: { granularity: string };
     };
     expect(window.granularity).toBe("hour");
+    // Keys carry the local hour's UTC offset (see reads.ts bucketFormatter) so a
+    // DST fall-back night's two real "HH:00" hours don't collide.
     expect(hitSeries).toEqual([
-      { bucket: "2026-10-01T04:00", hits: 0 },
-      { bucket: "2026-10-01T05:00", hits: 3 },
-      { bucket: "2026-10-01T06:00", hits: 0 },
-      { bucket: "2026-10-01T07:00", hits: 0 },
+      { bucket: "2026-10-01T04:00+05:30", hits: 0 },
+      { bucket: "2026-10-01T05:00+05:30", hits: 3 },
+      { bucket: "2026-10-01T06:00+05:30", hits: 0 },
+      { bucket: "2026-10-01T07:00+05:30", hits: 0 },
     ]);
     expect(queryRaw.mock.calls[0].slice(1)).toContain("hour");
   });

@@ -741,6 +741,20 @@ async def list_detector_window_summary(
     return {"data": data}
 
 
+def _format_tz_offset(total_seconds: int) -> str:
+    """ "+HH:MM" / "-HH:MM" for a UTC offset in seconds.
+
+    Mirrors ``formatOffset``/``tzOffsetMinutes`` in core's ``signals/reads.ts`` exactly
+    (same sign convention, same zero-padded "+HH:MM"): the chart population computed
+    here is joined to the signal's own hit series by bucket key in route-handlers.ts,
+    so the two must format an offset identically or the join silently drops a bucket.
+    """
+    sign = "+" if total_seconds >= 0 else "-"
+    minutes = abs(total_seconds) // 60
+    hh, mm = divmod(minutes, 60)
+    return f"{sign}{hh:02d}:{mm:02d}"
+
+
 @router.get(
     "/trace-counts",
     response_model=TraceCountsResponse,
@@ -777,8 +791,11 @@ def list_trace_counts(
 
     Returns:
         TraceCountsResponse: One row per bucket with at least one trace, ordered
-        ascending; a bucket is ``YYYY-MM-DD`` (day) or ``YYYY-MM-DDTHH:00`` (hour)
-        in ``tz``. Empty buckets are omitted.
+        ascending; a bucket is ``YYYY-MM-DD`` (day) or ``YYYY-MM-DDTHH:00±HH:MM``
+        (hour, suffixed with ``tz``'s UTC offset at that hour) in ``tz``. The offset
+        is what tells apart the two real local hours of a DST fall-back night, which
+        otherwise both print the same ``HH:00`` — see ``_format_tz_offset``. Empty
+        buckets are omitted.
     """
     try:
         ZoneInfo(tz)
@@ -792,11 +809,6 @@ def list_trace_counts(
         "end_before": to_utc_naive(end_before),
         "tz": tz,
     }
-    bucket = (
-        "formatDateTime(toStartOfHour(ts, {tz:String}), '%Y-%m-%dT%H:00', {tz:String})"
-        if granularity == "hour"
-        else "toString(toDate(ts, {tz:String}))"
-    )
     checked = ""
     if detector_id is not None:
         params["detector_id"] = detector_id
@@ -832,15 +844,44 @@ def list_trace_counts(
         GROUP BY t.trace_id
     """
     counted = "uniqExact(id)"
+    window_clause = "ts >= {start_after:DateTime64(3)} AND ts < {end_before:DateTime64(3)}"
 
+    if granularity == "day":
+        # Unaffected by DST: a local day never repeats, so no offset is needed and
+        # day buckets stay exactly the plain "YYYY-MM-DD" they always were.
+        query = f"""
+            SELECT toString(toDate(ts, {{tz:String}})) AS bucket, {counted} AS count
+            FROM ({source})
+            WHERE {window_clause}
+            GROUP BY bucket
+            ORDER BY bucket
+        """
+        result = ch.query(query, parameters=params)
+        data = [{"bucket": row[0], "count": int(row[1])} for row in result.result_rows]
+        return {"data": data}
+
+    # Hour buckets: group by the bucket's actual instant (toStartOfHour, a real UTC
+    # moment), not by its formatted label. On a DST fall-back night the two real local
+    # "01:00" hours ARE two different instants here, so they stay two groups; grouping
+    # by the formatted text instead (the earlier bug) would merge them before the
+    # offset ever entered the picture. timeZoneOffset reads tz's offset at that same
+    # instant, so each group gets the offset of the hour it actually occurred in.
     query = f"""
-        SELECT {bucket} AS bucket, {counted} AS count
-        FROM ({source})
-        WHERE ts >= {{start_after:DateTime64(3)}} AND ts < {{end_before:DateTime64(3)}}
-        GROUP BY bucket
-        ORDER BY bucket
+        SELECT
+            formatDateTime(bucket_start, '%Y-%m-%dT%H:00', {{tz:String}}) AS label,
+            toInt32(timeZoneOffset(bucket_start)) AS offset_seconds,
+            {counted} AS count
+        FROM (
+            SELECT toStartOfHour(ts, {{tz:String}}) AS bucket_start, id
+            FROM ({source})
+            WHERE {window_clause}
+        )
+        GROUP BY bucket_start
+        ORDER BY bucket_start
     """
-
     result = ch.query(query, parameters=params)
-    data = [{"bucket": row[0], "count": int(row[1])} for row in result.result_rows]
+    data = [
+        {"bucket": f"{label}{_format_tz_offset(int(offset_seconds))}", "count": int(count)}
+        for label, offset_seconds, count in result.result_rows
+    ]
     return {"data": data}

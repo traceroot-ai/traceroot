@@ -394,6 +394,12 @@ function SignalBlocks({
               seriesLabel="Traces"
               result={{
                 columns: ["bucket", "series", "value"],
+                // b.bucket is also the x-axis key: for an hour bucket it now ends in
+                // the local hour's UTC offset (e.g. "...T01:00-04:00"), so the two real
+                // hours of a DST fall-back night plot as separate points instead of
+                // one merged bar. QueryWidgetRenderer's hour tick format slices the
+                // string to "MM-DDTHH:00" (unaffected, the offset comes after) and its
+                // tooltip prints the offset verbatim, which still reads fine.
                 // Affected first, so it draws at the bottom of the stack.
                 rows: hitSeries.flatMap((b) =>
                   total === null

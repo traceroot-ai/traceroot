@@ -24,7 +24,7 @@ New detectors evaluate **25%** of the traces that match their trigger conditions
 
 ### Choose how root cause analysis runs
 
-The create sheet — and the edit panel for an existing detector — has a **Root cause analysis** setting in its Signals section. **Manual**, the default, runs the AI agent only when you click **Run root cause analysis** on a signal (a recurring problem the detector's findings are grouped into), so you pay agent-model cost only for the problems you look into. **Automatic** runs it on each new signal, and on a signal reopened more than 24 hours after its last analysis. Detection and notifications are the same either way.
+The create sheet — and the edit panel for an existing detector — has a **Root cause analysis** setting in its Signals section. **Manual**, the default for a detector created here in the web app (one created through the API defaults to Automatic), runs the AI agent only when you click **Run root cause analysis** on a signal (a recurring problem the detector's findings are grouped into), so you pay agent-model cost only for the problems you look into. **Automatic** runs it on each new signal, and on a signal reopened more than 24 hours after its last analysis. Detection and notifications are the same either way.
 
 RCA runs per signal, not per finding. See [Root cause analysis](/detectors/introduction#root-cause-analysis) for the exact rule.
 

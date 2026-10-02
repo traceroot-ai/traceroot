@@ -11,6 +11,9 @@ const list = vi.hoisted(() => ({
   setup: undefined as unknown,
   setupEnabled: [] as boolean[],
 }));
+const detectorNames = vi.hoisted(() => ({ data: [] as { id: string; name: string }[] }));
+// Captures the filter fields the page builds, to check the Detector field's options.
+const filterInput = vi.hoisted(() => ({ fields: undefined as unknown }));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
@@ -39,7 +42,7 @@ vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({ sidebarCollapsed: false }),
 }));
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
-  useDetectorList: () => ({ data: { data: [] } }),
+  useAllDetectorNames: () => ({ data: detectorNames.data }),
 }));
 vi.mock("@/ee/features/signals/hooks", () => ({
   useSignals: () => ({
@@ -64,7 +67,10 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({ TraceViewerPan
 vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/features/filters/trace-search-filter-input", () => ({
-  TraceSearchFilterInput: () => null,
+  TraceSearchFilterInput: (props: { fields: unknown }) => {
+    filterInput.fields = props.fields;
+    return null;
+  },
 }));
 vi.mock("@/components/date-filter-select", () => ({ DateFilterSelect: () => null }));
 vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
@@ -78,6 +84,8 @@ afterEach(() => {
   list.setup = undefined;
   list.setupEnabled = [];
   linkQuery.value = "";
+  detectorNames.data = [];
+  filterInput.fields = undefined;
 });
 
 const setup = (over: Record<string, number> = {}) => ({
@@ -135,5 +143,22 @@ describe("Signals page with nothing listed", () => {
     linkQuery.value = signalDeepLinkPath("p1", "s1").split("?")[1];
     render(<SignalsPage />);
     expect(screen.getByTestId("signal-panel").textContent).toBe("s1");
+  });
+});
+
+describe("Signals page detector filter options", () => {
+  it("builds the Detector filter from every detector name, deduped and sorted", () => {
+    // useAllDetectorNames already pages through the list endpoint, so the
+    // page only needs to turn whatever it returns into sorted, unique options
+    // — exercised here with more names than the endpoint's own page size.
+    detectorNames.data = [
+      { id: "d1", name: "Beta" },
+      { id: "d2", name: "alpha" },
+      { id: "d3", name: "Beta" },
+    ];
+    render(<SignalsPage />);
+    const fields = filterInput.fields as Array<{ field: string; enum_values?: string[] }>;
+    const detectorField = fields.find((f) => f.field === "detector");
+    expect(detectorField?.enum_values).toEqual(["alpha", "Beta"]);
   });
 });

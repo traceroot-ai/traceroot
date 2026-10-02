@@ -3,7 +3,12 @@ import { afterEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useCreateDetector, useUpdateDetector, useDeleteDetector } from "./use-detectors";
+import {
+  useAllDetectorNames,
+  useCreateDetector,
+  useUpdateDetector,
+  useDeleteDetector,
+} from "./use-detectors";
 
 class FakeBroadcastChannel {
   static posted: unknown[] = [];
@@ -47,6 +52,56 @@ const expectNotified = (invalidateSpy: MockInstance) => {
     { type: "invalidate", queryKey: ["signals", "setup", "proj-1"] },
   ]);
 };
+
+describe("useAllDetectorNames", () => {
+  it("fetches just the first page when every detector fits in it", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: [
+          { id: "d1", name: "A" },
+          { id: "d2", name: "B" },
+        ],
+        meta: { page: 0, limit: 200, total: 2 },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useAllDetectorNames("proj-1"), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.data).toEqual([
+      { id: "d1", name: "A" },
+      { id: "d2", name: "B" },
+    ]);
+  });
+
+  it("pages through the rest when a project has more detectors than one page", async () => {
+    // The real endpoint caps limit at 200; `meta.total` here (401) forces 3 pages.
+    const pageBody = (page: string | null) => {
+      if (page === "0") return { data: [{ id: "d1", name: "A" }], meta: { total: 401 } };
+      if (page === "1") return { data: [{ id: "d2", name: "B" }], meta: { total: 401 } };
+      return { data: [{ id: "d3", name: "C" }], meta: { total: 401 } };
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const page = new URL(url, "http://local").searchParams.get("page");
+      return Promise.resolve({ ok: true, status: 200, json: async () => pageBody(page) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useAllDetectorNames("proj-1"), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.current.data?.map((d) => d.id).sort()).toEqual(["d1", "d2", "d3"]);
+  });
+});
 
 describe("detector mutations notify other tabs on success", () => {
   it("update: invalidates locally and broadcasts", async () => {

@@ -323,6 +323,10 @@ export async function handleGetSignal(
     hitSeries: result.hitSeries.map((b) => ({
       ...b,
       // The bucket's other traces; the clamp covers a hit counted before its trace lands.
+      // For an hour bucket, b.bucket carries tz's UTC offset at that hour (core's
+      // reads.ts), and counted's keys do too (the backend's trace-counts route):
+      // that offset is what keeps a DST fall-back night's two real "HH:00" hours
+      // from being joined to each other's count here.
       unaffected: counted ? Math.max(0, (counted.get(b.bucket) ?? 0) - b.hits) : null,
     })),
   });

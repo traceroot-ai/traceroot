@@ -379,6 +379,48 @@ describe("reads", () => {
     expect(sent.searchParams.has("detector_id")).toBe(false);
   });
 
+  it("joins the two real hours of a DST fall-back night to their own counts, not each other's", async () => {
+    // core's hitSeries (Postgres) and the backend's trace-counts (ClickHouse) both key
+    // an hour bucket with its local hour's UTC offset; the join below is a plain
+    // Map.get(b.bucket), so this only passes if both sides format that suffix the
+    // same way for the SAME ambiguous hour.
+    core.getSignal.mockResolvedValueOnce({
+      merged: false,
+      signal: { id: "s1", detectorId: "d1" },
+      window: {
+        from: new Date("2026-11-01T05:00:00.000Z"),
+        to: new Date("2026-11-01T07:00:00.000Z"),
+        granularity: "hour",
+      },
+      hitSeries: [
+        { bucket: "2026-11-01T01:00-04:00", hits: 2 },
+        { bucket: "2026-11-01T01:00-05:00", hits: 1 },
+      ],
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { bucket: "2026-11-01T01:00-04:00", count: 9 },
+          { bucket: "2026-11-01T01:00-05:00", count: 4 },
+        ],
+      }),
+    });
+    const res = await handleGetSignal(
+      req(
+        undefined,
+        "?start_after=2026-11-01T05:00:00.000Z&end_before=2026-11-01T07:00:00.000Z&tz=America%2FNew_York",
+      ),
+      signalParams,
+    );
+    expect(await res.json()).toMatchObject({
+      hitSeries: [
+        { bucket: "2026-11-01T01:00-04:00", hits: 2, unaffected: 7 },
+        { bucket: "2026-11-01T01:00-05:00", hits: 1, unaffected: 3 },
+      ],
+    });
+  });
+
   it("still returns the signal's own traces per bucket when the backend is down", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     core.getSignal.mockResolvedValueOnce({

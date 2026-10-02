@@ -78,3 +78,68 @@ describe("getSignal day-bucket stepping", () => {
     ).toEqual(expectedDays);
   });
 });
+
+describe("hour buckets across a DST change", () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  // America/New_York falls back at 2026-11-01 02:00 local EDT -> 01:00 EST, i.e.
+  // 2026-11-01 06:00 UTC. The window below (05:00-07:00 UTC) covers both real
+  // occurrences of local "01:00".
+  const dstFrom = new Date("2026-11-01T05:00:00Z");
+  const dstTo = new Date("2026-11-01T07:00:00Z");
+
+  it("keeps the two real hours of a fall-back night as distinct empty buckets", async () => {
+    const result = await getSignal(stubDb() as never, {
+      projectId: "p",
+      signalId: "a",
+      from: dstFrom,
+      to: dstTo,
+      tz: "America/New_York",
+    });
+    expect((result as { hitSeries: { bucket: string; hits: number }[] }).hitSeries).toEqual([
+      { bucket: "2026-11-01T01:00-04:00", hits: 0 }, // 05:00-05:59 UTC, still EDT
+      { bucket: "2026-11-01T01:00-05:00", hits: 0 }, // 06:00-06:59 UTC, now EST
+    ]);
+  });
+
+  it("assigns Postgres hit rows to the right one of the two ambiguous hours", async () => {
+    // Shaped like the real query's output: both rows share the same formatted
+    // "bucket" label (Postgres can't know they're different hours without the
+    // offset), so the offset column is what the merge in hitSeries keys on.
+    const db = {
+      ...stubDb(),
+      $queryRaw: vi.fn(async () => [
+        { bucket: "2026-11-01T01:00", offsetMinutes: -240, hits: 3 },
+        { bucket: "2026-11-01T01:00", offsetMinutes: -300, hits: 5 },
+      ]),
+    };
+    const result = await getSignal(db as never, {
+      projectId: "p",
+      signalId: "a",
+      from: dstFrom,
+      to: dstTo,
+      tz: "America/New_York",
+    });
+    expect((result as { hitSeries: { bucket: string; hits: number }[] }).hitSeries).toEqual([
+      { bucket: "2026-11-01T01:00-04:00", hits: 3 },
+      { bucket: "2026-11-01T01:00-05:00", hits: 5 },
+    ]);
+  });
+
+  it("buckets a :30-offset zone (Asia/Kolkata) by local hour, not by UTC hour", async () => {
+    // IST is UTC+5:30, so its hour boundaries fall on the UTC half-hour: this window
+    // (00:40-01:40 UTC) is local 06:10-07:10 IST, touching local hours 06:00 and 07:00
+    // despite sitting inside a single UTC hour-ish span.
+    const result = await getSignal(stubDb() as never, {
+      projectId: "p",
+      signalId: "a",
+      from: new Date("2026-06-01T00:40:00Z"),
+      to: new Date("2026-06-01T01:40:00Z"),
+      tz: "Asia/Kolkata",
+    });
+    expect(
+      (result as { hitSeries: { bucket: string; hits: number }[] }).hitSeries.map((s) => s.bucket),
+    ).toEqual(["2026-06-01T06:00+05:30", "2026-06-01T07:00+05:30"]);
+  });
+});
