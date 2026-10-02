@@ -1,0 +1,9 @@
+```typescript
+import OpenAI from 'openai';
+import { TraceRoot } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+
+// All OpenAI calls are now automatically tracked — tokens, cost, model
+await client.chat.completions.create({ ... });
+```

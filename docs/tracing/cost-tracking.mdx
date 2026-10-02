@@ -7,6 +7,7 @@ When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChai
 
 <Tabs>
   <Tab title="Python">
+    <!-- [start:snippet:tracing-cost-tracking-python] -->
     ```python
     import traceroot
     from traceroot import Integration
@@ -16,8 +17,10 @@ When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChai
     # All OpenAI calls are now automatically tracked — tokens, cost, model
     client.chat.completions.create(...)
     ```
+<!-- [end:snippet:tracing-cost-tracking-python] -->
   </Tab>
   <Tab title="TypeScript">
+    <!-- [start:snippet:tracing-cost-tracking-typescript] -->
     ```typescript
     import OpenAI from 'openai';
     import { TraceRoot } from '@traceroot-ai/traceroot';
@@ -27,6 +30,7 @@ When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChai
     // All OpenAI calls are now automatically tracked — tokens, cost, model
     await client.chat.completions.create({ ... });
     ```
+<!-- [end:snippet:tracing-cost-tracking-typescript] -->
   </Tab>
 </Tabs>
 

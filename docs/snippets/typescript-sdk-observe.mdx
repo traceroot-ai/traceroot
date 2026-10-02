@@ -1,0 +1,7 @@
+```typescript
+import { observe } from '@traceroot-ai/traceroot';
+
+const result = await observe({ name: 'my_function', type: 'tool' }, async () => {
+  return doWork('your input here');
+});
+```

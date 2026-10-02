@@ -6,7 +6,19 @@ PROD_COMPOSE := docker compose -f docker-compose.prod.yml
 # Only vX.Y.Z tags are platform versions; other tags must not become the label.
 APP_VERSION ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo dev)
 
-.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
+.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset sync-openapi sync-cli-ref sync-doc-snippets
+
+## Regenerate public OpenAPI schema and dashboard widget registry snapshot.
+sync-openapi:
+	uv run python scripts/sync_public_openapi.py
+
+## Regenerate CLI command reference from OpenAPI schema and placements.
+sync-cli-ref:
+	uv run python scripts/sync_cli_reference.py
+
+## Extract doc snippets from runnable examples and sync into docs.
+sync-doc-snippets:
+	uv run python scripts/sync_doc_snippets.py
 
 ## Install repository git hooks for contributors.
 install-hooks:
