@@ -19,7 +19,7 @@ import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel"
 import { useDetectorList } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useRetention } from "@/lib/hooks/use-retention";
-import { SIGNAL_STATUSES } from "@traceroot/core/signals";
+import { SIGNAL_ID_PARAM, SIGNAL_STATUSES } from "@traceroot/core/signals";
 import { useSignals } from "@/ee/features/signals/hooks";
 import { SignalDetailPanel } from "@/ee/features/signals/components/signal-detail-panel";
 import { STATUS_LABELS } from "@/ee/features/signals/components/signal-status-control";
@@ -77,15 +77,15 @@ export default function SignalsPage() {
   const params = useParams();
   const projectId = params.projectId as string;
   const searchParams = useSearchParams();
-  const selectedSignalId = searchParams.get("signalId");
+  const selectedSignalId = searchParams.get(SIGNAL_ID_PARAM);
   // The open signal lives in the URL too, so a link to it can be shared and
   // the back button returns to it from a trace.
   const setSelectedSignalId = (id: string | null) => {
     setOpenTrace(null);
     if (!id) setFullscreen(false);
     const url = new URL(window.location.href);
-    if (id) url.searchParams.set("signalId", id);
-    else url.searchParams.delete("signalId");
+    if (id) url.searchParams.set(SIGNAL_ID_PARAM, id);
+    else url.searchParams.delete(SIGNAL_ID_PARAM);
     window.history.replaceState(null, "", url);
   };
 

@@ -79,7 +79,12 @@ export function SignalStatusControl({
   status: SignalStatus;
 }) {
   const mutation = useSetSignalStatus(projectId, signalId);
-  const [closing, setClosing] = useState<"resolved" | "dismissed" | null>(null);
+  // The target status, and the status seen when the dialog opened: the save
+  // sends the latter, so a change made meanwhile gets the server's conflict.
+  const [closing, setClosing] = useState<{
+    to: "resolved" | "dismissed";
+    from: SignalStatus;
+  } | null>(null);
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
 
@@ -96,13 +101,13 @@ export function SignalStatusControl({
     if (next === "open") {
       mutation.mutate({ change: { status: "open" }, expectedStatus: status });
     } else {
-      setClosing(next as "resolved" | "dismissed");
+      setClosing({ to: next as "resolved" | "dismissed", from: status });
     }
   };
 
   const noteRequired = reason === "other";
   const canSubmit = !!reason && (!noteRequired || note.trim().length > 0) && !mutation.isPending;
-  const copy = closing ? CLOSE_COPY[closing] : null;
+  const copy = closing ? CLOSE_COPY[closing.to] : null;
 
   return (
     <>
@@ -162,7 +167,7 @@ export function SignalStatusControl({
                 maxLength={SIGNAL_NOTE_MAX_LENGTH}
                 rows={3}
                 placeholder={copy?.notePlaceholder}
-                aria-label={closing === "resolved" ? "Resolution note" : "Dismissal note"}
+                aria-label={closing?.to === "resolved" ? "Resolution note" : "Dismissal note"}
                 className="resize-vertical w-full rounded-md border border-input bg-background px-3 py-2 text-[13px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring"
               />
               <p className="text-right text-[12px] tabular-nums text-muted-foreground">
@@ -184,8 +189,8 @@ export function SignalStatusControl({
                   closing &&
                   mutation.mutate(
                     {
-                      change: { status: closing, reason, note: note.trim() || null },
-                      expectedStatus: status,
+                      change: { status: closing.to, reason, note: note.trim() || null },
+                      expectedStatus: closing.from,
                     },
                     { onSuccess: reset },
                   )
