@@ -1,4 +1,4 @@
-import { Queue, Worker, type Job } from "bullmq";
+import { DelayedError, Queue, Worker, type Job } from "bullmq";
 import {
   prisma,
   SYSTEM_MODELS,
@@ -16,8 +16,21 @@ import {
 } from "@traceroot/core/rca-executions";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
 import { publicErrorMessage } from "@traceroot/core/public-error";
-import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
-import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
+import type { DetectorRcaJob, RcaJob } from "../queues/detector-run-queue.js";
+import {
+  DETECTOR_RCA_QUEUE,
+  createRedisConnection,
+  isSignalRcaJob,
+} from "../queues/detector-run-queue.js";
+import { signalsBackend } from "../ee/signals/backend-client.js";
+import { RCA_DELAY_MS } from "../ee/signals/config.js";
+import {
+  hasUncoveredOpenings,
+  closeEmptySignalRca,
+  loadSignalRcaContext,
+  rootCausesByOpening,
+  type SignalRcaContext,
+} from "../ee/signals/rca.js";
 import {
   type DigestFlushJob,
   windowStartFor,
@@ -117,6 +130,49 @@ async function resolveLegacyByok(
   return null;
 }
 
+/**
+ * The prompt for an RCA started by signals: each listed hit started or reopened
+ * a tracked signal, and hits on one trace can have unrelated causes, so the
+ * answer has one section per hit, may say a hit shares another's cause, and may
+ * say the trace does not explain a hit. Sections are read back by position
+ * (rootCausesByOpening), so their order, the order of `findings`, is part of
+ * the contract.
+ */
+export function signalRcaPrompt(
+  findings: DetectorRcaJob["findings"],
+  traceId: string,
+  githubNote: string,
+): string {
+  const n = findings.length;
+  const list = findings
+    .map(
+      (f, i) =>
+        `${i + 1}. Detector "${f.detectorName}" fired` +
+        (f.signalTitle ? ` (recurring problem: "${f.signalTitle}")` : "") +
+        `:\n   ${f.summary}`,
+    )
+    .join("\n\n");
+  const intro =
+    n === 1
+      ? "A detector fired on this trace, and it is the first occurrence (or a return after a fix) of a recurring problem."
+      : `${n} detectors fired on this trace, and each is the first occurrence (or a return after a fix) of a recurring problem.`;
+  return `${intro}
+
+${list}
+
+Trace ID: ${traceId}
+
+Download and analyze this trace. Analyze each hit separately: hits on one trace can have unrelated causes. If two hits share one root cause, say so in both sections. If the trace does not show enough to explain a hit, write "Insufficient evidence" as its root cause instead of guessing.
+${githubNote}
+
+Output one section per hit, in the order above:
+### <number>. <detector name>
+- Root cause: [one sentence, or "Insufficient evidence"]
+- Code location: [file:line if found, else "not identified"]
+- Recent changes: [relevant commits/PRs if found, else "not checked"]
+- Recommendation: [one actionable sentence]`;
+}
+
 export async function runRcaSession(params: {
   findingId: string;
   projectId: string;
@@ -131,6 +187,8 @@ export async function runRcaSession(params: {
   executionId: string;
   attempt: number;
   executionTraceId: string;
+  /** Signal RCAs ask for one section per hit (see signalRcaPrompt). */
+  sectioned?: boolean;
 }): Promise<{ result: string; sessionId: string; traceStatus: TraceStatus }> {
   const sessionRes = await fetch(
     `${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions`,
@@ -185,7 +243,9 @@ export async function runRcaSession(params: {
     ? "If any spans contain git_source_file and git_source_line, read that source code and check recent commits/PRs touching that file."
     : "";
 
-  const prompt = `${params.findings.length === 1 ? "A detector fired" : `${params.findings.length} detectors fired`} on this trace.
+  const prompt = params.sectioned
+    ? signalRcaPrompt(params.findings, params.traceId, githubNote)
+    : `${params.findings.length === 1 ? "A detector fired" : `${params.findings.length} detectors fired`} on this trace.
 
 ${findingsList}
 
@@ -344,8 +404,40 @@ Output your findings in this format:
   return { result: rcaResult, sessionId: session.id, traceStatus: traceStatus ?? "failed" };
 }
 
-export async function processRcaJob(job: Job<DetectorRcaJob>) {
-  const { findingId, projectId, traceId, workspaceId, findings, findingTimestamp } = job.data;
+export async function processRcaJob(job: Job<RcaJob>, token?: string) {
+  // A signal RCA carries only the finding: which hits to analyse is read now,
+  // so signals opened for this trace since the job was enqueued are included.
+  let signalContext: SignalRcaContext | null = null;
+  let data: DetectorRcaJob;
+  if (isSignalRcaJob(job.data)) {
+    signalContext = await loadSignalRcaContext(
+      prisma,
+      signalsBackend,
+      job.data.findingId,
+      job.data.projectId,
+    );
+    if (!signalContext) {
+      // Its hits were removed with their project or detector: close the seeded
+      // row rather than leave it pending (the sweeper would retry it forever).
+      if (!(await closeEmptySignalRca(prisma, job.data.findingId, job.data.projectId))) {
+        await job.moveToDelayed(Date.now() + RCA_DELAY_MS, token);
+        throw new DelayedError();
+      }
+      console.log(`[RCA] finding ${job.data.findingId}: no signal needs an RCA; nothing to run`);
+      return;
+    }
+    data = {
+      findingId: job.data.findingId,
+      projectId: job.data.projectId,
+      traceId: signalContext.traceId,
+      workspaceId: signalContext.workspaceId,
+      findings: signalContext.findings,
+      findingTimestamp: signalContext.findingTimestamp,
+    };
+  } else {
+    data = job.data;
+  }
+  const { findingId, projectId, traceId, workspaceId, findings, findingTimestamp } = data;
 
   // The finding row must exist before allocation, on every path — including
   // quota-skipped below, which now allocates an execution too (executions
@@ -492,6 +584,7 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
       executionId: execution.executionId,
       attempt: execution.attempt,
       executionTraceId: execution.traceId,
+      sectioned: signalContext !== null,
     });
 
     settledTraceStatus = traceStatus;
@@ -506,6 +599,13 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
       attempt: execution.attempt,
       status: "done",
       result: rcaResult,
+      ...(signalContext
+        ? {
+            coveredOpenings: signalContext.covered,
+            openingResults: rootCausesByOpening(rcaResult, signalContext),
+            sessionId,
+          }
+        : {}),
     });
     if (!applied) {
       // Execution rows don't store `result` — only the shared finding row
@@ -536,6 +636,7 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
       attempt: execution.attempt,
       status: "failed",
       result: `RCA failed: ${message}`,
+      ...(signalContext ? { coveredOpenings: signalContext.covered } : {}),
     })
       .then((applied) => {
         if (!applied) {
@@ -546,6 +647,12 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
       })
       .catch(() => {}); // best-effort
 
+    // A later opening is still pending even if this attempt exhausted its
+    // retry budget. Keep the job alive to analyse that opening separately.
+    if (signalContext && (await hasUncoveredOpenings(prisma, findingId, signalContext.covered))) {
+      await job.moveToDelayed(Date.now() + RCA_DELAY_MS, token);
+      throw new DelayedError();
+    }
     await scheduleDigestFlush();
 
     throw e; // re-throw so BullMQ marks job as failed
@@ -555,16 +662,26 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
   // transient enqueue failure retries the job without the catch reverting a
   // completed RCA to "failed".
   await scheduleDigestFlush();
+
+  // Another hit of this trace opened a signal while the agent ran: its add was
+  // absorbed by this job, so run again (a new attempt) to cover it.
+  if (signalContext && (await hasUncoveredOpenings(prisma, findingId, signalContext.covered))) {
+    console.log(`[RCA] finding ${findingId}: signals opened during the run; running again`);
+    await job.moveToDelayed(Date.now() + RCA_DELAY_MS, token);
+    throw new DelayedError();
+  }
 }
 
-export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
+export function startDetectorRcaWorker(): Worker<RcaJob> {
   const connection = createRedisConnection();
-  const worker = new Worker<DetectorRcaJob>(DETECTOR_RCA_QUEUE, processRcaJob, {
+  const worker = new Worker<RcaJob>(DETECTOR_RCA_QUEUE, processRcaJob, {
     connection,
     concurrency: 3,
   });
 
   worker.on("failed", (job, err) => {
+    // DelayedError is a signal RCA re-running to cover a later hit, not a failure.
+    if (err instanceof DelayedError) return;
     console.error(`[RCA] Job ${job?.id} failed:`, err.message);
   });
 

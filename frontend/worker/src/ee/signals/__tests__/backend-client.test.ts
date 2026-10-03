@@ -55,6 +55,16 @@ describe("signalsBackend", () => {
     expect(mockFetch).toHaveBeenCalledOnce();
   });
 
+  it("reads a trace's findings", async () => {
+    mockFetch.mockResolvedValueOnce(ok({ findings: [{ finding_id: "f1", payload: "[]" }] }));
+    await expect(signalsBackend.traceFindings("p", "t/1")).resolves.toEqual([
+      { finding_id: "f1", payload: "[]" },
+    ]);
+    expect(mockFetch.mock.calls[0][0]).toBe(
+      "http://backend:8000/api/v1/internal/traces/t%2F1/findings?project_id=p",
+    );
+  });
+
   it("reports the status and body of a failed call, and a timeout", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

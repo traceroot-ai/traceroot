@@ -1,14 +1,9 @@
-import { Worker, Queue, DelayedError, type Job } from "bullmq";
+import { Worker, DelayedError, type Job } from "bullmq";
 import { createHash } from "crypto";
 import { prisma, PlanType, calculateCost } from "@traceroot/core";
-import type {
-  DetectorRunJob,
-  DetectorRcaJob,
-  DetectorRcaFinding,
-} from "../queues/detector-run-queue.js";
+import type { DetectorRunJob } from "../queues/detector-run-queue.js";
 import {
   DETECTOR_RUN_QUEUE,
-  DETECTOR_RCA_QUEUE,
   EVALUATOR_DELAY,
   createRedisConnection,
 } from "../queues/detector-run-queue.js";
@@ -66,20 +61,6 @@ function deterministicRunId(projectId: string, traceId: string, detectorId: stri
 }
 
 /**
- * Decide whether to run the per-trace RCA. RCA is shared across all detectors
- * that fired on a trace; we run it when AT LEAST ONE triggered detector has
- * RCA enabled. A triggered detector missing from `detectors` defaults to "run"
- * so an unexpected gap never silently suppresses analysis.
- */
-export function shouldRunRca(
-  triggered: { detectorId: string }[],
-  detectors: { id: string; enableRca: boolean }[],
-): boolean {
-  const rcaEnabledById = new Map(detectors.map((d) => [d.id, d.enableRca]));
-  return triggered.some((t) => rcaEnabledById.get(t.detectorId) !== false);
-}
-
-/**
  * Deterministic finding id for a trace — a hash of (projectId, traceId) only.
  * It does NOT depend on which/how many detectors fired, so every detector that
  * triggers on the same trace maps to the SAME finding, and therefore the SAME
@@ -95,31 +76,6 @@ export function shouldRunRca(
  */
 export function traceFindingId(projectId: string, traceId: string): string {
   return hashToUuid(`${projectId}:${traceId}`);
-}
-
-/**
- * Build the per-trace RCA payload from every detector that fired. The single
- * RCA job carries all triggered detectors' summaries, so one agent analyzes the
- * whole trace rather than one agent per detector.
- */
-export function buildRcaFindings(
-  triggered: { detectorId: string; detectorName: string; summary: string }[],
-): DetectorRcaFinding[] {
-  return triggered.map((r) => ({
-    detectorId: r.detectorId,
-    detectorName: r.detectorName,
-    summary: r.summary,
-  }));
-}
-
-let rcaQueue: Queue<DetectorRcaJob> | null = null;
-function getRcaQueue(): Queue<DetectorRcaJob> {
-  if (!rcaQueue) {
-    rcaQueue = new Queue<DetectorRcaJob>(DETECTOR_RCA_QUEUE, {
-      connection: createRedisConnection(),
-    });
-  }
-  return rcaQueue;
 }
 
 async function downloadSpansJsonl(projectId: string, traceId: string): Promise<string> {
@@ -525,56 +481,6 @@ async function evaluateTrace(
   await enqueueSignalHits({ projectId, detectors, triggered }).catch((err) =>
     console.error(`[Detector] Failed to enqueue signal assignment for finding ${findingId}:`, err),
   );
-
-  // RCA is shared per trace. Run it only when at least one triggered detector
-  // has RCA enabled; otherwise skip both the seed row and the queue job so a
-  // noisy RCA-disabled detector doesn't incur agent-model cost. Consumers
-  // null-check an absent DetectorRca record, so skipping the row is safe.
-  const rcaFindings: DetectorRcaFinding[] = buildRcaFindings(triggered);
-
-  if (shouldRunRca(triggered, detectors)) {
-    // `update` never touches lifecycle status on an existing row: with the
-    // deterministic jobId below and `removeOnComplete: 100`, a re-detection
-    // over an already-completed finding can dedupe against the retained
-    // completed job and never run — resetting status to "pending" here would
-    // then leave the finding stuck at "pending" forever over a done result. A
-    // new attempt's own markFindingRunningIfLatest is what sets "running".
-    await prisma.detectorRca
-      .upsert({
-        where: { findingId },
-        create: { findingId, projectId, status: "pending" },
-        update: { projectId },
-      })
-      .catch((e) =>
-        console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),
-      );
-
-    await getRcaQueue().add(
-      `rca-${findingId}`,
-      {
-        findingId,
-        projectId,
-        traceId,
-        workspaceId,
-        findings: rcaFindings,
-        findingTimestamp,
-      },
-      {
-        jobId: `rca-${findingId}`,
-        removeOnComplete: 100,
-        removeOnFail: 50,
-        // Modest attempts: each retry re-invokes the agent (LLM cost), but a
-        // thrown RCA run is meant to retry through transient causes (rate
-        // limits, provider 5xx) rather than land permanently failed on one shot.
-        attempts: 3,
-        backoff: { type: "exponential", delay: 10000 },
-      },
-    );
-  } else {
-    console.log(
-      `[Detector] All triggered detectors have RCA disabled; skipping RCA for finding ${findingId}`,
-    );
-  }
 }
 
 /**

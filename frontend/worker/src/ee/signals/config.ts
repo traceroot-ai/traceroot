@@ -102,3 +102,16 @@ export function signalsApiKey(): string | null {
 export function signalsAvailable(): boolean {
   return signalsApiKey() !== null;
 }
+
+/** A reopened signal gets a new RCA only if its last one is at least this old. */
+export const RCA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Delay before a signal RCA job runs, so the other hits of the same trace
+ * (assigned by other detectors' jobs) are usually assigned by then and
+ * analysed in the same run.
+ */
+export const RCA_DELAY_MS = 60_000;
+
+/** A signal RCA still pending after this long lost its job; the sweeper re-enqueues it. */
+export const RCA_STALE_MS = 10 * 60 * 1000;

@@ -30,6 +30,18 @@ vi.mock("../../queues/digest-queue.js", async (importOriginal) => {
   return { ...actual, createDetectorDigestQueue: () => ({ add: digestAddMock }) };
 });
 
+const loadSignalRcaContextMock = vi.fn();
+const hasUncoveredOpeningsMock = vi.fn().mockResolvedValue(false);
+const closeEmptySignalRcaMock = vi.fn().mockResolvedValue(true);
+vi.mock("../../ee/signals/rca.js", async (importOriginal) => ({
+  // The section parsing is pure: the real one shows what the finish receives.
+  rootCausesByOpening: (await importOriginal<typeof import("../../ee/signals/rca.js")>())
+    .rootCausesByOpening,
+  loadSignalRcaContext: (...a: any[]) => loadSignalRcaContextMock(...a),
+  hasUncoveredOpenings: (...a: any[]) => hasUncoveredOpeningsMock(...a),
+  closeEmptySignalRca: (...a: any[]) => closeEmptySignalRcaMock(...a),
+}));
+
 vi.mock("@traceroot/core/rca-executions", () => ({
   allocateExecution: (...a: any[]) => allocateExecutionMock(...a),
   finishFindingIfLatest: (...a: any[]) => finishFindingIfLatestMock(...a),
@@ -68,6 +80,9 @@ afterEach(() => {
   detectorRcaExecutionUpdateMock.mockReset().mockResolvedValue({});
   finishFindingIfLatestMock.mockReset().mockResolvedValue(true);
   markFindingRunningIfLatestMock.mockReset().mockResolvedValue(true);
+  loadSignalRcaContextMock.mockReset();
+  hasUncoveredOpeningsMock.mockReset().mockResolvedValue(false);
+  closeEmptySignalRcaMock.mockReset().mockResolvedValue(true);
 });
 
 describe("resolveProjectModel", () => {
@@ -874,5 +889,160 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
     const statuses = finishFindingIfLatestMock.mock.calls.map((c) => c[1].status);
     expect(statuses).toEqual(["done"]);
     expect(updateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("signal RCAs", () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  const context = {
+    traceId: "trace-9",
+    workspaceId: "ws1",
+    findingTimestamp: 1_700_000_000_000,
+    findings: [
+      {
+        detectorId: "d1",
+        detectorName: "Failure",
+        summary: "tool timed out",
+        signalTitle: "Timeout swallowed",
+      },
+      {
+        detectorId: "d2",
+        detectorName: "Logic",
+        summary: "wrong city",
+        signalTitle: "Wrong destination",
+      },
+    ],
+    covered: ["s1:0", "s2:1"],
+    coveredDetectors: { "s1:0": "d1", "s2:1": "d2" },
+  };
+
+  async function stubRun() {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+    vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      alertConfig: null,
+    } as any);
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
+  }
+
+  const signalJob = (over: Record<string, unknown> = {}) =>
+    ({
+      data: { kind: "signals", findingId: "f1", projectId: "p1" },
+      moveToDelayed: vi.fn(),
+      ...over,
+    }) as any;
+
+  it("runs nothing when no signal of the finding needs an RCA, and closes a pending row", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(null);
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await processRcaJob(signalJob());
+    expect(closeEmptySignalRcaMock).toHaveBeenCalledWith(expect.anything(), "f1", "p1");
+    expect(allocateExecutionMock).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("retries if an opening arrived after the empty-context read", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(null);
+    closeEmptySignalRcaMock.mockResolvedValue(false);
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    const { DelayedError } = await import("bullmq");
+    const job = signalJob();
+    await expect(processRcaJob(job, "tok")).rejects.toBeInstanceOf(DelayedError);
+    expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "tok");
+    expect(allocateExecutionMock).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(digestAddMock).not.toHaveBeenCalled();
+  });
+
+  it("analyses the hits whose signals the trace opened, one section per hit", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    await stubRun();
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await processRcaJob(signalJob(), "tok");
+
+    expect(loadSignalRcaContextMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "f1",
+      "p1",
+    );
+    const body = JSON.parse(mockFetch.mock.calls[1][1].body);
+    expect(body.traceId).toBe("trace-9");
+    expect(body.message).toContain(
+      'Detector "Failure" fired (recurring problem: "Timeout swallowed")',
+    );
+    expect(body.message).toContain(
+      'Detector "Logic" fired (recurring problem: "Wrong destination")',
+    );
+    expect(body.message).toContain("Output one section per hit");
+    expect(body.message).toContain('"Insufficient evidence"');
+    expect(body.message).not.toContain("shared across these findings");
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        findingId: "f1",
+        status: "done",
+        coveredOpenings: ["s1:0", "s2:1"],
+        // The stub answer has no section per hit: no opening gets a misaligned root cause.
+        openingResults: [
+          { opening: "s1:0", rootCause: null },
+          { opening: "s2:1", rootCause: null },
+        ],
+        sessionId: expect.any(String),
+      }),
+    );
+  });
+
+  it("runs again when another hit of the trace opened a signal during the run", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    hasUncoveredOpeningsMock.mockResolvedValue(true);
+    await stubRun();
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    const { DelayedError } = await import("bullmq");
+    const job = signalJob();
+    await expect(processRcaJob(job, "tok")).rejects.toBeInstanceOf(DelayedError);
+    expect(hasUncoveredOpeningsMock).toHaveBeenCalledWith(expect.anything(), "f1", [
+      "s1:0",
+      "s2:1",
+    ]);
+    expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "tok");
+  });
+
+  it("keeps a final failed job alive when a new opening was added", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    hasUncoveredOpeningsMock.mockResolvedValue(true);
+    await stubRun();
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    const { DelayedError } = await import("bullmq");
+    const job = signalJob({ attemptsMade: 2, opts: { attempts: 3 } });
+    await expect(processRcaJob(job, "tok")).rejects.toBeInstanceOf(DelayedError);
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ status: "failed", coveredOpenings: ["s1:0", "s2:1"] }),
+    );
+    expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "tok");
+    expect(digestAddMock).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("builds a prompt for a single hit", async () => {
+    const { signalRcaPrompt } = await import("../detector-rca-processor.js");
+    const prompt = signalRcaPrompt([context.findings[0]], "t", "");
+    expect(prompt).toMatch(/^A detector fired on this trace/);
+    expect(prompt).toContain("### <number>. <detector name>");
   });
 });

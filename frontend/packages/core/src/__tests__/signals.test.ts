@@ -275,19 +275,15 @@ describe("reopenSignalForHit", () => {
 });
 
 describe("pickCanonicalRca", () => {
-  const row = (reopenSeq: number, status: string) => ({ reopenSeq, rca: { status } });
-  it("takes the newest opening whose RCA is done, whatever finished last", () => {
-    expect(pickCanonicalRca([row(2, "done"), row(0, "done"), row(1, "done")])).toEqual(
-      row(2, "done"),
-    );
+  const row = (reopenSeq: number, result: string | null) => ({ reopenSeq, result });
+  it("takes the newest opening that kept a successful answer, whatever finished last", () => {
+    expect(pickCanonicalRca([row(2, "c"), row(0, "a"), row(1, "b")])).toEqual(row(2, "c"));
   });
-  it("falls back to an older done RCA while the newest is still running or failed", () => {
-    expect(pickCanonicalRca([row(0, "done"), row(1, "failed"), row(2, "running")])).toEqual(
-      row(0, "done"),
-    );
+  it("falls back to an older answer while the newest opening has none yet", () => {
+    expect(pickCanonicalRca([row(0, "a"), row(1, null), row(2, null)])).toEqual(row(0, "a"));
   });
-  it("is null until some RCA is done", () => {
-    expect(pickCanonicalRca([row(0, "pending")])).toBe(null);
+  it("is null until some opening kept an answer", () => {
+    expect(pickCanonicalRca([row(0, null)])).toBe(null);
     expect(pickCanonicalRca([])).toBe(null);
   });
 });
