@@ -1,0 +1,108 @@
+---
+title: Data Capture and Privacy
+description: Understand and control what TraceRoot records and exports
+---
+
+TraceRoot spans can contain application data. Review the defaults before tracing workloads that process personal data, credentials, or confidential content.
+
+## What is captured by default
+
+| Data | Default | How to limit it |
+|---|---|---|
+| Observed function arguments | Captured as span input | Set `capture_input=False` in Python or `captureInput: false` in TypeScript |
+| Observed function return values | Captured as span output | Set `capture_output=False` in Python or `captureOutput: false` in TypeScript |
+| Auto-instrumented LLM prompts and completions | Captured when the integration exposes content | Use the integration's content-capture option when available; Pi supports `captureContent` |
+| Tool arguments and results | Captured when the integration exposes tool I/O | Pi supports `captureToolIo: false`; other integrations may not expose a content filter |
+| Git repository and ref | Added to recording spans when resolved | Do not provide git context, or disable tracing entirely; there is no per-span git-context switch |
+| Source file, line, and function | Added by `observe` / `@observe` | Disable tracing entirely if source location must not leave the process |
+
+Capture settings prevent the selected values from being written to spans. They do not modify what your application passes to an LLM provider or tool.
+
+## Disable input and output for one function
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe
+
+    @observe(capture_input=False, capture_output=False)
+    def verify_password(username: str, password: str) -> bool:
+        return check_credentials(username, password)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    Pass arguments after the function so `observe` can call it without recording them:
+
+    ```typescript
+    import { observe } from '@traceroot-ai/traceroot';
+
+    const authenticated = await observe(
+      { name: 'verify_password', captureInput: false, captureOutput: false },
+      verifyPassword,
+      username,
+      password,
+    );
+    ```
+  </Tab>
+</Tabs>
+
+These flags apply only to the span created by that `observe` call. Auto-instrumented child calls can still capture their own inputs and outputs according to the integration's settings.
+
+## Redact Pi content before export
+
+The TypeScript Pi instrumentation accepts a `captureContent` callback. It runs before content is attached to a span and can return replacement text or `undefined` to omit that item.
+
+```typescript
+import * as pi from '@earendil-works/pi-coding-agent';
+import { TraceRoot, type ContentCaptureFn } from '@traceroot-ai/traceroot';
+
+const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+const redactContent: ContentCaptureFn = (kind, value) => {
+  if (kind === 'agent_input') {
+    return value.text?.replace(EMAIL, '[redacted-email]');
+  }
+
+  // Do not record model inputs or response bodies.
+  return undefined;
+};
+
+TraceRoot.initialize({
+  instrumentModules: {
+    piCodingAgent: {
+      module: pi,
+      config: {
+        captureContent: redactContent,
+        captureToolIo: false,
+      },
+    },
+  },
+});
+```
+
+The callback form is available in the TypeScript Pi instrumentation. The Python SDK does not currently provide an equivalent general redaction callback. For Python, disable input/output capture on observed functions and avoid placing sensitive values in metadata or manually updated span fields.
+
+## Disable tracing entirely
+
+Set `TRACEROOT_ENABLED` before the SDK initializes:
+
+```bash
+TRACEROOT_ENABLED=false
+```
+
+The accepted values differ by SDK:
+
+| SDK | Values treated as off |
+|---|---|
+| Python | `false`, `0`, `no`, or `off`, case-insensitive |
+| TypeScript | The exact lowercase string `false` |
+
+You can also pass `enabled=False` to Python's `initialize()` or `enabled: false` to `TraceRoot.initialize()` in TypeScript.
+
+## Privacy checklist
+
+- Classify prompts, completions, function arguments, tool I/O, metadata, tags, and source paths before enabling tracing in production.
+- Disable capture as close as possible to the function or integration that handles sensitive data.
+- Never attach secrets to metadata or manual span updates.
+- Verify a representative exported trace in a non-production project before rollout.
+- Apply your organization's retention, access-control, and data-processing requirements to the TraceRoot deployment you use.
