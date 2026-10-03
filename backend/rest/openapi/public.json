@@ -2320,6 +2320,39 @@
             "title": "Identified",
             "type": "boolean"
           },
+          "signal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Id"
+          },
+          "signal_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Status"
+          },
+          "signal_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Title"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -2607,6 +2640,14 @@
             "title": "Run Ids",
             "type": "array"
           },
+          "signals": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FindingSignal"
+            },
+            "title": "Signals",
+            "type": "array"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -2634,6 +2675,35 @@
         "title": "FindingDetail",
         "type": "object"
       },
+      "FindingSignal": {
+        "description": "The signal one detector's hit in a finding belongs to.",
+        "properties": {
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "signal_status": {
+            "title": "Signal Status",
+            "type": "string"
+          },
+          "signal_title": {
+            "title": "Signal Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detector_id",
+          "signal_id",
+          "signal_title",
+          "signal_status"
+        ],
+        "title": "FindingSignal",
+        "type": "object"
+      },
       "FindingSummary": {
         "description": "A detector finding row for the list view; ``detectors`` are display labels.",
         "properties": {
@@ -2658,6 +2728,14 @@
               "type": "string"
             },
             "title": "Run Ids",
+            "type": "array"
+          },
+          "signals": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FindingSignal"
+            },
+            "title": "Signals",
             "type": "array"
           },
           "summary": {
@@ -3856,6 +3934,11 @@
       "RCAResult": {
         "description": "Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).\n\nThe agent trace behind an RCA (``detector_rca_executions``) is internal and\ndeliberately not part of this contract: its trace id is not readable through\nthe public trace endpoints, so advertising it here would be misleading.",
         "properties": {
+          "inherited": {
+            "default": false,
+            "title": "Inherited",
+            "type": "boolean"
+          },
           "result": {
             "anyOf": [
               {
