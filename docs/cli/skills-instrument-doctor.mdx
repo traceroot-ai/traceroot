@@ -1,0 +1,145 @@
+---
+title: Skills, Instrument & Doctor
+description: AI agent skills integration, codebase instrumentation, and environment diagnostics
+---
+
+The TraceRoot CLI provides native utilities to integrate TraceRoot capabilities into AI coding assistants (such as Claude Code, Cursor, and Codex), automatically generate instrumentation instructions for your repository, and diagnose setup issues.
+
+## Agent Skills
+
+TraceRoot ships first-party agent skills that teach AI coding assistants how to query traces, debug errors with RCA findings, and run evaluations directly from their prompt interface. Installing a skill copies bundled static files into the agent's designated directory without network requests or external dependencies.
+
+### Target Directories by Agent
+
+- **`claude`** (Claude Code): Project-local `.claude/skills/<skill>/`
+- **`codex`** (Codex): Global `$CODEX_HOME/skills/<skill>/` (defaults to `~/.codex/skills/`)
+- **`generic`** (Cursor & others): Project-local `.agents/skills/<skill>/`
+
+---
+
+### `traceroot skills list`
+
+List all available first-party skills and their installation status across supported agents in the current directory.
+
+```bash
+traceroot skills list [options]
+```
+
+```text
+SKILL                      AGENT    INSTALLED  LOCATION
+traceroot-quickstart       claude   yes        .claude/skills/traceroot-quickstart
+traceroot-quickstart       codex    no         ~/.codex/skills/traceroot-quickstart
+traceroot-instrument-repo  claude   yes        .claude/skills/traceroot-instrument-repo
+traceroot-instrument-repo  generic  no         .agents/skills/traceroot-instrument-repo
+```
+
+---
+
+### `traceroot skills install [skill]`
+
+Install a bundled skill into the appropriate directory for an agent. If run in an interactive terminal without arguments, the CLI prompts you to select a skill and target agent.
+
+```bash
+traceroot skills install [skill] [options]
+```
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--agent <agent>` | string | Target agent: `claude`, `codex`, or `generic` |
+| `--force` | boolean | Overwrite existing skill directory if present |
+| `--dry-run` | boolean | Print what files would be copied without writing to disk |
+
+#### Examples
+
+```bash
+# Interactive installation (prompts for skill and agent)
+traceroot skills install
+
+# Install the repository instrumentation skill for Claude Code
+traceroot skills install traceroot-instrument-repo --agent claude
+
+# Install the quickstart skill for Codex with force overwrite
+traceroot skills install traceroot-quickstart --agent codex --force
+
+# Preview installation without modifying disk
+traceroot skills install traceroot-quickstart --agent generic --dry-run
+```
+
+---
+
+## Codebase Instrumentation
+
+### `traceroot instrument`
+
+Analyze your project's technology stack and generate a structured, agent-ready prompt directing an AI coding assistant to instrument the repository with TraceRoot.
+
+When executed interactively without flags, it prompts for the target agent and desired output file path.
+
+```bash
+traceroot instrument [options]
+```
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--agent <agent>` | string | Target assistant (`claude`, `codex`, `generic`) |
+| `--print` | boolean | Print the generated prompt directly to stdout |
+| `--output <path>` | string | File path where the markdown prompt will be written |
+| `--force` | boolean | Overwrite output file if it already exists |
+
+#### Examples
+
+```bash
+# Print instrumentation prompt directly to terminal
+traceroot instrument --agent claude --print
+
+# Write prompt to a markdown file
+traceroot instrument --agent codex --output .traceroot/prompts/instrument.md
+
+# Feed directly into an agent command
+traceroot instrument --agent claude --print | claude
+```
+
+---
+
+## System Diagnostics
+
+### `traceroot doctor`
+
+Run comprehensive diagnostics to verify your CLI configuration, API credentials, network connectivity, repository git context, runtime dependencies, and installed skills.
+
+```bash
+traceroot doctor [options]
+```
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--json` | boolean | Emit diagnostic results as structured JSON |
+
+```bash
+traceroot doctor
+```
+
+```text
+TraceRoot Diagnostics (v0.4.0)
+
+Credentials & Auth:
+  [PASS] Authentication resolves to user: alice@example.com (credentials-file)
+  [PASS] API server reachability (https://app.traceroot.ai) - 48ms
+  [PASS] Active project ID resolved: proj_91a0c8b21e054fbb8b1234567890abcd
+
+Environment:
+  [PASS] Node.js version: v20.12.0
+  [PASS] Git repository: clean working tree on main (commit 19290d7)
+
+Skills & Integrations:
+  [PASS] .claude/skills/traceroot-quickstart: valid skill manifest
+  [WARN] .agents/skills/traceroot-instrument-repo: outdated version (run traceroot skills install traceroot-instrument-repo --agent generic --force)
+
+Result: 6 passed, 1 warning, 0 failures.
+```

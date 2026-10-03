@@ -1,0 +1,124 @@
+---
+title: SQL Queries
+description: Execute analytical SQL queries over spans and traces
+---
+
+The `traceroot sql` command allows you to execute read-only analytical SQL queries directly against your project's ClickHouse telemetry database. You can aggregate token costs, calculate percentiles, detect regressions, and export custom tabular data without leaving your terminal.
+
+## Commands
+
+### `traceroot sql [query]`
+
+Run a single read-only `SELECT` query.
+
+```bash
+traceroot sql "<query>" [options]
+```
+
+#### Arguments
+
+- `[query]`: The SQL query string. Must be enclosed in quotes. Alternatively, pass `--file <path>`.
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--file <path>` | string | Read the SQL query from a file instead of a command-line argument |
+| `--param <key=val>` | string | Bind values to `{key:Type}` parameters (repeatable) |
+| `--max-rows <n>` | number | Maximum rows to return (capped by server limits) |
+| `--csv` | boolean | Output results formatted as CSV (RFC 4180) |
+| `--json` | boolean | Output full JSON object with columns, rows, and stats |
+| `--output <file>` | string | Write output to a file instead of stdout |
+| `--project <id>` | string | Project ID (required when using browser login) |
+
+#### Output Formats
+
+| Format | How to specify | Description |
+| :--- | :--- | :--- |
+| **Table** | Default | Formatted ASCII table. `NULL` values render as `NULL`. Total row counts and elapsed time go to stderr. |
+| **CSV** | `--csv` | Comma-separated values adhering to RFC 4180. Nulls render as empty cells. Cannot be combined with `--json`. |
+| **JSON** | `--json` | Single machine-readable JSON line containing: `columns`, `rows`, `row_count`, `truncated`, and `elapsed_ms`. |
+| **File** | `--output <path>` | Writes any of the above formats to a file instead of stdout. |
+
+#### Examples
+
+```bash
+# Count total spans captured over the last 24 hours
+traceroot sql "SELECT count() AS spans FROM spans WHERE span_start_time >= now() - INTERVAL 1 DAY"
+
+# Compute p95 latency grouped by model
+traceroot sql "SELECT model_name, quantile(0.95)(duration_ms) AS p95_ms FROM spans WHERE model_name IS NOT NULL GROUP BY model_name ORDER BY p95_ms DESC"
+
+# Calculate total token spend by model over the past 7 days
+traceroot sql "SELECT model_name, sum(cost) AS total_cost FROM spans WHERE span_start_time >= now() - INTERVAL 7 DAY GROUP BY model_name ORDER BY total_cost DESC"
+
+# Export recent error spans to CSV
+traceroot sql "SELECT span_id, trace_id, name, status_message FROM spans WHERE status = 'ERROR' ORDER BY span_start_time DESC LIMIT 100" --csv --output errors.csv
+
+# Parameterized query from a file
+traceroot sql --file query.sql --param model=gpt-4o --max-rows 50
+```
+
+---
+
+### `traceroot sql schema`
+
+List the available tables and column definitions accessible in the analytical schema, along with their data types.
+
+```bash
+traceroot sql schema [options]
+```
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--json` | boolean | Emit the schema definition as JSON |
+| `--project <id>` | string | Project ID (required when using browser login) |
+
+```bash
+traceroot sql schema
+```
+
+```text
+TABLE: spans
+COLUMN               TYPE
+span_id              String
+trace_id             String
+parent_span_id       Nullable(String)
+span_start_time      DateTime64(3)
+span_end_time        Nullable(DateTime64(3))
+duration_ms          Nullable(Int64)
+name                 String
+span_kind            String
+status               String
+status_message       Nullable(String)
+model_name           Nullable(String)
+cost                 Nullable(Decimal64(9))
+input_tokens         Nullable(Int64)
+output_tokens        Nullable(Int64)
+total_tokens         Nullable(Int64)
+environment          Nullable(String)
+metadata             Map(LowCardinality(String), String)
+git_source_file      Nullable(String)
+git_source_line      Nullable(Int32)
+git_source_function  Nullable(String)
+
+TABLE: traces
+COLUMN               TYPE
+trace_id             String
+trace_start_time     DateTime64(3)
+name                 String
+user_id              Nullable(String)
+session_id           Nullable(String)
+git_ref              Nullable(String)
+git_repo             Nullable(String)
+environment          Nullable(String)
+metadata             Map(LowCardinality(String), String)
+```
+
+<Note>
+**Data Privacy & Analytical Focus**
+
+To protect privacy and ensure query speed, raw input/output payloads and prompt strings are not indexed in the analytical SQL schema. Use `traceroot traces get <id> --fields full` or `traceroot traces export` to inspect complete payloads.
+</Note>

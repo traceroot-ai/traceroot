@@ -1,0 +1,93 @@
+---
+title: Command & Configuration Reference
+description: Complete reference for global flags, environment variables, and CLI commands
+---
+
+This page provides a comprehensive reference for all global flags, environment variables, configuration files, and commands available in `traceroot-cli`.
+
+## Global Flags
+
+The following flags are available across all subcommands. Pass them before or after the command name.
+
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--api-key <key>` | string | — | Project API key (`tr_...`) for direct bearer authentication. |
+| `--host <url>` | string | `https://app.traceroot.ai` | Target API backend URL. |
+| `--auth-host <url>` | string | Value of `--host` | Auth host URL for browser device login and token minting (used in split dev environments). |
+| `--project <id>` | string | — | Project ID to scope operations to (required for user credentials). |
+| `--env-file <path>` | string | — | Path to an explicit `.env` file to load environment variables from. |
+| `--json` | boolean | `false` | Emit machine-readable JSON output on stdout for supported commands. |
+| `--timeout <ms>` | number | `30000` | Per-request network timeout in milliseconds. |
+| `-h, --help` | boolean | — | Display help information for any command. |
+| `-V, --version` | boolean | — | Display the CLI version. |
+
+---
+
+## Environment Variables
+
+The CLI reads 12 environment variables to resolve configuration, credentials, paths, and output formatting.
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `TRACEROOT_API_KEY` | — | Project API key used for authentication. |
+| `TRACEROOT_TOKEN` | — | Session token used for token-mint authentication. |
+| `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | TraceRoot API server base URL. |
+| `TRACEROOT_AUTH_URL` | Value of `TRACEROOT_HOST_URL` | Frontend URL for OAuth/device flow authentication. |
+| `TRACEROOT_PROJECT_ID` | — | Default project ID used to scope user session requests. |
+| `TRACEROOT_TIMEOUT_MS` | `30000` | Network request timeout in milliseconds. |
+| `TRACEROOT_CONFIG_PATH` | `./.traceroot/config.json` | Path to the local project configuration file storing API keys. |
+| `TRACEROOT_CREDENTIALS_PATH` | `~/.config/traceroot/credentials.json` | Path to the global user session credentials file. |
+| `XDG_CONFIG_HOME` | `~/.config` | Base configuration directory (overrides default credential location). |
+| `CODEX_HOME` | `~/.codex` | Base directory for Codex skill installations. |
+| `NO_COLOR` | — | When set (to any value), suppresses all ANSI color and formatting codes. |
+| `CI` | — | When set (e.g. by GitHub Actions, GitLab CI), disables interactive terminal prompts. |
+
+---
+
+## Command Summary
+
+| Command | Category | Description |
+| :--- | :--- | :--- |
+| [`login`](/cli/authentication#authentication-modes) | Auth | Sign in with your browser (device flow) or validate and save an API key with `--api-key`. |
+| [`logout`](/cli/authentication#logging-out) | Auth | Revoke the active session on the server and remove local stored credentials. |
+| [`status`](/cli/authentication#checking-authentication-status) | Auth | Show identity, resolved host, active credentials, and scoped project. |
+| [`workspaces list`](/cli/workspaces-and-projects#traceroot-workspaces-list) | Workspaces | List accessible organizational workspaces (user credentials). |
+| [`workspaces create`](/cli/workspaces-and-projects#traceroot-workspaces-create) | Workspaces | Create a new organizational workspace (`--from-file`, `--name`). |
+| [`workspaces update <id>`](/cli/workspaces-and-projects#traceroot-workspaces-update-id) | Workspaces | Rename a workspace you administer (`--from-file`, `--name`). |
+| [`workspaces delete <id>`](/cli/workspaces-and-projects#traceroot-workspaces-delete-id) | Workspaces | Permanently delete a workspace and everything in it (`--name`, `--reason`). |
+| [`projects list`](/cli/workspaces-and-projects#traceroot-projects-list) | Projects | List projects across workspaces and discover IDs for `--project`. |
+| [`projects create`](/cli/workspaces-and-projects#traceroot-projects-create) | Projects | Create a new project within a workspace (`--from-file`, `--name`, `--workspace-id`). |
+| [`projects update <id>`](/cli/workspaces-and-projects#traceroot-projects-update-id) | Projects | Update project settings such as trace retention (`--from-file`, `--name`, `--trace-ttl-days`). |
+| [`projects delete <id>`](/cli/workspaces-and-projects#traceroot-projects-delete-id) | Projects | Soft-delete a project; API keys stop authenticating and data expires with retention (`--reason`). |
+| [`traces list`](/cli/traces#traceroot-traces-list) | Tracing | List traces for your project, sorted newest first (`--limit`, `--since`, `--from`, `--to`). |
+| [`traces get <id>`](/cli/traces#traceroot-traces-get-trace-id) | Tracing | Show trace hierarchy and duration breakdown (`--fields skeleton\|full`). |
+| [`traces export <id>`](/cli/traces#traceroot-traces-export-trace-id) | Tracing | Export a complete trace bundle (`trace.json`, `spans.json`, `git_context.json`, `manifest.json`) to disk. |
+| [`detectors list`](/cli/detectors-and-findings#traceroot-detectors-list) | Detectors | List all configured detectors in your project (`--limit`, `--since`). |
+| [`detectors get <id>`](/cli/detectors-and-findings#traceroot-detectors-get-id) | Detectors | Inspect detector definition, prompt, sample rate, and trigger condition. |
+| [`detectors create`](/cli/detectors-and-findings#traceroot-detectors-create) | Detectors | Create a detector from a JSON rule specification (`--from-file`, `--name`, `--prompt`). |
+| [`detectors update <id>`](/cli/detectors-and-findings#traceroot-detectors-update-id) | Detectors | Update an existing detector's configuration, prompt, sample rate, or status. |
+| [`detectors delete <id>`](/cli/detectors-and-findings#traceroot-detectors-delete-id) | Detectors | Permanently delete a detector (`--reason`). Historical findings remain preserved. |
+| [`findings list`](/cli/detectors-and-findings#traceroot-findings-list) | Findings | List failure findings across traces (`--since`, `--detector`, `--trace`). |
+| [`findings get [id]`](/cli/detectors-and-findings#traceroot-findings-get-id) | Findings | Show finding details, per-detector results, and root cause analysis (or `--trace <id>`). |
+| [`alerts list`](/cli/alerts#traceroot-alerts-list) | Alerts | List threshold alerts with severity, status, and rules (`--limit`, `--page`, `--search`). |
+| [`alerts get <id>`](/cli/alerts#traceroot-alerts-get-id) | Alerts | Inspect an alert's rule, notification channels, and trigger status. |
+| [`alerts create`](/cli/alerts#traceroot-alerts-create) | Alerts | Create a threshold alert from a JSON rule specification (`--from-file`). |
+| [`alerts update <id>`](/cli/alerts#traceroot-alerts-update-id) | Alerts | Update an alert's rule, metric, or threshold (`--from-file`). |
+| [`alerts status <id>`](/cli/alerts#traceroot-alerts-status-id) | Alerts | Pause or resume an alert without changing its rule (`--status <ACTIVE\|PAUSED>`). |
+| [`alerts delete <id>`](/cli/alerts#traceroot-alerts-delete-id) | Alerts | Permanently delete an alert (`--reason`). |
+| [`dashboards list`](/cli/dashboards-and-widgets#traceroot-dashboards-list) | Dashboards | List project dashboards. |
+| [`dashboards get <id>`](/cli/dashboards-and-widgets#traceroot-dashboards-get-id) | Dashboards | Inspect a dashboard and its associated widgets. |
+| [`dashboards create`](/cli/dashboards-and-widgets#traceroot-dashboards-create) | Dashboards | Create a new metric dashboard (`--from-file`, `--name`, `--description`). |
+| [`dashboards update <id>`](/cli/dashboards-and-widgets#traceroot-dashboards-update-id) | Dashboards | Rename a dashboard or update its description (`--from-file`, `--name`, `--description`). |
+| [`dashboards delete <id>`](/cli/dashboards-and-widgets#traceroot-dashboards-delete-id) | Dashboards | Permanently delete a dashboard and its widgets (`--reason`). |
+| [`widgets get <id>`](/cli/dashboards-and-widgets#traceroot-widgets-get-id) | Widgets | Inspect a saved widget, including title, type, and stored query spec. |
+| [`widgets data <id>`](/cli/dashboards-and-widgets#traceroot-widgets-data-id) | Widgets | Execute a saved widget query over a time window without re-sending its spec (`--range`). |
+| [`widgets create`](/cli/dashboards-and-widgets#traceroot-widgets-create) | Widgets | Add a query widget to a dashboard (`--from-file`, `--dashboard-id`, `--title`, `--type`, `--spec`). |
+| [`widgets update <id>`](/cli/dashboards-and-widgets#traceroot-widgets-update-id) | Widgets | Update a widget's title, spec, or display settings (`--from-file`). |
+| [`widgets delete <id>`](/cli/dashboards-and-widgets#traceroot-widgets-delete-id) | Widgets | Permanently delete a widget from its dashboard (`--reason`). |
+| [`sql [query]`](/cli/sql#traceroot-sql-query) | Query | Run read-only analytical SQL queries over spans and traces (`--csv`, `--json`, `--output`). |
+| [`sql schema`](/cli/sql#traceroot-sql-schema) | Query | List queryable tables, columns, and data types in the analytical ClickHouse schema. |
+| [`skills list`](/cli/skills-instrument-doctor#traceroot-skills-list) | Agent | List available first-party skills and their installation status across agents. |
+| [`skills install [skill]`](/cli/skills-instrument-doctor#traceroot-skills-install-skill) | Agent | Install a bundled skill into Claude Code, Codex, or generic agent directories. |
+| [`instrument`](/cli/skills-instrument-doctor#traceroot-instrument) | Tooling | Generate an agent-ready prompt instructing an AI assistant to instrument your codebase. |
+| [`doctor`](/cli/skills-instrument-doctor#traceroot-doctor) | Tooling | Diagnose credentials, network reachability, repo git state, and environment health. |
