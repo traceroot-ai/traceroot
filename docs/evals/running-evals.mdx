@@ -7,7 +7,7 @@ description: Run a dataset against your system with evaluate()
 
 ## Parameters
 
-Call `evaluate()` with keyword arguments. TypeScript takes the same names in camelCase (`candidateVersion`, `maxConcurrency`) as a single options object.
+Call `evaluate()` with keyword arguments. TypeScript takes the same names in camelCase (`candidateVersion`, `evaluationKey`, `maxConcurrency`) as a single options object.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -15,7 +15,8 @@ Call `evaluate()` with keyword arguments. TypeScript takes the same names in cam
 | `dataset` | `Dataset` or `list` | required | The [dataset](/evals/datasets) to run against, or an inline list of cases |
 | `task` | `callable` | required | Your system, mapping an input to an output. May be async |
 | `scorers` | `list` | required | The [scorers](/evals/scorers) to grade each case with |
-| `candidate_version` | `str` | `None` | Labels what you're testing (model id, prompt version, git sha). The UI groups and compares runs by this |
+| `candidate_version` | `str` | `"sdk"` | Labels what you're testing (model id, prompt version, git sha). Shown next to the run number in the UI |
+| `evaluation_key` | `str` | `name` | The stable identity runs are grouped under. Set it to keep one history across a rename, or to group the Python and TypeScript runs of one evaluation |
 | `local` | `bool` | `False` | Run in full but report nowhere. Cannot be combined with `transport` |
 | `transport` | `EvalTransport` | `None` | An explicit destination for the run. Pass `FakeTransport()` to record what would have been sent, without any HTTP |
 | `select` | `callable` | `None` | A predicate to run a subset of cases without editing the dataset |
@@ -51,6 +52,7 @@ Python has both `evaluate` and `evaluate_async`. In TypeScript, `evaluate` is as
         task=task,
         scorers=[reports_temp],
         candidate_version="weather-v1",
+        evaluation_key="weather-eval",
     )
     ```
   </Tab>
@@ -75,6 +77,7 @@ Python has both `evaluate` and `evaluate_async`. In TypeScript, `evaluate` is as
       task,
       scorers: [reportsTemp],
       candidateVersion: "weather-v1",
+      evaluationKey: "weather-eval",
     });
     ```
   </Tab>
