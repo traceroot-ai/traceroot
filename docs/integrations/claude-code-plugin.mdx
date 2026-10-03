@@ -1,0 +1,69 @@
+---
+title: Claude Code Plugin
+description: Trace Claude Code terminal sessions with TraceRoot
+---
+
+The [TraceRoot Claude Code plugin](https://github.com/traceroot-ai/traceroot-claude-code-plugin) provides automatic observability for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) terminal sessions.
+
+Each conversation turn becomes a live trace in TraceRoot showing LLM calls, tool invocations, token consumption, and nested sub-agent runs — all organized by session.
+
+## Installation
+
+### Marketplace (Recommended)
+
+Add the repository to your Claude Code plugin marketplace and install:
+
+```bash
+claude plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
+claude plugin install traceroot-observability@traceroot-claude-code-plugin
+```
+
+Or run directly from within the Claude Code prompt:
+
+```text
+/plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
+/plugin install traceroot-observability@traceroot-claude-code-plugin
+```
+
+### Manual Installation
+
+Clone the repository into your Claude Code plugins directory:
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot-claude-code-plugin.git ~/.claude/plugins/traceroot
+```
+
+## Configuration
+
+Set your TraceRoot API key in your shell profile (e.g. `~/.zshrc` or `~/.bashrc`):
+
+```bash
+export TRACEROOT_API_KEY="your-api-key-from-app.traceroot.ai"
+
+# Optional: Only needed if self-hosting TraceRoot
+# export TRACEROOT_HOST_URL="https://your-traceroot.example.com"
+```
+
+| Variable | Required | Description |
+| -------- | -------- | ----------- |
+| `TRACEROOT_API_KEY` | Yes | Your TraceRoot API key from [app.traceroot.ai](https://app.traceroot.ai). |
+| `TRACEROOT_HOST_URL` | No | TraceRoot ingest endpoint. Defaults to `https://app.traceroot.ai`. |
+
+Restart Claude Code or launch a new terminal session. All turns and tool actions will stream to TraceRoot.
+
+## What Gets Captured
+
+| Attribute | Description |
+| --------- | ----------- |
+| Sessions | Full session continuity and conversation history |
+| Turns | Agent prompt and response turns with latency |
+| Tools | File edits, bash commands, searches, and test executions |
+| Tokens | Input and output token counts per model call |
+
+## Repository
+
+The plugin is open-source on GitHub:
+
+<Card title="traceroot-claude-code-plugin" icon="github" href="https://github.com/traceroot-ai/traceroot-claude-code-plugin">
+  View source code, releases, and documentation on GitHub
+</Card>

@@ -184,6 +184,7 @@
               "integrations/mastra",
               "integrations/openai-agents-sdk",
               "integrations/pi",
+              "integrations/pi-agent-core",
               "integrations/pydantic-ai",
               "integrations/vercel-ai"
             ]
@@ -192,10 +193,22 @@
             "group": "Model Providers",
             "pages": [
               "integrations/anthropic",
+              "integrations/azure-openai",
+              "integrations/bedrock",
+              "integrations/deepseek",
               "integrations/gemini",
+              "integrations/groq",
               "integrations/mistral",
               "integrations/openai",
               "integrations/openrouter"
+            ]
+          },
+          {
+            "group": "Coding Agents & Plugins",
+            "pages": [
+              "integrations/claude-code-plugin",
+              "integrations/codex-plugin",
+              "integrations/pi-extension"
             ]
           },
           {

@@ -1,0 +1,127 @@
+---
+title: Amazon Bedrock
+description: Auto-instrument AWS Bedrock calls with TraceRoot
+---
+
+Automatically capture AWS Bedrock model calls, Converse API requests, tool/function calling, and token usage with TraceRoot.
+
+TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and **TypeScript** (via `@aws-sdk/client-bedrock-runtime`).
+
+## Installation
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot boto3
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot @aws-sdk/client-bedrock-runtime
+    ```
+  </Tab>
+</Tabs>
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    Pass `Integration.BEDROCK` to `traceroot.initialize()`:
+
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.BEDROCK])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    Pass the `@aws-sdk/client-bedrock-runtime` module namespace to `instrumentModules.bedrock`:
+
+    ```typescript
+    import * as bedrockRuntime from '@aws-sdk/client-bedrock-runtime';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { bedrock: bedrockRuntime },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    Once initialized, all Bedrock Runtime client calls are captured automatically:
+
+    ```python
+    import boto3
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.BEDROCK])
+
+    client = boto3.client("bedrock-runtime", region_name="us-east-1")
+
+    # This call is automatically traced
+    response = client.converse(
+        modelId="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        messages=[
+            {"role": "user", "content": [{"text": "What is the capital of France?"}]},
+        ],
+    )
+
+    print(response["output"]["message"]["content"][0]["text"])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    Calls made through `BedrockRuntimeClient` (such as `ConverseCommand`) are automatically traced:
+
+    ```typescript
+    import * as bedrockRuntime from '@aws-sdk/client-bedrock-runtime';
+    import {
+      BedrockRuntimeClient,
+      ConverseCommand,
+    } from '@aws-sdk/client-bedrock-runtime';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { bedrock: bedrockRuntime },
+    });
+
+    const client = new BedrockRuntimeClient({ region: 'us-east-1' });
+
+    // This command is automatically traced
+    const command = new ConverseCommand({
+      modelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+      messages: [{ role: 'user', content: [{ text: 'What is the capital of France?' }] }],
+    });
+
+    const response = await client.send(command);
+    console.log(response.output?.message?.content?.[0]?.text);
+
+    // Flush pending traces before the process exits
+    await TraceRoot.shutdown();
+    ```
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute  | Description                                                       |
+| ---------- | ----------------------------------------------------------------- |
+| Model ID   | `anthropic.claude-3-5-sonnet-*`, `amazon.titan-*`, etc.           |
+| Messages   | Input conversation messages and prompts                           |
+| Response   | Model output content and completions                              |
+| Tool calls | Function and tool call definitions, inputs, outputs, and errors   |
+| Tokens     | Input and output token counts                                     |
+| Latency    | Request duration                                                  |
+
+## Run the example
+
+Clone the repository and run a complete AWS Bedrock tool-agent:
+
+<Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/bedrock">
+  Run the Bedrock Converse tool-agent example
+</Card>
