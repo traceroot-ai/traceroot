@@ -1,0 +1,110 @@
+---
+title: Write Actions & Approvals
+description: How the AI agent creates, updates, and deletes project resources with human confirmation and audit logging
+---
+
+The TraceRoot AI agent can actively configure monitoring in your project. Rather than just answering questions or diagnosing traces, the agent can create, reconfigure, or delete detectors, dashboards, widgets, and alerts through conversation.
+
+To ensure safety and security, the agent operates under strict human-in-the-loop controls: every write pauses for your explicit approval on an interactive card and is recorded in an immutable audit trail.
+
+## The 13 Write Tools
+
+The agent binds **13 write tools** covering four core monitoring resources:
+
+| Resource Type | Tool | Action Description |
+| :--- | :--- | :--- |
+| **Detectors** | `create_detector` | Configure a new LLM-as-a-judge detector with prompt, template, and trigger conditions. |
+| | `update_detector` | Modify detector prompt, sampling rate, model, RCA toggle, or trigger criteria. |
+| | `delete_detector` | Remove a detector from the project (requires audit reason). |
+| **Dashboards** | `create_dashboard` | Create an analytics dashboard in the project. |
+| | `update_dashboard` | Rename a dashboard or update its description. |
+| | `delete_dashboard` | Delete a dashboard and all its widgets (blocked if it's the project's last dashboard). |
+| **Widgets** | `create_widget` | Add a query chart or trace feed widget to a dashboard. |
+| | `update_widget` | Update a widget's title, query specification, or display configuration. |
+| | `delete_widget` | Remove a widget from its dashboard (requires audit reason). |
+| **Alerts** | `create_alert` | Set up a metric threshold alert rule with window and renotify policies. |
+| | `update_alert` | Modify alert threshold, comparison operator, window, or notification target. |
+| | `delete_alert` | Remove an alert rule (requires audit reason). |
+| | `set_alert_status` | Toggle an alert between `ACTIVE` and `PAUSED`. |
+
+<Note>
+The agent operates strictly within the current project tenancy. It **cannot create, update, or delete workspaces or projects**.
+</Note>
+
+---
+
+## The Propose-Then-Approve Card
+
+In interactive (attended) chat sessions, when the agent decides to invoke a write tool, it does not execute the action immediately. Instead, execution pauses and renders an interactive **decision card** in the chat stream:
+
+### Decision Options
+
+Depending on the nature of the action, the card offers distinct decision choices:
+
+1. **Creates and Updates** (`confirm` class):
+   - **Approve**: Executes the write tool call with the proposed arguments.
+   - **Skip**: Cancels the call. The agent acknowledges the skip and continues the conversation without retrying.
+   - **Revise**: Allows you to provide natural language feedback or corrections (e.g., *"Change the threshold to 500ms"*). The agent immediately re-proposes the tool call with your revisions applied.
+
+2. **Deletes** (`approval` class):
+   - **Approve or Skip Only**: Destructive actions can only be approved or skipped. A revision submitted on a delete proposal settles as a skip—a skipped delete is never re-proposed.
+   - **Mandatory Reason**: Every delete operation requires an audit justification reason of **3 to 500 characters** (`DELETE_REASON_MIN = 3`, `DELETE_REASON_MAX = 500`), which is stored permanently on the audit log record.
+
+### Unattended Sessions
+
+In unattended or background sessions (where no human user is present to answer confirmation cards):
+- **Creates and Updates**: Execute immediately without parking for confirmation.
+- **Deletes**: **Fail closed**. Destructive delete operations are blocked immediately and can never run without an interactive human approval.
+
+### 10-Minute Timeout
+
+In attended sessions, approval proposals do not stay open indefinitely:
+- **Automatic Timeout**: If a proposal is left unanswered for **10 minutes** (`DECISION_TIMEOUT_MS = 10 * 60 * 1000`), TraceRoot automatically skips that pending action.
+- **Scope**: No change from the unanswered proposal is applied, while any earlier approved actions in the same turn remain in effect.
+- **Session Concurrency**: At most **one decision** can be pending per chat session at any given time (`MAX_PARKED_PER_SESSION = 1`).
+
+---
+
+## Create Behavior When Resources Exist
+
+How the agent handles creating a resource whose name already exists differs by resource type:
+
+| Resource | Agent Create Behavior | Public API / CLI Behavior |
+| :--- | :--- | :--- |
+| **Detectors** | **Idempotent by name**. Returns the existing detector row without creating a duplicate. | Idempotent by name. |
+| **Dashboards** | **Auto-suffixes name**. Creates a new dashboard with `" (2)"` (then `" (3)"`, etc., trimmed to the 50-char limit) because human confirmation was explicitly given. | Idempotent by name (returns existing dashboard with `created: false`). |
+| **Widgets** | **Strict create**. Every create adds a new widget to the target dashboard. | Strict create. |
+| **Alerts** | **Strict create**. Alerts share names freely; every create call establishes a distinct alert rule. | Strict create. |
+
+---
+
+## Audit Logging
+
+Every write action executed by the agent is permanently recorded in your workspace's append-only audit trail (`AuditLog`):
+
+- **Provenance**: Rows are stamped with `transport: "agent"` to distinguish them from direct Public API calls (`"public-api"`) or manual web UI operations.
+- **Session Tracking**: Each audit entry records the `agentSessionId`, linking the modification directly to the chat conversation where the user approved it.
+- **Survives Deletion**: Audit logs have no foreign key cascades—even if a detector or dashboard is later deleted, the audit history remains intact for security reviews and compliance reporting.
+
+---
+
+## Observability & Agent Traces
+
+TraceRoot applies unified tracing across both user applications and internal agent operations:
+
+- **Finding Traces**: When an LLM-as-a-judge detector fires, the resulting finding links directly to the root cause analysis (RCA) agent's execution trace.
+- **Chat Turn Traces**: Each assistant message in Home or the assistant drawer includes a **View trace** button (when the trace is available or uploading), opening the execution trace for that specific conversational turn.
+- **Filtered by Default**: Internal agent and detector self-traces are marked with `source = "agent"` and `source = "detector"`. They are automatically filtered out from customer application traffic (`customer_traffic_only`) so they never skew your production trace lists or dashboard metrics.
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Home Assistant" icon="house" href="/ai-agent/home">
+    Start conversations and manage project resources from the full-page Home interface.
+  </Card>
+  <Card title="Agent Tools" icon="wrench" href="/ai-agent/tools">
+    Review the full catalog of read and investigation tools.
+  </Card>
+</CardGroup>
