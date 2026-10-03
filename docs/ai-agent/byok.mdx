@@ -5,7 +5,7 @@ description: Use your own LLM API keys to power the TraceRoot AI agent
 
 By default, TraceRoot provides system models for the AI agent. With BYOK, you can bring your own API keys to control which model is used.
 
-## Default Models
+## Default System Models
 
 | Provider | Models (first entry is the default) |
 |----------|--------------------------------------|
@@ -13,6 +13,22 @@ By default, TraceRoot provides system models for the AI agent. With BYOK, you ca
 | OpenAI | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5`, `gpt-5-mini`, `o3`, `o4-mini`, `gpt-5.3-codex` |
 
 See [Supported Models](/integrations/internal-models) for a description of each system model.
+
+## Anthropic BYOK Models
+
+When adding a model to an Anthropic BYOK provider, the first entry is selected by default:
+
+- `claude-opus-5-5`
+- `claude-opus-5`
+- `claude-opus-4-8`
+- `claude-opus-4-7`
+- `claude-opus-4-6`
+- `claude-opus-4-5`
+- `claude-sonnet-5`
+- `claude-sonnet-4-6`
+- `claude-sonnet-4-5`
+- `claude-haiku-4-5`
+- `claude-fable-5`
 
 ## Supported Providers
 

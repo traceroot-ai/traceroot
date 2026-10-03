@@ -38,6 +38,17 @@ describe("isDecisionModelId", () => {
 });
 
 describe("ADAPTER_MODELS", () => {
+  it("lists Opus 5.5 first for Anthropic BYOK without promoting a hosted default", () => {
+    expect(ADAPTER_MODELS.anthropic?.[0]).toEqual({
+      id: "claude-opus-5-5",
+      label: "claude-opus-5-5",
+    });
+    expect(defaultApiProtocol("anthropic", "claude-opus-5-5")).toBe("anthropic-messages");
+    expect(
+      SYSTEM_MODELS.flatMap((provider) => provider.models.map((model) => model.id)),
+    ).not.toContain("claude-opus-5-5");
+  });
+
   it("contains no duplicate model IDs within a single adapter", () => {
     for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
       if (!models) continue;
@@ -211,4 +222,17 @@ describe("docs stay in sync with SYSTEM_MODELS", () => {
       ).toEqual([...expectedIds]);
     },
   );
+});
+
+describe("docs stay in sync with the Anthropic BYOK catalogue", () => {
+  it("lists the curated models in dropdown order", () => {
+    const doc = readFileSync(
+      new URL("../../../../../docs/ai-agent/byok.mdx", import.meta.url),
+      "utf8",
+    );
+    const section = doc.split("## Anthropic BYOK Models")[1]?.split("\n## ")[0];
+    expect(section, "missing Anthropic BYOK Models section").toBeDefined();
+    const documentedIds = [...section!.matchAll(/^- `([^`]+)`/gm)].map((match) => match[1]);
+    expect(documentedIds).toEqual(ADAPTER_MODELS.anthropic!.map((model) => model.id));
+  });
 });

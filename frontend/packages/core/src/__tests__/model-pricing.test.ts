@@ -1,3 +1,4 @@
+import standardModels from "../standard-model-prices.json";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // lookup.ts imports prisma at module load (registerCacheClear); mock it so the
@@ -187,4 +188,92 @@ describe("getModelPricing — uncompilable pattern", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("broken-entry"), expect.anything());
     warn.mockRestore();
   });
+});
+
+describe("Opus 5.5 prices from the production catalogue", () => {
+  const aliases = [
+    "claude-opus-5-5",
+    "anthropic/claude-opus-5-5",
+    "anthropic.claude-opus-5-5",
+    "Anthropic/Claude-Opus-5-5",
+  ];
+  const prices = {
+    input: 0.000004,
+    output: 0.00002,
+    cacheRead: 0.0000002,
+    cacheWrite: 0.000005,
+    cacheWrite1h: 0.000008,
+  };
+  const oldAliases = [
+    "claude-opus-5",
+    "anthropic/claude-opus-5",
+    "claude-opus-5-20260728",
+    "claude-opus-5-2026-07-28",
+    "claude-opus-5@20260728",
+    "claude-5-opus@20260728",
+    "claude-opus-5[1m]",
+    "us.anthropic.claude-opus-5-20260728-v1:0",
+    "eu.anthropic.claude-opus-5-2026-07-28-v1:0",
+  ];
+
+  it.each(["catalogue", "reversed", "alphabetical"])(
+    "keeps rates distinct in %s row order",
+    async (order) => {
+      const entries = [...standardModels];
+      if (order === "reversed") entries.reverse();
+      if (order === "alphabetical") entries.sort((a, b) => a.modelName.localeCompare(b.modelName));
+      const { getModelPricing: lookup, calculateCost: cost } = await loadWithCatalogue(
+        entries.map((entry) => ({
+          modelName: entry.modelName,
+          matchPattern: entry.matchPattern,
+          prices: Object.entries(entry.prices)
+            .filter(([, price]) => price !== null)
+            .map(([usageType, price]) => ({ usageType, price })),
+        })),
+      );
+      for (const alias of aliases) {
+        const matches = entries.filter((entry) =>
+          new RegExp(entry.matchPattern.replace(/^\(\?i\)/, ""), "i").test(alias),
+        );
+        expect(
+          matches.map((entry) => entry.modelName),
+          alias,
+        ).toEqual(["claude-opus-5-5"]);
+        expect(await lookup(alias), alias).toEqual(prices);
+        expect(await cost(alias, 1000, 500, 200, 300, 100), alias).toBeCloseTo(0.01584, 12);
+      }
+      for (const alias of [
+        "claude-opus-5-5-fast",
+        "anthropic/claude-opus-5-5-fast",
+        "Anthropic/Claude-Opus-5-5-Fast",
+      ]) {
+        const matches = entries.filter((entry) =>
+          new RegExp(entry.matchPattern.replace(/^\(\?i\)/, ""), "i").test(alias),
+        );
+        expect(
+          matches.map((entry) => entry.modelName),
+          alias,
+        ).toEqual(["claude-opus-5-5-fast"]);
+        expect(await lookup(alias), alias).toEqual({
+          input: 0.000008,
+          output: 0.00004,
+          cacheRead: 0.0000004,
+          cacheWrite: 0.00001,
+          cacheWrite1h: 0.000016,
+        });
+        expect(await cost(alias, 1000, 500, 200, 300, 100), alias).toBeCloseTo(0.03168, 12);
+      }
+      for (const alias of oldAliases) expect(await lookup(alias), alias).toEqual(CLAUDE);
+      expect(await lookup("anthropic/claude-opus-5-fast")).toEqual({
+        input: 0.00001,
+        output: 0.00005,
+        cacheRead: 0.000001,
+        cacheWrite: 0.0000125,
+        cacheWrite1h: 0.00002,
+      });
+      for (const alias of ["claude-opus-5-5-20260922", "claude-opus-5.5"]) {
+        expect(await lookup(alias), alias).toBeNull();
+      }
+    },
+  );
 });
