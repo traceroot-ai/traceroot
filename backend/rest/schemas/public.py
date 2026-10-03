@@ -429,10 +429,22 @@ class SqlRequest(BaseModel):
 
 
 class SqlColumn(BaseModel):
-    """One column of a result, named and typed as ClickHouse reported it."""
+    """One column of a result, named and typed as ClickHouse reported it.
+
+    A result with no rows carries no metadata from the driver, so its columns are
+    named from the statement's own projection instead.
+    """
 
     name: str
-    type: str
+    # Always present, and null only for a result that came back with no rows and
+    # so no metadata, and whose expression the curated schema cannot type on its
+    # own. A column is never dropped for want of a type.
+    type: str | None = Field(
+        description=(
+            "ClickHouse type name, null when the result carried no rows and so no "
+            "metadata, and the curated schema does not type the expression on its own"
+        ),
+    )
 
 
 class SqlResponse(BaseModel):

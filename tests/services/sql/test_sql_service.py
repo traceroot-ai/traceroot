@@ -15,6 +15,7 @@ from clickhouse_connect.datatypes.registry import get_from_name
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
 from rest.services.sql.errors import SqlExecutionError, SqlValidationError
+from rest.services.sql.schema import PUBLIC_TABLES
 from rest.services.sql.service import (
     SqlQueryService,
     classify_ch_error,
@@ -27,7 +28,9 @@ PID = "acme_corp:proj.123-abc"
 class FakeResult:
     def __init__(self, rows: list[list[Any]], columns: list[str] | None = None) -> None:
         self.result_rows = rows
-        self.column_names = columns or ["span_id"]
+        # `None` is "whatever the default is"; `[]` is the driver reporting no
+        # column metadata at all, which is what it does for a result with no rows.
+        self.column_names = ["span_id"] if columns is None else columns
         # Real driver type objects, as clickhouse-connect returns them.
         self.column_types = [get_from_name("String")] * len(self.column_names)
         self.summary = {"read_rows": "42", "read_bytes": "4096"}
@@ -36,16 +39,22 @@ class FakeResult:
 class FakeClient:
     """Records the call and returns canned rows, or raises what it was given."""
 
-    def __init__(self, rows: list[list[Any]] | None = None, raises: Exception | None = None):
+    def __init__(
+        self,
+        rows: list[list[Any]] | None = None,
+        raises: Exception | None = None,
+        columns: list[str] | None = None,
+    ):
         self.rows = rows if rows is not None else []
         self.raises = raises
+        self.columns = columns
         self.calls: list[dict[str, Any]] = []
 
     def query(self, query: str, parameters: Any = None, settings: Any = None) -> FakeResult:
         self.calls.append({"query": query, "parameters": parameters, "settings": settings})
         if self.raises is not None:
             raise self.raises
-        return FakeResult(self.rows)
+        return FakeResult(self.rows, self.columns)
 
     @property
     def last(self) -> dict[str, Any]:
@@ -460,6 +469,91 @@ class TestResultShape:
         client = FakeClient(rows=[["s1"]])
         result = _service(client).run("SELECT span_id FROM spans", PID)
         assert result.elapsed_ms >= 0
+
+
+# ---------------------------------------------------------------------------
+# An empty result still says what it is empty of
+# ---------------------------------------------------------------------------
+class TestEmptyResultColumns:
+    """The driver reports no column names or types for a result with no rows.
+
+    Every other test in this file has rows behind it, which is why none of them
+    could fail on the answer being shapeless. An empty answer is the ordinary
+    answer to a time-windowed query over a quiet day.
+    """
+
+    @staticmethod
+    def _empty() -> FakeClient:
+        return FakeClient(rows=[], columns=[])
+
+    def test_the_named_columns_come_from_the_statement(self) -> None:
+        result = _service(self._empty()).run("SELECT span_id, name FROM spans", PID)
+        assert [c.name for c in result.columns] == ["span_id", "name"]
+        assert result.rows == []
+        assert result.row_count == 0
+
+    def test_a_curated_column_carries_its_declared_type(self) -> None:
+        result = _service(self._empty()).run("SELECT span_id, duration_ms FROM spans", PID)
+        assert [(c.name, c.type) for c in result.columns] == [
+            ("span_id", "String"),
+            ("duration_ms", "Nullable(Int64)"),
+        ]
+
+    def test_an_alias_names_the_column(self) -> None:
+        result = _service(self._empty()).run("SELECT span_id AS id FROM spans", PID)
+        assert [(c.name, c.type) for c in result.columns] == [("id", "String")]
+
+    def test_a_star_expands_to_the_curated_columns(self) -> None:
+        result = _service(self._empty()).run("SELECT * FROM traces", PID)
+        assert [(c.name, c.type) for c in result.columns] == [
+            (c.name, c.type) for c in PUBLIC_TABLES["traces"].columns
+        ]
+
+    def test_a_computed_column_is_named_but_left_untyped(self) -> None:
+        # Only ClickHouse settles what count() returns, and a type invented here
+        # would be trusted by whatever builds a schema from the answer.
+        result = _service(self._empty()).run(
+            "SELECT name, count() AS hits FROM spans GROUP BY name", PID
+        )
+        assert [(c.name, c.type) for c in result.columns] == [("name", "String"), ("hits", None)]
+
+    def test_an_unaliased_expression_is_named_as_it_was_written(self) -> None:
+        result = _service(self._empty()).run("SELECT duration_ms * 2 FROM spans", PID)
+        assert [(c.name, c.type) for c in result.columns] == [("duration_ms * 2", None)]
+
+    def test_each_side_of_a_join_keeps_its_own_type(self) -> None:
+        result = _service(self._empty()).run(
+            "SELECT sp.duration_ms, tr.user_id FROM spans AS sp"
+            " JOIN traces AS tr ON sp.trace_id = tr.trace_id",
+            PID,
+        )
+        assert [(c.name, c.type) for c in result.columns] == [
+            ("duration_ms", "Nullable(Int64)"),
+            ("user_id", "Nullable(String)"),
+        ]
+
+    def test_a_union_is_named_by_its_first_arm_and_left_untyped(self) -> None:
+        # ClickHouse names a union's columns after the first arm but types them as
+        # the common type across every arm, which nothing here can work out.
+        result = _service(self._empty()).run(
+            "SELECT span_id AS id FROM spans UNION ALL SELECT trace_id AS id FROM traces", PID
+        )
+        assert [(c.name, c.type) for c in result.columns] == [("id", None)]
+
+    def test_a_projection_that_cannot_be_resolved_describes_nothing(self) -> None:
+        # ARRAY JOIN puts its own alias in the row, so a `*` beside one stands for
+        # more than the curated schema names. Saying nothing beats saying it wrong.
+        result = _service(self._empty()).run(
+            "SELECT * FROM spans AS s ARRAY JOIN mapKeys(s.metadata) AS k", PID
+        )
+        assert result.columns == []
+
+    def test_the_driver_still_decides_when_it_answered(self) -> None:
+        # Rows behind it: the driver's own names and types are the contract, and
+        # the statement is not consulted at all.
+        client = FakeClient(rows=[["s1"]], columns=["renamed_by_the_server"])
+        result = _service(client).run("SELECT span_id FROM spans", PID)
+        assert [(c.name, c.type) for c in result.columns] == [("renamed_by_the_server", "String")]
 
 
 # ---------------------------------------------------------------------------
