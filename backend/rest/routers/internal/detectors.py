@@ -103,6 +103,16 @@ class DetectorFindingPayload(BaseModel):
     timestamp_ms: int | None = Field(default=None, alias="timestampMs")
 
 
+class DetectorWindowSummaryRequest(BaseModel):
+    """Body form used when callers need a detector-scoped window rollup."""
+
+    project_id: str
+    start_after: datetime
+    end_before: datetime | None = None
+    include_summaries: bool = False
+    detector_ids: list[str]
+
+
 def _maybe_stamp_timestamp(
     cols: list[str], vals: list[str], params: dict, timestamp_ms: int | None
 ) -> None:
@@ -534,13 +544,16 @@ def _fetch_sample_summaries(
     """
     try:
         summary_expr = _detector_summary_expr("r.latest_finding_id")
+        detector_scope_clause = (
+            " AND detector_id IN {detector_ids:Array(String)}" if "detector_ids" in params else ""
+        )
         # Probe side bounded BEFORE the join (window bound, non-null
         # finding, per-detector cap), so the join probes at most
-        # DIGEST_SUMMARY_MAX_PER_DETECTOR x n_detectors rows. RCA-disabled
-        # detectors still consume budget here (the digest drops them
-        # later); accepted for v1. Written once and reused in the join's
-        # semi-filter below, at the cost of ClickHouse evaluating it twice
-        # (the runs collapse is far cheaper than a whole-history payload
+        # DIGEST_SUMMARY_MAX_PER_DETECTOR x n_detectors rows. A caller-provided
+        # detector scope is applied before collapse, so excluded detectors do
+        # not consume the rank-major sample budget. Written once and reused in
+        # the join's semi-filter below, at the cost of ClickHouse evaluating it
+        # twice (the runs collapse is far cheaper than a whole-history payload
         # read).
         sampled_probe = f"""
                     SELECT detector_id, latest_finding_id, ts
@@ -555,7 +568,7 @@ def _fetch_sample_summaries(
                             {_LATEST_FINDING_PICK_SQL} AS latest_finding_id,
                             max(timestamp)                AS ts
                         FROM detector_runs
-                        WHERE project_id = {{project_id:String}}
+                        WHERE project_id = {{project_id:String}}{detector_scope_clause}
                         GROUP BY detector_id, run_id
                     )
                     WHERE {window_clause} AND latest_finding_id IS NOT NULL
@@ -641,6 +654,10 @@ async def list_detector_window_summary(
             "(capped in SQL) for the digest LLM summary"
         ),
     ),
+    detector_ids: list[str] | None = Query(
+        None,
+        description="Optional detector ids to include in counts and samples",
+    ),
 ):
     """Aggregate run/finding counts and the latest triggered trace per detector.
 
@@ -658,10 +675,12 @@ async def list_detector_window_summary(
     ``finding_count`` and ``sample_trace_ids`` come straight off the runs — no
     ``detector_findings`` JOIN, and no second per-detector read (the digest used
     to fetch the latest trace via a now-removed ``GET /detector-findings``;
-    folding it in here removes that N+1). ``sample_trace_ids`` holds the most
-    recent *triggered* run's trace (one today, shaped as a list so we can
-    surface more later), or an empty list for a detector that ran but never
-    fired.
+    folding it in here removes that N+1). ``distinct_finding_count`` deduplicates
+    those run-level ids across every included detector in the window, so
+    co-triggering detectors do not multiply the digest header.
+    ``sample_trace_ids`` holds the most recent *triggered* run's trace (one
+    today, shaped as a list so we can surface more later), or an empty list for
+    a detector that ran but never fired.
 
     Detectors with no runs in the window are omitted; the frontend defaults
     absent entries to {findingCount: 0, runCount: 0}.
@@ -680,6 +699,12 @@ async def list_detector_window_summary(
     """
     ch = get_clickhouse_client()
 
+    # An explicitly empty scope is a valid no-op. The digest worker uses this
+    # behavior to avoid an unscoped query when a project has no RCA-enabled
+    # detectors.
+    if detector_ids == []:
+        return {"data": {}, "distinct_finding_count": 0}
+
     # Window on the collapsed timestamp (outer), not the raw rows (inner): the
     # dedup must happen first so a run is placed by its latest version, matching
     # FINAL across retries that re-stamp near a window boundary.
@@ -693,33 +718,50 @@ async def list_detector_window_summary(
         params["end_before"] = to_utc_naive(end_before)
     window_clause = " AND ".join(window_conditions)
 
-    query = f"""
+    run_conditions = ["project_id = {project_id:String}"]
+    if detector_ids is not None:
+        run_conditions.append("detector_id IN {detector_ids:Array(String)}")
+        params["detector_ids"] = detector_ids
+    run_clause = " AND ".join(run_conditions)
+
+    collapsed_runs_query = f"""
         SELECT
+            detector_id,
+            run_id,
+            -- NULL-preserving shared pick: the count must retract a
+            -- clean re-eval'd run exactly when the sample does.
+            {_LATEST_FINDING_PICK_SQL} AS latest_finding_id,
+            argMax(trace_id, timestamp) AS latest_trace_id,
+            max(timestamp)              AS ts
+        FROM detector_runs
+        WHERE {run_clause}
+        GROUP BY detector_id, run_id
+    """
+    query = f"""
+        WITH windowed_runs AS (
+            SELECT *
+            FROM ({collapsed_runs_query})
+            WHERE {window_clause}
+        )
+        SELECT
+            grouping(detector_id)                                        AS is_total,
             detector_id,
             count()                                                      AS run_count,
             countIf(latest_finding_id IS NOT NULL)                       AS finding_count,
-            argMaxIf(latest_trace_id, ts, latest_finding_id IS NOT NULL) AS latest_trace_id
-        FROM (
-            SELECT
-                detector_id,
-                run_id,
-                -- NULL-preserving shared pick: the count must retract a
-                -- clean re-eval'd run exactly when the sample does.
-                {_LATEST_FINDING_PICK_SQL} AS latest_finding_id,
-                argMax(trace_id, timestamp) AS latest_trace_id,
-                max(timestamp)              AS ts
-            FROM detector_runs
-            WHERE project_id = {{project_id:String}}
-            GROUP BY detector_id, run_id
-        )
-        WHERE {window_clause}
-        GROUP BY detector_id
+            argMaxIf(latest_trace_id, ts, latest_finding_id IS NOT NULL) AS latest_trace_id,
+            uniqExactIf(latest_finding_id, latest_finding_id IS NOT NULL) AS distinct_finding_count
+        FROM windowed_runs
+        GROUP BY GROUPING SETS ((detector_id), ())
     """
 
     result = ch.query(query, parameters=params)
     data: dict[str, dict] = {}
+    distinct_finding_count = 0
     for row in result.result_rows:
         row_dict = dict(zip(result.column_names, row))
+        if int(row_dict["is_total"]) == 1:
+            distinct_finding_count = int(row_dict["distinct_finding_count"])
+            continue
         # One representative trace today, shaped as a list so surfacing more
         # later (groupArray in the query) needs no contract change. "" (a
         # detector that ran but never fired) collapses to an empty list.
@@ -735,4 +777,20 @@ async def list_detector_window_summary(
             if detector_id in data:
                 data[detector_id]["sample_summaries"] = summaries
 
-    return {"data": data}
+    return {"data": data, "distinct_finding_count": distinct_finding_count}
+
+
+@router.post(
+    "/detector-window-summary",
+    response_model=DetectorWindowSummaryResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def query_detector_window_summary(body: DetectorWindowSummaryRequest):
+    """Return a detector-scoped rollup without putting an id list in the URL."""
+    return await list_detector_window_summary(
+        project_id=body.project_id,
+        start_after=body.start_after,
+        end_before=body.end_before,
+        include_summaries=body.include_summaries,
+        detector_ids=body.detector_ids,
+    )

@@ -40,7 +40,7 @@ function createTransport() {
 
 /**
  * Send a windowed digest email summarizing all findings in a time window:
- * one row per detector with its finding count and latest trace. No RCA and no
+ * one row per detector with its trigger count and latest trace. No RCA and no
  * per-finding summary — matches the Slack digest content.
  */
 export async function sendDigestAlertEmail(params: {
@@ -84,12 +84,12 @@ export async function sendDigestAlertEmail(params: {
   ];
   if (summaryText) textParts.splice(2, 0, ``, summaryText);
   for (const e of shown) {
-    const findingNoun = e.findingCount === 1 ? "finding" : "findings";
+    const triggerNoun = e.findingCount === 1 ? "trigger" : "triggers";
     // Omit the trace segment when there is no latest trace (mirrors the Slack
     // builder), so we never emit a blank/broken trace link.
     const latest = e.latestTraceId ? ` · latest ${e.latestTraceId.slice(0, 8)}` : "";
     textParts.push(
-      `- ${e.detectorName} — ${e.findingCount} ${findingNoun}${latest}`,
+      `- ${e.detectorName} — ${e.findingCount} ${triggerNoun}${latest}`,
       `  ${findingsUrlFor(e.detectorId)}`,
     );
   }
@@ -97,13 +97,13 @@ export async function sendDigestAlertEmail(params: {
 
   const htmlRows = shown
     .map((e) => {
-      const findingNoun = e.findingCount === 1 ? "finding" : "findings";
+      const triggerNoun = e.findingCount === 1 ? "trigger" : "triggers";
       // Trace IDs come from SDK-submitted telemetry, so escape the displayed
       // prefix like the detector name; the href is already URL-encoded.
       const latest = e.latestTraceId
         ? ` · latest <a href="${traceUrlFor(e.latestTraceId)}" style="color: #888;">${escapeHtml(e.latestTraceId.slice(0, 8))}</a>`
         : "";
-      return `<p style="margin: 6px 0; color: #333; font-size: 14px; line-height: 1.6;"><a href="${findingsUrlFor(e.detectorId)}" style="color: #000; font-weight: 500;">${escapeHtml(e.detectorName)}</a> <span style="color: #888;">— ${e.findingCount} ${findingNoun}${latest}</span></p>`;
+      return `<p style="margin: 6px 0; color: #333; font-size: 14px; line-height: 1.6;"><a href="${findingsUrlFor(e.detectorId)}" style="color: #000; font-weight: 500;">${escapeHtml(e.detectorName)}</a> <span style="color: #888;">— ${e.findingCount} ${triggerNoun}${latest}</span></p>`;
     })
     .concat(
       omitted > 0

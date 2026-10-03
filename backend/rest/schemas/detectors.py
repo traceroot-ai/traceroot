@@ -46,7 +46,11 @@ class DetectorWindowSummary(BaseModel):
 
 
 class DetectorWindowSummaryResponse(BaseModel):
-    """Map of detector_id -> window summary. Detectors with zero runs in the
-    window are omitted; the frontend defaults absent entries to {0, 0}."""
+    """Per-detector rollups plus distinct findings in the requested scope/window.
+
+    Detectors with zero runs in the window are omitted; the frontend defaults
+    absent entries to {0, 0}.
+    """
 
     data: dict[str, DetectorWindowSummary]
+    distinct_finding_count: int

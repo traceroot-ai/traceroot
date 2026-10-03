@@ -30,6 +30,7 @@ export function truncateEscaped(text: string, max = SECTION_LIMIT): string {
 export interface DigestEntry {
   detectorId: string;
   detectorName: string;
+  /** Per-detector trigger count; one finding may trigger several detectors. */
   findingCount: number;
   latestTraceId: string;
 }
@@ -147,7 +148,7 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
     // the name here keeps each kind of cut in its own lane.
     const name = truncateEscaped(escapeMrkdwn(e.detectorName), DETECTOR_NAME_CAP);
     const text =
-      `*<${findingsUrl}|${name}>* — ${e.findingCount} ${e.findingCount === 1 ? "finding" : "findings"}` +
+      `*<${findingsUrl}|${name}>* — ${e.findingCount} ${e.findingCount === 1 ? "trigger" : "triggers"}` +
       (e.latestTraceId
         ? ` · latest: <${traceUrl(appBaseUrl, projectId, e.latestTraceId)}|${shortTrace}>`
         : "");
