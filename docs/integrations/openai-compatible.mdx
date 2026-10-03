@@ -1,0 +1,121 @@
+---
+title: OpenAI-Compatible Providers
+description: Trace xAI, Moonshot, Z.AI and any other OpenAI-compatible API through the OpenAI integration
+---
+
+Any provider that speaks the OpenAI API can be traced through TraceRoot's OpenAI integration. Use the standard `openai` SDK and point the client at the provider's base URL — no provider-specific instrumentor or enum is required.
+
+## Base URLs
+
+| Provider        | Base URL                               |
+| --------------- | -------------------------------------- |
+| xAI (Grok)      | `https://api.x.ai/v1`                  |
+| Moonshot (Kimi) | `https://api.moonshot.ai/v1`           |
+| Z.AI (GLM)      | `https://open.bigmodel.cn/api/paas/v4` |
+
+Any other OpenAI-compatible endpoint works the same way, including self-hosted servers such as vLLM or a LiteLLM proxy: pass its URL as the base URL. [OpenRouter](/integrations/openrouter) follows the same pattern.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = openai.OpenAI(
+        api_key=os.environ["XAI_API_KEY"],
+        base_url="https://api.x.ai/v1",
+    )
+    ```
+
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: OpenAI },
+    });
+
+    const openai = new OpenAI({
+      apiKey: process.env.XAI_API_KEY,
+      baseURL: 'https://api.x.ai/v1',
+    });
+    ```
+
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+
+    client = openai.OpenAI(
+        api_key=os.environ["XAI_API_KEY"],
+        base_url="https://api.x.ai/v1",
+    )
+
+    # This xAI call is traced by TraceRoot's OpenAI integration
+    response = client.chat.completions.create(
+        model="grok-4.20",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+
+    const openai = new OpenAI({
+      apiKey: process.env.XAI_API_KEY,
+      baseURL: 'https://api.x.ai/v1',
+    });
+
+    // This xAI call is traced by TraceRoot's OpenAI integration
+    const response = await openai.chat.completions.create({
+      model: 'grok-4.20',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'What is the capital of France?' },
+      ],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+
+  </Tab>
+</Tabs>
+
+To use Moonshot or Z.AI instead, swap the API key and base URL from the table above and pass one of that provider's model ids, such as `kimi-k2.6` or `glm-5.1`.
+
+## What Gets Captured
+
+| Attribute  | Description                                                                      |
+| ---------- | -------------------------------------------------------------------------------- |
+| Model      | The model id sent to the provider, such as `grok-4.20`, `kimi-k2.6` or `glm-5.1` |
+| Messages   | Input messages array                                                             |
+| Response   | Completion content                                                               |
+| Tool calls | Function/tool call inputs and outputs when using the OpenAI SDK tool-calling API |
+| Tokens     | Prompt, completion, and total tokens when returned by the provider               |
+| Latency    | Request duration                                                                 |
+| Cost       | Calculated for model ids in TraceRoot's pricing table                            |
+
+## Cost
+
+Cost is calculated only for model ids listed in TraceRoot's pricing table ([`standard-model-prices.json`](https://github.com/traceroot-ai/traceroot/blob/main/frontend/packages/core/src/standard-model-prices.json)). Calls to other models are still traced with their messages, tokens and latency, but without a cost. See [Cost Tracking](/tracing/cost-tracking) for details.
