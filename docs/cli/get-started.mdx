@@ -15,37 +15,113 @@ npm install -g traceroot-cli
 
 ## Authenticate
 
+The CLI authenticates with either a **browser login** (the default interactive device flow) or a **project API key** (for CI environments and scripts).
+
+### Browser login (default)
+
+Run `traceroot login` to sign in through your browser:
+
 ```bash
 traceroot login
 ```
 
-This validates your project API key and saves it locally, so later commands need no flags. Create API keys in [TraceRoot Cloud](https://app.traceroot.ai) or your [self-hosted](/developer/self-hosting) dashboard.
+This initiates an OAuth device flow (RFC 8628), opens your browser to authorize access, and saves a session credential to `~/.config/traceroot/credentials.json`. The session token is automatically refreshed before each request.
 
-For CI or scripts, set environment variables instead — the same ones the SDKs use:
+### API key login (CI & scripts)
+
+For CI pipelines, automated scripts, or headless environments, use a project API key (`tr-...`):
+
+```bash
+traceroot login --api-key tr-...
+```
+
+This validates the key against the API and saves it to `./.traceroot/config.json`.
+
+You can also pass credentials using environment variables, `--env-file`, or an auto-discovered `./.env` file:
 
 ```bash .env
-TRACEROOT_API_KEY=tr_...
+TRACEROOT_API_KEY=tr-...
 TRACEROOT_HOST_URL=https://app.traceroot.ai
 ```
 
-Confirm the credentials resolve to the right place:
+The CLI resolves credentials in this order:
+1. `--api-key` flag
+2. `--env-file <path>`
+3. `TRACEROOT_TOKEN` environment variable
+4. Credentials file (`~/.config/traceroot/credentials.json`)
+5. `TRACEROOT_API_KEY` environment variable
+6. Config file (`./.traceroot/config.json`)
+7. Auto-discovered `./.env`
+
+<Note>
+Because the CLI automatically discovers and loads `./.env`, having `TRACEROOT_API_KEY` in your `./.env` will automatically select key mode.
+</Note>
+
+Create API keys in [TraceRoot Cloud](https://app.traceroot.ai) or your [self-hosted](/developer/self-hosting) dashboard.
+
+### Verify credentials
+
+Confirm your active identity:
 
 ```bash
 traceroot status
 ```
 
-## Inspect and export traces
+- **Browser login**: Displays your authenticated email address, host URL, active project (or a hint to select one), and accessible workspaces.
+- **API key login**: Displays your workspace, project, host URL, and a masked key hint (e.g. `tr-d0a3-…-57e3`).
+
+## Scope to a project
+
+A browser login identifies *you* across your workspaces rather than binding to a single project. Because commands such as `traces` and `evals` are project-scoped, you must select a project before running them. (If you authenticated with an API key, your key is already scoped to a specific project and this step is not needed.)
+
+1. List the projects you can access to find your project ID:
 
 ```bash
-# List recent traces, newest first
+traceroot projects list
+```
+
+2. Set `TRACEROOT_PROJECT_ID` so subsequent commands run without extra flags:
+
+```bash
+export TRACEROOT_PROJECT_ID=<project-id>
+```
+
+Alternatively, you can pass `--project <id>` to individual commands.
+
+## Inspect and export traces
+
+Once authenticated and scoped to a project, list, inspect, and export traces:
+
+```bash
+# List recent traces, newest first (filter by time with --since, --from, or --to)
 traceroot traces list --limit 10
 
-# Inspect one: span tree, duration, I/O preview, and a link to open it in TraceRoot
+# Inspect one trace: header, duration, span tree, and web app link
 traceroot traces get <trace-id>
+
+# Fetch full trace details including span inputs, outputs, and metadata as JSON
+traceroot traces get <trace-id> --fields full --json
 
 # Write a full trace bundle to disk to share or feed into another tool
 traceroot traces export <trace-id> --output ./my-trace
 ```
+
+### Trace projections and field groups (`--fields`)
+
+By default, `traceroot traces get` prints the trace header, an optional detector finding block, the span tree, and the web app URL.
+
+When emitting JSON (`--json`), `traceroot traces get` defaults to the lightweight `skeleton` projection, leaving span `input`, `output`, and `metadata` as `null` to minimize payload size. Pass `--fields` to include specific data groups:
+
+- **Field groups**: `core`, `usage`, `io`, `metadata`
+- **Aliases**: `skeleton` (`core,usage`) and `full` (`core,usage,io,metadata`)
+
+For example, pass `--fields full` (or `--fields io,metadata`) to include span I/O in the JSON payload:
+
+```bash
+traceroot traces get <trace-id> --fields full --json
+```
+
+In contrast, `traceroot traces export` defaults to the `full` projection, writing `trace.json`, `spans.json`, `git_context.json`, `manifest.json`, and `finding.json` (if flagged by a detector) into the destination directory. Pass `--fields <groups>` to narrow what is exported.
 
 ## Read evaluations
 
@@ -70,11 +146,12 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 
 | Command | What it does |
 | :-- | :-- |
-| `login` | Validate an API key and save credentials. |
-| `status` | Show the identity your credentials resolve to — workspace, project, host, and key hint. |
-| `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
-| `traces get <id>` | Show one trace: header, span tree, duration, and I/O preview. `--json` emits the full trace. |
-| `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index to a directory. Flags: `--output <dir>`, `--force`. |
+| `login` | Sign in with your browser (device flow) and store session credentials. Pass `--api-key <key>` to validate and save an API key instead. |
+| `status` | Show the identity your credentials resolve to — email, host, project, and workspaces (browser login) or workspace, project, host, and key hint (API key). |
+| `projects list` | List accessible projects across workspaces; the `PROJECT ID` column is what `--project` and `TRACEROOT_PROJECT_ID` take. Flag: `--workspace-id <id>`. |
+| `traces list` | List traces for your project, newest first. Flags: `--limit <n>`, `--since <dur>`, `--from <time>`, `--to <time>`. |
+| `traces get <id>` | Show one trace: header, span tree, duration, and link to open in TraceRoot. Defaults to the `skeleton` projection (no span I/O); pass `--fields full` (or groups `core`, `usage`, `io`, `metadata`) for span data. Flag: `--fields <groups>`. |
+| `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, `manifest.json`, and `finding.json` (if flagged) to a directory. Defaults to `full` projection. Flags: `--output <dir>`, `--force`, `--fields <groups>`. |
 | `datasets list` | List the project's evaluation datasets, newest first. Flags: `--limit <n>`, `--name <substring>`. |
 | `datasets get <dataset-id>` | Show one dataset and the version its cases are read from. |
 | `datasets versions list <dataset-id>` | List a dataset's published versions with their case counts. Flag: `--limit <n>`. |
