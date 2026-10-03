@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { render, cleanup, screen, act } from "@testing-library/react";
 import { useEffect, useLayoutEffect } from "react";
 
 // AppLayout renders the navbar button itself; everything heavy around it is
@@ -73,5 +73,36 @@ describe("AppLayout navbar AI button", () => {
       </AppLayout>,
     );
     expect(screen.queryByTitle("AI Assistant")).not.toBeNull();
+  });
+
+  it("resets aiPanelOpen when an AI host unregisters", () => {
+    let capturedLayout!: ReturnType<typeof useLayout>;
+    function Inspector() {
+      capturedLayout = useLayout();
+      return null;
+    }
+
+    const { rerender } = render(
+      <AppLayout>
+        <Inspector />
+        <AiHostStub />
+      </AppLayout>,
+    );
+
+    // Simulate opening the panel while the host is registered
+    act(() => {
+      capturedLayout.setAiPanelOpen(true);
+    });
+    expect(capturedLayout.aiPanelOpen).toBe(true);
+
+    // Unmount the host
+    rerender(
+      <AppLayout>
+        <Inspector />
+      </AppLayout>,
+    );
+
+    // When the host unmounted, aiPanelOpen must be reset to false so it does not leak into app rail
+    expect(capturedLayout.aiPanelOpen).toBe(false);
   });
 });

@@ -76,7 +76,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const registerAiHost = useCallback(() => {
     setAiHostRefCount((c) => c + 1);
-    return () => setAiHostRefCount((c) => Math.max(0, c - 1));
+    return () => {
+      setAiHostRefCount((c) => Math.max(0, c - 1));
+      setAiPanelOpen(false);
+      setAiContext(null);
+      setAiInitialSessionId(undefined);
+    };
   }, []);
 
   const viewerOwnsAiSlot = aiHostRefCount > 0;

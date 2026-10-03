@@ -226,6 +226,16 @@ export function TraceViewerPanel({
     return registerAiHost();
   }, [registerAiHost, embedded]);
 
+  // Close the assistant when this panel closes or the viewed trace changes (#2327).
+  useEffect(() => {
+    if (embedded) return;
+    return () => {
+      setAiPanelOpen(false);
+      setAiContext(null);
+      setAiInitialSessionId(undefined);
+    };
+  }, [traceId, setAiPanelOpen, setAiContext, setAiInitialSessionId, embedded]);
+
   // Shared collapse state (SpanTreeView + SpanTimelineView stay in sync)
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
