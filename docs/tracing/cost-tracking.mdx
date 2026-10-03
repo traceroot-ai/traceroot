@@ -7,26 +7,41 @@ When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChai
 
 <Tabs>
   <Tab title="Python">
+    <!-- [start:snippet:tracing-cost-tracking-python] -->
     ```python
     import traceroot
     from traceroot import Integration
+    from openai import OpenAI
 
     traceroot.initialize(integrations=[Integration.OPENAI])
 
+    client = OpenAI()
+
     # All OpenAI calls are now automatically tracked — tokens, cost, model
-    client.chat.completions.create(...)
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": "Hello!"}],
+    )
     ```
+<!-- [end:snippet:tracing-cost-tracking-python] -->
   </Tab>
   <Tab title="TypeScript">
+    <!-- [start:snippet:tracing-cost-tracking-typescript] -->
     ```typescript
     import OpenAI from 'openai';
     import { TraceRoot } from '@traceroot-ai/traceroot';
 
     TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
 
+    const client = new OpenAI();
+
     // All OpenAI calls are now automatically tracked — tokens, cost, model
-    await client.chat.completions.create({ ... });
+    await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'Hello!' }],
+    });
     ```
+<!-- [end:snippet:tracing-cost-tracking-typescript] -->
   </Tab>
 </Tabs>
 

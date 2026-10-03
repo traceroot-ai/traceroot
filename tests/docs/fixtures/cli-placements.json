@@ -1,0 +1,121 @@
+{
+  "placements": {
+    "list_traces": { "kind": "command", "path": ["traces", "list"] },
+    "get_trace": { "kind": "command", "path": ["traces", "get"] },
+    "export_trace": { "kind": "command", "path": ["traces", "export"] },
+    "list_trace_filter_values": {
+      "kind": "internal",
+      "note": "deliberately no CLI surface: per-field trace filtering belongs to the SQL query surface"
+    },
+    "list_detectors": { "kind": "command", "path": ["detectors", "list"] },
+    "get_detector": { "kind": "command", "path": ["detectors", "get"] },
+    "list_findings": { "kind": "command", "path": ["findings", "list"] },
+    "get_finding": { "kind": "command", "path": ["findings", "get"] },
+    "get_finding_by_trace": {
+      "kind": "companion",
+      "of": ["get_finding", "get_trace", "export_trace"],
+      "note": "reached via 'findings get --trace' and the best-effort finding lookups in 'traces get'/'traces export'"
+    },
+    "list_sessions": {
+      "kind": "internal",
+      "note": "deliberately no CLI surface: session reading belongs to the SQL query surface"
+    },
+    "get_session": {
+      "kind": "internal",
+      "note": "deliberately no CLI surface: session reading belongs to the SQL query surface"
+    },
+    "whoami": {
+      "kind": "internal",
+      "note": "served by 'status', 'login', and 'doctor'; deliberately no standalone command"
+    },
+    "list_alerts": { "kind": "command", "path": ["alerts", "list"] },
+    "get_alert": { "kind": "command", "path": ["alerts", "get"] },
+    "create_alert": { "kind": "command", "path": ["alerts", "create"] },
+    "update_alert": { "kind": "command", "path": ["alerts", "update"] },
+    "set_alert_status": { "kind": "command", "path": ["alerts", "status"] },
+    "delete_alert": { "kind": "command", "path": ["alerts", "delete"] },
+    "list_dashboards": { "kind": "command", "path": ["dashboards", "list"] },
+    "get_dashboard": { "kind": "command", "path": ["dashboards", "get"] },
+    "create_dashboard": { "kind": "command", "path": ["dashboards", "create"] },
+    "update_dashboard": { "kind": "command", "path": ["dashboards", "update"] },
+    "delete_dashboard": { "kind": "command", "path": ["dashboards", "delete"] },
+    "list_workspaces": { "kind": "command", "path": ["workspaces", "list"] },
+    "list_projects": { "kind": "command", "path": ["projects", "list"] },
+    "create_workspace": { "kind": "command", "path": ["workspaces", "create"] },
+    "update_workspace": { "kind": "command", "path": ["workspaces", "update"] },
+    "delete_workspace": { "kind": "command", "path": ["workspaces", "delete"] },
+    "create_project": { "kind": "command", "path": ["projects", "create"] },
+    "update_project": { "kind": "command", "path": ["projects", "update"] },
+    "delete_project": { "kind": "command", "path": ["projects", "delete"] },
+    "create_detector": { "kind": "command", "path": ["detectors", "create"] },
+    "update_detector": { "kind": "command", "path": ["detectors", "update"] },
+    "delete_detector": { "kind": "command", "path": ["detectors", "delete"] },
+    "get_widget": { "kind": "command", "path": ["widgets", "get"] },
+    "get_widget_data": { "kind": "command", "path": ["widgets", "data"] },
+    "create_widget": { "kind": "command", "path": ["widgets", "create"] },
+    "update_widget": { "kind": "command", "path": ["widgets", "update"] },
+    "delete_widget": { "kind": "command", "path": ["widgets", "delete"] },
+    "run_sql": { "kind": "command", "path": ["sql"] },
+    "get_sql_schema": { "kind": "command", "path": ["sql", "schema"] },
+    "get_dashboard_data": {
+      "kind": "internal",
+      "note": "deliberately no CLI surface: a whole dashboard's data is read in the web app"
+    },
+    "run_widget_query": {
+      "kind": "internal",
+      "note": "no CLI surface yet: a widget's own query belongs with the dashboards commands"
+    },
+    "list_datasets": { "kind": "command", "path": ["datasets", "list"] },
+    "get_dataset": { "kind": "command", "path": ["datasets", "get"] },
+    "list_dataset_versions": { "kind": "command", "path": ["datasets", "versions", "list"] },
+    "get_dataset_version": { "kind": "command", "path": ["datasets", "versions", "get"] },
+    "list_evaluations": { "kind": "command", "path": ["evals", "list"] },
+    "list_evaluation_runs": { "kind": "command", "path": ["evals", "runs", "list"] },
+    "get_evaluation_run": { "kind": "command", "path": ["evals", "runs", "get"] }
+  },
+  "groups": {
+    "workspaces": "Discover your workspaces (user credentials)",
+    "projects": "Discover your projects (user credentials)",
+    "traces": "Work with traces",
+    "detectors": "Work with detectors",
+    "findings": "Work with detector findings",
+    "alerts": "Work with threshold alerts",
+    "dashboards": "Work with dashboards",
+    "widgets": "Work with dashboard widgets",
+    "sql": "Query your spans and traces with SQL",
+    "datasets": "Work with evaluation datasets",
+    "datasets versions": "Work with a dataset's published versions",
+    "evals": "Work with evaluations",
+    "evals runs": "Read recorded evaluation runs"
+  },
+  "handwritten": [
+    {
+      "command": "login",
+      "description": "Validate an API key or authenticate with browser and save credentials."
+    },
+    {
+      "command": "logout",
+      "description": "Revoke the session server-side (best-effort) and remove the local credential."
+    },
+    {
+      "command": "status",
+      "description": "Show the identity your credentials resolve to — workspace, project, host, and key hint."
+    },
+    {
+      "command": "doctor",
+      "description": "Check local environment, dependencies, configuration, and API connectivity."
+    },
+    {
+      "command": "instrument",
+      "description": "Auto-instrument your codebase for OpenTelemetry tracing."
+    },
+    {
+      "command": "skills list",
+      "description": "List available AI agent skills and their capabilities."
+    },
+    {
+      "command": "skills install",
+      "description": "Install skills into your coding agent workspace."
+    }
+  ]
+}

@@ -187,13 +187,28 @@ describe("ADAPTER_MODELS", () => {
   });
 });
 
-describe("docs stay in sync with SYSTEM_MODELS", () => {
-  // The BYOK docs table is a hand-maintained copy of SYSTEM_MODELS. Without this
-  // check, adding a model here silently leaves the docs stale (see #1431).
+describe("docs stay in sync with ADAPTER_MODELS", () => {
+  // The BYOK docs table is a hand-maintained copy of ADAPTER_MODELS. Without this
+  // check, adding a model here silently leaves the docs stale (see #1431, #2318).
   const BYOK_DOC = new URL("../../../../../docs/ai-agent/byok.mdx", import.meta.url);
+  const ADAPTER_DOC_LABELS: Record<string, string> = {
+    openai: "OpenAI",
+    anthropic: "Anthropic",
+    google: "Google",
+    deepseek: "DeepSeek",
+    xai: "xAI",
+    moonshot: "Moonshot (Kimi)",
+    zai: "ZAI (GLM)",
+    typesafe: "TypeSafe AI",
+  };
 
-  it.each(SYSTEM_MODELS.map((s) => [s.provider, s.models.map((m) => m.id)] as const))(
-    "the byok.mdx Default Models table lists %s's models in SYSTEM_MODELS order",
+  const cases = Object.entries(ADAPTER_MODELS).map(
+    ([adapter, models]) =>
+      [ADAPTER_DOC_LABELS[adapter] ?? adapter, models?.map((m) => m.id) ?? []] as const,
+  );
+
+  it.each(cases)(
+    "the byok.mdx Default Models table lists %s's models in ADAPTER_MODELS order",
     (provider, expectedIds) => {
       const row = readFileSync(BYOK_DOC, "utf8")
         .split("\n")
@@ -207,7 +222,7 @@ describe("docs stay in sync with SYSTEM_MODELS", () => {
       const documentedIds = [...row!.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
       expect(
         documentedIds,
-        `docs/ai-agent/byok.mdx is out of sync with SYSTEM_MODELS for ${provider} — update the table`,
+        `docs/ai-agent/byok.mdx is out of sync with ADAPTER_MODELS for ${provider} — update the table`,
       ).toEqual([...expectedIds]);
     },
   );
