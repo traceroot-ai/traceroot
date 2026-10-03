@@ -42,7 +42,7 @@ Once initialized, all Anthropic calls are captured automatically:
 
     # This call is automatically traced
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-5-5",
         max_tokens=1024,
         messages=[
             {"role": "user", "content": "What is the capital of France?"},
@@ -60,7 +60,7 @@ Once initialized, all Anthropic calls are captured automatically:
 
     // This call is automatically traced
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-5-5',
       max_tokens: 1024,
       messages: [
         { role: 'user', content: 'What is the capital of France?' },
@@ -76,7 +76,7 @@ Once initialized, all Anthropic calls are captured automatically:
 
 | Attribute | Description |
 |-----------|-------------|
-| Model | `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001`, etc. |
+| Model | `claude-sonnet-5-5`, `claude-haiku-4-5-20251001`, etc. |
 | Messages | Input messages array |
 | Response | Completion content |
 | Tokens | Input and output tokens |
