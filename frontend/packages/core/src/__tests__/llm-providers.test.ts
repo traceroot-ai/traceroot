@@ -185,6 +185,16 @@ describe("ADAPTER_MODELS", () => {
       label: "grok-4.6",
     });
   });
+
+  it("includes grok-4.7 in the xAI model list", () => {
+    const xaiModels = ADAPTER_MODELS["xai"];
+    expect(xaiModels).toBeDefined();
+
+    expect(xaiModels).toContainEqual({
+      id: "grok-4.7",
+      label: "grok-4.7",
+    });
+  });
 });
 
 describe("docs stay in sync with SYSTEM_MODELS", () => {
