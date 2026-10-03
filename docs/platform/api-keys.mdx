@@ -1,0 +1,80 @@
+---
+title: API Keys
+description: Authenticate SDKs, ingestion pipelines, and CLI requests with project API keys
+---
+
+TraceRoot uses project API keys (prefixed with `tr-`) to authenticate telemetry ingestion from Python and TypeScript SDKs, OpenTelemetry exporters, and CLI requests.
+
+## Project Scoping
+
+Every API key in TraceRoot is **strictly scoped to a single project**:
+
+- Requests authenticated by a key can only ingest traces or read data within that specific project.
+- Keys cannot perform cross-project queries or access workspace-level administrative settings (such as inviting members or managing billing).
+
+## Creating an API Key
+
+API keys are created directly in the TraceRoot web interface:
+
+1. Navigate to **Project Settings** in your dashboard.
+2. Select **API Keys** from the navigation menu.
+3. Click **Create API Key**.
+4. Configure optional settings:
+   - **Name**: A descriptive label to identify the key's usage (e.g., `production-agent`, `staging-eval-runner`).
+   - **Expiration**: An optional expiry date after which requests using this key will be rejected.
+5. Click **Generate Key**.
+
+<Note>
+**Role Requirement**: Creating or renaming an API key requires the **MEMBER** role or above; deleting a key requires the **ADMIN** role.
+</Note>
+
+## The Key is Shown Only Once
+
+<Warning>
+TraceRoot displays the full API key **only once** immediately upon creation. TraceRoot stores only a one-way cryptographic hash of the secret (`secretHash`) in the database. If you lose the key, it cannot be recovered—you must revoke it and generate a new one.
+</Warning>
+
+Copy the key immediately and save it securely in your secret manager or local `.env` configuration:
+
+```bash .env
+TRACEROOT_API_KEY=tr-d0a3ee92-659e-4f63-ae11-8ca6f57657e3
+TRACEROOT_HOST_URL=https://app.traceroot.ai
+```
+
+---
+
+## Key Identification and Properties
+
+In the TraceRoot UI, you can inspect and track existing keys:
+
+| Property | Description |
+| :--- | :--- |
+| **Name** | The custom label assigned to the key. Can be renamed at any time. |
+| **Key Hint** | A non-sensitive identifier (e.g., `tr-d0a3-57e3`) formatted as the key prefix and suffix, used to safely identify which key is deployed in an environment. |
+| **Created** | Timestamp indicating when the key was originally generated. |
+| **Last Used** | Real-time timestamp updated whenever the key authenticates an incoming request. |
+| **Expires** | The expiration timestamp, or `Never` if no expiration was set. |
+
+---
+
+## Renaming and Revoking Keys
+
+- **Renaming**: You can edit the friendly name of any key in the UI without affecting active connections or invalidating the token.
+- **Revoking**: If a key is leaked or decommissioned, click **Delete** next to the key in the UI. Revocation takes effect immediately: subsequent requests using that key return HTTP `401 Unauthorized`.
+
+<Note>
+**No Public API Route for Key Creation**: To prevent programmatic credential amplification and unauthorized key sprawl, TraceRoot intentionally does not expose a public API endpoint for creating API keys. Keys must be created interactively through the authenticated web console.
+</Note>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Rate Limits" icon="gauge" href="/platform/rate-limits">
+    Review per-plan request limits for ingestion, reads, and exports.
+  </Card>
+  <Card title="Usage and Billing" icon="credit-card" href="/platform/usage-and-billing">
+    Learn how AI runs and trace storage are metered.
+  </Card>
+</CardGroup>
