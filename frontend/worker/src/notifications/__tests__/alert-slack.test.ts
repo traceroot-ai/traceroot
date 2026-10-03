@@ -305,6 +305,7 @@ describe("sendAlertNotification", () => {
     expect(write.where).toEqual({ id: "al_1" });
     expect(write.data.lastNotifyStatus).toBe("DELIVERED");
     expect(write.data.lastNotifyError).toBeNull();
+    expect(write.data.lastNotifySeverity).toBe("ALERT");
     expect(write.data.lastNotifyAt).toBeInstanceOf(Date);
     // A sent page is never taken back.
     expect(stateWrites()).toHaveLength(0);
@@ -488,6 +489,7 @@ describe("sendAlertNotification", () => {
     expect(notifyWrites()).toHaveLength(1);
     expect(notifyWrites()[0].data.lastNotifyStatus).toBe("FAILED");
     expect(notifyWrites()[0].data.lastNotifyError).toBe(reason);
+    expect(notifyWrites()[0].data.lastNotifySeverity).toBe("ALERT");
     // Pausing is itself something that happened to the rule, and a deleted rule
     // has nothing left to re-emit, so neither is rolled back.
     expect(stateWrites()).toHaveLength(0);
@@ -591,6 +593,86 @@ describe("startAlertNotificationWorker", () => {
 
     expect(notifyWrites()[0].data.lastNotifyStatus).toBe("COMPENSATED");
     expect(notifyWrites()[0].data.lastNotifyError).toBe("retries-exhausted");
+  });
+
+  it("leaves a replay whose attempts ran out due again, as the severity it announced", async () => {
+    // The replay of a page Slack never received: the rule already read ALERT on the
+    // failed page's stamp, so that is the prior state the replay's emission carries.
+    const pagedAt = emission.evaluatedAt - 60 * 60_000;
+    const replay = {
+      ...job,
+      previousSeverity: "ALERT" as const,
+      emission: {
+        evaluatedAt: emission.evaluatedAt,
+        priorSeverity: "ALERT" as const,
+        priorSeverityChangedAt: pagedAt,
+        priorAlertedAt: pagedAt,
+      },
+    };
+    const stored: Record<string, unknown> = alertRow({ severityChangedAt: new Date(pagedAt) });
+    alertUpdateMany.mockImplementation(async ({ where, data }) => {
+      const matches = Object.entries(where).every(([field, expected]) => {
+        const actual = stored[field];
+        return expected instanceof Date && actual instanceof Date
+          ? expected.getTime() === actual.getTime()
+          : expected === actual;
+      });
+      if (matches) Object.assign(stored, data);
+      return { count: matches ? 1 : 0 };
+    });
+
+    const { startAlertNotificationWorker } = await importModule();
+    const { applyAlertStateMachine } = await import("../../alerts/severity-state-machine.js");
+    const { parseAlertRule } = await import("../../alerts/rule.js");
+    const { isAwaitingRedelivery } = await import("../../alerts/delivery.js");
+    startAlertNotificationWorker();
+
+    workerHandlers.get("failed")?.(
+      { id: "j-replay", attemptsMade: 12, opts: { attempts: 12 }, data: replay },
+      new Error("service_unavailable"),
+    );
+    await vi.waitFor(() => expect(stored.lastNotifyStatus).toBe("COMPENSATED"));
+
+    expect(stored).toMatchObject({
+      severity: "ALERT",
+      alertedAt: new Date(pagedAt),
+      lastNotifyError: "retries-exhausted",
+      lastNotifySeverity: "ALERT",
+    });
+    const state = {
+      severity: "ALERT" as const,
+      severityChangedAt: stored.severityChangedAt as Date,
+      alertedAt: stored.alertedAt as Date,
+    };
+    // A breach the state machine reads as already paged: renotify off, nothing to say.
+    expect(
+      applyAlertStateMachine(state, "ALERT", new Date(emission.evaluatedAt + 60_000), {
+        mode: "OFF",
+      }).emit,
+    ).toBe(false);
+    // Which is what leaves the redelivery to say it.
+    const rule = parseAlertRule({
+      id: "al_1",
+      projectId: "proj_1",
+      name: job.name,
+      view: "SPANS",
+      measure: job.measure,
+      aggregation: job.aggregation,
+      filters: [],
+      window: job.window,
+      thresholdOperator: job.thresholdOperator,
+      threshold: job.threshold,
+      renotify: { mode: "OFF" },
+      noDataMode: "HOLD",
+      ...state,
+      lastNotifyStatus: stored.lastNotifyStatus as string,
+      lastNotifyError: stored.lastNotifyError as string,
+      lastNotifyAt: stored.lastNotifyAt as Date,
+      lastNotifySeverity: stored.lastNotifySeverity as string,
+      slackUpdatedAt: null,
+    });
+    expect(rule).not.toBeNull();
+    expect(isAwaitingRedelivery(rule!, "ALERT")).toBe(true);
   });
 
   it("leaves a job with attempts left alone, and logs the attempt as a retry", async () => {
