@@ -29,7 +29,7 @@
 
 <p align="center">
   <a href="https://traceroot.ai/docs/detectors/get-started">
-    <img src="docs/images/detector_findings_v1.png" alt="TraceRoot 탐지 결과 목록과 선택한 결과의 트레이스 컨텍스트" width="100%">
+    <img src="docs/detectors/images/detector_findings_v1.png" alt="TraceRoot 탐지 결과 목록과 선택한 결과의 트레이스 컨텍스트" width="100%">
   </a>
 </p>
 <p align="center"><em>Detectors는 프로덕션 트레이스에서 문제를 찾아 다음 개선 방향을 정할 수 있도록 돕습니다.</em></p>

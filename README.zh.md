@@ -29,7 +29,7 @@
 
 <p align="center">
   <a href="https://traceroot.ai/docs/detectors/get-started">
-    <img src="docs/images/detector_findings_v1.png" alt="TraceRoot 检测器发现项、选中的发现项及其追踪上下文" width="100%">
+    <img src="docs/detectors/images/detector_findings_v1.png" alt="TraceRoot 检测器发现项、选中的发现项及其追踪上下文" width="100%">
   </a>
 </p>
 <p align="center"><em>检测器从生产环境中的追踪中发现问题，帮助你确定下一步的改进方向。</em></p>
