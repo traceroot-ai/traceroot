@@ -116,7 +116,7 @@ TraceRoot.initialize({ disableBatch: true });
 
 ### 5. Check for HTTP 402 on Cloud (Free-Plan Limit)
 
-On TraceRoot Cloud, the trace ingestion endpoint returns HTTP `402 Payment Required` when your workspace exceeds its monthly free-plan limit:
+On TraceRoot Cloud, the trace ingestion endpoint returns HTTP `402 Payment Required` when your workspace exceeds its free-plan span cap:
 
 ```json
 {"detail": "Free plan limit exceeded. Please upgrade to continue."}
