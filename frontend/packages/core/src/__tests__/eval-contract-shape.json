@@ -687,6 +687,17 @@
           "required": true,
           "nullable": false
         },
+        "dataset_case_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": false,
+          "nullable": true
+        },
+        "run_selection": {
+          "type": "RunSelection",
+          "required": false,
+          "nullable": true
+        },
         "result_count": {
           "type": "integer",
           "minimum": 0,
