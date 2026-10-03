@@ -1,0 +1,215 @@
+---
+title: Troubleshooting
+description: Diagnose missing traces, export failures, and raw OpenTelemetry ingestion errors
+---
+
+Most missing-trace issues arise from environment variables not being loaded into the process, incorrect host URL formats, or short-lived processes exiting before background batches are exported.
+
+Work through the checklist below to identify and resolve the issue.
+
+## No traces appear
+
+### 1. Confirm TRACEROOT_API_KEY is loaded
+
+Neither the Python nor the TypeScript SDK automatically loads `.env` files from disk. If your keys are stored in a `.env` file, ensure your application loads it (for example, with `dotenv` in Node.js or `python-dotenv` in Python) before initializing TraceRoot, or export the variable in your shell.
+
+<Tabs>
+  <Tab title="Python">
+    When no API key is detected, TraceRoot logs a warning and disables tracing:
+
+    ```text
+    TraceRoot: no API key provided — tracing is disabled. Set the TRACEROOT_API_KEY environment variable or pass api_key= to traceroot.initialize().
+    ```
+
+    <Note>
+      If your application's logging configuration filters out `WARNING` messages from the `traceroot` logger, this message will not be visible in your console.
+    </Note>
+
+    Confirm that the environment variable is loaded into the active process:
+
+    ```python
+    import os
+
+    assert os.environ.get("TRACEROOT_API_KEY"), "TRACEROOT_API_KEY is not loaded in process environment"
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    When no API key is detected, the SDK logs a console warning:
+
+    ```text
+    [TraceRoot] No API key provided. Set TRACEROOT_API_KEY env var or pass apiKey to initialize(). Spans will be emitted but export will fail.
+    ```
+
+    Confirm that `process.env.TRACEROOT_API_KEY` is defined before calling `TraceRoot.initialize()`:
+
+    ```typescript
+    if (!process.env.TRACEROOT_API_KEY) {
+      throw new Error("TRACEROOT_API_KEY is not loaded in process environment");
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### 2. Verify TRACEROOT_HOST_URL format
+
+`TRACEROOT_HOST_URL` must specify the host origin only (scheme, domain, and optional port), with **no path**. Both SDKs automatically append `/api/v1/public/traces` to the host URL when exporting spans.
+
+```bash
+# TraceRoot Cloud (default if unset)
+TRACEROOT_HOST_URL=https://app.traceroot.ai
+
+# Self-hosted local deployment
+TRACEROOT_HOST_URL=http://localhost:8000
+
+# Self-hosted custom domain
+TRACEROOT_HOST_URL=https://traceroot.example.com
+```
+
+<Warning>
+  Do not append `/api/v1/public/traces` or a trailing slash to `TRACEROOT_HOST_URL`. Setting `https://app.traceroot.ai/api/v1/public/traces` causes the SDK to request `https://app.traceroot.ai/api/v1/public/traces/api/v1/public/traces`, resulting in HTTP 404 export errors.
+</Warning>
+
+### 3. Check TRACEROOT_ENABLED values
+
+The Python and TypeScript SDKs parse the `TRACEROOT_ENABLED` environment variable differently:
+
+| SDK | Values that disable tracing | Other values |
+|---|---|---|
+| **Python** | `false`, `0`, `no`, `off` (case-insensitive) | Tracing remains enabled |
+| **TypeScript** | `false` (exact lowercase string only) | `0`, `False`, `off`, `no` leave tracing **enabled** |
+
+In TypeScript, setting `TRACEROOT_ENABLED=0` or `TRACEROOT_ENABLED=False` does not turn off tracing. To explicitly disable tracing across both environments, use the lowercase string `false`:
+
+```bash
+export TRACEROOT_ENABLED=false
+```
+
+### 4. Flush short-lived TypeScript / Node.js processes
+
+By default, the TypeScript SDK batches spans in memory and registers a Node.js `beforeExit` listener to flush remaining spans. However, `process.exit()`, unhandled exceptions, termination signals, and serverless environments (like AWS Lambda) bypass `beforeExit`. If your process terminates immediately after executing, buffered spans will be lost.
+
+**Option A (Recommended): Explicitly shut down before exiting**
+
+Await `TraceRoot.shutdown()` to flush all pending spans and close the exporter:
+
+```typescript
+import { TraceRoot } from '@traceroot-ai/traceroot';
+
+try {
+  await runAgent();
+} finally {
+  await TraceRoot.shutdown();
+}
+```
+
+**Option B: Disable batching for short scripts**
+
+For quick testing or one-off scripts, disable batching to export each span synchronously as it completes:
+
+```typescript
+TraceRoot.initialize({ disableBatch: true });
+```
+
+<Note>
+  `disableBatch: true` adds network overhead per span, so explicit `shutdown()` is recommended for production applications. In Python, an `atexit` hook is registered automatically, but `traceroot.shutdown()` is also available when manual control is required.
+</Note>
+
+### 5. Check for HTTP 402 on Cloud (Free-Plan Limit)
+
+On TraceRoot Cloud, the trace ingestion endpoint returns HTTP `402 Payment Required` when your workspace exceeds its free-plan span cap:
+
+```json
+{"detail": "Free plan limit exceeded. Please upgrade to continue."}
+```
+
+When this occurs, span export fails at the HTTP layer even though your local SDK setup is correct. Check your workspace billing status in the TraceRoot dashboard or upgrade your plan to restore trace ingestion.
+
+## Enable debug logging
+
+Enable debug logging to inspect exporter HTTP responses and see span payloads directly in your terminal.
+
+<Tabs>
+  <Tab title="TypeScript">
+    Pass `logLevel: 'debug'` to `TraceRoot.initialize()`:
+
+    ```typescript
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      logLevel: 'debug', // 'debug' | 'info' | 'warn' | 'error' (default: 'error')
+    });
+    ```
+  </Tab>
+  <Tab title="Python">
+    TraceRoot uses Python's standard `logging` library under the `traceroot` logger hierarchy:
+
+    ```python
+    import logging
+    import traceroot
+
+    logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger("traceroot").setLevel(logging.DEBUG)
+
+    traceroot.initialize()
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  Do not use `TRACEROOT_DEBUG` to configure logging. Diagnostic logging must be configured through SDK options (`logLevel`) in TypeScript or the standard `logging` module in Python.
+</Note>
+
+## Sending raw OpenTelemetry
+
+TraceRoot exposes a standard OpenTelemetry Protocol (OTLP) HTTP ingestion endpoint:
+
+```http
+POST /api/v1/public/traces
+Host: app.traceroot.ai
+Authorization: Bearer <TRACEROOT_API_KEY>
+Content-Type: application/x-protobuf
+Content-Encoding: gzip  # optional
+```
+
+### Protocol requirements
+
+1. **Protobuf only**: The ingestion endpoint accepts OTLP traces encoded as **protobuf** (`application/x-protobuf`).
+2. **HTTP 415 error on JSON**: Sending OTLP/JSON (`application/json`) returns HTTP `415 Unsupported Media Type`:
+   ```json
+   {"detail": "Content-Type must be application/x-protobuf"}
+   ```
+3. **Authentication**: Requests must include `Authorization: Bearer <TRACEROOT_API_KEY>` matching an active project API key.
+
+### Exporter configuration
+
+<Tabs>
+  <Tab title="Node.js">
+    The standard `@opentelemetry/exporter-trace-otlp-http` sends JSON by default and will fail with HTTP 415. Use `@opentelemetry/exporter-trace-otlp-proto` instead:
+
+    ```typescript
+    import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
+
+    const exporter = new OTLPTraceExporter({
+      url: 'https://app.traceroot.ai/api/v1/public/traces',
+      headers: {
+        Authorization: `Bearer ${process.env.TRACEROOT_API_KEY}`,
+      },
+    });
+    ```
+  </Tab>
+  <Tab title="Python">
+    Use the HTTP protobuf exporter from `opentelemetry-exporter-otlp-proto-http`:
+
+    ```python
+    import os
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+    exporter = OTLPSpanExporter(
+        endpoint="https://app.traceroot.ai/api/v1/public/traces",
+        headers={
+            "Authorization": f"Bearer {os.environ['TRACEROOT_API_KEY']}"
+        },
+    )
+    ```
+  </Tab>
+</Tabs>
