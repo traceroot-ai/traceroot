@@ -20,13 +20,27 @@ const mockDaytona = {
   create: vi.fn().mockResolvedValue(mockSandbox),
 };
 
-vi.mock("@daytonaio/sdk", () => ({
-  // A function (not an arrow) so vitest 4 can construct it with `new`.
-  Daytona: vi.fn(function Daytona() {
-    return mockDaytona;
-  }),
-}));
+vi.mock("@daytonaio/sdk", () => {
+  // Declared inside the factory: vi.mock is hoisted above top-level bindings.
+  class DaytonaError extends Error {
+    statusCode?: number;
+    constructor(message: string, statusCode?: number) {
+      super(message);
+      this.statusCode = statusCode;
+    }
+  }
+  class DaytonaTimeoutError extends DaytonaError {}
+  return {
+    // A function (not an arrow) so vitest 4 can construct it with `new`.
+    Daytona: vi.fn(function Daytona() {
+      return mockDaytona;
+    }),
+    DaytonaError,
+    DaytonaTimeoutError,
+  };
+});
 
+import { DaytonaError, DaytonaTimeoutError } from "@daytonaio/sdk";
 import { DaytonaExecutor } from "../daytona.js";
 
 describe("DaytonaExecutor", () => {
@@ -71,6 +85,84 @@ describe("DaytonaExecutor", () => {
       expect(apt).toBeTruthy();
       expect(apt).toContain("ca-certificates");
       expect(apt).toContain("git");
+    });
+  });
+
+  describe("init() timeouts (#2167)", () => {
+    it("bounds the workspace setup and the tool install", async () => {
+      await executor.init();
+
+      const calls = mockSandbox.process.executeCommand.mock.calls as [
+        string,
+        unknown,
+        unknown,
+        number,
+      ][];
+      const mkdir = calls.find(([cmd]) => cmd.includes("mkdir -p /workspace"));
+      const apt = calls.find(([cmd]) => cmd.includes("apt-get"));
+      expect(mkdir?.[3]).toBe(30);
+      expect(apt?.[3]).toBe(300);
+    });
+
+    it("finishes init when the tool install times out", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
+        // The toolbox answered: a server-side per-command deadline.
+        if (cmd.includes("apt-get"))
+          throw new DaytonaError("Command timed out after 300 seconds", 408);
+        return { exitCode: 0, result: "" };
+      });
+
+      await expect(executor.init()).resolves.toBeUndefined();
+
+      expect(executor.isReady()).toBe(true);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("Tool install did not finish within 300s"),
+      );
+      warn.mockRestore();
+    });
+
+    it("also treats the SDK's own DaytonaTimeoutError as a timeout", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
+        if (cmd.includes("apt-get")) throw new DaytonaTimeoutError("deadline exceeded");
+        return { exitCode: 0, result: "" };
+      });
+
+      await expect(executor.init()).resolves.toBeUndefined();
+      expect(executor.isReady()).toBe(true);
+      warn.mockRestore();
+    });
+
+    it("rethrows a transport failure even when its message mentions a timeout", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // No HTTP status: the request never reached the toolbox.
+      const failure = new DaytonaError("connect ETIMEDOUT 10.0.0.5:2280");
+      mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
+        if (cmd.includes("apt-get")) throw failure;
+        return { exitCode: 0, result: "" };
+      });
+
+      await expect(executor.init()).rejects.toBe(failure);
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("Tool install did not finish within"),
+      );
+      warn.mockRestore();
+    });
+
+    it("rethrows a non-timeout install failure instead of reporting a ready sandbox", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const failure = new Error("Sandbox not found");
+      mockSandbox.process.executeCommand.mockImplementation(async (cmd: string) => {
+        if (cmd.includes("apt-get")) throw failure;
+        return { exitCode: 0, result: "" };
+      });
+
+      await expect(executor.init()).rejects.toBe(failure);
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("Tool install did not finish within"),
+      );
+      warn.mockRestore();
     });
   });
 
