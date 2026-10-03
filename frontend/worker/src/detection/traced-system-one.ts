@@ -34,6 +34,7 @@ export async function tracedSystemOne<R extends SystemOneResult>(
         // No source marker: the secret-gated ingest route classifies these rows.
         "traceroot.project_id": scope.projectId,
         "traceroot.span.type": "LLM",
+        "gen_ai.system": "typesafe",
         "traceroot.llm.model": meta.model,
         "traceroot.span.input": boundedJson({
           questions: meta.questions,
