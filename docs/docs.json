@@ -215,5 +215,11 @@
       "linkedin": "https://www.linkedin.com/company/traceroot-ai",
       "discord": "https://discord.gg/TM2m3CtKuC"
     }
+  },
+  "integrations": {
+    "posthog": {
+      "apiKey": "phc_X8eeQUsyMb7bk5sw0msmN8ARBxurlVyQxC0uvHVul7C",
+      "apiHost": "https://us.i.posthog.com"
+    }
   }
 }
