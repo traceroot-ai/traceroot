@@ -3,7 +3,29 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 
-const mocks = vi.hoisted(() => ({ push: vi.fn(), useDetectorList: vi.fn() }));
+const initialPageState = {
+  page: 0,
+  limit: 50,
+  dateFilter: { id: "7d" },
+  customStartDate: null,
+  customEndDate: null,
+  keyword: "",
+};
+
+const mocks = vi.hoisted(() => ({
+  push: vi.fn(),
+  useDetectorList: vi.fn(),
+  goToPage: vi.fn(),
+  updateLimit: vi.fn(),
+  listPageState: {
+    page: 0,
+    limit: 50,
+    dateFilter: { id: "7d" },
+    customStartDate: null,
+    customEndDate: null,
+    keyword: "",
+  },
+}));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "proj-1" }),
@@ -13,13 +35,13 @@ vi.mock("next/navigation", () => ({
 // Controlled list state so the test asserts the exact range carried into the URL.
 vi.mock("@/lib/hooks/use-list-page-state", () => ({
   useListPageState: () => ({
-    state: { dateFilter: { id: "7d" }, customStartDate: null, customEndDate: null, keyword: "" },
-    queryOptions: { page: 1, limit: 50 },
+    state: mocks.listPageState,
+    queryOptions: { page: mocks.listPageState.page, limit: mocks.listPageState.limit },
     updateDateFilter: vi.fn(),
     updateCustomRange: vi.fn(),
     updateKeyword: vi.fn(),
-    updateLimit: vi.fn(),
-    goToPage: vi.fn(),
+    updateLimit: mocks.updateLimit,
+    goToPage: mocks.goToPage,
   }),
 }));
 
@@ -108,7 +130,6 @@ vi.mock("@/lib/hooks/use-retention", () => ({
 vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/components/search-filter-bar", () => ({ SearchFilterBar: () => null }));
-vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
 vi.mock("@/features/detectors/components/delete-detector-dialog", () => ({
   DeleteDetectorDialog: () => null,
 }));
@@ -121,6 +142,9 @@ mocks.useDetectorList.mockReturnValue(defaultDetectorList);
 afterEach(() => {
   cleanup();
   mocks.push.mockClear();
+  mocks.goToPage.mockReset();
+  mocks.updateLimit.mockReset();
+  mocks.listPageState = { ...initialPageState };
   mocks.useDetectorList.mockReset();
   mocks.useDetectorList.mockReturnValue(defaultDetectorList);
 });
@@ -189,5 +213,32 @@ describe("DetectorsPage", () => {
 
     const heading = screen.getByText("No detectors yet");
     expect(heading.parentElement?.querySelector("svg")).toBeTruthy();
+  });
+
+  it("requests two distinct successive pages when Next is clicked twice before response settles", () => {
+    mocks.useDetectorList.mockReturnValue({
+      data: {
+        data: defaultDetectorList.data.data,
+        meta: { page: 0, limit: 10, total: 100 },
+      },
+      isLoading: false,
+      error: null,
+    });
+    mocks.listPageState = { ...initialPageState, page: 0, limit: 10 };
+
+    const { rerender } = render(<DetectorsPage />);
+
+    mocks.goToPage.mockImplementation((newPage: number) => {
+      mocks.listPageState = { ...mocks.listPageState, page: newPage };
+      rerender(<DetectorsPage />);
+    });
+
+    const nextButton = screen.getByRole("button", { name: "Next page" });
+    fireEvent.click(nextButton);
+    fireEvent.click(nextButton);
+
+    expect(mocks.goToPage).toHaveBeenCalledTimes(2);
+    expect(mocks.goToPage).toHaveBeenNthCalledWith(1, 1);
+    expect(mocks.goToPage).toHaveBeenNthCalledWith(2, 2);
   });
 });
