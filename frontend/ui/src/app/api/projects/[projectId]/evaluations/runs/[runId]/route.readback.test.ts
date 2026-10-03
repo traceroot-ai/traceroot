@@ -255,17 +255,25 @@ describe("run/result read-back", () => {
     expect(cmp.state).toBe("exploratory");
   });
 
-  it("keeps a seeded sample's BIGINT seed off the run, so the body stays serializable", async () => {
+  it("serves a seeded sample's BIGINT seed as a number, and the body stays serializable", async () => {
     // sample_seed is BIGINT, so Prisma hands back a bigint that JSON cannot serialize.
     db.run = {
       ...(db.run as Record<string, unknown>),
+      datasetCaseCount: 3,
       selectionMode: "sample",
       selectedCaseCount: 2,
       sampleSeed: BigInt(1726000000000),
     };
     const { status, body } = await read();
     expect(status).toBe(200);
-    expect(body.run as Record<string, unknown>).not.toHaveProperty("sampleSeed");
+    const run = body.run as Record<string, unknown>;
+    expect(run).not.toHaveProperty("sampleSeed");
+    expect(run.coverage).toEqual({
+      mode: "sample",
+      datasetCaseCount: 3,
+      selectedCaseCount: 2,
+      sampleSeed: 1726000000000,
+    });
   });
 
   it("404s an unknown run", async () => {

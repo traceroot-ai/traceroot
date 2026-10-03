@@ -40,6 +40,8 @@ import { truncate } from "@/features/offline-eval/utils";
 import { useDataset, useTestCaseRuns, useDeleteTestCase } from "../hooks";
 import { TestCaseEditorModal, type TestCaseEditorMode } from "../components/test-case-editor-modal";
 import { DeleteTestCaseDialog } from "../components/delete-test-case-dialog";
+import { CoverageCell } from "../components/coverage";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { TestCaseRow } from "../types";
 
 /** A dash for the list; empty reads as a placeholder, not a blank cell. */
@@ -684,62 +686,72 @@ function CasePanel({
               // Edge-to-edge table (no inset padding), so it reads like the Evaluations
               // list page rather than a boxed card floating in whitespace.
               <div className="h-full overflow-auto">
-                <Table>
-                  <THead>
-                    <TRHead>
-                      <Th className="w-[150px]">Timestamp</Th>
-                      <Th>Evaluation Name</Th>
-                      <Th>Run Name</Th>
-                      <Th className="w-[90px] text-right">Cost</Th>
-                      <Th className="w-[90px] text-right">Avg Cost</Th>
-                      <Th className="w-[90px] text-right">Duration</Th>
-                      <Th className="w-[100px] text-right">Avg Duration</Th>
-                    </TRHead>
-                  </THead>
-                  <TBody>
-                    {runs.map((r) => {
-                      // Run-level averages, same math as the Evaluations list.
-                      const avgCost =
-                        r.cost != null && r.caseCount > 0 ? r.cost / r.caseCount : null;
-                      const avgDurationMs =
-                        r.elapsedMs != null && r.caseCount > 0
-                          ? Math.round(r.elapsedMs / r.caseCount)
-                          : null;
-                      return (
-                        <TR
-                          key={r.resultId}
-                          interactive
-                          onClick={() =>
-                            router.push(`/projects/${projectId}/evaluations/${r.runId}`)
-                          }
-                        >
-                          <Td className="whitespace-nowrap text-muted-foreground">
-                            <Timestamp iso={r.ranAt} />
-                          </Td>
-                          <Td className="text-foreground">{r.evaluationName}</Td>
-                          <Td className="whitespace-nowrap">
-                            <span className="font-mono">{r.candidateVersion}</span>{" "}
-                            <span className="tabular-nums text-muted-foreground">
-                              #{r.runNumber}
-                            </span>
-                          </Td>
-                          <Td className="text-right tabular-nums text-muted-foreground">
-                            {formatCost(r.cost)}
-                          </Td>
-                          <Td className="text-right tabular-nums text-muted-foreground">
-                            {formatCost(avgCost)}
-                          </Td>
-                          <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
-                            {formatElapsed(r.elapsedMs)}
-                          </Td>
-                          <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
-                            {formatElapsed(avgDurationMs)}
-                          </Td>
-                        </TR>
-                      );
-                    })}
-                  </TBody>
-                </Table>
+                {/* Coverage cells reveal their full label on hover; Radix needs one
+                    provider above them. */}
+                <TooltipProvider delayDuration={400}>
+                  <Table>
+                    <THead>
+                      <TRHead>
+                        <Th className="w-[150px]">Timestamp</Th>
+                        <Th>Evaluation Name</Th>
+                        <Th>Run Name</Th>
+                        {/* Selected / total — the same column, and the same component, as
+                            the Evaluations list, so a run reads identically on both. */}
+                        <Th className="w-[90px] text-right">Cases</Th>
+                        <Th className="w-[90px] text-right">Cost</Th>
+                        <Th className="w-[90px] text-right">Avg Cost</Th>
+                        <Th className="w-[90px] text-right">Duration</Th>
+                        <Th className="w-[100px] text-right">Avg Duration</Th>
+                      </TRHead>
+                    </THead>
+                    <TBody>
+                      {runs.map((r) => {
+                        // Run-level averages, same math as the Evaluations list.
+                        const avgCost =
+                          r.cost != null && r.caseCount > 0 ? r.cost / r.caseCount : null;
+                        const avgDurationMs =
+                          r.elapsedMs != null && r.caseCount > 0
+                            ? Math.round(r.elapsedMs / r.caseCount)
+                            : null;
+                        return (
+                          <TR
+                            key={r.resultId}
+                            interactive
+                            onClick={() =>
+                              router.push(`/projects/${projectId}/evaluations/${r.runId}`)
+                            }
+                          >
+                            <Td className="whitespace-nowrap text-muted-foreground">
+                              <Timestamp iso={r.ranAt} />
+                            </Td>
+                            <Td className="text-foreground">{r.evaluationName}</Td>
+                            <Td className="whitespace-nowrap">
+                              <span className="font-mono">{r.candidateVersion}</span>{" "}
+                              <span className="tabular-nums text-muted-foreground">
+                                #{r.runNumber}
+                              </span>
+                            </Td>
+                            <Td className="text-right tabular-nums text-muted-foreground">
+                              <CoverageCell coverage={r.coverage} />
+                            </Td>
+                            <Td className="text-right tabular-nums text-muted-foreground">
+                              {formatCost(r.cost)}
+                            </Td>
+                            <Td className="text-right tabular-nums text-muted-foreground">
+                              {formatCost(avgCost)}
+                            </Td>
+                            <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
+                              {formatElapsed(r.elapsedMs)}
+                            </Td>
+                            <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
+                              {formatElapsed(avgDurationMs)}
+                            </Td>
+                          </TR>
+                        );
+                      })}
+                    </TBody>
+                  </Table>
+                </TooltipProvider>
               </div>
             )}
           </ResizablePanel>
