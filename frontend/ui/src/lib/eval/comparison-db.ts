@@ -4,6 +4,7 @@
  * comparison from the one engine (lib/eval/comparison.ts) without duplicating the
  * mapping. These accept structurally-typed rows to avoid importing Prisma types.
  */
+import { toRunCoverage } from "./coverage";
 import type {
   ComparisonRun,
   ComparisonResult,
@@ -37,6 +38,13 @@ interface DbRun {
   status: string;
   baselineRunId: string | null;
   scorers: unknown; // Json: [{ name, version, value_type?, direction?, threshold? }]
+  // Dataset coverage. Optional on the input so a caller that has not yet widened its
+  // `select` still type-checks — it simply reads as UNKNOWN, which is the safe reading
+  // (never "full"). Every caller in this repo does select them.
+  datasetCaseCount?: number | null;
+  selectionMode?: string | null;
+  selectedCaseCount?: number | null;
+  sampleSeed?: number | bigint | null;
 }
 
 /** A metric's typed policy (value type, direction, threshold) read off a scorer ref or one
@@ -123,6 +131,14 @@ export function toComparisonRun(r: DbRun): ComparisonRun {
     status: r.status,
     baselineRunId: r.baselineRunId,
     scorers: parseScorers(r.scorers),
+    // Read through the same helper as every UI surface, so the engine's trust verdict
+    // and the label the reader sees are derived from one rule.
+    coverage: toRunCoverage({
+      datasetCaseCount: r.datasetCaseCount ?? null,
+      selectionMode: r.selectionMode ?? null,
+      selectedCaseCount: r.selectedCaseCount ?? null,
+      sampleSeed: r.sampleSeed ?? null,
+    }),
   };
 }
 
