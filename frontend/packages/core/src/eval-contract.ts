@@ -204,6 +204,49 @@ export const ScorerRefSchema = z.object({
 });
 export type ScorerRef = z.infer<typeof ScorerRefSchema>;
 
+// ---------------------------------------------------------------------------
+// Dataset coverage — which cases a run set out to measure
+// ---------------------------------------------------------------------------
+
+/**
+ * How a run chose its cases out of the pinned dataset version. Mirrors the SDK
+ * runner's own `evaluation_started.run_mode` vocabulary, so nothing has to be
+ * translated between the runner protocol and the wire.
+ */
+export const RUN_SELECTION_MODES = ["full", "first", "sample"] as const;
+export const RunSelectionModeSchema = z.enum(RUN_SELECTION_MODES);
+export type RunSelectionMode = (typeof RUN_SELECTION_MODES)[number];
+
+/**
+ * The run's DELIBERATE case selection — a `--first 20` or `--sample 20 --seed 7`
+ * run is otherwise wire-indistinguishable from a full 500-case run, which silently
+ * understates per-case averages by the coverage ratio, lets two subsets present
+ * themselves as an authoritative comparison, and makes a deliberate subset look
+ * like an API truncation.
+ *
+ * Plain (non-strict) like `ScorerRefSchema`: unknown nested keys are STRIPPED, so a
+ * future SDK sending a richer selection descriptor is not a 400 that loses the whole
+ * run. The top-level request stays `.strict()`.
+ */
+/**
+ * Postgres `INTEGER`. The coverage counts are stored in int4 columns, so a larger value
+ * would pass validation and then fail the insert as a 500.
+ */
+export const PG_INT4_MAX = 2_147_483_647;
+
+export const RunSelectionSchema = z.object({
+  mode: RunSelectionModeSchema,
+  /** How many cases this run set out to measure. `mode: "full"` ⇒ the whole version. */
+  selected_case_count: z.number().int().nonnegative().max(PG_INT4_MAX),
+  /**
+   * The seed that made a `sample` reproducible. Absent for an unseeded sample, which
+   * is legitimate — it simply cannot be reproduced. An opaque token, not a count, so
+   * it is deliberately unconstrained in sign.
+   */
+  sample_seed: z.number().int().nullable().optional(),
+});
+export type RunSelection = z.infer<typeof RunSelectionSchema>;
+
 /** One scorer's outcome on one result. `error` set = the scorer failed to judge. */
 export const ScoreInputSchema = z
   .object({
@@ -250,13 +293,73 @@ export const RegisterRunRequestSchema = z
     baseline_run_id: z.string().min(1).max(64).nullable().optional(),
     case_count: z.number().int().nonnegative().nullable().optional(),
     /**
+     * The pinned dataset version's TRUE size, so a selection can be read as
+     * `selected / total`. Sent together with `run_selection` (see the refinement
+     * below): a selected count without a total is not displayable, and a total
+     * without a selection says nothing about what the run actually measured.
+     */
+    dataset_case_count: z.number().int().nonnegative().max(PG_INT4_MAX).nullable().optional(),
+    /**
+     * The run's deliberate case selection. Omitted by an SDK older than this field,
+     * which reads back as coverage UNKNOWN — never silently relabelled full, because
+     * full coverage that cannot be proven must not be claimed.
+     */
+    run_selection: RunSelectionSchema.nullable().optional(),
+    /**
      * Free-form run metadata — arbitrary user key/values, kept verbatim.
      * Presented as informational secondary detail, never an evaluation error,
      * and never a source of secrets.
      */
     metadata: MetadataSchema.nullable().optional(),
   })
-  .strict();
+  .strict()
+  // Coverage is atomic: a run either declares its selection completely or not at all.
+  // Anything in between is a state no surface could render honestly, so it is rejected
+  // at the contract rather than persisted and guessed at downstream.
+  .superRefine((req, ctx) => {
+    const issue = (message: string, path: string[]) =>
+      ctx.addIssue({ code: "custom", message, path });
+
+    const selection = req.run_selection ?? null;
+    const datasetCaseCount = req.dataset_case_count ?? null;
+
+    if (selection && datasetCaseCount === null) {
+      issue("run_selection requires dataset_case_count (a selection needs a total)", [
+        "dataset_case_count",
+      ]);
+    }
+    if (!selection && datasetCaseCount !== null) {
+      issue("dataset_case_count requires run_selection (a total needs a selection)", [
+        "run_selection",
+      ]);
+    }
+    if (selection && datasetCaseCount !== null) {
+      if (selection.selected_case_count > datasetCaseCount) {
+        issue("selected_case_count cannot exceed dataset_case_count", [
+          "run_selection",
+          "selected_case_count",
+        ]);
+      }
+      // A full run measures every case there is; anything else is a subset and must
+      // say so, or it would render as "Full dataset" over a partial result set.
+      if (selection.mode === "full" && selection.selected_case_count !== datasetCaseCount) {
+        issue('mode "full" requires selected_case_count to equal dataset_case_count', [
+          "run_selection",
+          "selected_case_count",
+        ]);
+      }
+    }
+    // A seed is only meaningful for a sample — carrying one on a full or first-N run
+    // would imply a reproducible randomisation that never happened.
+    if (selection && selection.sample_seed != null && selection.mode !== "sample") {
+      issue('sample_seed is only valid when mode is "sample"', ["run_selection", "sample_seed"]);
+    }
+    // Two denominators that disagree: whichever one a surface picked, the other would
+    // make it wrong. The legacy field stays accepted, but never in contradiction.
+    if (selection && req.case_count != null && req.case_count !== selection.selected_case_count) {
+      issue("case_count contradicts run_selection.selected_case_count", ["case_count"]);
+    }
+  });
 export type RegisterRunRequest = z.infer<typeof RegisterRunRequestSchema>;
 
 /**

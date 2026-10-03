@@ -697,27 +697,42 @@ model Evaluation {
 
 // One immutable execution of an evaluation against a pinned dataset snapshot.
 model EvaluationRun {
-  id               String    @id @default(cuid()) @db.VarChar
-  evaluationId     String    @map("evaluation_id") @db.VarChar
-  projectId        String    @map("project_id") @db.VarChar
-  datasetId        String    @map("dataset_id") @db.VarChar
-  datasetVersionId String    @map("dataset_version_id") @db.VarChar // pinned snapshot
-  runNumber        Int       @map("run_number") // 1-based within the evaluation
-  candidateVersion String    @map("candidate_version") @db.VarChar // what changed, e.g. "git:4a91c02"
-  environment      String    @default("evaluation") @db.VarChar
-  status           String    @default("running") @db.VarChar // running|completed|completed_with_errors|failed|incomplete
-  baselineRunId    String?   @map("baseline_run_id") @db.VarChar
-  caseCount        Int       @default(0) @map("case_count")
-  scoredCount      Int       @default(0) @map("scored_count")
-  taskErrorCount   Int       @default(0) @map("task_error_count")
-  scorerErrorCount Int       @default(0) @map("scorer_error_count")
-  scorers          Json?     @map("scorers") @db.JsonB // [{name, version, value_type?, direction?, threshold?}]
-  metadata         Json?     @map("metadata") @db.JsonB // free-form user run metadata (arbitrary key/values, kept verbatim)
-  clientRunId      String?   @map("client_run_id") @db.VarChar // SDK idempotency key
-  startedAt        DateTime  @default(now()) @map("started_at") @db.Timestamp(6)
-  completedAt      DateTime? @map("completed_at") @db.Timestamp(6)
-  createTime       DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime       DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
+  id                String    @id @default(cuid()) @db.VarChar
+  evaluationId      String    @map("evaluation_id") @db.VarChar
+  projectId         String    @map("project_id") @db.VarChar
+  datasetId         String    @map("dataset_id") @db.VarChar
+  datasetVersionId  String    @map("dataset_version_id") @db.VarChar // pinned snapshot
+  runNumber         Int       @map("run_number") // 1-based within the evaluation
+  candidateVersion  String    @map("candidate_version") @db.VarChar // what changed, e.g. "git:4a91c02"
+  environment       String    @default("evaluation") @db.VarChar
+  status            String    @default("running") @db.VarChar // running|completed|completed_with_errors|failed|incomplete
+  baselineRunId     String?   @map("baseline_run_id") @db.VarChar
+  caseCount         Int       @default(0) @map("case_count")
+  // Dataset coverage — the run's IMMUTABLE selection identity, declared once at
+  // registration and never rewritten (completion cannot touch it). Without these a
+  // `--first 20` run against a 500-case version is indistinguishable from a full run
+  // forever after: per-case averages read 25x low, two identical subsets compare as
+  // authoritative, and the deliberate subset renders as an API truncation.
+  //
+  // All four are nullable and default to NULL, which is the honest reading for every
+  // row written before this existed and for any SDK that does not send the block:
+  // coverage UNKNOWN. A null selection_mode is never silently treated as "full" —
+  // full coverage that cannot be proven must not be claimed. The contract requires
+  // dataset_case_count and the selection together, so these are all-or-nothing.
+  datasetCaseCount  Int?      @map("dataset_case_count")
+  selectionMode     String?   @map("selection_mode") @db.VarChar // full|first|sample; NULL = unknown
+  selectedCaseCount Int?      @map("selected_case_count")
+  sampleSeed        BigInt?   @map("sample_seed") // only for selection_mode = 'sample'
+  scoredCount       Int       @default(0) @map("scored_count")
+  taskErrorCount    Int       @default(0) @map("task_error_count")
+  scorerErrorCount  Int       @default(0) @map("scorer_error_count")
+  scorers           Json?     @map("scorers") @db.JsonB // [{name, version, value_type?, direction?, threshold?}]
+  metadata          Json?     @map("metadata") @db.JsonB // free-form user run metadata (arbitrary key/values, kept verbatim)
+  clientRunId       String?   @map("client_run_id") @db.VarChar // SDK idempotency key
+  startedAt         DateTime  @default(now()) @map("started_at") @db.Timestamp(6)
+  completedAt       DateTime? @map("completed_at") @db.Timestamp(6)
+  createTime        DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime        DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
 
   evaluation     Evaluation         @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
   // NoAction rather than the Prisma default (Restrict): both refuse a bare

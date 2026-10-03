@@ -218,6 +218,30 @@
         }
       }
     },
+    "RunSelection": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "mode": {
+          "type": "enum",
+          "enum": ["full", "first", "sample"],
+          "required": true,
+          "nullable": false
+        },
+        "selected_case_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": true,
+          "nullable": false,
+          "maximum": 2147483647
+        },
+        "sample_seed": {
+          "type": "integer",
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
     "RegisterRunRequest": {
       "kind": "object",
       "unknown_keys": "forbid",
@@ -292,6 +316,18 @@
         "case_count": {
           "type": "integer",
           "minimum": 0,
+          "required": false,
+          "nullable": true
+        },
+        "dataset_case_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": false,
+          "nullable": true,
+          "maximum": 2147483647
+        },
+        "run_selection": {
+          "type": "RunSelection",
           "required": false,
           "nullable": true
         },

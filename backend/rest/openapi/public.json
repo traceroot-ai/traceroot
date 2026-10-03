@@ -4117,6 +4117,20 @@
             ],
             "title": "Client Run Id"
           },
+          "dataset_case_count": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The pinned dataset version's total case count. Must be sent together with run_selection (one without the other is rejected), and must equal the pinned version's real size.",
+            "title": "Dataset Case Count"
+          },
           "dataset_id": {
             "maxLength": 64,
             "minLength": 1,
@@ -4173,6 +4187,17 @@
               }
             ],
             "title": "Metadata"
+          },
+          "run_selection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSelection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run's case selection. Must be sent together with dataset_case_count. Omitting both records the run's coverage as unknown."
           },
           "scorers": {
             "items": {
@@ -4299,6 +4324,46 @@
           "observed_count"
         ],
         "title": "RunMetricItem",
+        "type": "object"
+      },
+      "RunSelection": {
+        "description": "The run's DELIBERATE case selection out of the pinned dataset version.\n\nA ``--first 20`` or ``--sample 20 --seed 7`` run is otherwise wire-indistinguishable\nfrom a full 500-case run, which understates per-case averages by the coverage ratio,\nlets two subsets present themselves as an authoritative comparison, and makes a\ndeliberate subset look like an API truncation.\n\nPlain (non-strict) like ``ScorerRef``: unknown nested keys are ignored, so a future\nSDK sending a richer selection descriptor is not a 400 that loses the whole run.",
+        "properties": {
+          "mode": {
+            "description": "How the run chose its cases: \"full\" runs every case in the pinned version, \"first\" runs the first selected_case_count cases, and \"sample\" runs a random selected_case_count cases. \"full\" requires selected_case_count to equal dataset_case_count.",
+            "enum": [
+              "full",
+              "first",
+              "sample"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "sample_seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The seed that makes a \"sample\" reproducible. Only valid when mode is \"sample\"; omit it for an unseeded sample.",
+            "title": "Sample Seed"
+          },
+          "selected_case_count": {
+            "description": "How many cases the run set out to measure. Must not exceed dataset_case_count, and must equal case_count when case_count is also sent.",
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Selected Case Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mode",
+          "selected_case_count"
+        ],
+        "title": "RunSelection",
         "type": "object"
       },
       "ScoreInput": {
