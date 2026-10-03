@@ -1019,6 +1019,46 @@ describe("signal RCAs", () => {
     expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), "tok");
   });
 
+  it("keeps a failed attempt pending, without a digest, while BullMQ will retry it", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    await stubRun();
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
+    const updateMany = vi.spyOn(p.detectorRca, "updateMany").mockResolvedValue({ count: 1 } as any);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob(signalJob({ attemptsMade: 1, opts: { attempts: 3 } }), "tok"),
+    ).rejects.toThrow("Prisma error");
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { findingId: "f1", executions: { none: { attempt: { gt: 1 } } } },
+      data: { status: "pending" },
+    });
+    expect(finishFindingIfLatestMock).not.toHaveBeenCalled();
+    expect(digestAddMock).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("fails the RCA on the last attempt without scheduling a digest", async () => {
+    loadSignalRcaContextMock.mockResolvedValue(context);
+    await stubRun();
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob(signalJob({ attemptsMade: 2, opts: { attempts: 3 } }), "tok"),
+    ).rejects.toThrow("Prisma error");
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ findingId: "f1", status: "failed" }),
+    );
+    // The signal digest goes out on the project's window whatever the RCA's
+    // state; an RCA finishing, or failing, never sends another notification.
+    expect(digestAddMock).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it("keeps a final failed job alive when a new opening was added", async () => {
     loadSignalRcaContextMock.mockResolvedValue(context);
     hasUncoveredOpeningsMock.mockResolvedValue(true);

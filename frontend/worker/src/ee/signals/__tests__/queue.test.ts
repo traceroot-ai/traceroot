@@ -59,6 +59,14 @@ const { mockEnqueueRca, mockSweepRcas } = vi.hoisted(() => ({
   mockSweepRcas: vi.fn(),
 }));
 vi.mock("../rca.js", () => ({ enqueueSignalRca: mockEnqueueRca, sweepSignalRcas: mockSweepRcas }));
+const { mockEnqueueDigest, mockSweepDigests } = vi.hoisted(() => ({
+  mockEnqueueDigest: vi.fn(),
+  mockSweepDigests: vi.fn(),
+}));
+vi.mock("../digest.js", () => ({
+  enqueueSignalDigest: mockEnqueueDigest,
+  sweepSignalDigests: mockSweepDigests,
+}));
 const { mockPendingCopies, detectorRows, detectorDb, markWrites } = vi.hoisted(() => {
   /** The detectors table, reduced to the sweeper's pending mark. */
   const detectorRows = new Map<string, { projectId: string; assignmentPendingAt: Date | null }>();
@@ -350,6 +358,7 @@ describe("sweepPartitions", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     expect(await sweepPartitions(T0)).toBe(1);
     expect(mockSweepRcas).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), T0);
+    expect(mockSweepDigests).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), T0);
     expect(mockAdd).toHaveBeenCalledWith(
       "assign",
       { projectId: "p", detectorId: "d" },
@@ -417,6 +426,7 @@ describe("pending copy recovery", () => {
       expect.objectContaining({ delay: 0 }),
     );
     expect(mockSweepRcas).not.toHaveBeenCalled();
+    expect(mockSweepDigests).not.toHaveBeenCalled();
   });
 });
 
@@ -430,6 +440,8 @@ describe("production wiring", () => {
     expect(deps.failures.record).toBe(recordHitFailure);
     await deps.enqueueRca("f1", "p");
     expect(mockEnqueueRca).toHaveBeenCalledWith("f1", "p");
+    await deps.enqueueDigest("p");
+    expect(mockEnqueueDigest).toHaveBeenCalledWith("p");
     expect(deps.now()).toBeGreaterThan(0);
 
     await deps.embed(["a"]);

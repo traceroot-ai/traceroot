@@ -22,6 +22,7 @@ import {
   recordHitFailure,
   type SignalAssignJobData,
 } from "./queue.js";
+import { enqueueSignalDigest, sweepSignalDigests } from "./digest.js";
 import { enqueueSignalRca, sweepSignalRcas } from "./rca.js";
 import { runAssignmentRound, type RoundDeps } from "./round.js";
 
@@ -35,6 +36,7 @@ function productionDeps(): RoundDeps {
     backend: signalsBackend,
     failures: { record: recordHitFailure },
     enqueueRca: (findingId, projectId) => enqueueSignalRca(findingId, projectId),
+    enqueueDigest: (projectId) => enqueueSignalDigest(projectId),
     embed: (texts) => embedTexts(texts, apiKey),
     models: async (workspaceId, usage) => {
       const jevConfig = await findJevProvider(prisma, workspaceId);
@@ -84,7 +86,10 @@ export async function sweepPartitions(now: number = Date.now()): Promise<number>
     count++;
   }
   if (count > 0) console.log(`[Signals] sweeper re-enqueued ${count} partition(s)`);
-  if (signalsAvailable()) await sweepSignalRcas(prisma, now);
+  if (signalsAvailable()) {
+    await sweepSignalRcas(prisma, now);
+    await sweepSignalDigests(prisma, now);
+  }
   return count;
 }
 

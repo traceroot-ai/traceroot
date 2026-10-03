@@ -19,6 +19,22 @@ const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 // View-findings button leads to the full list.
 const MAX_DIGEST_ROWS = 45;
 
+/**
+ * Send one email through the configured SMTP transport. Returns false when no
+ * transport is configured (self-hosted without SMTP), so the caller can log it.
+ */
+export async function sendEmail(params: {
+  to: string[];
+  subject: string;
+  text: string;
+  html: string;
+}): Promise<boolean> {
+  const transport = createTransport();
+  if (!transport || params.to.length === 0) return false;
+  await transport.sendMail({ from: SMTP_FROM, ...params, to: params.to.join(", ") });
+  return true;
+}
+
 function createTransport() {
   if (!SMTP_URL) return null;
   const url = new URL(SMTP_URL);
