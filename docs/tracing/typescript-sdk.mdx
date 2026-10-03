@@ -5,19 +5,69 @@ description: Full API reference for the TraceRoot TypeScript SDK
 
 The TraceRoot TypeScript SDK provides automatic and manual instrumentation for AI agents using OpenTelemetry.
 
-## Instrumentation
 
-Pass module instances to `initialize()` to instrument all calls automatically:
+## Initialization
+
+Call `initialize()` once at the start of your application.
 
 ```typescript
-import OpenAI from 'openai';
 import { TraceRoot } from '@traceroot-ai/traceroot';
 
 TraceRoot.initialize({
-  instrumentModules: { openAI: OpenAI },
+  apiKey: process.env.TRACEROOT_API_KEY,
+  // Other options...
 });
+```
 
-const openai = new OpenAI();
+### `InitializeOptions`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `apiKey` | `string` | — | API key for TraceRoot. Falls back to `TRACEROOT_API_KEY` env var. |
+| `baseUrl` | `string` | `https://app.traceroot.ai` | Base URL for the backend. Falls back to `TRACEROOT_HOST_URL` env var. |
+| `instrumentModules` | `object` | `undefined` | Modules to instrument (see below). |
+| `disableBatch` | `boolean` | `false` | Use `SimpleSpanProcessor` instead of `BatchSpanProcessor`. Useful for scripts/tests. |
+| `exportSpan` | `(span: ReadableSpan) => boolean` | — | Decide, per finished span, whether it is exported; return `false` to drop it. |
+| `logLevel` | `'debug' \| 'info' \| 'warn' \| 'error'` | `'error'` | OTel diagnostic log level. |
+| `enabled` | `boolean` | `true` | Disable all tracing. Falls back to `TRACEROOT_ENABLED` env var (`'false'` disables). |
+| `environment` | `string` | — | Deployment environment tag. Falls back to `TRACEROOT_ENVIRONMENT`. Stamped as `deployment.environment`. |
+| `gitRepo` | `string` | auto-detected | Git repository (`owner/repo`). Falls back to `TRACEROOT_GIT_REPO`. |
+| `gitRef` | `string` | auto-detected | Git commit SHA. Falls back to `TRACEROOT_GIT_REF`. |
+| `globalAttributes` | `Record<string, string \| number \| boolean>` | — | Attributes stamped on EVERY span (root and children). Reserve the `traceroot.*` namespace. |
+| `internalExport` | `object` | — | Internal/trusted export mode configuration (`path`, optional `projectId`, optional `headers`). Used to export spans directly with project/tenant attribution instead of public API keys. |
+
+### `instrumentModules`
+
+Configure which LLM and agent libraries are instrumented.
+
+<Warning>
+In ESM projects, leaving `instrumentModules` as `undefined` results in no auto-instrumentation, and LLM calls will produce no spans and no warnings. You must explicitly pass the modules as shown below. In CommonJS, `undefined` auto-instruments all supported modules using require hooks.
+</Warning>
+
+To disable all auto-instrumentation, pass an empty object: `instrumentModules: {}`.
+
+To explicitly instrument modules, pass them in the configuration:
+
+```typescript
+import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
+import * as lcCallbackManager from '@langchain/core/callbacks/manager';
+import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
+import { Agent as PiAgentCore } from '@earendil-works/pi-agent-core';
+
+TraceRoot.initialize({
+  instrumentModules: {
+    openAI: OpenAI,
+    anthropic: Anthropic,
+    langchain: lcCallbackManager, // Note: pass the callbacks namespace, not the LangChain class
+    bedrock: BedrockRuntimeClient,
+    piAgentCore: { Agent: PiAgentCore }, // Or the entire module namespace
+    // Other supported modules:
+    // claudeAgentSDK: ...
+    // openaiAgents: ...
+    // piCodingAgent: ...
+  },
+});
 ```
 
 ## The Observe Wrapper
@@ -27,9 +77,9 @@ Wrap any async function to create a span:
 ```typescript
 import { observe } from '@traceroot-ai/traceroot';
 
-const result = await observe({ name: 'my_function', type: 'tool' }, async () => {
-  return doWork('your input here');
-});
+const result = await observe({ name: 'my_function', type: 'tool', captureInput: true }, async (inputStr) => {
+  return doWork(inputStr);
+}, 'your input here');
 ```
 
 ### Parameters
@@ -40,6 +90,12 @@ const result = await observe({ name: 'my_function', type: 'tool' }, async () => 
 | `type` | `'span' \| 'agent' \| 'tool' \| 'llm'` | `'span'` | Span kind — `'agent'` for multi-step agents, `'tool'` for function calls, `'llm'` for model inference, `'span'` for generic |
 | `metadata` | `Record<string, unknown>` | — | Static metadata to attach |
 | `tags` | `string[]` | — | Tags to attach |
+| `captureInput` | `boolean` | `true` | Auto-capture function arguments as `input.value` |
+| `captureOutput` | `boolean` | `true` | Capture the return value as `output.value` |
+| `sessionId` | `string` | — | Session / conversation ID to associate with this span |
+| `userId` | `string` | — | User ID to associate with this span |
+| `traceId` | `string` | — | Force this root span's trace id (internal export mode only) |
+| `projectId` | `string` | — | Attribute this span's subtree to a project (internal export mode only) |
 
 ## Setting Trace Context
 
@@ -111,13 +167,81 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 | `tags` | `string[]` | Tags for the trace |
 | `metadata` | `Record<string, unknown>` | Trace-level metadata |
 
+
+## Manual Span API
+
+For more fine-grained control over spans, including recording tokens for streaming responses, use the manual span API.
+
+```typescript
+import { startSpan, usingSpan, getCurrentSpan } from '@traceroot-ai/traceroot';
+
+// 1. Manual lifecycle pattern
+const llmSpan = startSpan({ name: 'streaming_completion', type: 'llm', model: 'gpt-4' });
+try {
+  // Update the span mid-flight or at the end
+  llmSpan.update({
+    usage: { input: 10, output: 50 }, // Accepts `usage` (input/output/total), but not `prompt` directly
+    output: { text: "Hello!" }
+  });
+} finally {
+  llmSpan.end();
+}
+
+// 2. usingSpan pattern: executes a block with the span active in context, then ends it automatically
+const blockSpan = startSpan({ name: 'agent_step', type: 'agent' });
+await usingSpan(blockSpan, async () => {
+  const current = getCurrentSpan(); // Retrieves `blockSpan` from context
+  console.log(current?.spanId);
+});
+```
+
+### `StartSpanOptions`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | `string` | Span name |
+| `type` | `SpanType` | Span kind (`'span'`, `'agent'`, `'tool'`, `'llm'`) |
+| `input` | `unknown` | Input data |
+| `metadata` | `Record<string, unknown>` | Custom metadata |
+| `tags` | `string[]` | Array of tags |
+| `sessionId` | `string` | Session ID |
+| `userId` | `string` | User ID |
+| `model` | `string` | Model name (for LLM spans) |
+| `modelParameters` | `Record<string, unknown>` | Parameters used for the model |
+| `attributes` | `Record<string, string \| number \| boolean>` | Arbitrary underlying span attributes |
+| `parent` | `Span` | Explicit parent handle (defaults to the current active span) |
+
+### `SpanUpdate`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | `string` | Update span name |
+| `input` | `unknown` | Update input data |
+| `output` | `unknown` | Update output data |
+| `metadata` | `Record<string, unknown>` | Update metadata |
+| `model` | `string` | Update model name |
+| `modelParameters` | `Record<string, unknown>` | Update model parameters |
+| `usage` | `TokenUsage` | Token usage (fields like `input`, `output`, `total`). Does not accept `prompt` directly. |
+| `attributes` | `Record<string, string \| number \| boolean>` | Update arbitrary underlying span attributes |
+
+## Other Exports
+
+- **`exportSpan(span: ReadableSpan) => boolean`**: An initialization option/filter that receives the finished `ReadableSpan` before it leaves the process. Returning `false` drops it.
+- **`globalAttributes`**: Stamped on EVERY span (root and children) at initialization, e.g., `{ 'traceroot.source': 'detector' }`.
+- **`captureContent`**: For `pi` integrations, the only way to record model inputs/outputs. Accepts a boolean or a `(kind, value, ctx) => string | undefined` function.
+- **`instrumentPiAgentCore(mod, config)`**: The only way to configure `pi-agent-core`'s instrumentation config (like `captureContent` or `captureToolIo`).
+
+
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TRACEROOT_API_KEY` | (required) | API key |
 | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | API endpoint |
-| `TRACEROOT_ENABLED` | `true` | Enable/disable tracing |
+| `TRACEROOT_ENABLED` | `true` | Enable/disable tracing. The SDK only disables tracing for the exact string `"false"` (note: the Python SDK also accepts `0`, `no`, or `off`). |
 | `TRACEROOT_ENVIRONMENT` | — | Deployment environment tag (e.g. `production`, `staging`) |
 | `TRACEROOT_GIT_REPO` | auto-detected | Git repository (`owner/repo`) |
 | `TRACEROOT_GIT_REF` | auto-detected | Git reference |
+| `TRACEROOT_FLUSH_AT` | `100` | Number of spans to batch before flushing |
+| `TRACEROOT_FLUSH_INTERVAL` | `5` (seconds) | Interval at which to flush batched spans |
+| `TRACEROOT_TIMEOUT` | `10` (seconds) | Timeout for span export requests |
