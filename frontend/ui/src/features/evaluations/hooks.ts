@@ -203,6 +203,11 @@ export interface TestCaseRunRow {
   coverage: RunCoverage;
   cost: number | null;
   elapsedMs: number | null;
+  /** Per-case means over the results that reported each value (see RunRow.avgCost). */
+  avgCost: number | null;
+  avgDurationMs: number | null;
+  costObservedCount: number;
+  durationObservedCount: number;
 }
 
 /** Every evaluation run that measured a given test case (newest first). */
