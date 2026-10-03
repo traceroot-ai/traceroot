@@ -50,6 +50,10 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}"),
     ("GET", "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}/versions"),
     ("GET", "/api/v1/internal/projects/{project_id}/dataset-versions/{version_id}"),
+    # Signal assignment (ee/signals): the worker reads waiting hits and writes
+    # the ClickHouse copy of assignments.
+    ("GET", "/api/v1/internal/signals/waiting-hits"),
+    ("POST", "/api/v1/internal/signals/assignments"),
 }
 
 

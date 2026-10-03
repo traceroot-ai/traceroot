@@ -134,6 +134,35 @@ class ClickHouseClient:
             ],
         )
 
+    def insert_signal_assignments(self, rows: list[dict[str, Any]]) -> None:
+        """Insert signal assignment rows (the query copy of Postgres signal_hits).
+
+        Args:
+            rows (list[dict[str, Any]]): One dict per hit with project_id,
+                detector_id, run_id, trace_id, signal_id, embedding (list of
+                floats, empty when the hit has none), score and
+                criteria_version (either may be None), and assigned_at (an
+                aware datetime).
+        """
+        if not rows:
+            return
+        columns = [
+            "project_id",
+            "detector_id",
+            "run_id",
+            "trace_id",
+            "signal_id",
+            "embedding",
+            "score",
+            "criteria_version",
+            "assigned_at",
+        ]
+        self._client.insert(
+            "signal_assignments",
+            [[r[c] for c in columns] for r in rows],
+            column_names=columns,
+        )
+
     def insert_spans_batch(self, spans: list[dict[str, Any]]) -> None:
         """Insert multiple span records.
 
