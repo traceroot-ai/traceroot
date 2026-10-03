@@ -144,6 +144,13 @@
             ]
           },
           {
+            "group": "Dashboards",
+            "pages": [
+              "dashboards/introduction",
+              "dashboards/widgets"
+            ]
+          },
+          {
             "group": "CLI",
             "pages": [
               "cli/get-started"
