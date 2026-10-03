@@ -32,6 +32,8 @@ A detector has six configurable parts:
 - **A detection model** — the system or BYOK model that evaluates the trace.
 - **An RCA toggle** — whether the AI agent investigates this detector's findings (on by default).
 
+For full details on templates, trigger fields, quiet periods, and model options, see the [Detector Reference](/detectors/reference).
+
 When `identified` is true, the detector emits a **finding** and the AI agent investigates when RCA is enabled. Findings from RCA-enabled detectors are included in the next configured notification digest; the RCA itself is read in TraceRoot, not in the digest.
 
 Sampling is deterministic for each trace and detector. Sending the same trace again does not change whether it is sampled. Set the rate to **100%** to evaluate every matching trace, or to **0%** to pause the detector.
@@ -50,6 +52,9 @@ RCA is decided **per trace, not per detector**. When several detectors fire on t
 <CardGroup cols={2}>
   <Card title="Get Started" icon="rocket" href="/detectors/get-started">
     Create your first detector in a few minutes from a starting prompt.
+  </Card>
+  <Card title="Detector Reference" icon="book-open" href="/detectors/reference">
+    Detailed reference for templates, trigger conditions, models, and findings.
   </Card>
   <Card title="Notifications" icon="bell" href="/detectors/notifications">
     Configure email and Slack notifications for findings.

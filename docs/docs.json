@@ -128,6 +128,7 @@
             "pages": [
               "detectors/introduction",
               "detectors/get-started",
+              "detectors/reference",
               "detectors/notifications"
             ]
           },

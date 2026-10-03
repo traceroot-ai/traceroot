@@ -16,7 +16,7 @@ Open your project in [TraceRoot Cloud](https://app.traceroot.ai), select **Detec
 
 ### Pick a starting point
 
-The create sheet offers six templates: **Failure**, **Hallucination**, **Logic Error**, **Task Completion**, **Safety**, and **Blank**. Pick whichever maps to a problem you've seen in production. The template fills in a prompt you can edit; save, and the detector starts considering new incoming traces.
+The create sheet offers six templates: **Failure**, **Hallucination**, **Logic Error**, **Task Completion**, **Safety**, and **Blank**. Pick whichever maps to a problem you've seen in production. The template fills in a prompt you can edit; save, and the detector starts considering new incoming traces. For details on what each template checks, its output schema, and the inverted `identified` logic for Task Completion, see the [Detector Reference](/detectors/reference#templates).
 
 ### Choose a sample rate
 
@@ -33,9 +33,9 @@ RCA is shared per trace, so a finding from an RCA-off detector can still be anal
 The pipeline for each incoming trace:
 
 1. **Ingest.** A trace lands in the project.
-2. **Match.** TraceRoot checks each enabled detector's trigger conditions.
+2. **Match.** TraceRoot checks each enabled detector's trigger conditions. (Traces undergo a 60-second quiet period, and evaluation traces are excluded; see [Trigger Conditions & Targeting](/detectors/reference#trigger-conditions--targeting)).
 3. **Sample.** Each matching detector applies its sample rate; new detectors default to 25%.
-4. **Evaluate.** The LLM-as-a-judge (Claude Haiku by default) reads the sampled trace and returns `identified` plus a short summary.
+4. **Evaluate.** The LLM-as-a-judge (`claude-haiku-4-5` by default, or your choice of system / BYOK model such as [TypeSafe AI](/detectors/reference#typesafe-ai-jev-1130)) reads the sampled trace and returns `identified` plus a short summary.
 5. **Diagnose.** When `identified` is true, the trace becomes a **finding** and — provided at least one detector that fired on the trace has **Run root cause analysis on findings** enabled — the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis.
 6. **Notify.** At the end of the configured window, TraceRoot sends one digest to each configured email and Slack channel for findings from RCA-enabled detectors. The digest does not wait for RCA or include it.
 
@@ -57,6 +57,9 @@ Both stages of the pipeline — the LLM-as-a-judge and the AI agent — run on a
 ## Next steps
 
 <CardGroup cols={2}>
+  <Card title="Detector Reference" icon="book-open" href="/detectors/reference">
+    Templates, trigger conditions, judge models, TypeSafe AI, and findings.
+  </Card>
   <Card title="Notifications" icon="bell" href="/detectors/notifications">
     Wire findings to email or Slack.
   </Card>
