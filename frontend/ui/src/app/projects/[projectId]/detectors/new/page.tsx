@@ -81,8 +81,12 @@ export default function NewDetectorPage() {
       detectionProvider: modelSelection.provider || undefined,
       detectionSource: modelSelection.source === "byok" ? "byok" : "system",
     };
-    await createMutation.mutateAsync(input);
-    router.push(`/projects/${projectId}/detectors`);
+    try {
+      await createMutation.mutateAsync(input);
+      router.push(`/projects/${projectId}/detectors`);
+    } catch {
+      // Handled by createMutation.isError and displayed under Name input
+    }
   };
 
   const selectedTemplateDef = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate);
@@ -142,11 +146,19 @@ export default function NewDetectorPage() {
                   onChange={(e) => {
                     setName(e.target.value);
                     setNameEdited(true);
+                    if (createMutation.isError) {
+                      createMutation.reset();
+                    }
                   }}
                   placeholder="e.g. error detector"
                   className="h-7 text-[13px]"
                   required
                 />
+                {createMutation.isError && (
+                  <p className="mt-1.5 text-[12px] text-destructive">
+                    {createMutation.error.message}
+                  </p>
+                )}
               </div>
             </div>
 

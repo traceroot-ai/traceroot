@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
   selectorProps: null as Record<string, unknown> | null,
   editedConditions: [] as Array<Record<string, unknown>>,
+  createMutationError: null as Error | null,
+  resetMutation: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -16,7 +18,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
-  useCreateDetector: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
+  useCreateDetector: () => ({
+    mutateAsync: mocks.mutateAsync,
+    isPending: false,
+    isError: mocks.createMutationError !== null,
+    error: mocks.createMutationError,
+    reset: mocks.resetMutation,
+  }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: undefined }),
@@ -54,6 +62,8 @@ afterEach(() => {
   mocks.push.mockClear();
   mocks.selectorProps = null;
   mocks.editedConditions = [];
+  mocks.createMutationError = null;
+  mocks.resetMutation.mockClear();
 });
 
 const createButton = () =>
@@ -146,5 +156,25 @@ describe("NewDetectorPage — the conditions it submits", () => {
     expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({
       triggerConditions: [{ field: "duration_ms", op: ">", value: 4500 }],
     });
+  });
+});
+
+describe("NewDetectorPage — creation error handling", () => {
+  it("displays server error message below name field and clears on edit", async () => {
+    const errorMsg = "A detector with this name already exists";
+    mocks.createMutationError = new Error(errorMsg);
+    mocks.mutateAsync.mockRejectedValueOnce(mocks.createMutationError);
+
+    render(<NewDetectorPage />);
+    const nameInput = screen.getByDisplayValue("Failure Detector");
+    const errorEl = screen.getByText(errorMsg);
+    expect(errorEl).toBeDefined();
+    expect(nameInput.parentElement?.contains(errorEl)).toBe(true);
+
+    fireEvent.change(nameInput, { target: { value: "New Name" } });
+    expect(mocks.resetMutation).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalled());
   });
 });
