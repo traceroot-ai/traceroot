@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.fixtures.otel_payloads import make_otel_payload, make_span
-from worker.ingest_tasks import process_s3_traces
+from worker.ingest_tasks import _task_metrics_by_trace, process_s3_traces
 
 TRACE_HEX = "aa" * 16
 SPAN_HEX = "bb" * 8
@@ -145,71 +145,88 @@ class TestProcessS3Traces:
 
 
 class TestTaskCostByTrace:
-    """`_task_cost_by_trace` scopes derived eval cost to the CANDIDATE TASK, excluding
+    """`_task_metrics_by_trace` scopes derived eval cost to the CANDIDATE TASK, excluding
     the scorer subtree (an llm_judge or a code scorer that calls an LLM shares the trace).
-    Rows are (trace_id, span_id, parent_span_id, span_kind, cost)."""
+    Rows are the 10-column span projection; only `cost` is asserted here (the token and
+    latency halves of the same fold are covered in test_eval_result_cost.py)."""
 
     def test_excludes_scorer_llm_cost(self):
-        from worker.ingest_tasks import _task_cost_by_trace
+        from worker.ingest_tasks import _task_metrics_by_trace
 
         rows = [
-            ("t1", "root", "", "EVALUATION", None),
-            ("t1", "task", "root", "TASK", None),
-            ("t1", "task_llm", "task", "LLM", 0.010),  # candidate cost
-            ("t1", "scorer", "root", "SCORER", None),
-            ("t1", "judge_llm", "scorer", "LLM", 0.004),  # judge cost — excluded
+            ("t1", "root", "", "EVALUATION", None, None, None, None, None, None),
+            ("t1", "task", "root", "TASK", None, None, None, None, None, None),
+            (
+                "t1",
+                "task_llm",
+                "task",
+                "LLM",
+                0.010,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),  # candidate cost
+            ("t1", "scorer", "root", "SCORER", None, None, None, None, None, None),
+            (
+                "t1",
+                "judge_llm",
+                "scorer",
+                "LLM",
+                0.004,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),  # judge cost — excluded
         ]
-        assert _task_cost_by_trace(rows) == {"t1": pytest.approx(0.010)}
+        assert _task_metrics_by_trace(rows)["t1"].cost == pytest.approx(0.010)
 
     def test_excludes_deeply_nested_scorer_descendants(self):
-        from worker.ingest_tasks import _task_cost_by_trace
 
         # Scorer -> wrapper span -> LLM: the whole subtree is excluded, not just direct children.
         rows = [
-            ("t1", "task", "root", "TASK", None),
-            ("t1", "task_llm", "task", "LLM", 0.02),
-            ("t1", "scorer", "root", "SCORER", None),
-            ("t1", "wrap", "scorer", "SPAN", None),
-            ("t1", "judge_llm", "wrap", "LLM", 0.05),
+            ("t1", "task", "root", "TASK", None, None, None, None, None, None),
+            ("t1", "task_llm", "task", "LLM", 0.02, None, None, None, None, None),
+            ("t1", "scorer", "root", "SCORER", None, None, None, None, None, None),
+            ("t1", "wrap", "scorer", "SPAN", None, None, None, None, None, None),
+            ("t1", "judge_llm", "wrap", "LLM", 0.05, None, None, None, None, None),
         ]
-        assert _task_cost_by_trace(rows) == {"t1": pytest.approx(0.02)}
+        assert _task_metrics_by_trace(rows)["t1"].cost == pytest.approx(0.02)
 
     def test_no_scorer_llm_sums_all_task_cost(self):
-        from worker.ingest_tasks import _task_cost_by_trace
 
         # A trivial code scorer (no LLM) — nothing to exclude; two task LLM calls sum.
         rows = [
-            ("t1", "task", "root", "TASK", None),
-            ("t1", "llm_a", "task", "LLM", 0.003),
-            ("t1", "llm_b", "task", "LLM", 0.004),
-            ("t1", "scorer", "root", "SCORER", None),
+            ("t1", "task", "root", "TASK", None, None, None, None, None, None),
+            ("t1", "llm_a", "task", "LLM", 0.003, None, None, None, None, None),
+            ("t1", "llm_b", "task", "LLM", 0.004, None, None, None, None, None),
+            ("t1", "scorer", "root", "SCORER", None, None, None, None, None, None),
         ]
-        assert _task_cost_by_trace(rows) == {"t1": pytest.approx(0.007)}
+        assert _task_metrics_by_trace(rows)["t1"].cost == pytest.approx(0.007)
 
     def test_costless_trace_is_zero(self):
-        from worker.ingest_tasks import _task_cost_by_trace
 
         rows = [
-            ("t1", "root", "", "EVALUATION", None),
-            ("t1", "task", "root", "TASK", None),
+            ("t1", "root", "", "EVALUATION", None, None, None, None, None, None),
+            ("t1", "task", "root", "TASK", None, None, None, None, None, None),
         ]
-        assert _task_cost_by_trace(rows) == {"t1": 0.0}
+        assert _task_metrics_by_trace(rows)["t1"].cost == 0.0
 
     def test_multiple_traces_kept_separate(self):
-        from worker.ingest_tasks import _task_cost_by_trace
 
         rows = [
-            ("t1", "task1", "root1", "TASK", None),
-            ("t1", "llm1", "task1", "LLM", 0.01),
-            ("t2", "task2", "root2", "TASK", None),
-            ("t2", "llm2", "task2", "LLM", 0.02),
-            ("t2", "scorer2", "root2", "SCORER", None),
-            ("t2", "judge2", "scorer2", "LLM", 0.99),
+            ("t1", "task1", "root1", "TASK", None, None, None, None, None, None),
+            ("t1", "llm1", "task1", "LLM", 0.01, None, None, None, None, None),
+            ("t2", "task2", "root2", "TASK", None, None, None, None, None, None),
+            ("t2", "llm2", "task2", "LLM", 0.02, None, None, None, None, None),
+            ("t2", "scorer2", "root2", "SCORER", None, None, None, None, None, None),
+            ("t2", "judge2", "scorer2", "LLM", 0.99, None, None, None, None, None),
         ]
-        assert _task_cost_by_trace(rows) == {
-            "t1": pytest.approx(0.01),
-            "t2": pytest.approx(0.02),
-        }
+        assert _task_metrics_by_trace(rows)["t1"].cost == pytest.approx(0.01)
+        assert _task_metrics_by_trace(rows)["t2"].cost == pytest.approx(0.02)
 
 
 class FakeCursor:
@@ -310,9 +327,9 @@ class TestUpdateEvalResultCosts:
         mock_ch = MagicMock()
         mock_ch.query.return_value = MagicMock(
             result_rows=[
-                ("t-costed", "task", "root", "TASK", None),
-                ("t-costed", "llm", "task", "LLM", 0.02),
-                ("t-zero", "task", "root", "TASK", None),
+                ("t-costed", "task", "root", "TASK", None, None, None, None, None, None),
+                ("t-costed", "llm", "task", "LLM", 0.02, 11, 7, 18, None, None),
+                ("t-zero", "task", "root", "TASK", None, None, None, None, None, None),
             ]
         )
 
@@ -324,12 +341,23 @@ class TestUpdateEvalResultCosts:
         # Two per-trace cost writes (NULLIF) ...
         cost_updates = [(sql, params) for sql, params in updates if "NULLIF" in sql]
         assert len(cost_updates) == 2
-        by_trace = {params[2]: (sql, params) for sql, params in cost_updates}
+        # params: cost, prompt, completion, total, llm_calls, llm_duration_ms, project, trace
+        by_trace = {params[-1]: (sql, params) for sql, params in cost_updates}
         assert set(by_trace) == {"t-costed", "t-zero"}
         for sql, _ in cost_updates:
             assert "evaluation_results" in sql
-        assert by_trace["t-costed"][1] == (pytest.approx(0.02), "proj-1", "t-costed")
-        assert by_trace["t-zero"][1] == (pytest.approx(0.0), "proj-1", "t-zero")
+        assert by_trace["t-costed"][1] == (
+            pytest.approx(0.02),
+            11,
+            7,
+            18,
+            1,
+            0,
+            "proj-1",
+            "t-costed",
+        )
+        # No model call at all: every metric folds to 0 and NULLIF turns each into NULL.
+        assert by_trace["t-zero"][1] == (pytest.approx(0.0), 0, 0, 0, 0, 0, "proj-1", "t-zero")
         # ... plus ONE derivation-attempted stamp covering every examined result row,
         # so the zero-cost trace settles instead of being re-swept by the backfill forever.
         marking = [(sql, params) for sql, params in updates if "cost_derived_at" in sql]

@@ -758,30 +758,43 @@ model EvaluationRun {
 // One test case's outcome within one run. Links to its source test case
 // (`testCaseId`, stable) and the produced trace (`traceId`, may arrive later).
 model EvaluationResult {
-  id              String    @id @default(cuid()) @db.VarChar
-  runId           String    @map("run_id") @db.VarChar
-  evaluationId    String    @map("evaluation_id") @db.VarChar
-  projectId       String    @map("project_id") @db.VarChar
-  testCaseId      String    @map("test_case_id") @db.VarChar // stable source-case id
-  traceId         String?   @map("trace_id") @db.VarChar
-  input           String    @db.Text
-  expectedOutput  String?   @map("expected_output") @db.Text
-  candidateOutput String?   @map("candidate_output") @db.Text // null when the task errored
-  baselineOutput  String?   @map("baseline_output") @db.Text
-  status          String    @db.VarChar // passed|failed|errored|not_scored
-  change          String?   @db.VarChar // improved|regressed|unchanged
-  taskError       String?   @map("task_error") @db.Text // application/task failure
-  durationMs      Int?      @map("duration_ms")
-  cost            Float?
+  id               String    @id @default(cuid()) @db.VarChar
+  runId            String    @map("run_id") @db.VarChar
+  evaluationId     String    @map("evaluation_id") @db.VarChar
+  projectId        String    @map("project_id") @db.VarChar
+  testCaseId       String    @map("test_case_id") @db.VarChar // stable source-case id
+  traceId          String?   @map("trace_id") @db.VarChar
+  input            String    @db.Text
+  expectedOutput   String?   @map("expected_output") @db.Text
+  candidateOutput  String?   @map("candidate_output") @db.Text // null when the task errored
+  baselineOutput   String?   @map("baseline_output") @db.Text
+  status           String    @db.VarChar // passed|failed|errored|not_scored
+  change           String?   @db.VarChar // improved|regressed|unchanged
+  taskError        String?   @map("task_error") @db.Text // application/task failure
+  durationMs       Int?      @map("duration_ms")
+  cost             Float?
+  // LLM metrics for the CANDIDATE TASK, derived from the trace's span tree by the same
+  // walk that derives `cost` — scorer spans and their whole subtree excluded, because an
+  // llm_judge's tokens are the judge's, not the system under test's. Nullable and
+  // NULLIF'd on write like `cost`: a task that made no LLM calls reads NULL, never a
+  // misleading 0. Stamped by the same `cost_derived_at` marker, so the backfill settles
+  // for all of them together.
+  promptTokens     Int?      @map("prompt_tokens")
+  completionTokens Int?      @map("completion_tokens")
+  totalTokens      Int?      @map("total_tokens")
+  llmCalls         Int?      @map("llm_calls")
+  // Summed wall-clock of the task's LLM spans — distinct from `durationMs`, which is the
+  // whole case (task + scorers). Time inside model calls, not time around them.
+  llmDurationMs    Int?      @map("llm_duration_ms")
   // Set whenever cost derivation RUNS for this result, independent of the outcome — a
   // zero-cost trace legitimately leaves `cost` NULL (via NULLIF), so this marker is what
   // lets the periodic backfill tell "already derived" from "not yet derived" and settle
   // instead of re-sweeping cost-less rows forever. The partial index the backfill
   // probes (`ix_eval_result_cost_backfill`, WHERE cost_derived_at IS NULL AND trace_id IS
   // NOT NULL) can't be expressed here, so it lives in the migration as raw SQL.
-  costDerivedAt   DateTime? @map("cost_derived_at") @db.Timestamp(6)
-  createTime      DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime      DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
+  costDerivedAt    DateTime? @map("cost_derived_at") @db.Timestamp(6)
+  createTime       DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime       DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
 
   run    EvaluationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   scores Score[]

@@ -7,21 +7,48 @@ Folding it into the result over-reports what the candidate cost to run, so the w
 scorer subtree is dropped before summing.
 
 `rows` mirror the ClickHouse projection the worker queries:
-``(trace_id, span_id, parent_span_id, span_kind, cost)``.
+``(trace_id, span_id, parent_span_id, span_kind, cost, input_tokens, output_tokens,
+total_tokens, span_start_time, span_end_time)``.
+
+The same exclusion governs TOKENS, and matters more there: an llm_judge reports usage
+just as a candidate model call does, so a naive trace-wide sum would bill the candidate
+for grading itself.
 """
 
+import logging
+from datetime import datetime, timedelta
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
-from worker.ingest_tasks import _task_cost_by_trace, _update_eval_result_costs, process_s3_traces
+from worker.ingest_tasks import (
+    _int4_or_none,
+    _task_metrics_by_trace,
+    _update_eval_result_costs,
+    process_s3_traces,
+)
+from worker.otel_transform import transform_otel_to_clickhouse
 
 T = "trace-1"
 
 
-def _row(span_id, parent, kind, cost):
-    return (T, span_id, parent, kind, cost)
+def _row(span_id, parent, kind, cost, *, tokens=None, ms=None, trace=T):
+    """One ClickHouse span row.
+
+    ``tokens`` is ``(input, output, total)``; ``ms`` a span duration in milliseconds,
+    rendered as a start/end pair so the fold exercises the real subtraction.
+    """
+    it, ot, tt = tokens or (None, None, None)
+    start = datetime(2026, 8, 24, 12, 0, 0)
+    end = start + timedelta(milliseconds=ms) if ms is not None else None
+    return (trace, span_id, parent, kind, cost, it, ot, tt, start, end)
+
+
+def _cost(rows, trace=T):
+    """The candidate-task cost, the property the original tests were written against."""
+    return _task_metrics_by_trace(rows)[trace].cost
 
 
 class TestScorerSubtreeIsExcluded:
@@ -36,7 +63,7 @@ class TestScorerSubtreeIsExcluded:
             _row("scorer", "root", "SCORER", None),
             _row("judge-llm", "scorer", "LLM", 0.90),
         ]
-        assert _task_cost_by_trace(rows) == {T: pytest.approx(0.10)}
+        assert _cost(rows) == pytest.approx(0.10)
 
     def test_nested_scorer_subtree_two_levels_deep_is_excluded(self):
         rows = [
@@ -48,7 +75,7 @@ class TestScorerSubtreeIsExcluded:
             _row("judge-llm", "judge-agent", "LLM", 5.00),
             _row("judge-tool", "judge-agent", "TOOL", 1.00),
         ]
-        assert _task_cost_by_trace(rows) == {T: pytest.approx(0.25)}
+        assert _cost(rows) == pytest.approx(0.25)
 
     def test_multiple_scorers_are_all_excluded(self):
         rows = [
@@ -60,7 +87,7 @@ class TestScorerSubtreeIsExcluded:
             _row("scorer-b", "root", "SCORER", None),
             _row("judge-b", "scorer-b", "LLM", 3.00),
         ]
-        assert _task_cost_by_trace(rows) == {T: pytest.approx(0.40)}
+        assert _cost(rows) == pytest.approx(0.40)
 
     def test_a_scorer_carrying_cost_itself_is_excluded(self):
         rows = [
@@ -68,7 +95,7 @@ class TestScorerSubtreeIsExcluded:
             _row("task-llm", "root", "LLM", 0.10),
             _row("scorer", "root", "SCORER", 7.00),
         ]
-        assert _task_cost_by_trace(rows) == {T: pytest.approx(0.10)}
+        assert _cost(rows) == pytest.approx(0.10)
 
 
 class TestSummingContract:
@@ -78,7 +105,7 @@ class TestSummingContract:
             _row("task", "root", "TASK", None),
             _row("task-llm", "task", "LLM", None),
         ]
-        assert _task_cost_by_trace(rows) == {T: 0.0}
+        assert _cost(rows) == 0.0
 
     def test_a_span_whose_parent_is_absent_is_still_summed(self):
         """Tolerated by design — an orphan is unreachable for exclusion, but dropping it
@@ -88,21 +115,273 @@ class TestSummingContract:
             _row("root", None, "EVALUATION", None),
             _row("orphan-llm", "missing-parent", "LLM", 0.30),
         ]
-        assert _task_cost_by_trace(rows) == {T: pytest.approx(0.30)}
+        assert _cost(rows) == pytest.approx(0.30)
 
     def test_multiple_traces_in_one_batch_do_not_bleed_into_each_other(self):
         rows = [
-            ("trace-a", "root-a", None, "EVALUATION", None),
-            ("trace-a", "llm-a", "root-a", "LLM", 0.10),
-            ("trace-a", "scorer-a", "root-a", "SCORER", None),
-            ("trace-a", "judge-a", "scorer-a", "LLM", 9.00),
-            ("trace-b", "root-b", None, "EVALUATION", None),
-            ("trace-b", "llm-b", "root-b", "LLM", 0.20),
+            _row("root-a", None, "EVALUATION", None, trace="trace-a"),
+            _row("llm-a", "root-a", "LLM", 0.10, trace="trace-a"),
+            _row("scorer-a", "root-a", "SCORER", None, trace="trace-a"),
+            _row("judge-a", "scorer-a", "LLM", 9.00, trace="trace-a"),
+            _row("root-b", None, "EVALUATION", None, trace="trace-b"),
+            _row("llm-b", "root-b", "LLM", 0.20, trace="trace-b"),
         ]
-        assert _task_cost_by_trace(rows) == {
-            "trace-a": pytest.approx(0.10),
-            "trace-b": pytest.approx(0.20),
-        }
+        assert _cost(rows, "trace-a") == pytest.approx(0.10)
+        assert _cost(rows, "trace-b") == pytest.approx(0.20)
+
+
+class TestLlmMetricsShareTheExclusion:
+    """Tokens, call count and LLM latency obey the SAME scorer-subtree rule as cost.
+
+    This is the reason these are derived here rather than summed off the trace: an
+    llm_judge reports usage exactly as a candidate model call does, so a trace-wide sum
+    would bill the candidate for grading itself — and unlike cost, token counts are
+    almost always present, so the error would be visible on every judged run.
+    """
+
+    def _metrics(self, rows):
+        return _task_metrics_by_trace(rows)[T]
+
+    def test_judge_tokens_are_not_charged_to_the_candidate(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task", "root", "TASK", None),
+                _row("task-llm", "task", "LLM", 0.10, tokens=(18, 29, 47), ms=1060),
+                _row("scorer", "root", "SCORER", None),
+                _row("judge-llm", "scorer", "LLM", 0.90, tokens=(900, 900, 1800), ms=5000),
+            ]
+        )
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (18, 29, 47)
+        assert m.llm_calls == 1
+        assert m.llm_duration_ms == 1060
+        assert m.cost == pytest.approx(0.10)
+
+    def test_several_candidate_calls_accumulate(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("a", "root", "LLM", 0.01, tokens=(10, 5, 15), ms=100),
+                _row("b", "root", "LLM", 0.02, tokens=(20, 7, 27), ms=250),
+            ]
+        )
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (30, 12, 42)
+        assert m.llm_calls == 2
+        assert m.llm_duration_ms == 350
+
+    def test_a_nested_judge_subtree_contributes_nothing(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task-llm", "root", "LLM", None, tokens=(5, 5, 10), ms=10),
+                _row("scorer", "root", "SCORER", None),
+                _row("judge-agent", "scorer", "AGENT", None),
+                _row("judge-llm", "judge-agent", "LLM", None, tokens=(99, 99, 198), ms=9999),
+            ]
+        )
+        assert m.total_tokens == 10
+        assert m.llm_calls == 1
+        assert m.llm_duration_ms == 10
+
+    def test_llm_calls_counts_a_model_call_that_reported_no_usage(self):
+        """Keyed on span_kind, not on "has tokens" — a provider that omits usage still
+        made a call, and reporting 0 calls there would be wrong."""
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("silent", "root", "LLM", None, ms=40),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert m.total_tokens == 0
+        assert m.llm_duration_ms == 40
+
+    def test_non_llm_spans_contribute_no_tokens_or_calls(self):
+        """A TOOL/AGENT span is task work but not a model call."""
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("agent", "root", "AGENT", None, ms=500),
+                _row("tool", "agent", "TOOL", None, ms=300),
+                _row("llm", "agent", "LLM", 0.05, tokens=(1, 2, 3), ms=200),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert m.llm_duration_ms == 200, "AGENT/TOOL wall-clock is not LLM time"
+        assert m.total_tokens == 3
+
+    def test_an_unfinished_span_contributes_no_duration(self):
+        """A span still open has no end time; treating it as instantaneous is a guess,
+        and the two-way recompute corrects it once the span closes."""
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("open", "root", "LLM", None, tokens=(1, 1, 2)),
+            ]
+        )
+        assert m.llm_duration_ms == 0
+        assert m.llm_calls == 1
+
+    def test_a_trace_with_no_model_call_folds_to_zero(self):
+        """Zero, which the writer turns into NULL — never a misleading 0 on the row."""
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task", "root", "TASK", None, ms=5),
+            ]
+        )
+        assert (m.total_tokens, m.llm_calls, m.llm_duration_ms) == (0, 0, 0)
+
+
+class TestCacheTokensAreCountedOnce:
+    """Ingest already stores a span's ``input_tokens`` GROSS: uncached + cache read + cache
+    write (otel_transform rebuilds it from the disjoint buckets), and ``total_tokens`` as
+    that plus output. A result's prompt and total tokens are those columns summed, so the
+    cache buckets in ``usage_details`` must not be added on top a second time."""
+
+    PRICES: ClassVar[dict[str, float]] = {
+        "input": 0.00000125,
+        "output": 0.00001,
+        "cacheRead": 0.000000125,
+        "cacheWrite": 0.0000015625,
+    }
+
+    def _stored_row(self, input_attr):
+        """One LLM span through the real transform, projected to the worker's row."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            attributes=[
+                make_attr("openinference.span.kind", "LLM"),
+                make_attr("gen_ai.system", "openai"),
+                make_attr("gen_ai.request.model", "gpt-5.6-luna"),
+                input_attr,
+                make_attr("gen_ai.usage.output_tokens", 27),
+                make_attr("gen_ai.usage.cache_read_input_tokens", 3581),
+                make_attr("gen_ai.usage.cache_write_input_tokens", 834),
+            ],
+        )
+        payload = make_otel_payload([span], scope_name="@traceroot-ai/pi-extension")
+        with patch("worker.tokens.pricing.get_model_price", return_value=self.PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        s = spans[0]
+        row = tuple(
+            s.get(k)
+            for k in (
+                "trace_id",
+                "span_id",
+                "parent_span_id",
+                "span_kind",
+                "cost",
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "span_start_time",
+                "span_end_time",
+            )
+        )
+        return s, row
+
+    @pytest.mark.parametrize(
+        ("input_attr", "gross_input"),
+        [
+            # Net emitter (Pi): input excludes cache; the 3 uncached tokens floor to 0.
+            (make_attr("gen_ai.usage.input_tokens", 3), 3581 + 834),
+            # Gross emitter: input already contains both cache buckets.
+            (make_attr("llm.token_count.prompt", 3 + 3581 + 834), 3 + 3581 + 834),
+        ],
+    )
+    def test_prompt_tokens_equal_the_stored_cache_inclusive_input(self, input_attr, gross_input):
+        s, row = self._stored_row(input_attr)
+        assert s["input_tokens"] == gross_input
+        m = _task_metrics_by_trace([row])[row[0]]
+        assert m.prompt_tokens == s["input_tokens"]
+        assert m.completion_tokens == 27
+        assert m.total_tokens == s["total_tokens"] == gross_input + 27
+        assert m.cost == pytest.approx(s["cost"])
+
+    def test_cache_counts_are_not_added_to_an_already_gross_row(self):
+        m = _task_metrics_by_trace(
+            [
+                _row("root", None, "EVALUATION", None),
+                # 3 uncached + 3581 cache read + 834 cache write, stored gross.
+                _row("llm", "root", "LLM", 0.01, tokens=(4418, 27, 4445), ms=10),
+            ]
+        )[T]
+        assert (m.prompt_tokens, m.total_tokens) == (4418, 4445)
+
+
+class TestEachModelCallIsCountedOnce:
+    """Calls, tokens and LLM time come from LLM spans with no LLM-kind descendant.
+    Two instrumentors on one call, or an LLM-kind step wrapper around several calls, nest
+    LLM spans in each other; counting every LLM span counts those calls twice."""
+
+    def _metrics(self, rows):
+        return _task_metrics_by_trace(rows)[T]
+
+    def test_two_instrumentors_on_one_call_count_as_one_call(self):
+        # LangChain's ChatOpenAI span around the OpenAI client's span, same usage on both.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", None, tokens=(18, 29, 47), ms=1100),
+                _row("client", "chain", "LLM", None, tokens=(18, 29, 47), ms=1060),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (18, 29, 47)
+        assert m.llm_duration_ms == 1060
+
+    def test_an_llm_kind_step_wrapper_counts_its_calls_not_itself(self):
+        # An agent_step wrapper classified LLM spans 30 s around five 5 s model calls.
+        calls = [
+            _row(f"call-{i}", "step", "LLM", None, tokens=(10, 5, 15), ms=5000) for i in range(5)
+        ]
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("step", "root", "LLM", None, ms=30_000),
+                *calls,
+            ]
+        )
+        assert m.llm_calls == 5
+        assert m.total_tokens == 75
+        assert m.llm_duration_ms == 25_000
+
+    def test_a_call_below_a_tool_still_hides_the_llm_span_above_it(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("outer", "root", "LLM", None, ms=900),
+                _row("tool", "outer", "TOOL", None, ms=500),
+                _row("inner", "tool", "LLM", None, tokens=(1, 2, 3), ms=400),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert m.llm_duration_ms == 400
+
+    def test_a_judge_call_under_a_scorer_does_not_hide_a_candidate_call(self):
+        # The scorer subtree is excluded before the nesting is worked out.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task-llm", "root", "LLM", None, tokens=(5, 5, 10), ms=10),
+                _row("scorer", "task-llm", "SCORER", None),
+                _row("judge-llm", "scorer", "LLM", None, tokens=(99, 99, 198), ms=9999),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert m.total_tokens == 10
+
+    def test_cost_is_still_summed_over_every_priced_span(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", 0.10),
+                _row("client", "chain", "LLM", 0.10),
+            ]
+        )
+        assert m.cost == pytest.approx(0.20)
 
 
 class TestWriteIsUnconditional:
@@ -148,6 +427,109 @@ class TestWriteIsUnconditional:
         )
         assert len(updates) == 1
         assert updates[0][0][1][0] == pytest.approx(0.10)
+
+    def test_every_metric_rides_the_same_statement_and_the_same_nullif(self):
+        """One UPDATE, so all six settle together under one `cost_derived_at` stamp —
+        and each is NULLIF'd, so "no model call" reads NULL rather than a hard 0."""
+        updates = self._run(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("task-llm", "root", "LLM", 0.10, tokens=(18, 29, 47), ms=1060),
+            ]
+        )
+        assert len(updates) == 1, "the metrics must not fan out into extra statements"
+        sql, params = updates[0][0]
+        for column in (
+            "cost",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "llm_calls",
+            "llm_duration_ms",
+        ):
+            assert f"{column} = NULLIF(" in sql, column
+        # cost, prompt, completion, total, calls, duration, then project_id + trace_id.
+        assert params[:6] == (pytest.approx(0.10), 18, 29, 47, 1, 1060)
+
+    def test_a_recomputed_zero_clears_every_metric_not_just_cost(self):
+        """The two-way correction has to apply to tokens too: the batch that finally
+        brings the SCORER must be able to walk an inflated token count back down."""
+        updates = self._run(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("scorer", "root", "SCORER", None),
+                _row("judge-llm", "scorer", "LLM", 0.90, tokens=(900, 900, 1800), ms=5000),
+            ]
+        )
+        assert len(updates) == 1
+        assert updates[0][0][1][:6] == (pytest.approx(0.0), 0, 0, 0, 0, 0)
+
+
+class TestOutOfRangeMetricsCannotPoisonTheBatch:
+    """The metric columns are Postgres INTEGER. One out-of-range value would raise inside
+    the batch transaction and roll back every trace's cost and stamp with it, so the same
+    rows would fail again on every tick. It is stored as NULL instead."""
+
+    def _run(self, rows, trace_ids):
+        ch = MagicMock()
+        ch.query.return_value.result_rows = rows
+        conn, cur = MagicMock(), MagicMock()
+        cur.fetchall.return_value = [(t,) for t in trace_ids]
+        conn.cursor.return_value.__enter__.return_value = cur
+        with patch("psycopg2.connect", return_value=conn):
+            _update_eval_result_costs("proj-1", set(trace_ids), ch)
+        return cur
+
+    def test_an_out_of_range_duration_is_stored_as_null_and_the_rest_still_writes(self):
+        # A span stamped with a 1970 start time: about 1.7e12 ms of "LLM time".
+        cur = self._run(
+            [
+                _row("root", None, "EVALUATION", None, trace="bad"),
+                _row(
+                    "llm",
+                    "root",
+                    "LLM",
+                    0.10,
+                    tokens=(18, 29, 47),
+                    ms=1_700_000_000_000,
+                    trace="bad",
+                ),
+                _row("root", None, "EVALUATION", None, trace="ok"),
+                _row("llm", "root", "LLM", 0.20, tokens=(1, 2, 3), ms=40, trace="ok"),
+            ],
+            ["bad", "ok"],
+        )
+        writes = {
+            c[0][1][-1]: c[0][1][:6] for c in cur.execute.call_args_list if "NULLIF" in c[0][0]
+        }
+        assert writes["bad"] == (pytest.approx(0.10), 18, 29, 47, 1, None)
+        assert writes["ok"] == (pytest.approx(0.20), 1, 2, 3, 1, 40)
+        # Both traces are still stamped, so neither is re-swept forever.
+        stamps = [c for c in cur.execute.call_args_list if "cost_derived_at = now()" in c[0][0]]
+        assert len(stamps) == 1
+        assert set(stamps[0][0][1][1]) == {"bad", "ok"}
+
+    def test_the_bound_is_postgres_integer(self):
+        assert _int4_or_none(0, "llm_calls", "proj-1", "t") == 0
+        assert _int4_or_none(2_147_483_647, "llm_calls", "proj-1", "t") == 2_147_483_647
+        assert _int4_or_none(2_147_483_648, "llm_calls", "proj-1", "t") is None
+        assert _int4_or_none(-1, "llm_calls", "proj-1", "t") is None
+
+    def test_the_warning_names_the_project_and_trace_of_the_nulled_row(self, caplog):
+        # A bare column name left no way to find which result row read NULL.
+        rows = [
+            _row("root", None, "EVALUATION", None, trace="bad"),
+            _row("llm", "root", "LLM", 0.10, ms=1_700_000_000_000, trace="bad"),
+            _row("root", None, "EVALUATION", None, trace="ok"),
+            _row("llm", "root", "LLM", 0.20, ms=40, trace="ok"),
+        ]
+        with caplog.at_level(logging.WARNING, logger="worker.ingest_tasks"):
+            self._run(rows, ["bad", "ok"])
+        warnings = [r.getMessage() for r in caplog.records if "INTEGER range" in r.getMessage()]
+        assert len(warnings) == 1
+        assert "llm_duration_ms=1700000000000" in warnings[0]
+        assert "project proj-1" in warnings[0]
+        assert "trace bad" in warnings[0]
 
 
 class TestOrdinaryIngestDoesNotTouchPostgres:
