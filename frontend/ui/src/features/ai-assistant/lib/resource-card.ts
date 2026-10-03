@@ -21,6 +21,7 @@ import {
   ALERT_THRESHOLD_OPERATOR_LABELS,
   ALERT_THRESHOLD_OPERATOR_PHRASES,
   describeAlertFilter,
+  getAlertUnit,
   getMeasure,
   isAlertAggregation,
   isAlertSeverity,
@@ -28,6 +29,7 @@ import {
   isAlertThresholdOperator,
   isAlertView,
   isAlertWindow,
+  withAlertUnit,
   type AlertAggregation,
   type AlertFilter,
   type AlertSeverity,
@@ -368,20 +370,9 @@ function detectorChips(args: Record<string, unknown>): string[] {
   return chips;
 }
 
-/**
- * The unit a measure's threshold is stated in, where the bare number would
- * mislead. Keyed by alert measure id; mirrors FIELD_UNIT in the filter
- * controls, which keys the same two units by engine field.
- */
-const MEASURE_UNITS: Record<string, { prefix?: string; suffix?: string }> = {
-  latency: { suffix: " ms" },
-  cost: { prefix: "$" },
-};
-
-/** "2000" as "2,000 ms", "5" as "$5": the threshold in the measure's unit. */
-function thresholdWords(measure: string, threshold: number): string {
-  const unit = MEASURE_UNITS[measure] ?? {};
-  return `${unit.prefix ?? ""}${threshold.toLocaleString("en-US")}${unit.suffix ?? ""}`;
+/** "2000" as "2,000 ms", "5" as "$5": the threshold in the rule's unit. */
+function thresholdWords(measure: string, aggregation: string, threshold: number): string {
+  return withAlertUnit(threshold.toLocaleString("en-US"), getAlertUnit(measure, aggregation), " ");
 }
 
 /**
@@ -470,7 +461,7 @@ function alertChips(record: Record<string, unknown>): string[] {
     const label = isAlertThresholdOperator(operator)
       ? ALERT_THRESHOLD_OPERATOR_LABELS[operator]
       : operator;
-    chips.push(`${label} ${thresholdWords(measure ?? "", threshold)}`);
+    chips.push(`${label} ${thresholdWords(measure ?? "", aggregation ?? "", threshold)}`);
   }
 
   const filters = alertFilters(record).map(describeAlertFilter);
@@ -502,7 +493,7 @@ function alertRuleSummary(record: Record<string, unknown>): string | null {
   if (rule === null) return null;
   const label = getMeasure(rule.view, rule.measure)?.label.toLowerCase() ?? rule.measure;
   const subject = rule.aggregation === "count" ? "count" : `${rule.aggregation} ${label}`;
-  return `${subject} ${ALERT_THRESHOLD_OPERATOR_LABELS[rule.operator]} ${thresholdWords(rule.measure, rule.threshold)} over ${rule.window}`;
+  return `${subject} ${ALERT_THRESHOLD_OPERATOR_LABELS[rule.operator]} ${thresholdWords(rule.measure, rule.aggregation, rule.threshold)} over ${rule.window}`;
 }
 
 /** How an aggregation reads before its measure in a sentence: "total cost", "p95 latency". */
@@ -536,7 +527,7 @@ function alertRuleSentence(record: Record<string, unknown>): string | null {
     rule.aggregation === "count"
       ? "span count"
       : `${AGGREGATION_WORDS[rule.aggregation] ?? rule.aggregation} ${label}`;
-  return `${subject} over ${windowWords(rule.window)} is ${ALERT_THRESHOLD_OPERATOR_PHRASES[rule.operator]} ${thresholdWords(rule.measure, rule.threshold)}`;
+  return `${subject} over ${windowWords(rule.window)} is ${ALERT_THRESHOLD_OPERATOR_PHRASES[rule.operator]} ${thresholdWords(rule.measure, rule.aggregation, rule.threshold)}`;
 }
 
 /**

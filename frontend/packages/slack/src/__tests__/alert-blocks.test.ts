@@ -78,7 +78,7 @@ describe("buildAlertBlocks", () => {
       value: 0.001125,
     };
     expect(sectionTexts(buildAlertBlocks(cost))[0]).toContain(
-      "`sum(cost)` was 0.00113, above the 0.0005 threshold, over the last 30m.",
+      "`sum(cost)` was $0.00113, above the $0.0005 threshold, over the last 30m.",
     );
     const tiny = {
       ...cost,
@@ -87,7 +87,7 @@ describe("buildAlertBlocks", () => {
       value: 4.5e-5,
     };
     expect(sectionTexts(buildAlertBlocks(tiny))[0]).toContain(
-      "`sum(cost)` recovered to 0.000045, back within the 0.0005 threshold, over the last 30m.",
+      "`sum(cost)` recovered to $0.000045, back within the $0.0005 threshold, over the last 30m.",
     );
     // a fraction of a millisecond is still two decimals once it is at or above 1
     expect(sectionTexts(buildAlertBlocks({ ...alertBase, value: 1.256 }))[0]).toContain(
@@ -95,6 +95,14 @@ describe("buildAlertBlocks", () => {
     );
     // and sub-unit readings on other measures use the same significant-digit rule
     expect(sectionTexts(buildAlertBlocks({ ...alertBase, value: 0.5 }))[0]).toContain("was 0.5ms");
+  });
+
+  it("drops the measure's unit under an aggregation that discards it", () => {
+    // uniq of a latency column counts distinct values; that number is not milliseconds.
+    const [distinct] = sectionTexts(
+      buildAlertBlocks({ ...alertBase, aggregation: "uniq", value: 12, threshold: 5 }),
+    );
+    expect(distinct).toContain("`uniq(latency)` was 12, above the 5 threshold");
   });
 
   it("names the row-count pseudo-measure once when aggregation and measure coincide", () => {

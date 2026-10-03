@@ -15,7 +15,6 @@ import {
   type DotItemDotProps,
 } from "recharts";
 import { ALERT_WINDOWS, type AlertWindow } from "@traceroot/core";
-import { FIELD_UNIT } from "@/features/filters/filter-controls";
 import {
   useWidgetPreview,
   type WidgetPreviewData,
@@ -37,7 +36,14 @@ import { DateFilterSelect } from "@/components/date-filter-select";
 import { makeRange } from "@/features/dashboards/range-presets";
 import { DEFAULT_DATE_FILTER, type DateFilterOption } from "@/lib/date-filter";
 import type { TimeRange } from "@/features/dashboards/types";
-import type { AlertAggregation, AlertFilter, AlertOperator, AlertView } from "../rule-model";
+import {
+  getAlertUnitForSource,
+  withAlertUnit,
+  type AlertAggregation,
+  type AlertFilter,
+  type AlertOperator,
+  type AlertView,
+} from "../rule-model";
 import { buildPreviewSpec, parseThreshold } from "../preview";
 
 interface AlertPreviewProps {
@@ -118,7 +124,12 @@ export function AlertPreviewChart({
 }) {
   const { spec, result } = data;
   const additive = isAdditiveAgg(spec.metric.agg);
-  const unit = FIELD_UNIT[spec.metric.measure];
+  // From the spec that produced these rows, not the live draft: keepPreviousData
+  // serves the previous query's rows while a changed measure is still loading.
+  const unit = getAlertUnitForSource(
+    { view: spec.view, field: spec.metric.measure },
+    spec.metric.agg,
+  );
   const { data: rows } = useMemo(
     () => pivotRows(result.columns, result.rows, additive ? 0 : null),
     [result, additive],
@@ -208,7 +219,7 @@ export function AlertPreviewChart({
             >
               <Label
                 className={THRESHOLD_TEXT_CLASS}
-                value={`Alert ${operator} ${thresholdValue}`}
+                value={`Alert ${operator} ${withAlertUnit(String(thresholdValue), unit, " ")}`}
                 position={side === "below" ? "insideBottomLeft" : "insideTopLeft"}
                 fill="currentColor"
                 fontSize={12}
