@@ -5,7 +5,17 @@ description: Auto-instrument DSPy modules, signatures, and chain-of-thought reas
 
 Automatically capture module executions, signature predictions, and underlying LLM calls in [DSPy](https://github.com/stanfordnlp/dspy) programs.
 
-## Setup
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install "traceroot[dspy]" dspy
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
 
 <Tabs>
   <Tab title="Python">
@@ -54,7 +64,13 @@ print(result.answer)
 traceroot.flush()
 ```
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `ChainOfThought.forward` (or `Predict.forward` when invoking a predictor directly).
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
@@ -65,11 +81,25 @@ traceroot.flush()
 | Tokens & Cost | Aggregated token usage and pricing |
 | Latency | Duration per module call and per LLM call |
 
+## Limitations
+
+- Requires installing the `dspy` extra via `pip install "traceroot[dspy]"`.
 
 ## Run the example
 
 Clone the repo and run a complete agent end-to-end.
 
-  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/dspy-agent">
-    Run the Python example
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/dspy-agent">
+  Run the Python example
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
   </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>

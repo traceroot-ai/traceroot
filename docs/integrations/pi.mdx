@@ -10,11 +10,17 @@ Automatically capture agent runs, LLM calls, tool executions, and token usage fr
   [TraceRoot pi extension](https://github.com/traceroot-ai/traceroot-pi-extension).
 </Note>
 
-## Setup
+## Install
 
-```bash
-npm install @traceroot-ai/traceroot @earendil-works/pi-coding-agent
-```
+<Tabs>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot @earendil-works/pi-coding-agent
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
 
 Call `TraceRoot.initialize()` before creating any session:
 
@@ -26,8 +32,6 @@ TraceRoot.initialize({
   instrumentModules: { piCodingAgent: pi },
 });
 ```
-
-`@earendil-works/pi-coding-agent` is ESM-only and requires Node >=22.19.
 
 ## Usage
 
@@ -63,7 +67,13 @@ AgentSession.prompt              # AGENT span — one per prompt() call
     └── bash: node test-add.js
 ```
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `AgentSession.prompt`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
@@ -84,8 +94,25 @@ TraceRoot.initialize({
 });
 ```
 
+## Limitations
+
+- `@earendil-works/pi-coding-agent` is ESM-only and requires Node >= 22.19.
+
 ## Run the example
 
+Clone the repo and run a complete session end-to-end.
+
 <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/pi-agent-sdk">
-  Run a complete session end-to-end.
+  Run the TypeScript example
 </Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="TypeScript SDK Reference" icon="code" href="/tracing/typescript-sdk">
+    Explore the full TypeScript SDK reference and configuration options.
+  </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>

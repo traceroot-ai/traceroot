@@ -5,7 +5,22 @@ description: Trace multi-agent research pipelines built with DeepAgents
 
 Automatically capture the full multi-agent hierarchy of [DeepAgents](https://github.com/langchain-ai/deepagentsjs) pipelines. DeepAgents builds on LangChain, so TraceRoot instruments it via the LangChain callback manager.
 
-## Setup
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot deepagents langchain-core
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot deepagents @langchain/core @langchain/anthropic
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
 
 <Tabs>
   <Tab title="Python">
@@ -98,7 +113,13 @@ Automatically capture the full multi-agent hierarchy of [DeepAgents](https://git
   </Tab>
 </Tabs>
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `research_session` (when wrapped with `@observe`) or `supervisor.invoke`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
@@ -109,6 +130,9 @@ Automatically capture the full multi-agent hierarchy of [DeepAgents](https://git
 | Token usage | Aggregated across all agents and LLM calls |
 | Cost | Total cost for the full multi-agent run |
 
+## Limitations
+
+- DeepAgents relies on LangChain under the hood. For TypeScript projects, `instrumentModules` must be configured with `@langchain/core/callbacks/manager`.
 
 ## Run the example
 
@@ -120,5 +144,16 @@ Clone the repo and run a complete agent end-to-end.
   </Card>
   <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/deepagents">
     Run the TypeScript example
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="TypeScript SDK Reference" icon="code" href="/tracing/typescript-sdk">
+    Explore the full TypeScript SDK reference and configuration options.
   </Card>
 </CardGroup>

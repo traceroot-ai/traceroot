@@ -5,7 +5,17 @@ description: Auto-instrument CrewAI multi-agent collaborative workflows
 
 Automatically capture agent roles, tasks, crew executions, and tool invocations within the CrewAI framework.
 
-## Setup
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot crewai
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
 
 <Tabs>
   <Tab title="Python">
@@ -56,7 +66,13 @@ crew = Crew(agents=[researcher, writer], tasks=[research_task, write_task])
 result = crew.kickoff()
 ```
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `Crew.kickoff`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
@@ -69,11 +85,25 @@ result = crew.kickoff()
 | Token usage | Aggregated across all LLM calls |
 | Cost | Total cost for the full crew execution |
 
+## Limitations
+
+- CrewAI delegates LLM generation to underlying providers (e.g., OpenAI, Anthropic). Initializing your provider integration (such as `Integration.OPENAI`) alongside CrewAI is recommended for accurate token usage and cost calculation.
 
 ## Run the example
 
 Clone the repo and run a complete agent end-to-end.
 
-  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/crewai-agent">
-    Run the Python example
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/crewai-agent">
+  Run the Python example
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
   </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>
