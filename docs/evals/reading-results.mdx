@@ -30,7 +30,7 @@ A boolean score passes or fails on its own value. A numeric score needs a `thres
   </Tab>
 </Tabs>
 
-Token counts and cost aren't in the local summary — the platform prices them from the run's spans and shows them in the UI.
+Token counts, LLM calls, time spent in model calls (`llm_duration`), and cost aren't in the local summary. The platform derives them for each case from the task's spans: open a result in the UI to see that case's trace, or run [`evals runs get`](/evals/cli#read-a-run) for their mean per case across the run.
 
 ## Per-case results
 
@@ -89,7 +89,7 @@ Save a run and upload it afterwards, for when the run happens somewhere without 
 
 ```bash
 traceroot evals runs list --evaluation-id ev_…   # find the run id
-traceroot evals runs get run_…                   # counts, per-scorer means, cost and duration
+traceroot evals runs get run_…                   # counts, per-scorer means, cost, duration, tokens
 ```
 
 ## Next steps
