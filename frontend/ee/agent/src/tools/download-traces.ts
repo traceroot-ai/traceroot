@@ -69,7 +69,8 @@ export async function downloadOneTrace(
   const spanLookup = new Map(spans.map((s: any) => [s.span_id, s]));
   const childrenMap = new Map<string | null, string[]>();
   for (const span of spans) {
-    const parentId = span.parent_span_id || null;
+    // A parent may not have arrived yet; keep its available subtree visible.
+    const parentId = spanLookup.has(span.parent_span_id) ? span.parent_span_id : null;
     if (!childrenMap.has(parentId)) childrenMap.set(parentId, []);
     childrenMap.get(parentId)!.push(span.span_id);
   }
