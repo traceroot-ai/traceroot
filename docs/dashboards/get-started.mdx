@@ -1,0 +1,28 @@
+---
+title: Get started with dashboards
+description: Organize project metrics and trace feeds into reusable dashboards
+---
+
+Dashboards let you explore your project's trace data with widgets. Use them to follow latency, cost, token usage, and errors, or keep a trace feed beside your metrics.
+
+## Create a dashboard
+
+1. Open **Dashboard** in your project's navigation.
+2. Click **New dashboard**, give it a name, and optionally add a description.
+3. Create the dashboard, then add a widget.
+
+Creating and editing dashboards or widgets requires MEMBER or ADMIN access. VIEWERs can read existing dashboards. See [workspace roles](/getting-started/concepts#roles).
+
+## Build a widget
+
+The widget builder offers fields and aggregations for the selected data view. Choose the metric you want to inspect, apply filters such as environment or model, and select a breakdown when you want to compare groups. Use the preview to check the result before saving the widget.
+
+Choose a time range that contains your application's traffic. A dashboard with no matching data is different from a metric whose value is zero; check the time range and filters if a widget has no result.
+
+You can edit saved widgets as your monitoring needs change. Dashboards belong to the current project, so switch projects to view another application's dashboards.
+
+## Next steps
+
+- [Send trace data](/tracing/get-started) for your widgets to query.
+- [Set up alerts](/alerts/get-started) when a metric needs a threshold notification.
+- [Understand workspace access](/getting-started/concepts) before sharing the dashboard with teammates.
