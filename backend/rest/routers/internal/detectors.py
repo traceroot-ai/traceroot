@@ -5,9 +5,10 @@ Every read is secret-gated and scoped by project id.
 
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from db.clickhouse.client import ClickHouseClient, get_clickhouse_client
@@ -15,7 +16,9 @@ from rest.routers.internal.auth import verify_internal_secret
 from rest.schemas.detectors import (
     DetectorWindowSummaryResponse,
     RunListResponse,
+    TraceCountsResponse,
 )
+from rest.services.trace_reader import _evaluation_exclusion, customer_traffic_only
 from rest.sql_utils import escape_ilike, to_utc_naive
 
 logger = logging.getLogger(__name__)
@@ -735,4 +738,143 @@ async def list_detector_window_summary(
             if detector_id in data:
                 data[detector_id]["sample_summaries"] = summaries
 
+    return {"data": data}
+
+
+def _format_tz_offset(total_seconds: int) -> str:
+    """ "+HH:MM" / "-HH:MM" for a UTC offset in seconds.
+
+    Mirrors ``formatOffset``/``tzOffsetMinutes`` in core's ``signals/reads.ts`` exactly
+    (same sign convention, same zero-padded "+HH:MM"): the chart population computed
+    here is joined to the signal's own hit series by bucket key in route-handlers.ts,
+    so the two must format an offset identically or the join silently drops a bucket.
+    """
+    sign = "+" if total_seconds >= 0 else "-"
+    minutes = abs(total_seconds) // 60
+    hh, mm = divmod(minutes, 60)
+    return f"{sign}{hh:02d}:{mm:02d}"
+
+
+@router.get(
+    "/trace-counts",
+    response_model=TraceCountsResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
+def list_trace_counts(
+    project_id: str,
+    start_after: datetime = Query(..., description="Window start (inclusive)"),
+    end_before: datetime = Query(..., description="Window end (exclusive)"),
+    detector_id: str = Query(..., description="Detector whose checked traces to count"),
+    granularity: Literal["hour", "day"] = Query("day", description="Bucket width"),
+    tz: str = Query(
+        "UTC",
+        description="IANA zone name local buckets are computed in, e.g. 'America/New_York'",
+    ),
+):
+    """Traces per LOCAL hour or day in ``tz`` that a detector checked.
+
+    Counts distinct traces by trace start time, so retries never count twice or
+    move a trace into the detection-time bucket.
+
+    Args:
+        project_id (str): Project to count in.
+        start_after (datetime): Window start (inclusive).
+        end_before (datetime): Window end (exclusive).
+        detector_id (str): Detector whose checked traces to count.
+        granularity (str): ``hour`` or ``day``.
+        tz (str): IANA zone name the buckets are computed in. Validated against the
+            system's tz database before it reaches SQL, so an unknown name is a 422,
+            not a ClickHouse error.
+
+    Returns:
+        TraceCountsResponse: One row per bucket with at least one trace, ordered
+        ascending; a bucket is ``YYYY-MM-DD`` (day) or ``YYYY-MM-DDTHH:00±HH:MM``
+        (hour, suffixed with ``tz``'s UTC offset at that hour) in ``tz``. The offset
+        is what tells apart the two real local hours of a DST fall-back night, which
+        otherwise both print the same ``HH:00`` — see ``_format_tz_offset``. Empty
+        buckets are omitted.
+    """
+    try:
+        ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=f"Unknown timezone: {tz!r}") from e
+
+    ch = get_clickhouse_client()
+    params: dict = {
+        "project_id": project_id,
+        "detector_id": detector_id,
+        "start_after": to_utc_naive(start_after),
+        "end_before": to_utc_naive(end_before),
+        "tz": tz,
+    }
+    # Same customer-traffic and evaluation exclusions the Traces list applies, so the
+    # chart counts only traces the user can actually see there, never detector or
+    # assistant self-traces and offline-eval runs.
+    source = f"""
+        SELECT t.trace_id AS id, argMax(t.trace_start_time, t.ch_update_time) AS ts
+        FROM traces t
+        WHERE t.project_id = {{project_id:String}}
+          AND t.trace_id IN (
+              SELECT trace_id FROM traces
+              WHERE project_id = {{project_id:String}}
+                AND trace_start_time >= {{start_after:DateTime64(3)}}
+                AND trace_start_time < {{end_before:DateTime64(3)}}
+          )
+          AND {customer_traffic_only("t")}
+          AND {_evaluation_exclusion(params)}
+          AND t.trace_id IN (
+              SELECT trace_id FROM detector_runs
+              WHERE project_id = {{project_id:String}}
+                AND detector_id = {{detector_id:String}}
+                AND trace_id IN (
+                    SELECT trace_id FROM traces
+                    WHERE project_id = {{project_id:String}}
+                      AND trace_start_time >= {{start_after:DateTime64(3)}}
+                      AND trace_start_time < {{end_before:DateTime64(3)}}
+                )
+          )
+        GROUP BY t.trace_id
+    """
+    counted = "uniqExact(id)"
+    window_clause = "ts >= {start_after:DateTime64(3)} AND ts < {end_before:DateTime64(3)}"
+
+    if granularity == "day":
+        # Unaffected by DST: a local day never repeats, so no offset is needed and
+        # day buckets stay exactly the plain "YYYY-MM-DD" they always were.
+        query = f"""
+            SELECT toString(toDate(ts, {{tz:String}})) AS bucket, {counted} AS count
+            FROM ({source})
+            WHERE {window_clause}
+            GROUP BY bucket
+            ORDER BY bucket
+        """
+        result = ch.query(query, parameters=params)
+        data = [{"bucket": row[0], "count": int(row[1])} for row in result.result_rows]
+        return {"data": data}
+
+    # Hour buckets: group by the bucket's actual instant (toStartOfHour, a real UTC
+    # moment), not by its formatted label. On a DST fall-back night the two real local
+    # "01:00" hours ARE two different instants here, so they stay two groups; grouping
+    # by the formatted text instead (the earlier bug) would merge them before the
+    # offset ever entered the picture. timeZoneOffset reads tz's offset at that same
+    # instant (toTimeZone pins tz, whatever the server's zone), so each group gets the
+    # offset of the hour it actually occurred in.
+    query = f"""
+        SELECT
+            formatDateTime(bucket_start, '%Y-%m-%dT%H:00', {{tz:String}}) AS label,
+            toInt32(timeZoneOffset(toTimeZone(bucket_start, {{tz:String}}))) AS offset_seconds,
+            {counted} AS count
+        FROM (
+            SELECT toStartOfHour(ts, {{tz:String}}) AS bucket_start, id
+            FROM ({source})
+            WHERE {window_clause}
+        )
+        GROUP BY bucket_start
+        ORDER BY bucket_start
+    """
+    result = ch.query(query, parameters=params)
+    data = [
+        {"bucket": f"{label}{_format_tz_offset(int(offset_seconds))}", "count": int(count)}
+        for label, offset_seconds, count in result.result_rows
+    ]
     return {"data": data}

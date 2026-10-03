@@ -22,11 +22,11 @@ The create sheet offers six templates: **Failure**, **Hallucination**, **Logic E
 
 New detectors evaluate **25%** of the traces that match their trigger conditions. Sampling is deterministic for each trace and detector, so sending the same trace again does not change the decision. Set the rate to **100%** to evaluate every matching trace, or to **0%** to pause the detector.
 
-### Choose whether to run root cause analysis
+### Choose how root cause analysis runs
 
-The create sheet — and the edit panel for an existing detector — includes a **Run root cause analysis on findings** toggle, on by default. Leave it on and the AI agent investigates each new signal (a recurring problem the detector's findings are grouped into); turn it off for a noisy or low-stakes detector where you want findings recorded without paying agent-model cost. Detection and notifications are unaffected either way: the detector still fires, records findings and announces new signals.
+The create sheet — and the edit panel for an existing detector — has a **Root cause analysis** setting in its Signals section. **Manual**, the default for a detector created here in the web app (one created through the API defaults to Automatic), runs the AI agent only when you click **Run root cause analysis** on a signal (a recurring problem the detector's findings are grouped into), so you pay agent-model cost only for the problems you look into. **Automatic** runs it on each new signal, and on a signal reopened more than 24 hours after its last analysis. Detection and notifications are the same either way.
 
-RCA runs per signal, not per finding: a new signal gets an analysis, and so does a signal reopened more than 24 hours after its last one. See [Root cause analysis](/detectors/introduction#root-cause-analysis) for the exact rule.
+RCA runs per signal, not per finding. See [Root cause analysis](/detectors/introduction#root-cause-analysis) for the exact rule.
 
 ## How it works
 
@@ -36,19 +36,19 @@ The pipeline for each incoming trace:
 2. **Match.** TraceRoot checks each enabled detector's trigger conditions.
 3. **Sample.** Each matching detector applies its sample rate; new detectors default to 25%.
 4. **Evaluate.** The LLM-as-a-judge (Claude Haiku by default) reads the sampled trace and returns `identified` plus a short summary.
-5. **Diagnose.** When `identified` is true, the trace becomes a **finding** and joins a signal. When it starts a new signal (or reopens a resolved one) and its detector has **Run root cause analysis on findings** enabled, the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis.
+5. **Diagnose.** When `identified` is true, the trace becomes a **finding** and joins a signal. When you run the analysis from the signal, or automatically when the finding starts a new signal (or reopens a resolved one) and its detector's root cause analysis is **Automatic**, the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis.
 6. **Notify.** At the end of the configured window, TraceRoot sends one digest to each configured email and Slack channel announcing new and reopened signals. Further findings on an open signal send nothing. The digest does not wait for RCA; it shows the root cause only if the analysis has already finished.
 
 
 ## View findings
 
-Open the detector to see its findings table. Each row links back to the trace that produced it; clicking the trace opens the trace viewer with a red **Alert** badge in the header.
+Open the detector to see its runs; from the detector list, its **Findings** count opens just the runs that identified a problem. Every run links back to the trace it checked, and a run that reached a verdict shows whether the detector identified a problem. Clicking the trace opens the trace viewer, with the AI agent's RCA session in the chat panel when that trace was analysed. A finding also links to the signal it joined (**Signal ID**) and, once that signal's root cause analysis has recorded an agent trace, to that trace (**Agent Run ID**).
 
 <Frame>
   <img src="/images/detector_findings_v1.png" alt="Detector findings table with the detail panel open" />
 </Frame>
 
-The Alert badge in the trace viewer opens a chat panel pre-loaded with the AI agent's RCA session. From there you can ask follow-up questions in the same session — you're talking to the same agent that wrote the analysis.
+From the chat panel you can ask follow-up questions in the same session — you're talking to the same agent that wrote the analysis. The trace viewer's **Detectors** tab lists every detector that ran on the trace, with a link to the signal each finding joined.
 
 ## Bring Your Own Key (BYOK)
 

@@ -268,7 +268,7 @@ describe("resourceCardModel", () => {
       meta: ["Detector", "Failure"],
       body: {
         kind: "detector",
-        chips: ["sample 25%", "RCA on", "Latency ≥ 30000"],
+        chips: ["sample 25%", "RCA automatic", "Latency ≥ 30000"],
         // The prompt was omitted, so the detector runs the template's
         // canonical instructions — the card says so instead of staying mute.
         prompt: { kind: "standard", templateLabel: "Failure" },
@@ -294,7 +294,7 @@ describe("resourceCardModel", () => {
     expect(model?.meta).toEqual(["Detector", "Custom"]);
     expect(model?.body).toEqual({
       kind: "detector",
-      chips: ["RCA off"],
+      chips: ["RCA manual"],
       prompt: { kind: "custom", text: "Only report a timeout past 30 seconds." },
     });
   });
@@ -1463,7 +1463,7 @@ describe("pendingCardModel", () => {
       meta: ["Detector", "Failure"],
       body: {
         kind: "detector",
-        chips: ["sample 25%", "RCA on"],
+        chips: ["sample 25%", "RCA automatic"],
         prompt: { kind: "standard", templateLabel: "Failure" },
       },
     });
@@ -2214,7 +2214,7 @@ describe("pendingCardModel — deletes", () => {
         kind: "delete",
         reason: "the user asked to remove it",
         cascade: null,
-        chips: ["sample 25%", "RCA on"],
+        chips: ["sample 25%", "RCA automatic"],
       },
     });
   });

@@ -161,7 +161,8 @@ async function handlePOST(req: NextRequest, { params }: RouteParams) {
     if (problem !== null) return errorResponse(problem, 400);
   }
 
-  // enableRca: optional boolean, defaults true (RCA on). Reject non-booleans
+  // enableRca: optional boolean, defaults true (Automatic RCA; the UI's create
+  // form sends false, Manual). Reject non-booleans
   // so "false"/0 can't silently coerce.
   if (enableRca !== undefined && typeof enableRca !== "boolean") {
     return errorResponse("enableRca must be a boolean", 400);

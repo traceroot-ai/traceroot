@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockAdd } = vi.hoisted(() => ({ mockAdd: vi.fn() }));
+const { mockAdd, mockGetJob } = vi.hoisted(() => ({ mockAdd: vi.fn(), mockGetJob: vi.fn() }));
 vi.mock("bullmq", () => ({
   Queue: class {
     add = mockAdd;
+    getJob = mockGetJob;
   },
 }));
 vi.mock("../../../queues/detector-run-queue.js", () => ({
@@ -18,13 +19,21 @@ import {
   loadSignalRcaContext,
   sweepSignalRcas,
   rootCausesByOpening,
+  RCA_SWEEP_TIMEOUT_RESULT,
 } from "../rca.js";
+import {
+  RCA_SWEEP_EXAMINE_CAP,
+  RCA_SWEEP_PAGE_SIZE,
+  RCA_SWEEP_START_CAP,
+  WAITING_LOOKBACK_MS,
+} from "../config.js";
 
 const T0 = Date.parse("2026-09-30T10:00:00Z");
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockAdd.mockResolvedValue(undefined);
+  mockGetJob.mockResolvedValue(undefined);
 });
 
 describe("enqueueSignalRca", () => {
@@ -280,26 +289,181 @@ describe("closeEmptySignalRca", () => {
 });
 
 describe("sweepSignalRcas", () => {
-  it("re-enqueues RCAs pending for more than ten minutes, within the lookback", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const db = {
-      signalRca: { findMany: vi.fn(async () => [{ findingId: "f1", rca: { projectId: "p1" } }]) },
+  // One row per opening, shaped as the sweep selects it.
+  const row = (
+    findingId: string,
+    signalId: string,
+    createTime: number,
+    reopenSeq = 0,
+    projectId = "p1",
+  ) => ({ findingId, signalId, reopenSeq, createTime: new Date(createTime), rca: { projectId } });
+
+  /** `newest` answers the "does this finding have a recent opening?" lookup. */
+  function fakeDb(pages: ReturnType<typeof row>[][], newest: Date | null = null) {
+    const findMany = vi.fn();
+    for (const page of pages) findMany.mockResolvedValueOnce(page);
+    findMany.mockResolvedValue([]); // any call past the given pages: no more rows
+    return {
+      signalRca: {
+        findMany,
+        findFirst: vi.fn().mockResolvedValue(newest ? { createTime: newest } : null),
+      },
+      detectorRca: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     };
+  }
+  const staleWhere = (findingId: string) => ({
+    findingId,
+    status: "pending",
+    signalRcas: { none: { createTime: { gte: new Date(T0 - WAITING_LOOKBACK_MS) } } },
+  });
+
+  it("starts pending RCAs without a job, in key order, once a round that wrote them has ended", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const db = fakeDb([[row("f1", "s1", T0 - 100_000), row("f2", "s2", T0 - 100_000)]]);
+    // f2's job is still waiting or running: left to it.
+    mockGetJob.mockImplementation(async (id: string) => (id === "signal-rca-f2" ? {} : undefined));
     expect(await sweepSignalRcas(db as never, T0)).toBe(1);
+    expect(db.signalRca.findMany).toHaveBeenCalledTimes(1);
     expect(db.signalRca.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          createTime: { gt: new Date(T0 - 7 * 24 * 3_600_000), lt: new Date(T0 - 600_000) },
+          createTime: { lt: new Date(T0 - 75_000) },
           rca: { status: "pending" },
         },
-        distinct: ["findingId"],
+        orderBy: [{ signalId: "asc" }, { reopenSeq: "asc" }],
+        take: RCA_SWEEP_PAGE_SIZE,
       }),
     );
+    expect(mockAdd).toHaveBeenCalledTimes(1);
     expect(mockAdd).toHaveBeenCalledWith(
       "signal-rca-f1",
       expect.anything(),
       expect.objectContaining({ delay: 0 }),
     );
+    expect(db.detectorRca.updateMany).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it("pages past a full page of jobs already in flight to start an older, job-less request", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    // A full first page, all with a job, in key order.
+    const busy = Array.from({ length: RCA_SWEEP_PAGE_SIZE }, (_, i) =>
+      row(`busy-${i}`, `s-${String(i).padStart(3, "0")}`, T0 - 100_000),
+    );
+    // An older request two days in, within the lookback, with no job: must still be reached and started.
+    const starved = row("old-f", "t-old", T0 - 2 * 24 * 3_600_000);
+    const db = fakeDb([busy, [starved]]);
+    mockGetJob.mockImplementation(async (id: string) =>
+      id === "signal-rca-old-f" ? undefined : {},
+    );
+    expect(await sweepSignalRcas(db as never, T0)).toBe(1);
+    expect(db.signalRca.findMany).toHaveBeenCalledTimes(2);
+    // The second page continues after the first page's last key. The key is exact,
+    // so rows written in the same millisecond (all of the first page here) are
+    // neither repeated nor skipped.
+    const last = busy[busy.length - 1];
+    expect(db.signalRca.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { signalId: { gt: last.signalId } },
+            { signalId: last.signalId, reopenSeq: { gt: last.reopenSeq } },
+          ],
+        }),
+      }),
+    );
+    expect(mockAdd).toHaveBeenCalledWith(
+      "signal-rca-old-f",
+      expect.anything(),
+      expect.objectContaining({ delay: 0 }),
+    );
+    log.mockRestore();
+  });
+
+  it("gives a job-less request past the lookback an explicit failed end instead of leaving it pending", async () => {
+    const old = row("old-f", "old-s", T0 - WAITING_LOOKBACK_MS - 60_000);
+    const db = fakeDb([[old]]);
+    mockGetJob.mockResolvedValue(undefined);
+    expect(await sweepSignalRcas(db as never, T0)).toBe(0);
+    expect(mockAdd).not.toHaveBeenCalled();
+    expect(db.detectorRca.updateMany).toHaveBeenCalledWith({
+      where: staleWhere("old-f"),
+      data: expect.objectContaining({ status: "failed", result: RCA_SWEEP_TIMEOUT_RESULT }),
+    });
+  });
+
+  it("starts a finding whose stale opening has a newer one, instead of failing it", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    // An old opening of the finding, and a newer one (asked again, or opened since).
+    const db = fakeDb(
+      [[row("f1", "old-s", T0 - WAITING_LOOKBACK_MS - 60_000)]],
+      new Date(T0 - 100_000),
+    );
+    mockGetJob.mockResolvedValue(undefined);
+    expect(await sweepSignalRcas(db as never, T0)).toBe(1);
+    expect(db.detectorRca.updateMany).not.toHaveBeenCalled();
+    expect(mockAdd).toHaveBeenCalledWith("signal-rca-f1", expect.anything(), expect.anything());
+    log.mockRestore();
+  });
+
+  it("leaves a finding whose newer opening was just written to the round that wrote it", async () => {
+    const db = fakeDb(
+      [[row("f1", "old-s", T0 - WAITING_LOOKBACK_MS - 60_000)]],
+      new Date(T0 - 5_000),
+    );
+    mockGetJob.mockResolvedValue(undefined);
+    expect(await sweepSignalRcas(db as never, T0)).toBe(0);
+    expect(db.detectorRca.updateMany).not.toHaveBeenCalled();
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it("leaves a request past the lookback alone when its job is still running (not overwritten)", async () => {
+    const old = row("old-f", "old-s", T0 - WAITING_LOOKBACK_MS - 60_000);
+    const db = fakeDb([[old]]);
+    mockGetJob.mockResolvedValue({});
+    expect(await sweepSignalRcas(db as never, T0)).toBe(0);
+    expect(mockAdd).not.toHaveBeenCalled();
+    expect(db.detectorRca.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("handles a finding once when several of its openings are pending", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Two detector hits on one trace: two openings, one finding, one job.
+    const db = fakeDb([[row("f1", "s1", T0 - 100_000), row("f1", "s2", T0 - 100_000)]]);
+    expect(await sweepSignalRcas(db as never, T0)).toBe(1);
+    expect(mockGetJob).toHaveBeenCalledTimes(1);
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it("still ends stale requests once it has started as many RCAs as it may", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const fresh = Array.from({ length: RCA_SWEEP_START_CAP }, (_, i) =>
+      row(`f${i}`, `s${i}`, T0 - 100_000),
+    );
+    const stale = row("old", "s-old", T0 - 8 * 24 * 3_600_000);
+    const db = fakeDb([[...fresh, stale]]);
+    expect(await sweepSignalRcas(db as never, T0)).toBe(RCA_SWEEP_START_CAP);
+    expect(db.detectorRca.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: staleWhere("old") }),
+    );
+    log.mockRestore();
+  });
+
+  it("stops after a generously bounded number of examined rows and logs it", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const pageCount = RCA_SWEEP_EXAMINE_CAP / RCA_SWEEP_PAGE_SIZE;
+    const pages = Array.from({ length: pageCount }, (_, p) =>
+      Array.from({ length: RCA_SWEEP_PAGE_SIZE }, (_, i) =>
+        row(`f-${p}-${i}`, `s-${p}-${i}`, T0 - 100_000 - p * RCA_SWEEP_PAGE_SIZE - i),
+      ),
+    );
+    const db = fakeDb(pages);
+    mockGetJob.mockResolvedValue({}); // every row already has a job: nothing to start
+    expect(await sweepSignalRcas(db as never, T0)).toBe(0);
+    expect(db.signalRca.findMany).toHaveBeenCalledTimes(pageCount);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("examining"));
     log.mockRestore();
   });
 });

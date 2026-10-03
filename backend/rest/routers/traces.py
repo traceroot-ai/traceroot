@@ -3,9 +3,10 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from pydantic import StringConstraints
 
 from rest.projection import (
     FIELDS_PARAM_DESC,
@@ -40,6 +41,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}/traces", tags=["Traces"])
 
+# Cap on repeated ?trace_ids= values on the list endpoint — a signal hands back a
+# bounded set of member traces, never an open-ended id list.
+MAX_TRACE_IDS = 100
+
+# A query-param trace id, non-empty like every other id this endpoint accepts.
+_TraceIdParam = Annotated[str, StringConstraints(min_length=1)]
+
 
 @router.get("/exists")
 @limiter.shared_limit(
@@ -73,6 +81,12 @@ async def list_traces(
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     name: str | None = Query(None, description="Filter by trace name (partial match)"),
     user_id: str | None = Query(None, description="Filter by user ID (exact match)"),
+    trace_ids: list[_TraceIdParam] | None = Query(
+        None,
+        max_length=MAX_TRACE_IDS,
+        description="Return only these trace ids (repeatable, e.g. ?trace_ids=a&trace_ids=b), "
+        "still subject to the caller's plan retention window like any other lookup.",
+    ),
     start_after: datetime | None = Query(None, description="Filter traces after this timestamp"),
     end_before: datetime | None = Query(None, description="Filter traces before this timestamp"),
     search_query: str | None = Query(
@@ -87,7 +101,16 @@ async def list_traces(
         "which are excluded by default.",
     ),
 ):
-    """List traces for a project with pagination and filtering."""
+    """List traces for a project with pagination and filtering.
+
+    ``trace_ids`` looks up a known, bounded set of traces (e.g. the member traces
+    of a signal), but the lookup still stays inside the caller's plan retention
+    window: the same clamp applied to every other read here also narrows an
+    id-only request, so a trace older than the plan's cutoff is omitted even
+    when it is named explicitly. An explicit ``start_after``/``end_before`` can
+    only narrow that window further, and ``filters`` bring their usual default
+    lookback.
+    """
     # Parse + validate filters before the DB try-block so a bad predicate surfaces as a
     # 422 rather than being swallowed by the broad 500 handler below.
     start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
@@ -109,6 +132,7 @@ async def list_traces(
             limit=limit,
             name=name,
             user_id=user_id,
+            trace_ids=trace_ids,
             start_after=start_after,
             end_before=end_before,
             search_query=search_query,

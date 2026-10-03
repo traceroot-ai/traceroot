@@ -12,8 +12,8 @@ export interface WaitingHit {
   findingId: string;
   /** When the detector fired (the detector_runs timestamp). */
   seenAt: Date;
-  /** Start of the hit's trace, for the reopen rule; the detection time when unknown. */
-  traceStartTime: Date;
+  /** Start of the hit's trace; null when the trace row is missing. */
+  traceStartTime: Date | null;
   summary: string;
   data: unknown;
   /** Set for hits grouped without the assignment model (Jev-path hits: their category). */
@@ -86,12 +86,20 @@ export async function applyAssignment(
       where: { runId: hit.runId },
       select: {
         score: true,
+        traceStartTime: true,
         criteriaVersion: true,
         assignedAt: true,
         signal: { select: { id: true, reopenSeq: true } },
       },
     });
     if (done) {
+      // A retry can supply a trace row that was not visible on the first attempt.
+      if (done.traceStartTime == null && hit.traceStartTime !== null) {
+        await tx.signalHit.update({
+          where: { runId: hit.runId },
+          data: { traceStartTime: hit.traceStartTime },
+        });
+      }
       return {
         outcome: "duplicate",
         signalId: done.signal.id,
@@ -132,7 +140,7 @@ export async function applyAssignment(
       signalId = target.id;
       reopenSeq = target.reopenSeq;
       outcome = "attached";
-      if (hitReopensSignal(target, hit.traceStartTime)) {
+      if (hitReopensSignal(target, hit.traceStartTime ?? hit.seenAt)) {
         reopenSeq = await reopenSignalForHit(tx, target.id);
         outcome = "reopened";
       }
@@ -205,6 +213,7 @@ export async function applyAssignment(
         traceId: hit.traceId,
         findingId: hit.findingId,
         seenAt: hit.seenAt,
+        traceStartTime: hit.traceStartTime,
         score,
         criteriaVersion,
         embedding: opts.embedding ?? (placement.kind === "create" ? placement.anchorEmbedding : []),

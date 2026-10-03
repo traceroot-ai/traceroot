@@ -246,3 +246,69 @@ export async function moveHit(
     return { ok: true, moved: { ...moved, assignedAt, runIds: [params.runId] } };
   });
 }
+
+/**
+ * Ask for a signal's root cause analysis by hand: its detector's RCA is
+ * Manual, or no analysis of the signal succeeded. The current opening is
+ * paired with a finding the way an automatic opening is (an earlier attempt's
+ * finding, else the signal's latest hit), and its RCA is left pending; the
+ * worker's RCA sweep starts it, since only the worker reaches the job queue.
+ * Asking again while it is waiting or running changes nothing.
+ */
+export async function requestSignalRca(
+  db: Pick<PrismaClient, "$transaction">,
+  params: { projectId: string; signalId: string },
+): Promise<EditResult<{ findingId: string }>> {
+  return db.$transaction(async (tx) => {
+    const found = await tx.signal.findFirst({
+      where: { id: params.signalId, projectId: params.projectId },
+      select: { detectorId: true },
+    });
+    if (!found) return NOT_FOUND;
+    await lockSignalPartition(tx, params.projectId, found.detectorId);
+    const signal = await tx.signal.findUniqueOrThrow({
+      where: { id: params.signalId },
+      select: { reopenSeq: true, mergedIntoId: true },
+    });
+    if (signal.mergedIntoId) return { ok: false, status: 409, error: "Signal was merged" };
+    const opening = { signalId: params.signalId, reopenSeq: signal.reopenSeq };
+    const existing = await tx.signalRca.findUnique({
+      where: { signalId_reopenSeq: opening },
+      select: { findingId: true, result: true, rca: { select: { status: true } } },
+    });
+    if (existing && (existing.rca.status === "pending" || existing.rca.status === "running")) {
+      return { ok: true, findingId: existing.findingId };
+    }
+    if (existing?.result) {
+      return { ok: false, status: 409, error: "The signal already has a root cause analysis" };
+    }
+    let findingId = existing?.findingId;
+    if (!findingId) {
+      const latest = await tx.signalHit.findFirst({
+        where: { signalId: params.signalId, projectId: params.projectId },
+        orderBy: { seenAt: "desc" },
+        select: { findingId: true },
+      });
+      if (!latest) return { ok: false, status: 409, error: "The signal has no hits to analyse" };
+      findingId = latest.findingId;
+    }
+    // The finding row first, then the opening, as an automatic opening is
+    // written: completion checks which openings it covered under that row's lock.
+    await tx.detectorRca.upsert({
+      where: { findingId },
+      create: { findingId, projectId: params.projectId, status: "pending" },
+      update: { status: "pending" },
+    });
+    if (existing) {
+      // Requested now: the sweep reads this time, and so does the reopen
+      // cooldown, which counts an analysis run by hand like an automatic one.
+      await tx.signalRca.update({
+        where: { signalId_reopenSeq: opening },
+        data: { createTime: new Date() },
+      });
+    } else {
+      await tx.signalRca.create({ data: { ...opening, findingId } });
+    }
+    return { ok: true, findingId };
+  });
+}

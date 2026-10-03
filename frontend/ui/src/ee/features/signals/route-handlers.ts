@@ -5,7 +5,8 @@
  * when, why and the note in signal_status_events, and hand edits are audited.
  */
 import { NextRequest } from "next/server";
-import { prisma, Role } from "@traceroot/core";
+import { isValid, parseISO } from "date-fns";
+import { prisma, Role, PlanType } from "@traceroot/core";
 import {
   SIGNAL_STATUSES,
   editSignalCriteria,
@@ -13,10 +14,15 @@ import {
   listSignals,
   mergeSignals,
   moveHit,
+  requestSignalRca,
   setSignalStatus,
   signalCriteriaEditSchema,
   signalStatusChangeSchema,
   signalsForTrace,
+  detectorSignalSettings,
+  signalSetup,
+  signalCountsByDetector,
+  signalsKeyConfigured,
   type MovedHits,
   type SignalStatus,
 } from "@traceroot/core/signals";
@@ -28,6 +34,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { clampStartAfter } from "@/lib/server/retention";
 import { writeAudit } from "@/lib/write-services/audit";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
@@ -49,7 +56,7 @@ async function authorize(projectId: string, role?: Role) {
   if (authResult.error) return { error: authResult.error };
   const access = await requireProjectAccess(authResult.user.id, projectId, role);
   if (access.error) return { error: access.error };
-  return { user: authResult.user };
+  return { user: authResult.user, project: access.project };
 }
 
 /**
@@ -84,20 +91,108 @@ async function rewriteCopies(moved: MovedHits): Promise<void> {
 
 // Keeps the offset a query can ask for bounded, like the alerts list.
 const MAX_PAGE = 10_000;
+// Bound chart allocation and query work for custom ranges on unlimited-retention plans.
+const MAX_WINDOW_DAYS = 10_000;
 
-// GET /api/projects/[projectId]/detectors/[detectorId]/signals?status=open&page=0&limit=50
-// Returns `{ data, meta }` like the other list endpoints.
-export async function handleListDetectorSignals(
+/**
+ * The list page's filter chips, in the predicate shape the trace filters use:
+ * status and detector name are picked from lists, the name and id are typed.
+ */
+const signalFilterSchema = z.array(
+  z.discriminatedUnion("field", [
+    z.object({
+      field: z.literal("status"),
+      op: z.literal("in"),
+      value: z.array(z.enum(SIGNAL_STATUSES)),
+    }),
+    z.object({ field: z.literal("detector"), op: z.literal("in"), value: z.array(z.string()) }),
+    z.object({ field: z.literal("title"), op: z.literal("contains"), value: z.string() }),
+    z.object({ field: z.literal("signal_id"), op: z.literal("eq"), value: z.string() }),
+  ]),
+);
+
+/**
+ * The time window in `start_after` / `end_before` (ISO), or an error message.
+ * Both are optional: a missing end is now, and a missing start defaults to
+ * seven days before the end, matching the page's own default window.
+ *
+ * Dates are parsed with date-fns (parseISO + isValid) rather than the `Date`
+ * constructor, which silently rolls an impossible calendar date (e.g.
+ * 2026-02-30) into the next valid day instead of rejecting it.
+ */
+function parseWindow(searchParams: URLSearchParams): {
+  window?: { from: Date; to: Date };
+  error?: string;
+} {
+  const start = searchParams.get("start_after");
+  const end = searchParams.get("end_before");
+  if (!start && !end) return {};
+  const to = end ? parseISO(end) : new Date();
+  if (!isValid(to)) {
+    return { error: "start_after and end_before must be ISO timestamps" };
+  }
+  const from = start ? parseISO(start) : new Date(to.getTime() - 7 * 86_400_000);
+  if (!isValid(from)) {
+    return { error: "start_after and end_before must be ISO timestamps" };
+  }
+  if (from.getTime() > to.getTime()) return { error: "start_after must not be after end_before" };
+  if (to.getTime() - from.getTime() > MAX_WINDOW_DAYS * 86_400_000) {
+    return { error: `Signal windows must not exceed ${MAX_WINDOW_DAYS} days` };
+  }
+  return { window: { from, to } };
+}
+
+/** A single retained window for list counts, panel traces and the chart. */
+async function retainedWindow(window: { from: Date; to: Date } | undefined, workspaceId: string) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { billingPlan: true },
+  });
+  const to = window?.to ?? new Date();
+  const requested = window?.from ?? new Date(to.getTime() - 7 * 86_400_000);
+  const from = new Date(
+    clampStartAfter(workspace?.billingPlan ?? PlanType.FREE, requested.toISOString())!,
+  );
+  return { from: from > to ? to : from, to };
+}
+
+/** One page of signals for the query in `req`, as `{ data, meta }` like the other list endpoints. */
+async function listResponse(
   req: NextRequest,
-  { params }: Params<{ projectId: string; detectorId: string }>,
+  projectId: string,
+  workspaceId: string,
+  detectorId?: string,
 ) {
-  const { projectId, detectorId } = await params;
-  const auth = await authorize(projectId);
-  if (auth.error) return auth.error;
   const { searchParams } = req.nextUrl;
+  // The window does not filter signals: it only counts each one's hits in it.
+  const { window, error } = parseWindow(searchParams);
+  if (error) return errorResponse(error, 400);
   const status = searchParams.get("status");
   if (status && !(SIGNAL_STATUSES as readonly string[]).includes(status)) {
     return errorResponse(`status must be one of ${SIGNAL_STATUSES.join(", ")}`, 400);
+  }
+  let filters: z.infer<typeof signalFilterSchema> = [];
+  const rawFilters = searchParams.get("filters");
+  if (rawFilters) {
+    let json: unknown;
+    try {
+      json = JSON.parse(rawFilters);
+    } catch {
+      return errorResponse("filters must be JSON", 400);
+    }
+    const parsed = signalFilterSchema.safeParse(json);
+    if (!parsed.success) return errorResponse("Unsupported signal filter", 400);
+    filters = parsed.data;
+  }
+  const statuses = new Set<string>(status ? [status] : []);
+  const detectorNames: string[] = [];
+  let title: string | undefined;
+  let signalId: string | undefined;
+  for (const f of filters) {
+    if (f.field === "status") f.value.forEach((v) => statuses.add(v));
+    else if (f.field === "detector") detectorNames.push(...f.value);
+    else if (f.field === "title") title = f.value.trim() || undefined;
+    else signalId = f.value.trim() || undefined;
   }
   const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);
   const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
@@ -105,25 +200,122 @@ export async function handleListDetectorSignals(
   const page = isNaN(rawPage) ? 0 : Math.min(Math.max(rawPage, 0), MAX_PAGE);
   const { signals, total } = await listSignals(prisma, {
     projectId,
-    detectorId,
-    status: status ?? undefined,
+    detectorIds: detectorId ? [detectorId] : undefined,
+    detectorNames: detectorNames.length > 0 ? detectorNames : undefined,
+    statuses: statuses.size > 0 ? [...statuses] : undefined,
+    title,
+    signalId,
+    hitsIn: window ? await retainedWindow(window, workspaceId) : undefined,
     page,
     limit,
   });
   return successResponse({ data: signals, meta: { page, limit, total } });
 }
 
-// GET /api/projects/[projectId]/signals/[signalId]
+// GET /api/projects/[projectId]/signals?filters=&page=&limit=
+export async function handleListSignals(
+  req: NextRequest,
+  { params }: Params<{ projectId: string }>,
+) {
+  const { projectId } = await params;
+  const auth = await authorize(projectId);
+  if (auth.error) return auth.error;
+  return listResponse(req, projectId, auth.project.workspaceId);
+}
+
+// GET /api/projects/[projectId]/detectors/[detectorId]/signals?status=open&page=0&limit=50
+export async function handleListDetectorSignals(
+  req: NextRequest,
+  { params }: Params<{ projectId: string; detectorId: string }>,
+) {
+  const { projectId, detectorId } = await params;
+  const auth = await authorize(projectId);
+  if (auth.error) return auth.error;
+  return listResponse(req, projectId, auth.project.workspaceId, detectorId);
+}
+
+/** Whether `tz` is an IANA zone name this runtime (and so Postgres and ClickHouse) knows. */
+function isValidTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Traces per local bucket of the window that the signal's detector checked, read
+ * from the backend. Null when the backend cannot be reached, so the chart still
+ * shows the signal's own traces.
+ */
+async function tracesPerBucket(
+  projectId: string,
+  detectorId: string,
+  window: { from: Date; to: Date; granularity: "hour" | "day" },
+  tz: string,
+): Promise<Map<string, number> | null> {
+  const qs = new URLSearchParams({
+    project_id: projectId,
+    start_after: window.from.toISOString(),
+    end_before: window.to.toISOString(),
+    granularity: window.granularity,
+    tz,
+    detector_id: detectorId,
+  });
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/v1/internal/trace-counts?${qs}`, {
+      headers: { "X-Internal-Secret": env.INTERNAL_API_SECRET || "" },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = (await res.json()) as { data: { bucket: string; count: number }[] };
+    return new Map(body.data.map((d) => [d.bucket, d.count]));
+  } catch (err) {
+    console.error(`[signals] failed to read the trace counts of project ${projectId}:`, err);
+    return null;
+  }
+}
+
+// GET /api/projects/[projectId]/signals/[signalId]?start_after=&end_before=&tz=
+// Buckets are the viewer's local hours or days. Each carries the signal's traces
+// and, when the backend answers, the other traces its detector checked.
 export async function handleGetSignal(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: Params<{ projectId: string; signalId: string }>,
 ) {
   const { projectId, signalId } = await params;
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
-  const result = await getSignal(prisma, { projectId, signalId });
+  const { searchParams } = req.nextUrl;
+  const { window, error } = parseWindow(searchParams);
+  if (error) return errorResponse(error, 400);
+  const tz = searchParams.get("tz") || "UTC";
+  if (!isValidTimeZone(tz)) return errorResponse("tz must be an IANA time zone", 400);
+  const effectiveWindow = await retainedWindow(window, auth.project.workspaceId);
+  const result = await getSignal(prisma, {
+    projectId,
+    signalId,
+    from: effectiveWindow.from,
+    to: effectiveWindow.to,
+    tz,
+  });
   if (!result) return errorResponse("Signal not found", 404);
-  return successResponse(result);
+  if (result.merged) return successResponse(result);
+  const counted = await tracesPerBucket(projectId, result.signal.detectorId, result.window, tz);
+  return successResponse({
+    ...result,
+    // Without the key the worker runs no signal RCA, so the panel offers none.
+    grouping: signalsKeyConfigured(),
+    hitSeries: result.hitSeries.map((b) => ({
+      ...b,
+      // The bucket's other traces; the clamp covers a hit counted before its trace lands.
+      // For an hour bucket, b.bucket carries tz's UTC offset at that hour (core's
+      // reads.ts), and counted's keys do too (the backend's trace-counts route):
+      // that offset is what keeps a DST fall-back night's two real "HH:00" hours
+      // from being joined to each other's count here.
+      unaffected: counted ? Math.max(0, (counted.get(b.bucket) ?? 0) - b.hits) : null,
+    })),
+  });
 }
 
 // PATCH /api/projects/[projectId]/signals/[signalId] — title and criteria
@@ -232,6 +424,34 @@ export async function handleMergeSignal(
   });
 }
 
+// POST /api/projects/[projectId]/signals/[signalId]/rca
+// Run the signal's root cause analysis by hand. Records the request; the
+// worker starts it within about two minutes.
+export async function handleRequestSignalRca(
+  _req: NextRequest,
+  { params }: Params<{ projectId: string; signalId: string }>,
+) {
+  const { projectId, signalId } = await params;
+  const auth = await authorize(projectId, Role.MEMBER);
+  if (auth.error) return auth.error;
+  // The worker starts signal RCAs only with the key; a request would wait forever.
+  if (!signalsKeyConfigured()) {
+    return errorResponse("This deployment has no OpenAI API key, which signals need", 409);
+  }
+  const result = await requestSignalRca(prisma, { projectId, signalId });
+  if (!result.ok) return errorResponse(result.error, result.status);
+  await writeAudit(prisma, {
+    actorUserId: auth.user.id,
+    operation: "request_signal_rca",
+    resourceType: "signal",
+    resourceId: signalId,
+    projectId,
+    summary: { findingId: result.findingId },
+    transport: "ui",
+  });
+  return successResponse({ status: "pending" });
+}
+
 const moveBodySchema = z.object({ signalId: z.string().min(1) });
 
 // PATCH /api/projects/[projectId]/signal-hits/[runId] { signalId }
@@ -263,13 +483,61 @@ export async function handleMoveHit(
   return successResponse({ signalId: body.data.signalId });
 }
 
-// GET /api/projects/[projectId]/traces/[traceId]/signals
+/** Detectors whose signals settings one trace read returns, at most. */
+const TRACE_DETECTORS_MAX = 200;
+
+// GET /api/projects/[projectId]/traces/[traceId]/signals?detector_ids=a,b
+// Each hit of the trace with its signal, the signals settings of the detectors
+// named, and whether this deployment groups hits at all, so a hit not grouped
+// yet reads as pending or disabled.
 export async function handleTraceSignals(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: Params<{ projectId: string; traceId: string }>,
 ) {
   const { projectId, traceId } = await params;
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
-  return successResponse({ hits: await signalsForTrace(prisma, { projectId, traceId }) });
+  const detectorIds = [
+    ...new Set(
+      (req.nextUrl.searchParams.get("detector_ids") ?? "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (detectorIds.length > TRACE_DETECTORS_MAX) {
+    return errorResponse(`At most ${TRACE_DETECTORS_MAX} detector ids`, 400);
+  }
+  const [hits, detectors] = await Promise.all([
+    signalsForTrace(prisma, { projectId, traceId }),
+    detectorSignalSettings(prisma, { projectId, detectorIds }),
+  ]);
+  return successResponse({ hits, detectors, grouping: signalsKeyConfigured() });
+}
+
+// GET /api/projects/[projectId]/signals/setup
+// Read by the Signals page only when it has nothing to list.
+export async function handleSignalSetup(
+  _req: NextRequest,
+  { params }: Params<{ projectId: string }>,
+) {
+  const { projectId } = await params;
+  const auth = await authorize(projectId);
+  if (auth.error) return auth.error;
+  return successResponse({
+    ...(await signalSetup(prisma, projectId)),
+    grouping: signalsKeyConfigured(),
+  });
+}
+
+// GET /api/projects/[projectId]/signals/counts
+// Each detector's signal count, for the detector list's Signals column.
+export async function handleSignalCounts(
+  _req: NextRequest,
+  { params }: Params<{ projectId: string }>,
+) {
+  const { projectId } = await params;
+  const auth = await authorize(projectId);
+  if (auth.error) return auth.error;
+  return successResponse({ counts: await signalCountsByDetector(prisma, projectId) });
 }

@@ -156,7 +156,7 @@ describe("ResourceCard definition panel", () => {
           meta: ["Detector", "Failure"],
           body: {
             kind: "detector",
-            chips: ["sample 25%", "RCA on"],
+            chips: ["sample 25%", "RCA automatic"],
             prompt: { kind: "standard", templateLabel: "Failure" },
           },
         })}
@@ -167,7 +167,7 @@ describe("ResourceCard definition panel", () => {
     expect(screen.queryByText("sample 25%")).toBeNull();
     fireEvent.click(definitionToggle("Timeout failures"));
     expect(screen.getByText("sample 25%")).toBeTruthy();
-    expect(screen.getByText("RCA on")).toBeTruthy();
+    expect(screen.getByText("RCA automatic")).toBeTruthy();
   });
 
   it("reveals an alert's rule chips and its facts, keeping the badge and chart out of the panel", () => {

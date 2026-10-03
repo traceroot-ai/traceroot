@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { cn, formatDate } from "@/lib/utils";
-import { describeRcaStatus, type BackendRun } from "@/features/detectors/hooks/use-findings";
+import type { BackendRun } from "@/features/detectors/hooks/use-findings";
 import { DETECTOR_TH, DETECTOR_TD, IdentifiedBadge, SummaryText } from "./detector-table-cells";
 
 interface DetectorRunsTableProps {
@@ -10,8 +11,10 @@ interface DetectorRunsTableProps {
   onTraceClick: (run: BackendRun) => void;
   /** Fired when a self-traced run's run_id cell is clicked — opens its self-trace. */
   onRunClick: (run: BackendRun) => void;
-  /** Fired when a triggered run's Finding ID cell is clicked — opens the RCA agent trace. */
-  onFindingClick: (run: BackendRun) => void;
+  /** Fired when a run's Agent Run ID cell is clicked — opens its signal's RCA agent trace. */
+  onAgentRunClick: (run: BackendRun) => void;
+  /** Where a Signal ID cell links: the Signals page with that signal open. */
+  signalHref: (signalId: string) => string;
 }
 
 /**
@@ -21,8 +24,7 @@ interface DetectorRunsTableProps {
  * nothing else in the table reacts to a click).
  *
  * `onOpen` undefined means this id has nothing to open (a run with no
- * self-trace, a finding whose analysis trace was never recorded): the cell
- * renders as plain text.
+ * self-trace): the cell renders as plain text.
  */
 function IdCell({ id, title, onOpen }: { id: string; title: string; onOpen?: () => void }) {
   return (
@@ -45,53 +47,30 @@ function IdCell({ id, title, onOpen }: { id: string; title: string; onOpen?: () 
   );
 }
 
-/**
- * The Finding ID cell's tooltip: what clicking it opens, or why it opens
- * nothing. With no execution trace status, absent means different things
- * depending on whether an analysis ran at all, and saying "before tracing was
- * enabled" for a finding that was never analysed is simply wrong — rca_status
- * is what distinguishes them. undefined ≠ null there: the enrichment writes an
- * explicit null for "no RCA row", so an absent field means the lookup itself
- * failed.
- */
-function describeFindingTraceTitle(findingId: string, run: BackendRun): string {
-  switch (run.execution_trace_status) {
-    case "available":
-      return `${findingId} — open the analysis trace`;
-    case "pending":
-      return `${findingId} — analysis trace is being recorded`;
-    case "failed":
-      return `${findingId} — analysis trace failed to record`;
-    case "disabled":
-      return `${findingId} — analysis ran with tracing disabled`;
-  }
-  if (run.rca_status === undefined) return `${findingId} — analysis status unavailable`;
-  if (run.rca_status === null) return `${findingId} — not analyzed`;
-  if (run.rca_status === "done") {
-    return `${findingId} — no analysis trace (analysis ran before tracing was enabled)`;
-  }
-  return `${findingId} — analysis ${run.rca_status}; no trace`;
+/** A muted dash for an id cell with nothing to show. */
+function EmptyIdCell() {
+  return (
+    <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
+      <span className="text-muted-foreground">—</span>
+    </td>
+  );
 }
 
 /**
- * One table for both the Runs and Findings tabs — Findings is just Runs filtered
- * to triggered rows, so the two differ only by the `rows` they receive.
+ * A detector's runs; its findings are the same rows filtered to Identified.
  *
- * The Agent-analysis cell keys "N/A" on `finding_id` (not on `rca_status`): a
- * run with no finding has nothing to analyze, while a triggered run shows its
- * stored RCA state via `describeRcaStatus`.
- *
- * Each of the three id cells opens its own id: Run ID the run's self-trace,
- * Trace ID the scanned customer trace, Finding ID the RCA's analysis trace.
- * Every other cell falls through to the row, which opens the run's self-trace
- * when one exists (`self_traced`); historical or failed-emit runs have none, so
- * their rows are inert and their run_id stays plain text.
+ * Each id cell opens its own id: Run ID the run's self-trace, Trace ID the
+ * scanned customer trace, Signal ID the signal the hit joined (on the Signals
+ * page), Agent Run ID the agent trace of the RCA that signal shows, shared by
+ * every hit of the signal. Historical or failed-emit runs have no self-trace,
+ * so their run_id stays plain text.
  */
 export function DetectorRunsTable({
   rows,
   onTraceClick,
   onRunClick,
-  onFindingClick,
+  onAgentRunClick,
+  signalHref,
 }: DetectorRunsTableProps) {
   return (
     <table className="w-full">
@@ -100,74 +79,66 @@ export function DetectorRunsTable({
           <th className={cn(DETECTOR_TH, "w-[160px]")}>Timestamp</th>
           <th className={cn(DETECTOR_TH, "w-[280px]")}>Run ID</th>
           <th className={DETECTOR_TH}>Trace ID</th>
-          <th className={DETECTOR_TH}>Finding ID</th>
+          <th className={DETECTOR_TH}>Signal ID</th>
+          <th className={DETECTOR_TH}>Agent Run ID</th>
           <th className={cn(DETECTOR_TH, "w-[80px]")}>Identified</th>
           <th className={DETECTOR_TH}>Summary</th>
-          <th className={cn(DETECTOR_TH, "w-[90px]")}>Status</th>
-          <th className={cn(DETECTOR_TH, "w-[110px] border-r-0")}>Agent analysis</th>
+          <th className={cn(DETECTOR_TH, "w-[90px] border-r-0")}>Status</th>
         </tr>
       </thead>
       <tbody>
-        {rows.map((run) => {
-          const rca = describeRcaStatus(run.rca_status);
-          // Stored finding ids are uuid-hyphenated while run and trace ids are
-          // dashless 32-hex; strip at render so the three id columns share one
-          // shape. The finding-detail API compares ids hyphen-insensitively,
-          // so a copied display id still resolves.
-          const findingId = run.finding_id?.replaceAll("-", "") ?? null;
-          return (
-            <tr
-              key={run.run_id}
-              className="border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
-            >
-              <td className={cn(DETECTOR_TD, "whitespace-nowrap text-muted-foreground")}>
-                {formatDate(run.timestamp)}
+        {rows.map((run) => (
+          <tr
+            key={run.run_id}
+            className="border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
+          >
+            <td className={cn(DETECTOR_TD, "whitespace-nowrap text-muted-foreground")}>
+              {formatDate(run.timestamp)}
+            </td>
+            <IdCell
+              id={run.run_id}
+              title={run.run_id}
+              onOpen={run.self_traced ? () => onRunClick(run) : undefined}
+            />
+            <IdCell id={run.trace_id} title={run.trace_id} onOpen={() => onTraceClick(run)} />
+            {run.signal_id ? (
+              <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
+                <Link
+                  href={signalHref(run.signal_id)}
+                  title={`${run.signal_id} — open the signal`}
+                  className="block max-w-full truncate text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                >
+                  {run.signal_id}
+                </Link>
               </td>
+            ) : (
+              <EmptyIdCell />
+            )}
+            {run.agent_trace_id ? (
               <IdCell
-                id={run.run_id}
-                title={run.run_id}
-                onOpen={run.self_traced ? () => onRunClick(run) : undefined}
+                id={run.agent_trace_id}
+                title={`${run.agent_trace_id} — open the signal's root cause analysis`}
+                onOpen={() => onAgentRunClick(run)}
               />
-              <IdCell id={run.trace_id} title={run.trace_id} onOpen={() => onTraceClick(run)} />
-              {findingId == null ? (
-                <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
-                  <span className="text-muted-foreground">—</span>
-                </td>
+            ) : (
+              <EmptyIdCell />
+            )}
+            <td className={DETECTOR_TD}>
+              {/* A failed run reached no verdict, so it is neither Yes nor No. */}
+              {run.status === "failed" ? (
+                <span className="text-muted-foreground">—</span>
               ) : (
-                <IdCell
-                  id={findingId}
-                  title={describeFindingTraceTitle(findingId, run)}
-                  onOpen={
-                    run.execution_trace_status === "available"
-                      ? () => onFindingClick(run)
-                      : undefined
-                  }
-                />
-              )}
-              <td className={DETECTOR_TD}>
                 <IdentifiedBadge identified={run.finding_id != null} />
-              </td>
-              <td className={cn(DETECTOR_TD, "max-w-[400px] text-foreground")}>
-                <SummaryText summary={run.summary} />
-              </td>
-              <td className={cn(DETECTOR_TD, "capitalize text-muted-foreground")}>{run.status}</td>
-              <td className={cn(DETECTOR_TD, "whitespace-nowrap border-r-0")}>
-                {run.finding_id == null ? (
-                  <span
-                    className="text-muted-foreground"
-                    title="No finding — root cause analysis is not applicable"
-                  >
-                    N/A
-                  </span>
-                ) : (
-                  <span className={rca.className} title={rca.title}>
-                    {rca.label}
-                  </span>
-                )}
-              </td>
-            </tr>
-          );
-        })}
+              )}
+            </td>
+            <td className={cn(DETECTOR_TD, "max-w-[400px] text-foreground")}>
+              <SummaryText summary={run.summary} />
+            </td>
+            <td className={cn(DETECTOR_TD, "border-r-0 capitalize text-muted-foreground")}>
+              {run.status}
+            </td>
+          </tr>
+        ))}
       </tbody>
     </table>
   );

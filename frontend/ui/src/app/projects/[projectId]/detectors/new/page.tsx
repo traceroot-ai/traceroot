@@ -22,8 +22,7 @@ import {
   normalizeTriggerConditions,
   validateTriggerConditions,
 } from "@/features/detectors/trigger-fields";
-import { AgentModelLink } from "@/features/detectors/components/agent-model-link";
-import { RcaToggle } from "@/features/detectors/components/rca-toggle";
+import { SignalsCard } from "@/features/detectors/components/signals-card";
 import { useProject } from "@/features/projects/hooks";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 
@@ -54,7 +53,9 @@ export default function NewDetectorPage() {
     source: "system",
     adapter: "",
   });
-  const [enableRca, setEnableRca] = useState(true);
+  // Manual: the agent runs only when asked from a signal.
+  const [enableRca, setEnableRca] = useState(false);
+  const [enableSignals, setEnableSignals] = useState(true);
 
   const handleTemplateChange = (templateId: string) => {
     const template = DETECTOR_TEMPLATES.find((t) => t.id === templateId);
@@ -76,6 +77,7 @@ export default function NewDetectorPage() {
       sampleRate,
       enabled: sampleRate > 0,
       enableRca,
+      enableSignals,
       triggerConditions: normalizeTriggerConditions(triggerConditions),
       detectionModel: modelSelection.model || undefined,
       detectionProvider: modelSelection.provider || undefined,
@@ -155,38 +157,18 @@ export default function NewDetectorPage() {
               <div className="border-b border-border bg-muted/50 px-3 py-1.5">
                 <span className="text-[12px] font-medium text-muted-foreground">Model</span>
               </div>
-              <div className="divide-y divide-border">
-                {/* Detector Model — per-detector, editable */}
-                <div className="p-3">
-                  <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
-                    Detector Model
-                  </p>
-                  <ModelSelector
-                    value={modelSelection}
-                    onChange={setModelSelection}
-                    workspaceId={project?.workspace_id}
-                    defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
-                    allowDecisionModels
-                  />
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Used to evaluate each trace for this detector.
-                  </p>
-                </div>
-                {/* Agent Model — project-scoped, click to configure in settings */}
-                <div className="p-3">
-                  <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
-                    Agent Model
-                  </p>
-                  <AgentModelLink
-                    projectId={projectId}
-                    rcaModel={project?.rca_model}
-                    workspaceId={project?.workspace_id}
-                  />
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Used for deep analysis when findings are triggered. Shared across all detectors.
-                  </p>
-                  <RcaToggle id="enable-rca" checked={enableRca} onCheckedChange={setEnableRca} />
-                </div>
+              {/* Detector Model — per-detector, editable */}
+              <div className="p-3">
+                <ModelSelector
+                  value={modelSelection}
+                  onChange={setModelSelection}
+                  workspaceId={project?.workspace_id}
+                  defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
+                  allowDecisionModels
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Used to evaluate each trace for this detector.
+                </p>
               </div>
             </div>
 
@@ -236,6 +218,17 @@ export default function NewDetectorPage() {
                 </span>
               </div>
             </div>
+
+            <SignalsCard
+              idPrefix="new-detector"
+              enableSignals={enableSignals}
+              onEnableSignalsChange={setEnableSignals}
+              enableRca={enableRca}
+              onEnableRcaChange={setEnableRca}
+              projectId={projectId}
+              rcaModel={project?.rca_model}
+              workspaceId={project?.workspace_id}
+            />
 
             {/* Footer */}
             <div className="flex items-center justify-end gap-2 pt-1">

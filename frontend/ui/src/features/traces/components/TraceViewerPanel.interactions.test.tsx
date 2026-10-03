@@ -208,6 +208,24 @@ describe("TraceViewerPanel header actions", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps the list state it is given in the new tab, under its own trace params", () => {
+    const open = vi.fn();
+    vi.stubGlobal("open", open);
+    renderPanel({
+      traceOverride: undefined,
+      dateFilter: { id: "1h" },
+      newTabPath: "/projects/proj-1/detectors/det-1",
+      newTabParams: { filters: "[1]", page_index: "2", traceId: "stale" },
+    });
+    fireEvent.click(screen.getByTitle("Open in new tab"));
+    const url = new URL(open.mock.calls[0][0] as string, "http://x");
+    expect(url.searchParams.get("filters")).toBe("[1]");
+    expect(url.searchParams.get("page_index")).toBe("2");
+    // The trace being popped out wins over a carried-over one.
+    expect(url.searchParams.get("traceId")).toBe("trace-1");
+    vi.unstubAllGlobals();
+  });
+
   it("defaults the new-tab target to the project traces page", () => {
     const open = vi.fn();
     vi.stubGlobal("open", open);
@@ -246,19 +264,13 @@ describe("TraceViewerPanel header actions", () => {
   });
 });
 
-describe("TraceViewerPanel RCA alert", () => {
-  it("hides the Alert button when there is no RCA record", () => {
-    renderPanel();
-    expect(screen.queryByText("Alert")).toBeNull();
-  });
-
-  it("opens the RCA session from the Alert button", () => {
+describe("TraceViewerPanel RCA chat", () => {
+  it("shows no Alert button for a trace with an RCA", () => {
     mocks.findings = { findings: [{ finding_id: "f1" }] };
     mocks.rca = { rca: { sessionId: "sess-rca" } };
     renderPanel({ traceOverride: undefined });
-    fireEvent.click(screen.getByText("Alert"));
-    expect(mocks.setAiInitialSessionId).toHaveBeenCalledWith("sess-rca");
-    expect(mocks.setAiPanelOpen).toHaveBeenCalledWith(true);
+    expect(screen.queryByText("Alert")).toBeNull();
+    expect(mocks.setAiPanelOpen).not.toHaveBeenCalled();
   });
 
   it("auto-opens the RCA chat when arriving from the findings page", () => {

@@ -126,7 +126,7 @@ class TestWaitingHits:
         assert "argMax(payload, timestamp)" in payload_call.args[0]
         assert payload_call.kwargs["parameters"]["finding_ids"] == ["f1"]
         assert payload_call.kwargs["parameters"]["trace_ids"] == ["t1"]
-        assert "min(trace_start_time)" in trace_call.args[0]
+        assert "argMax(trace_start_time, ch_update_time)" in trace_call.args[0]
         assert trace_call.kwargs["parameters"] == {"project_id": "p1", "trace_ids": ["t1"]}
 
     def test_keeps_unparseable_data_as_text(self, client, mock_ch):

@@ -5,18 +5,26 @@ vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "sec" } }));
 
 const core = vi.hoisted(() => ({
   listSignals: vi.fn(),
+  workspace: vi.fn(),
   getSignal: vi.fn(),
   editSignalCriteria: vi.fn(),
   setSignalStatus: vi.fn(),
   mergeSignals: vi.fn(),
   moveHit: vi.fn(),
+  requestSignalRca: vi.fn(),
   signalsForTrace: vi.fn(),
+  detectorSignalSettings: vi.fn(),
+  signalSetup: vi.fn(),
+  signalCountsByDetector: vi.fn(),
+  signalsKeyConfigured: vi.fn(),
   writeAudit: vi.fn(),
   requireAuth: vi.fn(),
   requireProjectAccess: vi.fn(),
 }));
 vi.mock("@traceroot/core", () => ({
-  prisma: { tag: "prisma" },
+  prisma: { tag: "prisma", workspace: { findUnique: core.workspace } },
+  PlanType: { FREE: "free" },
+  getRetentionDays: (plan: string) => (plan === "enterprise" ? null : 15),
   Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
 }));
 vi.mock("@traceroot/core/signals", async (importOriginal) => {
@@ -31,7 +39,12 @@ vi.mock("@traceroot/core/signals", async (importOriginal) => {
     setSignalStatus: core.setSignalStatus,
     mergeSignals: core.mergeSignals,
     moveHit: core.moveHit,
+    requestSignalRca: core.requestSignalRca,
     signalsForTrace: core.signalsForTrace,
+    detectorSignalSettings: core.detectorSignalSettings,
+    signalSetup: core.signalSetup,
+    signalCountsByDetector: core.signalCountsByDetector,
+    signalsKeyConfigured: core.signalsKeyConfigured,
   };
 });
 vi.mock("@/lib/write-services/audit", () => ({ writeAudit: core.writeAudit }));
@@ -46,19 +59,24 @@ import {
   handleEditSignal,
   handleGetSignal,
   handleListDetectorSignals,
+  handleListSignals,
   handleMergeSignal,
   handleMoveHit,
+  handleRequestSignalRca,
   handleSetSignalStatus,
+  handleSignalSetup,
+  handleSignalCounts,
   handleTraceSignals,
 } from "./route-handlers";
 
 const mockFetch = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  core.workspace.mockResolvedValue({ billingPlan: "enterprise" });
   vi.stubGlobal("fetch", mockFetch);
   mockFetch.mockResolvedValue({ ok: true });
   core.requireAuth.mockResolvedValue({ user: { id: "u1" } });
-  core.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
+  core.requireProjectAccess.mockResolvedValue({ project: { id: "p1", workspaceId: "w1" } });
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -86,16 +104,13 @@ describe("status changes", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: "resolved", changed: true });
-    expect(core.setSignalStatus).toHaveBeenCalledWith(
-      { tag: "prisma" },
-      {
-        projectId: "p1",
-        signalId: "s1",
-        actorUserId: "u1",
-        change: { status: "resolved", reason: "fixed_by_pr", note: "PR 12" },
-        expectedStatus: "open",
-      },
-    );
+    expect(core.setSignalStatus).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), {
+      projectId: "p1",
+      signalId: "s1",
+      actorUserId: "u1",
+      change: { status: "resolved", reason: "fixed_by_pr", note: "PR 12" },
+      expectedStatus: "open",
+    });
     expect(core.requireProjectAccess).toHaveBeenCalledWith("u1", "p1", "MEMBER");
   });
 
@@ -138,6 +153,29 @@ describe("status changes", () => {
   });
 });
 
+it("rejects an oversized chart window consistently in list and detail", async () => {
+  const query = "?start_after=1970-01-01T00:00:00Z&end_before=2026-10-01T00:00:00Z";
+  expect((await handleListSignals(req(undefined, query), params({ projectId: "p1" }))).status).toBe(
+    400,
+  );
+  expect((await handleGetSignal(req(undefined, query), signalParams)).status).toBe(400);
+  expect(core.listSignals).not.toHaveBeenCalled();
+  expect(core.getSignal).not.toHaveBeenCalled();
+});
+
+it("uses an empty retained window instead of counting expired traces", async () => {
+  core.workspace.mockResolvedValue({ billingPlan: "free" });
+  core.listSignals.mockResolvedValue({ signals: [], total: 0 });
+  await handleListSignals(
+    req(undefined, "?start_after=2020-01-01T00:00:00Z&end_before=2020-01-02T00:00:00Z"),
+    params({ projectId: "p1" }),
+  );
+  expect(core.listSignals.mock.calls[0][1].hitsIn).toEqual({
+    from: new Date("2020-01-02T00:00:00Z"),
+    to: new Date("2020-01-02T00:00:00Z"),
+  });
+});
+
 describe("reads", () => {
   it("lists one page of a detector's signals, optionally by status", async () => {
     core.listSignals.mockResolvedValue({ signals: [{ id: "s1" }], total: 51 });
@@ -149,23 +187,30 @@ describe("reads", () => {
       data: [{ id: "s1" }],
       meta: { page: 1, limit: 50, total: 51 },
     });
-    expect(core.listSignals).toHaveBeenCalledWith(
-      { tag: "prisma" },
-      { projectId: "p1", detectorId: "d1", status: "open", page: 1, limit: 50 },
-    );
+    expect(core.listSignals).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), {
+      projectId: "p1",
+      detectorIds: ["d1"],
+      statuses: ["open"],
+      page: 1,
+      limit: 50,
+    });
     await handleListDetectorSignals(req(), params({ projectId: "p1", detectorId: "d1" }));
-    expect(core.listSignals).toHaveBeenLastCalledWith(
-      { tag: "prisma" },
-      { projectId: "p1", detectorId: "d1", status: undefined, page: 0, limit: 50 },
-    );
+    expect(core.listSignals).toHaveBeenLastCalledWith(expect.objectContaining({ tag: "prisma" }), {
+      projectId: "p1",
+      detectorIds: ["d1"],
+      page: 0,
+      limit: 50,
+    });
     await handleListDetectorSignals(
       req(undefined, "?page=99999999999999999999&limit=1000"),
       params({ projectId: "p1", detectorId: "d1" }),
     );
-    expect(core.listSignals).toHaveBeenLastCalledWith(
-      { tag: "prisma" },
-      { projectId: "p1", detectorId: "d1", status: undefined, page: 10_000, limit: 200 },
-    );
+    expect(core.listSignals).toHaveBeenLastCalledWith(expect.objectContaining({ tag: "prisma" }), {
+      projectId: "p1",
+      detectorIds: ["d1"],
+      page: 10_000,
+      limit: 200,
+    });
     const bad = await handleListDetectorSignals(
       req(undefined, "?status=closed"),
       params({ projectId: "p1", detectorId: "d1" }),
@@ -173,19 +218,268 @@ describe("reads", () => {
     expect(bad.status).toBe(400);
   });
 
-  it("returns one signal, or 404", async () => {
-    core.getSignal.mockResolvedValueOnce({ merged: false, signal: { id: "s1" } });
-    expect(await (await handleGetSignal(req(), signalParams)).json()).toMatchObject({
-      signal: { id: "s1" },
+  it("lists a project's signals by the page's filter chips", async () => {
+    core.listSignals.mockResolvedValue({ signals: [], total: 0 });
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        { field: "status", op: "in", value: ["open", "resolved"] },
+        { field: "detector", op: "in", value: ["Failure"] },
+        { field: "title", op: "contains", value: " timeout " },
+        { field: "signal_id", op: "eq", value: "s9" },
+      ]),
+    );
+    const res = await handleListSignals(
+      req(undefined, `?filters=${filters}`),
+      params({ projectId: "p1" }),
+    );
+    expect(res.status).toBe(200);
+    expect(core.listSignals).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), {
+      projectId: "p1",
+      detectorNames: ["Failure"],
+      statuses: ["open", "resolved"],
+      title: "timeout",
+      signalId: "s9",
+      page: 0,
+      limit: 50,
     });
-    core.getSignal.mockResolvedValueOnce(null);
-    expect((await handleGetSignal(req(), signalParams)).status).toBe(404);
+    for (const bad of [
+      "?filters=not-json",
+      `?filters=${encodeURIComponent(JSON.stringify([{ field: "cost", op: "gt", value: 1 }]))}`,
+      `?filters=${encodeURIComponent(JSON.stringify([{ field: "status", op: "in", value: ["closed"] }]))}`,
+    ]) {
+      expect(
+        (await handleListSignals(req(undefined, bad), params({ projectId: "p1" }))).status,
+      ).toBe(400);
+    }
+    core.requireProjectAccess.mockResolvedValueOnce({ error: Response.json({}, { status: 403 }) });
+    expect((await handleListSignals(req(), params({ projectId: "p1" }))).status).toBe(403);
   });
 
-  it("returns a trace's signals", async () => {
+  it("counts each listed signal's hits in the page's window, and rejects a bad window", async () => {
+    core.listSignals.mockResolvedValue({ signals: [], total: 0 });
+    await handleListSignals(
+      req(undefined, "?start_after=2026-09-24T00:00:00.000Z&end_before=2026-10-01T00:00:00.000Z"),
+      params({ projectId: "p1" }),
+    );
+    expect(core.listSignals).toHaveBeenLastCalledWith(expect.objectContaining({ tag: "prisma" }), {
+      projectId: "p1",
+      hitsIn: {
+        from: new Date("2026-09-24T00:00:00.000Z"),
+        to: new Date("2026-10-01T00:00:00.000Z"),
+      },
+      page: 0,
+      limit: 50,
+    });
+    for (const bad of [
+      "?start_after=yesterday",
+      "?start_after=2026-10-01T00:00:00Z&end_before=2026-09-01T00:00:00Z",
+      // 2026-02-30 does not exist; a lenient parser would roll it into March.
+      "?start_after=2026-02-30T00:00:00Z&end_before=2026-10-01T00:00:00Z",
+    ]) {
+      expect(
+        (await handleListSignals(req(undefined, bad), params({ projectId: "p1" }))).status,
+      ).toBe(400);
+    }
+  });
+
+  it("defaults a missing start to seven days before the given end", async () => {
+    core.listSignals.mockResolvedValue({ signals: [], total: 0 });
+    await handleListSignals(
+      req(undefined, "?end_before=2026-10-01T00:00:00.000Z"),
+      params({ projectId: "p1" }),
+    );
+    expect(core.listSignals).toHaveBeenLastCalledWith(expect.objectContaining({ tag: "prisma" }), {
+      projectId: "p1",
+      hitsIn: {
+        from: new Date("2026-09-24T00:00:00.000Z"),
+        to: new Date("2026-10-01T00:00:00.000Z"),
+      },
+      page: 0,
+      limit: 50,
+    });
+  });
+
+  it("returns one signal with its traces and the detector's other traces per bucket, or 404", async () => {
+    const window = {
+      from: new Date("2026-09-29T00:00:00.000Z"),
+      to: new Date("2026-10-01T00:00:00.000Z"),
+      granularity: "hour",
+    };
+    core.getSignal.mockResolvedValueOnce({
+      merged: false,
+      signal: { id: "s1", detectorId: "d1" },
+      window,
+      hitSeries: [
+        { bucket: "2026-09-29T08:00", hits: 2 },
+        { bucket: "2026-09-29T09:00", hits: 5 },
+      ],
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ bucket: "2026-09-29T08:00", count: 10 }] }),
+    });
+    core.signalsKeyConfigured.mockReturnValue(false);
+    const res = await handleGetSignal(
+      req(
+        undefined,
+        "?start_after=2026-09-29T00:00:00.000Z&end_before=2026-10-01T00:00:00.000Z&tz=Asia%2FShanghai",
+      ),
+      signalParams,
+    );
+    expect(await res.json()).toMatchObject({
+      signal: { id: "s1" },
+      // Without the key the panel offers no RCA.
+      grouping: false,
+      // A bucket without traces counts none; a hit counted before its run row cannot go negative.
+      hitSeries: [
+        { bucket: "2026-09-29T08:00", hits: 2, unaffected: 8 },
+        { bucket: "2026-09-29T09:00", hits: 5, unaffected: 0 },
+      ],
+    });
+    expect(core.getSignal).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), {
+      projectId: "p1",
+      signalId: "s1",
+      from: window.from,
+      to: window.to,
+      tz: "Asia/Shanghai",
+    });
+    const [url, init] = mockFetch.mock.calls[0];
+    const sent = new URL(url);
+    expect(sent.pathname).toBe("/api/v1/internal/trace-counts");
+    expect(Object.fromEntries(sent.searchParams)).toEqual({
+      project_id: "p1",
+      detector_id: "d1",
+      start_after: "2026-09-29T00:00:00.000Z",
+      end_before: "2026-10-01T00:00:00.000Z",
+      granularity: "hour",
+      tz: "Asia/Shanghai",
+    });
+    expect(init.headers["X-Internal-Secret"]).toBe("sec");
+
+    core.getSignal.mockResolvedValueOnce(null);
+    expect((await handleGetSignal(req(), signalParams)).status).toBe(404);
+    for (const bad of ["?tz=Mars%2FBase", "?start_after=soon"]) {
+      expect((await handleGetSignal(req(undefined, bad), signalParams)).status).toBe(400);
+    }
+  });
+
+  it("joins the two real hours of a DST fall-back night to their own counts, not each other's", async () => {
+    // core's hitSeries (Postgres) and the backend's trace-counts (ClickHouse) both key
+    // an hour bucket with its local hour's UTC offset; the join below is a plain
+    // Map.get(b.bucket), so this only passes if both sides format that suffix the
+    // same way for the SAME ambiguous hour.
+    core.getSignal.mockResolvedValueOnce({
+      merged: false,
+      signal: { id: "s1", detectorId: "d1" },
+      window: {
+        from: new Date("2026-11-01T05:00:00.000Z"),
+        to: new Date("2026-11-01T07:00:00.000Z"),
+        granularity: "hour",
+      },
+      hitSeries: [
+        { bucket: "2026-11-01T01:00-04:00", hits: 2 },
+        { bucket: "2026-11-01T01:00-05:00", hits: 1 },
+      ],
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { bucket: "2026-11-01T01:00-04:00", count: 9 },
+          { bucket: "2026-11-01T01:00-05:00", count: 4 },
+        ],
+      }),
+    });
+    const res = await handleGetSignal(
+      req(
+        undefined,
+        "?start_after=2026-11-01T05:00:00.000Z&end_before=2026-11-01T07:00:00.000Z&tz=America%2FNew_York",
+      ),
+      signalParams,
+    );
+    expect(await res.json()).toMatchObject({
+      hitSeries: [
+        { bucket: "2026-11-01T01:00-04:00", hits: 2, unaffected: 7 },
+        { bucket: "2026-11-01T01:00-05:00", hits: 1, unaffected: 3 },
+      ],
+    });
+  });
+
+  it("still returns the signal's own traces per bucket when the backend is down", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    core.getSignal.mockResolvedValueOnce({
+      merged: false,
+      signal: { id: "s1", detectorId: "d1" },
+      window: { from: new Date(0), to: new Date(86_400_000 * 7), granularity: "day" },
+      hitSeries: [{ bucket: "2026-09-30", hits: 3 }],
+    });
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+    const res = await handleGetSignal(req(), signalParams);
+    expect(await res.json()).toMatchObject({
+      hitSeries: [{ bucket: "2026-09-30", hits: 3, unaffected: null }],
+    });
+    expect(core.getSignal).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: "prisma" }),
+      expect.objectContaining({ tz: "UTC" }),
+    );
+    error.mockRestore();
+  });
+
+  it("returns a trace's signals and the named detectors' signals settings", async () => {
     core.signalsForTrace.mockResolvedValue([{ runId: "r1" }]);
-    const res = await handleTraceSignals(req(), params({ projectId: "p1", traceId: "t1" }));
-    expect(await res.json()).toEqual({ hits: [{ runId: "r1" }] });
+    core.detectorSignalSettings.mockResolvedValue([{ id: "d1", enableSignals: true }]);
+    core.signalsKeyConfigured.mockReturnValue(true);
+    const res = await handleTraceSignals(
+      req(undefined, "?detector_ids=d1,d2,d1,"),
+      params({ projectId: "p1", traceId: "t1" }),
+    );
+    expect(await res.json()).toEqual({
+      hits: [{ runId: "r1" }],
+      detectors: [{ id: "d1", enableSignals: true }],
+      grouping: true,
+    });
+    expect(core.signalsForTrace).toHaveBeenCalledWith(expect.anything(), {
+      projectId: "p1",
+      traceId: "t1",
+    });
+    expect(core.detectorSignalSettings).toHaveBeenCalledWith(expect.anything(), {
+      projectId: "p1",
+      detectorIds: ["d1", "d2"],
+    });
+  });
+
+  it("refuses too many detector ids", async () => {
+    const ids = Array.from({ length: 201 }, (_, i) => `d${i}`).join(",");
+    const res = await handleTraceSignals(
+      req(undefined, `?detector_ids=${ids}`),
+      params({ projectId: "p1", traceId: "t1" }),
+    );
+    expect(res.status).toBe(400);
+    expect(core.signalsForTrace).not.toHaveBeenCalled();
+  });
+
+  it("returns the project's signal setup", async () => {
+    const setup = {
+      signalCount: 0,
+      detectorCount: 2,
+      signalDetectorCount: 1,
+      sampledSignalDetectorCount: 0,
+    };
+    core.signalSetup.mockResolvedValue(setup);
+    core.signalsKeyConfigured.mockReturnValue(false);
+    const res = await handleSignalSetup(req(), params({ projectId: "p1" }));
+    expect(await res.json()).toEqual({ ...setup, grouping: false });
+    expect(core.signalSetup).toHaveBeenCalledWith(expect.anything(), "p1");
+  });
+
+  it("returns each detector's signal count, for project members only", async () => {
+    core.signalCountsByDetector.mockResolvedValue({ d1: 3 });
+    const res = await handleSignalCounts(req(), params({ projectId: "p1" }));
+    expect(await res.json()).toEqual({ counts: { d1: 3 } });
+    expect(core.signalCountsByDetector).toHaveBeenCalledWith(expect.anything(), "p1");
+
+    core.requireProjectAccess.mockResolvedValueOnce({ error: Response.json({}, { status: 403 }) });
+    expect((await handleSignalCounts(req(), params({ projectId: "p1" }))).status).toBe(403);
   });
 });
 
@@ -198,7 +492,7 @@ describe("hand edits", () => {
     );
     expect(await res.json()).toEqual({ criteriaVersion: 4 });
     expect(core.writeAudit).toHaveBeenCalledWith(
-      { tag: "prisma" },
+      expect.objectContaining({ tag: "prisma" }),
       expect.objectContaining({
         operation: "edit_signal_criteria",
         resourceId: "s1",
@@ -235,7 +529,7 @@ describe("hand edits", () => {
     // The placement time orders the rewrites of concurrent edits.
     expect(body).toMatchObject({ signal_id: "s2", assigned_at_ms: assignedAt.getTime() });
     expect(core.writeAudit).toHaveBeenCalledWith(
-      { tag: "prisma" },
+      expect.objectContaining({ tag: "prisma" }),
       expect.objectContaining({ operation: "merge_signal", summary: { into: "s2", hits: 1500 } }),
     );
   });
@@ -295,5 +589,38 @@ describe("hand edits", () => {
     expect((await handleMoveHit(req({}), hitParams)).status).toBe(400);
     core.moveHit.mockResolvedValueOnce({ ok: false, status: 404, error: "Hit not found" });
     expect((await handleMoveHit(req({ signalId: "s2" }), hitParams)).status).toBe(404);
+  });
+});
+
+describe("hand-run RCA", () => {
+  it("records the request as a member and audits it", async () => {
+    core.signalsKeyConfigured.mockReturnValue(true);
+    core.requestSignalRca.mockResolvedValue({ ok: true, findingId: "f1" });
+    const res = await handleRequestSignalRca(req(), signalParams);
+    expect(await res.json()).toEqual({ status: "pending" });
+    expect(core.requireProjectAccess).toHaveBeenCalledWith("u1", "p1", "MEMBER");
+    expect(core.requestSignalRca).toHaveBeenCalledWith(expect.anything(), {
+      projectId: "p1",
+      signalId: "s1",
+    });
+    expect(core.writeAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ operation: "request_signal_rca", resourceId: "s1" }),
+    );
+  });
+
+  it("refuses when the deployment cannot run signal RCAs", async () => {
+    core.signalsKeyConfigured.mockReturnValue(false);
+    const res = await handleRequestSignalRca(req(), signalParams);
+    expect(res.status).toBe(409);
+    expect(core.requestSignalRca).not.toHaveBeenCalled();
+  });
+
+  it("passes a refusal through without auditing", async () => {
+    core.signalsKeyConfigured.mockReturnValue(true);
+    core.requestSignalRca.mockResolvedValue({ ok: false, status: 409, error: "no hits" });
+    const res = await handleRequestSignalRca(req(), signalParams);
+    expect(res.status).toBe(409);
+    expect(core.writeAudit).not.toHaveBeenCalled();
   });
 });
