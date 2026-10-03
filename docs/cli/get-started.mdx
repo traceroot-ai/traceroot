@@ -54,7 +54,7 @@ The CLI resolves credentials in this order:
 7. Auto-discovered `./.env`
 
 <Note>
-Because the CLI automatically discovers and loads `./.env`, having `TRACEROOT_API_KEY` in your `./.env` will automatically select key mode.
+When no higher-precedence credential is available, `TRACEROOT_API_KEY` in `./.env` selects key mode.
 </Note>
 
 Create API keys in [TraceRoot Cloud](https://app.traceroot.ai) or your [self-hosted](/developer/self-hosting) dashboard.
