@@ -82,7 +82,11 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
   updateCurrentSpan({
     input: { query: userInput },
     output: { response: agentOutput },
-    metadata: { model: 'gpt-4o' },
+    metadata: { plan: 'pro' },
+    // LLM-specific attributes (useful for custom/unsupported providers)
+    model: 'gpt-4o',
+    modelParameters: { temperature: 0.7, maxTokens: 1024 },
+    usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0 },
   });
 
   updateCurrentTrace({
@@ -100,7 +104,11 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 |-----------|------|-------------|
 | `input` | `unknown` | Input data |
 | `output` | `unknown` | Output data |
-| `metadata` | `Record<string, unknown>` | Custom metadata |
+| `metadata` | `Record<string, unknown>` | Custom metadata (stored as-is; not used for pricing) |
+| `model` | `string` | LLM model name (e.g., `'gpt-4o'`) |
+| `modelParameters` | `Record<string, unknown>` | Model parameters (e.g., temperature, maxTokens) |
+| `usage` | `TokenUsage` | Token usage: `input`, `output`, `cacheRead`, `cacheWrite`, `total` — see [Cost Tracking](/tracing/cost-tracking#usage-fields) |
+| `attributes` | `Record<string, string \| number \| boolean>` | Raw span attributes for keys the fields above don't cover |
 
 ### `updateCurrentTrace` Parameters
 
