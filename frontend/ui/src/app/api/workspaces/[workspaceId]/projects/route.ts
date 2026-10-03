@@ -10,6 +10,7 @@ import {
 } from "@/lib/auth-helpers";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { seedDefaultDashboard } from "@/lib/dashboard-seed";
+import { captureServerEvent } from "@/lib/posthog-server";
 
 const createProjectSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -107,6 +108,11 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
     if (!isPrismaKnownError(e, "P2002")) throw e;
     return errorResponse("A project with this name already exists", 409);
   }
+
+  captureServerEvent(user.id, "project_created", {
+    workspace_id: workspaceId,
+    project_id: project.id,
+  });
 
   return NextResponse.json(
     {
