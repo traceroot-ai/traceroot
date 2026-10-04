@@ -70,7 +70,7 @@ export interface RoundDeps {
   enqueueRca(findingId: string, projectId: string): Promise<void>;
   embed(texts: string[]): Promise<EmbeddingResult>;
   /** Model clients for one round; every call's usage is pushed to `usage`. */
-  models(workspaceId: string, usage: ModelUsage[]): Promise<AssignmentModels>;
+  models(usage: ModelUsage[]): Promise<AssignmentModels>;
   now(): number;
 }
 
@@ -307,7 +307,7 @@ export async function runAssignmentRound(
           anchorText: material,
         };
       } else {
-        models ??= await deps.models(workspaceId, usage);
+        models ??= await deps.models(usage);
         const candidates = shortlist(vector!, pool, SHORTLIST_SIZE).map((p, i) => ({
           ...p,
           label: `s${i + 1}`,
