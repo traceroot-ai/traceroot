@@ -112,17 +112,15 @@ vi.mock("@traceroot/core", () => ({
     detector: detectorDb,
   },
 }));
-const { mockEmbed, mockChat, mockJev, mockFindJev } = vi.hoisted(() => ({
+const { mockEmbed, mockChat, mockJev } = vi.hoisted(() => ({
   mockEmbed: vi.fn(),
   mockChat: vi.fn(() => ({ tag: "chat" })),
   mockJev: vi.fn(() => ({ tag: "jev" })),
-  mockFindJev: vi.fn(),
 }));
 vi.mock("../embedding.js", () => ({ embedTexts: mockEmbed }));
 vi.mock("../models.js", () => ({
   createChatModels: mockChat,
   createJevModels: mockJev,
-  findJevProvider: mockFindJev,
 }));
 
 import { DelayedError, type Job } from "bullmq";
@@ -414,7 +412,7 @@ describe("pending copy recovery", () => {
 });
 
 describe("production wiring", () => {
-  it("embeds with the deployment key and uses Jev only when the workspace has a TypeSafe key", async () => {
+  it("embeds with the deployment key and uses Jev only with TraceRoot's TypeSafe key", async () => {
     mockRound.mockResolvedValue({ waiting: 0, remaining: false, readAt: T0 });
     await processSignalAssignJob(job({ projectId: "p", detectorId: "d" }), "tok");
     const deps = mockRound.mock.calls[0][0] as RoundDeps;
@@ -426,11 +424,12 @@ describe("production wiring", () => {
     await deps.embed(["a"]);
     expect(mockEmbed).toHaveBeenCalledWith(["a"], "sk-test");
 
-    mockFindJev.mockResolvedValueOnce(null);
-    expect(await deps.models("ws", [])).toEqual({ chat: { tag: "chat" }, jev: null });
-    mockFindJev.mockResolvedValueOnce({ key: "ts" });
-    expect(await deps.models("ws", [])).toEqual({ chat: { tag: "chat" }, jev: { tag: "jev" } });
-    expect(mockFindJev).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), "ws");
+    vi.stubEnv("TYPESAFE_API_KEY", "");
+    expect(await deps.models([])).toEqual({ chat: { tag: "chat" }, jev: null });
+    // Read per job, like the OpenAI key: a key added later applies on restart.
+    vi.stubEnv("TYPESAFE_API_KEY", " ts-managed ");
+    expect(await deps.models([])).toEqual({ chat: { tag: "chat" }, jev: { tag: "jev" } });
+    expect(mockJev).toHaveBeenCalledWith("ts-managed", []);
   });
 });
 

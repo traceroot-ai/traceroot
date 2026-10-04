@@ -1,11 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { Message, Tool, ToolCall } from "@earendil-works/pi-ai";
-import type { PrismaClient } from "@traceroot/core";
-import {
-  fetchProviderConfig,
-  resolvePiModel,
-  type ProviderModelConfig,
-} from "@traceroot/core/model-resolver";
+import { resolvePiModel } from "@traceroot/core/model-resolver";
 import { ADAPTER_DEFAULT_BASE_URL, LLMAdapter } from "@traceroot/core/llm-providers";
 import { tracedComplete } from "../../detection/traced-complete.js";
 import { callSystemOne, usageFromError } from "../../detection/typesafe-client.js";
@@ -171,15 +166,15 @@ export function createChatModels(apiKey: string, usage: ModelUsage[]): Assignmen
   };
 }
 
-/** Jev calls on the workspace's own TypeSafe key. Usage is recorded as BYOK. */
+/** Jev calls on TraceRoot's own TypeSafe key. Usage is recorded as ours, not BYOK. */
 export function createJevModels(
-  config: ProviderModelConfig,
+  apiKey: string,
   usage: ModelUsage[],
 ): NonNullable<AssignmentModels["jev"]> {
-  const baseUrl = config.baseUrl || ADAPTER_DEFAULT_BASE_URL[LLMAdapter.TYPESAFE];
+  const baseUrl = ADAPTER_DEFAULT_BASE_URL[LLMAdapter.TYPESAFE];
   const model = JEV_DEFAULT_MODEL_ID;
   const record = (u: { inputTokens: number; outputTokens: number } | null) => {
-    if (u) usage.push({ model, provider: LLMAdapter.TYPESAFE, isByok: true, cost: 0, ...u });
+    if (u) usage.push({ model, provider: LLMAdapter.TYPESAFE, isByok: false, cost: 0, ...u });
   };
 
   async function ask<Q extends Parameters<typeof callSystemOne>[0]["questions"]>(
@@ -188,7 +183,7 @@ export function createJevModels(
   ) {
     try {
       const result = await callSystemOne({
-        apiKey: config.key,
+        apiKey,
         baseUrl,
         model,
         state,
@@ -218,21 +213,4 @@ export function createJevModels(
       return texts.map((_, i) => answers[`hit_${i}`].noul >= 0.5);
     },
   };
-}
-
-/** The workspace's enabled TypeSafe provider, or null. Oldest first when there are several. */
-export async function findJevProvider(
-  db: Pick<PrismaClient, "modelProvider">,
-  workspaceId: string,
-): Promise<ProviderModelConfig | null> {
-  const rows = await db.modelProvider.findMany({
-    where: { workspaceId, enabled: true, adapter: LLMAdapter.TYPESAFE },
-    select: { provider: true },
-    orderBy: { createTime: "asc" },
-  });
-  for (const row of rows) {
-    const config = await fetchProviderConfig(workspaceId, row.provider);
-    if (config) return config;
-  }
-  return null;
 }

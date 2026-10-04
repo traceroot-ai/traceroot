@@ -7,12 +7,13 @@ import {
   ASSIGN_DELAY_MS,
   ASSIGN_LOCK_DURATION_MS,
   SWEEP_EVERY_MS,
+  managedJevKey,
   signalsApiKey,
   signalsAvailable,
 } from "./config.js";
 import { signalsBackend } from "./backend-client.js";
 import { embedTexts } from "./embedding.js";
-import { createChatModels, createJevModels, findJevProvider } from "./models.js";
+import { createChatModels, createJevModels } from "./models.js";
 import {
   SWEEP_JOB_NAME,
   enqueueAssignment,
@@ -34,11 +35,11 @@ function productionDeps(): RoundDeps {
     backend: signalsBackend,
     failures: { record: recordHitFailure },
     embed: (texts) => embedTexts(texts, apiKey),
-    models: async (workspaceId, usage) => {
-      const jevConfig = await findJevProvider(prisma, workspaceId);
+    models: async (usage) => {
+      const jevKey = managedJevKey();
       return {
         chat: createChatModels(apiKey, usage),
-        jev: jevConfig ? createJevModels(jevConfig, usage) : null,
+        jev: jevKey ? createJevModels(jevKey, usage) : null,
       };
     },
     now: Date.now,
