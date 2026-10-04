@@ -13,7 +13,8 @@ const MAX_SLACK_LINES = 45;
 const MAX_EMAIL_ROWS = 45;
 // Titles are model-written from detector output; bound them for one line.
 const TITLE_CAP = 200;
-const ROOT_CAUSE_CAP = 400;
+// The summary is the signal's "covers" criteria; a few lines of it at most.
+const SUMMARY_CAP = 300;
 
 const SECTIONS = [
   { kind: "new", heading: "New" },
@@ -29,11 +30,11 @@ function hitsText(item: DigestItem): string {
   return `${item.hitCount} ${item.hitCount === 1 ? "hit" : "hits"}`;
 }
 
-function rcaText(item: DigestItem): string | null {
-  if (!item.rca) return null;
-  if (item.rca.state === "done")
-    return item.rca.rootCause ? `Root cause: ${item.rca.rootCause}` : null;
-  return item.rca.state === "failed" ? "RCA failed" : "RCA still running";
+/** The summary for an email line, bounded with an ellipsis; null when there is none. */
+function summaryText(item: DigestItem): string | null {
+  const summary = item.summary.trim();
+  if (!summary) return null;
+  return summary.length > SUMMARY_CAP ? `${summary.slice(0, SUMMARY_CAP - 1)}…` : summary;
 }
 
 export function digestHeadline(items: readonly DigestItem[], projectName: string): string {
@@ -73,10 +74,10 @@ export function buildSignalDigestBlocks(params: {
       lines++;
       const title = truncateEscaped(escapeMrkdwn(item.title), TITLE_CAP);
       const detector = truncateEscaped(escapeMrkdwn(item.detectorName), TITLE_CAP);
-      const rca = rcaText(item);
+      const summary = item.summary.trim();
       const text =
         `*<${signalUrl(params.projectId, item)}|${title}>* · ${detector} · ${hitsText(item)}` +
-        (rca ? `\n>${truncateEscaped(escapeMrkdwn(rca), ROOT_CAUSE_CAP)}` : "");
+        (summary ? `\n>${truncateEscaped(escapeMrkdwn(summary), SUMMARY_CAP)}` : "");
       blocks.push({ type: "section", text: { type: "mrkdwn", text: truncate(text) } });
     }
   }
@@ -109,18 +110,16 @@ export function buildSignalDigestEmail(params: {
     if (section.length === 0) continue;
     text.push(`${heading}:`);
     const rows = section.map((item) => {
-      const rca = rcaText(item);
+      const summary = summaryText(item);
       const title = item.title.slice(0, TITLE_CAP);
       text.push(`- ${title} · ${item.detectorName} · ${hitsText(item)}`);
-      if (rca) text.push(`  ${rca}`);
+      if (summary) text.push(`  ${summary}`);
       text.push(`  ${signalUrl(params.projectId, item)}`);
       return (
         `<p style="margin: 6px 0; color: #333; font-size: 14px; line-height: 1.6;">` +
         `<a href="${signalUrl(params.projectId, item)}" style="color: #000; font-weight: 500;">${escapeHtml(title)}</a>` +
         ` <span style="color: #888;">· ${escapeHtml(item.detectorName)} · ${escapeHtml(hitsText(item))}</span>` +
-        (rca
-          ? `<br/><span style="color: #555;">${escapeHtml(rca.slice(0, ROOT_CAUSE_CAP))}</span>`
-          : "") +
+        (summary ? `<br/><span style="color: #555;">${escapeHtml(summary)}</span>` : "") +
         `</p>`
       );
     });

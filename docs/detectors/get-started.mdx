@@ -37,7 +37,7 @@ The pipeline for each incoming trace:
 3. **Sample.** Each matching detector applies its sample rate; new detectors default to 25%.
 4. **Evaluate.** The LLM-as-a-judge (Claude Haiku by default) reads the sampled trace and returns `identified` plus a short summary.
 5. **Diagnose.** When `identified` is true, the trace becomes a **finding** and joins a signal. When you run the analysis from the signal, or automatically when the finding starts a new signal (or reopens a resolved one) and its detector's root cause analysis is **Automatic**, the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis.
-6. **Notify.** At the end of the configured window, TraceRoot sends one digest to each configured email and Slack channel announcing new and reopened signals. Further findings on an open signal send nothing. The digest does not wait for RCA; it shows the root cause only if the analysis has already finished.
+6. **Notify.** At the end of the configured window, TraceRoot sends one digest to each configured email and Slack channel announcing new and reopened signals. Further findings on an open signal send nothing. Each signal shows its title, a short summary, its detector and hit count, and a link; root cause analysis results stay on the signal page, so the digest never waits for them.
 
 
 ## View findings
