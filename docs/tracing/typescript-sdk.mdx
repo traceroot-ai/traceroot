@@ -41,7 +41,7 @@ TraceRoot.initialize({
 Configure which LLM and agent libraries are instrumented.
 
 <Warning>
-In ESM projects, leaving `instrumentModules` as `undefined` results in no auto-instrumentation, and LLM calls will produce no spans and no warnings. You must explicitly pass the modules as shown below. In CommonJS, `undefined` auto-instruments all supported modules using require hooks.
+In ESM projects, leaving `instrumentModules` as `undefined` results in no auto-instrumentation, and LLM calls will produce no spans and no warnings. You must explicitly pass the modules as shown below. In CommonJS, `undefined` auto-instruments only `openAI`, `anthropic`, `langchain` and `bedrock` using require hooks. `claudeAgentSDK`, `openaiAgents`, `piCodingAgent` and `piAgentCore` are only wired when you pass them.
 </Warning>
 
 To disable all auto-instrumentation, pass an empty object: `instrumentModules: {}`.
@@ -52,7 +52,7 @@ To explicitly instrument modules, pass them in the configuration:
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import * as lcCallbackManager from '@langchain/core/callbacks/manager';
-import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
+import * as bedrock from '@aws-sdk/client-bedrock-runtime';
 import { Agent as PiAgentCore } from '@earendil-works/pi-agent-core';
 
 TraceRoot.initialize({
@@ -60,12 +60,13 @@ TraceRoot.initialize({
     openAI: OpenAI,
     anthropic: Anthropic,
     langchain: lcCallbackManager, // Note: pass the callbacks namespace, not the LangChain class
-    bedrock: BedrockRuntimeClient,
+    bedrock: bedrock, // Pass the module namespace, not the client class
     piAgentCore: { Agent: PiAgentCore }, // Or the entire module namespace
     // Other supported modules:
-    // claudeAgentSDK: ...
-    // openaiAgents: ...
-    // piCodingAgent: ...
+    // claudeAgentSDK: claudeAgentSDK, // import * as claudeAgentSDK from '@anthropic-ai/claude-agent-sdk'
+    // openaiAgents: agents, // import * as agents from '@openai/agents'
+    // piCodingAgent: pi, // import * as pi from '@earendil-works/pi-coding-agent'
+    //   or { module: pi, config: { captureContent: false } } to set capture options
   },
 });
 ```
@@ -86,8 +87,8 @@ const result = await observe({ name: 'my_function', type: 'tool', captureInput: 
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `name` | `string` | function name | Span name |
-| `type` | `'span' \| 'agent' \| 'tool' \| 'llm'` | `'span'` | Span kind — `'agent'` for multi-step agents, `'tool'` for function calls, `'llm'` for model inference, `'span'` for generic |
+| `name` | `string` | `fn.name`, then `'anonymous'` | Span name |
+| `type` | `SpanType` | `'span'` | Span kind — `'agent'` for multi-step agents, `'tool'` for function calls, `'llm'` for model inference, `'span'` for generic. The evaluation API also uses `'evaluation'`, `'task'` and `'scorer'`. |
 | `metadata` | `Record<string, unknown>` | — | Static metadata to attach |
 | `tags` | `string[]` | — | Tags to attach |
 | `captureInput` | `boolean` | `true` | Auto-capture function arguments as `input.value` |
@@ -157,6 +158,12 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 | `input` | `unknown` | Input data |
 | `output` | `unknown` | Output data |
 | `metadata` | `Record<string, unknown>` | Custom metadata |
+| `name` | `string` | Rename the span |
+| `model` | `string` | LLM model name |
+| `modelParameters` | `Record<string, unknown>` | LLM model parameters |
+| `usage` | `TokenUsage` | Token usage (see `SpanUpdate`) |
+| `prompt` | `unknown` | Prompt or messages sent to the LLM |
+| `attributes` | `Record<string, string \| number \| boolean>` | Arbitrary span attributes |
 
 ### `updateCurrentTrace` Parameters
 
@@ -180,19 +187,20 @@ const llmSpan = startSpan({ name: 'streaming_completion', type: 'llm', model: 'g
 try {
   // Update the span mid-flight or at the end
   llmSpan.update({
-    usage: { input: 10, output: 50 }, // Accepts `usage` (input/output/total), but not `prompt` directly
+    usage: { input: 10, output: 50 }, // TokenUsage: input, output, cacheRead, cacheWrite, total
     output: { text: "Hello!" }
   });
 } finally {
   llmSpan.end();
 }
 
-// 2. usingSpan pattern: executes a block with the span active in context, then ends it automatically
+// 2. usingSpan pattern: runs a block with the span active in context. It does not end the span.
 const blockSpan = startSpan({ name: 'agent_step', type: 'agent' });
 await usingSpan(blockSpan, async () => {
   const current = getCurrentSpan(); // Retrieves `blockSpan` from context
   console.log(current?.spanId);
 });
+blockSpan.end();
 ```
 
 ### `StartSpanOptions`
@@ -200,7 +208,7 @@ await usingSpan(blockSpan, async () => {
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `name` | `string` | Span name |
-| `type` | `SpanType` | Span kind (`'span'`, `'agent'`, `'tool'`, `'llm'`) |
+| `type` | `SpanType` | Span kind (`'span'`, `'agent'`, `'tool'`, `'llm'`; the evaluation API also uses `'evaluation'`, `'task'` and `'scorer'`) |
 | `input` | `unknown` | Input data |
 | `metadata` | `Record<string, unknown>` | Custom metadata |
 | `tags` | `string[]` | Array of tags |
@@ -221,15 +229,15 @@ await usingSpan(blockSpan, async () => {
 | `metadata` | `Record<string, unknown>` | Update metadata |
 | `model` | `string` | Update model name |
 | `modelParameters` | `Record<string, unknown>` | Update model parameters |
-| `usage` | `TokenUsage` | Token usage (fields like `input`, `output`, `total`). Does not accept `prompt` directly. |
+| `usage` | `TokenUsage` | Token usage: `input`, `output`, `cacheRead`, `cacheWrite`, `total`. `span.update()` has no `prompt` field; use `updateCurrentSpan` for that. |
 | `attributes` | `Record<string, string \| number \| boolean>` | Update arbitrary underlying span attributes |
 
-## Other Exports
+## pi Instrumentation Config
 
-- **`exportSpan(span: ReadableSpan) => boolean`**: An initialization option/filter that receives the finished `ReadableSpan` before it leaves the process. Returning `false` drops it.
-- **`globalAttributes`**: Stamped on EVERY span (root and children) at initialization, e.g., `{ 'traceroot.source': 'detector' }`.
-- **`captureContent`**: For `pi` integrations, the only way to record model inputs/outputs. Accepts a boolean or a `(kind, value, ctx) => string | undefined` function.
-- **`instrumentPiAgentCore(mod, config)`**: The only way to configure `pi-agent-core`'s instrumentation config (like `captureContent` or `captureToolIo`).
+`exportSpan` and `globalAttributes` are `initialize()` options; see `InitializeOptions` above.
+
+- `captureContent` is set in the pi config (`PiInstrumentationConfig` or `PiAgentCoreConfig`) and defaults to `true`, which records the prompt on AGENT spans and the response text on AGENT and LLM spans. `false` records none of it. A `(kind, value, ctx) => string | undefined` function decides per piece, and is the only way to record a model call's input messages.
+- `instrumentPiAgentCore(mod, config)` is exported from the SDK. It is the only way to pass config (`captureContent`, `captureToolIo`) to `pi-agent-core`, because the `piAgentCore` option in `instrumentModules` takes no config.
 
 
 ## Environment Variables
@@ -241,7 +249,7 @@ await usingSpan(blockSpan, async () => {
 | `TRACEROOT_ENABLED` | `true` | Enable/disable tracing. The SDK only disables tracing for the exact string `"false"` (note: the Python SDK also accepts `0`, `no`, or `off`). |
 | `TRACEROOT_ENVIRONMENT` | — | Deployment environment tag (e.g. `production`, `staging`) |
 | `TRACEROOT_GIT_REPO` | auto-detected | Git repository (`owner/repo`) |
-| `TRACEROOT_GIT_REF` | auto-detected | Git reference |
+| `TRACEROOT_GIT_REF` | auto-detected | Git commit SHA |
 | `TRACEROOT_FLUSH_AT` | `100` | Number of spans to batch before flushing |
 | `TRACEROOT_FLUSH_INTERVAL` | `5` (seconds) | Interval at which to flush batched spans |
-| `TRACEROOT_TIMEOUT` | `10` (seconds) | Timeout for span export requests |
+| `TRACEROOT_TIMEOUT` | `30` (seconds) | Timeout for span export requests |
