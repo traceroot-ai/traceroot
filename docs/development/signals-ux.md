@@ -17,9 +17,12 @@ It references #2399 and #2404 without closing the full UX issue.
   controls and a recent affected-traces table. The chart compares the signal's
   traces with the distinct traces its detector checked.
 - Detector page: one runs table; its findings are the Identified = Yes filter,
-  kept in the URL. Signal ID links a hit to its signal, and Agent Run ID opens
-  the agent trace of the RCA that signal shows. RCA runs per signal, so the
-  per-finding Finding ID and Agent analysis columns are gone.
+  kept in the URL. Signal ID links a hit to its signal. Agent Run ID opens the
+  agent trace of the RCA that analysed the hit's own trace for that signal (the
+  opening it covered records the trace's finding); a hit that only joined a
+  signal analysed on another trace shows a dash, and a later RCA does not move
+  an earlier hit's link. RCA runs per signal, so the per-finding Finding ID and
+  Agent analysis columns are gone.
 - Detector list: a Signals column counts each detector's signals (merged ones
   left out, any status and time range, as the Signals page lists them). Its
   Findings, Runs and Signals counts link to the detector's runs filtered to

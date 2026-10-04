@@ -797,47 +797,73 @@ describe("reads", () => {
     ]);
   });
 
-  it("gives each run its signal and the agent trace of the RCA the signal shows", async () => {
+  it("links a run only to the RCA that analysed its own trace for its signal", async () => {
     const db = {
       signalHit: {
         findMany: vi.fn(async () => [
-          { runId: "r1", signalId: "a" },
-          { runId: "r2", signalId: "a" },
-          { runId: "r3", signalId: "b" },
+          // r1 opened signal a on trace f1; r2 only joined it on trace f2.
+          { runId: "r1", signalId: "a", findingId: "f1" },
+          { runId: "r2", signalId: "a", findingId: "f2" },
+          // r3 reopened signal a on trace f3, analysed later.
+          { runId: "r3", signalId: "a", findingId: "f3" },
+          // r4's trace f1 was analysed, but for another signal than r4's.
+          { runId: "r4", signalId: "b", findingId: "f1" },
         ]),
       },
       signalRca: {
         findMany: vi.fn(async () => [
-          // Signal a: the newest opening that succeeded is 1; opening 2 is still running.
-          { signalId: "a", reopenSeq: 0, result: "old", sessionId: "s0" },
-          { signalId: "a", reopenSeq: 1, result: "kept", sessionId: "s1" },
-          { signalId: "a", reopenSeq: 2, result: null, sessionId: null },
-          // Signal b: no RCA has succeeded yet.
-          { signalId: "b", reopenSeq: 0, result: null, sessionId: null },
+          { signalId: "a", findingId: "f1", reopenSeq: 0, sessionId: "s1" },
+          { signalId: "a", findingId: "f3", reopenSeq: 1, sessionId: "s3" },
         ]),
       },
       detectorRcaExecution: {
-        findMany: vi.fn(async () => [{ sessionId: "s1", traceId: "t1" }]),
+        findMany: vi.fn(async () => [
+          { findingId: "f1", sessionId: "s1", traceId: "t1", attempt: 1 },
+          // A later attempt on f1 whose answer the opening did not keep.
+          { findingId: "f1", sessionId: "s1b", traceId: "t1b", attempt: 2 },
+          { findingId: "f3", sessionId: "s3", traceId: "t3", attempt: 1 },
+        ]),
       },
     };
     const rows = await signalsForRuns(db as never, {
       projectId: "p",
-      runIds: ["r1", "r2", "r3", "r4"],
+      runIds: ["r1", "r2", "r3", "r4", "r5"],
     });
     expect(rows).toEqual([
       { runId: "r1", signalId: "a", agentTraceId: "t1" },
-      { runId: "r2", signalId: "a", agentTraceId: "t1" },
-      { runId: "r3", signalId: "b", agentTraceId: null },
+      { runId: "r2", signalId: "a", agentTraceId: null },
+      { runId: "r3", signalId: "a", agentTraceId: "t3" },
+      { runId: "r4", signalId: "b", agentTraceId: null },
     ]);
-    expect(db.signalHit.findMany).toHaveBeenCalledWith({
-      where: { projectId: "p", runId: { in: ["r1", "r2", "r3", "r4"] } },
-      select: { runId: true, signalId: true },
+    expect(db.signalRca.findMany).toHaveBeenCalledWith({
+      where: { signalId: { in: ["a", "b"] }, findingId: { in: ["f1", "f2", "f3"] } },
+      select: { signalId: true, findingId: true, reopenSeq: true, sessionId: true },
     });
-    // Only the kept session's trace, only once it landed, only in the project.
+    // Only landed traces of the analysed findings, only in the project.
     expect(db.detectorRcaExecution.findMany).toHaveBeenCalledWith({
-      where: { projectId: "p", sessionId: { in: ["s1"] }, traceStatus: "available" },
-      select: { sessionId: true, traceId: true },
+      where: { projectId: "p", findingId: { in: ["f1", "f3"] }, traceStatus: "available" },
+      select: { findingId: true, sessionId: true, traceId: true, attempt: true },
     });
+  });
+
+  it("falls back to the newest landed attempt while an opening has no kept answer", async () => {
+    const db = {
+      signalHit: { findMany: vi.fn(async () => [{ runId: "r1", signalId: "a", findingId: "f1" }]) },
+      signalRca: {
+        findMany: vi.fn(async () => [
+          { signalId: "a", findingId: "f1", reopenSeq: 0, sessionId: null },
+        ]),
+      },
+      detectorRcaExecution: {
+        findMany: vi.fn(async () => [
+          { findingId: "f1", sessionId: "x1", traceId: "t1", attempt: 1 },
+          { findingId: "f1", sessionId: "x2", traceId: "t2", attempt: 2 },
+        ]),
+      },
+    };
+    expect(await signalsForRuns(db as never, { projectId: "p", runIds: ["r1"] })).toEqual([
+      { runId: "r1", signalId: "a", agentTraceId: "t2" },
+    ]);
   });
 
   it("reads nothing for no runs, and no RCAs when no run is a hit", async () => {

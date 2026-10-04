@@ -11,7 +11,7 @@ interface DetectorRunsTableProps {
   onTraceClick: (run: BackendRun) => void;
   /** Fired when a self-traced run's run_id cell is clicked — opens its self-trace. */
   onRunClick: (run: BackendRun) => void;
-  /** Fired when a run's Agent Run ID cell is clicked — opens its signal's RCA agent trace. */
+  /** Fired when a run's Agent Run ID cell is clicked — opens the RCA agent trace of its trace. */
   onAgentRunClick: (run: BackendRun) => void;
   /** Where a Signal ID cell links: the Signals page with that signal open. */
   signalHref: (signalId: string) => string;
@@ -61,9 +61,10 @@ function EmptyIdCell() {
  *
  * Each id cell opens its own id: Run ID the run's self-trace, Trace ID the
  * scanned customer trace, Signal ID the signal the hit joined (on the Signals
- * page), Agent Run ID the agent trace of the RCA that signal shows, shared by
- * every hit of the signal. Historical or failed-emit runs have no self-trace,
- * so their run_id stays plain text.
+ * page), Agent Run ID the agent trace of the RCA that analysed this run's own
+ * trace for its signal; a run that only joined a signal analysed on another
+ * trace shows a dash. Historical or failed-emit runs have no self-trace, so
+ * their run_id stays plain text.
  */
 export function DetectorRunsTable({
   rows,
@@ -117,7 +118,7 @@ export function DetectorRunsTable({
             {run.agent_trace_id ? (
               <IdCell
                 id={run.agent_trace_id}
-                title={`${run.agent_trace_id} — open the signal's root cause analysis`}
+                title={`${run.agent_trace_id} — open the root cause analysis of this trace`}
                 onOpen={() => onAgentRunClick(run)}
               />
             ) : (
