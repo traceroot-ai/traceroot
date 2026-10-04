@@ -34,7 +34,7 @@ TraceRoot captures token usage from instrumented LLM calls. It calculates cost o
 
 1. **Auto-instrumentation** — TraceRoot integrations capture token usage from the provider response automatically.
 2. **Fallback estimation** — When token counts aren't in the response, TraceRoot estimates using tiktoken.
-3. **Model matching** — The reported model ID is matched against `standard-model-prices.json`, including supported provider-prefixed and hosted aliases.
+3. **Model matching** — The reported model ID is matched against TraceRoot's pricing table, including supported provider-prefixed and hosted aliases.
 4. **Cost calculation** — When a match exists, token counts are multiplied by that entry's prices. An unmatched model still records tokens but has no calculated cost.
 
 ## Pricing coverage
@@ -42,7 +42,7 @@ TraceRoot captures token usage from instrumented LLM calls. It calculates cost o
 Pricing entries currently cover these model families:
 
 - OpenAI
-- Anthropic, including supported Anthropic model IDs routed through Amazon Bedrock and Google Vertex AI
+- Anthropic, including supported model IDs routed through Amazon Bedrock and Claude 3.x model IDs on Google Vertex AI
 - Google Gemini
 - xAI
 - DeepSeek

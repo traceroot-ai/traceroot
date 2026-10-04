@@ -198,6 +198,16 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         detector_trigger=False,
     ),
     FilterColumn(
+        name="error_type",
+        label="Error type",
+        ch_type="String",
+        level=FilterLevel.SPAN_MEMBERSHIP,
+        type=FilterType.CATEGORICAL,
+        operators=(FilterOperator.IN,),
+        value_source=ValueSource.DISTINCT_QUERY,
+        detector_trigger=False,
+    ),
+    FilterColumn(
         name="name",
         label="Span name",
         ch_type="String",
