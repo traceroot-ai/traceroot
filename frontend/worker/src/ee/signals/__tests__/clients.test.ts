@@ -20,7 +20,7 @@ import {
   createChatModels,
   createJevModels,
   findJevProvider,
-  fitAnswers,
+  exactAnswers,
   parseAssignAnswer,
   parseSignalText,
 } from "../models.js";
@@ -128,10 +128,13 @@ describe("tool argument parsing", () => {
     expect(parseAssignAnswer({ choice: "" })).toBe(null);
   });
 
-  it("fits validation answers to the number of texts", () => {
-    expect(fitAnswers([true, false, true], 2)).toEqual([true, false]);
-    expect(fitAnswers([true], 3)).toEqual([true, false, false]);
-    expect(fitAnswers("yes", 1)).toBe(null);
+  it("takes validation answers only as exactly one yes/no per text", () => {
+    expect(exactAnswers([true, false], 2)).toEqual([true, false]);
+    // A short or long list is malformed, not "the rest are no".
+    expect(exactAnswers([true], 3)).toBe(null);
+    expect(exactAnswers([true, false, true], 2)).toBe(null);
+    expect(exactAnswers([true, "no"], 2)).toBe(null);
+    expect(exactAnswers("yes", 1)).toBe(null);
   });
 });
 
@@ -207,12 +210,16 @@ describe("chat models", () => {
     expect(mockComplete).toHaveBeenCalledOnce();
   });
 
-  it("returns one validation answer per text", async () => {
-    mockComplete.mockResolvedValueOnce(toolResponse("submit_validation", { accepted: [true] }));
+  it("asks again when the validator skips a text, instead of reading it as rejected", async () => {
+    // One answer for two texts would otherwise pass: accept the hit, reject the anchor.
+    mockComplete
+      .mockResolvedValueOnce(toolResponse("submit_validation", { accepted: [true] }))
+      .mockResolvedValueOnce(toolResponse("submit_validation", { accepted: [true, true] }));
     await expect(createChatModels("k", []).validate("c", "e", ["a", "b"])).resolves.toEqual([
       true,
-      false,
+      true,
     ]);
+    expect(mockComplete).toHaveBeenCalledTimes(2);
   });
 
   it("treats an aborted call as a timeout", async () => {
