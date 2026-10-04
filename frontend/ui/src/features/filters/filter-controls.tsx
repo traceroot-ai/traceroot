@@ -20,6 +20,10 @@ import { MAX_KEY_LENGTH, MAX_VALUE_LENGTH } from "./predicate";
 // builder extends this map with its registry's extra field names.
 export const FIELD_ICONS: Record<string, LucideIcon> = {
   trace_id: DOMAIN_ICONS.id,
+  signal_id: DOMAIN_ICONS.id,
+  title: DOMAIN_ICONS.signal,
+  detector: DOMAIN_ICONS.detector,
+  status: DOMAIN_ICONS.status,
   cost: DOMAIN_ICONS.cost,
   total_tokens: DOMAIN_ICONS.tokens,
   duration_ms: DOMAIN_ICONS.latency,

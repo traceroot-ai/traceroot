@@ -9,6 +9,9 @@ It references #2399 and #2404 without closing the full UX issue.
 - Project sidebar entry and Signals list, newest signal first. The removable open
   status filter persists when cleared. Search supports status, detector name,
   signal title and signal ID.
+- Signals filter fields use the shared domain icons: Signal ID uses Hash,
+  Signal name uses Lightbulb, Detector uses Eye and Status uses CircleCheck,
+  matching the reference demo and the navigation icons.
 - Shared date selection for list counts, detail chart and affected traces. The
   default is seven days; stored preferences and shared links take precedence.
   Plan retention clamps preset and custom ranges. The range counts affected
@@ -71,6 +74,7 @@ It references #2399 and #2404 without closing the full UX issue.
 | Detector-local Signals tab | A project-level Signals list with a detector filter. |
 | Detector list count columns | Judge Runs, Signals and Agent Runs replace Findings, Runs and Signals. Agent Runs counts actual RCA executions, deduplicated per detector, rather than positive judge outputs. |
 | Detector run ID label | Judge Run ID replaces Run ID to distinguish the judge execution from Agent Run ID; the ID value and link behavior stay the same. |
+| Signals filter icons | The field picker uses the matching domain icons instead of the generic fallback glyph. |
 | Detection-time window counts | Window counts and charts use trace start time, matching Tracing. Reopen eligibility uses trace start time when available, falling back to detection time; lifecycle counters and digests use detection time. |
 | No separate trace-time snapshot | A nullable indexed signal-hit trace start is necessary for Postgres membership counts; the writer and all window readers consume it. |
 | Historical hits already exist | Unknown trace times do not enter window counts. A project-scoped repair script reads retained trace rows without inventing times. |
