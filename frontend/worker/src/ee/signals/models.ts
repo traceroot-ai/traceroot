@@ -83,10 +83,14 @@ export function parseAssignAnswer(args: Record<string, unknown>): ChatAssignAnsw
   return { choice, reason: typeof args.reason === "string" ? args.reason : "", newSignal };
 }
 
-/** Pad or trim to one answer per text; a missing answer counts as not covered. */
-export function fitAnswers(answers: unknown, count: number): boolean[] | null {
-  if (!Array.isArray(answers)) return null;
-  return Array.from({ length: count }, (_, i) => answers[i] === true);
+/**
+ * Exactly one yes/no per text, or null (malformed). A missing answer is not a
+ * "no": read as one, a single [true] for several texts would accept the new hit
+ * and reject every other signal, passing validation it never ran.
+ */
+export function exactAnswers(answers: unknown, count: number): boolean[] | null {
+  if (!Array.isArray(answers) || answers.length !== count) return null;
+  return answers.every((a) => typeof a === "boolean") ? answers : null;
 }
 
 /** Chat calls on the deployment's OpenAI key. Every call's usage is pushed to `usage`. */
@@ -162,7 +166,7 @@ export function createChatModels(apiKey: string, usage: ModelUsage[]): Assignmen
       call(WRITER_SYSTEM, writerUserText(material, candidates), WRITE_TOOL, parseSignalText),
     validate: (covers, excludes, texts) =>
       call(VALIDATE_SYSTEM, validateUserText(covers, excludes, texts), VALIDATE_TOOL, (args) =>
-        fitAnswers(args.accepted, texts.length),
+        exactAnswers(args.accepted, texts.length),
       ),
   };
 }
