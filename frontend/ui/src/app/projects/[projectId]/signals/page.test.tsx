@@ -147,7 +147,7 @@ describe("Signals page with nothing listed", () => {
 });
 
 describe("Signals page detector filter options", () => {
-  it("builds the Detector filter from every detector name, deduped and sorted", () => {
+  it("builds the Detector name filter from every detector name, deduped and sorted", () => {
     // useAllDetectorNames pages through the list endpoint (tested with its
     // hook); the page only turns the names it returns into sorted, unique
     // options.
@@ -157,7 +157,18 @@ describe("Signals page detector filter options", () => {
       { id: "d3", name: "Beta" },
     ];
     render(<SignalsPage />);
-    const fields = filterInput.fields as Array<{ field: string; enum_values?: string[] }>;
+    const fields = filterInput.fields as Array<{
+      field: string;
+      label: string;
+      enum_values?: string[];
+    }>;
+    expect(fields.map((f) => f.label)).toEqual([
+      "Signal ID",
+      "Signal name",
+      "Detector ID",
+      "Detector name",
+      "Status",
+    ]);
     const detectorField = fields.find((f) => f.field === "detector");
     expect(detectorField?.enum_values).toEqual(["alpha", "Beta"]);
   });

@@ -21,6 +21,7 @@ import { MAX_KEY_LENGTH, MAX_VALUE_LENGTH } from "./predicate";
 export const FIELD_ICONS: Record<string, LucideIcon> = {
   trace_id: DOMAIN_ICONS.id,
   signal_id: DOMAIN_ICONS.id,
+  detector_id: DOMAIN_ICONS.id,
   title: DOMAIN_ICONS.signal,
   detector: DOMAIN_ICONS.detector,
   status: DOMAIN_ICONS.status,

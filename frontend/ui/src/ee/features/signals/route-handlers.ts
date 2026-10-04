@@ -96,7 +96,7 @@ const MAX_WINDOW_DAYS = 10_000;
 
 /**
  * The list page's filter chips, in the predicate shape the trace filters use:
- * status and detector name are picked from lists, the name and id are typed.
+ * status and detector name are picked from lists; signal name and both IDs are typed.
  */
 const signalFilterSchema = z.array(
   z.discriminatedUnion("field", [
@@ -108,6 +108,7 @@ const signalFilterSchema = z.array(
     z.object({ field: z.literal("detector"), op: z.literal("in"), value: z.array(z.string()) }),
     z.object({ field: z.literal("title"), op: z.literal("contains"), value: z.string() }),
     z.object({ field: z.literal("signal_id"), op: z.literal("eq"), value: z.string() }),
+    z.object({ field: z.literal("detector_id"), op: z.literal("eq"), value: z.string() }),
   ]),
 );
 
@@ -186,13 +187,18 @@ async function listResponse(
   }
   const statuses = new Set<string>(status ? [status] : []);
   const detectorNames: string[] = [];
+  let detectorIds = detectorId ? [detectorId] : undefined;
   let title: string | undefined;
   let signalId: string | undefined;
   for (const f of filters) {
     if (f.field === "status") f.value.forEach((v) => statuses.add(v));
     else if (f.field === "detector") detectorNames.push(...f.value);
     else if (f.field === "title") title = f.value.trim() || undefined;
-    else signalId = f.value.trim() || undefined;
+    else if (f.field === "signal_id") signalId = f.value.trim() || undefined;
+    else {
+      const id = f.value.trim();
+      if (id) detectorIds = detectorIds ? detectorIds.filter((value) => value === id) : [id];
+    }
   }
   const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);
   const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
@@ -200,7 +206,7 @@ async function listResponse(
   const page = isNaN(rawPage) ? 0 : Math.min(Math.max(rawPage, 0), MAX_PAGE);
   const { signals, total } = await listSignals(prisma, {
     projectId,
-    detectorIds: detectorId ? [detectorId] : undefined,
+    detectorIds,
     detectorNames: detectorNames.length > 0 ? detectorNames : undefined,
     statuses: statuses.size > 0 ? [...statuses] : undefined,
     title,

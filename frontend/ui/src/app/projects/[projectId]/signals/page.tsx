@@ -38,20 +38,11 @@ function signalFilterFields(detectorNames: string[]): FilterFieldDef[] {
     ({ level: "SIGNAL", enum_values: [], ...def }) as FilterFieldDef;
   return [
     field({
-      field: "status",
-      label: "Status",
-      type: "categorical",
-      operators: ["in"],
-      value_source: "static_enum",
-      enum_values: [...SIGNAL_STATUSES],
-    }),
-    field({
-      field: "detector",
-      label: "Detector",
-      type: "categorical",
-      operators: ["in"],
-      value_source: "static_enum",
-      enum_values: detectorNames,
+      field: "signal_id",
+      label: "Signal ID",
+      type: "text",
+      operators: ["eq"],
+      value_source: "free_text",
     }),
     field({
       field: "title",
@@ -61,11 +52,27 @@ function signalFilterFields(detectorNames: string[]): FilterFieldDef[] {
       value_source: "free_text",
     }),
     field({
-      field: "signal_id",
-      label: "Signal ID",
+      field: "detector_id",
+      label: "Detector ID",
       type: "text",
       operators: ["eq"],
       value_source: "free_text",
+    }),
+    field({
+      field: "detector",
+      label: "Detector name",
+      type: "categorical",
+      operators: ["in"],
+      value_source: "static_enum",
+      enum_values: detectorNames,
+    }),
+    field({
+      field: "status",
+      label: "Status",
+      type: "categorical",
+      operators: ["in"],
+      value_source: "static_enum",
+      enum_values: [...SIGNAL_STATUSES],
     }),
   ];
 }

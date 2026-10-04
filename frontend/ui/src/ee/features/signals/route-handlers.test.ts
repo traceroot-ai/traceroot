@@ -224,6 +224,7 @@ describe("reads", () => {
       JSON.stringify([
         { field: "status", op: "in", value: ["open", "resolved"] },
         { field: "detector", op: "in", value: ["Failure"] },
+        { field: "detector_id", op: "eq", value: " d1 " },
         { field: "title", op: "contains", value: " timeout " },
         { field: "signal_id", op: "eq", value: "s9" },
       ]),
@@ -236,6 +237,7 @@ describe("reads", () => {
     expect(core.listSignals).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), {
       projectId: "p1",
       detectorNames: ["Failure"],
+      detectorIds: ["d1"],
       statuses: ["open", "resolved"],
       title: "timeout",
       signalId: "s9",
@@ -253,6 +255,22 @@ describe("reads", () => {
     }
     core.requireProjectAccess.mockResolvedValueOnce({ error: Response.json({}, { status: 403 }) });
     expect((await handleListSignals(req(), params({ projectId: "p1" }))).status).toBe(403);
+  });
+
+  it("keeps an ID filter within the detector route's scope", async () => {
+    core.listSignals.mockResolvedValue({ signals: [], total: 0 });
+    const filters = encodeURIComponent(
+      JSON.stringify([{ field: "detector_id", op: "eq", value: "d2" }]),
+    );
+    const res = await handleListDetectorSignals(
+      req(undefined, `?filters=${filters}`),
+      params({ projectId: "p1", detectorId: "d1" }),
+    );
+    expect(res.status).toBe(200);
+    expect(core.listSignals).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ projectId: "p1", detectorIds: [] }),
+    );
   });
 
   it("counts each listed signal's hits in the page's window, and rejects a bad window", async () => {

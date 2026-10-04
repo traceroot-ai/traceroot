@@ -7,10 +7,12 @@ It references #2399 and #2404 without closing the full UX issue.
 ## Implemented scope
 
 - Project sidebar entry and Signals list, newest signal first. The removable open
-  status filter persists when cleared. Search supports status, detector name,
-  signal title and signal ID.
+  status filter persists when cleared. Search supports status, detector name and ID,
+  signal title and signal ID. Detector ID is an exact match and combines with
+  the detector name filter within the current project or detector route.
 - Signals filter fields use the shared domain icons: Signal ID uses Hash,
-  Signal name uses Lightbulb, Detector uses Eye and Status uses CircleCheck,
+  Signal name uses Lightbulb, Detector ID uses Hash, Detector name uses Eye and
+  Status uses CircleCheck. The picker lists those five fields in that order,
   matching the reference demo and the navigation icons.
 - Shared date selection for list counts, detail chart and affected traces. The
   default is seven days; stored preferences and shared links take precedence.
@@ -75,6 +77,7 @@ It references #2399 and #2404 without closing the full UX issue.
 | Detector list count columns | Judge Runs, Signals and Agent Runs replace Findings, Runs and Signals. Agent Runs counts actual RCA executions, deduplicated per detector, rather than positive judge outputs. |
 | Detector run ID label | Judge Run ID replaces Run ID to distinguish the judge execution from Agent Run ID; the ID value and link behavior stay the same. |
 | Signals filter icons | The field picker uses the matching domain icons instead of the generic fallback glyph. |
+| Signals filter fields | Signal ID, Signal name, Detector ID, Detector name and Status match the reference order and labels. Detector ID adds exact-match filtering; the existing detector-name predicate stays compatible with saved links. |
 | Detection-time window counts | Window counts and charts use trace start time, matching Tracing. Reopen eligibility uses trace start time when available, falling back to detection time; lifecycle counters and digests use detection time. |
 | No separate trace-time snapshot | A nullable indexed signal-hit trace start is necessary for Postgres membership counts; the writer and all window readers consume it. |
 | Historical hits already exist | Unknown trace times do not enter window counts. A project-scoped repair script reads retained trace rows without inventing times. |
