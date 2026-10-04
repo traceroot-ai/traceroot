@@ -11,9 +11,9 @@ TraceRoot spans can contain application data. Review the defaults before tracing
 |---|---|---|
 | Observed function arguments | Captured as span input | Set `capture_input=False` in Python or `captureInput: false` in TypeScript |
 | Observed function return values | Captured as span output | Set `capture_output=False` in Python or `captureOutput: false` in TypeScript |
-| Auto-instrumented LLM prompts and completions | Captured when the integration exposes content | Use the integration's content-capture option when available; Pi supports `captureContent` |
-| Tool arguments and results | Captured when the integration exposes tool I/O | Pi supports `captureToolIo: false`; other integrations may not expose a content filter |
-| Git repository and ref | Added to recording spans when resolved | Do not provide git context, or disable tracing entirely; there is no per-span git-context switch |
+| Auto-instrumented LLM prompts and completions | Captured when the integration exposes content | Only the TypeScript Pi integrations expose a content filter (`captureContent`); other integrations do not |
+| Tool arguments and results | Captured when the integration exposes tool I/O | Only the TypeScript Pi integrations expose a tool I/O capture option (`captureToolIo: false`); other integrations do not |
+| Git repository and ref | Trace-level metadata when resolved | Automatically resolved even when not explicitly provided; there is no git-context opt-out. Disable tracing entirely to prevent export; see [Git Context](/tracing/git-context) |
 | Source file, line, and function | Added by `observe` / `@observe` | Disable tracing entirely if source location must not leave the process |
 
 Capture settings prevent the selected values from being written to spans. They do not modify what your application passes to an LLM provider or tool.
@@ -31,7 +31,7 @@ Capture settings prevent the selected values from being written to spans. They d
     ```
   </Tab>
   <Tab title="TypeScript">
-    Pass arguments after the function so `observe` can call it without recording them:
+    Pass the function's arguments after it so `observe` can invoke it; `captureInput: false` keeps those arguments off the span:
 
     ```typescript
     import { observe } from '@traceroot-ai/traceroot';

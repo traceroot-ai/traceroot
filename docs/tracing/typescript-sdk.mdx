@@ -40,6 +40,8 @@ const result = await observe({ name: 'my_function', type: 'tool' }, async () => 
 | `type` | `'span' \| 'agent' \| 'tool' \| 'llm'` | `'span'` | Span kind — `'agent'` for multi-step agents, `'tool'` for function calls, `'llm'` for model inference, `'span'` for generic |
 | `metadata` | `Record<string, unknown>` | — | Static metadata to attach |
 | `tags` | `string[]` | — | Tags to attach |
+| `captureInput` | `boolean` | `true` | Capture the function arguments as span input |
+| `captureOutput` | `boolean` | `true` | Capture the return value as span output |
 
 See [Data Capture and Privacy](/tracing/data-capture) for `captureInput` and `captureOutput` examples that keep sensitive values off spans.
 
