@@ -59,7 +59,7 @@ function EmptyIdCell() {
 /**
  * A detector's runs; its findings are the same rows filtered to Identified.
  *
- * Each id cell opens its own id: Run ID the run's self-trace, Trace ID the
+ * Each id cell opens its own id: Judge Run ID the run's self-trace, Trace ID the
  * scanned customer trace, Signal ID the signal the hit joined (on the Signals
  * page), Agent Run ID the agent trace of the RCA that analysed this run's own
  * judge output; a run that only joined a signal analysed on another trace
@@ -78,7 +78,7 @@ export function DetectorRunsTable({
       <thead className="sticky top-0 bg-background">
         <tr className="border-b border-border bg-muted/50">
           <th className={cn(DETECTOR_TH, "w-[160px]")}>Timestamp</th>
-          <th className={cn(DETECTOR_TH, "w-[280px]")}>Run ID</th>
+          <th className={cn(DETECTOR_TH, "w-[280px]")}>Judge Run ID</th>
           <th className={DETECTOR_TH}>Trace ID</th>
           <th className={DETECTOR_TH}>Signal ID</th>
           <th className={DETECTOR_TH}>Agent Run ID</th>

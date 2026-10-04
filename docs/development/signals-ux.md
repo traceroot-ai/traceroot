@@ -17,8 +17,9 @@ It references #2399 and #2404 without closing the full UX issue.
   controls and a recent affected-traces table. The chart compares the signal's
   traces with the distinct traces its detector checked.
 - Detector page: one runs table; its findings are the Identified = Yes filter,
-  kept in the URL. Signal ID links a hit to its signal. Agent Run ID opens the
-  agent trace of the RCA that analysed the hit's own judge output (an opening of
+  kept in the URL. Judge Run ID identifies the detector's judge execution and
+  opens its self-trace when available. Signal ID links a hit to its signal.
+  Agent Run ID opens the agent trace of the RCA that analysed the hit's own judge output (an opening of
   one of its detector's signals records the hit's trace); a hit that only joined
   a signal analysed on another trace shows a dash, a later RCA does not move an
   earlier hit's link, and a hit moved by hand keeps its own. RCA runs per signal, so the per-finding Finding ID and
@@ -69,6 +70,7 @@ It references #2399 and #2404 without closing the full UX issue.
 | --- | --- |
 | Detector-local Signals tab | A project-level Signals list with a detector filter. |
 | Detector list count columns | Judge Runs, Signals and Agent Runs replace Findings, Runs and Signals. Agent Runs counts actual RCA executions, deduplicated per detector, rather than positive judge outputs. |
+| Detector run ID label | Judge Run ID replaces Run ID to distinguish the judge execution from Agent Run ID; the ID value and link behavior stay the same. |
 | Detection-time window counts | Window counts and charts use trace start time, matching Tracing. Reopen eligibility uses trace start time when available, falling back to detection time; lifecycle counters and digests use detection time. |
 | No separate trace-time snapshot | A nullable indexed signal-hit trace start is necessary for Postgres membership counts; the writer and all window readers consume it. |
 | Historical hits already exist | Unknown trace times do not enter window counts. A project-scoped repair script reads retained trace rows without inventing times. |

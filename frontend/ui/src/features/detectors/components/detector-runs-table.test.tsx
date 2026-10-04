@@ -45,7 +45,7 @@ describe("DetectorRunsTable", () => {
     );
     for (const header of [
       "Timestamp",
-      "Run ID",
+      "Judge Run ID",
       "Trace ID",
       "Signal ID",
       "Agent Run ID",
@@ -134,7 +134,7 @@ describe("DetectorRunsTable", () => {
     expect(onRunClick).toHaveBeenCalledTimes(1);
   });
 
-  it("row click does nothing even when the run is self_traced — the Run ID link is the way in", () => {
+  it("row click does nothing even when the run is self_traced — the Judge Run ID link is the way in", () => {
     const onRunClick = vi.fn();
     const onTraceClick = vi.fn();
     const selfRun: BackendRun = {
