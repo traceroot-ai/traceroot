@@ -21,15 +21,15 @@ const item = (over: Partial<DigestItem> = {}): DigestItem => ({
   detectorName: "Failure",
   kind: "new",
   hitCount: 3,
-  rca: { state: "done", rootCause: "the tool error is returned as data" },
+  summary: "The tool error is <returned> as data.",
   ...over,
 });
 
 describe("signal digest rendering", () => {
   const items = [
     item(),
-    item({ signalId: "sig2", kind: "reopened", rca: { state: "failed", rootCause: null } }),
-    item({ signalId: "sig3", hitCount: 12, rca: { state: "running", rootCause: null } }),
+    item({ signalId: "sig2", kind: "reopened" }),
+    item({ signalId: "sig3", hitCount: 12, summary: "  " }),
   ];
 
   it("summarises the counts per kind", () => {
@@ -42,7 +42,7 @@ describe("signal digest rendering", () => {
     );
   });
 
-  it("builds Slack sections per kind with escaped titles and the RCA line", () => {
+  it("builds Slack sections per kind with escaped titles and the summary, never RCA", () => {
     const blocks = buildSignalDigestBlocks({ projectId: "p1", projectName: "Shop", items }) as {
       type: string;
       text?: { text: string };
@@ -54,11 +54,12 @@ describe("signal digest rendering", () => {
     const first = texts.find((t) => t.includes("sig1"))!;
     expect(first).toContain("Timeout &lt;swallowed&gt;");
     expect(first).toContain("· Failure · 3 hits");
-    expect(first).toContain(">Root cause: the tool error is returned as data");
-    expect(texts.find((t) => t.includes("sig2"))).toContain(">RCA failed");
-    // An RCA still running does not hold the signal back; it is announced as is.
+    expect(first).toContain(">The tool error is &lt;returned&gt; as data.");
+    expect(texts.find((t) => t.includes("sig2"))).toContain(">The tool error");
+    // A signal without a summary gets no empty quote line.
     expect(texts.find((t) => t.includes("sig3"))).toContain("· 12 hits");
-    expect(texts.find((t) => t.includes("sig3"))).toContain(">RCA still running");
+    expect(texts.find((t) => t.includes("sig3"))).not.toContain("\n>");
+    expect(texts.some((t) => /RCA|Root cause/.test(t))).toBe(false);
   });
 
   it("stays under Slack's block limit and says how many were left out", () => {
@@ -85,11 +86,29 @@ describe("signal digest rendering", () => {
     expect(email.html).not.toContain("signalId=o15");
   });
 
+  it("bounds a long summary in Slack and email", () => {
+    const long = item({ summary: "x".repeat(1000) });
+    const blocks = buildSignalDigestBlocks({
+      projectId: "p",
+      projectName: "P",
+      items: [long],
+    }) as { text?: { text: string } }[];
+    const line = blocks.map((b) => b.text?.text ?? "").find((t) => t.includes("sig1"))!;
+    expect(line.length).toBeLessThan(600);
+    const email = buildSignalDigestEmail({ projectId: "p", projectName: "P", items: [long] });
+    expect(email.text).toContain(`  ${"x".repeat(299)}…`);
+    expect(email.text).not.toContain("x".repeat(300));
+  });
+
   it("builds the email with the same content, escaped", () => {
     const email = buildSignalDigestEmail({ projectId: "p1", projectName: "Shop <x>", items });
     expect(email.subject).toBe("[TraceRoot] Signals in Shop <x>: 2 new, 1 reopened");
     expect(email.text).toContain("New:\n- Timeout <swallowed> · Failure · 3 hits");
-    expect(email.text).toContain("  Root cause: the tool error is returned as data");
+    expect(email.text).toContain(
+      "New:\n- Timeout <swallowed> · Failure · 3 hits\n  The tool error is <returned> as data.",
+    );
+    expect(email.html).toContain("The tool error is &lt;returned&gt; as data.");
+    expect(`${email.text}${email.html}`).not.toMatch(/RCA|Root cause/);
     expect(email.html).toContain("Timeout &lt;swallowed&gt;");
     expect(email.html).not.toContain("<swallowed>");
     expect(email.html).toContain('button="http://localhost:3000/projects/p1/signals"');
