@@ -47,6 +47,23 @@ traceroot traces get <trace-id>
 traceroot traces export <trace-id> --output ./my-trace
 ```
 
+## Read evaluations
+
+The CLI also reads your offline [evaluations](/evals/introduction) — the datasets you run against and the runs that scored them, so a run id no longer has to come from the web app.
+
+```bash
+# Which evaluations exist, and how each one's latest run ended
+traceroot evals list
+
+# One evaluation's runs, newest first — the RUN ID column is what you read next
+traceroot evals runs list --evaluation-id <evaluation-id>
+
+# One run: its counts, per-scorer means, and per-case cost and duration
+traceroot evals runs get <run-id>
+```
+
+See [From the terminal](/evals/cli) for what each read shows, and for the dataset commands.
+
 ## Command reference
 
 Add `--json` to any command for machine-readable output, or run `traceroot <command> --help` for the full flag list.
@@ -58,12 +75,22 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 | `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
 | `traces get <id>` | Show one trace: header, span tree, duration, and I/O preview. `--json` emits the full trace. |
 | `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index to a directory. Flags: `--output <dir>`, `--force`. |
+| `datasets list` | List the project's evaluation datasets, newest first. Flags: `--limit <n>`, `--name <substring>`. |
+| `datasets get <dataset-id>` | Show one dataset and the version its cases are read from. |
+| `datasets versions list <dataset-id>` | List a dataset's published versions with their case counts. Flag: `--limit <n>`. |
+| `datasets versions get <version-id>` | Show one version and a page of its cases. Flag: `--limit <n>` — 200 by default, up to 1000. |
+| `evals list` | List evaluations with their run count and latest run. Flags: `--limit <n>`, `--name <substring>`. |
+| `evals runs list` | List evaluation runs, newest first. Flags: `--limit <n>`, `--evaluation-id <id>`, `--status <status>`. |
+| `evals runs get <run-id>` | Show one run: counts, per-scorer means, per-case cost and duration, and its URL. |
 
 ## What's next
 
 <CardGroup cols={2}>
   <Card title="Tracing" icon="route" href="/tracing/get-started">
     Instrument your app so traces show up for the CLI to read.
+  </Card>
+  <Card title="Evaluations from the Terminal" icon="terminal" href="/evals/cli">
+    Read datasets, evaluations, and past runs.
   </Card>
   <Card title="TraceRoot Cloud" icon="cloud" href="https://app.traceroot.ai">
     Create API keys and open traces in the web app.
