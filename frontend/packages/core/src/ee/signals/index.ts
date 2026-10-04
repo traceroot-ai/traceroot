@@ -17,6 +17,7 @@ export {
   detectorSignalSettings,
   signalSetup,
   signalCountsByDetector,
+  agentRunCountsByDetector,
   signalsKeyConfigured,
 } from "./reads.ts";
 export {

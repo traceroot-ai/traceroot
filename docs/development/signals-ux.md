@@ -23,10 +23,15 @@ It references #2399 and #2404 without closing the full UX issue.
   a signal analysed on another trace shows a dash, a later RCA does not move an
   earlier hit's link, and a hit moved by hand keeps its own. RCA runs per signal, so the per-finding Finding ID and
   Agent analysis columns are gone.
-- Detector list: a Signals column counts each detector's signals (merged ones
-  left out, any status and time range, as the Signals page lists them). Its
-  Findings, Runs and Signals counts link to the detector's runs filtered to
-  Identified = Yes, its runs, and the Signals page narrowed to the detector.
+- Detector list: Judge Runs, Signals and Agent Runs, in that order. Judge Runs
+  counts all judge executions and links to the detector's runs in the selected
+  range. Signals counts the detector's signals (merged ones left out, any status
+  and time range) and links to the Signals page narrowed to the detector. Agent
+  Runs counts RCA executions started in the selected range, including failed
+  attempts and retries; a shared execution counts once per covered detector.
+  Executions without an agent session, such as quota skips, do not count, and
+  a signal opening created later does not add earlier runs to its detector.
+  Its count has no link because the judge table does not list every RCA attempt.
 - Resolve and dismiss require a reason; Other requires a note. Status writes
   include the status shown when the user acted (for resolve and dismiss, when
   the dialog opened), so a change made meanwhile is refused.
@@ -63,6 +68,7 @@ It references #2399 and #2404 without closing the full UX issue.
 | Original scope or contract | Implemented behavior and reason |
 | --- | --- |
 | Detector-local Signals tab | A project-level Signals list with a detector filter. |
+| Detector list count columns | Judge Runs, Signals and Agent Runs replace Findings, Runs and Signals. Agent Runs counts actual RCA executions, deduplicated per detector, rather than positive judge outputs. |
 | Detection-time window counts | Window counts and charts use trace start time, matching Tracing. Reopen eligibility uses trace start time when available, falling back to detection time; lifecycle counters and digests use detection time. |
 | No separate trace-time snapshot | A nullable indexed signal-hit trace start is necessary for Postgres membership counts; the writer and all window readers consume it. |
 | Historical hits already exist | Unknown trace times do not enter window counts. A project-scoped repair script reads retained trace rows without inventing times. |

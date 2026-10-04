@@ -97,7 +97,7 @@ const defaultDetectorList = {
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
   useDetectorList: (...args: unknown[]) => mocks.useDetectorList(...args),
   useDetectorCounts: () => ({
-    data: { "det-1": { finding_count: 4, run_count: 9 } },
+    data: { "det-1": { finding_count: 4, run_count: 9, agent_run_count: 3 } },
     isLoading: false,
   }),
   useDeleteDetector: () => ({ mutate: vi.fn(), isPending: false }),
@@ -202,18 +202,22 @@ describe("DetectorsPage", () => {
       );
       return { path: url.pathname, params: Object.fromEntries(url.searchParams) };
     };
-    expect(screen.getByRole("link", { name: "View findings for My Detector" }).textContent).toBe(
-      "4",
+    expect(
+      screen
+        .getAllByRole("columnheader")
+        .slice(4, 7)
+        .map((c) => c.textContent),
+    ).toEqual(["Judge Runs", "Signals", "Agent Runs"]);
+    const row = screen.getByText("My Detector").closest("tr")!;
+    expect(
+      Array.from(row.cells)
+        .slice(4, 7)
+        .map((c) => c.textContent),
+    ).toEqual(["9", "2", "3"]);
+    expect(screen.getByRole("link", { name: "View judge runs for My Detector" }).textContent).toBe(
+      "9",
     );
-    expect(href("View findings for My Detector")).toEqual({
-      path: "/projects/proj-1/detectors/det-1",
-      params: {
-        date_filter: "7d",
-        filters: JSON.stringify([{ field: "identified", op: "in", value: ["Yes"] }]),
-      },
-    });
-    expect(screen.getByRole("link", { name: "View runs for My Detector" }).textContent).toBe("9");
-    expect(href("View runs for My Detector")).toEqual({
+    expect(href("View judge runs for My Detector")).toEqual({
       path: "/projects/proj-1/detectors/det-1",
       params: { date_filter: "7d" },
     });
@@ -233,7 +237,7 @@ describe("DetectorsPage", () => {
     );
 
     // Following a count does not also run the row's own navigation.
-    fireEvent.click(screen.getByRole("link", { name: "View findings for My Detector" }));
+    fireEvent.click(screen.getByRole("link", { name: "View judge runs for My Detector" }));
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
@@ -243,7 +247,7 @@ describe("DetectorsPage", () => {
 
     expect(screen.queryByRole("link", { name: "View signals for My Detector" })).toBeNull();
     // The other counts loaded, so they still link.
-    expect(screen.getByRole("link", { name: "View runs for My Detector" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "View judge runs for My Detector" })).toBeTruthy();
   });
 
   it("shows the empty state with its glyph when the project has no detectors", () => {

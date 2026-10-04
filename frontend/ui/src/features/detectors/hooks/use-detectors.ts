@@ -192,6 +192,7 @@ export function useDetector(projectId: string, detectorId: string) {
 interface DetectorCountsItem {
   finding_count: number;
   run_count: number;
+  agent_run_count: number;
 }
 
 async function fetchDetectorCounts(
@@ -212,7 +213,7 @@ async function fetchDetectorCounts(
   return body.data;
 }
 
-/** Aggregated finding/run counts per detector for a project + window. */
+/** Aggregated finding, judge-run and agent-run counts for a project + window. */
 export function useDetectorCounts(
   projectId: string,
   opts: { start_after?: string; end_before?: string },

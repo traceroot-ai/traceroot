@@ -560,6 +560,29 @@ export async function signalCountsByDetector(
   return Object.fromEntries(rows.map((r) => [r.detectorId, r._count._all]));
 }
 
+/** RCA executions started in the window, counted once per covered detector. */
+export async function agentRunCountsByDetector(
+  db: Pick<PrismaClient, "$queryRaw">,
+  params: { projectId: string; from: Date; to: Date },
+) {
+  // Several signal openings can share one execution. A session marks an agent
+  // start, so quota skips and failures before session creation do not count.
+  const rows = await db.$queryRaw<{ detectorId: string; count: number }[]>`
+    SELECT s.detector_id AS "detectorId", count(DISTINCT e.id)::int AS count
+    FROM detector_rca_executions e
+    JOIN signal_rcas r ON r.finding_id = e.finding_id
+    JOIN signals s ON s.id = r.signal_id
+    WHERE e.project_id = ${params.projectId}
+      AND s.project_id = ${params.projectId}
+      AND e.session_id IS NOT NULL
+      AND r.create_time <= e.started_at
+      AND e.started_at >= ${params.from}
+      AND e.started_at < ${params.to}
+    GROUP BY s.detector_id
+  `;
+  return Object.fromEntries(rows.map((r) => [r.detectorId, r.count]));
+}
+
 /**
  * What the Signals page shows when it has nothing to list: whether the project
  * has any signals, and how far its detectors are set up to produce them.
