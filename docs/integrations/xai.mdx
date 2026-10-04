@@ -1,0 +1,104 @@
+---
+title: xAI
+description: Trace xAI (Grok) calls through the OpenAI-compatible SDK
+---
+
+xAI is OpenAI-compatible: use the standard `openai` SDK with the xAI base URL (`https://api.x.ai/v1`). TraceRoot captures these calls through the existing OpenAI instrumentation, so no xAI-specific instrumentor or enum is required.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = openai.OpenAI(
+        api_key=os.environ["XAI_API_KEY"],
+        base_url="https://api.x.ai/v1",
+    )
+    ```
+
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: OpenAI },
+    });
+
+    const openai = new OpenAI({
+      apiKey: process.env.XAI_API_KEY,
+      baseURL: 'https://api.x.ai/v1',
+    });
+    ```
+
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+
+    client = openai.OpenAI(
+        api_key=os.environ["XAI_API_KEY"],
+        base_url="https://api.x.ai/v1",
+    )
+
+    # This xAI call is traced by TraceRoot's OpenAI integration
+    response = client.chat.completions.create(
+        model="grok-4.5",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+
+    const openai = new OpenAI({
+      apiKey: process.env.XAI_API_KEY,
+      baseURL: 'https://api.x.ai/v1',
+    });
+
+    // This xAI call is traced by TraceRoot's OpenAI integration
+    const response = await openai.chat.completions.create({
+      model: 'grok-4.5',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'What is the capital of France?' },
+      ],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute  | Description                                                                |
+| ---------- | -------------------------------------------------------------------------- |
+| Model      | Any xAI model string, such as `grok-4.5`, `grok-4.20`, or `grok-4`         |
+| Messages   | Input messages array                                                       |
+| Response   | Completion content                                                         |
+| Tool calls | Function/tool call inputs and outputs when using the OpenAI SDK tool-calling API |
+| Tokens     | Prompt, completion, and total tokens when returned by the provider         |
+| Latency    | Request duration                                                           |
