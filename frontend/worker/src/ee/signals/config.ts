@@ -104,6 +104,16 @@ export function signalsAvailable(): boolean {
   return signalsApiKey() !== null;
 }
 
+/**
+ * TraceRoot's own TypeSafe key. When set, Jev assigns hits and checks new
+ * criteria for every workspace, on our account; without it the chat model does
+ * both. A workspace's own TypeSafe key is not used for signals.
+ */
+export function managedJevKey(): string | null {
+  const key = process.env.TYPESAFE_API_KEY?.trim();
+  return key ? key : null;
+}
+
 /** A reopened signal gets a new RCA only if its last one is at least this old. */
 export const RCA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 

@@ -1,25 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockComplete, mockSystemOne, mockFetchProviderConfig } = vi.hoisted(() => ({
+const { mockComplete, mockSystemOne } = vi.hoisted(() => ({
   mockComplete: vi.fn(),
   mockSystemOne: vi.fn(),
-  mockFetchProviderConfig: vi.fn(),
 }));
 vi.mock("../../../detection/traced-complete.js", () => ({ tracedComplete: mockComplete }));
 vi.mock("../../../detection/typesafe-client.js", async (orig) => ({
   ...(await orig<typeof import("../../../detection/typesafe-client.js")>()),
   callSystemOne: mockSystemOne,
 }));
-vi.mock("@traceroot/core/model-resolver", async (orig) => ({
-  ...(await orig<typeof import("@traceroot/core/model-resolver")>()),
-  fetchProviderConfig: mockFetchProviderConfig,
-}));
 
 import { embedTexts } from "../embedding.js";
 import {
   createChatModels,
   createJevModels,
-  findJevProvider,
   exactAnswers,
   parseAssignAnswer,
   parseSignalText,
@@ -229,8 +223,6 @@ describe("chat models", () => {
 });
 
 describe("Jev models", () => {
-  const config = { adapter: "typesafe", key: "ts-key", baseUrl: null, config: null };
-
   it("asks one Choice question over the candidates and records BYOK usage", async () => {
     mockSystemOne.mockResolvedValueOnce({
       answers: {
@@ -245,7 +237,7 @@ describe("Jev models", () => {
       model: "jev-1.13.0",
     });
     const usage: ModelUsage[] = [];
-    const jev = createJevModels(config, usage);
+    const jev = createJevModels("ts-key", usage);
     const answer = await jev.assign("hit", [
       {
         label: "s1",
@@ -267,7 +259,8 @@ describe("Jev models", () => {
       state: { hit: "hit" },
     });
     expect(Object.keys(call.questions.signal.criteria)).toEqual(["s1", "none"]);
-    expect(usage[0]).toMatchObject({ provider: "typesafe", isByok: true, inputTokens: 50 });
+    // TraceRoot's own key: usage is ours, not the customer's.
+    expect(usage[0]).toMatchObject({ provider: "typesafe", isByok: false, inputTokens: 50 });
   });
 
   it("validates with one yes/no per text at 0.5", async () => {
@@ -276,10 +269,10 @@ describe("Jev models", () => {
       usage: { inputTokens: 5, outputTokens: 2 },
       model: null,
     });
-    const jev = createJevModels({ ...config, baseUrl: "https://ts.example/v1" }, []);
+    const jev = createJevModels("ts-key", []);
     await expect(jev.validate("C", "E", ["a", "b"])).resolves.toEqual([true, false]);
     const call = mockSystemOne.mock.calls[0][0];
-    expect(call.baseUrl).toBe("https://ts.example/v1");
+    expect(call.baseUrl).toBe("https://api.typesafe.ai/v1");
     expect(call.state).toEqual({ criteria: "covers: C\nexcludes: E", hit_0: "a", hit_1: "b" });
   });
 
@@ -288,32 +281,10 @@ describe("Jev models", () => {
       Object.assign(new Error("malformed"), { usage: { inputTokens: 9, outputTokens: 1 } }),
     );
     const usage: ModelUsage[] = [];
-    await expect(createJevModels(config, usage).validate("c", "e", ["a"])).rejects.toThrow(
+    await expect(createJevModels("ts-key", usage).validate("c", "e", ["a"])).rejects.toThrow(
       "malformed",
     );
     expect(usage).toHaveLength(1);
     expect(usage[0].inputTokens).toBe(9);
-  });
-});
-
-describe("findJevProvider", () => {
-  it("returns the first enabled TypeSafe provider that resolves", async () => {
-    const db = {
-      modelProvider: {
-        findMany: vi.fn(async () => [{ provider: "old" }, { provider: "new" }]),
-      },
-    };
-    mockFetchProviderConfig
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ adapter: "typesafe", key: "k" });
-    await expect(findJevProvider(db as never, "ws")).resolves.toMatchObject({ key: "k" });
-    expect(db.modelProvider.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { workspaceId: "ws", enabled: true, adapter: "typesafe" } }),
-    );
-  });
-
-  it("returns null when the workspace has none", async () => {
-    const db = { modelProvider: { findMany: vi.fn(async () => []) } };
-    await expect(findJevProvider(db as never, "ws")).resolves.toBe(null);
   });
 });
