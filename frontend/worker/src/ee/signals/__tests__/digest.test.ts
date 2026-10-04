@@ -32,7 +32,6 @@ import {
   planSignalDigest,
   recordDigest,
   sweepSignalDigests,
-  type OpeningRca,
   type PendingSignal,
 } from "../digest.js";
 
@@ -42,6 +41,7 @@ const MIN = 60_000;
 const sig = (over: Partial<PendingSignal> = {}): PendingSignal => ({
   id: "s1",
   title: "Timeout swallowed",
+  criteriaCovers: "A tool timeout is reported to the user as a success.",
   detectorId: "d1",
   status: "open",
   hitCount: 3,
@@ -53,20 +53,8 @@ const sig = (over: Partial<PendingSignal> = {}): PendingSignal => ({
   ...over,
 });
 const detectors = new Map([["d1", "Failure"]]);
-const plan = (signals: PendingSignal[], rcas: [string, Omit<OpeningRca, "reopenSeq">][] = []) => {
-  const bySignal = new Map<string, OpeningRca[]>();
-  for (const [key, rca] of rcas) {
-    const [signalId, seq] = key.split(":");
-    bySignal.set(signalId, [...(bySignal.get(signalId) ?? []), { ...rca, reopenSeq: Number(seq) }]);
-  }
-  return planSignalDigest({ signals, groupingDetectors: detectors, rcas: bySignal });
-};
-/** An opening's RCA: the latest attempt's status, and the answer kept on the opening. */
-const rca = (status: string, rootCause?: string | null): Omit<OpeningRca, "reopenSeq"> => ({
-  status,
-  answered: rootCause !== undefined,
-  rootCause: rootCause ?? null,
-});
+const plan = (signals: PendingSignal[]) =>
+  planSignalDigest({ signals, groupingDetectors: detectors });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -79,74 +67,31 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("planSignalDigest", () => {
-  it("announces a new signal with the root cause its RCA kept", () => {
-    const p = plan([sig()], [["s1:0", rca("done", "swallowed timeout")]]);
+  it("announces a new signal with its summary, not anything about its RCA", () => {
+    const p = plan([sig()]);
     expect(p.items).toEqual([
-      expect.objectContaining({
+      {
         kind: "new",
         signalId: "s1",
+        title: "Timeout swallowed",
+        detectorId: "d1",
         detectorName: "Failure",
         hitCount: 3,
-        rca: { state: "done", rootCause: "swallowed timeout" },
-      }),
+        summary: "A tool timeout is reported to the user as a success.",
+      },
     ]);
     expect(p.consumed).toEqual([
       { id: "s1", reopenSeq: 0, hitCount: 3, runIds: ["r1", "r2", "r3"], sent: true },
     ]);
   });
 
-  it("announces a new signal without waiting for its RCA, saying it is still running", () => {
-    for (const status of ["pending", "running"]) {
-      const p = plan([sig()], [["s1:0", rca(status)]]);
-      expect(p.items[0]).toMatchObject({ kind: "new", rca: { state: "running", rootCause: null } });
-      expect(p.consumed.map((c) => c.sent)).toEqual([true]);
-    }
-  });
-
-  it("announces at once when no RCA was due (RCA off, or within the cooldown)", () => {
-    expect(plan([sig()]).items[0]).toMatchObject({ kind: "new", rca: null });
-  });
-
-  it("keeps an earlier answer when a later attempt on the shared finding fails or is pending", () => {
-    // The opening kept its answer; the finding's latest attempt failed since.
-    const p = plan([sig()], [["s1:0", { status: "failed", answered: true, rootCause: "kept" }]]);
-    expect(p.items[0].rca).toEqual({ state: "done", rootCause: "kept" });
-  });
-
-  it("announces a reopening with the newest opening's RCA since the last announcement", () => {
-    const s = sig({ reopenSeq: 2, notifiedReopenSeq: 0, notifiedHitCount: 3, hitCount: 5 });
-    expect(plan([s], [["s1:1", rca("running")]]).items[0]).toMatchObject({
-      kind: "reopened",
-      rca: { state: "running" },
-    });
-    expect(plan([s], [["s1:1", rca("done", "late")]]).items[0]).toMatchObject({
-      kind: "reopened",
-      rca: { state: "done", rootCause: "late" },
-    });
-    // An RCA from an opening already announced is not this announcement's.
-    expect(plan([s], [["s1:0", rca("running")]]).items[0]).toMatchObject({
-      kind: "reopened",
-      rca: null,
-    });
-  });
-
-  it("reuses the kept canonical answer for a reopening inside the cooldown", () => {
-    const p = plan(
-      [sig({ reopenSeq: 1, notifiedReopenSeq: 0, notifiedHitCount: 2 })],
-      [["s1:0", rca("done", "original cause")]],
-    );
+  it("labels a reopening, with its summary", () => {
+    const p = plan([sig({ reopenSeq: 2, notifiedReopenSeq: 1, notifiedHitCount: 3, hitCount: 4 })]);
     expect(p.items[0]).toMatchObject({
       kind: "reopened",
-      rca: { state: "done", rootCause: "original cause" },
+      hitCount: 4,
+      summary: "A tool timeout is reported to the user as a success.",
     });
-  });
-
-  it("labels a reopening, and reports a failed RCA", () => {
-    const p = plan(
-      [sig({ reopenSeq: 2, notifiedReopenSeq: 1, notifiedHitCount: 3, hitCount: 4 })],
-      [["s1:2", rca("failed")]],
-    );
-    expect(p.items[0]).toMatchObject({ kind: "reopened", hitCount: 4, rca: { state: "failed" } });
   });
 
   it("counts more hits on an announced signal silently", () => {
@@ -221,17 +166,6 @@ function fakeDb(signals: PendingSignal[]) {
         { id: "d2", name: "Logic", enableSignals: false },
       ]),
     },
-    signalRca: {
-      findMany: vi.fn(async () => [
-        {
-          signalId: "s1",
-          reopenSeq: 0,
-          result: "### 1. Failure\n- Root cause: swallowed",
-          rootCause: "swallowed",
-          rca: { status: "failed" },
-        },
-      ]),
-    },
     signal: {
       findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
         signals
@@ -248,15 +182,14 @@ function fakeDb(signals: PendingSignal[]) {
 }
 
 describe("loadDigestInput", () => {
-  it("reads unreported signals, grouping detectors, and each opening's kept answer", async () => {
+  it("reads unreported signals with their summaries, and the grouping detectors", async () => {
+    // No RCA table in the fake: the digest must not read RCAs at all.
     const { db, queries } = fakeDb([sig(), sig({ id: "s2", detectorId: "d2" })]);
     const input = await loadDigestInput(db as never, "p1");
     expect(queries[0]).toContain("notified_reopen_seq IS DISTINCT FROM reopen_seq");
+    expect(queries[0]).toContain('criteria_covers AS "criteriaCovers"');
     expect([...input.groupingDetectors]).toEqual([["d1", "Failure"]]);
-    // The kept answer outlives a later failed attempt on the shared finding.
-    expect(input.rcas.get("s1")).toEqual([
-      { reopenSeq: 0, status: "failed", answered: true, rootCause: "swallowed" },
-    ]);
+    expect(Object.keys(input)).toEqual(["signals", "groupingDetectors"]);
   });
 
   it("treats every detector as not grouping without the signals key", async () => {

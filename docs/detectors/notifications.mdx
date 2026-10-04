@@ -7,7 +7,7 @@ Detector notifications announce **signals**: the recurring problems that a detec
 
 Announcements are batched into **windowed digests**: TraceRoot sends one digest per project for each configured window to every configured channel. The default window is **10 minutes**; the available windows are **1 minute, 5 minutes, 10 minutes, 30 minutes, 1 hour, and 2 hours**.
 
-The digest does not wait for root cause analysis. If the analysis has already finished, the digest shows its root cause; otherwise it says the analysis is still running or failed. The full analysis is read in TraceRoot.
+The digest does not wait for, or report on, root cause analysis: it reads the same whether the analysis is off, running, finished or failed. The analysis is read on the signal in TraceRoot.
 
 ## Configure notifications
 
@@ -26,8 +26,8 @@ The **Run root cause analysis on findings** toggle does not affect notifications
 Email and Slack receive the same digest content, in a **New** and a **Reopened** section. For each signal:
 
 - Its title, linked to the signal on the **Signals** page.
+- A short summary: what the signal covers, as its page shows it.
 - The detector's name and the signal's number of hits.
-- When the detector runs RCA, the root cause if the analysis has finished, or whether it is still running or failed.
 
 A digest lists at most 45 signals and counts the rest. The email also links to the Signals page.
 
