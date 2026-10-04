@@ -103,8 +103,9 @@ export interface BackendRun {
    */
   signal_id?: string | null;
   /**
-   * The agent trace of the RCA that signal's page shows, enriched by the runs
-   * proxy; null when the signal has no successful RCA or its trace did not land.
+   * The agent trace of the RCA that analysed this run's own judge output,
+   * enriched by the runs proxy; null when the run only joined a signal analysed
+   * on another trace, or no attempt's trace has landed yet.
    */
   agent_trace_id?: string | null;
   /**

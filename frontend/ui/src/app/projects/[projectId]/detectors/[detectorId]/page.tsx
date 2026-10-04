@@ -23,8 +23,8 @@ import type { Predicate } from "@/types/api";
  * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
  * "original" (the run's source trace) opens its RCA when one exists; "self"
  * (the detector run's own self-trace) opens quietly, with no RCA auto-open;
- * "agent" (the agent trace of the RCA the run's signal shows, opened from the
- * Agent Run ID cell) also opens quietly.
+ * "agent" (the agent trace of the RCA that analysed the run's trace, opened
+ * from the Agent Run ID cell) also opens quietly.
  */
 type SelectedTrace = {
   traceId: string;
@@ -118,7 +118,7 @@ export default function DetectorDetailPage() {
   const openSelfTrace = (run: BackendRun) =>
     setSelectedTrace({ traceId: selfTraceId(run), kind: "self" });
 
-  // Clicking a run's Agent Run ID cell opens the agent trace of its signal's RCA.
+  // Clicking a run's Agent Run ID cell opens the agent trace of the RCA of its trace.
   const openAgentTrace = (run: BackendRun) => {
     if (run.agent_trace_id) setSelectedTrace({ traceId: run.agent_trace_id, kind: "agent" });
   };

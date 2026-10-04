@@ -37,12 +37,12 @@ The pipeline for each incoming trace:
 3. **Sample.** Each matching detector applies its sample rate; new detectors default to 25%.
 4. **Evaluate.** The LLM-as-a-judge (Claude Haiku by default) reads the sampled trace and returns `identified` plus a short summary.
 5. **Diagnose.** When `identified` is true, the trace becomes a **finding** and joins a signal. When you run the analysis from the signal, or automatically when the finding starts a new signal (or reopens a resolved one) and its detector's root cause analysis is **Automatic**, the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis.
-6. **Notify.** At the end of the configured window, TraceRoot sends one digest to each configured email and Slack channel announcing new and reopened signals. Further findings on an open signal send nothing. The digest does not wait for RCA; it shows the root cause only if the analysis has already finished.
+6. **Notify.** At the end of the configured window, TraceRoot sends one digest to each configured email and Slack channel announcing new and reopened signals. Further findings on an open signal send nothing. Each signal shows its title, a short summary, its detector and hit count, and a link; root cause analysis results stay on the signal page, so the digest never waits for them.
 
 
 ## View findings
 
-Open the detector to see its runs; from the detector list, its **Findings** count opens just the runs that identified a problem. Every run links back to the trace it checked, and a run that reached a verdict shows whether the detector identified a problem. Clicking the trace opens the trace viewer, with the AI agent's RCA session in the chat panel when that trace was analysed. A finding also links to the signal it joined (**Signal ID**) and, once that signal's root cause analysis has recorded an agent trace, to that trace (**Agent Run ID**).
+Open the detector to see its runs; from the detector list, its **Findings** count opens just the runs that identified a problem. Every run links back to the trace it checked, and a run that reached a verdict shows whether the detector identified a problem. Clicking the trace opens the trace viewer, with the AI agent's RCA session in the chat panel when that trace was analysed. A finding also links to the signal it joined (**Signal ID**). When the signal's root cause analysis ran on that finding's own trace, the row also links to the agent's trace of it (**Agent Run ID**); a finding that only joined an already analysed signal shows a dash, and its signal holds the analysis.
 
 <Frame>
   <img src="/images/detector_findings_v1.png" alt="Detector findings table with the detail panel open" />

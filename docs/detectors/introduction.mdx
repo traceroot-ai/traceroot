@@ -33,7 +33,7 @@ A detector has seven configurable parts:
 - **A Generate signals toggle** — whether this detector's findings are grouped into signals (on by default). Turning it on groups findings from then on, not earlier ones.
 - **A root cause analysis setting** — Manual (the default for a detector created in the web app; one created through the API defaults to Automatic) runs the AI agent when you ask from a signal; Automatic runs it when a signal is created or reopened.
 
-When `identified` is true, the detector emits a **finding**, which joins a signal; the AI agent investigates the signal when you ask, or by itself if the detector's root cause analysis is Automatic. New and reopened signals are announced in the next notification digest, with the root cause if the analysis has already finished.
+When `identified` is true, the detector emits a **finding**, which joins a signal; the AI agent investigates the signal when you ask, or by itself if the detector's root cause analysis is Automatic. New and reopened signals are announced in the next notification digest, with a short summary of each; the analysis itself is read on the signal.
 
 Sampling is deterministic for each trace and detector. Sending the same trace again does not change whether it is sampled. Set the rate to **100%** to evaluate every matching trace, or to **0%** to pause the detector.
 

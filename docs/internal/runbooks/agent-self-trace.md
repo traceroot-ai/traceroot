@@ -28,7 +28,7 @@ on by default and controlled per kind.
 4. Confirm after the first RCA:
    `select attempt, trace_status, count(*) from detector_rca_executions
     where started_at > now() - interval '1 hour' group by 1,2` shows `available` and no
-   `failed`; the signal's Agent Run ID is clickable in the detector runs table.
+   `failed`; the analysed run's Agent Run ID is clickable in the detector runs table.
    `available` is optimistic: it means the turn's flush resolved. Flushes are serialised
    per process so an export rejection lands on the turn whose spans were in flight, but
    the exporter is process-wide, so a batch holding a turn's spans can still fail after
