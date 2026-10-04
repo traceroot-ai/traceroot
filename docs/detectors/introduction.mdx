@@ -32,7 +32,7 @@ A detector has six configurable parts:
 - **A detection model** — the system or BYOK model that evaluates the trace.
 - **An RCA toggle** — whether the AI agent investigates this detector's signals (on by default).
 
-When `identified` is true, the detector emits a **finding**, which joins a signal; the AI agent investigates new signals when RCA is enabled. New and reopened signals are announced in the next notification digest, with the root cause if the analysis has already finished.
+When `identified` is true, the detector emits a **finding**, which joins a signal; the AI agent investigates new signals when RCA is enabled. New and reopened signals are announced in the next notification digest, with a short summary of each; the analysis itself is read on the signal.
 
 Sampling is deterministic for each trace and detector. Sending the same trace again does not change whether it is sampled. Set the rate to **100%** to evaluate every matching trace, or to **0%** to pause the detector.
 
