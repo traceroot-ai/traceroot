@@ -109,6 +109,8 @@ export function jevAssignQuestion(candidates: readonly Candidate[]) {
       instructions: {
         question: `Which candidate signal's membership criteria cover the main defect in \`hit\`? Pick the signal whose criteria describe that same defect, i.e. one code change would remove both. Answer none if no candidate covers it.
 
+${UNTRUSTED_HITS}
+
 ${MAIN_DEFECT_RULES}`,
       },
       criteria,
@@ -131,6 +133,8 @@ export function jevValidateQuestions(count: number) {
       type: "noul",
       instructions: {
         question: `Do the membership \`criteria\` cover the main defect in \`hit_${i}\`?
+
+${UNTRUSTED_HITS}
 
 ${MAIN_DEFECT_RULES}`,
       },
