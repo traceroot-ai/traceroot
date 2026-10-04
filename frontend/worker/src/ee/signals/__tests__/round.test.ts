@@ -153,7 +153,7 @@ function deps(
     backend,
     failures,
     embed,
-    models: async (_ws, usage) => chatModels(usage),
+    models: async (usage) => chatModels(usage),
     now,
   };
 }
@@ -255,7 +255,7 @@ describe("runAssignmentRound", () => {
 
   it("rewrites the copy of a hit already recorded in Postgres without asking a model", async () => {
     const { backend, written } = fakeBackend([row(1)]);
-    const models = vi.fn(async (_ws: string, usage: ModelUsage[]) => chatModels(usage));
+    const models = vi.fn(async (usage: ModelUsage[]) => chatModels(usage));
     const stats = await runAssignmentRound(
       { ...deps(fakeDb({ recorded: ["run1"] }).db, backend), models },
       "p",
@@ -416,7 +416,7 @@ describe("runAssignmentRound", () => {
     const { db, aiRows } = fakeDb();
     const failing: RoundDeps = {
       ...deps(db, backend),
-      models: async (_ws, usage) => {
+      models: async (usage) => {
         const m = chatModels(usage);
         m.chat.assign = async () => {
           usage.push({
