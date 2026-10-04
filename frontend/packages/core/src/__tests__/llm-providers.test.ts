@@ -9,7 +9,6 @@ import {
   defaultApiProtocol,
   isDecisionModelId,
   ADAPTER_CONFIG,
-  PROVIDER_PRIORITY,
 } from "../llm-providers.ts";
 
 describe("defaultApiProtocol", () => {
@@ -295,7 +294,7 @@ describe("docs stay in sync with ADAPTER_MODELS (BYOK model catalog)", () => {
 
       const adapterKey = adapterEntry![0] as LLMAdapter;
       const codeModels = ADAPTER_MODELS[adapterKey] || [];
-      const codeIds = new Set(codeModels.map((m: any) => m.id));
+      const codeIds = new Set(codeModels.map((m) => m.id));
 
       for (const docId of row!.ids) {
         expect(
