@@ -3,7 +3,7 @@ title: Read-only SQL
 description: Query your project's spans and traces from the CLI or public API
 ---
 
-TraceRoot's SQL gateway runs analytical queries against your project's trace data. It is read-only and project-scoped: the authenticated credential selects the project, and the request cannot select or override a project ID.
+TraceRoot's SQL gateway runs analytical queries against your project's trace data. It is read-only and project-scoped: the project is resolved during authentication, and SQL text and parameters cannot override it.
 
 You can query the gateway with the [TraceRoot CLI](/cli/get-started) or with the public API.
 
@@ -75,7 +75,7 @@ ORDER BY total_cost DESC
 
 ## Query with the API
 
-Send a project API key as a bearer token to `POST /api/v1/public/sql`:
+Send a project API key as a bearer token to `POST /api/v1/public/sql`. A user session token also works with the `project_id` query parameter, which is how browser-login users run `traceroot sql --project <id>` without a project API key:
 
 ```bash
 curl --request POST "$TRACEROOT_HOST_URL/api/v1/public/sql" \
