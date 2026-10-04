@@ -40,11 +40,13 @@ Runs the entire stack in containers using Docker Compose — no need to install 
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
-cp .env.example .env
+test -f .env || cp .env.example .env
 # In .env, uncomment SQL_GATEWAY_BOOTSTRAP_PASSWORD and replace its value
 # with a unique, strong secret before starting the stack.
-make prod
+make prod-lite
 ```
+
+Use `make prod` instead if you want the tmux log viewer; it requires uv and tmux locally and the same bootstrap-password configuration.
 
 See the [README](https://github.com/traceroot-ai/traceroot/blob/main/README.md) for details.
 
