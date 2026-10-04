@@ -62,8 +62,8 @@ function EmptyIdCell() {
  * Each id cell opens its own id: Run ID the run's self-trace, Trace ID the
  * scanned customer trace, Signal ID the signal the hit joined (on the Signals
  * page), Agent Run ID the agent trace of the RCA that analysed this run's own
- * trace for its signal; a run that only joined a signal analysed on another
- * trace shows a dash. Historical or failed-emit runs have no self-trace, so
+ * judge output; a run that only joined a signal analysed on another trace
+ * shows a dash. Historical or failed-emit runs have no self-trace, so
  * their run_id stays plain text.
  */
 export function DetectorRunsTable({

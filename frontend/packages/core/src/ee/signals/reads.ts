@@ -442,11 +442,12 @@ export async function signalsForTrace(
 
 /**
  * The signal each of these runs' hits belongs to, for a detector's runs table,
- * with the agent trace of the RCA that analysed this run's own trace for that
- * signal: the opening it covered records the trace's finding. A run that only
- * joined a signal analysed on another trace has none, and a later RCA does not
- * change an earlier run's. The trace shown is the attempt whose answer the
- * opening kept, else the newest attempt whose trace landed.
+ * with the agent trace of the RCA that analysed this run's own judge output:
+ * an opening of one of its detector's signals that records the run's trace
+ * (finding). A run that only joined a signal analysed on another trace has
+ * none, a later RCA does not change an earlier run's, and a hit moved to
+ * another signal keeps its own, as the RCA record does. The trace shown is the
+ * attempt whose answer the opening kept, else the newest attempt that landed.
  */
 export async function signalsForRuns(
   db: Pick<PrismaClient, "signalHit" | "signalRca" | "detectorRcaExecution">,
@@ -455,24 +456,43 @@ export async function signalsForRuns(
   if (params.runIds.length === 0) return [];
   const hits = await db.signalHit.findMany({
     where: { projectId: params.projectId, runId: { in: [...params.runIds] } },
-    select: { runId: true, signalId: true, findingId: true },
+    select: { runId: true, signalId: true, detectorId: true, findingId: true },
   });
   if (hits.length === 0) return [];
-  // The openings an RCA of one of these runs' own traces covered.
+  // The openings an RCA of one of these runs' own traces covered, for its detector.
   const openings = await db.signalRca.findMany({
     where: {
-      signalId: { in: [...new Set(hits.map((h) => h.signalId))] },
       findingId: { in: [...new Set(hits.map((h) => h.findingId))] },
+      signal: {
+        projectId: params.projectId,
+        detectorId: { in: [...new Set(hits.map((h) => h.detectorId))] },
+      },
     },
-    select: { signalId: true, findingId: true, reopenSeq: true, sessionId: true },
+    select: {
+      signalId: true,
+      findingId: true,
+      reopenSeq: true,
+      sessionId: true,
+      signal: { select: { detectorId: true } },
+    },
   });
-  const opening = new Map<string, (typeof openings)[number]>();
+  const byOutput = new Map<string, typeof openings>();
   for (const o of openings) {
-    const key = `${o.signalId}:${o.findingId}`;
-    const seen = opening.get(key);
-    if (!seen || o.reopenSeq > seen.reopenSeq) opening.set(key, o);
+    const key = `${o.signal.detectorId}:${o.findingId}`;
+    byOutput.set(key, [...(byOutput.get(key) ?? []), o]);
   }
-  const findingIds = [...new Set([...opening.values()].map((o) => o.findingId))];
+  // A run's own opening: the one under its current signal if there is one (it
+  // has not moved), else the one it carried from before a move; a kept answer,
+  // then the newest opening, first.
+  const openingOf = (h: (typeof hits)[number]) =>
+    [...(byOutput.get(`${h.detectorId}:${h.findingId}`) ?? [])].sort(
+      (a, b) =>
+        Number(b.signalId === h.signalId) - Number(a.signalId === h.signalId) ||
+        Number(!!b.sessionId) - Number(!!a.sessionId) ||
+        b.reopenSeq - a.reopenSeq,
+    )[0];
+  const own = new Map(hits.map((h) => [h.runId, openingOf(h)]));
+  const findingIds = [...new Set([...own.values()].flatMap((o) => (o ? [o.findingId] : [])))];
   const executions =
     findingIds.length === 0
       ? []
@@ -492,7 +512,7 @@ export async function signalsForRuns(
     if (!seen || e.attempt > seen.attempt) newest.set(e.findingId, e);
   }
   return hits.map((h) => {
-    const o = opening.get(`${h.signalId}:${h.findingId}`);
+    const o = own.get(h.runId);
     if (!o) return { runId: h.runId, signalId: h.signalId, agentTraceId: null };
     const kept = o.sessionId ? traceBySession.get(o.sessionId) : undefined;
     const agentTraceId = kept ?? newest.get(o.findingId)?.traceId ?? null;

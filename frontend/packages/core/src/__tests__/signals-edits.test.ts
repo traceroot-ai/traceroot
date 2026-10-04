@@ -797,23 +797,44 @@ describe("reads", () => {
     ]);
   });
 
-  it("links a run only to the RCA that analysed its own trace for its signal", async () => {
+  it("links a run only to the RCA that analysed its own judge output", async () => {
     const db = {
       signalHit: {
         findMany: vi.fn(async () => [
-          // r1 opened signal a on trace f1; r2 only joined it on trace f2.
-          { runId: "r1", signalId: "a", findingId: "f1" },
-          { runId: "r2", signalId: "a", findingId: "f2" },
+          // Detector d1: r1 opened signal a on trace f1; r2 only joined it on f2.
+          { runId: "r1", signalId: "a", detectorId: "d1", findingId: "f1" },
+          { runId: "r2", signalId: "a", detectorId: "d1", findingId: "f2" },
           // r3 reopened signal a on trace f3, analysed later.
-          { runId: "r3", signalId: "a", findingId: "f3" },
-          // r4's trace f1 was analysed, but for another signal than r4's.
-          { runId: "r4", signalId: "b", findingId: "f1" },
+          { runId: "r3", signalId: "a", detectorId: "d1", findingId: "f3" },
+          // Detector d2 also fired on trace f1, but no RCA covered d2's output there.
+          { runId: "r4", signalId: "b", detectorId: "d2", findingId: "f1" },
+          // r5 opened a signal on f5 that was analysed, then was moved by hand to c.
+          { runId: "r5", signalId: "c", detectorId: "d1", findingId: "f5" },
         ]),
       },
       signalRca: {
         findMany: vi.fn(async () => [
-          { signalId: "a", findingId: "f1", reopenSeq: 0, sessionId: "s1" },
-          { signalId: "a", findingId: "f3", reopenSeq: 1, sessionId: "s3" },
+          {
+            signalId: "a",
+            findingId: "f1",
+            reopenSeq: 0,
+            sessionId: "s1",
+            signal: { detectorId: "d1" },
+          },
+          {
+            signalId: "a",
+            findingId: "f3",
+            reopenSeq: 1,
+            sessionId: "s3",
+            signal: { detectorId: "d1" },
+          },
+          {
+            signalId: "z",
+            findingId: "f5",
+            reopenSeq: 0,
+            sessionId: "s5",
+            signal: { detectorId: "d1" },
+          },
         ]),
       },
       detectorRcaExecution: {
@@ -822,36 +843,94 @@ describe("reads", () => {
           // A later attempt on f1 whose answer the opening did not keep.
           { findingId: "f1", sessionId: "s1b", traceId: "t1b", attempt: 2 },
           { findingId: "f3", sessionId: "s3", traceId: "t3", attempt: 1 },
+          { findingId: "f5", sessionId: "s5", traceId: "t5", attempt: 1 },
         ]),
       },
     };
     const rows = await signalsForRuns(db as never, {
       projectId: "p",
-      runIds: ["r1", "r2", "r3", "r4", "r5"],
+      runIds: ["r1", "r2", "r3", "r4", "r5", "r6"],
     });
     expect(rows).toEqual([
       { runId: "r1", signalId: "a", agentTraceId: "t1" },
       { runId: "r2", signalId: "a", agentTraceId: null },
       { runId: "r3", signalId: "a", agentTraceId: "t3" },
       { runId: "r4", signalId: "b", agentTraceId: null },
+      { runId: "r5", signalId: "c", agentTraceId: "t5" },
     ]);
     expect(db.signalRca.findMany).toHaveBeenCalledWith({
-      where: { signalId: { in: ["a", "b"] }, findingId: { in: ["f1", "f2", "f3"] } },
-      select: { signalId: true, findingId: true, reopenSeq: true, sessionId: true },
+      where: {
+        findingId: { in: ["f1", "f2", "f3", "f5"] },
+        signal: { projectId: "p", detectorId: { in: ["d1", "d2"] } },
+      },
+      select: {
+        signalId: true,
+        findingId: true,
+        reopenSeq: true,
+        sessionId: true,
+        signal: { select: { detectorId: true } },
+      },
     });
     // Only landed traces of the analysed findings, only in the project.
     expect(db.detectorRcaExecution.findMany).toHaveBeenCalledWith({
-      where: { projectId: "p", findingId: { in: ["f1", "f3"] }, traceStatus: "available" },
+      where: { projectId: "p", findingId: { in: ["f1", "f3", "f5"] }, traceStatus: "available" },
       select: { findingId: true, sessionId: true, traceId: true, attempt: true },
     });
   });
 
-  it("falls back to the newest landed attempt while an opening has no kept answer", async () => {
+  it("prefers the run's current signal's opening, then a kept answer", async () => {
     const db = {
-      signalHit: { findMany: vi.fn(async () => [{ runId: "r1", signalId: "a", findingId: "f1" }]) },
+      signalHit: {
+        findMany: vi.fn(async () => [
+          { runId: "r1", signalId: "a", detectorId: "d1", findingId: "f1" },
+        ]),
+      },
       signalRca: {
         findMany: vi.fn(async () => [
-          { signalId: "a", findingId: "f1", reopenSeq: 0, sessionId: null },
+          {
+            signalId: "old",
+            findingId: "f1",
+            reopenSeq: 3,
+            sessionId: "s-old",
+            signal: { detectorId: "d1" },
+          },
+          {
+            signalId: "a",
+            findingId: "f1",
+            reopenSeq: 0,
+            sessionId: "s-a",
+            signal: { detectorId: "d1" },
+          },
+        ]),
+      },
+      detectorRcaExecution: {
+        findMany: vi.fn(async () => [
+          { findingId: "f1", sessionId: "s-old", traceId: "t-old", attempt: 1 },
+          { findingId: "f1", sessionId: "s-a", traceId: "t-a", attempt: 2 },
+        ]),
+      },
+    };
+    expect(await signalsForRuns(db as never, { projectId: "p", runIds: ["r1"] })).toEqual([
+      { runId: "r1", signalId: "a", agentTraceId: "t-a" },
+    ]);
+  });
+
+  it("falls back to the newest landed attempt while an opening has no kept answer", async () => {
+    const db = {
+      signalHit: {
+        findMany: vi.fn(async () => [
+          { runId: "r1", signalId: "a", detectorId: "d1", findingId: "f1" },
+        ]),
+      },
+      signalRca: {
+        findMany: vi.fn(async () => [
+          {
+            signalId: "a",
+            findingId: "f1",
+            reopenSeq: 0,
+            sessionId: null,
+            signal: { detectorId: "d1" },
+          },
         ]),
       },
       detectorRcaExecution: {

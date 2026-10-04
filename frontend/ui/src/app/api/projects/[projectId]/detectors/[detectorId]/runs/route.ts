@@ -69,8 +69,8 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
   const data: unknown = await response.json();
 
   // Attach each triggered run's signal, and the agent trace of the RCA that
-  // analysed this run's own trace for that signal (one batched Postgres
-  // lookup), so the runs table can link both. Best-effort: on lookup failure the fields are absent and the
+  // analysed this run's own judge output (one batched Postgres lookup), so the
+  // runs table can link both. Best-effort: on lookup failure the fields are absent and the
   // cells render "—". Runs that never triggered (null finding_id) are left
   // untouched.
   if (response.ok && data !== null && typeof data === "object") {
