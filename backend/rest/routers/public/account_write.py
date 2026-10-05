@@ -1,13 +1,20 @@
-"""Account-scope public writes for user credentials (workspace/project creation).
+"""Account-scope public writes for user credentials (workspace/project create, update, delete).
 
 Thin authenticated proxies to the Next.js internal write routes, which own the
 Postgres/Prisma control-plane data and the actual authorization/validation
-decisions (role gates, field rules, idempotency). Like the account reads, these
-run on :data:`AccountStampedAuth` — user-credential-only, no ``project_id``
-query — and additionally on :func:`require_live_session`, so a JWT whose
-minting session was revoked is blocked before any write. The handler forwards
-only the resolved ``user_id`` (as ``actorUserId``) plus the payload — never the
-raw credential — and stamps ``transport: "public-api"`` for the audit trail.
+decisions (role gates, field rules, idempotency, the update diff). Like the
+account reads, these run on :data:`AccountStampedAuth` — user-credential-only,
+no ``project_id`` query — and additionally on :func:`require_live_session`, so
+a JWT whose minting session was revoked is blocked before any write. The
+handler forwards only the resolved ``user_id`` (as ``actorUserId``) plus the
+payload — never the raw credential — and stamps ``transport: "public-api"``
+for the audit trail.
+
+Updates are PATCH: the handler forwards exactly the fields the caller sent
+(an explicit null included, meaning clear), so the write service can tell an
+untouched field from a cleared one. Deletes take their tenancy and the
+required ``reason`` as query parameters on the public surface and forward
+them as a JSON body to the internal route, which is service-to-service.
 
 Upstream error strings pass through verbatim as the public ``detail``: the
 write service's messages are the single source of truth for both the cookie
@@ -16,10 +23,11 @@ and the public surface, so the two never drift.
 
 import logging
 from typing import Annotated, Any
+from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import ValidationError
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import AfterValidator, BaseModel, ValidationError
 
 from rest.rate_limit import (
     BUCKET_WRITE,
@@ -28,13 +36,22 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.routers.public.deps import AccountStampedAuth, require_live_session
+from rest.routers.public.deps import AccountStampedAuth, AuthResult, require_live_session
 from rest.schemas.eval import ErrorResponse
 from rest.schemas.public_write import (
     CreateProjectRequest,
     CreateProjectResponse,
     CreateWorkspaceRequest,
     CreateWorkspaceResponse,
+    DeletedResource,
+    DeleteProjectResponse,
+    DeleteWorkspaceResponse,
+    ProjectRow,
+    UpdateProjectRequest,
+    UpdateProjectResponse,
+    UpdateWorkspaceRequest,
+    UpdateWorkspaceResponse,
+    WorkspaceRow,
 )
 from shared.config import settings
 
@@ -65,6 +82,49 @@ _WRITE_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     503: {"model": ErrorResponse, "description": "Write service unavailable"},
 }
 
+# The updates that can collide on a unique name document the conflict beside
+# the shared write errors.
+_NAME_CONFLICT_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **_WRITE_ERROR_RESPONSES,
+    409: {"model": ErrorResponse, "description": "Name already in use"},
+}
+
+
+def _require_substantive_reason(reason: str) -> str:
+    """Refuse a reason that is blank once stripped, so it never reaches the service.
+
+    ``min_length`` counts whitespace, so without this a reason of three spaces
+    would be forwarded and bounce back as the write service's 400.
+
+    Args:
+        reason (str): The raw ``reason`` query value.
+
+    Returns:
+        str: ``reason`` unchanged.
+
+    Raises:
+        ValueError: When the stripped reason is shorter than three characters.
+    """
+    if len(reason.strip()) < 3:
+        raise ValueError("must contain at least 3 non-whitespace characters")
+    return reason
+
+
+# The query aliases every delete shares. A delete takes its tenancy and its
+# reason in the query (a DELETE body is legal but poorly supported by tooling).
+# The reason is required on the API itself so no client can skip it: it is
+# the consent step and the audit trail.
+DeleteReason = Annotated[
+    str,
+    Query(
+        min_length=3,
+        max_length=500,
+        description="Why the resource is being deleted; recorded on the audit row",
+    ),
+    AfterValidator(_require_substantive_reason),
+]
+DeleteProjectId = Annotated[str, Query(description="The project the resource belongs to")]
+
 
 def _write_service_error() -> HTTPException:
     """Build the controlled 503 used whenever the write service is ambiguous.
@@ -83,26 +143,30 @@ def _write_service_error() -> HTTPException:
     )
 
 
-async def _post_internal_write(path: str, payload: dict) -> dict:
-    """POST a create to an internal write route and return its success body.
+async def _send_internal_write(method: str, path: str, payload: dict) -> dict:
+    """Send a write to an internal write route and return its success body.
 
-    The single proxy call every public write goes through. Client errors the
-    write service owns (400/403/404) pass through with the SAME status and the
-    upstream body's ``error`` string as the public ``detail`` — the service's
-    messages are canonical, and the raw body is never surfaced. Everything
-    ambiguous fails closed as a 503: a network error, a malformed body, or a
-    401 — the internal secret is ours, so an upstream 401 is our
-    misconfiguration, not the caller's credential failing.
+    The single proxy call every public write goes through: creates (POST),
+    partial updates (PATCH) and deletes (DELETE) alike — the internal DELETE
+    reads its envelope from a JSON body, which is unremarkable
+    service-to-service. Client errors the write service owns (400/403/404/
+    409) pass through with the SAME status and the upstream body's ``error``
+    string as the public ``detail`` — the service's messages are canonical,
+    and the raw body is never surfaced. Everything ambiguous fails closed as
+    a 503: a network error, a malformed body, or a 401 — the internal secret
+    is ours, so an upstream 401 is our misconfiguration, not the caller's
+    credential failing.
 
     Args:
+        method (str): The HTTP method (``"POST"``, ``"PATCH"``, ``"DELETE"``).
         path (str): Internal write route path (appended to the UI base URL),
             e.g. ``"/api/internal/write/workspaces"``.
-        payload (dict): The camelCase JSON body to POST (actor id + fields;
+        payload (dict): The camelCase JSON body (actor envelope + fields;
             never logged).
 
     Returns:
-        dict: The parsed 200 response body
-            (``{"created": bool, "<resource>": {...}}``).
+        dict: The parsed 200 response body (the resource envelope, e.g.
+            ``{"created": bool, "<resource>": {...}}``).
 
     Raises:
         HTTPException: 400/403/404/409 passed through from the write service
@@ -112,7 +176,8 @@ async def _post_internal_write(path: str, payload: dict) -> dict:
     """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
+            response = await client.request(
+                method,
                 f"{settings.traceroot_ui_url}{path}",
                 json=payload,
                 headers={"X-Internal-Secret": settings.internal_api_secret},
@@ -164,6 +229,123 @@ async def _post_internal_write(path: str, payload: dict) -> dict:
     return data
 
 
+def _resource_path(resource: str, resource_id: str, suffix: str = "") -> str:
+    """Build an internal write route path for one resource by id.
+
+    The id is percent-encoded (including ``/``) before it is spliced into the
+    path, so a reserved character in a public path parameter cannot rewrite
+    the internal request's path or query.
+
+    Args:
+        resource (str): The plural resource segment, e.g. ``"detectors"``.
+        resource_id (str): The resource id from the public path.
+        suffix (str): An optional sub-route, e.g. ``"/status"``.
+
+    Returns:
+        str: ``"/api/internal/write/{resource}/{id}{suffix}"``.
+    """
+    return f"/api/internal/write/{resource}/{quote(resource_id, safe='')}{suffix}"
+
+
+def _camel(name: str) -> str:
+    """Convert a public snake_case field name to the internal camelCase one.
+
+    Args:
+        name (str): A snake_case field name, e.g. ``"trace_ttl_days"``.
+
+    Returns:
+        str: The camelCase name, e.g. ``"traceTtlDays"``.
+    """
+    head, *rest = name.split("_")
+    return head + "".join(part.capitalize() for part in rest)
+
+
+def _envelope(auth: AuthResult, **fields: Any) -> dict[str, Any]:
+    """Build an internal write body: the actor envelope around the given fields.
+
+    Args:
+        auth (AuthResult): The resolved account-scope credential; its
+            ``user_id`` becomes the actor (the raw credential never travels).
+        **fields (Any): The camelCase body fields — the tenancy id where the
+            resource has one (``projectId=...``) plus the resource fields.
+
+    Returns:
+        dict[str, Any]: ``{"actorUserId", <fields>, "transport": "public-api"}``.
+    """
+    return {"actorUserId": auth.user_id, **fields, "transport": "public-api"}
+
+
+def _patch_body(auth: AuthResult, payload: BaseModel) -> dict[str, Any]:
+    """Build the internal PATCH body: the envelope plus only the sent fields.
+
+    ``model_dump(exclude_unset=True)`` is what makes the null rule mechanical:
+    a field the caller left out never appears, a field sent as null crosses as
+    null. Nested models dump recursively under the same rule, so a widget spec
+    forwards exactly the keys the caller provided. Top-level names are
+    converted to the internal camelCase (which also maps a body ``project_id``
+    onto the envelope's ``projectId``); nested models keep their own wire
+    names, so a handler whose nested shape differs re-maps it by hand.
+
+    Args:
+        auth (AuthResult): The resolved account-scope credential.
+        payload (BaseModel): The validated ``Update*Request``.
+
+    Returns:
+        dict[str, Any]: The camelCase JSON body for the internal PATCH.
+    """
+    fields = {_camel(name): value for name, value in payload.model_dump(exclude_unset=True).items()}
+    return _envelope(auth, **fields)
+
+
+def _workspace_fields(workspace: Any) -> dict[str, Any]:
+    """Map an internal workspace row to :class:`WorkspaceRow` kwargs.
+
+    Args:
+        workspace (Any): The ``workspace`` object of an internal response.
+
+    Returns:
+        dict[str, Any]: Keyword arguments for the response model.
+
+    Raises:
+        KeyError: If a required field is missing (the caller fails closed).
+        TypeError: If the row is not a mapping (the caller fails closed).
+    """
+    return {"id": workspace["id"], "name": workspace["name"], "role": workspace["role"]}
+
+
+def _project_fields(project: Any) -> dict[str, Any]:
+    """Map an internal project row to :class:`ProjectRow` kwargs.
+
+    Args:
+        project (Any): The ``project`` object of an internal response.
+
+    Returns:
+        dict[str, Any]: Keyword arguments for the response model.
+
+    Raises:
+        KeyError: If a required field is missing (the caller fails closed).
+        TypeError: If the row is not a mapping (the caller fails closed).
+    """
+    return {"id": project["id"], "name": project["name"], "workspace_id": project["workspaceId"]}
+
+
+def _deleted(row: Any) -> DeletedResource:
+    """Map the ``{id, name}`` a delete returns to :class:`DeletedResource`.
+
+    Args:
+        row (Any): The ``<resource>`` object of an internal delete response.
+
+    Returns:
+        DeletedResource: The removed row's id and name.
+
+    Raises:
+        KeyError: If a field is missing (the caller fails closed).
+        TypeError: If the row is not a mapping (the caller fails closed).
+        ValidationError: If a field is wrongly typed (the caller fails closed).
+    """
+    return DeletedResource(id=row["id"], name=row["name"])
+
+
 @router.post(
     "/workspaces",
     operation_id="create_workspace",
@@ -203,18 +385,12 @@ async def create_workspace(
     Returns:
         CreateWorkspaceResponse: The created (or matched) workspace.
     """
-    data = await _post_internal_write(
-        "/api/internal/write/workspaces",
-        {
-            "actorUserId": auth.user_id,
-            "name": payload.name,
-            "transport": "public-api",
-        },
+    data = await _send_internal_write(
+        "POST", "/api/internal/write/workspaces", _envelope(auth, name=payload.name)
     )
     try:
-        ws = data["workspace"]
         return CreateWorkspaceResponse(
-            id=ws["id"], name=ws["name"], role=ws["role"], created=data["created"]
+            **_workspace_fields(data["workspace"]), created=data["created"]
         )
     except (KeyError, TypeError, ValidationError) as e:
         raise _write_service_error() from e
@@ -253,24 +429,237 @@ async def create_project(
     Returns:
         CreateProjectResponse: The created (or matched) project.
     """
-    body: dict[str, Any] = {
-        "actorUserId": auth.user_id,
-        "workspaceId": payload.workspace_id,
-        "name": payload.name,
-        "transport": "public-api",
-    }
+    body = _envelope(auth, workspaceId=payload.workspace_id, name=payload.name)
     # Unset optionals stay out of the body entirely — the internal zod
     # distinguishes absent from null in places, and absent is always safe.
     if payload.trace_ttl_days is not None:
         body["traceTtlDays"] = payload.trace_ttl_days
-    data = await _post_internal_write("/api/internal/write/projects", body)
+    data = await _send_internal_write("POST", "/api/internal/write/projects", body)
     try:
-        project = data["project"]
-        return CreateProjectResponse(
-            id=project["id"],
-            name=project["name"],
-            workspace_id=project["workspaceId"],
-            created=data["created"],
+        return CreateProjectResponse(**_project_fields(data["project"]), created=data["created"])
+    except (KeyError, TypeError, ValidationError) as e:
+        raise _write_service_error() from e
+
+
+@router.patch(
+    "/workspaces/{workspace_id}",
+    operation_id="update_workspace",
+    response_model=UpdateWorkspaceResponse,
+    responses=_NAME_CONFLICT_RESPONSES,
+    summary="Rename a workspace",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_WRITE, key_func=key_write, exempt_when=is_request_rate_limit_exempt
+)
+async def update_workspace(
+    request: Request,
+    response: Response,
+    auth: AccountStampedAuth,
+    workspace_id: str,
+    payload: UpdateWorkspaceRequest,
+    _live: LiveSession,
+) -> UpdateWorkspaceResponse:
+    """Rename a workspace the authenticated user administers.
+
+    Requires ADMIN role in the workspace (the write service decides).
+    Workspace membership is the tenancy here, so a workspace outside the
+    caller's memberships is a 403 rather than a 404, as on the project
+    create; a name the caller already administers a workspace under is a
+    409.
+
+    Args:
+        request (Request): Incoming request (rate-limit plumbing).
+        response (Response): Outgoing response (rate-limit plumbing).
+        auth (AccountStampedAuth): Account-scope user auth (session token or
+            CLI access JWT); its resolved ``user_id`` becomes the actor.
+        workspace_id (str): The workspace to edit.
+        payload (UpdateWorkspaceRequest): The fields to change.
+        _live (None): Write-path liveness gate (blocks a revoked JWT session).
+
+    Returns:
+        UpdateWorkspaceResponse: The updated workspace and the changed fields.
+
+    Raises:
+        HTTPException: The write service's 400/403/404/409 verbatim, or a
+            503 when its response is ambiguous.
+    """
+    data = await _send_internal_write(
+        "PATCH", _resource_path("workspaces", workspace_id), _patch_body(auth, payload)
+    )
+    try:
+        return UpdateWorkspaceResponse(
+            updated=data["updated"],
+            changed=data["changed"],
+            workspace=WorkspaceRow(**_workspace_fields(data["workspace"])),
+        )
+    except (KeyError, TypeError, ValidationError) as e:
+        raise _write_service_error() from e
+
+
+@router.patch(
+    "/projects/{project_id}",
+    operation_id="update_project",
+    response_model=UpdateProjectResponse,
+    responses=_NAME_CONFLICT_RESPONSES,
+    summary="Edit a project",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_WRITE, key_func=key_write, exempt_when=is_request_rate_limit_exempt
+)
+async def update_project(
+    request: Request,
+    response: Response,
+    auth: AccountStampedAuth,
+    project_id: str,
+    payload: UpdateProjectRequest,
+    _live: LiveSession,
+) -> UpdateProjectResponse:
+    """Edit a project's name or trace retention.
+
+    Requires ADMIN role in the project's workspace (the write service
+    decides). A null ``trace_ttl_days`` returns retention to the plan default.
+
+    Args:
+        request (Request): Incoming request (rate-limit plumbing).
+        response (Response): Outgoing response (rate-limit plumbing).
+        auth (AccountStampedAuth): Account-scope user auth (session token or
+            CLI access JWT); its resolved ``user_id`` becomes the actor.
+        project_id (str): The project to edit.
+        payload (UpdateProjectRequest): The fields to change.
+        _live (None): Write-path liveness gate (blocks a revoked JWT session).
+
+    Returns:
+        UpdateProjectResponse: The updated project and the changed fields.
+
+    Raises:
+        HTTPException: The write service's 400/403/404/409 verbatim, or a
+            503 when its response is ambiguous.
+    """
+    data = await _send_internal_write(
+        "PATCH", _resource_path("projects", project_id), _patch_body(auth, payload)
+    )
+    try:
+        return UpdateProjectResponse(
+            updated=data["updated"],
+            changed=data["changed"],
+            project=ProjectRow(**_project_fields(data["project"])),
+        )
+    except (KeyError, TypeError, ValidationError) as e:
+        raise _write_service_error() from e
+
+
+@router.delete(
+    "/workspaces/{workspace_id}",
+    operation_id="delete_workspace",
+    response_model=DeleteWorkspaceResponse,
+    responses={
+        **_WRITE_ERROR_RESPONSES,
+        409: {
+            "model": ErrorResponse,
+            "description": "The typed name does not match, or this is the caller's only workspace",
+        },
+    },
+    summary="Delete a workspace",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_WRITE, key_func=key_write, exempt_when=is_request_rate_limit_exempt
+)
+async def delete_workspace(
+    request: Request,
+    response: Response,
+    auth: AccountStampedAuth,
+    workspace_id: str,
+    name: Annotated[str, Query(description="The workspace's current name, typed as confirmation")],
+    reason: DeleteReason,
+    _live: LiveSession,
+) -> DeleteWorkspaceResponse:
+    """Hard-delete a workspace and everything in it.
+
+    Requires ADMIN role in the workspace (the write service decides); a
+    workspace outside the caller's memberships is a 403, as on the update.
+    The cascade removes every project, its data references, access keys,
+    memberships and invites; the typed ``name`` must equal the workspace's
+    current name, and the caller's only workspace cannot be deleted.
+
+    Args:
+        request (Request): Incoming request (rate-limit plumbing).
+        response (Response): Outgoing response (rate-limit plumbing).
+        auth (AccountStampedAuth): Account-scope user auth (session token or
+            CLI access JWT); its resolved ``user_id`` becomes the actor.
+        workspace_id (str): The workspace to delete.
+        name (str): The workspace's current name, as a typed confirmation.
+        reason (str): Why it is being deleted; recorded on the audit row.
+        _live (None): Write-path liveness gate (blocks a revoked JWT session).
+
+    Returns:
+        DeleteWorkspaceResponse: The removed workspace and the cascade counts.
+
+    Raises:
+        HTTPException: The write service's 400/403/404/409 verbatim, or a
+            503 when its response is ambiguous.
+    """
+    data = await _send_internal_write(
+        "DELETE",
+        _resource_path("workspaces", workspace_id),
+        _envelope(auth, name=name, reason=reason),
+    )
+    try:
+        return DeleteWorkspaceResponse(
+            deleted=data["deleted"],
+            reason=data["reason"],
+            cascaded=data.get("cascaded"),
+            workspace=_deleted(data["workspace"]),
+        )
+    except (KeyError, TypeError, ValidationError) as e:
+        raise _write_service_error() from e
+
+
+@router.delete(
+    "/projects/{project_id}",
+    operation_id="delete_project",
+    response_model=DeleteProjectResponse,
+    responses=_WRITE_ERROR_RESPONSES,
+    summary="Delete a project",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_WRITE, key_func=key_write, exempt_when=is_request_rate_limit_exempt
+)
+async def delete_project(
+    request: Request,
+    response: Response,
+    auth: AccountStampedAuth,
+    project_id: str,
+    reason: DeleteReason,
+    _live: LiveSession,
+) -> DeleteProjectResponse:
+    """Soft-delete a project.
+
+    Requires ADMIN role in the project's workspace (the write service
+    decides). The project drops out of every list and read and its access
+    keys stop authenticating; its data stays for the retention window.
+
+    Args:
+        request (Request): Incoming request (rate-limit plumbing).
+        response (Response): Outgoing response (rate-limit plumbing).
+        auth (AccountStampedAuth): Account-scope user auth (session token or
+            CLI access JWT); its resolved ``user_id`` becomes the actor.
+        project_id (str): The project to delete.
+        reason (str): Why it is being deleted; recorded on the audit row.
+        _live (None): Write-path liveness gate (blocks a revoked JWT session).
+
+    Returns:
+        DeleteProjectResponse: The removed project.
+
+    Raises:
+        HTTPException: The write service's 400/403/404 verbatim, or a 503
+            when its response is ambiguous.
+    """
+    data = await _send_internal_write(
+        "DELETE", _resource_path("projects", project_id), _envelope(auth, reason=reason)
+    )
+    try:
+        return DeleteProjectResponse(
+            deleted=data["deleted"], reason=data["reason"], project=_deleted(data["project"])
         )
     except (KeyError, TypeError, ValidationError) as e:
         raise _write_service_error() from e

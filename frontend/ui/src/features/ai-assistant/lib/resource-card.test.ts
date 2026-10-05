@@ -4,13 +4,14 @@ import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER } from "@/lib/date-filter";
 import { dateFilterStorageKey } from "@/lib/date-filter-storage";
 import {
   createdWidgetsByDashboard,
+  knownResources,
   pendingCardModel,
   pendingProposal,
   readCardModel,
   resourceCardModel,
   suppressedWidgetStepIds,
 } from "./resource-card";
-import type { PreviewTile, ResourceCardModel } from "./resource-card";
+import type { KnownResource, PreviewTile, ResourceCardModel } from "./resource-card";
 import type { AIMessage, ToolCallStep } from "../types";
 
 function step(overrides: {
@@ -756,6 +757,8 @@ describe("alert cards", () => {
     expect(pendingProposal(pending)).toEqual({
       resourceType: "alert",
       title: "p95 latency over 2s",
+      action: "create",
+      approvalClass: "confirm",
     });
   });
 
@@ -1583,21 +1586,27 @@ describe("pendingProposal", () => {
     expect(pendingProposal(parked("create_dashboard", {}))).toEqual({
       resourceType: "dashboard",
       title: null,
+      action: "create",
+      approvalClass: "confirm",
     });
   });
 
   it("names the resource a parked create would make, and its title", () => {
+    const create = { action: "create", approvalClass: "confirm" };
     expect(pendingProposal(parked("create_widget", { title: "Tokens by model" }))).toEqual({
       resourceType: "widget",
       title: "Tokens by model",
+      ...create,
     });
     expect(pendingProposal(parked("create_dashboard", { name: "Latency overview" }))).toEqual({
       resourceType: "dashboard",
       title: "Latency overview",
+      ...create,
     });
     expect(pendingProposal(parked("create_detector", { name: "Slow spans" }))).toEqual({
       resourceType: "detector",
       title: "Slow spans",
+      ...create,
     });
   });
 
@@ -1691,5 +1700,769 @@ describe("meta window label follows the site's stored range", () => {
   it("keeps the default label for an unknown stored id", () => {
     stubStoredRange("p1", "eleventy");
     expect(resourceCardModel(widgetStep())?.meta).toEqual(["Widget", "Last 24 hours"]);
+  });
+});
+
+// ── updates and deletes ──────────────────────────────────────────────────────
+
+const toolEntry = (toolStep: ToolCallStep): AIMessage => ({
+  id: toolStep.toolCallId,
+  role: "tool_step",
+  content: "",
+  timestamp: "2026-09-17T00:00:00Z",
+  toolStep,
+});
+
+const parkedStep = (
+  toolName: string,
+  args: Record<string, unknown>,
+  approvalClass?: "confirm" | "approval",
+): ToolCallStep => ({
+  toolCallId: "tcp1",
+  toolName,
+  args,
+  status: "running",
+  pending: { decisionId: "d1", ...(approvalClass === undefined ? {} : { approvalClass }) },
+});
+
+const ALERT_DETAIL = {
+  id: "al1",
+  name: "p95 latency",
+  view: "SPANS",
+  measure: "latency",
+  aggregation: "p95",
+  window: "10m",
+  threshold_operator: ">",
+  threshold: 2000,
+  filters: [],
+  renotify: { mode: "OFF" },
+  no_data_mode: "HOLD",
+  status: "ACTIVE",
+  severity: "ALERT",
+  alerted_at: "2026-09-17T09:00:00Z",
+  last_evaluated_at: "2026-09-17T09:05:00Z",
+  last_error: null,
+  last_notify_status: "DELIVERED",
+  last_notify_error: null,
+  last_notify_at: "2026-09-17T09:00:30Z",
+  severity_changed_at: null,
+  creator: null,
+  create_time: null,
+};
+
+const known = (entries: Record<string, KnownResource>) => new Map(Object.entries(entries));
+
+describe("knownResources", () => {
+  it("remembers a created resource by id, with its name and the args it was created with", () => {
+    const messages = [
+      toolEntry(
+        step({
+          toolName: "create_detector",
+          args: { name: "Slow spans", template: "failure", sample_rate: 50 },
+          details: created("detector", "d1", { projectId: "p1", name: "Slow spans" }),
+        }),
+      ),
+    ];
+    expect(knownResources(messages).get("d1")).toEqual({
+      resourceType: "detector",
+      name: "Slow spans",
+      record: { name: "Slow spans", template: "failure", sample_rate: 50 },
+    });
+  });
+
+  it("remembers what an alert read said — the detail's record, and every list row", () => {
+    const messages = [
+      toolEntry({
+        toolCallId: "r1",
+        toolName: "list_alerts",
+        args: {},
+        status: "done",
+        result: {
+          details: {
+            kind: "alert_list",
+            alerts: [{ id: "al1", name: "p95 latency", status: "ACTIVE", severity: "OK" }],
+            total: 1,
+            capacity: null,
+          },
+        },
+      }),
+      toolEntry({
+        toolCallId: "r2",
+        toolName: "get_alert",
+        args: { alert_id: "al1" },
+        status: "done",
+        result: { details: { kind: "alert_detail", alert: ALERT_DETAIL } },
+      }),
+    ];
+    const map = knownResources(messages);
+    expect(map.get("al1")).toEqual({
+      resourceType: "alert",
+      name: "p95 latency",
+      record: ALERT_DETAIL,
+    });
+  });
+
+  it("folds an update receipt into what it knows, and forgets a deleted resource", () => {
+    const messages = [
+      toolEntry(
+        step({
+          toolCallId: "c1",
+          toolName: "create_dashboard",
+          args: { name: "Draft board", description: "scratch" },
+          details: created("dashboard", "db1", { projectId: "p1", name: "Draft board" }),
+        }),
+      ),
+      toolEntry(
+        step({
+          toolCallId: "u1",
+          toolName: "update_dashboard",
+          args: { dashboard_id: "db1", name: "Reliability board" },
+          details: {
+            kind: "resource_updated",
+            resourceType: "dashboard",
+            resourceId: "db1",
+            name: "Reliability board",
+            changed: ["name"],
+          },
+        }),
+      ),
+      toolEntry(
+        step({
+          toolCallId: "c2",
+          toolName: "create_widget",
+          args: { dashboard_id: "db1", title: "Errors", type: "query", spec: WIDGET_SPEC },
+          details: created("widget", "w1", { projectId: "p1", dashboardId: "db1" }),
+        }),
+      ),
+      toolEntry(
+        step({
+          toolCallId: "x1",
+          toolName: "delete_widget",
+          args: { widget_id: "w1", reason: "duplicate" },
+          details: {
+            kind: "resource_deleted",
+            resourceType: "widget",
+            resourceId: "w1",
+            name: "Errors",
+            reason: "duplicate",
+          },
+        }),
+      ),
+    ];
+    const map = knownResources(messages);
+    expect(map.get("db1")).toEqual({
+      resourceType: "dashboard",
+      name: "Reliability board",
+      record: { name: "Reliability board", description: "scratch" },
+    });
+    expect(map.has("w1")).toBe(false);
+  });
+
+  it("forgets a deleted dashboard's widgets along with it, and no other dashboard's", () => {
+    const messages = [
+      toolEntry(
+        step({
+          toolCallId: "c1",
+          toolName: "create_dashboard",
+          args: { name: "Test alpha" },
+          details: created("dashboard", "db1", { projectId: "p1", name: "Test alpha" }),
+        }),
+      ),
+      toolEntry(widgetStep({ dashboard_id: "db1" }, "c2")),
+      toolEntry(
+        step({
+          toolCallId: "c3",
+          toolName: "create_widget",
+          args: { dashboard_id: "db2", title: "Errors", type: "query", spec: WIDGET_SPEC },
+          details: created("widget", "w2", { projectId: "p1", dashboardId: "db2" }),
+        }),
+      ),
+      toolEntry(
+        step({
+          toolCallId: "x1",
+          toolName: "delete_dashboard",
+          args: { dashboard_id: "db1", reason: "cleanup" },
+          details: {
+            kind: "resource_deleted",
+            resourceType: "dashboard",
+            resourceId: "db1",
+            reason: "cleanup",
+            cascaded: { widgets: 1 },
+          },
+        }),
+      ),
+    ];
+    const map = knownResources(messages);
+    expect(map.has("db1")).toBe(false);
+    expect(map.has("w1")).toBe(false);
+    expect(map.get("w2")?.resourceType).toBe("widget");
+  });
+
+  it("remembers only the name of a reused create — its args are not the stored row", () => {
+    const messages = [
+      toolEntry(
+        step({
+          toolName: "create_dashboard",
+          args: { name: "Spend", description: "new" },
+          details: created("dashboard", "db1", { projectId: "p1", name: "Spend", created: false }),
+        }),
+      ),
+    ];
+    expect(knownResources(messages).get("db1")).toEqual({
+      resourceType: "dashboard",
+      name: "Spend",
+      record: {},
+    });
+    // So a later edit shows its after-value alone, never "new → newer".
+    const model = pendingCardModel(
+      parkedStep("update_dashboard", { dashboard_id: "db1", description: "newer" }),
+      "p1",
+      undefined,
+      knownResources(messages),
+    );
+    expect(model?.title).toBe("Spend");
+    expect(model?.body).toEqual({ kind: "changes", chips: ["description: newer"], preview: null });
+  });
+
+  it("ignores steps with no receipt, errored reads, and unreadable payloads", () => {
+    const messages = [
+      toolEntry({
+        toolCallId: "t1",
+        toolName: "list_traces",
+        args: {},
+        status: "done",
+        result: "x",
+      }),
+      toolEntry({
+        toolCallId: "t2",
+        toolName: "get_alert",
+        args: {},
+        status: "done",
+        isError: true,
+        result: { details: { kind: "alert_detail", alert: ALERT_DETAIL } },
+      }),
+      toolEntry({
+        toolCallId: "t3",
+        toolName: "get_alert",
+        args: {},
+        status: "done",
+        result: { details: { kind: "alert_detail", alert: { name: "no id" } } },
+      }),
+    ];
+    expect(knownResources(messages).size).toBe(0);
+  });
+});
+
+describe("pendingProposal — updates and deletes", () => {
+  it("names the action, the class and the resource's current name when the panel knows it", () => {
+    const map = known({
+      d1: { resourceType: "detector", name: "Timeouts", record: { name: "Timeouts" } },
+    });
+    expect(
+      pendingProposal(parkedStep("update_detector", { detector_id: "d1", sample_rate: 25 }), map),
+    ).toEqual({
+      resourceType: "detector",
+      title: "Timeouts",
+      action: "update",
+      approvalClass: "confirm",
+    });
+    expect(
+      pendingProposal(
+        parkedStep("delete_detector", { detector_id: "d1", reason: "asked" }, "approval"),
+        map,
+      ),
+    ).toEqual({
+      resourceType: "detector",
+      title: "Timeouts",
+      action: "delete",
+      approvalClass: "approval",
+    });
+  });
+
+  it("falls back to the id when the resource was never read in this transcript — never the new name", () => {
+    expect(
+      pendingProposal(parkedStep("update_dashboard", { dashboard_id: "db1", name: "Renamed" })),
+    ).toEqual({
+      resourceType: "dashboard",
+      title: "db1",
+      action: "update",
+      approvalClass: "confirm",
+    });
+    expect(pendingProposal(parkedStep("update_widget", {}))?.title).toBeNull();
+  });
+
+  it("takes the class off the parked event, and assumes approval for a delete when the event said nothing", () => {
+    expect(
+      pendingProposal(parkedStep("update_alert", { alert_id: "al1" }, "approval"))?.approvalClass,
+    ).toBe("approval");
+    expect(
+      pendingProposal(parkedStep("delete_alert", { alert_id: "al1", reason: "asked" }))
+        ?.approvalClass,
+    ).toBe("approval");
+    expect(pendingProposal(parkedStep("set_alert_status", { alert_id: "al1" }))).toEqual({
+      resourceType: "alert",
+      title: "al1",
+      action: "update",
+      approvalClass: "confirm",
+    });
+  });
+
+  it("still names a create as one", () => {
+    expect(pendingProposal(parkedStep("create_widget", { title: "Tokens" }))).toEqual({
+      resourceType: "widget",
+      title: "Tokens",
+      action: "create",
+      approvalClass: "confirm",
+    });
+  });
+});
+
+describe("pendingCardModel — updates", () => {
+  it("shows before → after chips from the cached detail, opens them, and keeps the current title", () => {
+    const map = known({
+      d1: {
+        resourceType: "detector",
+        name: "Timeouts",
+        record: { name: "Timeouts", template: "failure", sample_rate: 100, enable_rca: false },
+      },
+    });
+    const model = pendingCardModel(
+      parkedStep("update_detector", { detector_id: "d1", sample_rate: 25, enable_rca: true }),
+      "p1",
+      undefined,
+      map,
+    );
+    expect(model).toEqual({
+      resourceType: "detector",
+      resourceId: "tcp1",
+      created: true,
+      title: "Timeouts",
+      href: null,
+      meta: ["Detector", "Failure"],
+      definitionOpen: true,
+      body: {
+        kind: "changes",
+        chips: ["sample rate: 100 → 25", "RCA: no → yes"],
+        preview: null,
+      },
+    });
+  });
+
+  it("shows the after-values alone when nothing cached says what the values were", () => {
+    const model = pendingCardModel(
+      parkedStep("update_dashboard", {
+        dashboard_id: "db1",
+        name: "Reliability board",
+        description: null,
+      }),
+      "p1",
+    );
+    expect(model?.title).toBe("db1");
+    expect(model?.body).toEqual({
+      kind: "changes",
+      chips: ["name: Reliability board", "description: cleared"],
+      preview: null,
+    });
+  });
+
+  it("previews a detector's new prompt and a widget's new spec, aimed at the panel's project", () => {
+    const detector = pendingCardModel(
+      parkedStep("update_detector", { detector_id: "d1", prompt: "Flag traces slower than 30s." }),
+      "p1",
+    );
+    expect(detector?.body).toEqual({
+      kind: "changes",
+      chips: ["prompt: replaced"],
+      preview: { kind: "prompt", prompt: { kind: "custom", text: "Flag traces slower than 30s." } },
+    });
+
+    const widget = pendingCardModel(
+      parkedStep("update_widget", { widget_id: "w1", spec: WIDGET_SPEC }),
+      "p1",
+    );
+    expect(widget?.body).toEqual({
+      kind: "changes",
+      chips: ["spec: view spans · sum(total_tokens) · by model_name · bar"],
+      preview: {
+        kind: "widget",
+        chart: {
+          projectId: "p1",
+          spec: { ...WIDGET_SPEC, filters: [] },
+          range: DEFAULT_DATE_FILTER,
+        },
+      },
+    });
+    expect(widget?.meta).toEqual(["Widget", "Last 24 hours"]);
+  });
+
+  it("previews an alert's edited rule merged over the cached one, badged with its live state", () => {
+    const map = known({
+      al1: { resourceType: "alert", name: "p95 latency", record: ALERT_DETAIL },
+    });
+    const model = pendingCardModel(
+      parkedStep("update_alert", { alert_id: "al1", threshold: 3000 }),
+      "p1",
+      undefined,
+      map,
+    );
+    expect(model?.title).toBe("p95 latency");
+    expect(model?.body).toEqual({
+      kind: "changes",
+      chips: ["threshold: 2000 → 3000"],
+      preview: {
+        kind: "alert",
+        chart: {
+          projectId: "p1",
+          view: "SPANS",
+          measure: "latency",
+          aggregation: "p95",
+          window: "10m",
+          operator: ">",
+          threshold: 3000,
+          filters: [],
+          range: DEFAULT_DATE_FILTER,
+        },
+      },
+    });
+    expect(model?.description).toBe("p95 latency over 10 minutes is above 3,000 ms");
+    expect(model?.badge).toMatchObject({ status: "ACTIVE", severity: "ALERT" });
+    expect(model?.meta).toEqual(["Alert", "Last 24 hours"]);
+  });
+
+  it("reads a status change as an alert update with one chip and no chart", () => {
+    const map = known({
+      al1: {
+        resourceType: "alert",
+        name: "p95 latency",
+        record: { name: "p95 latency", status: "ACTIVE" },
+      },
+    });
+    const model = pendingCardModel(
+      parkedStep("set_alert_status", { alert_id: "al1", status: "PAUSED" }),
+      "p1",
+      undefined,
+      map,
+    );
+    expect(model?.resourceType).toBe("alert");
+    expect(model?.body).toEqual({
+      kind: "changes",
+      chips: ["status: ACTIVE → PAUSED"],
+      preview: null,
+    });
+  });
+
+  it("summarizes the structured fields instead of printing what an object stringifies to", () => {
+    const model = pendingCardModel(
+      parkedStep("update_detector", {
+        detector_id: "d1",
+        trigger_conditions: [{ field: "duration_ms", op: ">=", value: 30000 }],
+        output_schema: [{ name: "reason" }, { name: "severity" }],
+        detection_model: null,
+      }),
+      "p1",
+    );
+    expect(model?.body).toMatchObject({
+      chips: [
+        "trigger conditions: Latency ≥ 30000",
+        "output schema: 2 fields",
+        "detection model: cleared",
+      ],
+    });
+    const alert = pendingCardModel(
+      parkedStep("update_alert", {
+        alert_id: "al1",
+        filters: [{ field: "environment", op: "=", value: "production" }],
+        renotify: { mode: "EVERY", interval_minutes: 30 },
+      }),
+      "p1",
+    );
+    expect(alert?.body).toMatchObject({
+      chips: ["filters: environment = production", "renotify: every 30 min"],
+    });
+  });
+});
+
+describe("pendingCardModel — deletes", () => {
+  it("builds the destructive card: current title and chips, the reason as the body, nothing to open", () => {
+    const map = known({
+      d1: {
+        resourceType: "detector",
+        name: "Timeouts",
+        record: { name: "Timeouts", template: "failure", sample_rate: 25, enable_rca: true },
+      },
+    });
+    const model = pendingCardModel(
+      parkedStep(
+        "delete_detector",
+        { detector_id: "d1", reason: "the user asked to remove it" },
+        "approval",
+      ),
+      "p1",
+      undefined,
+      map,
+    );
+    expect(model).toEqual({
+      resourceType: "detector",
+      resourceId: "tcp1",
+      created: true,
+      title: "Timeouts",
+      href: null,
+      meta: ["Detector", "Failure"],
+      destructive: true,
+      definitionOpen: true,
+      body: {
+        kind: "delete",
+        reason: "the user asked to remove it",
+        cascade: null,
+        chips: ["sample 25%", "RCA on"],
+      },
+    });
+  });
+
+  it("falls back to the id and an empty definition when the resource was never read", () => {
+    const model = pendingCardModel(
+      parkedStep(
+        "delete_widget",
+        { widget_id: "w1", reason: "duplicates the overview" },
+        "approval",
+      ),
+      "p1",
+    );
+    expect(model?.title).toBe("w1");
+    expect(model?.destructive).toBe(true);
+    expect(model?.body).toEqual({
+      kind: "delete",
+      reason: "duplicates the overview",
+      cascade: null,
+      chips: [],
+    });
+  });
+
+  it("names a dashboard's widgets as the cascade when the transcript created them", () => {
+    const messages = [
+      toolEntry(
+        step({
+          toolCallId: "c1",
+          toolName: "create_dashboard",
+          args: { name: "Test alpha" },
+          details: created("dashboard", "db1", { projectId: "p1", name: "Test alpha" }),
+        }),
+      ),
+      toolEntry(widgetStep({ dashboard_id: "db1" }, "c2")),
+      toolEntry(
+        step({
+          toolCallId: "c3",
+          toolName: "create_widget",
+          args: { dashboard_id: "db1", title: "Errors", type: "query", spec: WIDGET_SPEC },
+          details: created("widget", "w2", { projectId: "p1", dashboardId: "db1" }),
+        }),
+      ),
+    ];
+    const model = pendingCardModel(
+      parkedStep("delete_dashboard", { dashboard_id: "db1", reason: "cleanup" }, "approval"),
+      "p1",
+      undefined,
+      knownResources(messages),
+    );
+    expect(model?.title).toBe("Test alpha");
+    expect(model?.body).toMatchObject({ kind: "delete", cascade: "and its 2 widgets" });
+  });
+
+  it("caps a runaway reason rather than letting it flood the transcript", () => {
+    const model = pendingCardModel(
+      parkedStep("delete_alert", { alert_id: "al1", reason: "x".repeat(600) }, "approval"),
+      "p1",
+    );
+    expect((model?.body as { reason: string }).reason.length).toBeLessThanOrEqual(501);
+  });
+});
+
+describe("resourceCardModel — update and delete receipts", () => {
+  it("builds an update receipt: the changed fields as chips, a link, and an Updated outcome", () => {
+    const model = resourceCardModel(
+      step({
+        toolName: "update_detector",
+        args: { label: "x", detector_id: "d1", name: "Timeouts", sample_rate: 25, enabled: true },
+        details: {
+          kind: "resource_updated",
+          resourceType: "detector",
+          resourceId: "d1",
+          name: "Timeouts",
+          changed: ["name", "sample_rate"],
+          projectId: "p1",
+        },
+      }),
+    );
+    expect(model).toEqual({
+      resourceType: "detector",
+      resourceId: "d1",
+      created: true,
+      outcome: "updated",
+      title: "Timeouts",
+      meta: ["Detector", "2 fields changed"],
+      href: "/projects/p1/detectors/d1",
+      definitionOpen: true,
+      body: { kind: "changes", chips: ["name: Timeouts", "sample rate: 25"], preview: null },
+    });
+  });
+
+  it("says an edit changed nothing, and lists no chips for it", () => {
+    const model = resourceCardModel(
+      step({
+        toolName: "update_dashboard",
+        args: { dashboard_id: "db1", name: "Spend" },
+        details: {
+          kind: "resource_updated",
+          resourceType: "dashboard",
+          resourceId: "db1",
+          name: "Spend",
+          changed: [],
+          projectId: "p1",
+        },
+      }),
+    );
+    expect(model?.meta).toEqual(["Dashboard", "unchanged"]);
+    expect(model?.body).toEqual({ kind: "changes", chips: [], preview: null });
+    expect(model?.href).toBe("/projects/p1/dashboard/db1");
+  });
+
+  it("badges an updated alert with its returned state and says when the page was cleared", () => {
+    const model = resourceCardModel(
+      step({
+        toolName: "update_alert",
+        args: { alert_id: "al1", threshold: 3000 },
+        details: {
+          kind: "resource_updated",
+          resourceType: "alert",
+          resourceId: "al1",
+          name: "p95 latency",
+          changed: ["threshold"],
+          stateReset: true,
+          pageCleared: true,
+          projectId: "p1",
+          alertState: {
+            status: "ACTIVE",
+            severity: "UNKNOWN",
+            lastEvaluatedAt: null,
+            lastError: null,
+            lastNotifyStatus: null,
+            lastNotifyError: null,
+          },
+        },
+      }),
+    );
+    expect(model?.title).toBe("p95 latency");
+    expect(model?.meta).toEqual(["Alert", "1 field changed"]);
+    expect(model?.href).toBe("/projects/p1/alerts/al1");
+    expect(model?.badge).toMatchObject({ status: "ACTIVE", severity: "UNKNOWN" });
+    expect(model?.description).toBe(
+      "This alert was firing; the edit cleared that page and reset its evaluation state.",
+    );
+    expect(model?.body).toEqual({ kind: "changes", chips: ["threshold: 3000"], preview: null });
+  });
+
+  it("links an updated widget to its dashboard", () => {
+    const model = resourceCardModel(
+      step({
+        toolName: "update_widget",
+        args: { widget_id: "w1", title: "Errors" },
+        details: {
+          kind: "resource_updated",
+          resourceType: "widget",
+          resourceId: "w1",
+          name: "Errors",
+          changed: ["title"],
+          projectId: "p1",
+          dashboardId: "db1",
+        },
+      }),
+    );
+    expect(model?.href).toBe("/projects/p1/dashboard/db1");
+    expect(model?.body).toEqual({ kind: "changes", chips: ["title: Errors"], preview: null });
+  });
+
+  it("builds a delete receipt: the reason, the cascade, a Deleted outcome and nothing to open", () => {
+    const model = resourceCardModel(
+      step({
+        toolName: "delete_dashboard",
+        args: { dashboard_id: "db1", reason: "cleaning up the test dashboards" },
+        details: {
+          kind: "resource_deleted",
+          resourceType: "dashboard",
+          resourceId: "db1",
+          name: "Test alpha",
+          reason: "cleaning up the test dashboards",
+          cascaded: { widgets: 4 },
+          projectId: "p1",
+        },
+      }),
+    );
+    expect(model).toEqual({
+      resourceType: "dashboard",
+      resourceId: "db1",
+      created: true,
+      outcome: "deleted",
+      title: "Test alpha",
+      meta: ["Dashboard"],
+      href: null,
+      definitionOpen: true,
+      body: {
+        kind: "delete",
+        reason: "cleaning up the test dashboards",
+        cascade: "and its 4 widgets",
+        chips: [],
+      },
+    });
+  });
+
+  it("caps a cascade label the receipt names, and stands in for an empty one", () => {
+    const receipt = (cascaded: Record<string, number>) =>
+      resourceCardModel(
+        step({
+          toolName: "delete_dashboard",
+          args: { dashboard_id: "db1", reason: "cleanup" },
+          details: {
+            kind: "resource_deleted",
+            resourceType: "dashboard",
+            resourceId: "db1",
+            reason: "cleanup",
+            cascaded,
+          },
+        }),
+      )?.body as { cascade: string | null };
+    expect(receipt({ ["w".repeat(200)]: 2 }).cascade).toBe(`and its 2 ${"w".repeat(64)}…`);
+    expect(receipt({ "": 3 }).cascade).toBe("and its 3 resources");
+    expect(receipt({ "  ": 1 }).cascade).toBe("and its 1 resource");
+  });
+
+  it("says when a deleted alert's open page went with it", () => {
+    const model = resourceCardModel(
+      step({
+        toolName: "delete_alert",
+        args: { alert_id: "al1", reason: "superseded" },
+        details: {
+          kind: "resource_deleted",
+          resourceType: "alert",
+          resourceId: "al1",
+          name: "p95 latency",
+          reason: "superseded",
+          pageCleared: true,
+          projectId: "p1",
+        },
+      }),
+    );
+    expect(model?.description).toBe("This alert was firing; deleting it cleared that page.");
+    expect(model?.body).toMatchObject({ kind: "delete", cascade: null });
+  });
+
+  it("keeps the plain tool line for a receipt of a type it has no card for", () => {
+    const model = resourceCardModel(
+      step({
+        toolName: "update_thing",
+        args: {},
+        details: { kind: "resource_updated", resourceType: "thing", resourceId: "t1", changed: [] },
+      }),
+    );
+    expect(model).toBeNull();
   });
 });

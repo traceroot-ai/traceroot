@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 
@@ -6,7 +7,7 @@ const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:810
 type RouteParams = { params: Promise<{ projectId: string }> };
 
 // GET /api/projects/[projectId]/ai/sessions — List sessions
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+async function handleGET(_request: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -35,7 +36,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/projects/[projectId]/ai/sessions — Create session
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -71,3 +72,5 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const data = await res.json();
   return successResponse(data, 201);
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);
