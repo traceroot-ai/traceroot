@@ -25,6 +25,8 @@
   <a href="./README.ko.md"><img alt="한국어 README" src="https://img.shields.io/badge/한국어-f8f8f8"></a>
 </p>
 
+<p align="center">⭐ Help us reach more developers and grow the TraceRoot community. Star this repo!</p>
+
 ## Features
 
 <p align="center">
@@ -34,33 +36,38 @@
 </p>
 <p align="center"><em>Detectors surface findings from production traces so you can decide what to improve next.</em></p>
 
-| Feature | Description |
-| ---------- | --------------- |
-| [Tracing](https://traceroot.ai/docs/tracing/get-started) | Capture LLM calls, tool use, and agent steps with OpenTelemetry-compatible Python and TypeScript SDKs. Inspect inputs, outputs, latency, tokens, and cost. |
-| [Detectors](https://traceroot.ai/docs/detectors/get-started) | Define behaviors to look for in production traces, configure sampling and judge models, and review findings. |
-| [Datasets](https://traceroot.ai/docs/evals/datasets) | Author, version, and publish the cases you want your agent to handle well. |
-| [Evaluations](https://traceroot.ai/docs/evals/get-started) | Run your system against a dataset, score each case, and compare candidate versions. Each case is also a trace you can inspect. |
-| [CLI](https://github.com/traceroot-ai/traceroot-cli) | Read and export traces, inspect detectors and findings, and bring that context into your coding workflow. |
-| Dashboards & alerts | Track quality, latency, and cost, and configure threshold alerts. |
-| In-app AI assistant | Explore traces with an agent that can access your source code and GitHub context. Use a hosted model or bring your own key. |
+### Turn production failures into tested improvements
 
-## Why TraceRoot?
+Use production feedback to decide what to change, then measure whether your next version is better.
 
-- **Traces alone don't scale.**
+| Step | What you do |
+| ---- | ----------- |
+| **[Trace](https://traceroot.ai/docs/tracing/get-started)** | See model calls, tool calls, and responses with inputs, outputs, latency, and cost. |
+| **[Detect](https://traceroot.ai/docs/detectors/get-started)** | Evaluate production traffic for failures and inefficiencies with configurable detectors. |
+| **Signals** | Surface recurring patterns across detector findings to identify improvement opportunities. |
+| **[Verify](https://traceroot.ai/docs/evals/get-started)** | Compare baseline and candidate runs on versioned datasets to check whether your changes improve results. |
 
-  As AI agent systems grow more complex, manually sifting through every trace is unsustainable. TraceRoot's Detectors selectively screen incoming traces — flagging hallucinations, tool failures, logic errors, and safety issues automatically, so you spend time fixing problems, not hunting for them.
+Bring the supporting traces to your coding agent, make a local change, and compare evaluation results before shipping. Repeat as new production feedback arrives.
 
-- **Debugging AI agent systems in production is painful.**
+### Built for your coding agent
 
-  Root-causing failures across agent hallucinations, tool call instabilities, and version changes is hard. TraceRoot's AI connects to a sandbox running your production source code, identifies the exact failing line, cross-references your GitHub history — commits, PRs, open issues — and opens a PR to fix it.
+Give your coding agent access to TraceRoot through an agent-native CLI:
 
-- **Agent improvement should be systematic, not ad hoc.**
+- **Investigate production behavior:** inspect and export traces, review detector findings, and query latency, token usage, and cost.
+- **Operate TraceRoot:** create and update detectors, dashboards, widgets, and alerts from your coding agent.
+- **Review the evidence:** read datasets, published test cases, and evaluation results to assess your changes.
 
-  Most teams debug production issues and move on — the learning evaporates. TraceRoot connects online and offline evaluation in a single loop: Detectors evaluate live traffic, confirmed failures become golden datasets, and offline evals verify every fix against them. Release over release, your agent gets measurably more robust and performant — improvement becomes a repeatable process, not a one-off firefight.
+<p align="center">
+  <a href="https://traceroot.ai/#how-it-works">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
+      <img src="docs/images/coding-agent-cli-light.png" alt="Your coding agent connects through the TraceRoot CLI to Home, traces, dashboards, detectors, evals, datasets, alerts, and signals." width="100%">
+    </picture>
+  </a>
+</p>
+<p align="center"><em>Explore the interactive diagram on our website. Available commands are listed in the CLI reference.</em></p>
 
-- **Fully open source, no vendor lock-in.**
-
-  Both the observability platform and the AI debugging layer are open source. BYOK support for any model provider — OpenAI, Anthropic, Gemini, xAI, DeepSeek, OpenRouter, Kimi, GLM and more.
+**[CLI reference](https://github.com/traceroot-ai/traceroot-cli#commands) · [Tracing](https://traceroot.ai/docs/tracing/get-started) · [Detectors](https://traceroot.ai/docs/detectors/get-started) · [Datasets](https://traceroot.ai/docs/evals/datasets) · [Evaluations](https://traceroot.ai/docs/evals/get-started)**
 
 ## Star TraceRoot
 
@@ -74,13 +81,13 @@ If you like what we’re building, give TraceRoot a star ⭐ to help more develo
 
 ## Getting Started
 
-### TraceRoot Cloud
+### 1. Choose where to run TraceRoot
 
-The fastest way to get started. [Sign up for TraceRoot Cloud](https://app.traceroot.ai)!
+**TraceRoot Cloud:** [Create an account](https://app.traceroot.ai) to get started without running the platform yourself.
 
-### Self-Hosting
+#### Self-Hosting
 
-Run locally with Docker:
+With Git, Docker Compose, and Make installed, run locally:
 
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
@@ -89,63 +96,16 @@ cp .env.example .env
 make prod-lite
 ```
 
-Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for details.
+Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
 
-## CLI Quickstart
+### 2. Send your first trace
 
-Use the [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) with your coding agent.
+Create a project and a project API key in your dashboard, then instrument your application with the **[Python SDK](https://github.com/traceroot-ai/traceroot-py#readme)** or **[TypeScript SDK](https://github.com/traceroot-ai/traceroot-ts#readme)**. Already sending traces? Continue to the CLI setup below.
 
-```bash
-npm install -g traceroot-cli
-traceroot login
-```
+<details>
+<summary>Run a minimal TypeScript example</summary>
 
-## Integrations
-
-### Native SDKs
-
-| Language | Repository |
-| -------- | ---------- |
-| Python | [traceroot-py](https://github.com/traceroot-ai/traceroot-py) |
-| TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
-
-<details open>
-<summary>Supported frameworks and model providers</summary>
-
-### Agent Frameworks
-
-| Integration | Supports | Description |
-| ----------- | -------- | ----------- |
-| [Agno](https://traceroot.ai/docs/integrations/agno) | Python | Automated instrumentation of agent runs, tool calls, and multi-step reasoning. |
-| [AutoGen](https://traceroot.ai/docs/integrations/autogen) | Python | Automated instrumentation of multi-agent conversations, agent loops, and tool calls. |
-| [Claude Agent SDK](https://traceroot.ai/docs/integrations/claude-agent-sdk) | Python, JS/TS | Automated instrumentation of agent invocations, subagent delegations, tool calls, and token usage. |
-| [CrewAI](https://traceroot.ai/docs/integrations/crewai) | Python | Automated instrumentation of multi-agent collaborative workflows and task executions. |
-| [DSPy](https://traceroot.ai/docs/integrations/dspy) | Python | Automated instrumentation of module executions, signature predictions, and underlying LLM calls. |
-| [Google ADK](https://traceroot.ai/docs/integrations/google-adk) | Python | Automated instrumentation of agent runs, tool executions, and the multi-turn agent loop. |
-| [LangChain & LangGraph](https://traceroot.ai/docs/integrations/langchain) | Python, JS/TS | Automated instrumentation by passing callback handler to LangChain application. |
-| [LangChain DeepAgents](https://traceroot.ai/docs/integrations/langchain-deepagents) | Python, JS/TS | Automated instrumentation by passing callback handler to DeepAgents pipeline. |
-| [LlamaIndex](https://traceroot.ai/docs/integrations/llamaindex) | Python | Automated instrumentation of RAG pipelines, document ingestion, retrieval, and LLM synthesis. |
-| [Microsoft Agent Framework](https://traceroot.ai/docs/integrations/microsoft-agent-framework) | Python | Automated instrumentation of agent runs, model calls, and tool executions via Agent Framework's built-in OpenTelemetry emission. |
-| [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | Automated instrumentation via the TraceRoot OTLP exporter. |
-| [OpenAI Agents SDK](https://traceroot.ai/docs/integrations/openai-agents-sdk) | Python, JS/TS | Automated instrumentation of agent runs, tool executions, and handoff transitions. |
-| [Pydantic AI](https://traceroot.ai/docs/integrations/pydantic-ai) | Python | Automated instrumentation of agent runs, LLM calls, and tool invocations via pydantic-ai's native OpenTelemetry support. |
-| [Vercel AI SDK](https://traceroot.ai/docs/integrations/vercel-ai) | JS/TS | Native OpenTelemetry tracing — no `instrumentModules` config required. AI SDK 7 needs `@ai-sdk/otel`; AI SDK 6 (legacy) uses `experimental_telemetry`. |
-
-### Model Providers
-
-| Integration | Supports | Description |
-| ----------- | -------- | ----------- |
-| [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python, JS/TS | Automated instrumentation of the Messages API. |
-| [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | Automated instrumentation via the Google GenAI SDK. |
-| [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Automated instrumentation of Mistral chat completions, tool calls, and streaming responses. |
-| [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Automated instrumentation of Chat Completions and Responses API. |
-| [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI-compatible tracing via the OpenAI SDK base URL; see the [Python](./examples/python/openrouter-tool-agent) and [TypeScript](./examples/typescript/openrouter) examples. |
-
-</details>
-
-> Don't see your framework or provider? [Request an integration](https://github.com/traceroot-ai/traceroot/issues).
-
-## TypeScript SDK Quickstart
+You need Node.js and npm, a TraceRoot project API key, and an OpenAI API key. For self-hosting, replace the cloud host URL below with your instance URL.
 
 **1. Install the SDK** in your TypeScript project:
 
@@ -190,6 +150,85 @@ main().catch(console.error);
 ```
 
 **4. Run it** with `npx tsx example.ts`, then open your project's **Traces** page to inspect the agent run. This example makes one OpenAI API call.
+
+</details>
+
+**Your first result:** open your project's **Traces** page to inspect the inputs, outputs, latency, and cost of the call.
+
+### 3. Connect your coding agent
+
+<a id="cli-quickstart"></a>
+
+With Node.js and npm installed, install the [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) and authenticate. For self-hosting, set `TRACEROOT_HOST_URL` to your instance URL before logging in.
+
+```bash
+npm install -g traceroot-cli
+traceroot login
+traceroot projects list
+```
+
+Choose a project from the list and use its ID to inspect recent traces:
+
+```bash
+traceroot traces list --project <project-id> --limit 5
+```
+
+Then ask your coding agent:
+
+```text
+Use the TraceRoot CLI to inspect the latest trace in project <project-id>.
+Explain the model and tool calls, identify any failures or unnecessary work,
+and link me to the trace in TraceRoot.
+```
+
+Replace `<project-id>` with your project ID. The result should be an explanation grounded in your trace, with a link to inspect it in the dashboard.
+
+See the [CLI reference](https://github.com/traceroot-ai/traceroot-cli#readme) for agent skills, authentication options, and read/write commands.
+
+## Integrations
+
+### Native SDKs
+
+| Language | Repository |
+| -------- | ---------- |
+| Python | [traceroot-py](https://github.com/traceroot-ai/traceroot-py) |
+| TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
+
+<details>
+<summary>Supported frameworks and model providers</summary>
+
+### Agent Frameworks
+
+| Integration | Supports | Description |
+| ----------- | -------- | ----------- |
+| [Agno](https://traceroot.ai/docs/integrations/agno) | Python | Automated instrumentation of agent runs, tool calls, and multi-step reasoning. |
+| [AutoGen](https://traceroot.ai/docs/integrations/autogen) | Python | Automated instrumentation of multi-agent conversations, agent loops, and tool calls. |
+| [Claude Agent SDK](https://traceroot.ai/docs/integrations/claude-agent-sdk) | Python, JS/TS | Automated instrumentation of agent invocations, subagent delegations, tool calls, and token usage. |
+| [CrewAI](https://traceroot.ai/docs/integrations/crewai) | Python | Automated instrumentation of multi-agent collaborative workflows and task executions. |
+| [DSPy](https://traceroot.ai/docs/integrations/dspy) | Python | Automated instrumentation of module executions, signature predictions, and underlying LLM calls. |
+| [Google ADK](https://traceroot.ai/docs/integrations/google-adk) | Python | Automated instrumentation of agent runs, tool executions, and the multi-turn agent loop. |
+| [LangChain & LangGraph](https://traceroot.ai/docs/integrations/langchain) | Python, JS/TS | Automated instrumentation by passing callback handler to LangChain application. |
+| [LangChain DeepAgents](https://traceroot.ai/docs/integrations/langchain-deepagents) | Python, JS/TS | Automated instrumentation by passing callback handler to DeepAgents pipeline. |
+| [LlamaIndex](https://traceroot.ai/docs/integrations/llamaindex) | Python | Automated instrumentation of RAG pipelines, document ingestion, retrieval, and LLM synthesis. |
+| [Microsoft Agent Framework](https://traceroot.ai/docs/integrations/microsoft-agent-framework) | Python | Automated instrumentation of agent runs, model calls, and tool executions via Agent Framework's built-in OpenTelemetry emission. |
+| [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | Automated instrumentation via the TraceRoot OTLP exporter. |
+| [OpenAI Agents SDK](https://traceroot.ai/docs/integrations/openai-agents-sdk) | Python, JS/TS | Automated instrumentation of agent runs, tool executions, and handoff transitions. |
+| [Pydantic AI](https://traceroot.ai/docs/integrations/pydantic-ai) | Python | Automated instrumentation of agent runs, LLM calls, and tool invocations via pydantic-ai's native OpenTelemetry support. |
+| [Vercel AI SDK](https://traceroot.ai/docs/integrations/vercel-ai) | JS/TS | Native OpenTelemetry tracing — no `instrumentModules` config required. AI SDK 7 needs `@ai-sdk/otel`; AI SDK 6 (legacy) uses `experimental_telemetry`. |
+
+### Model Providers
+
+| Integration | Supports | Description |
+| ----------- | -------- | ----------- |
+| [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python, JS/TS | Automated instrumentation of the Messages API. |
+| [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | Automated instrumentation via the Google GenAI SDK. |
+| [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Automated instrumentation of Mistral chat completions, tool calls, and streaming responses. |
+| [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Automated instrumentation of Chat Completions and Responses API. |
+| [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI-compatible tracing via the OpenAI SDK base URL; see the [Python](./examples/python/openrouter-tool-agent) and [TypeScript](./examples/typescript/openrouter) examples. |
+
+</details>
+
+> Don't see your framework or provider? [Request an integration](https://github.com/traceroot-ai/traceroot/issues).
 
 ## Security & Privacy
 
