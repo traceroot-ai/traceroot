@@ -797,7 +797,7 @@ class TraceReaderService:
                         '{SPAN_PATH}', tree_name_path
                     ))
                 ) AS metadata,
-                git_source_file, git_source_line, git_source_function
+                git_source_file, git_source_line, git_source_function, error_type
             FROM (
                 SELECT
                     span_id, trace_id, parent_span_id, name, span_kind,
@@ -806,7 +806,7 @@ class TraceReaderService:
                     usage_details,
                     {_extract_span_path_attr(SPAN_IDS_PATH)} AS tree_ids_path,
                     {_extract_span_path_attr(SPAN_PATH)} AS tree_name_path,
-                    git_source_file, git_source_line, git_source_function
+                    git_source_file, git_source_line, git_source_function, error_type
                 FROM spans
                 WHERE {spans_where_clause}
                 ORDER BY ch_update_time DESC
@@ -849,6 +849,7 @@ class TraceReaderService:
                     "git_source_file": row[16],
                     "git_source_line": int(row[17]) if row[17] is not None else None,
                     "git_source_function": row[18],
+                    "error_type": row[19],
                 }
             )
 
