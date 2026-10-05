@@ -61,9 +61,14 @@ def test_dry_run_lists_hits_within_the_lookback_and_changes_nothing():
 def test_apply_deletes_the_give_up_rows_and_marks_each_detector_pending_once():
     ch = fake_ch([("det-a", "run-1"), ("det-a", "run-3"), ("det-b", "run-2")])
     pg, cursor = fake_pg()
+    order = []
+    pg.commit.side_effect = lambda: order.append("mark")
+    ch.delete_given_up_signal_assignments.side_effect = lambda *_: order.append("delete")
 
     replay(pg, ch, "proj", apply=True, now=NOW)
 
+    # Marked first: a failed delete leaves rows a rerun can still find.
+    assert order == ["mark", "delete"]
     ch.delete_given_up_signal_assignments.assert_called_once_with(
         "proj", ["run-1", "run-3", "run-2"]
     )
@@ -94,6 +99,8 @@ def test_clickhouse_delete_touches_only_give_up_rows():
         "project_id": "proj",
         "run_ids": ["run-1"],
     }
+    # Returns only once the rows are gone.
+    assert raw.command.call_args.kwargs["settings"] == {"lightweight_deletes_sync": 2}
     raw.reset_mock()
     ClickHouseClient(raw).delete_given_up_signal_assignments("proj", [])
     raw.command.assert_not_called()
