@@ -157,25 +157,29 @@ describe("SignalDetailPanel analysis of an earlier opening", () => {
     analysed(0);
     signalDetail.signal.reopenSeq = 1;
     renderPanel();
-    expect(screen.getByText(/from an earlier occurrence/)).toBeTruthy();
+    expect(screen.getByText(/before the signal reopened/)).toBeTruthy();
     // No analysis was asked for the reopening: the cooldown or a Manual detector.
-    expect(screen.getByText(/No new analysis started automatically/)).toBeTruthy();
+    expect(screen.getByText(/No new analysis ran/)).toBeTruthy();
     // One paragraph: the button adds no state line of its own here.
     expect(screen.getByText("run-rca:null:quiet")).toBeTruthy();
     expect(screen.getByText("Root cause: the tool times out")).toBeTruthy();
   });
 
   it.each([
-    ["failed", "The analysis after it reopened failed."],
+    ["failed", "The new analysis failed."],
     ["running", "A new analysis is running."],
   ])("says in the same paragraph that the reopening's analysis is %s", (state, sentence) => {
     analysed(0);
     signalDetail.signal.reopenSeq = 1;
     signalDetail.signal.rca = { currentState: state, canonicalFindingId: null };
     renderPanel();
-    const note = screen.getByText(/from an earlier occurrence/);
-    expect(note.textContent).toContain(sentence);
-    expect(note.textContent).not.toContain("No new analysis started automatically");
+    const note = screen.getByText(/before the signal reopened/);
+    // One sentence about when, one about the reopening, spaced as read.
+    expect(note.textContent).toMatch(
+      /^This analysis is from \S.*\S, before the signal reopened\. /,
+    );
+    expect(note.textContent?.endsWith(sentence)).toBe(true);
+    expect(note.textContent).not.toContain("No new analysis ran");
     expect(screen.getByText(`run-rca:${state}:quiet`)).toBeTruthy();
   });
 
@@ -183,7 +187,7 @@ describe("SignalDetailPanel analysis of an earlier opening", () => {
     analysed(1);
     signalDetail.signal.reopenSeq = 1;
     renderPanel();
-    expect(screen.queryByText(/from an earlier occurrence/)).toBeNull();
+    expect(screen.queryByText(/before the signal reopened/)).toBeNull();
     expect(screen.queryByText(/run-rca:/)).toBeNull();
     expect(screen.getByText("Root cause: the tool times out")).toBeTruthy();
   });

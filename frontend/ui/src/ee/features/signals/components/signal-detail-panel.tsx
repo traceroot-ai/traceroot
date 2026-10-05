@@ -13,7 +13,7 @@ import { TR } from "@/components/ui/table";
 import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { QueryWidgetRenderer } from "@/features/dashboards/components/renderers";
-import { cn, formatCost, formatDate, formatDuration } from "@/lib/utils";
+import { cn, formatCost, formatDate, formatDuration, formatRelativeTime } from "@/lib/utils";
 import {
   rcaInProgress,
   useSignal,
@@ -79,12 +79,12 @@ interface SignalDetailPanelProps {
  * The signal opened from the Signals list: what it covers, its root cause
  * analysis, how often it happened per day, and its latest traces.
  */
-/** What happened to the analysis of a reopening, in the sentence after "reopened since". */
+/** What happened to the analysis of a reopening, in the sentence after "before the signal reopened". */
 function reopeningState(state: string | null): string {
   if (state === null) {
-    return "No new analysis started automatically: one does not run within 24 hours of the last, or when the detector's root cause analysis is Manual.";
+    return "No new analysis ran, because the last one was less than 24 hours earlier or this detector's root cause analysis is Manual.";
   }
-  if (state === "failed") return "The analysis after it reopened failed.";
+  if (state === "failed") return "The new analysis failed.";
   if (rcaInProgress(state)) return "A new analysis is running.";
   return "";
 }
@@ -339,9 +339,13 @@ function SignalBlocks({
               {earlier && (
                 <div className="space-y-2">
                   <p className="text-[12px] text-muted-foreground">
-                    This analysis is from an earlier occurrence
-                    {earlierAt ? ` (${formatDate(earlierAt)})` : ""}; the signal has reopened since.{" "}
-                    {reopeningState(signal.rca.currentState)}
+                    This analysis is from{" "}
+                    {earlierAt ? (
+                      <span title={formatDate(earlierAt)}>{formatRelativeTime(earlierAt)}</span>
+                    ) : (
+                      "earlier"
+                    )}
+                    , before the signal reopened. {reopeningState(signal.rca.currentState)}
                   </p>
                   <RunRca
                     projectId={projectId}
