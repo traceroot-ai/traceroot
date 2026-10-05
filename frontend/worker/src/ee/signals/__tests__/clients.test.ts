@@ -18,7 +18,8 @@ import {
   parseAssignAnswer,
   parseSignalText,
 } from "../models.js";
-import type { ModelUsage } from "../types.js";
+import { MalformedResponseError } from "../../../detection/typesafe-client.js";
+import { UnusableAnswerError, type ModelUsage } from "../types.js";
 
 const mockFetch = vi.fn();
 beforeEach(() => {
@@ -191,7 +192,10 @@ describe("chat models", () => {
   it("fails after two unusable answers, and at once on a provider error", async () => {
     mockComplete.mockResolvedValue(toolResponse("submit_validation", { accepted: "yes" }));
     const chat = createChatModels("k", []);
-    await expect(chat.validate("c", "e", ["a"])).rejects.toThrow("malformed tool arguments");
+    const unusable = chat.validate("c", "e", ["a"]);
+    await expect(unusable).rejects.toThrow("malformed tool arguments");
+    // Only an unusable answer counts toward giving up on the hit.
+    await expect(unusable).rejects.toBeInstanceOf(UnusableAnswerError);
 
     mockComplete.mockReset();
     mockComplete.mockResolvedValueOnce({
@@ -200,7 +204,9 @@ describe("chat models", () => {
       content: [],
       usage: {},
     });
-    await expect(chat.validate("c", "e", ["a"])).rejects.toThrow("401");
+    const outage = chat.validate("c", "e", ["a"]);
+    await expect(outage).rejects.toThrow("401");
+    await expect(outage).rejects.not.toBeInstanceOf(UnusableAnswerError);
     expect(mockComplete).toHaveBeenCalledOnce();
   });
 
@@ -276,15 +282,24 @@ describe("Jev models", () => {
     expect(call.state).toEqual({ criteria: "covers: C\nexcludes: E", hit_0: "a", hit_1: "b" });
   });
 
-  it("records the tokens of a billed response it rejects", async () => {
+  it("records the tokens of a billed response it rejects, as an unusable answer", async () => {
     mockSystemOne.mockRejectedValueOnce(
-      Object.assign(new Error("malformed"), { usage: { inputTokens: 9, outputTokens: 1 } }),
+      Object.assign(new MalformedResponseError("malformed"), {
+        usage: { inputTokens: 9, outputTokens: 1 },
+      }),
     );
     const usage: ModelUsage[] = [];
-    await expect(createJevModels("ts-key", usage).validate("c", "e", ["a"])).rejects.toThrow(
-      "malformed",
-    );
+    const unusable = createJevModels("ts-key", usage).validate("c", "e", ["a"]);
+    await expect(unusable).rejects.toThrow("malformed");
+    await expect(unusable).rejects.toBeInstanceOf(UnusableAnswerError);
     expect(usage).toHaveLength(1);
     expect(usage[0].inputTokens).toBe(9);
+  });
+
+  it("passes a TypeSafe outage through as is", async () => {
+    mockSystemOne.mockRejectedValueOnce(new Error("TypeSafe request failed: ECONNRESET"));
+    const outage = createJevModels("ts-key", []).assign("hit", []);
+    await expect(outage).rejects.toThrow("ECONNRESET");
+    await expect(outage).rejects.not.toBeInstanceOf(UnusableAnswerError);
   });
 });

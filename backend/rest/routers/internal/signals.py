@@ -176,8 +176,9 @@ class SignalAssignmentRow(BaseModel):
     score: float | None = None
     criteria_version: int | None = Field(default=None, ge=0)
     assigned_at_ms: int = Field(ge=0)
-    # The worker stopped retrying a hit that kept failing: the row is written
-    # with an empty signal_id so the hit no longer counts as waiting.
+    # The worker stopped retrying a hit whose model answers stayed unusable
+    # (never for an outage): the row is written with an empty signal_id so the
+    # hit no longer counts as waiting. scripts/replay_signal_hits.py undoes it.
     gave_up: bool = False
 
     @model_validator(mode="after")
@@ -209,3 +210,66 @@ async def write_signal_assignments(body: SignalAssignmentsPayload):
         ]
     )
     return {"ok": True, "written": len(body.rows)}
+
+
+class UnsettledRunsPayload(BaseModel):
+    project_id: str = Field(min_length=1)
+    # One assignment round touches at most 200 findings.
+    finding_ids: list[str] = Field(min_length=1, max_length=MAX_WAITING_HITS)
+    since_ms: int = Field(ge=0)
+
+
+@router.post("/unsettled-runs", dependencies=[Depends(verify_internal_secret)])
+async def list_unsettled_runs(body: UnsettledRunsPayload):
+    """List the fired runs of these findings that have no assignment row yet.
+
+    The worker starts a trace's RCA only once every hit of the trace is
+    settled; these are the hits it may still wait for. A run is collapsed with
+    FINAL as in ``waiting-hits``, so one re-evaluated as clean drops out; a hit
+    the worker gave up on has a row, so it does not count as unsettled.
+
+    Args:
+        body (UnsettledRunsPayload): project_id, finding_ids, and since_ms (only
+            runs detected at or after this epoch-ms time).
+
+    Returns:
+        dict: ``{"data": [...]}``, each item with finding_id, run_id,
+            detector_id and timestamp_ms.
+    """
+    ch = get_clickhouse_client()
+    params = {
+        "project_id": body.project_id,
+        "finding_ids": body.finding_ids,
+        "since": _ms_to_utc(body.since_ms),
+    }
+    result = ch.query(
+        """
+        SELECT finding_id, run_id, detector_id, toUnixTimestamp64Milli(timestamp) AS timestamp_ms
+        FROM (
+            SELECT run_id, detector_id, finding_id, status, timestamp
+            FROM detector_runs FINAL
+            WHERE project_id = {project_id:String}
+              AND timestamp >= {since:DateTime64(3)}
+        )
+        WHERE finding_id IN {finding_ids:Array(String)}
+          AND status = 'completed'
+          AND run_id NOT IN (
+              SELECT run_id FROM signal_assignments
+              WHERE project_id = {project_id:String}
+                AND assigned_at >= {since:DateTime64(3)}
+          )
+        ORDER BY finding_id, run_id
+        """,
+        parameters=params,
+    )
+    return {
+        "data": [
+            {
+                "finding_id": finding_id,
+                "run_id": run_id,
+                "detector_id": detector_id,
+                "timestamp_ms": int(timestamp_ms),
+            }
+            for finding_id, run_id, detector_id, timestamp_ms in result.result_rows
+        ]
+    }
