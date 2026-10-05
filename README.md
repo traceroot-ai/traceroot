@@ -31,16 +31,16 @@
 
 ### Turn production failures into tested improvements
 
-Use production feedback to decide what to change, then measure whether your next version is better.
+Find what went wrong, understand what to change, and measure whether your next version is better.
 
 | Step | What you do |
 | ---- | ----------- |
-| **[Trace](https://traceroot.ai/docs/tracing/get-started)** | See model calls, tool calls, and responses with inputs, outputs, latency, and cost. |
-| **[Detect](https://traceroot.ai/docs/detectors/get-started)** | Evaluate production traffic for failures and inefficiencies with configurable detectors. |
-| **Signals** | Surface recurring patterns across detector findings to identify improvement opportunities. |
-| **[Verify](https://traceroot.ai/docs/evals/get-started)** | Compare baseline and candidate runs on versioned datasets to check whether your changes improve results. |
+| **[Trace](https://traceroot.ai/docs/tracing/get-started)** | See each model call, tool call, and response, with inputs, outputs, latency, and cost. |
+| **[Detect](https://traceroot.ai/docs/detectors/get-started)** | Define what good behavior looks like. Automatically flag production runs that miss the mark. |
+| **Signals** | Surface recurring patterns from judge outputs, review the supporting traces, and identify what to change. |
+| **[Verify](https://traceroot.ai/docs/evals/get-started)** | Run evals against your datasets and compare versions to measure improvements and catch regressions. |
 
-Bring the supporting traces to your coding agent, make a local change, and compare evaluation results before shipping. Repeat as new production feedback arrives.
+Close the loop with your coding agent: investigate a signal through the TraceRoot CLI, make a local change, and verify it with offline evals. Repeat with new production traffic.
 
 ### Built for your coding agent
 
@@ -54,6 +54,7 @@ Give your coding agent read and write access to TraceRoot through an agent-nativ
     </picture>
   </a>
 </p>
+
 ## ⭐ Star the Repository
 
 If you like what we’re building, give TraceRoot a star ⭐ to help more developers discover it.
