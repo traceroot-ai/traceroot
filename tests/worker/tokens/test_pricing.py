@@ -678,6 +678,10 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("global.anthropic.claude-sonnet-5-20260601-v1:0", "claude-sonnet-5"),
     ("anthropic.claude-sonnet-5-20260601-v1:0", "claude-sonnet-5"),
     ("claude-sonnet-5@20260601", "claude-sonnet-5"),
+    # Sonnet 5.5 — plain (also its Vertex id), anthropic/ prefix, Bedrock
+    ("claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("anthropic/claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("us.anthropic.claude-sonnet-4-6-20251015-v1:0", "claude-sonnet-4-6"),
     ("us.anthropic.claude-opus-4-6-20251015-v1:0", "claude-opus-4-6"),
     ("us.anthropic.claude-sonnet-4-20250514-v1:0", "claude-sonnet-4"),
@@ -713,30 +717,30 @@ class TestClaudeBedrockAndVertexIds:
             f"{model_id} matched a different family than {expected_name}"
         )
 
-    @pytest.mark.parametrize(
-        "model_id", ["claude-opus-5-5", "anthropic/claude-opus-5-5", "anthropic.claude-opus-5-5"]
-    )
-    def test_opus_5_5_matches_only_its_entry(self, real_cache, model_id):
-        # First-match lookup hides overlaps; claude-opus-5's pattern once swallowed these ids.
+    @pytest.mark.parametrize("family", ["claude-opus-5-5", "claude-sonnet-5-5"])
+    @pytest.mark.parametrize("prefix", ["", "anthropic/", "anthropic."])
+    def test_5_5_ids_match_only_their_entry(self, real_cache, family, prefix):
+        # First-match lookup hides overlaps; the 5 patterns once swallowed these ids.
+        model_id = prefix + family
         matching = [
             e["model_name"]
             for e in real_cache
             if re.search(e["match_pattern"], model_id, re.IGNORECASE)
         ]
-        assert matching == ["claude-opus-5-5"], f"{model_id} matched {matching}"
+        assert matching == [family], f"{model_id} matched {matching}"
 
-    def test_opus_5_5_published_rates(self):
-        # Opus 5.5 reads cache at 0.05x input, not the usual 0.1x.
-        entry = next(e for e in _standard_price_entries() if e["modelName"] == "claude-opus-5-5")
-        assert entry["prices"] == pytest.approx(
-            {
-                "input": 4e-6,
-                "output": 2e-5,
-                "cacheRead": 2e-7,
-                "cacheWrite": 5e-6,
-                "cacheWrite1h": 8e-6,
-            }
-        )
+    @pytest.mark.parametrize(
+        "model_name,rates",
+        [
+            # input, output, cacheRead, cacheWrite, cacheWrite1h; Opus 5.5 reads cache at 0.05x.
+            ("claude-opus-5-5", (4e-6, 2e-5, 2e-7, 5e-6, 8e-6)),
+            ("claude-sonnet-5-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+        ],
+    )
+    def test_5_5_published_rates(self, model_name, rates):
+        entry = next(e for e in _standard_price_entries() if e["modelName"] == model_name)
+        keys = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
+        assert entry["prices"] == pytest.approx(dict(zip(keys, rates)))
 
     def test_unrelated_model_still_none(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
