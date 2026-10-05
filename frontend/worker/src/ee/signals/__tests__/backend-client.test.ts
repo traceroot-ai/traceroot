@@ -65,6 +65,25 @@ describe("signalsBackend", () => {
     );
   });
 
+  it("asks which fired runs of some findings have no assignment yet", async () => {
+    mockFetch.mockResolvedValueOnce(
+      ok({ data: [{ finding_id: "f1", run_id: "r1", detector_id: "d1", timestamp_ms: 5 }] }),
+    );
+    await expect(signalsBackend.unsettledRuns("p", ["f1", "f2"], 1000.7)).resolves.toEqual([
+      { finding_id: "f1", run_id: "r1", detector_id: "d1", timestamp_ms: 5 },
+    ]);
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://backend:8000/api/v1/internal/signals/unsettled-runs");
+    expect(JSON.parse(init.body)).toEqual({
+      project_id: "p",
+      finding_ids: ["f1", "f2"],
+      since_ms: 1000,
+    });
+    // No findings, no call.
+    await expect(signalsBackend.unsettledRuns("p", [], 0)).resolves.toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("reports the status and body of a failed call, and a timeout", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

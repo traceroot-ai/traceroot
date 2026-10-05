@@ -9,7 +9,6 @@ import {
 } from "../../queues/detector-run-queue.js";
 import type { SignalsBackend } from "./backend-client.js";
 import {
-  RCA_DELAY_MS,
   RCA_ENQUEUE_GRACE_MS,
   RCA_SWEEP_EXAMINE_CAP,
   RCA_SWEEP_PAGE_SIZE,
@@ -24,17 +23,17 @@ function getRcaQueue(): Queue<RcaJob> {
 }
 
 /**
- * Enqueue the RCA of a finding whose hit started or reopened a signal. One job
- * per finding; the job reads the signals to analyse when it runs, so another
- * hit of the same trace opening a signal before then is included. Finished and
- * failed jobs are removed at once: a kept job would swallow the add of a later
- * opening under the same id. The id prefix differs from per-finding RCA jobs
- * from before signals, so one of those still kept cannot swallow it either.
+ * Enqueue the RCA of a finding whose hit started or reopened a signal, once
+ * every hit of the trace is settled (startSettledRcas). One job per finding;
+ * the job reads the signals to analyse when it runs. Finished and failed jobs
+ * are removed at once: a kept job would swallow the add of a later opening
+ * under the same id. The id prefix differs from per-finding RCA jobs from
+ * before signals, so one of those still kept cannot swallow it either.
  */
 export async function enqueueSignalRca(
   findingId: string,
   projectId: string,
-  delayMs: number = RCA_DELAY_MS,
+  delayMs: number = 0,
 ): Promise<void> {
   await getRcaQueue().add(
     signalRcaJobId(findingId),
@@ -55,6 +54,82 @@ export async function enqueueSignalRca(
 export const signalRcaJobId = (findingId: string) => `signal-rca-${findingId}`;
 
 type RcaDb = Pick<PrismaClient, "signalRca" | "signalHit" | "project" | "detector">;
+
+/**
+ * The findings among `findingIds` whose hits are all settled, so their RCA can
+ * analyse every signal the trace started or reopened in one run. A hit is
+ * settled once it is assigned (in Postgres, or its ClickHouse copy) or given
+ * up. A hit of a detector deleted since, or with signals or RCA off, is not
+ * waited for, nor one detected before signals were turned on: none of them
+ * will open a signal to analyse. Hits older than the lookback are not read,
+ * as the assignment job does not read them either.
+ */
+export async function settledFindings(
+  db: Pick<PrismaClient, "signalHit" | "detector">,
+  backend: Pick<SignalsBackend, "unsettledRuns">,
+  projectId: string,
+  findingIds: readonly string[],
+  now: number = Date.now(),
+): Promise<Set<string>> {
+  if (findingIds.length === 0) return new Set();
+  const runs = await backend.unsettledRuns(projectId, [...findingIds], now - WAITING_LOOKBACK_MS);
+  if (runs.length === 0) return new Set(findingIds);
+  const [assigned, detectors] = await Promise.all([
+    db.signalHit.findMany({
+      where: { runId: { in: runs.map((r) => r.run_id) } },
+      select: { runId: true },
+    }),
+    db.detector.findMany({
+      where: { projectId, id: { in: [...new Set(runs.map((r) => r.detector_id))] } },
+      select: { id: true, enableSignals: true, enableRca: true, signalsEnabledAt: true },
+    }),
+  ]);
+  const done = new Set(assigned.map((h) => h.runId));
+  const byId = new Map(detectors.map((d) => [d.id, d]));
+  const waiting = new Set<string>();
+  for (const r of runs) {
+    const d = byId.get(r.detector_id);
+    if (done.has(r.run_id) || !d?.enableSignals || !d.enableRca) continue;
+    if (r.timestamp_ms < d.signalsEnabledAt.getTime()) continue;
+    waiting.add(r.finding_id);
+  }
+  return new Set(findingIds.filter((f) => !waiting.has(f)));
+}
+
+/**
+ * Start the RCA of each finding among `findingIds` that has one pending and
+ * whose hits are all settled. Called when an assignment round ends, for the
+ * findings of the hits it settled, and by the sweeper. Starting a finding
+ * whose job is already waiting or running changes nothing (one job id per
+ * finding). Returns how many it started.
+ */
+export async function startSettledRcas(
+  db: Pick<PrismaClient, "detectorRca" | "signalHit" | "detector">,
+  backend: Pick<SignalsBackend, "unsettledRuns">,
+  projectId: string,
+  findingIds: readonly string[],
+  enqueue: (findingId: string, projectId: string) => Promise<void> = enqueueSignalRca,
+): Promise<number> {
+  if (findingIds.length === 0) return 0;
+  const pending = await db.detectorRca.findMany({
+    where: {
+      findingId: { in: [...findingIds] },
+      projectId,
+      status: "pending",
+      signalRcas: { some: {} },
+    },
+    select: { findingId: true },
+  });
+  if (pending.length === 0) return 0;
+  const settled = await settledFindings(
+    db,
+    backend,
+    projectId,
+    pending.map((p) => p.findingId),
+  );
+  for (const findingId of settled) await enqueue(findingId, projectId);
+  return settled.size;
+}
 
 export interface SignalRcaContext {
   traceId: string;
@@ -258,9 +333,12 @@ function pastCursor(cursor: SweepCursor) {
 }
 
 /**
- * Start the signal RCAs that are pending without a job: the enqueue after the
- * assignment commit failed, the job was lost, or a user asked for the RCA from
- * the Signals page. A pending RCA whose job is waiting or running is left to it.
+ * Start the signal RCAs that are pending without a job: the start after the
+ * assignment round failed, the job was lost, a user asked for the RCA from the
+ * Signals page, or the trace's last hit was settled by its detector being
+ * switched off. A pending RCA whose job is waiting or running is left to it,
+ * and one whose trace still has a hit being assigned waits for the round that
+ * settles it (startSettledRcas).
  *
  * Pages through every pending row in key order, past rows whose job exists,
  * so a busy queue cannot hide a job-less request behind it. Work is bounded by
@@ -272,12 +350,15 @@ function pastCursor(cursor: SweepCursor) {
  * requestSignalRca can ask again.
  */
 export async function sweepSignalRcas(
-  db: Pick<PrismaClient, "signalRca" | "detectorRca">,
+  db: Pick<PrismaClient, "signalRca" | "detectorRca" | "signalHit" | "detector">,
+  backend: Pick<SignalsBackend, "unsettledRuns">,
   now: number = Date.now(),
 ): Promise<number> {
   const cutoff = new Date(now - RCA_ENQUEUE_GRACE_MS);
   const giveUpBefore = new Date(now - WAITING_LOOKBACK_MS);
   const seenFindings = new Set<string>();
+  const toStart = new Map<string, string[]>();
+  let candidates = 0;
   let started = 0;
   let failed = 0;
   let examined = 0;
@@ -336,11 +417,14 @@ export async function sweepSignalRcas(
         if (newer.createTime.getTime() >= cutoff.getTime()) continue;
       }
       // The cap bounds queue adds only; ending a stale request stays cheap.
-      if (started >= RCA_SWEEP_START_CAP) continue;
-      await enqueueSignalRca(r.findingId, r.rca.projectId, 0);
-      started++;
+      if (candidates >= RCA_SWEEP_START_CAP) continue;
+      toStart.set(r.rca.projectId, [...(toStart.get(r.rca.projectId) ?? []), r.findingId]);
+      candidates++;
     }
     if (page.length < RCA_SWEEP_PAGE_SIZE) break;
+  }
+  for (const [projectId, findingIds] of toStart) {
+    started += await startSettledRcas(db, backend, projectId, findingIds);
   }
 
   if (examined >= RCA_SWEEP_EXAMINE_CAP) {

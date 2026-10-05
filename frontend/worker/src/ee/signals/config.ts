@@ -65,15 +65,15 @@ export const DRAIN_MARGIN_MS = 10_000;
 /**
  * How far back the job looks for waiting hits, and how long a hit's failure
  * count is kept. It bounds the ClickHouse scan; a hit left unassigned for longer
- * (an outage of a week) is given up.
+ * (an outage of more than a week) is no longer read.
  */
 export const WAITING_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * A hit that keeps failing is given up after at least this many failures
- * spread over at least this long, so one bad hit stops being retried while an
- * outage shorter than that gives up nothing. A longer outage gives up the
- * oldest waiting hits of each detector, a couple at a time.
+ * A hit whose model answers stay unusable (UnusableAnswerError) is given up
+ * after at least this many of them spread over at least this long, so one bad
+ * hit stops being retried. Other failures (a provider, key, network or
+ * database outage) never count: the hit waits for the outage to end.
  */
 export const GIVE_UP_AFTER_FAILURES = 3;
 export const GIVE_UP_AFTER_MS = 6 * 60 * 60 * 1000;
@@ -118,16 +118,17 @@ export function managedJevKey(): string | null {
 export const RCA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Delay before a signal RCA job runs, so the other hits of the same trace
- * (assigned by other detectors' jobs) are usually assigned by then and
- * analysed in the same run.
+ * How long a signal RCA job waits before it runs again: after a run, when an
+ * opening landed during it, or when an empty finding's opening may still be
+ * committing. A trace's first run needs no delay: it starts once every hit of
+ * the trace is settled (startSettledRcas).
  */
 export const RCA_DELAY_MS = 60_000;
 
 /**
  * How long after an opening is written the sweeper may start its RCA. A round
- * commits openings as it goes but enqueues their RCAs only when it ends, up to
- * ROUND_MAX_MS later; starting one sooner would skip RCA_DELAY_MS. A pending
+ * commits openings as it goes but starts their RCAs only when it ends, up to
+ * ROUND_MAX_MS later; the sweep leaves that start to the round. A pending
  * RCA older than this with no job lost its job, or was asked for by hand from
  * the Signals page (the web app cannot reach the job queue).
  */

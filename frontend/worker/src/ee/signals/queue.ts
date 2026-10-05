@@ -144,3 +144,8 @@ export async function recordHitFailure(
   const first = await r.hget(key, "first");
   return { count, firstAt: Number(first ?? now) };
 }
+
+/** Forget a hit's failures (it was given up), so a replay of it starts over. */
+export async function clearHitFailures(runId: string): Promise<void> {
+  await redis().del(`signals:assign:failures:${runId}`);
+}

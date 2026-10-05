@@ -20,6 +20,7 @@ import {
   closeEmptySignalRca,
   loadSignalRcaContext,
   rootCausesByOpening,
+  settledFindings,
   type SignalRcaContext,
 } from "../ee/signals/rca.js";
 import { scheduleFindingDigest } from "../notifications/digest-schedule.js";
@@ -384,6 +385,16 @@ export async function processRcaJob(job: Job<RcaJob>, token?: string) {
   let signalContext: SignalRcaContext | null = null;
   let data: DetectorRcaJob;
   if (isSignalRcaJob(job.data)) {
+    // Run once every hit of the trace is settled, so one run analyses all the
+    // signals it started or reopened. The round that settles the last hit, or
+    // the sweeper, starts the job again.
+    const settled = await settledFindings(prisma, signalsBackend, job.data.projectId, [
+      job.data.findingId,
+    ]);
+    if (!settled.has(job.data.findingId)) {
+      console.log(`[RCA] finding ${job.data.findingId}: hits of the trace still being assigned`);
+      return;
+    }
     signalContext = await loadSignalRcaContext(
       prisma,
       signalsBackend,
