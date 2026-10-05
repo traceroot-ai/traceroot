@@ -92,36 +92,24 @@ Once you have a TraceRoot instance, create a project in your dashboard and choos
 
 <a id="cli-quickstart"></a>
 
-The [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) is designed for coding agents, with machine-readable output and installable skills for working with your application and TraceRoot. Start by asking your agent to add tracing; then use the same CLI to investigate traces, operate detectors and dashboards, and review eval results.
-
-**1. Install and authenticate.** You need Node.js and npm. Run these commands from your application's repository. For self-hosting, set `TRACEROOT_HOST_URL` to your instance URL before logging in.
+Install the [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) and log in:
 
 ```bash
 npm install -g traceroot-cli
 traceroot login
-traceroot projects list
 ```
 
-**2. Install the instrumentation skill.** Follow the prompts to choose your coding agent:
-
-```bash
-traceroot skills install traceroot-instrument-repo
-```
-
-**3. Ask your coding agent to send your first trace.** Replace `<project-id>` with the ID from the project list:
+Then ask your coding agent:
 
 ```text
-Use the TraceRoot instrumentation skill to add tracing to this application
-for project <project-id>. Identify the framework and model provider, configure
-the appropriate SDK, and run a small example. Verify that the trace appears
-in TraceRoot and give me a link to inspect it.
+Use the TraceRoot CLI to set up tracing for this application.
+Install the appropriate TraceRoot skill, guide me through any required
+configuration, and verify that my first trace appears in TraceRoot.
 ```
 
-Have your TraceRoot project API key and any model-provider credentials ready for the application's runtime configuration. CLI login authenticates the CLI; your instrumented application needs its own project API key. Your agent can guide you through the setup.
+Already sending traces? Ask your agent to investigate a trace, create a detector, build a dashboard, or review eval results.
 
-**Your first result:** a trace you can inspect in the dashboard and investigate from your coding agent. Already sending traces? Ask your agent to inspect a recent trace instead.
-
-See the [CLI reference](https://github.com/traceroot-ai/traceroot-cli#readme) for supported agents, skills, authentication options, and read/write commands.
+[CLI setup and reference →](https://github.com/traceroot-ai/traceroot-cli#readme)
 
 ### Manually with an SDK
 
