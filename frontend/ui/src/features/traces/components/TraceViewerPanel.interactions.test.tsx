@@ -244,6 +244,40 @@ describe("TraceViewerPanel header actions", () => {
     fireEvent.click(close!);
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("dismisses the AI assistant panel and clears context on unmount", () => {
+    const { unmount } = renderPanel();
+    mocks.setAiPanelOpen.mockClear();
+    mocks.setAiContext.mockClear();
+    mocks.setAiInitialSessionId.mockClear();
+
+    unmount();
+
+    expect(mocks.setAiPanelOpen).toHaveBeenCalledWith(false);
+    expect(mocks.setAiContext).toHaveBeenCalledWith(null);
+    expect(mocks.setAiInitialSessionId).toHaveBeenCalledWith(undefined);
+  });
+
+  it("dismisses the AI assistant panel and clears context when traceId changes", () => {
+    const { rerender } = renderPanel({ traceOverride: undefined });
+    mocks.setAiPanelOpen.mockClear();
+    mocks.setAiContext.mockClear();
+    mocks.setAiInitialSessionId.mockClear();
+    rerender(
+      <TraceViewerPanel
+        projectId="proj-1"
+        traceId="trace-2"
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+        canNavigateUp={false}
+        canNavigateDown={false}
+      />,
+    );
+
+    expect(mocks.setAiPanelOpen).toHaveBeenCalledWith(false);
+    expect(mocks.setAiContext).toHaveBeenCalledWith(null);
+    expect(mocks.setAiInitialSessionId).toHaveBeenCalledWith(undefined);
+  });
 });
 
 describe("TraceViewerPanel RCA alert", () => {
