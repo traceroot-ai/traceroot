@@ -48,13 +48,20 @@ export interface SignalDetail {
     criteriaExcludes: string;
     /** Whether the criteria passed their check at creation; null when none ran. */
     criteriaValidated: boolean | null;
+    /** The current opening: 0 at creation, +1 on every reopening. */
+    reopenSeq: number;
+    /** The current opening's analysis state; null when none was asked for. */
     rca: { currentState: string | null; canonicalFindingId: string | null };
     canonicalRca: {
       findingId: string;
+      /** The opening it analysed: earlier than the current one if the signal reopened since. */
+      reopenSeq: number;
       traceId: string | null;
       sessionId: string | null;
       result: string | null;
     } | null;
+    /** Each opening's RCA request, newest first. */
+    rcaHistory: { reopenSeq: number; findingId: string; status: string; createTime: string }[];
   };
   /** Whether this deployment groups hits and runs their RCA (it has the key signals run on). */
   grouping: boolean;

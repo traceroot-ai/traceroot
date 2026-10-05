@@ -57,6 +57,11 @@ It references #2399 and #2404 without closing the full UX issue.
 - The signal panel's Summary says when the criteria did not pass their check
   at creation (signals.criteria_validated is false). The check is diagnostic:
   the signal is created either way, and a hand edit clears the result.
+- When the analysis shown is of an earlier opening (the signal reopened since),
+  the panel says so with its date and offers Run root cause analysis for the
+  current opening; if no analysis was asked for it, the panel explains why (the
+  24-hour cooldown, or a Manual detector). A failed analysis does not count
+  toward the cooldown, so the next reopening runs one again.
 - Open in agent loads the signal's RCA chat. Closing its sidebar clears the
   preload session ID along with the chat, so reopening the same analysis
   reloads its transcript.

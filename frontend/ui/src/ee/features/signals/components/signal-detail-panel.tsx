@@ -268,6 +268,11 @@ function SignalBlocks({
 }) {
   const { signal, hits, hitSeries, window } = detail;
   const rca = signal.canonicalRca;
+  // The analysis shown is of an earlier opening: the signal reopened since it ran.
+  const earlier = rca?.result && rca.reopenSeq < signal.reopenSeq ? rca : null;
+  const earlierAt = earlier
+    ? signal.rcaHistory.find((h) => h.reopenSeq === earlier.reopenSeq)?.createTime
+    : undefined;
   const affected = hitSeries.reduce((sum, b) => sum + b.hits, 0);
   // The traces the signal's detector checked in the window; null when that count is unavailable.
   const total = hitSeries.some((b) => b.unaffected === null)
@@ -314,8 +319,26 @@ function SignalBlocks({
       >
         <div className="px-3 py-2.5">
           {rca?.result ? (
-            <div className="rounded-md border border-border px-3 py-2">
-              <MarkdownView content={rca.result} />
+            <div className="space-y-3">
+              {earlier && (
+                <div className="space-y-2">
+                  <p className="text-[12px] text-muted-foreground">
+                    This analysis is from an earlier occurrence
+                    {earlierAt ? ` (${formatDate(earlierAt)})` : ""}; the signal has reopened since.
+                    {signal.rca.currentState === null &&
+                      " No new analysis started automatically: one does not run within 24 hours of the last, or when the detector's root cause analysis is Manual."}
+                  </p>
+                  <RunRca
+                    projectId={projectId}
+                    signalId={signal.id}
+                    state={signal.rca.currentState}
+                    available={detail.grouping}
+                  />
+                </div>
+              )}
+              <div className="rounded-md border border-border px-3 py-2">
+                <MarkdownView content={rca.result} />
+              </div>
             </div>
           ) : (
             <RunRca

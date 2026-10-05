@@ -33,7 +33,9 @@ vi.mock("@/features/dashboards/components/renderers", () => ({
   QueryWidgetRenderer: () => null,
 }));
 
-vi.mock("./run-rca", () => ({ RunRca: () => null }));
+vi.mock("./run-rca", () => ({
+  RunRca: ({ state }: { state: string | null }) => <div>run-rca:{String(state)}</div>,
+}));
 vi.mock("./signal-status-control", () => ({ SignalStatusControl: () => null }));
 
 const signalDetail = vi.hoisted(() => ({
@@ -51,8 +53,21 @@ const signalDetail = vi.hoisted(() => ({
     criteriaCovers: "Covers X",
     criteriaExcludes: "Excludes Y",
     criteriaValidated: true as boolean | null,
-    rca: { currentState: null, canonicalFindingId: null },
-    canonicalRca: null,
+    reopenSeq: 0,
+    rca: { currentState: null as string | null, canonicalFindingId: null },
+    canonicalRca: null as {
+      findingId: string;
+      reopenSeq: number;
+      traceId: string | null;
+      sessionId: string | null;
+      result: string | null;
+    } | null,
+    rcaHistory: [] as {
+      reopenSeq: number;
+      findingId: string;
+      status: string;
+      createTime: string;
+    }[],
   },
   grouping: false,
   hits: [
@@ -108,10 +123,59 @@ afterEach(() => {
   cleanup();
   signalQuery.isPlaceholderData = false;
   signalDetail.signal.criteriaValidated = true;
+  signalDetail.signal.reopenSeq = 0;
+  signalDetail.signal.rca = { currentState: null, canonicalFindingId: null };
+  signalDetail.signal.canonicalRca = null;
+  signalDetail.signal.rcaHistory = [];
   layoutMocks.setAiPanelOpen.mockReset();
   layoutMocks.setAiContext.mockReset();
   layoutMocks.setAiInitialSessionId.mockReset();
   layoutMocks.release.mockReset();
+});
+
+describe("SignalDetailPanel analysis of an earlier opening", () => {
+  const analysed = (reopenSeq: number) => {
+    signalDetail.signal.canonicalRca = {
+      findingId: "f0",
+      reopenSeq,
+      traceId: null,
+      sessionId: null,
+      result: "Root cause: the tool times out",
+    };
+    signalDetail.signal.rcaHistory = [
+      { reopenSeq: 0, findingId: "f0", status: "done", createTime: "2026-01-01T00:00:00Z" },
+    ];
+  };
+
+  it("says the analysis is from before the signal reopened, and offers a new one", () => {
+    analysed(0);
+    signalDetail.signal.reopenSeq = 1;
+    renderPanel();
+    expect(screen.getByText(/from an earlier occurrence/)).toBeTruthy();
+    // No analysis was asked for the reopening: the cooldown or a Manual detector.
+    expect(screen.getByText(/No new analysis started automatically/)).toBeTruthy();
+    expect(screen.getByText("run-rca:null")).toBeTruthy();
+    expect(screen.getByText("Root cause: the tool times out")).toBeTruthy();
+  });
+
+  it("passes the reopening's failed state on, without the cooldown line", () => {
+    analysed(0);
+    signalDetail.signal.reopenSeq = 1;
+    signalDetail.signal.rca = { currentState: "failed", canonicalFindingId: null };
+    renderPanel();
+    expect(screen.getByText(/from an earlier occurrence/)).toBeTruthy();
+    expect(screen.queryByText(/No new analysis started automatically/)).toBeNull();
+    expect(screen.getByText("run-rca:failed")).toBeTruthy();
+  });
+
+  it("says nothing extra when the analysis is of the current opening", () => {
+    analysed(1);
+    signalDetail.signal.reopenSeq = 1;
+    renderPanel();
+    expect(screen.queryByText(/from an earlier occurrence/)).toBeNull();
+    expect(screen.queryByText(/^run-rca:/)).toBeNull();
+    expect(screen.getByText("Root cause: the tool times out")).toBeTruthy();
+  });
 });
 
 describe("SignalDetailPanel criteria check", () => {
