@@ -156,8 +156,8 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
     ),
     # Signal tier — a trace's signal ids, one per hit (a signal semi-join): a trace whose
     # detectors fired more than once can belong to several signals, so the field is a
-    # list and `contains` matches any of them by substring. A signal links to its traces
-    # in the list with its full id.
+    # list and `contains` matches a complete ID in that list. A signal links to its traces
+    # with its full id.
     FilterColumn(
         name="signal_ids",
         label="Signal IDs",
