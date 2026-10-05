@@ -265,16 +265,17 @@ describe("docs stay in sync with ADAPTER_MODELS (BYOK model catalog)", () => {
       if (!models || models.length === 0) continue;
 
       const label = ADAPTER_CONFIG[adapter as LLMAdapter].label;
-      const row = rows.find((r) => r.provider === label);
+      const matchingRows = rows.filter((r) => r.provider === label);
 
       expect(
-        row,
-        `no "${label}" row in the BYOK model catalog table of docs/ai-agent/byok.mdx (update the table)`,
-      ).toBeDefined();
+        matchingRows.length,
+        `expected exactly 1 "${label}" row in BYOK model catalog, found ${matchingRows.length}`,
+      ).toBe(1);
 
+      const row = matchingRows[0];
       const expectedIds = models.map((m) => m.id);
       expect(
-        row!.ids,
+        row.ids,
         `BYOK model catalog for "${label}" is out of sync with ADAPTER_MODELS — update the table`,
       ).toEqual(expectedIds);
     }
