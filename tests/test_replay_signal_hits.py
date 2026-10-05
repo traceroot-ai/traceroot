@@ -67,15 +67,16 @@ def test_apply_deletes_the_give_up_rows_and_marks_each_detector_pending_once():
 
     replay(pg, ch, "proj", apply=True, now=NOW)
 
-    # Marked first: a failed delete leaves rows a rerun can still find.
-    assert order == ["mark", "delete"]
+    # Marked first, so a failed delete leaves rows a rerun can still find, and
+    # again after, in case a round cleared the mark while the delete ran.
+    assert order == ["mark", "delete", "mark"]
     ch.delete_given_up_signal_assignments.assert_called_once_with(
         "proj", ["run-1", "run-3", "run-2"]
     )
     sql, params = cursor.execute.call_args.args
     assert "assignment_pending_at" in sql
     assert params == (NOW.replace(tzinfo=None), "proj", ["det-a", "det-b"])
-    pg.commit.assert_called_once()
+    assert pg.commit.call_count == 2
 
 
 def test_apply_with_nothing_given_up_touches_nothing():
