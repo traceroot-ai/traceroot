@@ -23,7 +23,9 @@ It references #2399 and #2404 without closing the full UX issue.
   traces with the distinct traces its detector checked.
 - Detector page: one runs table; its findings are the Identified = Yes filter,
   kept in the URL. Judge Run ID identifies the detector's judge execution and
-  opens its self-trace when available. Signal ID links a hit to its signal.
+  opens its self-trace when available. Signal ID links a hit to its signal, or
+  says Not grouped when assignment gave up on it (scripts/replay_signal_hits.py
+  replays it).
   Agent Run ID opens the agent trace of the RCA that analysed the hit's own judge output (an opening of
   one of its detector's signals records the hit's trace); a hit that only joined
   a signal analysed on another trace shows a dash, a later RCA does not move an

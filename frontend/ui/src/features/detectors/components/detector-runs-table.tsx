@@ -112,6 +112,15 @@ export function DetectorRunsTable({
                   {run.signal_id}
                 </Link>
               </td>
+            ) : run.signal_gave_up ? (
+              <td className={cn(DETECTOR_TD, "whitespace-nowrap text-[11px]")}>
+                <span
+                  className="text-muted-foreground"
+                  title="Grouping gave up on this hit: the model's answers about it stayed unusable. An admin can replay it."
+                >
+                  Not grouped
+                </span>
+              </td>
             ) : (
               <EmptyIdCell />
             )}

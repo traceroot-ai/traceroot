@@ -42,7 +42,7 @@ The pipeline for each incoming trace:
 
 ## View findings
 
-Open the detector to see its runs; from the detector list, its **Findings** count opens just the runs that identified a problem. Every run links back to the trace it checked, and a run that reached a verdict shows whether the detector identified a problem. Clicking the trace opens the trace viewer, with the AI agent's RCA session in the chat panel when that trace was analysed. A finding also links to the signal it joined (**Signal ID**). When the signal's root cause analysis ran on that finding's own trace, the row also links to the agent's trace of it (**Agent Run ID**); a finding that only joined an already analysed signal shows a dash, and its signal holds the analysis.
+Open the detector to see its runs; from the detector list, its **Findings** count opens just the runs that identified a problem. Every run links back to the trace it checked, and a run that reached a verdict shows whether the detector identified a problem. Clicking the trace opens the trace viewer, with the AI agent's RCA session in the chat panel when that trace was analysed. A finding also links to the signal it joined (**Signal ID**); one that grouping gave up on, after the model's answers about it stayed unusable, says **Not grouped**. When the signal's root cause analysis ran on that finding's own trace, the row also links to the agent's trace of it (**Agent Run ID**); a finding that only joined an already analysed signal shows a dash, and its signal holds the analysis.
 
 <Frame>
   <img src="/images/detector_findings_v1.png" alt="Detector findings table with the detail panel open" />

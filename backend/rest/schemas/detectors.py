@@ -20,6 +20,9 @@ class RunItem(BaseModel):
     summary: str
     # False for rows written before the flag existed (reads default it).
     self_traced: bool = False
+    # Signal assignment gave up on this hit after repeated unusable model
+    # answers (an empty-signal signal_assignments row); listed per detector only.
+    signal_gave_up: bool = False
 
 
 class RunListResponse(BaseModel):

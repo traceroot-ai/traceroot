@@ -249,6 +249,21 @@ describe("DetectorRunsTable", () => {
     expect(within(cleanRow).getAllByText("—").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("says a hit grouping gave up on is not grouped, apart from one not grouped yet", () => {
+    render(
+      <DetectorRunsTable
+        rows={[{ ...triggeredRun, signal_id: null, agent_trace_id: null, signal_gave_up: true }]}
+        onTraceClick={vi.fn()}
+        onRunClick={vi.fn()}
+        onAgentRunClick={vi.fn()}
+        signalHref={signalHref}
+      />,
+    );
+    const cell = screen.getByText("Not grouped");
+    expect(cell.getAttribute("title")).toContain("gave up");
+    expect(screen.queryByRole("link", { name: "sig-1" })).toBeNull();
+  });
+
   it("shows a dash for Agent Run ID while the signal has no analysis trace", () => {
     render(
       <DetectorRunsTable
