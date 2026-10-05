@@ -182,6 +182,9 @@ class ClickHouseClient:
               AND run_id IN {run_ids:Array(String)}
             """,
             parameters={"project_id": project_id, "run_ids": run_ids},
+            # Wait until the rows are gone on every replica before returning,
+            # so a hit is waiting again by the time the sweeper reads it.
+            settings={"lightweight_deletes_sync": 2},
         )
 
     def insert_spans_batch(self, spans: list[dict[str, Any]]) -> None:

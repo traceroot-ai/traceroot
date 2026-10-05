@@ -537,6 +537,24 @@ describe("runAssignmentRound", () => {
     error.mockRestore();
   });
 
+  it("keeps the count of a hit given up whose give-up copy failed to land", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend } = fakeBackend([row(1)], { failWrites: true });
+    const failures = fakeFailures({ run1: { count: 2, firstAt: T0 - 7 * 3_600_000 } });
+    mockApply.mockRejectedValueOnce(new UnusableAnswerError("no tool call"));
+    await expect(
+      runAssignmentRound(
+        deps(fakeDb().db, backend, () => T0, failures),
+        "p",
+        "d",
+      ),
+    ).rejects.toThrow("clickhouse down");
+    // Still waiting, and its next unusable answer gives it up again at once.
+    expect(failures.clear).not.toHaveBeenCalled();
+    expect(failures.records.run1.count).toBe(3);
+    error.mockRestore();
+  });
+
   it("never gives up during an outage, however long it has lasted", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { backend, written } = fakeBackend([row(1)]);
