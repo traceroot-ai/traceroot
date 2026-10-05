@@ -68,16 +68,18 @@ def replay(pg, ch, project_id, detector_id=None, *, apply=False, now=None):
     hits = given_up_hits(ch, project_id, detector_id, now)
     if not apply or not hits:
         return hits
-    ch.delete_given_up_signal_assignments(project_id, [r for _, r in hits])
     detectors = sorted({d for d, _ in hits})
+    # Mark the detectors pending first: if the delete then fails, a rerun still
+    # finds the rows, and the sweeper's extra round finds nothing to do. The
+    # sweeper re-enqueues a detector marked pending; raw timestamps, as the
+    # worker writes them, so the detector's update time stays put.
     with pg.cursor() as cursor:
-        # The sweeper re-enqueues a detector marked pending; raw timestamps, as
-        # the worker writes them, so the detector's update time stays put.
         cursor.execute(
             "UPDATE detectors SET assignment_pending_at = %s WHERE project_id = %s AND id = ANY(%s)",
             ((now or datetime.now(UTC)).replace(tzinfo=None), project_id, detectors),
         )
     pg.commit()
+    ch.delete_given_up_signal_assignments(project_id, [r for _, r in hits])
     return hits
 
 

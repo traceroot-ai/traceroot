@@ -57,6 +57,13 @@ describe("RunRca", () => {
     expect(button().textContent).toBe("Run root cause analysis");
   });
 
+  it("still says a request just sent is running, ahead of the caller's state", () => {
+    mocks.isPending = true;
+    render(<RunRca projectId="p1" signalId="s1" state="failed" available showState={false} />);
+    expect(screen.getByText("Analyzing affected traces…")).toBeTruthy();
+    expect(button().textContent).toBe("Running…");
+  });
+
   it("offers no analysis when the deployment cannot run one", () => {
     render(<RunRca projectId="p1" signalId="s1" state={null} available={false} />);
     expect(screen.queryByRole("button")).toBeNull();

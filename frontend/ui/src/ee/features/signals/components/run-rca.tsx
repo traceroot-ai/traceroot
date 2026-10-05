@@ -20,7 +20,7 @@ export function RunRca({
   state: string | null;
   /** False when the deployment runs no signal RCA (it has no OpenAI API key). */
   available: boolean;
-  /** False when the caller already says whether it failed or is running. */
+  /** False when the caller already says whether it failed or is running (until a new request starts). */
   showState?: boolean;
 }) {
   const request = useRequestSignalRca(projectId, signalId);
@@ -39,7 +39,8 @@ export function RunRca({
           Analysis could not start. Please try again.
         </p>
       )}
-      {showState &&
+      {/* A request just sent outruns the caller's state: say it is running. */}
+      {(showState || request.isPending) &&
         (running ? (
           <p className="text-[12px] text-muted-foreground">Analyzing affected traces…</p>
         ) : (

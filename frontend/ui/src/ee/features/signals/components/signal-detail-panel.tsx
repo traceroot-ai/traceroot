@@ -80,7 +80,9 @@ interface SignalDetailPanelProps {
  * analysis, how often it happened per day, and its latest traces.
  */
 /** What happened to the analysis of a reopening, in the sentence after "before the signal reopened". */
-function reopeningState(state: string | null): string {
+function reopeningState(state: string | null, available: boolean): string {
+  // Without the key no analysis runs at all; the run control says so.
+  if (!available) return "";
   if (state === null) {
     return "No new analysis ran, because the last one was less than 24 hours earlier or this detector's root cause analysis is Manual.";
   }
@@ -285,7 +287,9 @@ function SignalBlocks({
   const { signal, hits, hitSeries, window } = detail;
   const rca = signal.canonicalRca;
   // The analysis shown is of an earlier opening: the signal reopened since it ran.
-  const earlier = rca?.result && rca.reopenSeq < signal.reopenSeq ? rca : null;
+  // One carried over from a merged signal (a negative sequence) is not.
+  const earlier =
+    rca?.result && rca.reopenSeq >= 0 && rca.reopenSeq < signal.reopenSeq ? rca : null;
   const earlierAt = earlier
     ? signal.rcaHistory.find((h) => h.reopenSeq === earlier.reopenSeq)?.createTime
     : undefined;
@@ -345,7 +349,8 @@ function SignalBlocks({
                     ) : (
                       "earlier"
                     )}
-                    , before the signal reopened. {reopeningState(signal.rca.currentState)}
+                    , before the signal reopened.{" "}
+                    {reopeningState(signal.rca.currentState, detail.grouping)}
                   </p>
                   <RunRca
                     projectId={projectId}
