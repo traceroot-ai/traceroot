@@ -99,6 +99,10 @@ class TestWaitingHits:
         assert "finding_id IS NOT NULL" in sql
         assert "status = 'completed'" in sql
         assert "run_id NOT IN" in sql and "FROM signal_assignments" in sql
+        # A run's assignment counts however long ago it was written: a trace
+        # evaluated again keeps its run id, and must not wait forever.
+        assignments = sql[sql.index("FROM signal_assignments") :]
+        assert "assigned_at" not in assignments
         # Status and finding filters run after the collapse, the time filter before.
         assert (
             sql.index("FINAL")

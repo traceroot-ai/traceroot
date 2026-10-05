@@ -400,8 +400,18 @@ export async function runAssignmentRound(
     // Whatever was recorded in Postgres gets its copy, and billed calls stay
     // findable, even when the round fails part-way.
     await flush();
-    if (!flushError) for (const runId of gaveUp) await deps.failures.clear(runId);
     await recordUsage(db, workspaceId, usage);
+    // After the usage is recorded, and best-effort: a kept count only gives
+    // the hit up again sooner.
+    if (!flushError) {
+      for (const runId of gaveUp) {
+        await deps.failures
+          .clear(runId)
+          .catch((err) =>
+            console.error(`[Signals] failed to clear failures of run=${runId}:`, err),
+          );
+      }
+    }
   }
   // Postgres is correct either way; failing the job retries with backoff
   // instead of re-reading the same hits in a tight loop.
