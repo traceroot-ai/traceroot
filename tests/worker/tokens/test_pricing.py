@@ -195,6 +195,24 @@ XAI_MODEL_CASES = [
     ("grok-4", "grok-4"),
     ("xai/grok-4", "grok-4"),
     ("grok-4-0709", "grok-4"),
+    ("grok-4.6", "grok-4.6"),
+    ("xai/grok-4.6", "grok-4.6"),
+    ("grok-4.6-20260601", "grok-4.6"),
+    ("grok-4.7", "grok-4.7"),
+    ("xai/grok-4.7", "grok-4.7"),
+    ("grok-4.7-20260921", "grok-4.7"),
+]
+
+# (pattern owner, id it must not absorb): adjacent versions, a longer version, -fast variants.
+XAI_NON_MATCHES = [
+    ("grok-4.6", "grok-4"),
+    ("grok-4.6", "grok-4.5"),
+    ("grok-4.6", "grok-4.60"),
+    ("grok-4.6", "grok-4.6-fast"),
+    ("grok-4.7", "grok-4"),
+    ("grok-4.7", "grok-4.6"),
+    ("grok-4.7", "grok-4.70"),
+    ("grok-4.7", "grok-4.7-fast"),
 ]
 
 
@@ -565,6 +583,25 @@ class TestXAIModelIds:
             f"{model_id} matched a different entry than {expected_name}"
         )
 
+    @pytest.mark.parametrize("model_id,expected_name", XAI_MODEL_CASES)
+    def test_matches_exactly_one_entry(self, real_cache, model_id, expected_name):
+        matching = [
+            e["model_name"]
+            for e in real_cache
+            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+        ]
+        assert matching == [expected_name], (
+            f"{model_id} must match exactly the {expected_name} pattern, got {matching}"
+        )
+
+    @pytest.mark.parametrize("owner,model_id", XAI_NON_MATCHES)
+    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, owner, model_id):
+        # Checks the owner's regex, not get_model_price, so it holds once these ids are priced.
+        entry = next(e for e in real_cache if e["model_name"] == owner)
+        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
+            f"the {owner} pattern must not absorb {model_id}"
+        )
+
     def test_grok_4_fast_not_priced_as_grok_4(self, real_cache):
         # grok-4-fast is a distinct, cheaper xAI model that shares the grok-4
         # prefix. The grok-4 entry must not absorb it at grok-4's rates.
@@ -578,6 +615,9 @@ class TestXAIModelIds:
             # them at grok-4.3 rates, which grok-4.20 shares.
             ("grok-4.20", 0.00000125, 0.0000025, 0.0000002),
             ("grok-4", 0.00000125, 0.0000025, 0.0000002),
+            # Below-200K tier; xAI doubles every rate at >=200K, which the table can't express.
+            ("grok-4.6", 0.000002, 0.000006, 0.0000005),
+            ("grok-4.7", 0.000002, 0.000006, 0.0000005),
         ],
     )
     def test_xai_absolute_rates(self, model_name, input_rate, output_rate, cache_read_rate):
@@ -588,6 +628,7 @@ class TestXAIModelIds:
         assert prices["input"] == pytest.approx(input_rate)
         assert prices["output"] == pytest.approx(output_rate)
         assert prices["cacheRead"] == pytest.approx(cache_read_rate)
+        assert prices["cacheWrite"] is None
 
     def test_grok_4_calculates_cost(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
@@ -845,83 +886,6 @@ class TestClaudeFastAndDotNotationIds:
     def test_opus_4_6_has_no_fast_card(self, real_cache):
         # Opus 4.6 fast bills standard upstream; a 4.6 fast entry would over-charge.
         assert all(e["model_name"] != "claude-opus-4-6-fast" for e in real_cache)
-
-
-# ---------------------------------------------------------------------------
-# xAI Grok 4.6. The pattern pins a literal dotted version, so it must not spill
-# onto ids that merely share the grok-4 prefix or extend the version number.
-# ---------------------------------------------------------------------------
-
-
-GROK_4_6_CASES = [
-    ("grok-4.6", "grok-4.6"),
-    ("xai/grok-4.6", "grok-4.6"),
-    ("grok-4.6-20260601", "grok-4.6"),
-]
-
-# ids the grok-4.6 pattern must leave alone: adjacent versions, a longer version
-# number, and variant slugs that xAI prices separately.
-GROK_4_6_NON_MATCHES = [
-    "grok-4",
-    "grok-4.5",
-    "grok-4.60",
-    "grok-4.6-fast",
-]
-
-
-class TestGrok46ModelIds:
-    @pytest.mark.parametrize("model_id,expected_name", GROK_4_6_CASES)
-    def test_matches_expected_model(self, real_cache, model_id, expected_name):
-        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
-            price = get_model_price(model_id)
-
-        assert price is not None, f"{model_id} should match a pricing entry but returned None"
-        assert "input" in price and "output" in price
-        assert price[MATCHED_MODEL_NAME] == expected_name, (
-            f"{model_id} matched a different entry than {expected_name}"
-        )
-
-    @pytest.mark.parametrize("model_id,expected_name", GROK_4_6_CASES)
-    def test_matches_exactly_one_entry(self, real_cache, model_id, expected_name):
-        matching = [
-            e["model_name"]
-            for e in real_cache
-            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
-        ]
-        assert matching == [expected_name], (
-            f"{model_id} must match exactly the {expected_name} pattern, got {matching}"
-        )
-
-    @pytest.mark.parametrize("model_id", GROK_4_6_NON_MATCHES)
-    def test_pattern_does_not_absorb_neighbouring_ids(self, real_cache, model_id):
-        # Asserted against the grok-4.6 pattern itself rather than get_model_price, so
-        # the guard keeps its meaning once these ids gain priced entries of their own.
-        entry = next(e for e in real_cache if e["model_name"] == "grok-4.6")
-        assert not re.search(entry["match_pattern"], model_id, re.IGNORECASE), (
-            f"the grok-4.6 pattern must not absorb {model_id}"
-        )
-
-    def test_absolute_rates(self):
-        # The id-matching tests pass against any price table, so pin the published
-        # standard-tier rates. xAI lists no cache-write charge for Grok.
-        entry = next((e for e in _standard_price_entries() if e["modelName"] == "grok-4.6"), None)
-        assert entry is not None, "grok-4.6 missing from standard-model-prices.json"
-        prices = entry["prices"]
-        assert prices["input"] == pytest.approx(2e-06)  # $2.00 / MTok
-        assert prices["output"] == pytest.approx(6e-06)  # $6.00 / MTok
-        assert prices["cacheRead"] == pytest.approx(5e-07)  # $0.50 / MTok
-        assert prices["cacheWrite"] is None
-
-    def test_grok_4_6_calculates_cost(self, real_cache):
-        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
-            result = calculate_cost("grok-4.6", "Hello world", "Hi there")
-
-        assert result["input_tokens"] is not None
-        assert result["input_tokens"] > 0
-        assert result["output_tokens"] is not None
-        assert result["output_tokens"] > 0
-        assert result["cost"] is not None
-        assert result["cost"] > 0
 
 
 # ---------------------------------------------------------------------------

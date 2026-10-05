@@ -180,14 +180,12 @@ describe("ADAPTER_MODELS", () => {
     });
   });
 
-  it("includes grok-4.6 in the xAI model list", () => {
-    const xaiModels = ADAPTER_MODELS["xai"];
-    expect(xaiModels).toBeDefined();
+  it.each(["grok-4.6", "grok-4.7"])("includes %s in the xAI model list", (id) => {
+    expect(ADAPTER_MODELS["xai"]).toContainEqual({ id, label: id });
+  });
 
-    expect(xaiModels).toContainEqual({
-      id: "grok-4.6",
-      label: "grok-4.6",
-    });
+  it("lists grok-4.7 first, so it is the default xAI model", () => {
+    expect(ADAPTER_MODELS["xai"]?.[0]?.id).toBe("grok-4.7");
   });
 });
 
