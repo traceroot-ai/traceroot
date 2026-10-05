@@ -387,51 +387,25 @@ class TestGpt56LunaPublishedPrices:
         assert entry["prices"]["output"] == pytest.approx(1.2e-6)  # $1.20 / 1M tokens
 
 
-class TestGpt6AstraPublishedPrices:
-    """Assert the absolute, provider-published rate directly."""
-
-    def test_published_rates(self, real_cache):
-        entry = next(e for e in real_cache if e["model_name"] == "gpt-6-astra")
-        assert entry["prices"]["input"] == pytest.approx(1e-05)  # $10 / 1M tokens
-        assert entry["prices"]["output"] == pytest.approx(5e-05)  # $50 / 1M tokens
-        assert entry["prices"]["cacheRead"] == pytest.approx(1e-06)  # $1 / 1M tokens
-        assert entry["prices"]["cacheWrite"] == pytest.approx(1.25e-05)  # $12.50 / 1M tokens
+# $ per 1M tokens: input, cached input, cache write, output
+GPT6_PUBLISHED_RATES = {
+    "gpt-6.1-sol": (2.00, 0.10, 2.50, 10.00),
+    "gpt-6-astra": (10.00, 1.00, 12.50, 50.00),
+    "gpt-6-sol": (2.00, 0.20, 2.50, 10.00),
+    "gpt-6-luna": (0.10, 0.01, 0.125, 0.50),
+}
 
 
-class TestGpt61SolPublishedPrices:
+class TestGpt6PublishedPrices:
     """Assert the absolute, provider-published rate directly
-    (https://developers.openai.com/api/docs/models/gpt-6.1-sol)."""
+    (https://developers.openai.com/api/docs/pricing)."""
 
-    def test_published_rates(self, real_cache):
-        entry = next(e for e in real_cache if e["model_name"] == "gpt-6.1-sol")
-        assert entry["prices"]["input"] == pytest.approx(2e-06)  # $2 / 1M tokens
-        assert entry["prices"]["output"] == pytest.approx(1e-05)  # $10 / 1M tokens
-        assert entry["prices"]["cacheRead"] == pytest.approx(1e-07)  # $0.10 / 1M tokens
-        assert entry["prices"]["cacheWrite"] == pytest.approx(2.5e-06)  # $2.50 / 1M tokens
-
-
-class TestGpt6SolPublishedPrices:
-    """Assert the absolute, provider-published rate directly
-    (https://developers.openai.com/api/docs/models/gpt-6-sol)."""
-
-    def test_published_rates(self, real_cache):
-        entry = next(e for e in real_cache if e["model_name"] == "gpt-6-sol")
-        assert entry["prices"]["input"] == pytest.approx(2e-06)  # $2 / 1M tokens
-        assert entry["prices"]["output"] == pytest.approx(1e-05)  # $10 / 1M tokens
-        assert entry["prices"]["cacheRead"] == pytest.approx(2e-07)  # $0.20 / 1M tokens
-        assert entry["prices"]["cacheWrite"] == pytest.approx(2.5e-06)  # $2.50 / 1M tokens
-
-
-class TestGpt6LunaPublishedPrices:
-    """Assert the absolute, provider-published rate directly
-    (https://developers.openai.com/api/docs/models/gpt-6-luna)."""
-
-    def test_published_rates(self, real_cache):
-        entry = next(e for e in real_cache if e["model_name"] == "gpt-6-luna")
-        assert entry["prices"]["input"] == pytest.approx(1e-07)  # $0.10 / 1M tokens
-        assert entry["prices"]["output"] == pytest.approx(5e-07)  # $0.50 / 1M tokens
-        assert entry["prices"]["cacheRead"] == pytest.approx(1e-08)  # $0.01 / 1M tokens
-        assert entry["prices"]["cacheWrite"] == pytest.approx(1.25e-07)  # $0.125 / 1M tokens
+    @pytest.mark.parametrize("model_name,rates", GPT6_PUBLISHED_RATES.items())
+    def test_published_rates(self, real_cache, model_name, rates):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        expected = dict(zip(("input", "cacheRead", "cacheWrite", "output"), rates))
+        for usage, per_million in expected.items():
+            assert entry["prices"][usage] == pytest.approx(per_million / 1e6)
 
 
 class TestGemini3xFlashPublishedPrices:
