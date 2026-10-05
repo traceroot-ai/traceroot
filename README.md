@@ -31,7 +31,7 @@
 
 ### Turn production failures into tested improvements
 
-Find what went wrong, understand what to change, and measure whether your next version is better.
+Trace production runs, use detectors to evaluate behavior, and surface recurring patterns as improvement signals. Your coding agent uses the TraceRoot CLI to investigate those signals and make local changes, then verifies them with offline evals. After you ship, new production traces feed the next round of detection, signals, and verification—closing a continuous improvement loop.
 
 | Step | What you do |
 | ---- | ----------- |
@@ -39,8 +39,6 @@ Find what went wrong, understand what to change, and measure whether your next v
 | **[Detect](https://traceroot.ai/docs/detectors/get-started)** | Define what good behavior looks like. Automatically flag production runs that miss the mark. |
 | **Signals** | Surface recurring patterns from judge outputs, review the supporting traces, and identify what to change. |
 | **[Verify](https://traceroot.ai/docs/evals/get-started)** | Run evals against your datasets and compare versions to measure improvements and catch regressions. |
-
-Close the loop with your coding agent: investigate a signal through the TraceRoot CLI, make a local change, and verify it with offline evals. Repeat with new production traffic.
 
 ### Built for your coding agent
 
