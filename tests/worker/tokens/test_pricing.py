@@ -187,6 +187,11 @@ XAI_MODEL_CASES = [
 
 
 GEMINI_MODEL_CASES = [
+    ("gemini-3.8-flash", "gemini-3.8-flash"),
+    ("google/gemini-3.8-flash", "gemini-3.8-flash"),
+    ("gemini-3.7-flash", "gemini-3.7-flash"),
+    ("gemini-3.6-flash", "gemini-3.6-flash"),
+    ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
     ("gemini-3.5-flash", "gemini-3.5-flash"),
     ("google/gemini-3.5-flash", "gemini-3.5-flash"),
     ("models/gemini-3.5-flash", "gemini-3.5-flash"),
@@ -381,6 +386,30 @@ class TestGpt6AstraPublishedPrices:
         assert entry["prices"]["cacheWrite"] == pytest.approx(1.25e-05)  # $12.50 / 1M tokens
 
 
+class TestGemini3xFlashPublishedPrices:
+    """Assert the absolute, provider-published rate directly
+    (https://ai.google.dev/gemini-api/docs/pricing).
+
+    The 3.6-3.8 Flash rates double on 2027-01-01; the table has no effective dates,
+    so update the rows then.
+    """
+
+    @pytest.mark.parametrize(
+        "model_name", ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"]
+    )
+    def test_flash_published_rates(self, real_cache, model_name):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        assert entry["prices"]["input"] == pytest.approx(7.5e-07)  # $0.75 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(3.75e-06)  # $3.75 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(7.5e-08)  # $0.075 / 1M tokens
+
+    def test_flash_lite_published_rates(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gemini-3.5-flash-lite")
+        assert entry["prices"]["input"] == pytest.approx(3e-07)  # $0.30 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(2.5e-06)  # $2.50 / 1M tokens
+        assert entry["prices"]["cacheRead"] == pytest.approx(3e-08)  # $0.03 / 1M tokens
+
+
 class TestGeminiModelIds:
     @pytest.mark.parametrize("model_id,expected_name", GEMINI_MODEL_CASES)
     def test_matches_expected_model(self, real_cache, model_id, expected_name):
@@ -392,6 +421,19 @@ class TestGeminiModelIds:
         assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
         )
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            # TTS has its own price sheet; must not fall through to a 3.x Flash text row.
+            "gemini-3.8-flash-tts",
+            # Google repoints -latest aliases without notice, so they stay unpriced.
+            "gemini-flash-latest",
+        ],
+    )
+    def test_unpriced_gemini_ids_do_not_inherit_a_price(self, real_cache, model_id):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert get_model_price(model_id) is None
 
 
 class TestDeepSeekModelIds:

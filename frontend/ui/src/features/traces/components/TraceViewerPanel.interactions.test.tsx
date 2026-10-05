@@ -118,6 +118,7 @@ const SPAN: Span = {
   span_end_time: "2026-07-17T10:24:01.000Z",
   status: "OK",
   status_message: null,
+  error_type: "",
   model_name: null,
   cost: null,
   input_tokens: null,

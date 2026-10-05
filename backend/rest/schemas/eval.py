@@ -70,6 +70,14 @@ def _json_int(v: Any) -> Any:
     return v
 
 
+def _json_safe_int(v: Any) -> Any:
+    """As ``_json_int``, and within ``Number.isSafeInteger`` as ``z.number().int()`` requires."""
+    v = _json_int(v)
+    if isinstance(v, int) and not -JSON_SAFE_INT_MAX <= v <= JSON_SAFE_INT_MAX:
+        raise ValueError("must be a safe integer (beyond 2^53 - 1 a JSON client loses precision)")
+    return v
+
+
 def _json_bool(v: Any) -> Any:
     """Reject the values ``z.boolean()`` rejects: everything that is not a JSON boolean."""
     if not isinstance(v, bool):
@@ -90,6 +98,9 @@ JSON_SAFE_INT_MAX = 9_007_199_254_740_991
 # `"ge": 0` keywords instead of JSON Schema's `"minimum": 0`.
 #: ``z.number().int().nonnegative()``.
 JsonNonNegativeInt = Annotated[int, Field(ge=0, le=JSON_SAFE_INT_MAX), BeforeValidator(_json_int)]
+#: ``z.number().int()`` — a safe JSON integer, never a coerced string/boolean. Checked in
+#: the validator rather than with ``Field`` bounds, so the published schema stays as it is.
+JsonInt = Annotated[int, BeforeValidator(_json_safe_int)]
 #: ``z.number().nonnegative()``.
 JsonNonNegativeFloat = Annotated[float, Field(ge=0), BeforeValidator(_json_number)]
 
@@ -135,6 +146,8 @@ EvalResultStatus = Literal["passed", "failed", "errored", "not_scored"]
 ResultChange = Literal["improved", "regressed", "unchanged"]
 ScorerValueType = Literal["numeric", "boolean", "categorical"]
 ScorerDirection = Literal["higher_is_better", "lower_is_better", "none"]
+#: Server-supplied metric units, so formatting is not reinvented per client.
+MetricUnit = Literal["$", "tok", "ms", "count"]
 ScorerType = Literal["llm_judge", "code"]
 ScorerOutputType = Literal["score", "classification"]
 ScorerLanguage = Literal["python", "typescript"]
@@ -303,6 +316,225 @@ class RegisterRunResponse(BaseModel):
     # should print this verbatim rather than joining run_path to its own host_url. The
     # gateway proxies the upstream body verbatim, so this is documentation/parity only.
     run_url: str
+
+
+# --- Dataset reads -----------------------------------------------------------
+
+
+class PublicDataset(BaseModel):
+    """A dataset as the public API describes it.
+
+    Every field is REQUIRED and nullable rather than optional: the route always emits all
+    of them, and a default here would say the key may be absent, which is a different
+    contract from "present and null". The shape roster compares this to the Zod side
+    field-for-field, so the two cannot drift apart on that distinction.
+
+    ``dataset_id`` is the id a CLIENT addresses the dataset by — its own
+    ``client_dataset_id`` when it created the dataset, or the row id for one authored in
+    the UI. ``key`` is the pre-image of that id, so a pulled dataset recovers its key when
+    key and name differ.
+
+    No case count: no dataset read computes one, and deriving it would need an N+1 over
+    versions. It lives on a version, where it is one grouped aggregate.
+    """
+
+    dataset_id: str
+    name: str
+    description: str | None
+    current_dataset_version_id: str | None
+    key: str | None
+    # When the dataset row last changed (ISO 8601).
+    updated_at: str
+
+
+class ListDatasetsResponse(BaseModel):
+    datasets: list[PublicDataset]
+    # Opaque row id. Null at the end, so a client loops until null rather than counting.
+    next_cursor: str | None
+
+
+class PublicDatasetVersion(BaseModel):
+    dataset_version_id: str
+    version_number: JsonInt
+    label: str | None
+    note: str | None
+    case_count: JsonNonNegativeInt
+    created_at: str
+    # Whether this version is the dataset's currently-published one.
+    is_current: JsonBool
+
+
+class ListDatasetVersionsResponse(BaseModel):
+    versions: list[PublicDatasetVersion]
+    next_cursor: str | None
+
+
+class PublicTestCase(BaseModel):
+    """One test case in a version snapshot.
+
+    ``input``/``expected``/``metadata`` are NATIVE JSON values — an object stays an
+    object, a JSON-looking string stays a string — so they are ``Any``, not ``str``.
+    """
+
+    test_case_id: str
+    input: Any
+    expected: Any
+    metadata: Any
+    # Provenance when the case was captured from a trace. Null is normal, not an error.
+    source_trace_id: str | None
+    source_span_id: str | None
+
+
+class GetDatasetVersionResponse(BaseModel):
+    """A version snapshot: the version's identity plus a PAGE of its cases."""
+
+    dataset_version_id: str
+    dataset_id: str
+    version_number: JsonInt
+    label: str | None
+    items: list[PublicTestCase]
+    next_cursor: str | None
+
+
+# --- (a3) List evaluations and their runs ------------------------------------
+
+
+class EvaluationLatestRun(BaseModel):
+    """An evaluation's most recent run, so a listing answers "where does this stand?"."""
+
+    evaluation_run_id: str
+    run_number: JsonInt
+    status: EvalRunStatus
+    started_at: str
+
+
+class PublicEvaluation(BaseModel):
+    """One evaluation lineage: a stable purpose, re-run over time.
+
+    Identity and counts only. Scores belong to a run — a lineage has no single headline
+    score, and averaging across runs would invent one.
+    """
+
+    evaluation_id: str
+    name: str
+    # The SDK's own key for the lineage: what it re-uses to report the next run.
+    evaluation_key: str
+    # The id a CLIENT addresses the dataset by, as every dataset read reports it.
+    dataset_id: str
+    run_count: JsonNonNegativeInt
+    # Null for a lineage nothing has run yet: an empty lineage is information, not an error.
+    latest_run: EvaluationLatestRun | None
+    created_at: str
+    updated_at: str
+
+
+class ListEvaluationsResponse(BaseModel):
+    evaluations: list[PublicEvaluation]
+    # Opaque row id. Null at the end, so a client loops until null rather than counting.
+    next_cursor: str | None
+
+
+class PublicEvaluationRun(BaseModel):
+    """One run as the LISTING reports it: identity, where it ran, and how it ended.
+
+    No counts, means, cost or duration. Those are aggregates over a run's results, so a page
+    of runs would be a page of aggregate queries; the run read answers them one run at a
+    time.
+    """
+
+    evaluation_run_id: str
+    evaluation_id: str
+    evaluation_name: str
+    evaluation_key: str
+    run_number: JsonInt
+    candidate_version: str
+    environment: str
+    status: EvalRunStatus
+    dataset_id: str
+    dataset_version_id: str
+    started_at: str
+    # Null while the run is still going, as on the run read.
+    completed_at: str | None
+
+
+class ListEvaluationRunsResponse(BaseModel):
+    runs: list[PublicEvaluationRun]
+    next_cursor: str | None
+
+
+# --- (a2) Read a run's summary ----------------------------------------------
+
+
+class RunMetricItem(BaseModel):
+    """One score or one derived metric. Identical shape for both: they differ in
+    PROVENANCE (a scorer reported it vs the platform derived it from the trace), not in
+    structure, and a client renders them the same way.
+
+    ``value`` is the run's own mean over ``observed_count`` results, and null rather than
+    0 when nothing was observed — "no data" and "measured zero" are different facts and
+    must stay distinguishable.
+    """
+
+    name: str
+    # Server-supplied so formatting is not reinvented per client. Null for a score: a
+    # [0,1] score is a CONVENTION, not a unit.
+    unit: MetricUnit | None = None
+    direction: ScorerDirection
+    value_type: ScorerValueType = Field(
+        description=(
+            "The scorer's declared kind, else the kind it stored. Every derived metric is numeric."
+        )
+    )
+    value: JsonFloat | None = Field(
+        default=None,
+        description=(
+            "The run's own mean over observed_count results. Null when nothing was observed, "
+            "and always for a categorical score or one that stored labels and numbers together."
+        ),
+    )
+    observed_count: JsonNonNegativeInt = Field(
+        description="How many results reported a usable value for this score or metric."
+    )
+
+
+class ReadRunResponse(BaseModel):
+    """A run's SUMMARY — deliberately no per-case rows, so the payload is bounded by
+    scorer count rather than case count and needs no truncation flag."""
+
+    evaluation_run_id: str
+    evaluation_id: str
+    evaluation_name: str
+    evaluation_key: str | None = None
+    run_number: JsonInt
+    candidate_version: str
+    environment: str
+    status: EvalRunStatus
+    started_at: str
+    completed_at: str | None = None
+    dataset_id: str
+    dataset_version_id: str
+    # UI-relative path; the backend owns the route shape. Prefer run_url for a printed
+    # link — joining this to a client's own host only resolves on a shared origin.
+    run_path: str
+    # Absolute clickable URL, returned so a client never RECONSTRUCTS one: the run and
+    # compare pages are client-side routes whose only builders live in the browser UI.
+    run_url: str
+    # The OBSERVED population — every result the run reported, and a different fact
+    # from the run's DECLARED case_count.
+    result_count: JsonNonNegativeInt
+    # The SDK reports these three when the run completes. Null until then, so a count
+    # nobody has reported yet isn't read as a real 0.
+    scored_count: JsonNonNegativeInt | None
+    task_error_count: JsonNonNegativeInt | None
+    scorer_error_count: JsonNonNegativeInt | None
+    # A case is errored or not_scored; passed and failed are older statuses, so these two
+    # are usually 0. A scorer's own pass rate is in ``scores``.
+    passed_count: JsonNonNegativeInt
+    failed_count: JsonNonNegativeInt
+    errored_count: JsonNonNegativeInt
+    not_scored_count: JsonNonNegativeInt
+    scores: list[RunMetricItem] = Field(default_factory=list)
+    metrics: list[RunMetricItem] = Field(default_factory=list)
 
 
 # --- (b) Upsert one test-case result with scores ----------------------------
