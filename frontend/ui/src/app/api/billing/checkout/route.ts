@@ -75,6 +75,17 @@ async function expireCheckoutSession(stripe: Stripe, sessionId: string) {
 }
 
 /**
+ * The most recent checkout session for this workspace, which holds the newest key in
+ * the chain. Stripe lists checkout sessions newest first.
+ */
+async function newestWorkspaceSession(stripe: Stripe, customerId: string, workspaceId: string) {
+  for await (const session of stripe.checkout.sessions.list({ customer: customerId, limit: 100 })) {
+    if (session.metadata?.workspaceId === workspaceId) return session;
+  }
+  return null;
+}
+
+/**
  * Reduce this workspace to one open checkout session, and report which one survived.
  *
  * Idempotency keys deduplicate identical requests, but two requests asking for
@@ -285,12 +296,24 @@ async function handlePOST(req: NextRequest) {
       try {
         candidate = await stripe.checkout.sessions.create(checkoutParams, { idempotencyKey: key });
       } catch (error) {
-        if (isIdempotencyConflict(error)) {
-          // Another request holds this key with different parameters: a checkout for
-          // a different plan is already in flight for this workspace.
+        if (!isIdempotencyConflict(error)) throw error;
+        // The key was first used for another plan. If that checkout is still open,
+        // another admin is in the middle of it, so this request stands down. If it has
+        // closed (this request may have just expired it), the key is only stale, and
+        // Stripe would refuse every other plan on it until it forgets the key 24 hours
+        // later. Advance past that session instead, as the chain does for a closed
+        // session it replays.
+        const holder = await newestWorkspaceSession(stripe, customerId, workspaceId);
+        if (holder?.status === "complete") throw new CheckoutCompletedError();
+        const holderOpen = holder?.status === "open" && !expiredSessionIds.includes(holder.id);
+        const next = holder ? `${checkoutKey}-after-${holder.id}` : key;
+        if (holderOpen || next === key) {
+          // Either the rival is open, or the session holding this key is not listed
+          // yet because it was created a moment ago.
           return checkoutInProgress();
         }
-        throw error;
+        key = next;
+        continue;
       }
       if (!candidate.status || candidate.status === "open") {
         checkoutSession = candidate;
@@ -306,8 +329,9 @@ async function handlePOST(req: NextRequest) {
       return checkoutInProgress();
     }
 
-    // A concurrent request for a *different* plan carries a different idempotency
-    // key, so it can have created its own session in the meantime. Settle on one.
+    // A concurrent request for a different plan can still have created its own session
+    // under another key in the chain, for example from a listing that had not caught
+    // up yet. Settle on one.
     const survivor = await settleToOneOpenSession(
       stripe,
       customerId,

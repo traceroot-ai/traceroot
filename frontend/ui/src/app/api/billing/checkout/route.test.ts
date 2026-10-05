@@ -322,6 +322,92 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     expect(res.status).toBe(409);
   });
 
+  describe("when the key is held by a checkout for another plan", () => {
+    const keyConflict = () =>
+      Object.assign(new Error("Keys for idempotent requests..."), { type: "idempotency_error" });
+    // Open sessions for the preflight and the settle step; every session, newest
+    // first, for finding the one that holds the key.
+    function sessions(open: unknown[], all: unknown[]) {
+      checkoutListMock.mockImplementation((args: { status?: string }) =>
+        args?.status === "open" ? open : all,
+      );
+    }
+    function keys() {
+      return (checkoutCreateMock.mock.calls as [unknown, { idempotencyKey: string }][]).map(
+        ([, options]) => options.idempotencyKey,
+      );
+    }
+
+    it("switches plans by moving past the checkout this request just expired", async () => {
+      workspaceFindFirstMock.mockResolvedValue(workspace());
+      sessions(
+        [openSession("cs_pro", "pro")],
+        [{ ...openSession("cs_pro", "pro"), status: "expired" }],
+      );
+      checkoutCreateMock
+        .mockRejectedValueOnce(keyConflict())
+        .mockResolvedValueOnce({ id: "cs_starter", status: "open", url: "https://checkout.stripe.test/cs_starter" });
+
+      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
+
+      expect(res.status).toBe(200);
+      expect(checkoutExpireMock).toHaveBeenCalledWith("cs_pro");
+      expect(keys()).toEqual(["workspace-checkout-ws-1", "workspace-checkout-ws-1-after-cs_pro"]);
+    });
+
+    it("is not blocked once the other plan's checkout has already closed", async () => {
+      // A previous request expired the Pro checkout and then hit the stale key. Without
+      // moving past it, every Starter checkout would be refused until Stripe forgets the
+      // key 24 hours later.
+      workspaceFindFirstMock.mockResolvedValue(workspace());
+      sessions([], [{ ...openSession("cs_pro", "pro"), status: "expired" }]);
+      checkoutCreateMock
+        .mockRejectedValueOnce(keyConflict())
+        .mockResolvedValueOnce({ id: "cs_starter", status: "open", url: "https://checkout.stripe.test/cs_starter" });
+
+      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/cs_starter" });
+      expect(keys()).toEqual(["workspace-checkout-ws-1", "workspace-checkout-ws-1-after-cs_pro"]);
+    });
+
+    it("still stands down while another admin's checkout for the other plan is open", async () => {
+      workspaceFindFirstMock.mockResolvedValue(workspace());
+      sessions([], [{ ...openSession("cs_rival", "pro"), status: "open" }]);
+      checkoutCreateMock.mockRejectedValue(keyConflict());
+
+      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
+
+      expect(res.status).toBe(409);
+      expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("stands down rather than retry the same key when the holder is not listed yet", async () => {
+      workspaceFindFirstMock.mockResolvedValue(workspace());
+      sessions([], [{ ...openSession("cs_old", "pro"), status: "expired" }]);
+      checkoutCreateMock
+        .mockResolvedValueOnce({ id: "cs_old", status: "expired" })
+        .mockRejectedValue(keyConflict());
+
+      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
+
+      expect(res.status).toBe(409);
+      expect(keys()).toEqual(["workspace-checkout-ws-1", "workspace-checkout-ws-1-after-cs_old"]);
+    });
+
+    it("refuses when the checkout holding the key has been paid", async () => {
+      workspaceFindFirstMock.mockResolvedValue(workspace());
+      sessions([], [{ ...openSession("cs_pro", "pro"), status: "complete" }]);
+      checkoutCreateMock.mockRejectedValue(keyConflict());
+
+      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
+
+      expect(res.status).toBe(409);
+      expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("gives simultaneous requests the same idempotency key, so Stripe opens one session", async () => {
     workspaceFindFirstMock.mockResolvedValue(workspace());
     // Pin the clock so the two requests cannot straddle an idempotency window.
