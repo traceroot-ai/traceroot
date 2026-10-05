@@ -57,10 +57,8 @@ interface SignalDetailPanelProps {
   onNavigate: (direction: "up" | "down") => void;
   canNavigateUp: boolean;
   canNavigateDown: boolean;
-  /** Open a trace in a layer over this panel; `traceIds` is the list it steps through. */
-  onOpenTrace: (traceId: string, traceIds: string[]) => void;
-  /** A trace layer is open over the panel: its own assistant takes the AI slot. */
-  covered?: boolean;
+  /** Navigate to the signal's Tracing list with this trace's detail open. */
+  onOpenTrace: (traceId: string) => void;
   /** The list's time window; it sets the chart and the traces shown, not the signal. */
   range: SignalTimeRange;
   /** The list's time picker, shown again over the chart. */
@@ -83,7 +81,6 @@ export function SignalDetailPanel({
   canNavigateUp,
   canNavigateDown,
   onOpenTrace,
-  covered = false,
   range,
   rangePicker,
   tracesHref,
@@ -107,15 +104,14 @@ export function SignalDetailPanel({
     };
   }, [registerAiHost, setAiPanelOpen, setAiContext, setAiInitialSessionId]);
 
-  // Escape closes the panel unless a nested overlay or a trace layer over it
-  // takes the key.
+  // Escape closes the panel unless a nested overlay takes the key.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.defaultPrevented && !covered) onClose();
+      if (e.key === "Escape" && !e.defaultPrevented) onClose();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, covered]);
+  }, [onClose]);
 
   const detail = data && !data.merged ? data : null;
   const rca = detail?.signal.canonicalRca ?? null;
@@ -222,7 +218,7 @@ export function SignalDetailPanel({
             </div>
           </ResizablePanel>
 
-          {aiPanelOpen && !covered && (
+          {aiPanelOpen && (
             <>
               <ResizableHandle />
               <ResizablePanel
@@ -265,7 +261,7 @@ function SignalBlocks({
   rangePicker: ReactNode;
   tracesHref: string;
   onOpenAgent: (sessionId?: string) => void;
-  onOpenTrace: (traceId: string, traceIds: string[]) => void;
+  onOpenTrace: (traceId: string) => void;
 }) {
   const { signal, hits, hitSeries, window } = detail;
   const rca = signal.canonicalRca;
@@ -390,7 +386,8 @@ const TD = "px-3 py-1.5 text-[12px]";
 
 /**
  * The signal's latest traces in the window, as the traces list shows them; a row
- * opens the trace, "View all" opens the Tracing list narrowed to the signal. While
+ * opens the Tracing list narrowed to the signal with that trace's detail open;
+ * "View all" opens the same list. While
  * a new window loads, the previous window's rows stay up, faded like the chart.
  */
 function AffectedTraces({
@@ -404,7 +401,7 @@ function AffectedTraces({
   hits: SignalDetail["hits"];
   refreshing?: boolean;
   viewAllHref: string;
-  onOpenTrace: (traceId: string, traceIds: string[]) => void;
+  onOpenTrace: (traceId: string) => void;
 }) {
   const traceIds = [...new Set(hits.map((h) => h.traceId))].slice(0, TRACES_SHOWN);
   const { data: traces, isPending } = useSignalTraces(projectId, traceIds);
@@ -444,7 +441,7 @@ function AffectedTraces({
                 const t = traces?.get(traceId);
                 const pending = isPending ? "…" : "-";
                 return (
-                  <TR key={traceId} interactive onClick={() => onOpenTrace(traceId, traceIds)}>
+                  <TR key={traceId} interactive onClick={() => onOpenTrace(traceId)}>
                     <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
                       {formatDate(t?.trace_start_time ?? traceStartTimes.get(traceId))}
                     </td>

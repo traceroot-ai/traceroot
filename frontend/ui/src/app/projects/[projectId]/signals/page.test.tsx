@@ -5,11 +5,15 @@ import { signalDeepLinkPath } from "@traceroot/core/signals";
 
 // The query of the link a notification sends for signal s1 of project p1.
 const linkQuery = vi.hoisted(() => ({ value: "" }));
+const navigation = vi.hoisted(() => ({ push: vi.fn() }));
 const list = vi.hoisted(() => ({
   filters: [] as unknown[],
   updateFilters: vi.fn(),
   setup: undefined as unknown,
   setupEnabled: [] as boolean[],
+  dateFilter: { id: "7d", isCustom: false },
+  customStartDate: null as Date | null,
+  customEndDate: null as Date | null,
 }));
 const detectorNames = vi.hoisted(() => ({ data: [] as { id: string; name: string }[] }));
 // Captures the filter fields the page builds, to check the Detector field's options.
@@ -18,13 +22,14 @@ const filterInput = vi.hoisted(() => ({ fields: undefined as unknown }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
   useSearchParams: () => new URLSearchParams(linkQuery.value),
+  useRouter: () => navigation,
 }));
 vi.mock("@/lib/hooks/use-list-page-state", () => ({
   useListPageState: () => ({
     state: {
-      dateFilter: { id: "7d" },
-      customStartDate: null,
-      customEndDate: null,
+      dateFilter: list.dateFilter,
+      customStartDate: list.customStartDate,
+      customEndDate: list.customEndDate,
       filters: list.filters,
     },
     queryOptions: { page: 0, limit: 50, filters: list.filters },
@@ -59,11 +64,22 @@ vi.mock("@/ee/features/signals/hooks", () => ({
 }));
 // The panel opens one signal by id; the stub shows which.
 vi.mock("@/ee/features/signals/components/signal-detail-panel", () => ({
-  SignalDetailPanel: ({ signalId }: { signalId: string }) => (
-    <div data-testid="signal-panel">{signalId}</div>
+  SignalDetailPanel: ({
+    signalId,
+    tracesHref,
+    onOpenTrace,
+  }: {
+    signalId: string;
+    tracesHref: string;
+    onOpenTrace: (traceId: string) => void;
+  }) => (
+    <div data-testid="signal-panel">
+      {signalId}
+      <a href={tracesHref}>View all</a>
+      <button onClick={() => onOpenTrace("trace-1")}>Open affected trace</button>
+    </div>
   ),
 }));
-vi.mock("@/features/traces/components/TraceViewerPanel", () => ({ TraceViewerPanel: () => null }));
 vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/features/filters/trace-search-filter-input", () => ({
@@ -86,6 +102,10 @@ afterEach(() => {
   linkQuery.value = "";
   detectorNames.data = [];
   filterInput.fields = undefined;
+  navigation.push.mockReset();
+  list.dateFilter = { id: "7d", isCustom: false };
+  list.customStartDate = null;
+  list.customEndDate = null;
 });
 
 const setup = (over: Record<string, number> = {}) => ({
@@ -104,7 +124,7 @@ describe("Signals page route contract", () => {
     expect(path).toBe("/projects/p1/signals");
     linkQuery.value = query;
     render(<SignalsPage />);
-    expect(screen.getByTestId("signal-panel").textContent).toBe("s1");
+    expect(screen.getByTestId("signal-panel").textContent).toContain("s1");
   });
 
   it("opens no signal without the parameter", () => {
@@ -112,6 +132,41 @@ describe("Signals page route contract", () => {
     render(<SignalsPage />);
     expect(screen.queryByTestId("signal-panel")).toBeNull();
   });
+});
+
+describe("Signals page affected trace navigation", () => {
+  it.each([false, true])(
+    "opens Tracing with the signal and trace, custom range: %s",
+    (isCustom) => {
+      linkQuery.value = "signalId=s1";
+      list.dateFilter = { id: isCustom ? "custom" : "7d", isCustom };
+      if (isCustom) {
+        list.customStartDate = new Date("2026-10-01T00:00:00Z");
+        list.customEndDate = new Date("2026-10-03T12:00:00Z");
+      }
+      render(<SignalsPage />);
+      const viewAllUrl = new URL(
+        screen.getByRole("link", { name: "View all" }).getAttribute("href")!,
+        "http://localhost",
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Open affected trace" }));
+
+      const target = new URL(navigation.push.mock.calls[0][0], "http://localhost");
+      expect(target.pathname).toBe("/projects/p1/traces");
+      expect(target.searchParams.get("traceId")).toBe("trace-1");
+      expect(JSON.parse(target.searchParams.get("filters")!)).toEqual([
+        { field: "signal_id", op: "eq", value: "s1" },
+      ]);
+      expect(target.searchParams.get("date_filter")).toBe(isCustom ? "custom" : "7d");
+      if (isCustom) {
+        expect(target.searchParams.get("start")).toBe("2026-10-01T00:00:00.000Z");
+        expect(target.searchParams.get("end")).toBe("2026-10-03T12:00:00.000Z");
+      }
+      target.searchParams.delete("traceId");
+      expect(target.href).toBe(viewAllUrl.href);
+    },
+  );
 });
 
 describe("Signals page with nothing listed", () => {
@@ -142,7 +197,7 @@ describe("Signals page with nothing listed", () => {
     list.setup = setup({ signalCount: 1, detectorCount: 1, signalDetectorCount: 1 });
     linkQuery.value = signalDeepLinkPath("p1", "s1").split("?")[1];
     render(<SignalsPage />);
-    expect(screen.getByTestId("signal-panel").textContent).toBe("s1");
+    expect(screen.getByTestId("signal-panel").textContent).toContain("s1");
   });
 });
 

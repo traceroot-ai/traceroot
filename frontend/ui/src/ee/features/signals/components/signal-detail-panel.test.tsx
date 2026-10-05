@@ -148,7 +148,7 @@ describe("SignalDetailPanel affected traces", () => {
 
     fireEvent.keyDown(row, { key: "Enter" });
 
-    expect(onOpenTrace).toHaveBeenCalledWith("trace-1", ["trace-1"]);
+    expect(onOpenTrace).toHaveBeenCalledWith("trace-1");
   });
 });
 

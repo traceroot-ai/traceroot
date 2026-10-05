@@ -44,7 +44,9 @@ It references #2399 and #2404 without closing the full UX issue.
 - Notification links open the Signals page with `?signalId=`; the path comes
   from one helper in core, and a page test checks that the page opens it.
 - Affected counts and View all open Tracing with the signal filter and range.
-  Opening an individual trace adds a trace-viewer layer over the signal panel.
+  Opening an individual affected trace navigates to the same Tracing list and
+  opens that trace's detail through the existing traceId URL parameter. The
+  sidebar selects Tracing; browser Back returns to the selected signal.
   Tracing badges can reopen the signal panel.
 - A trace's Detectors tab has a Signal column linking each hit to its signal,
   or saying Pending (waiting for assignment) or Disabled (its detector did not
@@ -79,6 +81,7 @@ It references #2399 and #2404 without closing the full UX issue.
 | Detector run ID label | Judge Run ID replaces Run ID to distinguish the judge execution from Agent Run ID; the ID value and link behavior stay the same. |
 | Signals filter icons | The field picker uses the matching domain icons instead of the generic fallback glyph. |
 | Signals filter fields | Signal ID, Signal name, Detector ID, Detector name and Status match the reference order and labels. Detector ID adds exact-match filtering; the existing detector-name predicate stays compatible with saved links. |
+| Affected trace navigation | A row opens Tracing with the same signal filter and range as View all, plus the selected trace's detail. It replaces the trace layer over the Signal panel so investigation continues on the Tracing page. |
 | Detection-time window counts | Window counts and charts use trace start time, matching Tracing. Reopen eligibility uses trace start time when available, falling back to detection time; lifecycle counters and digests use detection time. |
 | No separate trace-time snapshot | A nullable indexed signal-hit trace start is necessary for Postgres membership counts; the writer and all window readers consume it. |
 | Historical hits already exist | Unknown trace times do not enter window counts. A project-scoped repair script reads retained trace rows without inventing times. |
