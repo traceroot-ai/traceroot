@@ -96,7 +96,7 @@ describe("NewDetectorPage", () => {
       triggerConditions: failure.defaultConditions,
       sampleRate: 25,
       enabled: true,
-      enableRca: false,
+      enableRca: true,
       enableSignals: true,
       detectionModel: undefined,
       detectionProvider: undefined,
@@ -105,19 +105,19 @@ describe("NewDetectorPage", () => {
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors");
   });
 
-  it("creates a detector whose RCA runs automatically when Automatic is picked", async () => {
+  it("creates a detector whose RCA runs only on request when Manual is picked", async () => {
     render(<NewDetectorPage />);
     const mode = [...document.querySelectorAll("select")].find((s) =>
       [...s.options].some((o) => o.value === "automatic"),
     ) as HTMLSelectElement;
-    expect(mode.value).toBe("manual");
-    expect(screen.getByText("Run the agent from a signal when you need it.")).toBeTruthy();
-    fireEvent.change(mode, { target: { value: "automatic" } });
+    expect(mode.value).toBe("automatic");
     expect(screen.getByText("Run the agent when a signal is created or reopened.")).toBeTruthy();
+    fireEvent.change(mode, { target: { value: "manual" } });
+    expect(screen.getByText("Run the agent from a signal when you need it.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
 
     await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
-    expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ enableRca: true });
+    expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ enableRca: false });
   });
 
   it("creates a detector that does not group its hits when Generate signals is off", async () => {

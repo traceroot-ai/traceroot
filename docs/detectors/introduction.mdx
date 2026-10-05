@@ -31,7 +31,7 @@ A detector has seven configurable parts:
 - **A sample rate** — what percentage of matching traces to evaluate (25% for a new detector).
 - **A detection model** — the system or BYOK model that evaluates the trace.
 - **A Generate signals toggle** — whether this detector's findings are grouped into signals (on by default). Turning it on groups findings from then on, not earlier ones.
-- **A root cause analysis setting** — Manual (the default for a detector created in the web app; one created through the API defaults to Automatic) runs the AI agent when you ask from a signal; Automatic runs it when a signal is created or reopened.
+- **A root cause analysis setting** — Automatic (the default) runs the AI agent when a signal is created or reopened; Manual runs it when you ask from a signal.
 
 When `identified` is true, the detector emits a **finding**, which joins a signal; the AI agent investigates the signal when you ask, or by itself if the detector's root cause analysis is Automatic. New and reopened signals are announced in the next notification digest, with a short summary of each; the analysis itself is read on the signal.
 
@@ -41,8 +41,8 @@ Sampling is deterministic for each trace and detector. Sending the same trace ag
 
 Every detector has a **Root cause analysis** setting in the Signals section of the create sheet and the edit panel:
 
-- **Manual**, the default for a detector created in the web app (one created through the API defaults to Automatic, for compatibility with existing callers): the AI agent (step 2) runs only when you click **Run root cause analysis** on a signal, so agent-model cost goes only to the problems you look into.
-- **Automatic**: the agent runs when a finding creates a signal or reopens a resolved one.
+- **Automatic**, the default for a new detector, however it is created: the AI agent (step 2) runs when a finding creates a signal or reopens a resolved one.
+- **Manual**: the agent runs only when you click **Run root cause analysis** on a signal, so agent-model cost goes only to the problems you look into.
 
 Detection and notifications are the same either way: the detector fires, records findings and announces new signals. A signal without an analysis, because its detector is Manual or an attempt failed, can be analysed from its panel on the Signals page.
 

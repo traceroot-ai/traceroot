@@ -55,8 +55,9 @@ It references #2399 and #2404 without closing the full UX issue.
   create a detector, turn on Generate signals, or raise sampling above 0%.
   Filters that match nothing say so and offer to clear them.
 - The detector create form and edit panel have a Signals section: a Generate
-  signals switch, Root cause analysis (Manual, the default for new detectors,
-  or Automatic; the detector's enableRca), and the project's agent model.
+  signals switch, Root cause analysis (Automatic, the default for new detectors
+  from the form, the API and the assistant alike, or Manual; the detector's
+  enableRca), and the project's agent model.
 - A signal without an analysis offers Run root cause analysis. The request is
   recorded in Postgres (the web app cannot reach the job queue) and the
   worker's RCA sweep starts it within about two minutes; the panel follows it until it

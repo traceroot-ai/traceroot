@@ -53,8 +53,8 @@ export default function NewDetectorPage() {
     source: "system",
     adapter: "",
   });
-  // Manual: the agent runs only when asked from a signal.
-  const [enableRca, setEnableRca] = useState(false);
+  // Automatic, as for a detector created through the API or the assistant.
+  const [enableRca, setEnableRca] = useState(true);
   const [enableSignals, setEnableSignals] = useState(true);
 
   const handleTemplateChange = (templateId: string) => {
