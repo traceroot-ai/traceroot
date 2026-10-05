@@ -434,6 +434,8 @@ describe("runAssignmentRound", () => {
     );
     expect(stats).toMatchObject({ gaveUp: 1, created: 1 });
     expect(written.map((w) => w.run_id)).toEqual(["run1", "run2"]);
+    // The clear was attempted and failed; the usage was recorded anyway.
+    expect(failures.clear).toHaveBeenCalledWith("run1");
     expect(aiRows.length).toBeGreaterThan(0);
     error.mockRestore();
   });
