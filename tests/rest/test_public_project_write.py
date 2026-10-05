@@ -718,6 +718,7 @@ def test_create_alert_forwards_upstream_400_message():
         {"threshold": "high"},
         {"filters": [{"field": "model_name", "op": "in", "value": "gpt-5"}]},
         {"filters": [{"field": "model_name", "op": "="}]},
+        {"filters": [{"field": "model_name", "op": "=", "value": "gpt-5", "keyy": "tenant"}]},
     ],
 )
 def test_create_alert_rejects_values_outside_the_stable_vocabulary_with_422(override):
