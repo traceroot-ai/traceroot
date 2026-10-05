@@ -525,6 +525,24 @@ describe("runAssignmentRound", () => {
     error.mockRestore();
   });
 
+  it("records the round's usage even when clearing a given-up hit's count fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend, written } = fakeBackend([row(1), row(2)]);
+    const failures = fakeFailures({ run1: { count: 2, firstAt: T0 - 7 * 3_600_000 } });
+    failures.clear.mockRejectedValueOnce(new Error("redis down"));
+    mockApply.mockRejectedValueOnce(new UnusableAnswerError("no tool call"));
+    const { db, aiRows } = fakeDb();
+    const stats = await runAssignmentRound(
+      deps(db, backend, () => T0, failures),
+      "p",
+      "d",
+    );
+    expect(stats).toMatchObject({ gaveUp: 1, created: 1 });
+    expect(written.map((w) => w.run_id)).toEqual(["run1", "run2"]);
+    expect(aiRows.length).toBeGreaterThan(0);
+    error.mockRestore();
+  });
+
   it("keeps the count of a hit given up whose give-up copy failed to land", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { backend } = fakeBackend([row(1)], { failWrites: true });

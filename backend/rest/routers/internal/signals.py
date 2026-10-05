@@ -59,8 +59,9 @@ async def list_waiting_hits(
     so a trace re-evaluated as clean no longer counts. The timestamp filter runs
     before the collapse, which is safe because a newer version of a run always
     has a later timestamp: the filter can drop old versions, never keep an old
-    one while dropping its replacement. Assignments are only looked up from
-    ``since`` on, since a hit is always assigned after it is detected.
+    one while dropping its replacement. A run's assignment is looked up by run
+    id whenever it was written: a trace evaluated again much later keeps its
+    deterministic run id, and its earlier assignment still counts.
 
     Args:
         project_id (str): Project of the partition.
@@ -96,7 +97,6 @@ async def list_waiting_hits(
               SELECT run_id FROM signal_assignments
               WHERE project_id = {project_id:String}
                 AND detector_id = {detector_id:String}
-                AND assigned_at >= {since:DateTime64(3)}
           )
         ORDER BY timestamp_ms, run_id
         LIMIT {limit:UInt32}
