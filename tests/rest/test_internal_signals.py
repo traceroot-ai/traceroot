@@ -103,6 +103,8 @@ class TestWaitingHits:
         # evaluated again keeps its run id, and must not wait forever.
         assignments = sql[sql.index("FROM signal_assignments") :]
         assert "assigned_at" not in assignments
+        # Only the window's runs are looked up, so the lookup does not grow with history.
+        assert "run_id IN (" in assignments and "FROM detector_runs" in assignments
         # Status and finding filters run after the collapse, the time filter before.
         assert (
             sql.index("FINAL")
