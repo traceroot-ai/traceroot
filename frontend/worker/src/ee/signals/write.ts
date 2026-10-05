@@ -187,11 +187,16 @@ export async function applyAssignment(
     }
 
     // RCA follows signals: a hit that creates or reopens a signal gets one,
-    // unless the detector has RCA off or the signal's last RCA is recent.
+    // unless the detector has RCA off or the signal's last RCA is recent. Only
+    // an analysis that succeeded or is still waiting or running counts: a
+    // failed one does not hold back the next reopening's.
     let rcaFindingId: string | null = null;
     if (opts.rca && (outcome === "created" || outcome === "reopened")) {
       const last = await tx.signalRca.findFirst({
-        where: { signalId },
+        where: {
+          signalId,
+          OR: [{ result: { not: null } }, { rca: { status: { in: ["pending", "running"] } } }],
+        },
         orderBy: { createTime: "desc" },
         select: { createTime: true },
       });

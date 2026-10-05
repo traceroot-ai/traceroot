@@ -114,7 +114,10 @@ export function managedJevKey(): string | null {
   return key ? key : null;
 }
 
-/** A reopened signal gets a new RCA only if its last one is at least this old. */
+/**
+ * A reopened signal gets a new RCA only if its last one that succeeded or is
+ * still waiting or running is at least this old; a failed one does not count.
+ */
 export const RCA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 /**
