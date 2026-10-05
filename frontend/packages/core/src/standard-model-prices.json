@@ -148,11 +148,11 @@
     "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-5(-(?:\\d{8}|\\d{4}-\\d{2}-\\d{2}))?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-5(-(?:\\d{8}|\\d{4}-\\d{2}-\\d{2}))?(-v\\d+:\\d+)?|claude-sonnet-5(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
-      "input": 0.000003,
-      "output": 0.000015,
-      "cacheRead": 0.0000003,
-      "cacheWrite": 0.00000375,
-      "cacheWrite1h": 0.000006
+      "input": 2e-6,
+      "output": 1e-5,
+      "cacheRead": 2e-7,
+      "cacheWrite": 2.5e-6,
+      "cacheWrite1h": 4e-6
     }
   },
   {

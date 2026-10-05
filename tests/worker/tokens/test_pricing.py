@@ -735,9 +735,11 @@ class TestClaudeBedrockAndVertexIds:
             # input, output, cacheRead, cacheWrite, cacheWrite1h; Opus 5.5 reads cache at 0.05x.
             ("claude-opus-5-5", (4e-6, 2e-5, 2e-7, 5e-6, 8e-6)),
             ("claude-sonnet-5-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+            # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.
+            ("claude-sonnet-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
         ],
     )
-    def test_5_5_published_rates(self, model_name, rates):
+    def test_published_rates(self, model_name, rates):
         entry = next(e for e in _standard_price_entries() if e["modelName"] == model_name)
         keys = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
         assert entry["prices"] == pytest.approx(dict(zip(keys, rates)))
