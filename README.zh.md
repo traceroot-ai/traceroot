@@ -3,11 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-### 面向 AI Agent 的开源自我改进层
-
-[TraceRoot](https://traceroot.ai/) 将生产环境中的追踪转化为可执行的反馈与评测，与你的编程 Agent 一起形成自我改进闭环。
-
-**[体验云服务](https://app.traceroot.ai) · [快速开始](#快速开始) · [CLI](#cli-快速上手) · [自托管](#自托管) · [文档](https://traceroot.ai/docs)**
+TraceRoot 将生产环境中的追踪转化为可执行的反馈与评测，与你的编程 Agent 一起形成自我改进闭环。
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -25,46 +21,37 @@
   <a href="./README.ko.md"><img alt="한국어 README" src="https://img.shields.io/badge/한국어-f8f8f8"></a>
 </p>
 
-## 功能
+<p align="center">⭐ 为本仓库点亮 Star，让更多开发者了解 TraceRoot，一起壮大社区！</p>
+
+## 核心功能
+
+### 将生产故障转化为经过验证的改进
+
+追踪生产运行，使用检测器评估行为，并将反复出现的模式提炼为改进信号。你的编程 Agent 通过 TraceRoot CLI 分析这些信号、在本地修改代码，再通过离线评测验证改动。发布后，新的生产追踪进入下一轮检测、信号分析与验证，形成持续改进的闭环。
+
+| 步骤 | 描述 |
+| ---- | ----------- |
+| **[追踪](https://traceroot.ai/docs/tracing/get-started)** | 查看每次模型调用、工具调用和响应，以及输入、输出、延迟和成本。 |
+| **[检测](https://traceroot.ai/docs/detectors/get-started)** | 定义符合预期的行为，自动标记未达标准的生产运行。 |
+| **信号** | 从评审输出中提炼反复出现的模式，查看相关追踪，确定需要改进的地方。 |
+| **[验证](https://traceroot.ai/docs/evals/get-started)** | 基于数据集运行评测并比较版本，衡量改进效果并发现回归问题。 |
+
+### 为你的编程 Agent 而设计
+
+通过专为 Agent 设计的 CLI，让你的编程 Agent 读写 TraceRoot。探索追踪、信号和主页工作区；创建和更新检测器、数据集、评测、仪表盘和告警，一切都可通过编程 Agent 完成。
 
 <p align="center">
-  <a href="https://traceroot.ai/docs/detectors/get-started">
-    <img src="docs/images/detector_findings_v1.png" alt="TraceRoot 检测器发现项、选中的发现项及其追踪上下文" width="100%">
+  <a href="https://github.com/traceroot-ai/traceroot-cli">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
+      <img src="docs/images/coding-agent-cli-light.png" alt="编程 Agent 通过 TraceRoot CLI 连接主页、追踪、仪表盘、检测器、评测、数据集、告警和信号。" width="100%">
+    </picture>
   </a>
 </p>
-<p align="center"><em>检测器从生产环境中的追踪中发现问题，帮助你确定下一步的改进方向。</em></p>
 
-| 功能 | 描述 |
-| ---------- | --------------- |
-| [追踪](https://traceroot.ai/docs/tracing/get-started) | 通过兼容 OpenTelemetry 的 Python 和 TypeScript SDK 采集 LLM 调用、工具使用和 Agent 执行步骤，查看输入、输出、延迟、token 用量和成本。 |
-| [检测器](https://traceroot.ai/docs/detectors/get-started) | 定义要在生产追踪中检测的行为，配置采样和评审模型，并查看发现项。 |
-| [数据集](https://traceroot.ai/docs/evals/datasets) | 编写、管理版本并发布你希望 Agent 能够妥善处理的测试用例。 |
-| [评测](https://traceroot.ai/docs/evals/get-started) | 基于数据集运行系统，为每个用例评分并比较候选版本。每个用例也会生成可供查看的追踪。 |
-| [CLI](https://github.com/traceroot-ai/traceroot-cli) | 读取和导出追踪，查看检测器和发现项，并将这些上下文带入编程工作流。 |
-| 仪表盘与告警 | 监控质量、延迟和成本，并配置阈值告警。 |
-| 应用内 AI 助手 | 借助可访问源码与 GitHub 上下文的 Agent 探索追踪。可使用托管模型或自带 API 密钥。 |
+## ⭐ 为仓库点亮 Star
 
-## 为什么选择 TraceRoot？
-
-- **仅靠追踪数据无法扩展。**
-
-  随着 AI Agent 系统越来越复杂，手动逐条翻看追踪已经不可持续。TraceRoot 的检测器会有选择地筛查进入的追踪 —— 自动标记幻觉、工具失败、逻辑错误以及安全问题，让你把时间花在解决问题上，而不是寻找问题上。
-
-- **在生产环境中调试 AI Agent 系统非常痛苦。**
-
-  Agent 幻觉、工具调用不稳定、版本变更带来的故障，根因定位都非常困难。TraceRoot 的 AI 会连接到运行你生产源码的沙箱，准确指出出错的代码行，交叉比对你的 GitHub 历史 —— commit、PR、开启中的 issue，并自动创建 PR 来修复问题。
-
-- **Agent 的改进应当是系统性的，而不是临时起意的。**
-
-  大多数团队排查完生产问题就翻篇了 —— 经验教训随之蒸发。TraceRoot 将在线与离线评测连成一个闭环：检测器持续评估线上流量，确认的故障沉淀为黄金数据集，离线评测再据此验证每一次修复。一个版本接一个版本，你的 Agent 变得可度量地更健壮、性能更好 —— 改进成为可重复的流程，而不是一次性的救火。
-
-- **完全开源，无厂商锁定。**
-
-  可观测性平台与 AI 调试层都是开源的。支持 BYOK，可接入任意模型厂商 —— OpenAI、Anthropic、Gemini、xAI、DeepSeek、OpenRouter、Kimi、GLM 等等。
-
-## 为 TraceRoot 点亮 Star
-
-如果你喜欢我们正在构建的产品，欢迎给 TraceRoot 点个 Star ⭐，帮助更多开发者发现它。
+如果你喜欢我们正在构建的产品，请为 TraceRoot 点亮 Star ⭐，帮助更多开发者发现它。
 
 <p align="center">
   <a href="https://github.com/traceroot-ai/traceroot">
@@ -72,15 +59,15 @@
   </a>
 </p>
 
-## 快速开始
+## 开始使用 TraceRoot
 
 ### TraceRoot Cloud
 
-最快的上手方式。[注册 TraceRoot Cloud](https://app.traceroot.ai)！
+[创建账号](https://app.traceroot.ai)，无需自行部署即可开始使用。
 
 ### 自托管
 
-使用 Docker 在本地运行：
+安装 Git、Docker Compose 和 Make 后，在本地运行：
 
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
@@ -89,16 +76,85 @@ cp .env.example .env
 make prod-lite
 ```
 
-打开 [localhost:3000](http://localhost:3000)。详情请见[自托管指南](https://traceroot.ai/docs/developer/self-hosting)。
+打开 [localhost:3000](http://localhost:3000)。配置与部署详情请参阅[自托管指南](https://traceroot.ai/docs/developer/self-hosting)。
 
-## CLI 快速上手
+## 配置 TraceRoot
 
-将 [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) 与你的编程 Agent 配合使用。
+准备好 TraceRoot 实例后，在仪表盘中创建项目，并选择发送第一条追踪的方式：让编程 Agent 通过 CLI 配置埋点，或手动配置 SDK。
+
+### 使用编程 Agent
+
+<a id="cli-quickstart"></a>
+
+安装 [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) 并登录：
 
 ```bash
 npm install -g traceroot-cli
 traceroot login
 ```
+
+然后向你的编程 Agent 提出请求：
+
+```text
+使用 TraceRoot CLI 为此应用配置追踪。
+安装适用的 TraceRoot 技能，指导我完成必要的配置，
+并确认第一条追踪已出现在 TraceRoot 中。
+```
+
+### 手动配置 SDK
+
+想自己配置埋点？使用 **[Python SDK](https://github.com/traceroot-ai/traceroot-py#readme)** 或 **[TypeScript SDK](https://github.com/traceroot-ai/traceroot-ts#readme)**。以下示例从 TypeScript 应用发送一次带追踪的模型调用。
+
+<details>
+<summary>运行最小 TypeScript 示例</summary>
+
+你需要 Node.js、npm、TraceRoot 项目 API 密钥和 OpenAI API 密钥。自托管时，请将下方的云服务地址替换为你的实例地址。
+
+**1. 安装 SDK**，在 TypeScript 项目中运行：
+
+```sh
+npm install @traceroot-ai/traceroot openai
+```
+
+**2. 设置 API 密钥：**
+
+```bash
+export TRACEROOT_API_KEY="your-project-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+**3. 追踪一次 Agent 调用。** 将以下代码保存为 `example.ts`：
+
+```typescript
+import OpenAI from 'openai';
+import { TraceRoot, observe } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+const openai = new OpenAI();
+
+const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: query }],
+  });
+  return response.choices[0].message.content;
+});
+
+async function main() {
+  try {
+    await myAgent("What's the weather in SF?");
+  } finally {
+    await TraceRoot.shutdown();
+  }
+}
+
+main().catch(console.error);
+```
+
+**4. 运行** `npx tsx example.ts`，然后打开项目的 **Traces** 页面查看 Agent 运行记录。此示例会发起一次 OpenAI API 调用。
+
+</details>
 
 ## 集成
 
@@ -144,52 +200,6 @@ traceroot login
 </details>
 
 > 没有看到你使用的框架或模型厂商？欢迎[提交集成请求](https://github.com/traceroot-ai/traceroot/issues)。
-
-## TypeScript SDK 快速上手
-
-**1. 在 TypeScript 项目中安装 SDK：**
-
-```sh
-npm install @traceroot-ai/traceroot openai
-```
-
-**2. 设置 API 密钥：**
-
-```bash
-export TRACEROOT_API_KEY="your-project-api-key"
-export TRACEROOT_HOST_URL="https://app.traceroot.ai"
-export OPENAI_API_KEY="your-openai-api-key"
-```
-
-**3. 追踪一次 Agent 调用。** 将以下代码保存为 `example.ts`：
-
-```typescript
-import OpenAI from 'openai';
-import { TraceRoot, observe } from '@traceroot-ai/traceroot';
-
-TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
-const openai = new OpenAI();
-
-const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [{ role: 'user', content: query }],
-  });
-  return response.choices[0].message.content;
-});
-
-async function main() {
-  try {
-    await myAgent("What's the weather in SF?");
-  } finally {
-    await TraceRoot.shutdown();
-  }
-}
-
-main().catch(console.error);
-```
-
-**4. 运行** `npx tsx example.ts`，然后打开项目的 **Traces** 页面查看 Agent 的运行记录。此示例会调用一次 OpenAI API。
 
 ## 安全与隐私
 

@@ -3,11 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-### AI 에이전트를 위한 오픈소스 자기 개선 레이어
-
-[TraceRoot](https://traceroot.ai/)는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 자기 개선 루프를 완성합니다.
-
-**[클라우드 시작하기](https://app.traceroot.ai) · [시작하기](#시작하기) · [CLI](#cli-빠른-시작) · [셀프 호스팅](#셀프-호스팅) · [문서](https://traceroot.ai/docs)**
+TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 자기 개선 루프를 완성합니다.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -25,44 +21,35 @@
   <a href="./README.ko.md"><img alt="한국어 README" src="https://img.shields.io/badge/한국어-f8f8f8"></a>
 </p>
 
-## 기능
+<p align="center">⭐ 더 많은 개발자에게 TraceRoot를 알리고 커뮤니티를 키울 수 있도록 이 저장소에 Star를 남겨 주세요!</p>
+
+## 핵심 기능
+
+### 프로덕션 실패를 검증된 개선으로 전환하세요
+
+프로덕션 실행을 추적하고, 탐지기로 동작을 평가하며, 반복되는 패턴을 개선 신호로 도출합니다. 코딩 에이전트는 TraceRoot CLI로 신호를 분석하고 로컬에서 코드를 수정한 뒤 오프라인 평가로 변경 사항을 검증합니다. 배포 후에는 새로운 프로덕션 트레이스가 다음 탐지, 신호 분석, 검증으로 이어져 지속적인 개선 루프를 이룹니다.
+
+| 단계 | 설명 |
+| ---- | ----------- |
+| **[추적](https://traceroot.ai/docs/tracing/get-started)** | 각 모델 호출, 도구 호출, 응답과 함께 입력, 출력, 지연 시간, 비용을 확인하세요. |
+| **[탐지](https://traceroot.ai/docs/detectors/get-started)** | 기대하는 동작을 정의하고, 기준에 미치지 못하는 프로덕션 실행을 자동으로 표시하세요. |
+| **신호** | 평가 모델의 출력에서 반복되는 패턴을 찾고, 관련 트레이스를 검토해 무엇을 바꿀지 파악하세요. |
+| **[검증](https://traceroot.ai/docs/evals/get-started)** | 데이터셋으로 평가를 실행하고 버전을 비교해 개선 효과를 측정하고 회귀를 발견하세요. |
+
+### 코딩 에이전트를 위한 설계
+
+에이전트에 맞춰 설계된 CLI로 코딩 에이전트가 TraceRoot를 읽고 쓸 수 있게 하세요. 트레이스, 신호, 홈 작업 공간을 탐색하고 탐지기, 데이터셋, 평가, 대시보드, 알림을 생성하고 수정하는 작업을 모두 코딩 에이전트에서 수행할 수 있습니다.
 
 <p align="center">
-  <a href="https://traceroot.ai/docs/detectors/get-started">
-    <img src="docs/images/detector_findings_v1.png" alt="TraceRoot 탐지 결과 목록과 선택한 결과의 트레이스 컨텍스트" width="100%">
+  <a href="https://github.com/traceroot-ai/traceroot-cli">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
+      <img src="docs/images/coding-agent-cli-light.png" alt="코딩 에이전트가 TraceRoot CLI를 통해 홈, 트레이스, 대시보드, 탐지기, 평가, 데이터셋, 알림, 신호에 연결됩니다." width="100%">
+    </picture>
   </a>
 </p>
-<p align="center"><em>Detectors는 프로덕션 트레이스에서 문제를 찾아 다음 개선 방향을 정할 수 있도록 돕습니다.</em></p>
 
-| 기능 | 설명 |
-| ---------- | --------------- |
-| [트레이싱](https://traceroot.ai/docs/tracing/get-started) | OpenTelemetry 호환 Python 및 TypeScript SDK로 LLM 호출, 툴 사용, 에이전트 실행 단계를 수집합니다. 입력, 출력, 지연 시간, 토큰 사용량, 비용을 확인할 수 있습니다. |
-| [Detectors](https://traceroot.ai/docs/detectors/get-started) | 프로덕션 트레이스에서 탐지할 동작을 정의하고, 샘플링과 평가 모델을 설정한 뒤 탐지 결과를 검토합니다. |
-| [데이터셋](https://traceroot.ai/docs/evals/datasets) | 에이전트가 잘 처리해야 하는 테스트 케이스를 작성하고, 버전을 관리하고, 게시합니다. |
-| [평가](https://traceroot.ai/docs/evals/get-started) | 데이터셋을 대상으로 시스템을 실행하고, 각 케이스를 채점하며, 후보 버전을 비교합니다. 각 케이스는 확인 가능한 트레이스로도 남습니다. |
-| [CLI](https://github.com/traceroot-ai/traceroot-cli) | 트레이스를 조회하고 내보내며, 탐지기와 탐지 결과를 확인하고, 그 컨텍스트를 코딩 워크플로우에 활용합니다. |
-| 대시보드 및 알림 | 품질, 지연 시간, 비용을 모니터링하고 임계값 알림을 설정합니다. |
-| 앱 내 AI 어시스턴트 | 소스 코드와 GitHub 컨텍스트에 접근할 수 있는 에이전트로 트레이스를 탐색합니다. 호스팅 모델을 사용하거나 자체 API 키를 연결할 수 있습니다. |
-
-## Why TraceRoot?
-
-- **트레이스만으로는 확장성이 없습니다.**
-
-  AI 에이전트 시스템이 복잡해질수록 모든 트레이스를 사람이 직접 분석하는 방식은 한계가 있습니다. TraceRoot의 Detectors는 유입되는 트레이스를 선별적으로 분석해 hallucination, 툴 실패, 로직 오류, 안전성 이슈를 자동으로 탐지합니다. 문제를 찾는 데 시간을 쓰는 대신, 문제를 해결하는 데 집중할 수 있습니다.
-
-- **프로덕션에서 AI 에이전트 시스템을 디버깅하는 일은 고통스럽습니다.**
-
-  Hallucination, 툴 호출 불안정성, 버전 변경 등 다양한 원인으로 발생하는 장애의 root cause를 추적하는 일은 쉽지 않습니다. TraceRoot의 AI는 프로덕션 소스 코드가 실행되는 샌드박스에 연결되어 정확한 실패 지점을 식별하고, GitHub 커밋·PR·오픈 이슈와 교차 분석해 수정용 PR까지 생성합니다.
-
-- **에이전트 개선은 임기응변이 아니라 체계적이어야 합니다.**
-
-  대부분의 팀은 프로덕션 이슈를 디버깅하고 그냥 넘어갑니다 — 그 과정에서 얻은 교훈은 사라집니다. TraceRoot는 온라인과 오프라인 평가를 하나의 루프로 연결합니다. Detectors가 라이브 트래픽을 평가하고, 확인된 실패는 golden dataset이 되며, 오프라인 eval이 모든 수정을 검증합니다. 릴리스를 거듭할수록 에이전트는 측정 가능한 수준으로 더 견고해지고 성능이 향상됩니다 — 개선이 일회성 대응이 아닌 반복 가능한 프로세스가 됩니다.
-
-- **완전한 오픈소스. 벤더 락인 없음.**
-
-  옵저버빌리티 플랫폼과 AI 디버깅 레이어 모두 오픈소스로 제공됩니다. OpenAI, Anthropic, Gemini, xAI, DeepSeek, OpenRouter, Kimi, GLM 등 모든 모델 프로바이더에 대해 BYOK를 지원합니다.
-
-## TraceRoot에 Star 남기기
+## ⭐ 저장소에 Star를 남겨 주세요
 
 TraceRoot가 마음에 드신다면 Star ⭐를 남겨 더 많은 개발자가 발견할 수 있도록 도와주세요.
 
@@ -72,15 +59,15 @@ TraceRoot가 마음에 드신다면 Star ⭐를 남겨 더 많은 개발자가 �
   </a>
 </p>
 
-## 시작하기
+## TraceRoot 시작하기
 
 ### TraceRoot Cloud
 
-가장 빠르게 시작하는 방법입니다. [TraceRoot Cloud에 가입하세요](https://app.traceroot.ai)!
+[계정을 만들고](https://app.traceroot.ai) 직접 플랫폼을 운영할 필요 없이 시작하세요.
 
 ### 셀프 호스팅
 
-Docker로 로컬에서 실행하세요:
+Git, Docker Compose, Make를 설치한 뒤 로컬에서 실행하세요:
 
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
@@ -89,16 +76,85 @@ cp .env.example .env
 make prod-lite
 ```
 
-[localhost:3000](http://localhost:3000)을 여세요. 자세한 내용은 [셀프 호스팅 가이드](https://traceroot.ai/docs/developer/self-hosting)를 참고하세요.
+[localhost:3000](http://localhost:3000)을 여세요. 설정과 배포에 관한 자세한 내용은 [셀프 호스팅 가이드](https://traceroot.ai/docs/developer/self-hosting)를 참고하세요.
 
-## CLI 빠른 시작
+## TraceRoot 설정하기
 
-코딩 에이전트와 함께 [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme)를 사용하세요.
+TraceRoot 인스턴스가 준비되면 대시보드에서 프로젝트를 만들고 첫 트레이스를 전송할 방법을 선택하세요. 코딩 에이전트가 CLI로 계측을 설정하도록 하거나 SDK를 직접 설정할 수 있습니다.
+
+### 코딩 에이전트로 설정하기
+
+<a id="cli-quickstart"></a>
+
+[TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme)를 설치하고 로그인하세요:
 
 ```bash
 npm install -g traceroot-cli
 traceroot login
 ```
+
+그런 다음 코딩 에이전트에게 요청하세요:
+
+```text
+TraceRoot CLI로 이 애플리케이션에 트레이싱을 설정해 주세요.
+적절한 TraceRoot 스킬을 설치하고 필요한 설정을 안내한 뒤,
+첫 트레이스가 TraceRoot에 표시되는지 확인해 주세요.
+```
+
+### SDK로 직접 설정하기
+
+직접 계측을 설정하고 싶으신가요? **[Python SDK](https://github.com/traceroot-ai/traceroot-py#readme)** 또는 **[TypeScript SDK](https://github.com/traceroot-ai/traceroot-ts#readme)**를 사용하세요. 아래 예제는 TypeScript 애플리케이션에서 모델 호출 한 건의 트레이스를 전송합니다.
+
+<details>
+<summary>최소 TypeScript 예제 실행하기</summary>
+
+Node.js와 npm, TraceRoot 프로젝트 API 키, OpenAI API 키가 필요합니다. 셀프 호스팅을 사용하는 경우 아래 클라우드 호스트 URL을 인스턴스 URL로 바꾸세요.
+
+**1. SDK 설치:** TypeScript 프로젝트에서 실행하세요:
+
+```sh
+npm install @traceroot-ai/traceroot openai
+```
+
+**2. API 키 설정:**
+
+```bash
+export TRACEROOT_API_KEY="your-project-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+**3. 에이전트 호출 추적:** 다음 코드를 `example.ts`로 저장하세요:
+
+```typescript
+import OpenAI from 'openai';
+import { TraceRoot, observe } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+const openai = new OpenAI();
+
+const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: query }],
+  });
+  return response.choices[0].message.content;
+});
+
+async function main() {
+  try {
+    await myAgent("What's the weather in SF?");
+  } finally {
+    await TraceRoot.shutdown();
+  }
+}
+
+main().catch(console.error);
+```
+
+**4. 실행:** `npx tsx example.ts`를 실행한 뒤 프로젝트의 **Traces** 페이지에서 에이전트 실행을 확인하세요. 이 예제는 OpenAI API를 한 번 호출합니다.
+
+</details>
 
 ## 통합
 
@@ -144,52 +200,6 @@ traceroot login
 </details>
 
 > 사용하는 프레임워크나 프로바이더가 없나요? [통합을 요청해주세요](https://github.com/traceroot-ai/traceroot/issues).
-
-## TypeScript SDK 빠른 시작
-
-**1. TypeScript 프로젝트에 SDK를 설치하세요:**
-
-```sh
-npm install @traceroot-ai/traceroot openai
-```
-
-**2. API 키를 설정하세요:**
-
-```bash
-export TRACEROOT_API_KEY="your-project-api-key"
-export TRACEROOT_HOST_URL="https://app.traceroot.ai"
-export OPENAI_API_KEY="your-openai-api-key"
-```
-
-**3. 에이전트 호출을 추적하세요.** 다음 코드를 `example.ts`로 저장하세요:
-
-```typescript
-import OpenAI from 'openai';
-import { TraceRoot, observe } from '@traceroot-ai/traceroot';
-
-TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
-const openai = new OpenAI();
-
-const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [{ role: 'user', content: query }],
-  });
-  return response.choices[0].message.content;
-});
-
-async function main() {
-  try {
-    await myAgent("What's the weather in SF?");
-  } finally {
-    await TraceRoot.shutdown();
-  }
-}
-
-main().catch(console.error);
-```
-
-**4. `npx tsx example.ts`로 실행한 뒤**, 프로젝트의 **Traces** 페이지에서 에이전트 실행 기록을 확인하세요. 이 예제는 OpenAI API를 한 번 호출합니다.
 
 ## Security & Privacy
 
