@@ -200,6 +200,21 @@ class TestWidgetFieldValues:
         assert kw["column"] == "model_name"
         mock_discovery.get_distinct_trace_values.assert_not_called()
 
+    def test_error_type_values_agree_across_widget_and_trace_list(self, client, mock_discovery):
+        """Both pickers resolve error_type to the same span column and return the same list."""
+        values = [{"value": "TimeoutError", "count": 5}, {"value": "unknown", "count": 2}]
+        mock_discovery.get_distinct_span_values.return_value = values
+        with patch("rest.routers.traces.get_trace_discovery_service", return_value=mock_discovery):
+            widget = client.get("/api/v1/projects/proj-1/widgets/field-values/spans/error_type")
+            trace_list = client.get("/api/v1/projects/proj-1/traces/filter-values/error_type")
+        assert widget.status_code == 200
+        assert trace_list.status_code == 200
+        assert widget.json()["values"] == trace_list.json()["values"] == values
+        columns = {
+            c.kwargs["column"] for c in mock_discovery.get_distinct_span_values.call_args_list
+        }
+        assert columns == {"error_type"}
+
     def test_traces_view_uses_the_trace_distinct_query(self, client, mock_discovery):
         mock_discovery.get_distinct_trace_values.return_value = [{"value": "u-1", "count": 3}]
         resp = client.get("/api/v1/projects/proj-1/widgets/field-values/traces/user_id")

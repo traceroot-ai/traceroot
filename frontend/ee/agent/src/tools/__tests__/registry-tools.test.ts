@@ -29,7 +29,7 @@ describe("createRegistryReadTools", () => {
     return impl;
   }
 
-  it("exposes exactly the twelve internally-bound read tools", () => {
+  it("exposes exactly the internally-bound read tools", () => {
     const names = createRegistryReadTools("p1", "u1").map((t) => t.name);
     expect(names).toEqual([
       "list_traces",
@@ -44,9 +44,89 @@ describe("createRegistryReadTools", () => {
       "get_dashboard",
       "run_widget_query",
       "get_dashboard_data",
+      "get_widget",
+      "get_widget_data",
       "list_alerts",
       "get_alert",
+      "get_evaluation_run",
+      "list_datasets",
+      "get_dataset",
+      "list_dataset_versions",
+      "get_dataset_version",
     ]);
+  });
+
+  it("get_widget GETs the internal widget route and renders the definition", async () => {
+    const impl = stubFetch({
+      id: "w1",
+      dashboard_id: "d1",
+      dashboard_name: "Latency",
+      title: "p95",
+      type: "query",
+      spec: { view: "spans" },
+      display_config: {},
+      create_time: "2026-08-01T00:00:00Z",
+      update_time: "2026-08-02T00:00:00Z",
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_widget")!;
+    const result = await tool.execute("id", { label: "x", widget_id: "w1" });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/internal/projects/p1/widgets/w1");
+    expect((init as RequestInit).method ?? "GET").toBe("GET");
+    expect((result.content[0] as { text: string }).text).toContain(
+      "Widget: w1 | p95 | type: query\nDashboard: d1 | Latency",
+    );
+  });
+
+  it("get_widget_data GETs the internal data route with the window as query params", async () => {
+    const impl = stubFetch({ widget: {}, window: {}, status: "ok", columns: [], rows: [] });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_widget_data")!;
+    await tool.execute("id", { label: "x", widget_id: "w1", range: "7d" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/widgets/w1/data?range=7d",
+    );
+  });
+
+  it("get_widget_data defaults to the page's window, and a window the model names wins", async () => {
+    const impl = stubFetch({ widget: {}, window: {}, status: "ok", columns: [], rows: [] });
+    const tool = createRegistryReadTools("p1", "u1", { range: "30d" }).find(
+      (t) => t.name === "get_widget_data",
+    )!;
+    await tool.execute("id", { label: "x", widget_id: "w1" });
+    expect(String(impl.mock.calls[0]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/widgets/w1/data?range=30d",
+    );
+    await tool.execute("id", { label: "x", widget_id: "w1", range: "1h" });
+    expect(String(impl.mock.calls[1]![0])).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/widgets/w1/data?range=1h",
+    );
+    expect(tool.description).toContain("the window the user is looking at on the page (30d)");
+    expect(tool.description).not.toContain("site's default");
+  });
+
+  it("puts the widget's dashboard URL in a widget data read, on the browser-reachable origin", async () => {
+    const before = { ...process.env };
+    process.env.TRACEROOT_UI_URL = "http://web:3000";
+    process.env.TRACEROOT_PUBLIC_UI_URL = "https://app.test";
+    try {
+      stubFetch({
+        widget: { id: "w1", dashboard_id: "d1", title: "p95", type: "query" },
+        window: {},
+        status: "ok",
+        columns: ["value"],
+        rows: [[1]],
+      });
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_widget_data")!;
+      const result = await tool.execute("id", { label: "x", widget_id: "w1" });
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain("URL: https://app.test/projects/p1/dashboard/d1");
+      expect(text).not.toContain("web:3000");
+    } finally {
+      process.env.TRACEROOT_UI_URL = before.TRACEROOT_UI_URL;
+      process.env.TRACEROOT_PUBLIC_UI_URL = before.TRACEROOT_PUBLIC_UI_URL;
+      if (before.TRACEROOT_UI_URL === undefined) delete process.env.TRACEROOT_UI_URL;
+      if (before.TRACEROOT_PUBLIC_UI_URL === undefined) delete process.env.TRACEROOT_PUBLIC_UI_URL;
+    }
   });
 
   it("run_widget_query POSTs the spec and window to the internal query route", async () => {
@@ -492,6 +572,140 @@ describe("createRegistryReadTools", () => {
     expect(result.details).toBeUndefined();
   });
 
+  it("get_evaluation_run hits the internal run route and runs the formatter", async () => {
+    const impl = stubFetch({
+      evaluation_run_id: "run_1",
+      evaluation_name: "Billing routing",
+      run_number: 14,
+      status: "completed",
+      scores: [],
+      metrics: [],
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_evaluation_run")!;
+    const result = await tool.execute("id", { label: "x", run_id: "run_1" });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "http://fastapi.test/api/v1/internal/projects/p1/evaluation-runs/run_1",
+    );
+    expect((init as RequestInit).headers).toMatchObject({
+      "X-Internal-Secret": "s3cret",
+      "x-user-id": "u1",
+    });
+    expect(result.content[0]!.text.startsWith("Standing: complete")).toBe(true);
+    expect(result.content[0]!.text).toContain("run #14");
+  });
+
+  it("get_evaluation_run offers the model no baseline to pass", () => {
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_evaluation_run")!;
+    const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
+    expect(Object.keys(properties).sort()).toEqual(["label", "run_id"]);
+  });
+
+  it.each([
+    [
+      "list_datasets",
+      { name: "refunds" },
+      { datasets: [{ dataset_id: "ds_1", name: "Refunds", current_dataset_version_id: "dv_3" }] },
+      "http://fastapi.test/api/v1/internal/projects/p1/datasets?limit=200&name=refunds",
+      '- "ds_1" | "Refunds" | current version: "dv_3"',
+    ],
+    [
+      "get_dataset",
+      { dataset_id: "ds_1" },
+      { dataset_id: "ds_1", name: "Refunds", current_dataset_version_id: "dv_3" },
+      "http://fastapi.test/api/v1/internal/projects/p1/datasets/ds_1",
+      'Dataset: "ds_1" | "Refunds"',
+    ],
+    [
+      "list_dataset_versions",
+      { dataset_id: "ds_1" },
+      { versions: [{ dataset_version_id: "dv_3", version_number: 3, is_current: true }] },
+      "http://fastapi.test/api/v1/internal/projects/p1/datasets/ds_1/versions?limit=200",
+      '- "dv_3" | v3 (current)',
+    ],
+    [
+      "get_dataset_version",
+      { version_id: "dv_1" },
+      { dataset_version_id: "dv_1", dataset_id: "ds_1", version_number: 1, items: [] },
+      "http://fastapi.test/api/v1/internal/projects/p1/dataset-versions/dv_1?limit=20",
+      'Dataset version: "dv_1" | dataset "ds_1"',
+    ],
+  ])(
+    "%s hits its internal dataset route and renders its own result",
+    async (name, args, body, url, text) => {
+      const impl = stubFetch(body);
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      const result = await tool.execute("id", { label: "x", ...args });
+      const [called, init] = impl.mock.calls[0]!;
+      expect(String(called)).toBe(url);
+      expect((init as RequestInit).headers).toMatchObject({
+        "X-Internal-Secret": "s3cret",
+        "x-user-id": "u1",
+      });
+      expect(result.content[0]!.text).toContain(text);
+    },
+  );
+
+  it.each([
+    ["list_datasets", "http://fastapi.test/api/v1/internal/projects/p1/datasets?limit=200"],
+    [
+      "list_dataset_versions",
+      "http://fastapi.test/api/v1/internal/projects/p1/datasets/ds_1/versions?limit=200",
+    ],
+    [
+      "get_dataset_version",
+      "http://fastapi.test/api/v1/internal/projects/p1/dataset-versions/dv_1?limit=20",
+    ],
+  ])("%s pins its page, whatever the model sends", async (name, url) => {
+    const impl = stubFetch({});
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+    await tool.execute("id", {
+      label: "x",
+      dataset_id: "ds_1",
+      version_id: "dv_1",
+      limit: 5,
+      cursor: "guessed",
+    });
+    expect(String(impl.mock.calls[0]![0])).toBe(url);
+  });
+
+  it.each(["list_datasets", "list_dataset_versions", "get_dataset_version"])(
+    "%s offers the model no cursor and no page size, so it reads the first page only",
+    (name) => {
+      const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === name)!;
+      const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
+      expect(properties).not.toHaveProperty("cursor");
+      expect(properties).not.toHaveProperty("limit");
+    },
+  );
+
+  it("describes get_dataset_version by what it does, keeping the rest of the registry text", () => {
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dataset_version")!;
+    const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
+    expect(Object.keys(properties).sort()).toEqual(["label", "version_id"]);
+    expect(tool.description).toContain("Read one immutable dataset version and its test cases");
+    expect(tool.description).toContain("Returns the version's first 20 cases");
+    // The registry's own paging advice names params this surface pins, so none of it survives.
+    expect(tool.description).not.toMatch(/next_cursor|pass limit|whole version/);
+  });
+
+  it("fails loudly when the curation is reworded and the rewrite matches nothing", async () => {
+    // A reworded curation ("Provide a limit and follow the cursor") matches neither the
+    // rewrite nor the assertion above, so the paging advice would survive silently in a
+    // description whose paging params are pinned off.
+    const { REGISTRY } = await import("@traceroot-ai/tools");
+    const entry = REGISTRY.find((e) => e.name === "get_dataset_version")!;
+    const original = entry.description;
+    try {
+      (entry as { description: string }).description = "Read one version. Provide a limit.";
+      expect(() => createRegistryReadTools("p1", "u1")).toThrow(
+        /get_dataset_version: describe matched nothing/,
+      );
+    } finally {
+      (entry as { description: string }).description = original;
+    }
+  });
+
   it("returns HTTP failures as tool text instead of throwing", async () => {
     vi.stubGlobal(
       "fetch",
@@ -518,11 +732,33 @@ describe("createTools", () => {
     "get_dashboard",
     "run_widget_query",
     "get_dashboard_data",
+    "get_widget",
+    "get_widget_data",
     "list_alerts",
     "get_alert",
+    "get_evaluation_run",
+    "list_datasets",
+    "get_dataset",
+    "list_dataset_versions",
+    "get_dataset_version",
   ];
-  const WRITE_TOOL_NAMES = ["create_detector", "create_dashboard", "create_widget", "create_alert"];
+  const WRITE_TOOL_NAMES = [
+    "create_detector",
+    "create_dashboard",
+    "create_widget",
+    "create_alert",
+    "update_detector",
+    "update_dashboard",
+    "update_widget",
+    "update_alert",
+    "set_alert_status",
+    "delete_detector",
+    "delete_dashboard",
+    "delete_widget",
+    "delete_alert",
+  ];
   const OTHER_TOOL_NAMES = [
+    "list_detector_models",
     "download_traces",
     "download_session",
     "check_github_access",

@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
+import type { TraceSource } from "@/lib/api/traces";
 import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -54,6 +55,11 @@ export default function TracesPage() {
   const { isPending: authPending } = useAuthSession();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
+  // Set alongside traceId when the popped-out trace is an RCA agent trace (the
+  // viewer was showing the analysis when "open in new tab" was clicked). Only
+  // the deep-linked id is ever opened under that scope — see the panel's
+  // `source` below.
+  const sourceFromUrl = searchParams.get("source");
   // Set when a trace is opened in a new tab via the panel's "open in new tab"
   // button, so the panel mounts already expanded to full width. Held as state
   // (not a derived value) so it only seeds the first trace opened from the URL:
@@ -75,6 +81,17 @@ export default function TracesPage() {
   } = useListPageState({ retentionDays: retention.retentionDays });
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
+  // Scope of the open trace. The list is customer-only, so selecting a row
+  // always means "user"; the one way to open an internal trace here is the
+  // ?traceId=&source=agent deep link (an RCA agent trace popped out of a
+  // viewer).
+  const [selectedSource, setSelectedSource] = useState<TraceSource>(
+    traceIdFromUrl && sourceFromUrl === "agent" ? "agent" : "user",
+  );
+  const selectTrace = (traceId: string | null, source: TraceSource = "user") => {
+    setSelectedTraceId(traceId);
+    setSelectedSource(source);
+  };
   // Warm the span→dataset chip data as soon as a trace is selected, so the
   // "Dataset:" chip is ready before the user opens a span (no per-span latency).
   useTraceTestCases(projectId, selectedTraceId ?? "");
@@ -289,7 +306,7 @@ export default function TracesPage() {
                 <TraceListTable
                   traces={traces}
                   selectedTraceId={selectedTraceId}
-                  onSelectTrace={setSelectedTraceId}
+                  onSelectTrace={selectTrace}
                   visibleColumns={visibleColumns}
                 />
               </div>
@@ -318,7 +335,7 @@ export default function TracesPage() {
           projectId={projectId}
           traceId={selectedTraceId}
           onClose={() => {
-            setSelectedTraceId(null);
+            selectTrace(null);
             setStartFullscreen(false);
           }}
           onNavigate={(direction) => {
@@ -326,9 +343,9 @@ export default function TracesPage() {
               (t: TraceListItem) => t.trace_id === selectedTraceId,
             );
             if (direction === "up" && currentIndex > 0) {
-              setSelectedTraceId(traces[currentIndex - 1].trace_id);
+              selectTrace(traces[currentIndex - 1].trace_id);
             } else if (direction === "down" && currentIndex < traces.length - 1) {
-              setSelectedTraceId(traces[currentIndex + 1].trace_id);
+              selectTrace(traces[currentIndex + 1].trace_id);
             }
           }}
           canNavigateUp={traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) > 0}
@@ -379,8 +396,10 @@ export default function TracesPage() {
           // the reader already defaults to customer traffic, so this is defense in depth,
           // and it also pins the trace-detail cache key this panel shares with the live
           // SSE writer. Self-traces are reached from the detector runs surface, which
-          // asks for source="detector" explicitly.
-          source="user"
+          // asks for source="detector" explicitly; here an internal trace is open only
+          // via the ?source=agent deep link (selectedSource), and navigating to a
+          // list row drops back to "user".
+          source={selectedSource}
         />
       )}
 

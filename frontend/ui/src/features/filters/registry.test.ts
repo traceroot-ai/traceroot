@@ -11,6 +11,7 @@ describe("STATIC_FILTER_FIELDS fallback", () => {
         "cost",
         "duration_ms",
         "environment",
+        "error_type",
         "errors",
         "metadata",
         "model_name",

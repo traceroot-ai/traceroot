@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
 import { installer, SLACK_BOT_SCOPES } from "@traceroot/slack";
@@ -6,7 +7,7 @@ import { env } from "@/env";
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-export async function GET(
+async function handleGET(
   request: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> },
 ) {
@@ -49,3 +50,4 @@ export async function GET(
 
   return NextResponse.redirect(installUrl);
 }
+export const GET = withImpersonationPolicy(handleGET);

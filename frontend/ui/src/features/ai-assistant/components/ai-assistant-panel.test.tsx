@@ -65,13 +65,32 @@ vi.mock("./ai-chat-context", () => ({
   }),
 }));
 
-vi.mock("./message-list", () => ({ MessageList: () => null }));
+// The list's "Open span" is the only caller that passes a span id; the stub
+// exposes that call so the test can drive it without rendering a tool step.
+vi.mock("./message-list", () => ({
+  MessageList: (props: { onOpenTrace?: (traceId: string, spanId?: string) => void }) => (
+    <button
+      type="button"
+      data-testid="open-span"
+      onClick={() => props.onOpenTrace?.("trace-1", "span-t1")}
+    />
+  ),
+}));
 vi.mock("./message-input", () => ({
   MessageInput: ({ placeholder }: { placeholder?: string }) => (
     <div data-testid="message-input">{placeholder ?? ""}</div>
   ),
 }));
 vi.mock("./session-history", () => ({ SessionHistory: () => null }));
+vi.mock("./agent-trace-sheet", () => ({
+  AgentTraceSheet: (props: { traceId: string | null; spanId?: string }) => (
+    <div
+      data-testid="trace-sheet"
+      data-trace-id={props.traceId ?? ""}
+      data-span-id={props.spanId ?? ""}
+    />
+  ),
+}));
 
 import { AiAssistantPanel } from "./ai-assistant-panel";
 
@@ -144,6 +163,24 @@ describe("AiAssistantPanel", () => {
     expect(screen.getByTestId("message-input").textContent).toBe("Reply to revise");
   });
 
+  it("does not hint at revising while a delete is pending — a reply skips it", () => {
+    mocks.hasPendingDecision = true;
+    mocks.pendingDecision = {
+      toolCallId: "tc1",
+      decisionId: "d1",
+      resourceType: "widget",
+      title: "Errors",
+      action: "delete",
+      approvalClass: "approval",
+    };
+    mocks.handleDecision.mockResolvedValue(true);
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.getByTestId("message-input").textContent).toBe("");
+    expect(screen.getByRole("button", { name: "Delete widget" })).toBeTruthy();
+  });
+
   it("keeps the default placeholder when nothing is pending", () => {
     render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
 
@@ -157,6 +194,8 @@ describe("AiAssistantPanel", () => {
       decisionId: "d1",
       resourceType: "widget",
       title: "Tokens by model",
+      action: "create",
+      approvalClass: "confirm",
     };
     mocks.handleDecision.mockResolvedValue(true);
 
@@ -196,5 +235,59 @@ describe("AiAssistantPanel", () => {
 
     expect(screen.getByText("No LLM models available")).not.toBeNull();
     expect(screen.queryByText("greeting")).toBeNull();
+  });
+
+  it("opens the sheet on the step's trace and span when a tool step's 'Open span' is clicked", () => {
+    mocks.messages = [{ id: "m1", role: "user", content: "hi" }];
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    const sheet = screen.getByTestId("trace-sheet");
+    expect(sheet.getAttribute("data-trace-id")).toBe("");
+    fireEvent.click(screen.getByTestId("open-span"));
+    expect(sheet.getAttribute("data-trace-id")).toBe("trace-1");
+    expect(sheet.getAttribute("data-span-id")).toBe("span-t1");
+  });
+
+  describe("decision models (TypeSafe)", () => {
+    const jevOnly = () => ({
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "TypeSafe AI",
+          adapter: "typesafe",
+          source: "byok" as const,
+          models: [{ id: "jev-latest", label: "jev-latest", supported: false }],
+        },
+      ],
+    });
+
+    it("shows the no-models gate for a TypeSafe-only workspace", () => {
+      mocks.projectData = { workspace_id: "ws-abc" };
+      mocks.llmModels = jevOnly();
+
+      render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+      expect(screen.getByText("No LLM models available")).not.toBeNull();
+    });
+
+    it("does not warn that a decision model is unsupported", () => {
+      mocks.projectData = { workspace_id: "ws-abc" };
+      mocks.llmModels = {
+        ...jevOnly(),
+        systemModels: [
+          {
+            provider: "anthropic",
+            adapter: "anthropic",
+            source: "system",
+            models: [{ id: "claude-4", label: "Claude 4" }],
+          },
+        ],
+      };
+
+      render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+      expect(screen.queryByText(/Unsupported model/)).toBeNull();
+    });
   });
 });

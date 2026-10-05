@@ -20,7 +20,16 @@ vi.mock("@traceroot/core", () => ({
 }));
 
 vi.mock("./clickhouse.js", () => ({
-  getWorkspaceUsageDetails: vi.fn().mockResolvedValue({ traces: 0, spans: 0, detectorRuns: 0 }), // unused
+  getWorkspaceUsageDetails: vi.fn().mockResolvedValue({
+    traces: 0,
+    spans: 0,
+    detectorRuns: 0,
+    bySource: {
+      user: { traces: 0, spans: 0 },
+      detector: { traces: 0, spans: 0 },
+      agent: { traces: 0, spans: 0 },
+    },
+  }), // unused
 }));
 
 import { reportDetectorOverageToStripe } from "../usageMetering.js";

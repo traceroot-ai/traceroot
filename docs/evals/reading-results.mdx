@@ -83,9 +83,21 @@ Save a run and upload it afterwards, for when the run happens somewhere without 
 
 `upload()` rebuilds the reporting destination from the saved run, and keeps its scorers' thresholds — so a later upload records the same pass and fail results as the original run.
 
+## Reading a run later
+
+`EvalRunResult` is what the process that ran the eval holds. Once the run has reported, the [CLI](/evals/cli) reads it back from anywhere — including a run somebody else started.
+
+```bash
+traceroot evals runs list --evaluation-id ev_…   # find the run id
+traceroot evals runs get run_…                   # counts, per-scorer means, cost and duration
+```
+
 ## Next steps
 
 <CardGroup cols={2}>
+  <Card title="From the Terminal" icon="terminal" href="/evals/cli">
+    Read datasets, evaluations, and past runs with the CLI.
+  </Card>
   <Card title="Running Evals" icon="play" href="/evals/running-evals">
     Every option of <code>evaluate()</code>, and where a run reports.
   </Card>

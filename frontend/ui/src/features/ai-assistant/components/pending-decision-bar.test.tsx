@@ -11,6 +11,8 @@ const decision: PendingDecision = {
   decisionId: "d1",
   resourceType: "detector",
   title: "Slow spans",
+  action: "create",
+  approvalClass: "confirm",
 };
 
 const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
@@ -87,5 +89,47 @@ describe("PendingDecisionBar", () => {
 
     fireEvent.click(button("Create detector"));
     await waitFor(() => expect(button("Create detector").disabled).toBe(false));
+  });
+});
+
+describe("PendingDecisionBar — updates and deletes", () => {
+  it("asks about an update with an Update button and still offers to revise by typing", () => {
+    render(
+      <PendingDecisionBar
+        decision={{ ...decision, action: "update", title: "Timeouts" }}
+        onDecide={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Update detector/, { selector: "p" }).textContent).toBe(
+      "Update detector Timeouts?",
+    );
+    expect(button("Update detector")).toBeTruthy();
+    expect(button("Skip")).toBeTruthy();
+    expect(screen.getByText("or reply below to revise")).toBeTruthy();
+    expect(button("Update detector").className).not.toContain("destructive");
+  });
+
+  it("asks about a delete with a destructive Delete button and no revise hint — typing skips", () => {
+    const onDecide = vi.fn().mockResolvedValue(true);
+    render(
+      <PendingDecisionBar
+        decision={{ ...decision, action: "delete", approvalClass: "approval", title: "Timeouts" }}
+        onDecide={onDecide}
+      />,
+    );
+    expect(screen.getByText(/Delete detector/, { selector: "p" }).textContent).toBe(
+      "Delete detector Timeouts?",
+    );
+    expect(button("Delete detector").className).toContain("destructive");
+    expect(screen.queryByText("or reply below to revise")).toBeNull();
+    expect(screen.getByText("a reply below skips it")).toBeTruthy();
+
+    // The Delete button still posts the proceed action the decisions route takes.
+    fireEvent.click(button("Delete detector"));
+    expect(onDecide).toHaveBeenCalledExactlyOnceWith({
+      toolCallId: "tc1",
+      decisionId: "d1",
+      action: "create",
+    });
   });
 });

@@ -93,7 +93,12 @@ beforeEach(() => {
   checkoutExpireMock.mockReset();
   checkoutRetrieveMock.mockReset();
 
-  getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "a@example.com" } });
+  // better-auth's shape: the route is wrapped in withImpersonationPolicy, which
+  // reads session.session to decide whether this is a staff impersonation.
+  getSessionMock.mockResolvedValue({
+    user: { id: "user-1", email: "a@example.com" },
+    session: { id: "session-1" },
+  });
   subscriptionsListMock.mockReturnValue([]);
   checkoutCreateMock.mockResolvedValue({
     id: "cs_new",

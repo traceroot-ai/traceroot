@@ -11,6 +11,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
     "test": "vitest run",
+    "test:e2e": "dotenv -e ../../.env -- playwright test",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
@@ -35,7 +36,7 @@
     "lucide-react": "^0.468.0",
     "next": "16.3.3",
     "next-themes": "^0.4.6",
-    "nodemailer": "^9.1.1",
+    "nodemailer": "^10.0.13",
     "posthog-js": "^1.362.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
@@ -50,6 +51,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/container-queries": "^0.1.1",
     "@tailwindcss/typography": "^0.5.19",
     "@testing-library/dom": "^10.4.1",

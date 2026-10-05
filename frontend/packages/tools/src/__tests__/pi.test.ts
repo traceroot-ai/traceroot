@@ -220,8 +220,16 @@ describe("INTERNAL_BINDINGS", () => {
       get_dashboard: "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}",
       get_dashboard_data: "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}/data",
       run_widget_query: "/api/v1/projects/{project_id}/widgets/query",
+      get_widget: "/api/v1/internal/projects/{project_id}/widgets/{widget_id}",
+      get_widget_data: "/api/v1/internal/projects/{project_id}/widgets/{widget_id}/data",
       list_alerts: "/api/v1/internal/projects/{project_id}/alerts",
       get_alert: "/api/v1/internal/projects/{project_id}/alerts/{alert_id}",
+      get_evaluation_run: "/api/v1/internal/projects/{project_id}/evaluation-runs/{run_id}",
+      list_datasets: "/api/v1/internal/projects/{project_id}/datasets",
+      get_dataset: "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}",
+      list_dataset_versions:
+        "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}/versions",
+      get_dataset_version: "/api/v1/internal/projects/{project_id}/dataset-versions/{version_id}",
     });
   });
 });
@@ -233,7 +241,28 @@ describe("INTERNAL_WRITE_BINDINGS", () => {
       create_dashboard: "/api/internal/write/dashboards",
       create_widget: "/api/internal/write/widgets",
       create_alert: "/api/internal/write/alerts",
+      update_detector: "/api/internal/write/detectors/{id}",
+      update_dashboard: "/api/internal/write/dashboards/{id}",
+      update_widget: "/api/internal/write/widgets/{id}",
+      update_alert: "/api/internal/write/alerts/{id}",
+      set_alert_status: "/api/internal/write/alerts/{id}/status",
+      delete_detector: "/api/internal/write/detectors/{id}",
+      delete_dashboard: "/api/internal/write/dashboards/{id}",
+      delete_widget: "/api/internal/write/widgets/{id}",
+      delete_alert: "/api/internal/write/alerts/{id}",
     });
+  });
+
+  it("binds only project-tenancy tools: the workspace and project writes stay off the agent", () => {
+    for (const name of Object.keys(INTERNAL_WRITE_BINDINGS)) {
+      expect(name).not.toMatch(/_(workspace|project)$/);
+    }
+  });
+
+  it("puts the resource id in the path of every update and delete, never in the body", () => {
+    for (const [name, template] of Object.entries(INTERNAL_WRITE_BINDINGS)) {
+      expect(template.includes("{id}")).toBe(!name.startsWith("create_"));
+    }
   });
 });
 
