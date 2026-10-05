@@ -3,11 +3,9 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-### Open Source Self-improving Layer for AI Agents
+Open Source Self-improving Layer for AI Agents
 
-[TraceRoot](https://traceroot.ai/) turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
-
-**[Try Cloud](https://app.traceroot.ai) · [Getting Started](#getting-started-with-traceroot) · [CLI](#cli-quickstart) · [Self-Hosting](#self-hosting) · [Docs](https://traceroot.ai/docs)**
+TraceRoot turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
