@@ -234,6 +234,9 @@ export function SignalDetailPanel({
                   onClose={() => {
                     setAiPanelOpen(false);
                     setAiContext(null);
+                    // The assistant clears its transcript on close. Drop the preload
+                    // too so reopening the same RCA session loads its messages again.
+                    setAiInitialSessionId(undefined);
                   }}
                 />
               </ResizablePanel>

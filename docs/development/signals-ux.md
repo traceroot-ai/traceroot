@@ -48,6 +48,9 @@ It references #2399 and #2404 without closing the full UX issue.
   opens that trace's detail through the existing traceId URL parameter. The
   sidebar selects Tracing; browser Back returns to the selected signal.
   Tracing badges can reopen the signal panel.
+- Open in agent loads the signal's RCA chat. Closing its sidebar clears the
+  preload session ID along with the chat, so reopening the same analysis
+  reloads its transcript.
 - A trace's Detectors tab has a Signal column linking each hit to its signal,
   or saying Pending (waiting for assignment) or Disabled (its detector did not
   group hits when it ran). The detector name links to its runs. The trace
@@ -82,6 +85,7 @@ It references #2399 and #2404 without closing the full UX issue.
 | Signals filter icons | The field picker uses the matching domain icons instead of the generic fallback glyph. |
 | Signals filter fields | Signal ID, Signal name, Detector ID, Detector name and Status match the reference order and labels. Detector ID adds exact-match filtering; the existing detector-name predicate stays compatible with saved links. |
 | Affected trace navigation | A row opens Tracing with the same signal filter and range as View all, plus the selected trace's detail. It replaces the trace layer over the Signal panel so investigation continues on the Tracing page. |
+| RCA chat reopen | Closing the Signal panel's assistant also clears its preload session ID, so Open in agent reloads the same analysis after the chat transcript has been cleared. |
 | Detection-time window counts | Window counts and charts use trace start time, matching Tracing. Reopen eligibility uses trace start time when available, falling back to detection time; lifecycle counters and digests use detection time. |
 | No separate trace-time snapshot | A nullable indexed signal-hit trace start is necessary for Postgres membership counts; the writer and all window readers consume it. |
 | Historical hits already exist | Unknown trace times do not enter window counts. A project-scoped repair script reads retained trace rows without inventing times. |
