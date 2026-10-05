@@ -664,6 +664,10 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("eu.anthropic.claude-opus-5-20260728-v1:0", "claude-opus-5"),
     ("claude-opus-5@20260728", "claude-opus-5"),
     ("claude-5-opus@20260728", "claude-opus-5"),
+    # Opus 5.5 — plain (also its Vertex id), anthropic/ prefix, Bedrock
+    ("claude-opus-5-5", "claude-opus-5-5"),
+    ("anthropic/claude-opus-5-5", "claude-opus-5-5"),
+    ("anthropic.claude-opus-5-5", "claude-opus-5-5"),
     # Opus 4.8 — plain, [1m] variant, Bedrock, Vertex
     ("claude-opus-4-8", "claude-opus-4-8"),
     ("claude-opus-4-8[1m]", "claude-opus-4-8"),
@@ -696,6 +700,10 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("global.anthropic.claude-sonnet-5-20260601-v1:0", "claude-sonnet-5"),
     ("anthropic.claude-sonnet-5-20260601-v1:0", "claude-sonnet-5"),
     ("claude-sonnet-5@20260601", "claude-sonnet-5"),
+    # Sonnet 5.5 — plain (also its Vertex id), anthropic/ prefix, Bedrock
+    ("claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("anthropic/claude-sonnet-5-5", "claude-sonnet-5-5"),
+    ("anthropic.claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("us.anthropic.claude-sonnet-4-6-20251015-v1:0", "claude-sonnet-4-6"),
     ("us.anthropic.claude-opus-4-6-20251015-v1:0", "claude-opus-4-6"),
     ("us.anthropic.claude-sonnet-4-20250514-v1:0", "claude-sonnet-4"),
@@ -731,6 +739,33 @@ class TestClaudeBedrockAndVertexIds:
             f"{model_id} matched a different family than {expected_name}"
         )
 
+    @pytest.mark.parametrize("family", ["claude-opus-5-5", "claude-sonnet-5-5"])
+    @pytest.mark.parametrize("prefix", ["", "anthropic/", "anthropic."])
+    def test_5_5_ids_match_only_their_entry(self, real_cache, family, prefix):
+        # First-match lookup hides overlaps; the 5 patterns once swallowed these ids.
+        model_id = prefix + family
+        matching = [
+            e["model_name"]
+            for e in real_cache
+            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+        ]
+        assert matching == [family], f"{model_id} matched {matching}"
+
+    @pytest.mark.parametrize(
+        "model_name,rates",
+        [
+            # input, output, cacheRead, cacheWrite, cacheWrite1h; Opus 5.5 reads cache at 0.05x.
+            ("claude-opus-5-5", (4e-6, 2e-5, 2e-7, 5e-6, 8e-6)),
+            ("claude-sonnet-5-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+            # Sonnet 5 kept its $2/$10 launch price; the planned $3/$15 never happened.
+            ("claude-sonnet-5", (2e-6, 1e-5, 2e-7, 2.5e-6, 4e-6)),
+        ],
+    )
+    def test_published_rates(self, model_name, rates):
+        entry = next(e for e in _standard_price_entries() if e["modelName"] == model_name)
+        keys = ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h")
+        assert entry["prices"] == pytest.approx(dict(zip(keys, rates)))
+
     def test_unrelated_model_still_none(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price("totally-not-a-real-model-2099") is None
@@ -747,6 +782,8 @@ CLAUDE_FAST_AND_DOT_CASES = [
     # Fast mode — gateway slug, bare dot form, dashed canonical form
     ("anthropic/claude-opus-5-fast", "claude-opus-5-fast"),
     ("claude-opus-5-fast", "claude-opus-5-fast"),
+    ("anthropic/claude-opus-5-5-fast", "claude-opus-5-5-fast"),
+    ("claude-opus-5-5-fast", "claude-opus-5-5-fast"),
     ("anthropic/claude-opus-4.8-fast", "claude-opus-4-8-fast"),
     ("claude-opus-4.8-fast", "claude-opus-4-8-fast"),
     ("claude-opus-4-8-fast", "claude-opus-4-8-fast"),
@@ -790,9 +827,10 @@ class TestClaudeFastAndDotNotationIds:
             f"{model_id} must match exactly the {expected_name} pattern, got {matching}"
         )
 
-    def test_fast_prices_are_double_standard(self, real_cache):
-        fast = next(e for e in real_cache if e["model_name"] == "claude-opus-4-8-fast")
-        std = next(e for e in real_cache if e["model_name"] == "claude-opus-4-8")
+    @pytest.mark.parametrize("model_name", ["claude-opus-4-8", "claude-opus-5", "claude-opus-5-5"])
+    def test_fast_prices_are_double_standard(self, real_cache, model_name):
+        fast = next(e for e in real_cache if e["model_name"] == f"{model_name}-fast")
+        std = next(e for e in real_cache if e["model_name"] == model_name)
         for key in ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h"):
             assert fast["prices"][key] == pytest.approx(std["prices"][key] * 2), key
 

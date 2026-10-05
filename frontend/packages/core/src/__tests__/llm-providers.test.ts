@@ -38,6 +38,10 @@ describe("isDecisionModelId", () => {
 });
 
 describe("ADAPTER_MODELS", () => {
+  it("lists claude-opus-5-5 first, so it is the default Anthropic model", () => {
+    expect(ADAPTER_MODELS["anthropic"]?.[0]?.id).toBe("claude-opus-5-5");
+  });
+
   it("contains no duplicate model IDs within a single adapter", () => {
     for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
       if (!models) continue;
