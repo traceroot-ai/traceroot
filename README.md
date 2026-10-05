@@ -27,14 +27,7 @@
 
 <p align="center">⭐ Help us reach more developers and grow the TraceRoot community. Star this repo!</p>
 
-## Features
-
-<p align="center">
-  <a href="https://traceroot.ai/docs/detectors/get-started">
-    <img src="docs/images/detector_findings_v1.png" alt="TraceRoot detector findings with a selected finding and its trace context" width="100%">
-  </a>
-</p>
-<p align="center"><em>Detectors surface findings from production traces so you can decide what to improve next.</em></p>
+## Core Features
 
 ### Turn production failures into tested improvements
 
@@ -51,25 +44,17 @@ Bring the supporting traces to your coding agent, make a local change, and compa
 
 ### Built for your coding agent
 
-Give your coding agent access to TraceRoot through an agent-native CLI:
-
-- **Investigate production behavior:** inspect and export traces, review detector findings, and query latency, token usage, and cost.
-- **Operate TraceRoot:** create and update detectors, dashboards, widgets, and alerts from your coding agent.
-- **Review the evidence:** read datasets, published test cases, and evaluation results to assess your changes.
+Give your coding agent read and write access to TraceRoot through an agent-native CLI. Explore traces, signals, and the home workspace; create and update detectors, datasets, evals, dashboards, and alerts—all from your coding agent.
 
 <p align="center">
-  <a href="https://traceroot.ai/#how-it-works">
+  <a href="https://github.com/traceroot-ai/traceroot-cli">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
       <img src="docs/images/coding-agent-cli-light.png" alt="Your coding agent connects through the TraceRoot CLI to Home, traces, dashboards, detectors, evals, datasets, alerts, and signals." width="100%">
     </picture>
   </a>
 </p>
-<p align="center"><em>Explore the interactive diagram on our website. Available commands are listed in the CLI reference.</em></p>
-
-**[CLI reference](https://github.com/traceroot-ai/traceroot-cli#commands) · [Tracing](https://traceroot.ai/docs/tracing/get-started) · [Detectors](https://traceroot.ai/docs/detectors/get-started) · [Datasets](https://traceroot.ai/docs/evals/datasets) · [Evaluations](https://traceroot.ai/docs/evals/get-started)**
-
-## Star TraceRoot
+## ⭐ Star the Repository
 
 If you like what we’re building, give TraceRoot a star ⭐ to help more developers discover it.
 
@@ -194,7 +179,7 @@ See the [CLI reference](https://github.com/traceroot-ai/traceroot-cli#readme) fo
 | Python | [traceroot-py](https://github.com/traceroot-ai/traceroot-py) |
 | TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
 
-<details>
+<details open>
 <summary>Supported frameworks and model providers</summary>
 
 ### Agent Frameworks
