@@ -20,6 +20,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description: "Row predicates the measure is evaluated over",
           items: {
             additionalProperties: false,
+            description: "A row predicate an alert's measure is evaluated over.",
             properties: {
               field: {
                 description: "A span field, e.g. model_name or metadata",
@@ -2189,6 +2190,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description: "Row predicates the measure is evaluated over",
           items: {
             additionalProperties: false,
+            description: "A row predicate an alert's measure is evaluated over.",
             properties: {
               field: {
                 description: "A span field, e.g. model_name or metadata",

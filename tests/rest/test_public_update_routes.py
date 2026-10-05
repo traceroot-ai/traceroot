@@ -721,6 +721,7 @@ def test_update_alert_off_renotify_and_empty_filters_travel_bare():
         {"name": None},
         {"filters": None},
         {"filters": [{"field": "model_name", "op": "in", "value": "gpt-5"}]},
+        {"filters": [{"field": "model_name", "op": "=", "value": "gpt-5", "keyy": "tenant"}]},
         {"status": "PAUSED"},  # status has its own route
     ],
 )

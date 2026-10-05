@@ -406,36 +406,31 @@ def _require_bounded_filters(filters: list[AlertFilterItem]) -> list[AlertFilter
     return filters
 
 
-# The item schema is written out rather than referenced: the tool registry
-# generator resolves a request-body $ref one level deep only, and an array
-# whose items point at a component would fail its build. Every property
-# declares a type (a list for the two-armed value) because some model
-# providers reject tool parameters that carry only an anyOf.
-_ALERT_FILTER_ITEM_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "field": {"type": "string", "description": "A span field, e.g. model_name or metadata"},
-        "key": {
-            "type": "string",
-            "description": "The map entry to compare; required for the metadata field",
-        },
-        "op": {"type": "string", "enum": ["=", "contains"]},
-        "value": {"type": ["string", "number"]},
-    },
-    "required": ["field", "op", "value"],
-    "additionalProperties": False,
-}
+# The request-side filter item. The tool registry generator resolves the items
+# reference inline, so the docstring below is what a model reads. Every
+# property declares a type (a list for the two-armed value, no None arm on the
+# key) because some model providers reject tool parameters that carry only an
+# anyOf. Unknown keys are a 422, as the emitted schema says, never a silent
+# drop.
+class AlertFilterItemRequest(AlertFilterItem):
+    """A row predicate an alert's measure is evaluated over."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str = Field(description="A span field, e.g. model_name or metadata")
+    key: str | SkipJsonSchema[None] = Field(
+        None, description="The map entry to compare; required for the metadata field"
+    )
+    value: Annotated[
+        str | Annotated[float, Field(allow_inf_nan=False)],
+        WithJsonSchema({"type": ["string", "number"]}),
+    ]
+
 
 AlertFilters = Annotated[
-    list[AlertFilterItem],
+    list[AlertFilterItemRequest],
     AfterValidator(_require_bounded_filters),
-    WithJsonSchema(
-        {
-            "type": "array",
-            "items": _ALERT_FILTER_ITEM_SCHEMA,
-            "description": "Row predicates the measure is evaluated over",
-        }
-    ),
+    Field(description="Row predicates the measure is evaluated over"),
 ]
 
 

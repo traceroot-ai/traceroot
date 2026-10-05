@@ -267,6 +267,44 @@
         "title": "AlertFilterItem",
         "type": "object"
       },
+      "AlertFilterItemRequest": {
+        "additionalProperties": false,
+        "description": "A row predicate an alert's measure is evaluated over.",
+        "properties": {
+          "field": {
+            "description": "A span field, e.g. model_name or metadata",
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "description": "The map entry to compare; required for the metadata field",
+            "title": "Key",
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "=",
+              "contains"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": [
+              "string",
+              "number"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "AlertFilterItemRequest",
+        "type": "object"
+      },
       "AlertListMeta": {
         "description": "Pagination plus the project's alert capacity.",
         "properties": {
@@ -296,7 +334,7 @@
         "type": "object"
       },
       "AlertRenotify": {
-        "description": "How often an alert re-notifies while it stays in the alerting state.\n\nKept a single-level object rather than a discriminated union: the tool\nregistry generator refuses nested schema references. The cross-field\nrule is enforced by a validator instead, so a contradictory stored rule\nfails the detail read closed rather than passing through half-typed.",
+        "description": "How often an alert re-notifies while it stays in the alerting state.\n\nKept a single-level object rather than a discriminated union, matching\nthe request-side shape. The cross-field rule is enforced by a validator\ninstead, so a contradictory stored rule fails the detail read closed\nrather than passing through half-typed.",
         "properties": {
           "interval_minutes": {
             "anyOf": [
@@ -693,36 +731,7 @@
           "filters": {
             "description": "Row predicates the measure is evaluated over",
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "field": {
-                  "description": "A span field, e.g. model_name or metadata",
-                  "type": "string"
-                },
-                "key": {
-                  "description": "The map entry to compare; required for the metadata field",
-                  "type": "string"
-                },
-                "op": {
-                  "enum": [
-                    "=",
-                    "contains"
-                  ],
-                  "type": "string"
-                },
-                "value": {
-                  "type": [
-                    "string",
-                    "number"
-                  ]
-                }
-              },
-              "required": [
-                "field",
-                "op",
-                "value"
-              ],
-              "type": "object"
+              "$ref": "#/components/schemas/AlertFilterItemRequest"
             },
             "title": "Filters",
             "type": "array"
@@ -5524,36 +5533,7 @@
           "filters": {
             "description": "Row predicates the measure is evaluated over",
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "field": {
-                  "description": "A span field, e.g. model_name or metadata",
-                  "type": "string"
-                },
-                "key": {
-                  "description": "The map entry to compare; required for the metadata field",
-                  "type": "string"
-                },
-                "op": {
-                  "enum": [
-                    "=",
-                    "contains"
-                  ],
-                  "type": "string"
-                },
-                "value": {
-                  "type": [
-                    "string",
-                    "number"
-                  ]
-                }
-              },
-              "required": [
-                "field",
-                "op",
-                "value"
-              ],
-              "type": "object"
+              "$ref": "#/components/schemas/AlertFilterItemRequest"
             },
             "title": "Filters",
             "type": "array"

@@ -516,10 +516,10 @@ class AlertFilterItem(BaseModel):
 class AlertRenotify(BaseModel):
     """How often an alert re-notifies while it stays in the alerting state.
 
-    Kept a single-level object rather than a discriminated union: the tool
-    registry generator refuses nested schema references. The cross-field
-    rule is enforced by a validator instead, so a contradictory stored rule
-    fails the detail read closed rather than passing through half-typed.
+    Kept a single-level object rather than a discriminated union, matching
+    the request-side shape. The cross-field rule is enforced by a validator
+    instead, so a contradictory stored rule fails the detail read closed
+    rather than passing through half-typed.
     """
 
     mode: Literal["OFF", "EVERY"]
