@@ -52,6 +52,8 @@ interface TraceListTableProps {
   visibleColumns: FixedColumnId[];
   /** Each trace's signal ids for the Signal IDs column; undefined until read. */
   signalIdsByTrace?: Record<string, string[]>;
+  /** Reading the signal ids failed: the column says so rather than staying blank. */
+  signalIdsFailed?: boolean;
 }
 
 export function TraceListTable({
@@ -61,6 +63,7 @@ export function TraceListTable({
   onSelectTrace,
   visibleColumns,
   signalIdsByTrace,
+  signalIdsFailed = false,
 }: TraceListTableProps) {
   const hasAddedColumns = visibleColumns.some((id) => !isDefaultOnColumn(id));
   const hasColumns = visibleColumns.length > 0;
@@ -85,6 +88,7 @@ export function TraceListTable({
               projectId={projectId}
               trace={trace}
               signalIds={signalIdsByTrace && (signalIdsByTrace[trace.trace_id] ?? [])}
+              signalIdsFailed={signalIdsFailed}
               isSelected={selectedTraceId === trace.trace_id}
               onSelect={onSelectTrace}
               columns={visibleColumns}
@@ -124,6 +128,7 @@ function TraceRow({
   projectId,
   trace,
   signalIds,
+  signalIdsFailed,
   isSelected,
   onSelect,
   columns,
@@ -131,6 +136,7 @@ function TraceRow({
   projectId: string;
   trace: TraceListItem;
   signalIds: readonly string[] | undefined;
+  signalIdsFailed: boolean;
   isSelected: boolean;
   onSelect: (traceId: string) => void;
   /** The same column list the header row walked, so the two cannot fall out of step. */
@@ -152,6 +158,7 @@ function TraceRow({
             projectId={projectId}
             trace={trace}
             signalIds={signalIds}
+            signalIdsFailed={signalIdsFailed}
             borderClassName={position === columns.length - 1 ? false : CELL_BORDER}
           />
         );
@@ -165,6 +172,7 @@ interface FixedCellProps {
   trace: TraceListItem;
   /** The trace's signal ids; undefined until read. */
   signalIds: readonly string[] | undefined;
+  signalIdsFailed: boolean;
   /** The row divider, or false on the column that ends the row. */
   borderClassName: string | false;
 }
@@ -243,7 +251,7 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
   session_id: ({ trace, borderClassName }) => (
     <FixedFieldCell value={trace.session_id} borderClassName={borderClassName} />
   ),
-  signal_ids: ({ projectId, signalIds, borderClassName }) =>
+  signal_ids: ({ projectId, signalIds, signalIdsFailed, borderClassName }) =>
     signalIds?.length ? (
       <td className={cn("max-w-[180px]", borderClassName, "px-3 py-1.5")}>
         <span className="flex flex-col gap-0.5 font-mono text-[11px] text-muted-foreground">
@@ -262,9 +270,15 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
         </span>
       </td>
     ) : (
-      // A dash once read with none; blank while loading.
+      // A dash once read with none, blank while loading, and a mark if the read failed.
       <td className={cn(borderClassName, "px-3 py-1.5 text-[12px] text-muted-foreground")}>
-        {signalIds ? "-" : ""}
+        {signalIds ? (
+          "-"
+        ) : signalIdsFailed ? (
+          <span title="Signal IDs could not be loaded">?</span>
+        ) : (
+          ""
+        )}
       </td>
     ),
   // The three quantities the Tokens chip compresses into `in → out (total)`, each exact.

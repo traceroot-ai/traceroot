@@ -44,6 +44,7 @@ interface TableProps {
   visibleColumns?: FixedColumnId[];
   onSelectTrace?: (traceId: string) => void;
   signalIdsByTrace?: Record<string, string[]>;
+  signalIdsFailed?: boolean;
 }
 
 function renderTable(props: TableProps) {
@@ -53,6 +54,7 @@ function renderTable(props: TableProps) {
       projectId="p-1"
       traces={props.traces}
       signalIdsByTrace={props.signalIdsByTrace}
+      signalIdsFailed={props.signalIdsFailed}
       selectedTraceId={null}
       onSelectTrace={onSelectTrace}
       // The resolved default-on set, never an empty list: empty is the "no columns selected"
@@ -217,6 +219,16 @@ describe("TraceListTable Signal IDs column", () => {
       visibleColumns: visibleFixedColumns(["signal_ids"]),
     });
     expect(cellAt("t-1", "Signal IDs").textContent).toBe("");
+  });
+
+  it("marks the cell when the signals could not be read, apart from loading", () => {
+    renderTable({
+      traces: [makeTrace({ trace_id: "t-1" })],
+      visibleColumns: visibleFixedColumns(["signal_ids"]),
+      signalIdsFailed: true,
+    });
+    const mark = within(cellAt("t-1", "Signal IDs")).getByText("?");
+    expect(mark.getAttribute("title")).toBe("Signal IDs could not be loaded");
   });
 });
 

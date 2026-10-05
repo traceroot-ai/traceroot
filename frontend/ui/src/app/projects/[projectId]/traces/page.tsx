@@ -158,7 +158,7 @@ export default function TracesPage() {
   const total = data?.meta?.total ?? 0;
   // Read only while the Signal IDs column is shown.
   const traceIds = useMemo(() => (data?.data ?? []).map((t) => t.trace_id), [data]);
-  const { data: signalIds } = useTraceSignalIds(
+  const { data: signalIds, isError: signalIdsFailed } = useTraceSignalIds(
     projectId,
     traceIds,
     visibleColumns.includes("signal_ids"),
@@ -318,6 +318,7 @@ export default function TracesPage() {
                   onSelectTrace={selectTrace}
                   visibleColumns={visibleColumns}
                   signalIdsByTrace={signalIds?.signalIds}
+                  signalIdsFailed={signalIdsFailed}
                 />
               </div>
 
