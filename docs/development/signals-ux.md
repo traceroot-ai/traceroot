@@ -46,9 +46,9 @@ It references #2399 and #2404 without closing the full UX issue.
 - Notification links open the Signals page with `?signalId=`; the path comes
   from one helper in core, and a page test checks that the page opens it.
 - Affected counts and View all open Tracing with the signal filter and range.
-  Tracing's signal filter is Signal IDs contains: a trace has one signal id per
-  hit, so it can belong to several signals, and it matches when any of them
-  equals the complete, case-sensitive ID entered. Partial IDs do not match.
+  Tracing's signal filter is `signal_id = <full ID>` (Signal ID in the picker).
+  A trace matches when it has a hit assigned to that signal. Affected-trace
+  links use this same exact-match filter. Partial IDs do not match.
   An optional Signal IDs column (off by default) lists each
   trace's signals, read from Postgres only while the column is shown.
   Opening an individual affected trace navigates to the same Tracing list and
@@ -101,7 +101,7 @@ It references #2399 and #2404 without closing the full UX issue.
 | Signals filter fields | Signal ID, Signal name, Detector ID, Detector name and Status match the reference order and labels. Detector ID adds exact-match filtering; the existing detector-name predicate stays compatible with saved links. |
 | Affected trace navigation | A row opens Tracing with the same signal filter and range as View all, plus the selected trace's detail. It replaces the trace layer over the Signal panel so investigation continues on the Tracing page. |
 | RCA chat reopen | Closing the Signal panel's assistant also clears its preload session ID, so Open in agent reloads the same analysis after the chat transcript has been cleared. |
-| Tracing Signal IDs contains | Contains means membership of a complete, case-sensitive Signal ID in the trace's set of IDs. Substring matching was removed because partial input such as `1` incorrectly matched unrelated IDs. |
+| Tracing signal filter | Restored the original `signal_id = <full ID>` filter and affected-trace links. The `signal_ids contains` filter and its added membership semantics are reverted. |
 | Detection-time window counts | Window counts and charts use trace start time, matching Tracing. Reopen eligibility uses trace start time when available, falling back to detection time; lifecycle counters and digests use detection time. |
 | No separate trace-time snapshot | A nullable indexed signal-hit trace start is necessary for Postgres membership counts; the writer and all window readers consume it. |
 | Historical hits already exist | Unknown trace times do not enter window counts. A project-scoped repair script reads retained trace rows without inventing times. |

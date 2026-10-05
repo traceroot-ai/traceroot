@@ -21,8 +21,8 @@ MEMBERSHIP_FIELDS = {"model_name", "environment", "span_kind", "status", "error_
 KEYED_MAP_FIELDS = {"metadata"}
 AGGREGATE_FIELDS = {"cost", "total_tokens", "duration_ms", "errors"}
 TRACE_FIELDS = {"trace_id"}
-# Signal: a trace's signal ids (one per hit), read from signal_assignments.
-SIGNAL_FIELDS = {"signal_ids"}
+# Signal: the traces holding a hit of one signal, read from signal_assignments.
+SIGNAL_FIELDS = {"signal_id"}
 
 
 def test_registry_column_set_is_exactly_the_declared_tiers():
@@ -70,15 +70,13 @@ def test_trace_id_is_a_text_trace_level_field():
     assert col.source_columns == ()
 
 
-def test_signal_ids_is_a_list_text_field_on_its_own_level():
-    """signal_ids lowers to a semi-join over signal_assignments, not a span or trace-row
-    predicate. A trace can belong to several signals, so the field is a list matched with
-    contains."""
-    col = reg.get_column("signal_ids")
-    assert col.label == "Signal IDs"
+def test_signal_id_is_an_exact_text_field_on_its_own_level():
+    """signal_id lowers to a semi-join over signal_assignments, not a span or trace-row
+    predicate, and matches only exactly: an id is copied, never typed in part."""
+    col = reg.get_column("signal_id")
     assert col.level is reg.FilterLevel.SIGNAL
     assert col.type is reg.FilterType.TEXT
-    assert col.operators == (reg.FilterOperator.CONTAINS,)
+    assert col.operators == (reg.FilterOperator.EQ,)
     assert col.ch_type == "String"
     assert col.detector_trigger is False
 
@@ -181,9 +179,9 @@ def test_filter_columns_are_immutable():
 # from the curated-column cross-check — they reference real columns via aggregate_expr.
 _DERIVED_FIELDS = {"errors"}
 
-# Fields read from a table the Gateway does not curate: signal_ids comes from
+# Fields read from a table the Gateway does not curate: signal_id comes from
 # signal_assignments, not from the traces or spans the Gateway exposes.
-_NON_GATEWAY_TABLE_FIELDS = {"signal_ids"}
+_NON_GATEWAY_TABLE_FIELDS = {"signal_id"}
 
 # Stored columns not yet exposed through the SQL Gateway. Each is a tracked
 # follow-up; remove the entry when the curated schema gains the column.
