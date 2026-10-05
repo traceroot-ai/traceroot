@@ -269,7 +269,7 @@ describe("applyAssignment", () => {
     expect(rows[0].hitCount).toBe(5);
   });
 
-  it("creates a signal with this hit as its anchor", async () => {
+  it("creates a signal with this hit as its anchor, keeping its criteria check result", async () => {
     const f = fakeDb([]);
     const r = await applyAssignment(
       f.db,
@@ -279,6 +279,7 @@ describe("applyAssignment", () => {
         signal: { title: "T", covers: "C", excludes: "E" },
         anchorText: "material",
         anchorEmbedding: [0.1, 0.2],
+        validated: false,
       },
       NO_RCA,
     );
@@ -296,6 +297,7 @@ describe("applyAssignment", () => {
       anchorText: "material",
       anchorEmbedding: [0.1, 0.2],
       groupKey: null,
+      criteriaValidated: false,
       hitCount: 1,
       firstSeenAt: t("10:00:00"),
     });
@@ -311,7 +313,12 @@ describe("applyAssignment", () => {
     };
     const fresh = fakeDb([]);
     expect((await applyAssignment(fresh.db, hit(), group, NO_RCA)).outcome).toBe("created");
-    expect(fresh.created[0]).toMatchObject({ groupKey: "fabrication", anchorEmbedding: [] });
+    // A category signal's criteria are fixed text: no check ran.
+    expect(fresh.created[0]).toMatchObject({
+      groupKey: "fabrication",
+      anchorEmbedding: [],
+      criteriaValidated: null,
+    });
     // Category signals are never judged against criteria, so no version is recorded.
     expect(fresh.hitRows[0]).toMatchObject({ criteriaVersion: null });
 
@@ -329,6 +336,7 @@ describe("applyAssignment", () => {
       signal: { title: "T", covers: "C", excludes: "E" },
       anchorText: "m",
       anchorEmbedding: [1],
+      validated: true,
     };
     const NOW = t("12:00:00").getTime();
 
