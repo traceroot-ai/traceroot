@@ -61,8 +61,6 @@ If you like what we’re building, give TraceRoot a star ⭐ to help more develo
 
 ## Getting Started With TraceRoot
 
-Choose TraceRoot Cloud or run an instance on your own infrastructure.
-
 ### TraceRoot Cloud
 
 [Create an account](https://app.traceroot.ai) to get started without running the platform yourself.
