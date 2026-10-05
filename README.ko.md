@@ -23,6 +23,14 @@ TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가�
 
 <p align="center">⭐ 더 많은 개발자에게 TraceRoot를 알리고 커뮤니티를 키울 수 있도록 이 저장소에 Star를 남겨 주세요!</p>
 
+<p align="center">
+  <a href="docs/videos/readme-demo.mp4">
+    <img src="docs/images/readme-demo-preview.jpg" alt="▶ 데모 보기: TraceRoot로 문제 분석, 수정, 검증하기 (41초)" width="100%">
+  </a>
+  <br>
+  <a href="docs/videos/readme-demo.mp4">▶ 데모 보기: TraceRoot로 문제 분석, 수정, 검증하기 (41초)</a>
+</p>
+
 ## 핵심 기능
 
 ### 프로덕션 실패를 검증된 개선으로 전환하세요

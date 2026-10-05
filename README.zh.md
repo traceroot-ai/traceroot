@@ -23,6 +23,14 @@ TraceRoot 将生产环境中的追踪转化为可执行的反馈与评测，与�
 
 <p align="center">⭐ 为本仓库点亮 Star，让更多开发者了解 TraceRoot，一起壮大社区！</p>
 
+<p align="center">
+  <a href="docs/videos/readme-demo.mp4">
+    <img src="docs/images/readme-demo-preview.jpg" alt="▶ 观看演示：使用 TraceRoot 分析、修复并验证问题（41 秒）" width="100%">
+  </a>
+  <br>
+  <a href="docs/videos/readme-demo.mp4">▶ 观看演示：使用 TraceRoot 分析、修复并验证问题（41 秒）</a>
+</p>
+
 ## 核心功能
 
 ### 将生产故障转化为经过验证的改进

@@ -23,6 +23,14 @@ TraceRoot turns production traces into actionable feedback and evals, closing th
 
 <p align="center">⭐ Help us reach more developers and grow the TraceRoot community. Star this repo!</p>
 
+<p align="center">
+  <a href="docs/videos/readme-demo.mp4">
+    <img src="docs/images/readme-demo-preview.jpg" alt="▶ Watch the demo: investigate, fix, and verify with TraceRoot (41 seconds)" width="100%">
+  </a>
+  <br>
+  <a href="docs/videos/readme-demo.mp4">▶ Watch the demo: investigate, fix, and verify with TraceRoot (41 seconds)</a>
+</p>
+
 ## Core Features
 
 ### Turn production failures into tested improvements
