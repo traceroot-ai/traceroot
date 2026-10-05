@@ -81,9 +81,10 @@ traceroot.initialize(integrations=[Integration.CLAUDE_AGENT_SDK])`,
       },
       typescript: {
         installCommand: TYPESCRIPT_INSTALL_COMMAND,
-        initSnippet: `import * as claudeAgentSDK from "@anthropic-ai/claude-agent-sdk";
+        initSnippet: `import * as claudeAgentSDKModule from "@anthropic-ai/claude-agent-sdk";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
+const claudeAgentSDK = { ...claudeAgentSDKModule };
 TraceRoot.initialize({
   instrumentModules: { claudeAgentSDK },
 });`,

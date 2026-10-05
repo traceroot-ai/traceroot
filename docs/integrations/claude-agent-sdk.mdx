@@ -18,8 +18,10 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
   </Tab>
   <Tab title="TypeScript">
     ```typescript
-    import * as claudeAgentSDK from '@anthropic-ai/claude-agent-sdk';
+    import * as claudeAgentSDKModule from '@anthropic-ai/claude-agent-sdk';
     import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    const claudeAgentSDK = { ...claudeAgentSDKModule };
 
     TraceRoot.initialize({
       instrumentModules: { claudeAgentSDK },
@@ -57,7 +59,15 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
   </Tab>
   <Tab title="TypeScript">
     ```typescript
-    import { query, AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
+    import * as claudeAgentSDKModule from '@anthropic-ai/claude-agent-sdk';
+    import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    const claudeAgentSDK = { ...claudeAgentSDKModule };
+
+    TraceRoot.initialize({
+      instrumentModules: { claudeAgentSDK },
+    });
 
     const researcher: AgentDefinition = {
       description: 'Research specialist for gathering information.',
@@ -67,7 +77,7 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
     };
 
     async function main() {
-      for await (const message of query({
+      for await (const message of claudeAgentSDK.query({
         prompt: 'Research the latest trends in AI observability',
         options: {
           allowedTools: ['Agent', 'Bash', 'Read', 'Glob', 'Grep'],
