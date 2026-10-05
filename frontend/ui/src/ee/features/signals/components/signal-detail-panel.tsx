@@ -13,8 +13,14 @@ import { TR } from "@/components/ui/table";
 import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { QueryWidgetRenderer } from "@/features/dashboards/components/renderers";
-import { cn, formatCost, formatDate, formatDuration } from "@/lib/utils";
-import { useSignal, useSignalTraces, type SignalDetail, type SignalTimeRange } from "../hooks";
+import { cn, formatCost, formatDate, formatDuration, formatRelativeTime } from "@/lib/utils";
+import {
+  rcaInProgress,
+  useSignal,
+  useSignalTraces,
+  type SignalDetail,
+  type SignalTimeRange,
+} from "../hooks";
 import { RunRca } from "./run-rca";
 import { SignalStatusControl } from "./signal-status-control";
 
@@ -57,10 +63,8 @@ interface SignalDetailPanelProps {
   onNavigate: (direction: "up" | "down") => void;
   canNavigateUp: boolean;
   canNavigateDown: boolean;
-  /** Open a trace in a layer over this panel; `traceIds` is the list it steps through. */
-  onOpenTrace: (traceId: string, traceIds: string[]) => void;
-  /** A trace layer is open over the panel: its own assistant takes the AI slot. */
-  covered?: boolean;
+  /** Navigate to the signal's Tracing list with this trace's detail open. */
+  onOpenTrace: (traceId: string) => void;
   /** The list's time window; it sets the chart and the traces shown, not the signal. */
   range: SignalTimeRange;
   /** The list's time picker, shown again over the chart. */
@@ -75,6 +79,16 @@ interface SignalDetailPanelProps {
  * The signal opened from the Signals list: what it covers, its root cause
  * analysis, how often it happened per day, and its latest traces.
  */
+/** What happened to the analysis of a reopening, in the sentence after "before the signal reopened". */
+function reopeningState(state: string | null): string {
+  if (state === null) {
+    return "No new analysis ran, because the last one was less than 24 hours earlier or this detector's root cause analysis is Manual.";
+  }
+  if (state === "failed") return "The new analysis failed.";
+  if (rcaInProgress(state)) return "A new analysis is running.";
+  return "";
+}
+
 export function SignalDetailPanel({
   projectId,
   signalId,
@@ -83,7 +97,6 @@ export function SignalDetailPanel({
   canNavigateUp,
   canNavigateDown,
   onOpenTrace,
-  covered = false,
   range,
   rangePicker,
   tracesHref,
@@ -107,15 +120,14 @@ export function SignalDetailPanel({
     };
   }, [registerAiHost, setAiPanelOpen, setAiContext, setAiInitialSessionId]);
 
-  // Escape closes the panel unless a nested overlay or a trace layer over it
-  // takes the key.
+  // Escape closes the panel unless a nested overlay takes the key.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.defaultPrevented && !covered) onClose();
+      if (e.key === "Escape" && !e.defaultPrevented) onClose();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, covered]);
+  }, [onClose]);
 
   const detail = data && !data.merged ? data : null;
   const rca = detail?.signal.canonicalRca ?? null;
@@ -222,7 +234,7 @@ export function SignalDetailPanel({
             </div>
           </ResizablePanel>
 
-          {aiPanelOpen && !covered && (
+          {aiPanelOpen && (
             <>
               <ResizableHandle />
               <ResizablePanel
@@ -238,6 +250,9 @@ export function SignalDetailPanel({
                   onClose={() => {
                     setAiPanelOpen(false);
                     setAiContext(null);
+                    // The assistant clears its transcript on close. Drop the preload
+                    // too so reopening the same RCA session loads its messages again.
+                    setAiInitialSessionId(undefined);
                   }}
                 />
               </ResizablePanel>
@@ -265,10 +280,15 @@ function SignalBlocks({
   rangePicker: ReactNode;
   tracesHref: string;
   onOpenAgent: (sessionId?: string) => void;
-  onOpenTrace: (traceId: string, traceIds: string[]) => void;
+  onOpenTrace: (traceId: string) => void;
 }) {
   const { signal, hits, hitSeries, window } = detail;
   const rca = signal.canonicalRca;
+  // The analysis shown is of an earlier opening: the signal reopened since it ran.
+  const earlier = rca?.result && rca.reopenSeq < signal.reopenSeq ? rca : null;
+  const earlierAt = earlier
+    ? signal.rcaHistory.find((h) => h.reopenSeq === earlier.reopenSeq)?.createTime
+    : undefined;
   const affected = hitSeries.reduce((sum, b) => sum + b.hits, 0);
   // The traces the signal's detector checked in the window; null when that count is unavailable.
   const total = hitSeries.some((b) => b.unaffected === null)
@@ -290,6 +310,13 @@ function SignalBlocks({
 
       <Block title="Summary">
         <p className="px-3 py-2.5 text-[13px] text-foreground">{signal.criteriaCovers}</p>
+        {signal.criteriaValidated === false && (
+          // A diagnostic only: the signal was created anyway.
+          <p className="px-3 pb-2.5 text-[12px] text-muted-foreground">
+            These criteria did not pass the check when the signal was created: they may not match
+            its first hit, or may also match another signal&apos;s hits.
+          </p>
+        )}
       </Block>
 
       <Block
@@ -308,8 +335,30 @@ function SignalBlocks({
       >
         <div className="px-3 py-2.5">
           {rca?.result ? (
-            <div className="rounded-md border border-border px-3 py-2">
-              <MarkdownView content={rca.result} />
+            <div className="space-y-3">
+              {earlier && (
+                <div className="space-y-2">
+                  <p className="text-[12px] text-muted-foreground">
+                    This analysis is from{" "}
+                    {earlierAt ? (
+                      <span title={formatDate(earlierAt)}>{formatRelativeTime(earlierAt)}</span>
+                    ) : (
+                      "earlier"
+                    )}
+                    , before the signal reopened. {reopeningState(signal.rca.currentState)}
+                  </p>
+                  <RunRca
+                    projectId={projectId}
+                    signalId={signal.id}
+                    state={signal.rca.currentState}
+                    available={detail.grouping}
+                    showState={false}
+                  />
+                </div>
+              )}
+              <div className="rounded-md border border-border px-3 py-2">
+                <MarkdownView content={rca.result} />
+              </div>
             </div>
           ) : (
             <RunRca
@@ -390,7 +439,8 @@ const TD = "px-3 py-1.5 text-[12px]";
 
 /**
  * The signal's latest traces in the window, as the traces list shows them; a row
- * opens the trace, "View all" opens the Tracing list narrowed to the signal. While
+ * opens the Tracing list narrowed to the signal with that trace's detail open;
+ * "View all" opens the same list. While
  * a new window loads, the previous window's rows stay up, faded like the chart.
  */
 function AffectedTraces({
@@ -404,7 +454,7 @@ function AffectedTraces({
   hits: SignalDetail["hits"];
   refreshing?: boolean;
   viewAllHref: string;
-  onOpenTrace: (traceId: string, traceIds: string[]) => void;
+  onOpenTrace: (traceId: string) => void;
 }) {
   const traceIds = [...new Set(hits.map((h) => h.traceId))].slice(0, TRACES_SHOWN);
   const { data: traces, isPending } = useSignalTraces(projectId, traceIds);
@@ -444,7 +494,7 @@ function AffectedTraces({
                 const t = traces?.get(traceId);
                 const pending = isPending ? "…" : "-";
                 return (
-                  <TR key={traceId} interactive onClick={() => onOpenTrace(traceId, traceIds)}>
+                  <TR key={traceId} interactive onClick={() => onOpenTrace(traceId)}>
                     <td className={cn(TD, "whitespace-nowrap text-muted-foreground")}>
                       {formatDate(t?.trace_start_time ?? traceStartTimes.get(traceId))}
                     </td>

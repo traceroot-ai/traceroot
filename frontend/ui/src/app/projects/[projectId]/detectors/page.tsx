@@ -235,13 +235,13 @@ export default function DetectorsPage() {
                     Sampling
                   </th>
                   <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Findings
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Runs
+                    Judge Runs
                   </th>
                   <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
                     Signals
+                  </th>
+                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    Agent Runs
                   </th>
                   <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Created At
@@ -262,21 +262,15 @@ export default function DetectorsPage() {
                   const template = getTemplate(detector.template);
                   const modelLabel = formatDetectorModel(detector);
                   const c = counts?.[detector.id];
-                  const findingCount = c?.finding_count ?? 0;
                   const runCount = c?.run_count ?? 0;
+                  const agentRunCount = c?.agent_run_count ?? 0;
                   const signalCount = signalCounts?.counts[detector.id] ?? 0;
                   const countClass =
                     "border-r border-border/50 px-3 py-1.5 text-right text-[12px] text-muted-foreground tabular-nums";
                   const detectorPath = `/projects/${projectId}/detectors/${detector.id}`;
-                  // Each count opens what it counts, in the same time range:
-                  // findings and runs on the detector page, signals on the
-                  // Signals page narrowed to this detector (names are unique).
+                  // Judge runs open the detector page; signals open the
+                  // Signals page narrowed to this detector.
                   const countLinks = {
-                    findings: buildUrl(detectorPath, {
-                      filters: serializeFiltersParam([
-                        { field: "identified", op: "in", value: ["Yes"] },
-                      ])!,
-                    }),
                     runs: buildUrl(detectorPath),
                     signals: buildUrl(`/projects/${projectId}/signals`, {
                       filters: serializeFiltersParam([
@@ -309,15 +303,8 @@ export default function DetectorsPage() {
                       </td>
                       <td className={countClass}>
                         <CountLink
-                          href={countLinks.findings}
-                          label={`View findings for ${detector.name}`}
-                          value={counts ? findingCount : null}
-                        />
-                      </td>
-                      <td className={countClass}>
-                        <CountLink
                           href={countLinks.runs}
-                          label={`View runs for ${detector.name}`}
+                          label={`View judge runs for ${detector.name}`}
                           value={counts ? runCount : null}
                         />
                       </td>
@@ -327,6 +314,12 @@ export default function DetectorsPage() {
                           label={`View signals for ${detector.name}`}
                           value={signalCounts ? signalCount : null}
                         />
+                      </td>
+                      <td
+                        className={countClass}
+                        title="RCA agent runs started in the selected time range, including retries"
+                      >
+                        {counts ? agentRunCount : "—"}
                       </td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {formatDate(detector.createTime)}

@@ -12,6 +12,7 @@ export function RunRca({
   signalId,
   state,
   available,
+  showState = true,
 }: {
   projectId: string;
   signalId: string;
@@ -19,6 +20,8 @@ export function RunRca({
   state: string | null;
   /** False when the deployment runs no signal RCA (it has no OpenAI API key). */
   available: boolean;
+  /** False when the caller already says whether it failed or is running. */
+  showState?: boolean;
 }) {
   const request = useRequestSignalRca(projectId, signalId);
   if (!available) {
@@ -36,13 +39,14 @@ export function RunRca({
           Analysis could not start. Please try again.
         </p>
       )}
-      {running ? (
-        <p className="text-[12px] text-muted-foreground">Analyzing affected traces…</p>
-      ) : (
-        state === "failed" && (
-          <p className="text-[12px] text-muted-foreground">The last analysis failed.</p>
-        )
-      )}
+      {showState &&
+        (running ? (
+          <p className="text-[12px] text-muted-foreground">Analyzing affected traces…</p>
+        ) : (
+          state === "failed" && (
+            <p className="text-[12px] text-muted-foreground">The last analysis failed.</p>
+          )
+        ))}
       <Button
         size="sm"
         className="h-7 text-[12px]"

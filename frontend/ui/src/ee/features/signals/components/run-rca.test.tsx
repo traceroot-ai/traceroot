@@ -51,6 +51,12 @@ describe("RunRca", () => {
     expect(button().textContent).toBe("Run root cause analysis");
   });
 
+  it("leaves out its state line when the caller states it", () => {
+    render(<RunRca projectId="p1" signalId="s1" state="failed" available showState={false} />);
+    expect(screen.queryByText("The last analysis failed.")).toBeNull();
+    expect(button().textContent).toBe("Run root cause analysis");
+  });
+
   it("offers no analysis when the deployment cannot run one", () => {
     render(<RunRca projectId="p1" signalId="s1" state={null} available={false} />);
     expect(screen.queryByRole("button")).toBeNull();

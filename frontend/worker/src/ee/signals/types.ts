@@ -53,3 +53,11 @@ export interface AssignmentModels {
     validate(covers: string, excludes: string, texts: readonly string[]): Promise<boolean[]>;
   } | null;
 }
+
+/**
+ * The model answered, but not usably: the chat model still gave no valid tool
+ * call after its retry, or Jev's answer did not fit the questions. Only this
+ * counts toward giving up on a hit. A provider, key, network or database
+ * failure is an outage, and the hit waits for it to end.
+ */
+export class UnusableAnswerError extends Error {}

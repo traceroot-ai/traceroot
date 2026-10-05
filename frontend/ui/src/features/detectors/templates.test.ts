@@ -43,7 +43,7 @@ describe("buildTemplateDetectorInput", () => {
       outputSchema: failure.outputSchema,
       triggerConditions: failure.defaultConditions,
       sampleRate: 25,
-      enableRca: false,
+      enableRca: true,
       detectionSource: "system",
     });
   });

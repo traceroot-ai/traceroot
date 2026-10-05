@@ -23,7 +23,14 @@ export interface WaitingHit {
 /** Where the decision put the hit. */
 export type Placement =
   | { kind: "attach"; signalId: string; score: number | null; criteriaVersion: number }
-  | { kind: "create"; signal: SignalText; anchorText: string; anchorEmbedding: number[] }
+  | {
+      kind: "create";
+      signal: SignalText;
+      anchorText: string;
+      anchorEmbedding: number[];
+      /** Whether the criteria passed their check; stored with the signal. */
+      validated: boolean;
+    }
   | { kind: "group"; groupKey: string; signal: SignalText; anchorText: string };
 
 export type AssignmentOutcome = "created" | "attached" | "reopened" | "duplicate";
@@ -165,6 +172,7 @@ export async function applyAssignment(
           anchorText: placement.anchorText,
           anchorEmbedding: placement.kind === "create" ? placement.anchorEmbedding : [],
           groupKey: placement.kind === "group" ? placement.groupKey : null,
+          criteriaValidated: placement.kind === "create" ? placement.validated : null,
           hitCount: 1,
           firstSeenAt: hit.seenAt,
           lastSeenAt: hit.seenAt,
@@ -179,11 +187,16 @@ export async function applyAssignment(
     }
 
     // RCA follows signals: a hit that creates or reopens a signal gets one,
-    // unless the detector has RCA off or the signal's last RCA is recent.
+    // unless the detector has RCA off or the signal's last RCA is recent. Only
+    // an analysis that succeeded or is still waiting or running counts: a
+    // failed one does not hold back the next reopening's.
     let rcaFindingId: string | null = null;
     if (opts.rca && (outcome === "created" || outcome === "reopened")) {
       const last = await tx.signalRca.findFirst({
-        where: { signalId },
+        where: {
+          signalId,
+          OR: [{ result: { not: null } }, { rca: { status: { in: ["pending", "running"] } } }],
+        },
         orderBy: { createTime: "desc" },
         select: { createTime: true },
       });

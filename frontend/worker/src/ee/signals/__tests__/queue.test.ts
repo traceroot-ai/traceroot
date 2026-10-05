@@ -28,6 +28,9 @@ const { mockAdd, mockUpsertScheduler, mockRound, fakeRedis } = vi.hoisted(() => 
       this.expiries.set(key, ms);
       return 1;
     },
+    async del(key: string) {
+      return this.hashes.delete(key) ? 1 : 0;
+    },
   };
   return { mockAdd: vi.fn(), mockUpsertScheduler: vi.fn(), mockRound: vi.fn(), fakeRedis };
 });
@@ -54,11 +57,11 @@ vi.mock("../../../queues/detector-run-queue.js", () => ({
   createRedisConnection: () => fakeRedis,
 }));
 vi.mock("../round.js", () => ({ runAssignmentRound: mockRound }));
-const { mockEnqueueRca, mockSweepRcas } = vi.hoisted(() => ({
-  mockEnqueueRca: vi.fn(),
+const { mockStartRcas, mockSweepRcas } = vi.hoisted(() => ({
+  mockStartRcas: vi.fn(),
   mockSweepRcas: vi.fn(),
 }));
-vi.mock("../rca.js", () => ({ enqueueSignalRca: mockEnqueueRca, sweepSignalRcas: mockSweepRcas }));
+vi.mock("../rca.js", () => ({ startSettledRcas: mockStartRcas, sweepSignalRcas: mockSweepRcas }));
 const { mockEnqueueDigest, mockSweepDigests } = vi.hoisted(() => ({
   mockEnqueueDigest: vi.fn(),
   mockSweepDigests: vi.fn(),
@@ -142,6 +145,7 @@ import {
   enqueueSignalHits,
   markDrained,
   partitionsToSweep,
+  clearHitFailures,
   recordHitFailure,
   type SignalAssignJobData,
 } from "../queue.js";
@@ -287,6 +291,12 @@ describe("recordHitFailure", () => {
     expect(await recordHitFailure("r1", T0 + 60_000)).toEqual({ count: 2, firstAt: T0 });
     expect(fakeRedis.expiries.get("signals:assign:failures:r1")).toBe(7 * 24 * 3_600_000);
   });
+
+  it("starts over after the hit's failures are cleared", async () => {
+    await recordHitFailure("r2", T0);
+    await clearHitFailures("r2");
+    expect(await recordHitFailure("r2", T0 + 60_000)).toEqual({ count: 1, firstAt: T0 + 60_000 });
+  });
 });
 
 const job = (data: SignalAssignJobData, name = "assign") =>
@@ -355,7 +365,11 @@ describe("sweepPartitions", () => {
     detector("d", T0 - 180_000);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     expect(await sweepPartitions(T0)).toBe(1);
-    expect(mockSweepRcas).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), T0);
+    expect(mockSweepRcas).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: "prisma" }),
+      expect.anything(),
+      T0,
+    );
     expect(mockSweepDigests).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), T0);
     expect(mockAdd).toHaveBeenCalledWith(
       "assign",
@@ -436,8 +450,13 @@ describe("production wiring", () => {
     expect(deps.db).toMatchObject({ tag: "prisma" });
     expect(deps.backend).toBeDefined();
     expect(deps.failures.record).toBe(recordHitFailure);
-    await deps.enqueueRca("f1", "p");
-    expect(mockEnqueueRca).toHaveBeenCalledWith("f1", "p");
+    await deps.startRcas("p", ["f1"]);
+    expect(mockStartRcas).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: "prisma" }),
+      deps.backend,
+      "p",
+      ["f1"],
+    );
     await deps.enqueueDigest("p");
     expect(mockEnqueueDigest).toHaveBeenCalledWith("p");
     expect(deps.now()).toBeGreaterThan(0);

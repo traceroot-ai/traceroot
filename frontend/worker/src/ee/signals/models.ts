@@ -3,7 +3,11 @@ import type { Message, Tool, ToolCall } from "@earendil-works/pi-ai";
 import { resolvePiModel } from "@traceroot/core/model-resolver";
 import { ADAPTER_DEFAULT_BASE_URL, LLMAdapter } from "@traceroot/core/llm-providers";
 import { tracedComplete } from "../../detection/traced-complete.js";
-import { callSystemOne, usageFromError } from "../../detection/typesafe-client.js";
+import {
+  MalformedResponseError,
+  callSystemOne,
+  usageFromError,
+} from "../../detection/typesafe-client.js";
 import { JEV_DEFAULT_MODEL_ID } from "../../detection/jev-eval.js";
 import { ASSIGN_CHAT_MODEL_ID, CHAT_TIMEOUT_MS, JEV_TIMEOUT_MS } from "./config.js";
 import {
@@ -16,7 +20,13 @@ import {
   validateUserText,
   writerUserText,
 } from "./prompts.js";
-import type { AssignmentModels, ChatAssignAnswer, ModelUsage, SignalText } from "./types.js";
+import {
+  UnusableAnswerError,
+  type AssignmentModels,
+  type ChatAssignAnswer,
+  type ModelUsage,
+  type SignalText,
+} from "./types.js";
 
 const signalTextSchema = Type.Object(
   {
@@ -151,7 +161,7 @@ export function createChatModels(apiKey: string, usage: ModelUsage[]): Assignmen
         clearTimeout(timer);
       }
     }
-    throw new Error(`${ASSIGN_CHAT_MODEL_ID} ${tool.name}: ${lastError}`);
+    throw new UnusableAnswerError(`${ASSIGN_CHAT_MODEL_ID} ${tool.name}: ${lastError}`);
   }
 
   return {
@@ -195,7 +205,7 @@ export function createJevModels(
     } catch (err) {
       // TypeSafe bills a response we reject; keep its tokens findable.
       record(usageFromError(err));
-      throw err;
+      throw err instanceof MalformedResponseError ? new UnusableAnswerError(err.message) : err;
     }
   }
 

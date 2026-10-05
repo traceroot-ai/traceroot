@@ -154,16 +154,17 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         # trace id is not a meaningful trigger.
         detector_trigger=False,
     ),
-    # Signal tier — the traces holding a hit of one signal (a signal semi-join), so a
-    # signal can link to its traces in the list. Exact match only: a signal id is
-    # copied, never typed in part.
+    # Signal tier — a trace's signal ids, one per hit (a signal semi-join): a trace whose
+    # detectors fired more than once can belong to several signals, so the field is a
+    # list and `contains` matches any of them by substring. A signal links to its traces
+    # in the list with its full id.
     FilterColumn(
-        name="signal_id",
-        label="Signal ID",
+        name="signal_ids",
+        label="Signal IDs",
         ch_type="String",
         level=FilterLevel.SIGNAL,
         type=FilterType.TEXT,
-        operators=(FilterOperator.EQ,),
+        operators=(FilterOperator.CONTAINS,),
         value_source=ValueSource.FREE_TEXT,
         # A signal exists only after detectors ran on the trace.
         detector_trigger=False,

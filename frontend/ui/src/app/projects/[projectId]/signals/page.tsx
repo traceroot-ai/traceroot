@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { PlanType } from "@traceroot/core";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -14,7 +14,6 @@ import { ProjectBreadcrumb } from "@/features/projects/components";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
 import type { FilterFieldDef } from "@/features/filters/registry";
 import type { Predicate } from "@/types/api";
-import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
 import { useAllDetectorNames } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -38,20 +37,11 @@ function signalFilterFields(detectorNames: string[]): FilterFieldDef[] {
     ({ level: "SIGNAL", enum_values: [], ...def }) as FilterFieldDef;
   return [
     field({
-      field: "status",
-      label: "Status",
-      type: "categorical",
-      operators: ["in"],
-      value_source: "static_enum",
-      enum_values: [...SIGNAL_STATUSES],
-    }),
-    field({
-      field: "detector",
-      label: "Detector",
-      type: "categorical",
-      operators: ["in"],
-      value_source: "static_enum",
-      enum_values: detectorNames,
+      field: "signal_id",
+      label: "Signal ID",
+      type: "text",
+      operators: ["eq"],
+      value_source: "free_text",
     }),
     field({
       field: "title",
@@ -61,11 +51,27 @@ function signalFilterFields(detectorNames: string[]): FilterFieldDef[] {
       value_source: "free_text",
     }),
     field({
-      field: "signal_id",
-      label: "Signal ID",
+      field: "detector_id",
+      label: "Detector ID",
       type: "text",
       operators: ["eq"],
       value_source: "free_text",
+    }),
+    field({
+      field: "detector",
+      label: "Detector name",
+      type: "categorical",
+      operators: ["in"],
+      value_source: "static_enum",
+      enum_values: detectorNames,
+    }),
+    field({
+      field: "status",
+      label: "Status",
+      type: "categorical",
+      operators: ["in"],
+      value_source: "static_enum",
+      enum_values: [...SIGNAL_STATUSES],
     }),
   ];
 }
@@ -76,13 +82,13 @@ const TD = "border-r border-border/50 px-3 py-1.5 text-[12px]";
 
 export default function SignalsPage() {
   const params = useParams();
+  const router = useRouter();
   const projectId = params.projectId as string;
   const searchParams = useSearchParams();
   const selectedSignalId = searchParams.get(SIGNAL_ID_PARAM);
   // The open signal lives in the URL too, so a link to it can be shared and
   // the back button returns to it from a trace.
   const setSelectedSignalId = (id: string | null) => {
-    setOpenTrace(null);
     if (!id) setFullscreen(false);
     const url = new URL(window.location.href);
     if (id) url.searchParams.set(SIGNAL_ID_PARAM, id);
@@ -117,24 +123,21 @@ export default function SignalsPage() {
       onUpgradeClick={retention.onUpgradeClick}
     />
   );
-  // The Tracing list narrowed to one signal's traces, in the same time range.
-  const tracesHref = (signalId: string) =>
+  // The Tracing list narrowed to one signal's traces, in the same time range: a trace's
+  // signal ids contain this one (a trace can belong to several signals).
+  const tracesHref = (signalId: string, traceId?: string) =>
     buildUrlWithFilters(`/projects/${projectId}/traces`, {
       dateFilter: state.dateFilter,
       customStartDate: state.customStartDate,
       customEndDate: state.customEndDate,
       extraParams: {
-        filters: serializeFiltersParam([{ field: "signal_id", op: "eq", value: signalId }])!,
+        filters: serializeFiltersParam([{ field: "signal_ids", op: "contains", value: signalId }])!,
+        ...(traceId ? { traceId } : {}),
       },
     });
   const { sidebarCollapsed } = useLayout();
   const [fullscreen, setFullscreen] = useState(false);
-  // A trace opened from the signal panel, in a layer over it, and the list of
-  // traces its up/down buttons step through.
-  const [openTrace, setOpenTrace] = useState<{ traceId: string; traceIds: string[] } | null>(null);
-  const traceIndex = openTrace ? openTrace.traceIds.indexOf(openTrace.traceId) : -1;
   useEffect(() => {
-    setOpenTrace(null);
     if (!selectedSignalId) setFullscreen(false);
   }, [selectedSignalId]);
 
@@ -334,8 +337,7 @@ export default function SignalsPage() {
             }}
             canNavigateUp={selectedIndex > 0}
             canNavigateDown={selectedIndex >= 0 && selectedIndex < signals.length - 1}
-            onOpenTrace={(traceId, traceIds) => setOpenTrace({ traceId, traceIds })}
-            covered={!!openTrace}
+            onOpenTrace={(traceId) => router.push(tracesHref(selectedSignalId, traceId))}
             range={range}
             rangePicker={rangePicker}
             tracesHref={tracesHref(selectedSignalId)}
@@ -343,23 +345,6 @@ export default function SignalsPage() {
             onToggleFullscreen={() => setFullscreen((v) => !v)}
           />
         </div>
-      )}
-
-      {/* A trace opened from the signal: the trace viewer's own overlay, over the signal panel. */}
-      {selectedSignalId && openTrace && (
-        <TraceViewerPanel
-          projectId={projectId}
-          traceId={openTrace.traceId}
-          onClose={() => setOpenTrace(null)}
-          onNavigate={(direction) => {
-            const next = openTrace.traceIds[direction === "up" ? traceIndex - 1 : traceIndex + 1];
-            if (next) setOpenTrace({ ...openTrace, traceId: next });
-          }}
-          canNavigateUp={traceIndex > 0}
-          canNavigateDown={traceIndex >= 0 && traceIndex < openTrace.traceIds.length - 1}
-          // Narrower than the signal panel (70%), so the signal shows beneath.
-          overlayWidthClassName="w-[60%]"
-        />
       )}
 
       <PricingDialog

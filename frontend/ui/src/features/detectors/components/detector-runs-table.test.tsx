@@ -45,7 +45,7 @@ describe("DetectorRunsTable", () => {
     );
     for (const header of [
       "Timestamp",
-      "Run ID",
+      "Judge Run ID",
       "Trace ID",
       "Signal ID",
       "Agent Run ID",
@@ -134,7 +134,7 @@ describe("DetectorRunsTable", () => {
     expect(onRunClick).toHaveBeenCalledTimes(1);
   });
 
-  it("row click does nothing even when the run is self_traced — the Run ID link is the way in", () => {
+  it("row click does nothing even when the run is self_traced — the Judge Run ID link is the way in", () => {
     const onRunClick = vi.fn();
     const onTraceClick = vi.fn();
     const selfRun: BackendRun = {
@@ -247,6 +247,21 @@ describe("DetectorRunsTable", () => {
     // Signal ID and Agent Run ID are both dashes on a run that is not a hit.
     expect(within(cleanRow).queryByRole("link")).toBeNull();
     expect(within(cleanRow).getAllByText("—").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("says a hit grouping gave up on is not grouped, apart from one not grouped yet", () => {
+    render(
+      <DetectorRunsTable
+        rows={[{ ...triggeredRun, signal_id: null, agent_trace_id: null, signal_gave_up: true }]}
+        onTraceClick={vi.fn()}
+        onRunClick={vi.fn()}
+        onAgentRunClick={vi.fn()}
+        signalHref={signalHref}
+      />,
+    );
+    const cell = screen.getByText("Not grouped");
+    expect(cell.getAttribute("title")).toContain("gave up");
+    expect(screen.queryByRole("link", { name: "sig-1" })).toBeNull();
   });
 
   it("shows a dash for Agent Run ID while the signal has no analysis trace", () => {

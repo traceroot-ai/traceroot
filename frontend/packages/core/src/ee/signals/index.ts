@@ -13,10 +13,12 @@ export {
   listSignals,
   getSignal,
   signalsForTrace,
+  signalIdsForTraces,
   signalsForRuns,
   detectorSignalSettings,
   signalSetup,
   signalCountsByDetector,
+  agentRunCountsByDetector,
   signalsKeyConfigured,
 } from "./reads.ts";
 export {

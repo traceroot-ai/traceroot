@@ -137,14 +137,14 @@ def test_the_offered_fields_are_the_trace_list_fields_without_trace_id():
     traces. Order is compared too, because it is the field dropdown's order on
     both surfaces."""
     # The registry says which of its columns are triggers: trace_id is not (a
-    # single known id is not a trigger for live traces), nor signal_id (a signal
+    # single known id is not a trigger for live traces), nor signal_ids (a signal
     # exists only after detectors ran), nor the span columns the evaluator does
     # not fetch.
     trace_list = [(c.name, c.label) for c in FILTER_COLUMNS if c.detector_trigger]
     assert _parse_offered_fields() == trace_list
     assert [c.name for c in FILTER_COLUMNS if not c.detector_trigger] == [
         "trace_id",
-        "signal_id",
+        "signal_ids",
         "span_kind",
         "status",
         "error_type",

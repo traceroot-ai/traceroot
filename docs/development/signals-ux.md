@@ -7,8 +7,13 @@ It references #2399 and #2404 without closing the full UX issue.
 ## Implemented scope
 
 - Project sidebar entry and Signals list, newest signal first. The removable open
-  status filter persists when cleared. Search supports status, detector name,
-  signal title and signal ID.
+  status filter persists when cleared. Search supports status, detector name and ID,
+  signal title and signal ID. Detector ID is an exact match and combines with
+  the detector name filter within the current project or detector route.
+- Signals filter fields use the shared domain icons: Signal ID uses Hash,
+  Signal name uses Lightbulb, Detector ID uses Hash, Detector name uses Eye and
+  Status uses CircleCheck. The picker lists those five fields in that order,
+  matching the reference demo and the navigation icons.
 - Shared date selection for list counts, detail chart and affected traces. The
   default is seven days; stored preferences and shared links take precedence.
   Plan retention clamps preset and custom ranges. The range counts affected
@@ -17,24 +22,49 @@ It references #2399 and #2404 without closing the full UX issue.
   controls and a recent affected-traces table. The chart compares the signal's
   traces with the distinct traces its detector checked.
 - Detector page: one runs table; its findings are the Identified = Yes filter,
-  kept in the URL. Signal ID links a hit to its signal. Agent Run ID opens the
-  agent trace of the RCA that analysed the hit's own judge output (an opening of
+  kept in the URL. Judge Run ID identifies the detector's judge execution and
+  opens its self-trace when available. Signal ID links a hit to its signal, or
+  says Not grouped when assignment gave up on it (scripts/replay_signal_hits.py
+  replays it).
+  Agent Run ID opens the agent trace of the RCA that analysed the hit's own judge output (an opening of
   one of its detector's signals records the hit's trace); a hit that only joined
   a signal analysed on another trace shows a dash, a later RCA does not move an
   earlier hit's link, and a hit moved by hand keeps its own. RCA runs per signal, so the per-finding Finding ID and
   Agent analysis columns are gone.
-- Detector list: a Signals column counts each detector's signals (merged ones
-  left out, any status and time range, as the Signals page lists them). Its
-  Findings, Runs and Signals counts link to the detector's runs filtered to
-  Identified = Yes, its runs, and the Signals page narrowed to the detector.
+- Detector list: Judge Runs, Signals and Agent Runs, in that order. Judge Runs
+  counts all judge executions and links to the detector's runs in the selected
+  range. Signals counts the detector's signals (merged ones left out, any status
+  and time range) and links to the Signals page narrowed to the detector. Agent
+  Runs counts RCA executions started in the selected range, including failed
+  attempts and retries; a shared execution counts once per covered detector.
+  Executions without an agent session, such as quota skips, do not count, and
+  a signal opening created later does not add earlier runs to its detector.
+  Its count has no link because the judge table does not list every RCA attempt.
 - Resolve and dismiss require a reason; Other requires a note. Status writes
   include the status shown when the user acted (for resolve and dismiss, when
   the dialog opened), so a change made meanwhile is refused.
 - Notification links open the Signals page with `?signalId=`; the path comes
   from one helper in core, and a page test checks that the page opens it.
 - Affected counts and View all open Tracing with the signal filter and range.
-  Opening an individual trace adds a trace-viewer layer over the signal panel.
+  Tracing's signal filter is Signal IDs contains: a trace has one signal id per
+  hit, so it can belong to several signals, and it matches when any of them
+  contains the value. An optional Signal IDs column (off by default) lists each
+  trace's signals, read from Postgres only while the column is shown.
+  Opening an individual affected trace navigates to the same Tracing list and
+  opens that trace's detail through the existing traceId URL parameter. The
+  sidebar selects Tracing; browser Back returns to the selected signal.
   Tracing badges can reopen the signal panel.
+- The signal panel's Summary says when the criteria did not pass their check
+  at creation (signals.criteria_validated is false). The check is diagnostic:
+  the signal is created either way, and a hand edit clears the result.
+- When the analysis shown is of an earlier opening (the signal reopened since),
+  the panel says so with its date and offers Run root cause analysis for the
+  current opening; if no analysis was asked for it, the panel explains why (the
+  24-hour cooldown, or a Manual detector). A failed analysis does not count
+  toward the cooldown, so the next reopening runs one again.
+- Open in agent loads the signal's RCA chat. Closing its sidebar clears the
+  preload session ID along with the chat, so reopening the same analysis
+  reloads its transcript.
 - A trace's Detectors tab has a Signal column linking each hit to its signal,
   or saying Pending (waiting for assignment) or Disabled (its detector did not
   group hits when it ran). The detector name links to its runs. The trace
@@ -44,8 +74,9 @@ It references #2399 and #2404 without closing the full UX issue.
   create a detector, turn on Generate signals, or raise sampling above 0%.
   Filters that match nothing say so and offer to clear them.
 - The detector create form and edit panel have a Signals section: a Generate
-  signals switch, Root cause analysis (Manual, the default for new detectors,
-  or Automatic; the detector's enableRca), and the project's agent model.
+  signals switch, Root cause analysis (Automatic, the default for new detectors
+  from the form, the API and the assistant alike, or Manual; the detector's
+  enableRca), and the project's agent model.
 - A signal without an analysis offers Run root cause analysis. The request is
   recorded in Postgres (the web app cannot reach the job queue) and the
   worker's RCA sweep starts it within about two minutes; the panel follows it until it
@@ -63,6 +94,12 @@ It references #2399 and #2404 without closing the full UX issue.
 | Original scope or contract | Implemented behavior and reason |
 | --- | --- |
 | Detector-local Signals tab | A project-level Signals list with a detector filter. |
+| Detector list count columns | Judge Runs, Signals and Agent Runs replace Findings, Runs and Signals. Agent Runs counts actual RCA executions, deduplicated per detector, rather than positive judge outputs. |
+| Detector run ID label | Judge Run ID replaces Run ID to distinguish the judge execution from Agent Run ID; the ID value and link behavior stay the same. |
+| Signals filter icons | The field picker uses the matching domain icons instead of the generic fallback glyph. |
+| Signals filter fields | Signal ID, Signal name, Detector ID, Detector name and Status match the reference order and labels. Detector ID adds exact-match filtering; the existing detector-name predicate stays compatible with saved links. |
+| Affected trace navigation | A row opens Tracing with the same signal filter and range as View all, plus the selected trace's detail. It replaces the trace layer over the Signal panel so investigation continues on the Tracing page. |
+| RCA chat reopen | Closing the Signal panel's assistant also clears its preload session ID, so Open in agent reloads the same analysis after the chat transcript has been cleared. |
 | Detection-time window counts | Window counts and charts use trace start time, matching Tracing. Reopen eligibility uses trace start time when available, falling back to detection time; lifecycle counters and digests use detection time. |
 | No separate trace-time snapshot | A nullable indexed signal-hit trace start is necessary for Postgres membership counts; the writer and all window readers consume it. |
 | Historical hits already exist | Unknown trace times do not enter window counts. A project-scoped repair script reads retained trace rows without inventing times. |

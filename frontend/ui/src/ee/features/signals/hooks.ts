@@ -46,13 +46,22 @@ export interface SignalDetail {
   signal: SignalListItem & {
     criteriaCovers: string;
     criteriaExcludes: string;
+    /** Whether the criteria passed their check at creation; null when none ran. */
+    criteriaValidated: boolean | null;
+    /** The current opening: 0 at creation, +1 on every reopening. */
+    reopenSeq: number;
+    /** The current opening's analysis state; null when none was asked for. */
     rca: { currentState: string | null; canonicalFindingId: string | null };
     canonicalRca: {
       findingId: string;
+      /** The opening it analysed: earlier than the current one if the signal reopened since. */
+      reopenSeq: number;
       traceId: string | null;
       sessionId: string | null;
       result: string | null;
     } | null;
+    /** Each opening's RCA request, newest first. */
+    rcaHistory: { reopenSeq: number; findingId: string; status: string; createTime: string }[];
   };
   /** Whether this deployment groups hits and runs their RCA (it has the key signals run on). */
   grouping: boolean;
@@ -364,6 +373,28 @@ export function useSignalSetup(projectId: string, enabled: boolean) {
 }
 
 /** Each detector's signal count (merged ones left out), keyed by detector id. */
+/**
+ * The signal ids of each listed trace, for the Tracing list's Signal IDs column; read only
+ * while that column is shown.
+ */
+export function useTraceSignalIds(
+  projectId: string,
+  traceIds: readonly string[],
+  enabled: boolean,
+) {
+  const params = new URLSearchParams(traceIds.map((id) => ["trace_id", id]));
+  return useQuery({
+    queryKey: ["signals", "by-trace", projectId, traceIds],
+    queryFn: () =>
+      getJson<{ signalIds: Record<string, string[]> }>(
+        `/api/projects/${projectId}/signals/by-trace?${params.toString()}`,
+        "trace signals",
+      ),
+    enabled: enabled && !!projectId && traceIds.length > 0,
+    staleTime: 30_000,
+  });
+}
+
 export function useSignalCounts(projectId: string) {
   return useQuery({
     queryKey: ["signals", "counts", projectId],

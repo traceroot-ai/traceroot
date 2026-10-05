@@ -95,6 +95,22 @@ class TestListDetectorRuns:
         body = resp.json()
         assert body["meta"] == {"page": 0, "limit": 50, "total": 1}
         assert body["data"][0]["run_id"] == "r1"
+        assert body["data"][0]["signal_gave_up"] is False
+
+    def test_flags_a_hit_signal_assignment_gave_up_on(self, client, mock_ch, secret):
+        data = self._fake_data()
+        data.column_names = [*data.column_names, "signal_gave_up"]
+        data.result_rows = [(*data.result_rows[0], 1)]
+        mock_ch.query.side_effect = [data, self._fake_count(1)]
+        resp = client.get(
+            "/api/v1/internal/detector-runs",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.json()["data"][0]["signal_gave_up"] is True
+        data_sql = mock_ch.query.call_args_list[0].args[0]
+        # Only the give-up row (empty signal_id) of this detector's hit counts.
+        assert "signal_id = ''" in data_sql and "AS signal_gave_up" in data_sql
 
     def test_search_query_hits_trace_id_and_joined_summary(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_data(), self._fake_count(0)]

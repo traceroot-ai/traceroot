@@ -17,6 +17,8 @@ import {
   hasUncoveredOpenings,
   closeEmptySignalRca,
   loadSignalRcaContext,
+  settledFindings,
+  startSettledRcas,
   sweepSignalRcas,
   rootCausesByOpening,
   RCA_SWEEP_TIMEOUT_RESULT,
@@ -27,6 +29,7 @@ import {
   RCA_SWEEP_START_CAP,
   WAITING_LOOKBACK_MS,
 } from "../config.js";
+import type { UnsettledRunRow } from "../backend-client.js";
 
 const T0 = Date.parse("2026-09-30T10:00:00Z");
 
@@ -37,14 +40,14 @@ beforeEach(() => {
 });
 
 describe("enqueueSignalRca", () => {
-  it("adds one delayed RCA job per finding that is removed when done", async () => {
+  it("adds one RCA job per finding, without delay, that is removed when done", async () => {
     await enqueueSignalRca("f1", "p1");
     expect(mockAdd).toHaveBeenCalledWith(
       "signal-rca-f1",
       { kind: "signals", findingId: "f1", projectId: "p1" },
       expect.objectContaining({
         jobId: "signal-rca-f1",
-        delay: 60_000,
+        delay: 0,
         removeOnComplete: true,
         removeOnFail: true,
         attempts: 3,
@@ -288,6 +291,110 @@ describe("closeEmptySignalRca", () => {
   );
 });
 
+const ON = { enableSignals: true, enableRca: true, signalsEnabledAt: new Date(T0 - 86_400_000) };
+
+function unsettled(findingId: string, runId: string, detectorId = "d1"): UnsettledRunRow {
+  return {
+    finding_id: findingId,
+    run_id: runId,
+    detector_id: detectorId,
+    timestamp_ms: T0 - 60_000,
+  };
+}
+
+/** Postgres for the settled check: hits recorded by run id, detectors by id. */
+function settleDb(opts: {
+  recorded?: string[];
+  detectors?: Record<string, typeof ON | undefined>;
+  pending?: string[];
+}) {
+  return {
+    signalHit: {
+      findMany: vi.fn(async ({ where }: { where: { runId: { in: string[] } } }) =>
+        where.runId.in.filter((r) => opts.recorded?.includes(r)).map((runId) => ({ runId })),
+      ),
+    },
+    detector: {
+      findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+        where.id.in.flatMap((id) => {
+          const d = (opts.detectors ?? { d1: ON })[id];
+          return d ? [{ id, ...d }] : [];
+        }),
+      ),
+    },
+    detectorRca: {
+      findMany: vi.fn(async ({ where }: { where: { findingId: { in: string[] } } }) =>
+        where.findingId.in
+          .filter((f) => opts.pending?.includes(f))
+          .map((findingId) => ({ findingId })),
+      ),
+    },
+  };
+}
+
+describe("settledFindings", () => {
+  it("settles a finding with no run left unassigned, and asks only within the lookback", async () => {
+    const backend = { unsettledRuns: vi.fn(async () => [unsettled("f2", "r2")]) };
+    const settled = await settledFindings(settleDb({}) as never, backend, "p1", ["f1", "f2"], T0);
+    expect([...settled]).toEqual(["f1"]);
+    expect(backend.unsettledRuns).toHaveBeenCalledWith("p1", ["f1", "f2"], T0 - 7 * 86_400_000);
+  });
+
+  it("counts a hit assigned in Postgres whose ClickHouse copy has not landed", async () => {
+    const backend = { unsettledRuns: vi.fn(async () => [unsettled("f1", "r1")]) };
+    const db = settleDb({ recorded: ["r1"] });
+    expect(await settledFindings(db as never, backend, "p1", ["f1"], T0)).toEqual(new Set(["f1"]));
+  });
+
+  it("does not wait for a detector deleted, switched off, with RCA off, or enabled after the hit", async () => {
+    const backend = {
+      unsettledRuns: vi.fn(async () => [
+        unsettled("f1", "r-gone", "gone"),
+        unsettled("f1", "r-off", "off"),
+        unsettled("f1", "r-manual", "manual"),
+        unsettled("f1", "r-late", "late"),
+        unsettled("f2", "r-on", "d1"),
+      ]),
+    };
+    const db = settleDb({
+      detectors: {
+        off: { ...ON, enableSignals: false },
+        manual: { ...ON, enableRca: false },
+        late: { ...ON, signalsEnabledAt: new Date(T0) },
+        d1: ON,
+      },
+    });
+    const settled = await settledFindings(db as never, backend, "p1", ["f1", "f2"], T0);
+    expect([...settled]).toEqual(["f1"]);
+  });
+});
+
+describe("startSettledRcas", () => {
+  it("starts only findings with a pending RCA whose hits are settled", async () => {
+    const backend = { unsettledRuns: vi.fn(async () => [unsettled("f2", "r2")]) };
+    const db = settleDb({ pending: ["f1", "f2"] });
+    const enqueue = vi.fn(async () => {});
+    expect(await startSettledRcas(db as never, backend, "p1", ["f1", "f2", "f3"], enqueue)).toBe(1);
+    expect(enqueue).toHaveBeenCalledWith("f1", "p1");
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(db.detectorRca.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          projectId: "p1",
+          status: "pending",
+          signalRcas: { some: {} },
+        }),
+      }),
+    );
+  });
+
+  it("asks ClickHouse nothing when no finding has a pending RCA", async () => {
+    const backend = { unsettledRuns: vi.fn(async () => []) };
+    expect(await startSettledRcas(settleDb({}) as never, backend, "p1", ["f1"], vi.fn())).toBe(0);
+    expect(backend.unsettledRuns).not.toHaveBeenCalled();
+  });
+});
+
 describe("sweepSignalRcas", () => {
   // One row per opening, shaped as the sweep selects it.
   const row = (
@@ -304,13 +411,24 @@ describe("sweepSignalRcas", () => {
     for (const page of pages) findMany.mockResolvedValueOnce(page);
     findMany.mockResolvedValue([]); // any call past the given pages: no more rows
     return {
+      ...settleDb({}),
       signalRca: {
         findMany,
         findFirst: vi.fn().mockResolvedValue(newest ? { createTime: newest } : null),
       },
-      detectorRca: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      detectorRca: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        // Every finding offered to start has its RCA pending.
+        findMany: vi.fn(async ({ where }: { where: { findingId: { in: string[] } } }) =>
+          where.findingId.in.map((findingId) => ({ findingId })),
+        ),
+      },
     };
   }
+  /** Every trace's hits settled, unless a test says otherwise. */
+  const settledBackend = () => ({
+    unsettledRuns: vi.fn(async (): Promise<UnsettledRunRow[]> => []),
+  });
   const staleWhere = (findingId: string) => ({
     findingId,
     status: "pending",
@@ -322,7 +440,7 @@ describe("sweepSignalRcas", () => {
     const db = fakeDb([[row("f1", "s1", T0 - 100_000), row("f2", "s2", T0 - 100_000)]]);
     // f2's job is still waiting or running: left to it.
     mockGetJob.mockImplementation(async (id: string) => (id === "signal-rca-f2" ? {} : undefined));
-    expect(await sweepSignalRcas(db as never, T0)).toBe(1);
+    expect(await sweepSignalRcas(db as never, settledBackend(), T0)).toBe(1);
     expect(db.signalRca.findMany).toHaveBeenCalledTimes(1);
     expect(db.signalRca.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -344,6 +462,19 @@ describe("sweepSignalRcas", () => {
     log.mockRestore();
   });
 
+  it("leaves a finding whose trace still has a hit being assigned to the round that settles it", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const db = fakeDb([[row("f1", "s1", T0 - 100_000), row("f2", "s2", T0 - 100_000)]]);
+    mockGetJob.mockResolvedValue(undefined);
+    const backend = { unsettledRuns: vi.fn(async () => [unsettled("f2", "r2")]) };
+    expect(await sweepSignalRcas(db as never, backend, T0)).toBe(1);
+    expect(backend.unsettledRuns).toHaveBeenCalledWith("p1", ["f1", "f2"], expect.any(Number));
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    expect(mockAdd).toHaveBeenCalledWith("signal-rca-f1", expect.anything(), expect.anything());
+    expect(db.detectorRca.updateMany).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+
   it("pages past a full page of jobs already in flight to start an older, job-less request", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     // A full first page, all with a job, in key order.
@@ -356,7 +487,7 @@ describe("sweepSignalRcas", () => {
     mockGetJob.mockImplementation(async (id: string) =>
       id === "signal-rca-old-f" ? undefined : {},
     );
-    expect(await sweepSignalRcas(db as never, T0)).toBe(1);
+    expect(await sweepSignalRcas(db as never, settledBackend(), T0)).toBe(1);
     expect(db.signalRca.findMany).toHaveBeenCalledTimes(2);
     // The second page continues after the first page's last key. The key is exact,
     // so rows written in the same millisecond (all of the first page here) are
@@ -381,16 +512,51 @@ describe("sweepSignalRcas", () => {
     log.mockRestore();
   });
 
-  it("gives a job-less request past the lookback an explicit failed end instead of leaving it pending", async () => {
+  it("gives a job-less, unsettled request past the lookback an explicit failed end instead of leaving it pending", async () => {
     const old = row("old-f", "old-s", T0 - WAITING_LOOKBACK_MS - 60_000);
     const db = fakeDb([[old]]);
     mockGetJob.mockResolvedValue(undefined);
-    expect(await sweepSignalRcas(db as never, T0)).toBe(0);
+    // A run of the trace detected since (it was evaluated again) is still waiting.
+    const backend = { unsettledRuns: vi.fn(async () => [unsettled("old-f", "r-new")]) };
+    expect(await sweepSignalRcas(db as never, backend, T0)).toBe(0);
     expect(mockAdd).not.toHaveBeenCalled();
     expect(db.detectorRca.updateMany).toHaveBeenCalledWith({
       where: staleWhere("old-f"),
       data: expect.objectContaining({ status: "failed", result: RCA_SWEEP_TIMEOUT_RESULT }),
     });
+  });
+
+  it("starts a stale request whose trace is settled by now, instead of failing it", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    // A sibling hit stuck in an outage aged out of the lookback with this opening.
+    const old = row("old-f", "old-s", T0 - WAITING_LOOKBACK_MS - 60_000);
+    const db = fakeDb([[old]]);
+    mockGetJob.mockResolvedValue(undefined);
+    expect(await sweepSignalRcas(db as never, settledBackend(), T0)).toBe(1);
+    expect(db.detectorRca.updateMany).not.toHaveBeenCalled();
+    expect(mockAdd).toHaveBeenCalledWith("signal-rca-old-f", expect.anything(), expect.anything());
+    log.mockRestore();
+  });
+
+  it("does not let findings still being assigned use up the start cap", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    // A full first page of job-less findings whose traces still have a hit being
+    // assigned, then a settled one: it is still started.
+    const waiting = Array.from({ length: RCA_SWEEP_PAGE_SIZE }, (_, i) =>
+      row(`w-${i}`, `s-${String(i).padStart(3, "0")}`, T0 - 100_000),
+    );
+    const ready = row("ready", "t-ready", T0 - 100_000);
+    const db = fakeDb([waiting, [ready]]);
+    mockGetJob.mockResolvedValue(undefined);
+    const backend = {
+      unsettledRuns: vi.fn(async (_p: string, ids: string[]) =>
+        ids.filter((f) => f.startsWith("w-")).map((f) => unsettled(f, `r-${f}`)),
+      ),
+    };
+    expect(await sweepSignalRcas(db as never, backend, T0)).toBe(1);
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    expect(mockAdd).toHaveBeenCalledWith("signal-rca-ready", expect.anything(), expect.anything());
+    log.mockRestore();
   });
 
   it("starts a finding whose stale opening has a newer one, instead of failing it", async () => {
@@ -401,7 +567,7 @@ describe("sweepSignalRcas", () => {
       new Date(T0 - 100_000),
     );
     mockGetJob.mockResolvedValue(undefined);
-    expect(await sweepSignalRcas(db as never, T0)).toBe(1);
+    expect(await sweepSignalRcas(db as never, settledBackend(), T0)).toBe(1);
     expect(db.detectorRca.updateMany).not.toHaveBeenCalled();
     expect(mockAdd).toHaveBeenCalledWith("signal-rca-f1", expect.anything(), expect.anything());
     log.mockRestore();
@@ -413,7 +579,7 @@ describe("sweepSignalRcas", () => {
       new Date(T0 - 5_000),
     );
     mockGetJob.mockResolvedValue(undefined);
-    expect(await sweepSignalRcas(db as never, T0)).toBe(0);
+    expect(await sweepSignalRcas(db as never, settledBackend(), T0)).toBe(0);
     expect(db.detectorRca.updateMany).not.toHaveBeenCalled();
     expect(mockAdd).not.toHaveBeenCalled();
   });
@@ -422,7 +588,7 @@ describe("sweepSignalRcas", () => {
     const old = row("old-f", "old-s", T0 - WAITING_LOOKBACK_MS - 60_000);
     const db = fakeDb([[old]]);
     mockGetJob.mockResolvedValue({});
-    expect(await sweepSignalRcas(db as never, T0)).toBe(0);
+    expect(await sweepSignalRcas(db as never, settledBackend(), T0)).toBe(0);
     expect(mockAdd).not.toHaveBeenCalled();
     expect(db.detectorRca.updateMany).not.toHaveBeenCalled();
   });
@@ -431,7 +597,7 @@ describe("sweepSignalRcas", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     // Two detector hits on one trace: two openings, one finding, one job.
     const db = fakeDb([[row("f1", "s1", T0 - 100_000), row("f1", "s2", T0 - 100_000)]]);
-    expect(await sweepSignalRcas(db as never, T0)).toBe(1);
+    expect(await sweepSignalRcas(db as never, settledBackend(), T0)).toBe(1);
     expect(mockGetJob).toHaveBeenCalledTimes(1);
     expect(mockAdd).toHaveBeenCalledTimes(1);
     log.mockRestore();
@@ -444,7 +610,13 @@ describe("sweepSignalRcas", () => {
     );
     const stale = row("old", "s-old", T0 - 8 * 24 * 3_600_000);
     const db = fakeDb([[...fresh, stale]]);
-    expect(await sweepSignalRcas(db as never, T0)).toBe(RCA_SWEEP_START_CAP);
+    // The stale one's trace is not settled, so it is ended rather than started.
+    const backend = {
+      unsettledRuns: vi.fn(async (_p: string, ids: string[]) =>
+        ids.includes("old") ? [unsettled("old", "r-old")] : [],
+      ),
+    };
+    expect(await sweepSignalRcas(db as never, backend, T0)).toBe(RCA_SWEEP_START_CAP);
     expect(db.detectorRca.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: staleWhere("old") }),
     );
@@ -461,7 +633,7 @@ describe("sweepSignalRcas", () => {
     );
     const db = fakeDb(pages);
     mockGetJob.mockResolvedValue({}); // every row already has a job: nothing to start
-    expect(await sweepSignalRcas(db as never, T0)).toBe(0);
+    expect(await sweepSignalRcas(db as never, settledBackend(), T0)).toBe(0);
     expect(db.signalRca.findMany).toHaveBeenCalledTimes(pageCount);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("examining"));
     log.mockRestore();

@@ -16,6 +16,7 @@ const core = vi.hoisted(() => ({
   detectorSignalSettings: vi.fn(),
   signalSetup: vi.fn(),
   signalCountsByDetector: vi.fn(),
+  signalIdsForTraces: vi.fn(),
   signalsKeyConfigured: vi.fn(),
   writeAudit: vi.fn(),
   requireAuth: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock("@traceroot/core/signals", async (importOriginal) => {
     detectorSignalSettings: core.detectorSignalSettings,
     signalSetup: core.signalSetup,
     signalCountsByDetector: core.signalCountsByDetector,
+    signalIdsForTraces: core.signalIdsForTraces,
     signalsKeyConfigured: core.signalsKeyConfigured,
   };
 });
@@ -66,6 +68,7 @@ import {
   handleSetSignalStatus,
   handleSignalSetup,
   handleSignalCounts,
+  handleTraceSignalIds,
   handleTraceSignals,
 } from "./route-handlers";
 
@@ -224,6 +227,7 @@ describe("reads", () => {
       JSON.stringify([
         { field: "status", op: "in", value: ["open", "resolved"] },
         { field: "detector", op: "in", value: ["Failure"] },
+        { field: "detector_id", op: "eq", value: " d1 " },
         { field: "title", op: "contains", value: " timeout " },
         { field: "signal_id", op: "eq", value: "s9" },
       ]),
@@ -236,6 +240,7 @@ describe("reads", () => {
     expect(core.listSignals).toHaveBeenCalledWith(expect.objectContaining({ tag: "prisma" }), {
       projectId: "p1",
       detectorNames: ["Failure"],
+      detectorIds: ["d1"],
       statuses: ["open", "resolved"],
       title: "timeout",
       signalId: "s9",
@@ -253,6 +258,22 @@ describe("reads", () => {
     }
     core.requireProjectAccess.mockResolvedValueOnce({ error: Response.json({}, { status: 403 }) });
     expect((await handleListSignals(req(), params({ projectId: "p1" }))).status).toBe(403);
+  });
+
+  it("keeps an ID filter within the detector route's scope", async () => {
+    core.listSignals.mockResolvedValue({ signals: [], total: 0 });
+    const filters = encodeURIComponent(
+      JSON.stringify([{ field: "detector_id", op: "eq", value: "d2" }]),
+    );
+    const res = await handleListDetectorSignals(
+      req(undefined, `?filters=${filters}`),
+      params({ projectId: "p1", detectorId: "d1" }),
+    );
+    expect(res.status).toBe(200);
+    expect(core.listSignals).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ projectId: "p1", detectorIds: [] }),
+    );
   });
 
   it("counts each listed signal's hits in the page's window, and rejects a bad window", async () => {
@@ -480,6 +501,29 @@ describe("reads", () => {
 
     core.requireProjectAccess.mockResolvedValueOnce({ error: Response.json({}, { status: 403 }) });
     expect((await handleSignalCounts(req(), params({ projectId: "p1" }))).status).toBe(403);
+  });
+
+  it("returns the listed traces' signal ids, each trace once, for project members only", async () => {
+    core.signalIdsForTraces.mockResolvedValue({ t1: ["s1", "s2"] });
+    const res = await handleTraceSignalIds(
+      req(undefined, "?trace_id=t1&trace_id=t2&trace_id=t1"),
+      params({ projectId: "p1" }),
+    );
+    expect(await res.json()).toEqual({ signalIds: { t1: ["s1", "s2"] } });
+    expect(core.signalIdsForTraces).toHaveBeenCalledWith(expect.anything(), {
+      projectId: "p1",
+      traceIds: ["t1", "t2"],
+    });
+
+    core.requireProjectAccess.mockResolvedValueOnce({ error: Response.json({}, { status: 403 }) });
+    expect((await handleTraceSignalIds(req(), params({ projectId: "p1" }))).status).toBe(403);
+  });
+
+  it("refuses more traces than one Tracing page holds", async () => {
+    const search = "?" + Array.from({ length: 201 }, (_, i) => `trace_id=t${i}`).join("&");
+    const res = await handleTraceSignalIds(req(undefined, search), params({ projectId: "p1" }));
+    expect(res.status).toBe(400);
+    expect(core.signalIdsForTraces).not.toHaveBeenCalled();
   });
 });
 

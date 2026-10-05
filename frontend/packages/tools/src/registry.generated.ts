@@ -1686,12 +1686,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
                 additionalProperties: false,
                 properties: {
                   field: {
-                    const: "signal_id",
-                    title: "Signal ID",
+                    const: "signal_ids",
+                    title: "Signal IDs",
                     type: "string",
                   },
                   op: {
-                    enum: ["eq"],
+                    enum: ["contains"],
                     type: "string",
                   },
                   value: {

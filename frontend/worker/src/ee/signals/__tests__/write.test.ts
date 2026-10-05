@@ -29,7 +29,7 @@ function fakeDb(
     criteriaVersion?: number | null;
     traceStartTime?: Date | null;
   }[] = [],
-  rcas: { signalId: string; createTime: Date }[] = [],
+  rcas: { signalId: string; createTime: Date; failed?: boolean }[] = [],
 ) {
   const log: string[] = [];
   const rcaRows: Record<string, unknown>[] = [];
@@ -112,8 +112,13 @@ function fakeDb(
       },
     },
     signalRca: {
-      findFirst: async ({ where }: { where: { signalId: string } }) => {
-        const mine = rcas.filter((r) => r.signalId === where.signalId);
+      findFirst: async ({ where }: { where: { signalId: string; OR?: unknown[] } }) => {
+        // The cooldown reads only analyses that succeeded or are still in flight.
+        expect(where.OR).toEqual([
+          { result: { not: null } },
+          { rca: { status: { in: ["pending", "running"] } } },
+        ]);
+        const mine = rcas.filter((r) => r.signalId === where.signalId && !r.failed);
         mine.sort((a, b) => b.createTime.getTime() - a.createTime.getTime());
         return mine[0] ?? null;
       },
@@ -303,7 +308,7 @@ describe("applyAssignment", () => {
     expect(rows[0].hitCount).toBe(5);
   });
 
-  it("creates a signal with this hit as its anchor", async () => {
+  it("creates a signal with this hit as its anchor, keeping its criteria check result", async () => {
     const f = fakeDb([]);
     const r = await applyAssignment(
       f.db,
@@ -313,6 +318,7 @@ describe("applyAssignment", () => {
         signal: { title: "T", covers: "C", excludes: "E" },
         anchorText: "material",
         anchorEmbedding: [0.1, 0.2],
+        validated: false,
       },
       NO_RCA,
     );
@@ -330,6 +336,7 @@ describe("applyAssignment", () => {
       anchorText: "material",
       anchorEmbedding: [0.1, 0.2],
       groupKey: null,
+      criteriaValidated: false,
       hitCount: 1,
       firstSeenAt: t("10:00:00"),
     });
@@ -345,7 +352,12 @@ describe("applyAssignment", () => {
     };
     const fresh = fakeDb([]);
     expect((await applyAssignment(fresh.db, hit(), group, NO_RCA)).outcome).toBe("created");
-    expect(fresh.created[0]).toMatchObject({ groupKey: "fabrication", anchorEmbedding: [] });
+    // A category signal's criteria are fixed text: no check ran.
+    expect(fresh.created[0]).toMatchObject({
+      groupKey: "fabrication",
+      anchorEmbedding: [],
+      criteriaValidated: null,
+    });
     // Category signals are never judged against criteria, so no version is recorded.
     expect(fresh.hitRows[0]).toMatchObject({ criteriaVersion: null });
 
@@ -363,6 +375,7 @@ describe("applyAssignment", () => {
       signal: { title: "T", covers: "C", excludes: "E" },
       anchorText: "m",
       anchorEmbedding: [1],
+      validated: true,
     };
     const NOW = t("12:00:00").getTime();
 
@@ -418,6 +431,23 @@ describe("applyAssignment", () => {
       });
       expect(r).toMatchObject({ outcome: "reopened", rcaFindingId: null });
       expect(f.rcaRows).toEqual([]);
+    });
+
+    it("opens an RCA for a reopening within a day of an analysis that failed", async () => {
+      const rows = [signal({ status: "resolved", resolvedAt: t("09:30:00") })];
+      const f = fakeDb(
+        rows,
+        [],
+        [
+          { signalId: "sigA", createTime: new Date(NOW - 30 * 3_600_000) },
+          { signalId: "sigA", createTime: new Date(NOW - 3_600_000), failed: true },
+        ],
+      );
+      const r = await applyAssignment(f.db, hit({ traceStartTime: t("09:45:00") }), attach(), {
+        rca: true,
+        now: NOW,
+      });
+      expect(r).toMatchObject({ outcome: "reopened", rcaFindingId: "f1" });
     });
 
     it("opens none for an attach, or when the detector has RCA off", async () => {

@@ -20,7 +20,12 @@ import { groupSignalText, jevGroupKey } from "./jev-group.js";
 import { embeddingText, hitMaterial } from "./material.js";
 import { shortlist } from "./shortlist.js";
 import { repairAssignmentCopies, writeAssignmentCopies } from "./projection.js";
-import type { AssignmentModels, Candidate, ModelUsage } from "./types.js";
+import {
+  UnusableAnswerError,
+  type AssignmentModels,
+  type Candidate,
+  type ModelUsage,
+} from "./types.js";
 import {
   applyAssignment,
   type AssignmentResult,
@@ -56,18 +61,23 @@ export type RoundDb = Pick<
   "$transaction" | "detector" | "signal" | "signalHit" | "aIMessage"
 >;
 
-/** Per-hit failure records, so a hit that keeps failing is eventually given up. */
+/** Per-hit counts of unusable answers, so a hit that keeps getting them is eventually given up. */
 export interface HitFailures {
   /** Count one more failure of this hit; returns the count and the first failure time. */
   record(runId: string, now: number): Promise<{ count: number; firstAt: number }>;
+  /** Forget the hit's failures, so a replayed hit starts over. */
+  clear(runId: string): Promise<void>;
 }
 
 export interface RoundDeps {
   db: RoundDb;
   backend: SignalsBackend;
   failures: HitFailures;
-  /** Enqueue the RCA of a finding whose hit started or reopened a signal. */
-  enqueueRca(findingId: string, projectId: string): Promise<void>;
+  /**
+   * Start the pending RCA of each of these findings whose hits are now all
+   * settled (startSettledRcas); returns how many it started.
+   */
+  startRcas(projectId: string, findingIds: string[]): Promise<number>;
   /** Enqueue the project's signal digest after a round that changed signals. */
   enqueueDigest(projectId: string): Promise<void>;
   embed(texts: string[]): Promise<EmbeddingResult>;
@@ -85,9 +95,9 @@ export interface RoundStats {
   duplicate: number;
   /** Hits whose processing threw this round; they stay waiting. */
   failed: number;
-  /** Hits given up on after failing repeatedly; they no longer count as waiting. */
+  /** Hits given up on after repeated unusable answers; they no longer count as waiting. */
   gaveUp: number;
-  /** Findings whose RCA this round enqueued. */
+  /** Findings whose RCA this round started. */
   rcas: number;
   rejudged: number;
   unvalidated: number;
@@ -225,7 +235,9 @@ export async function runAssignmentRound(
 
   let processed = 0;
   let succeeded = 0;
-  const rcaFindings = new Set<string>();
+  // Findings of the hits this round settled (assigned or given up): the round
+  // that settles a trace's last hit starts its RCA.
+  const settled = new Set<string>();
   let lastError: unknown = null;
   try {
     // Hits recorded in Postgres whose ClickHouse copy is missing need no model call.
@@ -335,6 +347,7 @@ export async function runAssignmentRound(
                 signal: decision.signal,
                 anchorText: material,
                 anchorEmbedding: vector!,
+                validated: decision.validated,
               };
       }
 
@@ -343,7 +356,7 @@ export async function runAssignmentRound(
         embedding: vector ?? [],
         now: deps.now(),
       });
-      if (result.rcaFindingId) rcaFindings.add(result.rcaFindingId);
+      settled.add(hit.findingId);
       stats[result.outcome]++;
       updatePool(pool, result, placement, material, vector);
       copies.push({
@@ -361,7 +374,9 @@ export async function runAssignmentRound(
 
     // A hit that fails is left waiting and the round moves on, so one bad hit
     // cannot hold up the rest of its detector. Failures in a row look like an
-    // outage rather than a bad hit, so the round stops there.
+    // outage rather than a bad hit, so the round stops there. Only an unusable
+    // model answer counts toward giving up on a hit; any other failure is an
+    // outage, however long it lasts, and the hit is assigned once it ends.
     let consecutiveFailures = 0;
     for (const hit of waiting) {
       if (processed > 0 && deps.now() - started >= ROUND_MAX_MS) break;
@@ -384,17 +399,24 @@ export async function runAssignmentRound(
           if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
           continue;
         }
+        if (!(err instanceof UnusableAnswerError)) {
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
+          continue;
+        }
         const failure = await deps.failures.record(hit.runId, deps.now());
         if (
           failure.count >= GIVE_UP_AFTER_FAILURES &&
           deps.now() - failure.firstAt >= GIVE_UP_AFTER_MS
         ) {
           // Marked in ClickHouse so it stops counting as waiting; nothing is
-          // written to Postgres, so it belongs to no signal.
+          // written to Postgres, so it belongs to no signal. Its count is
+          // cleared, so a hit replayed by scripts/replay_signal_hits.py starts over.
           stats.gaveUp++;
           console.error(
-            `[Signals] giving up on run=${hit.runId} after ${failure.count} failures since ${new Date(failure.firstAt).toISOString()}`,
+            `[Signals] giving up on run=${hit.runId} after ${failure.count} unusable answers since ${new Date(failure.firstAt).toISOString()}; last: ${err.message}`,
           );
+          await deps.failures.clear(hit.runId);
+          settled.add(hit.findingId);
           copies.push({
             project_id: projectId,
             detector_id: detectorId,
@@ -417,14 +439,13 @@ export async function runAssignmentRound(
     // calls stay findable, even when the round fails part-way.
     await flush();
     await recordUsage(db, workspaceId, usage);
-    for (const findingId of rcaFindings) {
-      // The pending RCA row is committed; if this enqueue fails, the sweeper
-      // re-enqueues it.
+    if (settled.size > 0) {
+      // A pending RCA row is committed with its opening; if this fails, the
+      // sweeper starts it.
       try {
-        await deps.enqueueRca(findingId, projectId);
-        stats.rcas++;
+        stats.rcas = await deps.startRcas(projectId, [...settled]);
       } catch (err) {
-        console.error(`[Signals] failed to enqueue RCA for finding ${findingId}:`, err);
+        console.error(`[Signals] failed to start RCAs for ${settled.size} finding(s):`, err);
       }
     }
     if (stats.created + stats.attached + stats.reopened > 0) {

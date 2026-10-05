@@ -10,6 +10,7 @@ import {
   signalsForTrace,
   signalsForRuns,
   signalCountsByDetector,
+  signalIdsForTraces,
   detectorSignalSettings,
   signalSetup,
   signalsKeyConfigured,
@@ -169,12 +170,15 @@ describe("signalCriteriaEditSchema", () => {
 
 describe("editSignalCriteria", () => {
   it("replaces the criteria under the partition lock and bumps the version", async () => {
-    const f = fakeDb([signal({})]);
+    const rows = [{ ...signal({}), criteriaValidated: false }];
+    const f = fakeDb(rows);
     expect(await editSignalCriteria(f.db, { projectId: "p", signalId: "a", edit })).toEqual({
       ok: true,
       criteriaVersion: 2,
     });
     expect(f.log).toEqual(["lock:p/d"]);
+    // The creation check judged the old criteria; none ran on the edited ones.
+    expect(rows[0].criteriaValidated).toBe(null);
   });
 
   it("refuses a stale edit, a merged signal, a category signal, and another project's signal", async () => {
@@ -591,6 +595,7 @@ describe("reads", () => {
           title: "A",
           reopenSeq: 2,
           mergedIntoId: null,
+          criteriaValidated: false,
           // Opening 1 kept its answer though the shared finding's latest attempt failed.
           rcas: [rca(2, "failed"), rca(1, "failed", "cause one"), rca(0, "done", "cause zero")],
         })),
@@ -613,11 +618,16 @@ describe("reads", () => {
       to: new Date("2026-10-01T00:00:00Z"),
     });
     expect(db.signal.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "a", projectId: "p" } }),
+      expect.objectContaining({
+        where: { id: "a", projectId: "p" },
+        select: expect.objectContaining({ criteriaValidated: true }),
+      }),
     );
     expect(r).toMatchObject({
       merged: false,
       signal: {
+        // Whether the criteria passed their check at creation reaches the page.
+        criteriaValidated: false,
         rca: { currentState: "failed", canonicalFindingId: "f1" },
         canonicalRca: { findingId: "f1", reopenSeq: 1, result: "cause one", sessionId: "sess-1" },
       },
@@ -956,6 +966,30 @@ describe("reads", () => {
     expect(await signalsForRuns(db as never, { projectId: "p", runIds: ["r1"] })).toEqual([]);
     expect(db.signalRca.findMany).not.toHaveBeenCalled();
     expect(db.detectorRcaExecution.findMany).not.toHaveBeenCalled();
+  });
+
+  it("lists each trace's signal ids once, in detection order, in the project only", async () => {
+    const db = {
+      signalHit: {
+        findMany: vi.fn(async () => [
+          { traceId: "t1", signalId: "s1" },
+          { traceId: "t2", signalId: "s1" },
+          { traceId: "t1", signalId: "s2" },
+          // A second hit of t1 in a signal it is already listed under.
+          { traceId: "t1", signalId: "s1" },
+        ]),
+      },
+    };
+    expect(
+      await signalIdsForTraces(db as never, { projectId: "p", traceIds: ["t1", "t2", "t3"] }),
+    ).toEqual({ t1: ["s1", "s2"], t2: ["s1"] });
+    expect(db.signalHit.findMany).toHaveBeenCalledWith({
+      where: { projectId: "p", traceId: { in: ["t1", "t2", "t3"] } },
+      select: { traceId: true, signalId: true },
+      orderBy: [{ seenAt: "asc" }, { runId: "asc" }],
+    });
+    expect(await signalIdsForTraces(db as never, { projectId: "p", traceIds: [] })).toEqual({});
+    expect(db.signalHit.findMany).toHaveBeenCalledTimes(1);
   });
 
   it("reads the signals settings of the named detectors, in the project only", async () => {

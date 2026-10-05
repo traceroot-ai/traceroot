@@ -298,7 +298,13 @@ async def list_detector_runs(
             r.status      AS status,
             r.timestamp   AS timestamp,
             r.self_traced AS self_traced,
-            {summary_expr} AS summary
+            {summary_expr} AS summary,
+            r.run_id IN (
+                SELECT run_id FROM signal_assignments
+                WHERE project_id = {{project_id:String}}
+                  AND detector_id = {{detector_id:String}}
+                  AND signal_id = ''
+            ) AS signal_gave_up
         FROM (SELECT * FROM detector_runs FINAL) AS r
         LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
           ON r.finding_id = f.finding_id AND r.project_id = f.project_id

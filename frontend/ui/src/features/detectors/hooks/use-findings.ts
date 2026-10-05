@@ -102,6 +102,8 @@ export interface BackendRun {
    * triggered.
    */
   signal_id?: string | null;
+  /** Signal assignment gave up on this hit after repeated unusable model answers. */
+  signal_gave_up?: boolean;
   /**
    * The agent trace of the RCA that analysed this run's own judge output,
    * enriched by the runs proxy; null when the run only joined a signal analysed

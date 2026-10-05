@@ -19,6 +19,7 @@ import {
   signalCriteriaEditSchema,
   signalStatusChangeSchema,
   signalsForTrace,
+  signalIdsForTraces,
   detectorSignalSettings,
   signalSetup,
   signalCountsByDetector,
@@ -96,7 +97,7 @@ const MAX_WINDOW_DAYS = 10_000;
 
 /**
  * The list page's filter chips, in the predicate shape the trace filters use:
- * status and detector name are picked from lists, the name and id are typed.
+ * status and detector name are picked from lists; signal name and both IDs are typed.
  */
 const signalFilterSchema = z.array(
   z.discriminatedUnion("field", [
@@ -108,6 +109,7 @@ const signalFilterSchema = z.array(
     z.object({ field: z.literal("detector"), op: z.literal("in"), value: z.array(z.string()) }),
     z.object({ field: z.literal("title"), op: z.literal("contains"), value: z.string() }),
     z.object({ field: z.literal("signal_id"), op: z.literal("eq"), value: z.string() }),
+    z.object({ field: z.literal("detector_id"), op: z.literal("eq"), value: z.string() }),
   ]),
 );
 
@@ -186,13 +188,18 @@ async function listResponse(
   }
   const statuses = new Set<string>(status ? [status] : []);
   const detectorNames: string[] = [];
+  let detectorIds = detectorId ? [detectorId] : undefined;
   let title: string | undefined;
   let signalId: string | undefined;
   for (const f of filters) {
     if (f.field === "status") f.value.forEach((v) => statuses.add(v));
     else if (f.field === "detector") detectorNames.push(...f.value);
     else if (f.field === "title") title = f.value.trim() || undefined;
-    else signalId = f.value.trim() || undefined;
+    else if (f.field === "signal_id") signalId = f.value.trim() || undefined;
+    else {
+      const id = f.value.trim();
+      if (id) detectorIds = detectorIds ? detectorIds.filter((value) => value === id) : [id];
+    }
   }
   const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);
   const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
@@ -200,7 +207,7 @@ async function listResponse(
   const page = isNaN(rawPage) ? 0 : Math.min(Math.max(rawPage, 0), MAX_PAGE);
   const { signals, total } = await listSignals(prisma, {
     projectId,
-    detectorIds: detectorId ? [detectorId] : undefined,
+    detectorIds,
     detectorNames: detectorNames.length > 0 ? detectorNames : undefined,
     statuses: statuses.size > 0 ? [...statuses] : undefined,
     title,
@@ -540,4 +547,22 @@ export async function handleSignalCounts(
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
   return successResponse({ counts: await signalCountsByDetector(prisma, projectId) });
+}
+
+/** Traces looked up per call: a Tracing page holds at most this many. */
+const MAX_SIGNAL_ID_TRACES = 200;
+
+/** GET: each listed trace's signal ids, for the Tracing list's Signal IDs column. */
+export async function handleTraceSignalIds(
+  req: NextRequest,
+  { params }: Params<{ projectId: string }>,
+) {
+  const { projectId } = await params;
+  const auth = await authorize(projectId);
+  if (auth.error) return auth.error;
+  const traceIds = [...new Set(req.nextUrl.searchParams.getAll("trace_id").filter(Boolean))];
+  if (traceIds.length > MAX_SIGNAL_ID_TRACES) {
+    return errorResponse(`at most ${MAX_SIGNAL_ID_TRACES} trace_id values`, 400);
+  }
+  return successResponse({ signalIds: await signalIdsForTraces(prisma, { projectId, traceIds }) });
 }
