@@ -91,6 +91,7 @@ export async function getSignal(db: ReadDb, params: { projectId: string; signalI
       criteriaCovers: true,
       criteriaExcludes: true,
       criteriaVersion: true,
+      criteriaValidated: true,
       groupKey: true,
       status: true,
       resolvedAt: true,

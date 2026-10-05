@@ -92,6 +92,8 @@ export async function editSignalCriteria(
         criteriaCovers: params.edit.covers,
         criteriaExcludes: params.edit.excludes,
         criteriaVersion: { increment: 1 },
+        // The creation check judged the old criteria; none ran on these.
+        criteriaValidated: null,
       },
       select: { criteriaVersion: true },
     });
