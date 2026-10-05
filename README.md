@@ -7,7 +7,7 @@
 
 [TraceRoot](https://traceroot.ai/) turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
 
-**[Try Cloud](https://app.traceroot.ai) · [Getting Started](#getting-started) · [CLI](#cli-quickstart) · [Self-Hosting](#self-hosting) · [Docs](https://traceroot.ai/docs)**
+**[Try Cloud](https://app.traceroot.ai) · [Getting Started](#getting-started-with-traceroot) · [CLI](#cli-quickstart) · [Self-Hosting](#self-hosting) · [Docs](https://traceroot.ai/docs)**
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -33,7 +33,7 @@
 
 Trace production runs, use detectors to evaluate behavior, and surface recurring patterns as improvement signals. Your coding agent uses the TraceRoot CLI to investigate those signals and make local changes, then verifies them with offline evals. After you ship, new production traces feed the next round of detection, signals, and verification—closing a continuous improvement loop.
 
-| Step | What you do |
+| Step | Description |
 | ---- | ----------- |
 | **[Trace](https://traceroot.ai/docs/tracing/get-started)** | See each model call, tool call, and response, with inputs, outputs, latency, and cost. |
 | **[Detect](https://traceroot.ai/docs/detectors/get-started)** | Define what good behavior looks like. Automatically flag production runs that miss the mark. |
@@ -63,13 +63,15 @@ If you like what we’re building, give TraceRoot a star ⭐ to help more develo
   </a>
 </p>
 
-## Getting Started
+## Getting Started With TraceRoot
 
-### 1. Choose where to run TraceRoot
+Choose TraceRoot Cloud or run an instance on your own infrastructure.
 
-**TraceRoot Cloud:** [Create an account](https://app.traceroot.ai) to get started without running the platform yourself.
+### TraceRoot Cloud
 
-#### Self-Hosting
+[Create an account](https://app.traceroot.ai) to get started without running the platform yourself.
+
+### Self-Hosting
 
 With Git, Docker Compose, and Make installed, run locally:
 
@@ -82,9 +84,48 @@ make prod-lite
 
 Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
 
-### 2. Send your first trace
+## Setting up TraceRoot
 
-Create a project and a project API key in your dashboard, then instrument your application with the **[Python SDK](https://github.com/traceroot-ai/traceroot-py#readme)** or **[TypeScript SDK](https://github.com/traceroot-ai/traceroot-ts#readme)**. Already sending traces? Continue to the CLI setup below.
+Once you have a TraceRoot instance, create a project in your dashboard and choose how to send your first trace: let your coding agent set up instrumentation through the CLI, or configure an SDK manually.
+
+### With your coding agent
+
+<a id="cli-quickstart"></a>
+
+The [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) is designed for coding agents, with machine-readable output and installable skills for working with your application and TraceRoot. Start by asking your agent to add tracing; then use the same CLI to investigate traces, operate detectors and dashboards, and review eval results.
+
+**1. Install and authenticate.** You need Node.js and npm. Run these commands from your application's repository. For self-hosting, set `TRACEROOT_HOST_URL` to your instance URL before logging in.
+
+```bash
+npm install -g traceroot-cli
+traceroot login
+traceroot projects list
+```
+
+**2. Install the instrumentation skill.** Follow the prompts to choose your coding agent:
+
+```bash
+traceroot skills install traceroot-instrument-repo
+```
+
+**3. Ask your coding agent to send your first trace.** Replace `<project-id>` with the ID from the project list:
+
+```text
+Use the TraceRoot instrumentation skill to add tracing to this application
+for project <project-id>. Identify the framework and model provider, configure
+the appropriate SDK, and run a small example. Verify that the trace appears
+in TraceRoot and give me a link to inspect it.
+```
+
+Have your TraceRoot project API key and any model-provider credentials ready for the application's runtime configuration. CLI login authenticates the CLI; your instrumented application needs its own project API key. Your agent can guide you through the setup.
+
+**Your first result:** a trace you can inspect in the dashboard and investigate from your coding agent. Already sending traces? Ask your agent to inspect a recent trace instead.
+
+See the [CLI reference](https://github.com/traceroot-ai/traceroot-cli#readme) for supported agents, skills, authentication options, and read/write commands.
+
+### Manually with an SDK
+
+Prefer to configure instrumentation yourself? Use the **[Python SDK](https://github.com/traceroot-ai/traceroot-py#readme)** or **[TypeScript SDK](https://github.com/traceroot-ai/traceroot-ts#readme)**. The example below sends one traced model call from a TypeScript application.
 
 <details>
 <summary>Run a minimal TypeScript example</summary>
@@ -136,38 +177,6 @@ main().catch(console.error);
 **4. Run it** with `npx tsx example.ts`, then open your project's **Traces** page to inspect the agent run. This example makes one OpenAI API call.
 
 </details>
-
-**Your first result:** open your project's **Traces** page to inspect the inputs, outputs, latency, and cost of the call.
-
-### 3. Connect your coding agent
-
-<a id="cli-quickstart"></a>
-
-With Node.js and npm installed, install the [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) and authenticate. For self-hosting, set `TRACEROOT_HOST_URL` to your instance URL before logging in.
-
-```bash
-npm install -g traceroot-cli
-traceroot login
-traceroot projects list
-```
-
-Choose a project from the list and use its ID to inspect recent traces:
-
-```bash
-traceroot traces list --project <project-id> --limit 5
-```
-
-Then ask your coding agent:
-
-```text
-Use the TraceRoot CLI to inspect the latest trace in project <project-id>.
-Explain the model and tool calls, identify any failures or unnecessary work,
-and link me to the trace in TraceRoot.
-```
-
-Replace `<project-id>` with your project ID. The result should be an explanation grounded in your trace, with a link to inspect it in the dashboard.
-
-See the [CLI reference](https://github.com/traceroot-ai/traceroot-cli#readme) for agent skills, authentication options, and read/write commands.
 
 ## Integrations
 
