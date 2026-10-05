@@ -16,9 +16,12 @@ import {
   hasUncoveredOpenings,
   closeEmptySignalRca,
   loadSignalRcaContext,
+  settledFindings,
+  startSettledRcas,
   sweepSignalRcas,
   rootCausesByOpening,
 } from "../rca.js";
+import type { UnsettledRunRow } from "../backend-client.js";
 
 const T0 = Date.parse("2026-09-30T10:00:00Z");
 
@@ -28,14 +31,14 @@ beforeEach(() => {
 });
 
 describe("enqueueSignalRca", () => {
-  it("adds one delayed RCA job per finding that is removed when done", async () => {
+  it("adds one RCA job per finding, without delay, that is removed when done", async () => {
     await enqueueSignalRca("f1", "p1");
     expect(mockAdd).toHaveBeenCalledWith(
       "signal-rca-f1",
       { kind: "signals", findingId: "f1", projectId: "p1" },
       expect.objectContaining({
         jobId: "signal-rca-f1",
-        delay: 60_000,
+        delay: 0,
         removeOnComplete: true,
         removeOnFail: true,
         attempts: 3,
@@ -279,13 +282,124 @@ describe("closeEmptySignalRca", () => {
   );
 });
 
+const ON = { enableSignals: true, enableRca: true, signalsEnabledAt: new Date(T0 - 86_400_000) };
+
+function unsettled(findingId: string, runId: string, detectorId = "d1"): UnsettledRunRow {
+  return {
+    finding_id: findingId,
+    run_id: runId,
+    detector_id: detectorId,
+    timestamp_ms: T0 - 60_000,
+  };
+}
+
+/** Postgres for the settled check: hits recorded by run id, detectors by id. */
+function settleDb(opts: {
+  recorded?: string[];
+  detectors?: Record<string, typeof ON | undefined>;
+  pending?: string[];
+}) {
+  return {
+    signalHit: {
+      findMany: vi.fn(async ({ where }: { where: { runId: { in: string[] } } }) =>
+        where.runId.in.filter((r) => opts.recorded?.includes(r)).map((runId) => ({ runId })),
+      ),
+    },
+    detector: {
+      findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+        where.id.in.flatMap((id) => {
+          const d = (opts.detectors ?? { d1: ON })[id];
+          return d ? [{ id, ...d }] : [];
+        }),
+      ),
+    },
+    detectorRca: {
+      findMany: vi.fn(async ({ where }: { where: { findingId: { in: string[] } } }) =>
+        where.findingId.in
+          .filter((f) => opts.pending?.includes(f))
+          .map((findingId) => ({ findingId })),
+      ),
+    },
+  };
+}
+
+describe("settledFindings", () => {
+  it("settles a finding with no run left unassigned, and asks only within the lookback", async () => {
+    const backend = { unsettledRuns: vi.fn(async () => [unsettled("f2", "r2")]) };
+    const settled = await settledFindings(settleDb({}) as never, backend, "p1", ["f1", "f2"], T0);
+    expect([...settled]).toEqual(["f1"]);
+    expect(backend.unsettledRuns).toHaveBeenCalledWith("p1", ["f1", "f2"], T0 - 7 * 86_400_000);
+  });
+
+  it("counts a hit assigned in Postgres whose ClickHouse copy has not landed", async () => {
+    const backend = { unsettledRuns: vi.fn(async () => [unsettled("f1", "r1")]) };
+    const db = settleDb({ recorded: ["r1"] });
+    expect(await settledFindings(db as never, backend, "p1", ["f1"], T0)).toEqual(new Set(["f1"]));
+  });
+
+  it("does not wait for a detector deleted, switched off, with RCA off, or enabled after the hit", async () => {
+    const backend = {
+      unsettledRuns: vi.fn(async () => [
+        unsettled("f1", "r-gone", "gone"),
+        unsettled("f1", "r-off", "off"),
+        unsettled("f1", "r-manual", "manual"),
+        unsettled("f1", "r-late", "late"),
+        unsettled("f2", "r-on", "d1"),
+      ]),
+    };
+    const db = settleDb({
+      detectors: {
+        off: { ...ON, enableSignals: false },
+        manual: { ...ON, enableRca: false },
+        late: { ...ON, signalsEnabledAt: new Date(T0) },
+        d1: ON,
+      },
+    });
+    const settled = await settledFindings(db as never, backend, "p1", ["f1", "f2"], T0);
+    expect([...settled]).toEqual(["f1"]);
+  });
+});
+
+describe("startSettledRcas", () => {
+  it("starts only findings with a pending RCA whose hits are settled", async () => {
+    const backend = { unsettledRuns: vi.fn(async () => [unsettled("f2", "r2")]) };
+    const db = settleDb({ pending: ["f1", "f2"] });
+    const enqueue = vi.fn(async () => {});
+    expect(await startSettledRcas(db as never, backend, "p1", ["f1", "f2", "f3"], enqueue)).toBe(1);
+    expect(enqueue).toHaveBeenCalledWith("f1", "p1");
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(db.detectorRca.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          projectId: "p1",
+          status: "pending",
+          signalRcas: { some: {} },
+        }),
+      }),
+    );
+  });
+
+  it("asks ClickHouse nothing when no finding has a pending RCA", async () => {
+    const backend = { unsettledRuns: vi.fn(async () => []) };
+    expect(await startSettledRcas(settleDb({}) as never, backend, "p1", ["f1"], vi.fn())).toBe(0);
+    expect(backend.unsettledRuns).not.toHaveBeenCalled();
+  });
+});
+
 describe("sweepSignalRcas", () => {
-  it("re-enqueues RCAs pending for more than ten minutes, within the lookback", async () => {
+  it("re-enqueues RCAs pending for more than ten minutes, within the lookback, once settled", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const db = {
-      signalRca: { findMany: vi.fn(async () => [{ findingId: "f1", rca: { projectId: "p1" } }]) },
+      ...settleDb({ pending: ["f1", "f2"] }),
+      signalRca: {
+        findMany: vi.fn(async () => [
+          { findingId: "f1", rca: { projectId: "p1" } },
+          { findingId: "f2", rca: { projectId: "p1" } },
+        ]),
+      },
     };
-    expect(await sweepSignalRcas(db as never, T0)).toBe(1);
+    const backend = { unsettledRuns: vi.fn(async () => [unsettled("f2", "r2")]) };
+    expect(await sweepSignalRcas(db as never, backend, T0)).toBe(1);
     expect(db.signalRca.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
@@ -300,6 +414,8 @@ describe("sweepSignalRcas", () => {
       expect.anything(),
       expect.objectContaining({ delay: 0 }),
     );
+    // f2's trace still has a hit being assigned: the round that settles it starts it.
+    expect(mockAdd).toHaveBeenCalledTimes(1);
     log.mockRestore();
   });
 });

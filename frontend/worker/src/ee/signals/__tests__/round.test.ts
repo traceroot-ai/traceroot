@@ -38,6 +38,7 @@ function fakeBackend(rows: WaitingHitRow[], opts: { failWrites?: boolean } = {})
       backend.calls.push(args);
       return waiting.slice(0, args[3] as number);
     }),
+    unsettledRuns: vi.fn(async () => []),
     traceFindings: vi.fn(async () => []),
     writeAssignments: vi.fn(async (batch: AssignmentRow[]) => {
       if (opts.failWrites) throw new Error("clickhouse down");
@@ -175,7 +176,7 @@ function deps(
     db: db as RoundDeps["db"],
     backend,
     failures,
-    enqueueRca: vi.fn(async () => {}),
+    startRcas: vi.fn(async (_p: string, findingIds: string[]) => findingIds.length),
     embed,
     models: async (usage) => chatModels(usage),
     now,
@@ -259,29 +260,40 @@ describe("runAssignmentRound", () => {
     });
   });
 
-  it("passes the detector's RCA switch to the write and enqueues each RCA after the round", async () => {
-    const { backend } = fakeBackend([row(1), row(2), row(3)]);
-    mockApply.mockImplementation(
-      async (_db: unknown, hit: WaitingHit, _p: Placement, opts: { rca: boolean }) => ({
-        outcome: "created",
-        signalId: `sig-${hit.runId}`,
-        reopenSeq: 0,
-        score: null,
-        criteriaVersion: 1,
-        assignedAt: ASSIGNED_AT,
-        rcaFindingId: opts.rca && hit.runId !== "run2" ? "f-shared" : null,
-      }),
-    );
+  it("passes the detector's RCA switch to the write and, after the round, starts the RCAs of the findings it settled", async () => {
+    const { backend } = fakeBackend([row(1), row(2), row(3, { finding_id: "f1" })]);
     const d = deps(fakeDb().db, backend);
     const stats = await runAssignmentRound(d, "p", "d");
     expect(mockApply.mock.calls[0][3]).toMatchObject({ rca: true, now: T0 });
-    // Two hits of one finding opened signals: one RCA job for the finding.
-    expect(d.enqueueRca).toHaveBeenCalledTimes(1);
-    expect(d.enqueueRca).toHaveBeenCalledWith("f-shared", "p");
-    expect(stats.rcas).toBe(1);
+    // Every settled hit's finding is offered once, whether it opened a signal
+    // or attached: the last hit of a trace may be one that only attached.
+    expect(d.startRcas).toHaveBeenCalledTimes(1);
+    expect(d.startRcas).toHaveBeenCalledWith("p", ["f1", "f2"]);
+    expect(stats.rcas).toBe(2);
   });
 
-  it("keeps the round's work when an RCA enqueue fails (the sweeper retries it)", async () => {
+  it("offers the finding of a hit it gave up on, which settles that hit", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend } = fakeBackend([row(1)]);
+    const failures = fakeFailures({ run1: { count: 2, firstAt: T0 - 7 * 3_600_000 } });
+    mockApply.mockRejectedValueOnce(new UnusableAnswerError("no tool call"));
+    const d = deps(fakeDb().db, backend, () => T0, failures);
+    await runAssignmentRound(d, "p", "d");
+    expect(d.startRcas).toHaveBeenCalledWith("p", ["f1"]);
+    error.mockRestore();
+  });
+
+  it("offers no finding whose hit is still waiting after an outage", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend } = fakeBackend([row(1), row(2)]);
+    mockApply.mockRejectedValueOnce(new Error("postgres down"));
+    const d = deps(fakeDb().db, backend);
+    await runAssignmentRound(d, "p", "d");
+    expect(d.startRcas).toHaveBeenCalledWith("p", ["f2"]);
+    error.mockRestore();
+  });
+
+  it("keeps the round's work when starting RCAs fails (the sweeper starts them)", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { backend, written } = fakeBackend([row(1)]);
     mockApply.mockResolvedValueOnce({
@@ -294,9 +306,9 @@ describe("runAssignmentRound", () => {
       rcaFindingId: "f1",
     });
     const d = deps(fakeDb().db, backend);
-    vi.mocked(d.enqueueRca).mockRejectedValueOnce(new Error("redis down"));
+    vi.mocked(d.startRcas).mockRejectedValueOnce(new Error("redis down"));
     await expect(runAssignmentRound(d, "p", "d")).resolves.toMatchObject({ created: 1, rcas: 0 });
-    expect(d.enqueueRca).toHaveBeenCalledWith("f1", "p");
+    expect(d.startRcas).toHaveBeenCalledWith("p", ["f1"]);
     expect(written).toHaveLength(1);
     error.mockRestore();
   });

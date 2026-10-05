@@ -38,6 +38,14 @@ export interface TraceFindingRow {
   payload: string;
 }
 
+/** A fired run of a finding with no assignment row yet: a hit the trace's RCA may wait for. */
+export interface UnsettledRunRow {
+  finding_id: string;
+  run_id: string;
+  detector_id: string;
+  timestamp_ms: number;
+}
+
 export interface SignalsBackend {
   waitingHits(
     projectId: string,
@@ -47,6 +55,11 @@ export interface SignalsBackend {
   ): Promise<WaitingHitRow[]>;
   writeAssignments(rows: AssignmentRow[]): Promise<void>;
   traceFindings(projectId: string, traceId: string): Promise<TraceFindingRow[]>;
+  unsettledRuns(
+    projectId: string,
+    findingIds: string[],
+    sinceMs: number,
+  ): Promise<UnsettledRunRow[]>;
 }
 
 async function call<T>(
@@ -110,5 +123,14 @@ export const signalsBackend: SignalsBackend = {
       { params: { project_id: projectId } },
     );
     return body.findings;
+  },
+  async unsettledRuns(projectId, findingIds, sinceMs) {
+    if (findingIds.length === 0) return [];
+    const body = await call<{ data: UnsettledRunRow[] }>(
+      "POST",
+      "/api/v1/internal/signals/unsettled-runs",
+      { body: { project_id: projectId, finding_ids: findingIds, since_ms: Math.floor(sinceMs) } },
+    );
+    return body.data;
   },
 };

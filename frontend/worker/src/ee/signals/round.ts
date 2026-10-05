@@ -73,8 +73,11 @@ export interface RoundDeps {
   db: RoundDb;
   backend: SignalsBackend;
   failures: HitFailures;
-  /** Enqueue the RCA of a finding whose hit started or reopened a signal. */
-  enqueueRca(findingId: string, projectId: string): Promise<void>;
+  /**
+   * Start the pending RCA of each of these findings whose hits are now all
+   * settled (startSettledRcas); returns how many it started.
+   */
+  startRcas(projectId: string, findingIds: string[]): Promise<number>;
   embed(texts: string[]): Promise<EmbeddingResult>;
   /** Model clients for one round; every call's usage is pushed to `usage`. */
   models(usage: ModelUsage[]): Promise<AssignmentModels>;
@@ -92,7 +95,7 @@ export interface RoundStats {
   failed: number;
   /** Hits given up on after repeated unusable answers; they no longer count as waiting. */
   gaveUp: number;
-  /** Findings whose RCA this round enqueued. */
+  /** Findings whose RCA this round started. */
   rcas: number;
   rejudged: number;
   unvalidated: number;
@@ -230,7 +233,9 @@ export async function runAssignmentRound(
 
   let processed = 0;
   let succeeded = 0;
-  const rcaFindings = new Set<string>();
+  // Findings of the hits this round settled (assigned or given up): the round
+  // that settles a trace's last hit starts its RCA.
+  const settled = new Set<string>();
   let lastError: unknown = null;
   try {
     // Hits recorded in Postgres whose ClickHouse copy is missing need no model call.
@@ -348,7 +353,7 @@ export async function runAssignmentRound(
         embedding: vector ?? [],
         now: deps.now(),
       });
-      if (result.rcaFindingId) rcaFindings.add(result.rcaFindingId);
+      settled.add(hit.findingId);
       stats[result.outcome]++;
       updatePool(pool, result, placement, material, vector);
       copies.push({
@@ -408,6 +413,7 @@ export async function runAssignmentRound(
             `[Signals] giving up on run=${hit.runId} after ${failure.count} unusable answers since ${new Date(failure.firstAt).toISOString()}; last: ${err.message}`,
           );
           await deps.failures.clear(hit.runId);
+          settled.add(hit.findingId);
           copies.push({
             project_id: projectId,
             detector_id: detectorId,
@@ -430,14 +436,13 @@ export async function runAssignmentRound(
     // calls stay findable, even when the round fails part-way.
     await flush();
     await recordUsage(db, workspaceId, usage);
-    for (const findingId of rcaFindings) {
-      // The pending RCA row is committed; if this enqueue fails, the sweeper
-      // re-enqueues it.
+    if (settled.size > 0) {
+      // A pending RCA row is committed with its opening; if this fails, the
+      // sweeper starts it.
       try {
-        await deps.enqueueRca(findingId, projectId);
-        stats.rcas++;
+        stats.rcas = await deps.startRcas(projectId, [...settled]);
       } catch (err) {
-        console.error(`[Signals] failed to enqueue RCA for finding ${findingId}:`, err);
+        console.error(`[Signals] failed to start RCAs for ${settled.size} finding(s):`, err);
       }
     }
   }

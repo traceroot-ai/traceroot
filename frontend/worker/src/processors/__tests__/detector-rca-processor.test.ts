@@ -33,6 +33,7 @@ vi.mock("../../queues/digest-queue.js", async (importOriginal) => {
 const loadSignalRcaContextMock = vi.fn();
 const hasUncoveredOpeningsMock = vi.fn().mockResolvedValue(false);
 const closeEmptySignalRcaMock = vi.fn().mockResolvedValue(true);
+const settledFindingsMock = vi.fn();
 vi.mock("../../ee/signals/rca.js", async (importOriginal) => ({
   // The section parsing is pure: the real one shows what the finish receives.
   rootCausesByOpening: (await importOriginal<typeof import("../../ee/signals/rca.js")>())
@@ -40,6 +41,7 @@ vi.mock("../../ee/signals/rca.js", async (importOriginal) => ({
   loadSignalRcaContext: (...a: any[]) => loadSignalRcaContextMock(...a),
   hasUncoveredOpenings: (...a: any[]) => hasUncoveredOpeningsMock(...a),
   closeEmptySignalRca: (...a: any[]) => closeEmptySignalRcaMock(...a),
+  settledFindings: (...a: any[]) => settledFindingsMock(...a),
 }));
 
 vi.mock("@traceroot/core/rca-executions", () => ({
@@ -83,6 +85,8 @@ afterEach(() => {
   loadSignalRcaContextMock.mockReset();
   hasUncoveredOpeningsMock.mockReset().mockResolvedValue(false);
   closeEmptySignalRcaMock.mockReset().mockResolvedValue(true);
+  // Every hit of the trace is settled unless a test says otherwise.
+  settledFindingsMock.mockReset().mockImplementation(async (_db, _b, _p, ids) => new Set(ids));
 });
 
 describe("resolveProjectModel", () => {
@@ -942,6 +946,21 @@ describe("signal RCAs", () => {
       moveToDelayed: vi.fn(),
       ...over,
     }) as any;
+
+  it("runs nothing while a hit of the trace is still being assigned", async () => {
+    settledFindingsMock.mockResolvedValue(new Set());
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await processRcaJob(signalJob(), "tok");
+    expect(settledFindingsMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), "p1", [
+      "f1",
+    ]);
+    // Left pending, and no rerun scheduled: the round that settles the last hit starts it.
+    expect(loadSignalRcaContextMock).not.toHaveBeenCalled();
+    expect(closeEmptySignalRcaMock).not.toHaveBeenCalled();
+    expect(allocateExecutionMock).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
 
   it("runs nothing when no signal of the finding needs an RCA, and closes a pending row", async () => {
     loadSignalRcaContextMock.mockResolvedValue(null);

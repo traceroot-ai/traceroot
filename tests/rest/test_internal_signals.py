@@ -253,10 +253,41 @@ class TestWriteAssignments:
         assert resp.status_code == 422
 
 
+class TestUnsettledRuns:
+    def test_lists_fired_runs_of_the_findings_with_no_assignment_row(self, client, mock_ch):
+        mock_ch.query.return_value = _result([("f1", "r1", "d1", 1000), ("f2", "r2", "d2", 2000)])
+        resp = client.post(
+            f"{BASE}/unsettled-runs",
+            json={"project_id": "p1", "finding_ids": ["f1", "f2"], "since_ms": 500},
+            headers=HEADERS,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"] == [
+            {"finding_id": "f1", "run_id": "r1", "detector_id": "d1", "timestamp_ms": 1000},
+            {"finding_id": "f2", "run_id": "r2", "detector_id": "d2", "timestamp_ms": 2000},
+        ]
+        sql = mock_ch.query.call_args.args[0]
+        # Collapsed like waiting-hits, and any assignment row (a give-up too) settles a run.
+        assert "detector_runs FINAL" in sql and "NOT IN" in sql and "signal_assignments" in sql
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert params["finding_ids"] == ["f1", "f2"]
+        assert params["since"] == datetime.fromtimestamp(0.5, tz=UTC)
+
+    def test_rejects_an_empty_or_oversized_finding_list(self, client):
+        for ids in ([], ["f"] * 501):
+            resp = client.post(
+                f"{BASE}/unsettled-runs",
+                json={"project_id": "p1", "finding_ids": ids, "since_ms": 0},
+                headers=HEADERS,
+            )
+            assert resp.status_code == 422
+
+
 def test_every_signal_route_requires_the_secret(client):
     for method, path in [
         ("get", f"{BASE}/waiting-hits?project_id=p&detector_id=d&since_ms=0"),
         ("post", f"{BASE}/assignments"),
+        ("post", f"{BASE}/unsettled-runs"),
     ]:
         resp = getattr(client, method)(path, headers={"X-Internal-Secret": "wrong"})
         assert resp.status_code in (401, 403), path

@@ -117,9 +117,10 @@ export function managedJevKey(): string | null {
 export const RCA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Delay before a signal RCA job runs, so the other hits of the same trace
- * (assigned by other detectors' jobs) are usually assigned by then and
- * analysed in the same run.
+ * How long a signal RCA job waits before it runs again: after a run, when an
+ * opening landed during it, or when an empty finding's opening may still be
+ * committing. A trace's first run needs no delay: it starts once every hit of
+ * the trace is settled (startSettledRcas).
  */
 export const RCA_DELAY_MS = 60_000;
 
