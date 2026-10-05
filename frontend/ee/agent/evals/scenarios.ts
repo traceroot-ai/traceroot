@@ -2,6 +2,8 @@ import {
   WINDOWED_READ_TOOLS,
   alertThreshold,
   assistantText,
+  createdIds,
+  expectExactArgs,
   expectNoWrites,
   expectPageWindow,
   expectThat,
@@ -17,6 +19,7 @@ import {
   statesThresholdWithUnit,
   toolCallsNamed,
   toolResultsNamed,
+  writeToolCalls,
 } from "./assertions.js";
 import type {
   AlertRow,
@@ -24,6 +27,7 @@ import type {
   EvalToolCall,
   EvalToolResult,
   Scenario,
+  TurnTranscript,
   WidgetRow,
 } from "./types.js";
 
@@ -157,6 +161,39 @@ function named(dashboards: DashboardRow[], name: string): DashboardRow[] {
   return dashboards.filter(
     (dashboard) => dashboard.name.trim().toLowerCase() === name.toLowerCase(),
   );
+}
+
+/** Whether `value` is `name`, letter case and surrounding space aside. */
+function sameName(value: unknown, name: string): boolean {
+  return typeof value === "string" && value.trim().toLowerCase() === name.toLowerCase();
+}
+
+/** A delete reason of the required length, as the registry itself demands. */
+function isReason(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length >= 3 && value.length <= 500;
+}
+
+/**
+ * The edit or delete turn wrote through `name` and nothing else: one call,
+ * and no other write beside it. An agent that "fixed" an edit by creating a
+ * second resource, or cleaned up more than it was asked to, fails here.
+ */
+function onlyWriteWas(turn: TurnTranscript, name: string): EvalToolCall {
+  const call = onlyToolCall([turn], name);
+  const others = writeToolCalls([turn]).filter((write) => write.name !== name);
+  expectThat(
+    others.length === 0,
+    `the turn had to write only through ${name}; it wrote ${[...new Set(others.map((write) => write.name))].join(", ")} as well`,
+  );
+  return call;
+}
+
+/** The id the one clean `name` call in `turn` created; fails when there is none. */
+function onlyCreatedId(turn: TurnTranscript, name: string, what: string): string {
+  const ids = [...createdIds([turn], name).values()];
+  expectThat(ids.length > 0, `no ${name} result recorded the ${what}'s id`);
+  expectThat(ids.length === 1, `${ids.length} ${name} results recorded ids; expected one ${what}`);
+  return ids[0]!;
 }
 
 /** How a stored alert reads in a failure message. */
@@ -457,6 +494,209 @@ export const SCENARIOS: Scenario[] = [
       expectThat(
         statesThresholdWithUnit(text, 2000),
         "the reply never states the threshold with its unit (2000 ms, or 2 seconds)",
+      );
+    },
+  },
+  {
+    // Pause by name. The first turn makes the alert this scenario pauses, so
+    // it depends on nothing earlier scenarios left. The pause has to go
+    // through the status tool — never update_alert, which would round-trip
+    // the rule — carrying the id and the status alone, and the stored row
+    // has to end up paused.
+    name: "pause-alert",
+    messages: [
+      "Create an alert named Night watch when total cost over 1 hour goes above 5 dollars.",
+      "Pause the Night watch alert.",
+    ],
+    assert: (ctx) => {
+      const [createTurn, pauseTurn] = ctx.turns;
+      onlyToolCall([createTurn], "create_alert");
+      const alertId = onlyCreatedId(createTurn, "create_alert", "alert");
+
+      const call = onlyWriteWas(pauseTurn, "set_alert_status");
+      expectExactArgs(call, { alert_id: alertId, status: "PAUSED" });
+
+      const stored = ctx.after.alerts.find((alert) => alert.id === alertId);
+      expectThat(stored !== undefined, "the Night watch alert is gone from the project");
+      expectThat(
+        stored.status === "PAUSED",
+        `the stored status is ${stored.status}; the pause never landed`,
+      );
+    },
+  },
+  {
+    // Edit one field. The update has to name the detector the first turn
+    // created and carry exactly the sample rate — not the prompt, not the
+    // enabled flag, nothing the user did not ask to change — as the
+    // percentage the tool takes, and the stored row has to carry it.
+    name: "detector-sample-rate",
+    messages: [
+      "Add a failure detector to this project.",
+      "Change the failure detector's sample rate to 25%.",
+    ],
+    assert: (ctx) => {
+      const [createTurn, editTurn] = ctx.turns;
+      onlyToolCall([createTurn], "create_detector");
+      const detectorId = onlyCreatedId(createTurn, "create_detector", "detector");
+
+      const call = onlyWriteWas(editTurn, "update_detector");
+      expectExactArgs(call, { detector_id: detectorId, sample_rate: 25 });
+
+      const stored = ctx.after.detectors.find((detector) => detector.id === detectorId);
+      expectThat(stored !== undefined, "the failure detector is gone from the project");
+      expectThat(
+        stored.sampleRate === 25,
+        `the stored sample rate is ${stored.sampleRate}; the edit never landed`,
+      );
+    },
+  },
+  {
+    // Rename. A rename is an update of the existing row, never a second
+    // dashboard under the new name: one update_dashboard call with the id
+    // and the name alone, and the row keeps its id under the new name.
+    name: "rename-dashboard",
+    messages: [
+      "Create a dashboard called Draft board.",
+      "Rename the Draft board dashboard to Reliability board.",
+    ],
+    assert: (ctx) => {
+      const [createTurn, renameTurn] = ctx.turns;
+      onlyToolCall([createTurn], "create_dashboard");
+      const dashboardId = onlyCreatedId(createTurn, "create_dashboard", "dashboard");
+
+      const call = onlyWriteWas(renameTurn, "update_dashboard");
+      expectExactArgs(call, {
+        dashboard_id: dashboardId,
+        name: (value) => sameName(value, "Reliability board"),
+      });
+
+      const stored = ctx.after.dashboards.find((dashboard) => dashboard.id === dashboardId);
+      expectThat(stored !== undefined, "the renamed dashboard is gone from the project");
+      expectThat(
+        sameName(stored.name, "Reliability board"),
+        `the stored name is "${stored.name}"; the rename never landed`,
+      );
+    },
+  },
+  {
+    // Delete one named widget with a reason. The delete has to target the
+    // error widget by the id its create returned, carry a reason that states
+    // the user's instruction rather than restating the action, touch nothing
+    // else, and leave the sibling widget and the dashboard standing.
+    name: "delete-widget",
+    messages: [
+      "Create a dashboard called Scratch with a p95 latency widget and an error count widget.",
+      "Delete the error count widget on the Scratch dashboard because it duplicates the overview.",
+    ],
+    assert: (ctx) => {
+      const [buildTurn, deleteTurn] = ctx.turns;
+      const dashboardId = onlyCreatedId(buildTurn, "create_dashboard", "dashboard");
+      const widgetIds = createdIds([buildTurn], "create_widget");
+      const widgetCalls = toolCallsNamed([buildTurn], "create_widget");
+      const errorCall = widgetCalls.find(
+        (call) => widgetIds.has(call.toolCallId) && /error/i.test(String(call.args.title)),
+      );
+      expectThat(
+        errorCall !== undefined,
+        `no create_widget result recorded the error widget's id (titles: ${widgetCalls.map((call) => String(call.args.title)).join(" | ") || "none"})`,
+      );
+      const errorWidgetId = widgetIds.get(errorCall.toolCallId)!;
+      // Every widget the build recorded has to sit on the Scratch dashboard:
+      // an error widget created elsewhere is not the one the user named, and
+      // a sibling placed elsewhere would survive the delete for the wrong
+      // reason.
+      for (const widgetCall of widgetCalls) {
+        if (!widgetIds.has(widgetCall.toolCallId)) continue;
+        expectThat(
+          widgetCall.args.dashboard_id === dashboardId,
+          `create_widget ${JSON.stringify(widgetCall.args.title)} was placed on dashboard ${JSON.stringify(widgetCall.args.dashboard_id)}, not the Scratch dashboard (${dashboardId})`,
+        );
+      }
+
+      const call = onlyWriteWas(deleteTurn, "delete_widget");
+      expectExactArgs(call, { widget_id: errorWidgetId, reason: isReason });
+      expectThat(
+        /duplicat/i.test(String(call.args.reason)),
+        `the reason never states the user's instruction (it was: ${JSON.stringify(call.args.reason)})`,
+      );
+
+      const scratch = ctx.after.dashboards.find((dashboard) => dashboard.id === dashboardId);
+      expectThat(scratch !== undefined, "the Scratch dashboard is gone; only its widget was to go");
+      expectThat(
+        !scratch.widgets.some((widget) => widget.id === errorWidgetId),
+        "the error count widget still exists; the delete never landed",
+      );
+      const siblings = [...widgetIds.values()].filter((id) => id !== errorWidgetId);
+      expectThat(
+        siblings.every((id) => scratch.widgets.some((widget) => widget.id === id)),
+        "a sibling widget is gone; only the error count widget was named",
+      );
+    },
+  },
+  {
+    // A group delete: "the test dashboards" is two named dashboards, so the
+    // cleanup has to propose exactly one delete per match — each with a
+    // reason — and stop at the last one, leaving every other dashboard
+    // (the project's Default among them) untouched.
+    name: "cleanup-test-dashboards",
+    messages: [
+      "Create two dashboards: one called Test alpha and one called Test beta.",
+      "Clean up the test dashboards.",
+    ],
+    assert: (ctx) => {
+      const [createTurn, cleanupTurn] = ctx.turns;
+      // The ids the cleanup may target are the two test dashboards' — so the
+      // first turn has to have created exactly those, or whatever it did
+      // create would pass for them.
+      const creates = toolCallsNamed([createTurn], "create_dashboard");
+      expectThat(
+        creates.length === 2 &&
+          ["Test alpha", "Test beta"].every((name) =>
+            creates.some((create) => sameName(create.args.name, name)),
+          ),
+        `the first turn created ${creates.map((create) => JSON.stringify(create.args.name)).join(", ") || "no dashboard"}; expected exactly Test alpha and Test beta`,
+      );
+      const testIds = new Set(createdIds([createTurn], "create_dashboard").values());
+      expectThat(
+        testIds.size === 2,
+        `${testIds.size} create_dashboard results recorded ids; expected the two test dashboards`,
+      );
+
+      const deletes = toolCallsNamed([cleanupTurn], "delete_dashboard");
+      expectThat(
+        deletes.length === 2,
+        `the cleanup made ${deletes.length} delete_dashboard calls; expected 2, one per test dashboard`,
+      );
+      const others = writeToolCalls([cleanupTurn]).filter(
+        (call) => call.name !== "delete_dashboard",
+      );
+      expectThat(
+        others.length === 0,
+        `the cleanup wrote through ${[...new Set(others.map((call) => call.name))].join(", ")} as well; it may only delete`,
+      );
+      const seen = new Set<string>();
+      for (const call of deletes) {
+        expectExactArgs(call, {
+          dashboard_id: (value) => testIds.has(String(value)),
+          reason: isReason,
+        });
+        const id = String(call.args.dashboard_id);
+        expectThat(!seen.has(id), `dashboard ${id} was deleted twice`);
+        seen.add(id);
+      }
+
+      for (const dashboard of ctx.before.dashboards) {
+        expectThat(
+          ctx.after.dashboards.some((row) => row.id === dashboard.id),
+          `the pre-existing dashboard ${dashboard.name} (${dashboard.id}) no longer exists; the cleanup reached past the test dashboards`,
+        );
+      }
+      const survivors = ctx.after.dashboards.filter((row) =>
+        /^test (alpha|beta)$/i.test(row.name.trim()),
+      );
+      expectThat(
+        survivors.length === 0,
+        `${survivors.map((row) => row.name).join(", ")} still exists; the cleanup never finished`,
       );
     },
   },

@@ -17,6 +17,7 @@ function makeSpan(overrides: Partial<Span> & { span_id: string }): Span {
     span_end_time: "2024-01-01T00:00:01.000Z",
     status: SpanStatus.OK,
     status_message: null,
+    error_type: "",
     model_name: null,
     cost: null,
     input_tokens: null,

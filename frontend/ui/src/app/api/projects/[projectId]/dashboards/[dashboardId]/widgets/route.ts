@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
@@ -14,7 +15,7 @@ import { validateWidgetSpecVocabulary } from "@/features/dashboards/widget-spec-
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
 
 // POST .../widgets — add a widget to a dashboard
-export async function POST(req: NextRequest, { params }: RouteParams) {
+async function handlePOST(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, dashboardId } = auth.params;
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   // placement renders through the grid's unpersisted client fallback, as a
   // narrow stack down the left edge, until someone drags a tile.
   const widget = await prisma.$transaction((tx) =>
-    createWidgetWithPlacement(tx, { dashboardId, type }, () =>
+    createWidgetWithPlacement(tx, { dashboardId, projectId, type }, () =>
       tx.widget.create({
         data: {
           dashboardId,
@@ -77,3 +78,4 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   );
   return successResponse({ widget }, 201);
 }
+export const POST = withImpersonationPolicy(handlePOST);

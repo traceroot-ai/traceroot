@@ -1,4 +1,4 @@
-"""Request/response schemas for the public write API (create operations).
+"""Request/response schemas for the public write API (create, update, delete).
 
 Validation here is deliberately shape-level only (types + required-ness): the
 deep field validation — exact messages, ranges, enum registries — lives in the
@@ -11,14 +11,27 @@ own right (two dialects keyed by the widget ``type``), typed here so the
 OpenAPI document — and every tool schema generated from it — shows the real
 shape instead of a bare object.
 
-Every response carries a ``created`` flag: ``True`` for a fresh row, ``False``
-when an idempotent re-create returned the existing one.
+Every create response carries a ``created`` flag: ``True`` for a fresh row,
+``False`` when an idempotent re-create returned the existing one.
+
+Updates are PATCH (partial) semantics: every field of an ``Update*Request`` is
+optional, an absent field leaves the stored value untouched, and an explicit
+``null`` clears the field where it is nullable (typed ``T | None``) and is a
+422 where it is not. The :data:`MISSING` sentinel is the default that keeps
+the two cases apart — it is excluded from the JSON schema and from
+``model_dump(exclude_unset=True)``, so a handler forwards exactly what the
+caller sent. Unknown keys are refused (``extra="forbid"``) so an immutable
+field such as a detector's template or a widget's type is a 422, never a
+silent drop. Full replacement (PUT: send the whole resource and the server
+stores exactly that) is a deliberate future extension that slots in beside
+these models as ``Replace*Request`` bodies validated like the creates.
 """
 
 import json
 from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
+from pydantic.experimental.missing_sentinel import MISSING
 from pydantic.json_schema import SkipJsonSchema
 
 from rest.schemas.dashboards import WidgetSpec
@@ -94,12 +107,17 @@ class CreateWorkspaceRequest(BaseModel):
     name: str
 
 
-class CreateWorkspaceResponse(BaseModel):
-    """The created (or idempotently matched) workspace."""
+class WorkspaceRow(BaseModel):
+    """A workspace as the write service returns it: id, name, the caller's role."""
 
     id: str
     name: str
     role: str
+
+
+class CreateWorkspaceResponse(WorkspaceRow):
+    """The created (or idempotently matched) workspace."""
+
     created: bool
 
 
@@ -111,12 +129,17 @@ class CreateProjectRequest(BaseModel):
     trace_ttl_days: int | None = None
 
 
-class CreateProjectResponse(BaseModel):
-    """The created (or idempotently matched) project."""
+class ProjectRow(BaseModel):
+    """A project as the write service returns it."""
 
     id: str
     name: str
     workspace_id: str
+
+
+class CreateProjectResponse(ProjectRow):
+    """The created (or idempotently matched) project."""
+
     created: bool
 
 
@@ -155,14 +178,19 @@ class CreateDetectorRequest(BaseModel):
     enabled: bool | None = None
 
 
-class CreateDetectorResponse(BaseModel):
-    """The created (or idempotently matched) detector."""
+class DetectorRow(BaseModel):
+    """A detector as the write service returns it."""
 
     id: str
     name: str
     project_id: str
     enabled: bool
     sample_rate: int
+
+
+class CreateDetectorResponse(DetectorRow):
+    """The created (or idempotently matched) detector."""
+
     created: bool
 
 
@@ -174,12 +202,17 @@ class CreateDashboardRequest(BaseModel):
     description: str | None = None
 
 
-class CreateDashboardResponse(BaseModel):
-    """The created (or idempotently matched) dashboard."""
+class DashboardRow(BaseModel):
+    """A dashboard as the write service returns it."""
 
     id: str
     name: str
     project_id: str
+
+
+class CreateDashboardResponse(DashboardRow):
+    """The created (or idempotently matched) dashboard."""
+
     created: bool
 
 
@@ -294,13 +327,18 @@ class CreateWidgetRequest(BaseModel):
         return self
 
 
-class CreateWidgetResponse(BaseModel):
-    """The created widget (widget creation is strict, never idempotent)."""
+class WidgetRow(BaseModel):
+    """A widget as the write service returns it."""
 
     id: str
     dashboard_id: str
     title: str
     type: str
+
+
+class CreateWidgetResponse(WidgetRow):
+    """The created widget (widget creation is strict, never idempotent)."""
+
     created: bool
 
 
@@ -424,3 +462,251 @@ class CreateAlertResponse(BaseModel):
 
     created: bool
     alert: AlertDetail
+
+
+# ── partial updates (PATCH) ──────────────────────────────────────────────
+#
+# See the module docstring for the null rule. Field sets are the create's
+# fields minus the immutable ones (tenancy, a detector's template, a widget's
+# dashboard and type) plus what the UI already edits; the write service owns
+# the deep validation and the diff, and reports the fields it changed.
+
+# The spec union shared by the widget create and update bodies. The update has
+# no ``type`` beside it: the stored type is authoritative and the write
+# service checks the dialect against it, so a foreign dialect is its 400.
+WidgetSpecBody = Annotated[WidgetSpec | TraceFeedSpec, AfterValidator(_require_bounded_spec)]
+
+
+class _UpdateRequest(BaseModel):
+    """Base of every PATCH body: unknown keys are a 422, never a silent drop."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class UpdateWorkspaceRequest(_UpdateRequest):
+    """Body for renaming a workspace the caller administers."""
+
+    name: str | MISSING = MISSING
+
+
+class UpdateProjectRequest(_UpdateRequest):
+    """Body for editing a project (requires ADMIN in its workspace)."""
+
+    name: str | MISSING = MISSING
+    trace_ttl_days: int | None | MISSING = Field(
+        MISSING, description="Trace retention in days (1-365); null returns to the plan default"
+    )
+
+
+class UpdateDetectorRequest(_UpdateRequest):
+    """Body for editing a detector; ``template`` is immutable and not accepted."""
+
+    project_id: str
+    name: str | MISSING = MISSING
+    prompt: str | MISSING = Field(
+        MISSING,
+        description=(
+            "Detector instructions, stored verbatim. There is no reset to a "
+            "template's default on update: send the canonical text to restore it."
+        ),
+    )
+    enabled: bool | MISSING = Field(
+        MISSING,
+        description=(
+            "The pause switch. Detection is ingestion-triggered, so enabling "
+            "starts nothing retroactively."
+        ),
+    )
+    sample_rate: int | MISSING = MISSING
+    enable_rca: bool | MISSING = MISSING
+    output_schema: JsonPayloadList | MISSING = Field(
+        MISSING, description="Replaces the whole output schema array"
+    )
+    trigger_conditions: JsonPayloadList | MISSING = Field(
+        MISSING,
+        description=(
+            "Replaces the whole trigger array; [] removes the trigger so every "
+            "completed trace is evaluated. Each condition is {field, op, value} "
+            "(metadata also takes key): model_name/environment take =, !=; "
+            "cost/total_tokens/duration_ms/errors take >, >=, <, <=, =; "
+            "metadata takes =, contains."
+        ),
+    )
+    detection_source: Literal["system", "byok"] | None | MISSING = MISSING
+    detection_model: str | None | MISSING = MISSING
+    detection_provider: str | None | MISSING = MISSING
+
+
+class UpdateDashboardRequest(_UpdateRequest):
+    """Body for editing a dashboard's name or description (layout stays UI-only)."""
+
+    project_id: str
+    name: str | MISSING = MISSING
+    description: str | None | MISSING = Field(MISSING, description="null clears the description")
+
+
+class UpdateWidgetRequest(_UpdateRequest):
+    """Body for editing a widget; ``type`` and ``dashboard_id`` are immutable."""
+
+    project_id: str
+    title: str | MISSING = MISSING
+    spec: WidgetSpecBody | MISSING = Field(
+        MISSING,
+        description=(
+            "Replaces the whole spec, in the dialect of the widget's stored type. "
+            'For type "query": a chart spec (view/filters/metric/breakdown/display). '
+            'For type "trace_feed": a trace-list feed spec (predicate filters + row limit).'
+        ),
+    )
+    display_config: JsonPayloadDict | None | MISSING = Field(
+        MISSING, description="Replaces the whole display config; null resets it to {}"
+    )
+
+
+class UpdateAlertRequest(_UpdateRequest):
+    """Body for editing an alert rule (the ten rule fields, all optional).
+
+    The write service validates the patch merged with the stored rule; an
+    edit to any evaluated field resets the evaluation state (and clears an
+    open page), which the response reports. Status has its own route.
+    """
+
+    project_id: str
+    name: str | MISSING = MISSING
+    view: AlertView | MISSING = MISSING
+    measure: str | MISSING = Field(
+        MISSING, description="A measure of the view, e.g. latency, cost, count"
+    )
+    aggregation: AlertAggregation | MISSING = MISSING
+    filters: AlertFilters | MISSING = MISSING
+    window: AlertWindow | MISSING = MISSING
+    threshold_operator: AlertThresholdOperator | MISSING = MISSING
+    threshold: Annotated[float, Field(allow_inf_nan=False)] | MISSING = MISSING
+    renotify: AlertRenotifyRequest | MISSING = MISSING
+    no_data_mode: AlertNoDataMode | MISSING = Field(
+        MISSING, description="What a window that measured nothing means"
+    )
+
+
+class AlertStatusRequest(_UpdateRequest):
+    """Body for pausing or resuming an alert.
+
+    Only ACTIVE and PAUSED are settable: PARKED is the evaluator's verdict.
+    """
+
+    project_id: str
+    status: Literal["ACTIVE", "PAUSED"]
+
+
+class _UpdateResponse(BaseModel):
+    """Common head of every update response.
+
+    ``changed`` lists the public (snake_case) names of the fields the request
+    actually changed; a patch whose values all equal the stored ones is a 200
+    with an empty list and writes nothing.
+    """
+
+    updated: bool
+    changed: list[str]
+
+
+class UpdateWorkspaceResponse(_UpdateResponse):
+    """The updated workspace."""
+
+    workspace: WorkspaceRow
+
+
+class UpdateProjectResponse(_UpdateResponse):
+    """The updated project."""
+
+    project: ProjectRow
+
+
+class UpdateDetectorResponse(_UpdateResponse):
+    """The updated detector."""
+
+    detector: DetectorRow
+
+
+class UpdateDashboardResponse(_UpdateResponse):
+    """The updated dashboard."""
+
+    dashboard: DashboardRow
+
+
+class UpdateWidgetResponse(_UpdateResponse):
+    """The updated widget."""
+
+    widget: WidgetRow
+
+
+class UpdateAlertResponse(_UpdateResponse):
+    """The updated alert with its full rule, plus what the edit did to its state."""
+
+    alert: AlertDetail
+    state_reset: bool = Field(
+        False,
+        description=(
+            "True when the edit voided the evaluation state and made the rule "
+            "due now (any evaluated field changed, or the alert was resumed)"
+        ),
+    )
+    page_cleared: bool = Field(
+        False, description="True when the alert was firing and the edit discarded that page"
+    )
+
+
+# ── deletes ──────────────────────────────────────────────────────────────
+
+
+class DeletedResource(BaseModel):
+    """What a delete removed: the row's id and name, for the receipt."""
+
+    id: str
+    name: str
+
+
+class _DeleteResponse(BaseModel):
+    """Common head of every delete response: the reason is echoed as recorded."""
+
+    deleted: bool
+    reason: str
+
+
+class DeleteWorkspaceResponse(_DeleteResponse):
+    """A hard-deleted workspace and the counts of what cascaded with it."""
+
+    cascaded: dict[str, int] | None = None
+    workspace: DeletedResource
+
+
+class DeleteProjectResponse(_DeleteResponse):
+    """A soft-deleted project (its data stays for the retention window)."""
+
+    project: DeletedResource
+
+
+class DeleteDetectorResponse(_DeleteResponse):
+    """A hard-deleted detector (its findings stay readable)."""
+
+    detector: DeletedResource
+
+
+class DeleteDashboardResponse(_DeleteResponse):
+    """A hard-deleted dashboard and the count of widgets removed with it."""
+
+    cascaded: dict[str, int] | None = None
+    dashboard: DeletedResource
+
+
+class DeleteWidgetResponse(_DeleteResponse):
+    """A hard-deleted widget (its layout entry is removed with it)."""
+
+    widget: DeletedResource
+
+
+class DeleteAlertResponse(_DeleteResponse):
+    """A hard-deleted alert; ``page_cleared`` reports an open page it discarded."""
+
+    page_cleared: bool = False
+    alert: DeletedResource

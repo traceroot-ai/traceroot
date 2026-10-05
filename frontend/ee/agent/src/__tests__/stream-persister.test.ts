@@ -17,17 +17,26 @@ const thinkingDelta = (delta: string): AgentEvent =>
     assistantMessageEvent: { type: "thinking_delta", delta } as never,
   }) as AgentEvent;
 
-const toolStart = (id: string, args: Record<string, unknown> = {}): AgentEvent => ({
+const toolStart = (
+  id: string,
+  args: Record<string, unknown> = {},
+  toolName = "create_dashboard",
+): AgentEvent => ({
   type: "tool_execution_start",
   toolCallId: id,
-  toolName: "get_traces",
+  toolName,
   args,
 });
 
-const toolEnd = (id: string, result: unknown = "ok", isError = false): AgentEvent => ({
+const toolEnd = (
+  id: string,
+  result: unknown = "ok",
+  isError = false,
+  toolName = "create_dashboard",
+): AgentEvent => ({
   type: "tool_execution_end",
   toolCallId: id,
-  toolName: "get_traces",
+  toolName,
   result,
   isError,
 });
@@ -64,6 +73,46 @@ function makePersister() {
 }
 
 describe("StreamPersister", () => {
+  it("stamps spanId on tool_step rows from the run's tool span map", async () => {
+    const calls: AppendCall[] = [];
+    const ids = new Map([["1", "abcdef0123456789"]]);
+    const p = new StreamPersister(
+      async (role, content, metadata) => {
+        calls.push({ role, content, metadata });
+      },
+      { toolSpanIds: () => ids },
+    );
+    p.onEvent(toolStart("1"));
+    p.onEvent(toolEnd("1"));
+    await p.finish();
+    expect(calls[0].metadata?.spanId).toBe("abcdef0123456789");
+  });
+
+  it("writes traceId and traceStatus on the final text segment", async () => {
+    const calls: AppendCall[] = [];
+    const p = new StreamPersister(async (role, content, metadata) => {
+      calls.push({ role, content, metadata });
+    });
+    p.onEvent(textDelta("done"));
+    await p.finish(USAGE, { traceId: "f".repeat(32), status: "available" });
+    const last = calls.at(-1)!;
+    expect(last.role).toBe("assistant");
+    expect(last.metadata).toMatchObject({ traceId: "f".repeat(32), traceStatus: "available" });
+  });
+
+  it("remembers the final assistant row's id, so a deferred trace status can be stamped on it", async () => {
+    let n = 0;
+    const p = new StreamPersister(async (role) => ({ id: `${role}-${++n}` }));
+    expect(p.finalSegmentId()).toBeUndefined();
+    p.onEvent(textDelta("a"));
+    p.onEvent(toolStart("call-1", "bash", { cmd: "ls" }));
+    p.onEvent(toolEnd("call-1", "bash", "ok"));
+    p.onEvent(textDelta("b"));
+    await p.finish(USAGE, { traceId: "f".repeat(32), status: "pending" });
+    // Rows: assistant-1, tool_step-2, assistant-3 — the last assistant one wins.
+    expect(p.finalSegmentId()).toBe("assistant-3");
+  });
+
   it("persists a text-only run as a single assistant row carrying the usage", async () => {
     const { persister, calls } = makePersister();
     persister.onEvent(textDelta("Hello"));
@@ -96,17 +145,20 @@ describe("StreamPersister", () => {
 
   it("records tool args from start and result from end in metadata", async () => {
     const { persister, calls } = makePersister();
-    persister.onEvent(toolStart("t1", { query: "errors" }));
-    persister.onEvent(toolEnd("t1", { rows: [] }, true));
+    // download_traces is capture-policy-allowlisted, so its result is kept
+    // (redacted, bounded, structured) rather than withheld.
+    persister.onEvent(toolStart("t1", { query: "errors" }, "download_traces"));
+    persister.onEvent(toolEnd("t1", { rows: [] }, true, "download_traces"));
     await persister.finish();
 
     expect(calls).toHaveLength(1);
     expect(calls[0].role).toBe("tool_step");
-    expect(calls[0].metadata).toEqual({
+    expect(calls[0].metadata).toMatchObject({
       toolCallId: "t1",
-      toolName: "get_traces",
+      toolName: "download_traces",
       args: { query: "errors" },
       result: { rows: [] },
+      outputBytes: 11,
       isError: true,
     });
   });
@@ -138,6 +190,31 @@ describe("StreamPersister", () => {
     // no trailing text, but the run's usage must still land so it is billed
     expect(calls.map((c) => c.role)).toEqual(["assistant", "tool_step", "assistant"]);
     expect(calls[2]).toMatchObject({ content: "", tokenUsage: USAGE });
+  });
+
+  it("with tracing disabled (no trace argument), a tool-only turn writes exactly the rows PR #1961 wrote — no extra row", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1"));
+    persister.onEvent(toolEnd("t1"));
+    await persister.finish(USAGE, undefined);
+
+    // Same shape PR #1961 wrote: a usage-carrying assistant row plus the
+    // tool_step, and nothing more. A disabled-tracing outcome must never add
+    // a third row beyond what main writes today (Global Constraint).
+    expect(calls.map((c) => c.role)).toEqual(["tool_step", "assistant"]);
+    expect(calls[1]).toMatchObject({ content: "", tokenUsage: USAGE });
+    expect(calls[1].metadata).toBeUndefined();
+  });
+
+  it("with a trace outcome and no usage, a tool-only turn gains exactly one assistant row carrying the trace metadata", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1"));
+    persister.onEvent(toolEnd("t1"));
+    await persister.finish(undefined, { traceId: "f".repeat(32), status: "available" });
+
+    expect(calls.map((c) => c.role)).toEqual(["tool_step", "assistant"]);
+    expect(calls[1]).toMatchObject({ content: "" });
+    expect(calls[1].metadata).toEqual({ traceId: "f".repeat(32), traceStatus: "available" });
   });
 
   it("stores the cumulative session total in the final segment's metadata", async () => {
@@ -326,7 +403,7 @@ describe("StreamPersister", () => {
     expect(calls[0].metadata).toBeUndefined();
   });
 
-  it("replaces oversized tool args and result values with a truncation marker", async () => {
+  it("bounds oversized tool args and result values, keeping their small siblings", async () => {
     const big = "x".repeat(10 * 1024);
     const { persister, calls } = makePersister();
     persister.onEvent(toolStart("t1", { query: big, small: "kept" }));
@@ -343,14 +420,16 @@ describe("StreamPersister", () => {
       args: { query: unknown; small: unknown };
       result: { content: unknown; details: unknown };
     };
-    // the oversized string is replaced by a detectable marker
-    expect(md.args.query).toMatchObject({ truncated: true, bytes: expect.any(Number) });
-    expect((md.args.query as { preview: string }).preview).toBe("x".repeat(256));
-    expect((md.args.query as { bytes: number }).bytes).toBeGreaterThanOrEqual(10 * 1024);
+    // the oversized string is cut (byte-safe, marker at the end) and the row says so
+    expect(typeof md.args.query).toBe("string");
+    expect((md.args.query as string).length).toBeLessThan(10 * 1024);
+    expect((md.args.query as string).endsWith("…")).toBe(true);
+    expect(calls[0].metadata).toMatchObject({ truncated: true, outputBytes: expect.any(Number) });
     // sibling small values survive untouched
     expect(md.args.small).toBe("kept");
     // result: the large content is capped, the small structured details are not
-    expect(md.result.content).toMatchObject({ truncated: true });
+    expect(typeof md.result.content).toBe("string");
+    expect((md.result.content as string).length).toBeLessThan(10 * 1024);
     expect(md.result.details).toEqual({ resourceType: "dashboard", resourceId: "d1" });
   });
 
@@ -385,5 +464,71 @@ describe("StreamPersister", () => {
     expect(calls).toEqual(["tool_step"]);
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+
+  it("withholds bash output but keeps its size; keeps download_traces output", async () => {
+    const calls: AppendCall[] = [];
+    const p = new StreamPersister(async (role, content, metadata) => {
+      calls.push({ role, content, metadata });
+    });
+    p.onEvent({
+      type: "tool_execution_start",
+      toolCallId: "1",
+      toolName: "bash",
+      args: { command: "cat secrets" },
+    });
+    p.onEvent({
+      type: "tool_execution_end",
+      toolCallId: "1",
+      toolName: "bash",
+      result: "ghp_" + "x".repeat(40),
+      isError: false,
+    });
+    p.onEvent({
+      type: "tool_execution_start",
+      toolCallId: "2",
+      toolName: "download_traces",
+      args: {},
+    });
+    p.onEvent({
+      type: "tool_execution_end",
+      toolCallId: "2",
+      toolName: "download_traces",
+      result: '{"spans":[]}',
+      isError: false,
+    });
+    await p.finish();
+    const bash = calls.find((c) => c.metadata?.toolName === "bash")!.metadata!;
+    expect(bash.result).toBeUndefined();
+    expect(bash.outputBytes).toBe(44);
+    expect(bash.withheld).toBe("not-allowlisted");
+    const dl = calls.find((c) => c.metadata?.toolName === "download_traces")!.metadata!;
+    expect(dl.result).toBe('{"spans":[]}');
+  });
+
+  it("charges captured bytes to an explicit budget when one is passed", async () => {
+    // The persister charges whatever accumulator it's given — index.ts hands
+    // it its OWN fresh one (deliberately not the span's currentCaptureState()
+    // — see capture-budget-independence.test.ts), but the option itself is
+    // just "charge this state", tested here directly.
+    // Room for exactly the empty args object (2 bytes: `{}`) plus the six
+    // result bytes, so the charge lands on the run cap.
+    const state = { spentBytes: 262_144 - 8 };
+    const p = new StreamPersister(async () => {}, { state });
+    p.onEvent(toolStart("1", {}, "download_traces"));
+    p.onEvent(toolEnd("1", "abcdef", false, "download_traces"));
+    await p.finish();
+    expect(state.spentBytes).toBe(262_144);
+  });
+
+  it("keeps a budget of its own by default", async () => {
+    const calls: AppendCall[] = [];
+    const p = new StreamPersister(async (role, content, metadata) => {
+      calls.push({ role, content, metadata });
+    });
+    p.onEvent(toolStart("1", {}, "download_traces"));
+    p.onEvent(toolEnd("1", "abcdef", false, "download_traces"));
+    await p.finish();
+    expect(calls[0].metadata).toMatchObject({ result: "abcdef", outputBytes: 6 });
   });
 });

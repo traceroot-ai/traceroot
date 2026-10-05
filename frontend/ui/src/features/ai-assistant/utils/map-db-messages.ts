@@ -1,5 +1,6 @@
 import { proposalDeclined } from "./proposal-declined";
 import type { AIMessage } from "../types";
+import type { TraceStatus } from "@traceroot/core";
 
 /** AIMessage row as returned by GET /api/projects/:id/ai/sessions/:id/messages. */
 export interface DbAiMessageRow {
@@ -16,10 +17,12 @@ export interface DbAiMessageRow {
 }
 
 /**
- * Metadata persisted on a tool_step row. The persister bounds each serialized
- * args/result value to a byte cap; an oversized value arrives replaced by a
- * `{ truncated: true, bytes, preview }` marker where it would have been —
- * check for `truncated: true` before treating a value as the tool's payload.
+ * Metadata persisted on a tool_step row, after the capture policy: the args
+ * always (redacted, bounded), the result only for tools whose output is kept
+ * — as the structured value the live stream showed, bounded leaf by leaf, or
+ * as text for a text result. `withheld` says why a result is absent,
+ * `truncated` that something kept was cut, `outputBytes` how big the real
+ * output was.
  */
 interface ToolStepMetadata {
   toolCallId?: string;
@@ -27,6 +30,11 @@ interface ToolStepMetadata {
   args?: Record<string, unknown>;
   result?: unknown;
   isError?: boolean;
+  /** ClickHouse span id for this tool call, when the run was traced. */
+  spanId?: string;
+  withheld?: "not-allowlisted" | "budget" | null;
+  truncated?: boolean;
+  outputBytes?: number;
 }
 
 /** Metadata persisted on an assistant segment row. `runError` is set on the
@@ -36,6 +44,9 @@ interface AssistantMetadata {
   thinking?: string;
   totalTokens?: number;
   runError?: string;
+  /** The turn's self-trace, stamped on the final segment when the run was traced. */
+  traceId?: string;
+  traceStatus?: TraceStatus;
 }
 
 /**
@@ -65,6 +76,10 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
           result: md.result,
           isError: md.isError,
           status: md.isError ? "error" : "done",
+          ...(md.spanId ? { spanId: md.spanId } : {}),
+          ...(md.withheld ? { withheld: md.withheld } : {}),
+          ...(md.truncated ? { truncated: true } : {}),
+          ...(md.outputBytes != null ? { outputBytes: md.outputBytes } : {}),
           ...(declined?.outcome === "skipped" ? { skipped: true } : {}),
           ...(declined?.outcome === "revised" ? { revisedText: declined.text ?? "" } : {}),
         },
@@ -78,6 +93,8 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
       ...(m.outputTokens != null ? { outputTokens: m.outputTokens } : {}),
       ...(md?.totalTokens != null ? { totalTokens: md.totalTokens } : {}),
       ...(m.cost != null ? { costUsd: Number(m.cost) } : {}),
+      ...(md?.traceId != null ? { traceId: md.traceId } : {}),
+      ...(md?.traceStatus != null ? { traceStatus: md.traceStatus } : {}),
     };
     // A content-less assistant row is the usage carrier of a run that ended at
     // a tool boundary. The live stream pins usage on the last text bubble, so

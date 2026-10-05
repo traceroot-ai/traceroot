@@ -243,3 +243,36 @@ describe("PendingDecisions", () => {
     expect(decisions.channelFor("s1")).toBeUndefined();
   });
 });
+
+describe("approval-class parks", () => {
+  it("settles a revise on an approval-class park as a skip, recording no revision text", async () => {
+    const decisions = new PendingDecisions();
+    decisions.registerChannel("s1", channelFor("u1"));
+    const { decisionId, outcome } = decisions.park({
+      sessionId: "s1",
+      toolCallId: "tc-9",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "asked to remove it" },
+      approvalClass: "approval",
+    });
+    expect(decisions.decide(decisionId, "s1", { action: "revise", text: "remove both" })).toBe(
+      "resolved",
+    );
+    await expect(outcome).resolves.toEqual({
+      action: "skip",
+      reason: userSkipReason("delete_widget"),
+    });
+    expect(decisions.takeDecline("s1", "tc-9")).toEqual({
+      kind: "proposal_declined",
+      outcome: "skipped",
+    });
+  });
+
+  it("still lets a confirm-class park (the default) resolve a revise as a revision", async () => {
+    const decisions = new PendingDecisions();
+    decisions.registerChannel("s1", channelFor("u1"));
+    const { decisionId, outcome } = parkOn(decisions, "s1");
+    decisions.decide(decisionId, "s1", { action: "revise", text: "use p95" });
+    await expect(outcome).resolves.toEqual({ action: "revise", text: "use p95" });
+  });
+});

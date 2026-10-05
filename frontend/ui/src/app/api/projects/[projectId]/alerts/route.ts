@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
@@ -18,7 +19,7 @@ const MAX_LIMIT = 200;
 // and 500s. At MAX_LIMIT this is still far more pages than a list can hold.
 const MAX_PAGE = 10_000;
 
-export async function GET(req: NextRequest, { params }: RouteParams) {
+async function handleGET(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params);
   if (auth.error) return auth.error;
   const { projectId } = auth.params;
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   });
 }
 
-export async function POST(req: NextRequest, { params }: RouteParams) {
+async function handlePOST(req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { user } = auth;
@@ -87,3 +88,5 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   return successResponse({ alert: await serializeAlert(alert) }, 201);
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);
