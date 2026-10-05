@@ -23,7 +23,14 @@ export interface WaitingHit {
 /** Where the decision put the hit. */
 export type Placement =
   | { kind: "attach"; signalId: string; score: number | null; criteriaVersion: number }
-  | { kind: "create"; signal: SignalText; anchorText: string; anchorEmbedding: number[] }
+  | {
+      kind: "create";
+      signal: SignalText;
+      anchorText: string;
+      anchorEmbedding: number[];
+      /** Whether the criteria passed their check; stored with the signal. */
+      validated: boolean;
+    }
   | { kind: "group"; groupKey: string; signal: SignalText; anchorText: string };
 
 export type AssignmentOutcome = "created" | "attached" | "reopened" | "duplicate";
@@ -157,6 +164,7 @@ export async function applyAssignment(
           anchorText: placement.anchorText,
           anchorEmbedding: placement.kind === "create" ? placement.anchorEmbedding : [],
           groupKey: placement.kind === "group" ? placement.groupKey : null,
+          criteriaValidated: placement.kind === "create" ? placement.validated : null,
           hitCount: 1,
           firstSeenAt: hit.seenAt,
           lastSeenAt: hit.seenAt,
