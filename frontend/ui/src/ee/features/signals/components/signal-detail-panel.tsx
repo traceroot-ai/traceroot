@@ -14,7 +14,13 @@ import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { QueryWidgetRenderer } from "@/features/dashboards/components/renderers";
 import { cn, formatCost, formatDate, formatDuration } from "@/lib/utils";
-import { useSignal, useSignalTraces, type SignalDetail, type SignalTimeRange } from "../hooks";
+import {
+  rcaInProgress,
+  useSignal,
+  useSignalTraces,
+  type SignalDetail,
+  type SignalTimeRange,
+} from "../hooks";
 import { RunRca } from "./run-rca";
 import { SignalStatusControl } from "./signal-status-control";
 
@@ -73,6 +79,16 @@ interface SignalDetailPanelProps {
  * The signal opened from the Signals list: what it covers, its root cause
  * analysis, how often it happened per day, and its latest traces.
  */
+/** What happened to the analysis of a reopening, in the sentence after "reopened since". */
+function reopeningState(state: string | null): string {
+  if (state === null) {
+    return "No new analysis started automatically: one does not run within 24 hours of the last, or when the detector's root cause analysis is Manual.";
+  }
+  if (state === "failed") return "The analysis after it reopened failed.";
+  if (rcaInProgress(state)) return "A new analysis is running.";
+  return "";
+}
+
 export function SignalDetailPanel({
   projectId,
   signalId,
@@ -324,15 +340,15 @@ function SignalBlocks({
                 <div className="space-y-2">
                   <p className="text-[12px] text-muted-foreground">
                     This analysis is from an earlier occurrence
-                    {earlierAt ? ` (${formatDate(earlierAt)})` : ""}; the signal has reopened since.
-                    {signal.rca.currentState === null &&
-                      " No new analysis started automatically: one does not run within 24 hours of the last, or when the detector's root cause analysis is Manual."}
+                    {earlierAt ? ` (${formatDate(earlierAt)})` : ""}; the signal has reopened since.{" "}
+                    {reopeningState(signal.rca.currentState)}
                   </p>
                   <RunRca
                     projectId={projectId}
                     signalId={signal.id}
                     state={signal.rca.currentState}
                     available={detail.grouping}
+                    showState={false}
                   />
                 </div>
               )}

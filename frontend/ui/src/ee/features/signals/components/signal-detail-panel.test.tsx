@@ -34,7 +34,12 @@ vi.mock("@/features/dashboards/components/renderers", () => ({
 }));
 
 vi.mock("./run-rca", () => ({
-  RunRca: ({ state }: { state: string | null }) => <div>run-rca:{String(state)}</div>,
+  RunRca: ({ state, showState = true }: { state: string | null; showState?: boolean }) => (
+    <div>
+      run-rca:{String(state)}
+      {showState ? "" : ":quiet"}
+    </div>
+  ),
 }));
 vi.mock("./signal-status-control", () => ({ SignalStatusControl: () => null }));
 
@@ -95,6 +100,7 @@ vi.mock("../hooks", () => ({
     isPlaceholderData: signalQuery.isPlaceholderData,
   }),
   useSignalTraces: () => ({ data: new Map(), isPending: false }),
+  rcaInProgress: (state: string | null) => state === "pending" || state === "running",
 }));
 
 import { SignalDetailPanel } from "./signal-detail-panel";
@@ -154,18 +160,23 @@ describe("SignalDetailPanel analysis of an earlier opening", () => {
     expect(screen.getByText(/from an earlier occurrence/)).toBeTruthy();
     // No analysis was asked for the reopening: the cooldown or a Manual detector.
     expect(screen.getByText(/No new analysis started automatically/)).toBeTruthy();
-    expect(screen.getByText("run-rca:null")).toBeTruthy();
+    // One paragraph: the button adds no state line of its own here.
+    expect(screen.getByText("run-rca:null:quiet")).toBeTruthy();
     expect(screen.getByText("Root cause: the tool times out")).toBeTruthy();
   });
 
-  it("passes the reopening's failed state on, without the cooldown line", () => {
+  it.each([
+    ["failed", "The analysis after it reopened failed."],
+    ["running", "A new analysis is running."],
+  ])("says in the same paragraph that the reopening's analysis is %s", (state, sentence) => {
     analysed(0);
     signalDetail.signal.reopenSeq = 1;
-    signalDetail.signal.rca = { currentState: "failed", canonicalFindingId: null };
+    signalDetail.signal.rca = { currentState: state, canonicalFindingId: null };
     renderPanel();
-    expect(screen.getByText(/from an earlier occurrence/)).toBeTruthy();
-    expect(screen.queryByText(/No new analysis started automatically/)).toBeNull();
-    expect(screen.getByText("run-rca:failed")).toBeTruthy();
+    const note = screen.getByText(/from an earlier occurrence/);
+    expect(note.textContent).toContain(sentence);
+    expect(note.textContent).not.toContain("No new analysis started automatically");
+    expect(screen.getByText(`run-rca:${state}:quiet`)).toBeTruthy();
   });
 
   it("says nothing extra when the analysis is of the current opening", () => {
@@ -173,7 +184,7 @@ describe("SignalDetailPanel analysis of an earlier opening", () => {
     signalDetail.signal.reopenSeq = 1;
     renderPanel();
     expect(screen.queryByText(/from an earlier occurrence/)).toBeNull();
-    expect(screen.queryByText(/^run-rca:/)).toBeNull();
+    expect(screen.queryByText(/run-rca:/)).toBeNull();
     expect(screen.getByText("Root cause: the tool times out")).toBeTruthy();
   });
 });
