@@ -441,8 +441,18 @@ export async function runAssignmentRound(
     // Whatever was recorded in Postgres gets its copy and its RCA, and billed
     // calls stay findable, even when the round fails part-way.
     await flush();
-    if (!flushError) for (const runId of gaveUp) await deps.failures.clear(runId);
     await recordUsage(db, workspaceId, usage);
+    // After the usage is recorded, and best-effort: a kept count only gives
+    // the hit up again sooner.
+    if (!flushError) {
+      for (const runId of gaveUp) {
+        await deps.failures
+          .clear(runId)
+          .catch((err) =>
+            console.error(`[Signals] failed to clear failures of run=${runId}:`, err),
+          );
+      }
+    }
     if (settled.size > 0) {
       // A pending RCA row is committed with its opening; if this fails, the
       // sweeper starts it.
