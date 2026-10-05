@@ -123,14 +123,15 @@ export default function SignalsPage() {
       onUpgradeClick={retention.onUpgradeClick}
     />
   );
-  // The Tracing list narrowed to one signal's traces, in the same time range.
+  // The Tracing list narrowed to one signal's traces, in the same time range: a trace's
+  // signal ids contain this one (a trace can belong to several signals).
   const tracesHref = (signalId: string, traceId?: string) =>
     buildUrlWithFilters(`/projects/${projectId}/traces`, {
       dateFilter: state.dateFilter,
       customStartDate: state.customStartDate,
       customEndDate: state.customEndDate,
       extraParams: {
-        filters: serializeFiltersParam([{ field: "signal_id", op: "eq", value: signalId }])!,
+        filters: serializeFiltersParam([{ field: "signal_ids", op: "contains", value: signalId }])!,
         ...(traceId ? { traceId } : {}),
       },
     });

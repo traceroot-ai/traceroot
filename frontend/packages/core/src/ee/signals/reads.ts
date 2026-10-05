@@ -416,6 +416,28 @@ export async function getSignal(
   };
 }
 
+/**
+ * Each trace's signal ids, one per hit and in detection order, for the Tracing list's
+ * Signal IDs column. A trace with no hit is absent.
+ */
+export async function signalIdsForTraces(
+  db: Pick<PrismaClient, "signalHit">,
+  params: { projectId: string; traceIds: readonly string[] },
+): Promise<Record<string, string[]>> {
+  if (params.traceIds.length === 0) return {};
+  const hits = await db.signalHit.findMany({
+    where: { projectId: params.projectId, traceId: { in: [...params.traceIds] } },
+    select: { traceId: true, signalId: true },
+    orderBy: [{ seenAt: "asc" }, { runId: "asc" }],
+  });
+  const out: Record<string, string[]> = {};
+  for (const h of hits) {
+    const ids = (out[h.traceId] ??= []);
+    if (!ids.includes(h.signalId)) ids.push(h.signalId);
+  }
+  return out;
+}
+
 /** The signal each hit of a trace belongs to, for the trace page and the finding panel. */
 export async function signalsForTrace(
   db: Pick<PrismaClient, "signalHit">,

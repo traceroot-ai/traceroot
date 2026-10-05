@@ -16,6 +16,7 @@ const core = vi.hoisted(() => ({
   detectorSignalSettings: vi.fn(),
   signalSetup: vi.fn(),
   signalCountsByDetector: vi.fn(),
+  signalIdsForTraces: vi.fn(),
   signalsKeyConfigured: vi.fn(),
   writeAudit: vi.fn(),
   requireAuth: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock("@traceroot/core/signals", async (importOriginal) => {
     detectorSignalSettings: core.detectorSignalSettings,
     signalSetup: core.signalSetup,
     signalCountsByDetector: core.signalCountsByDetector,
+    signalIdsForTraces: core.signalIdsForTraces,
     signalsKeyConfigured: core.signalsKeyConfigured,
   };
 });
@@ -66,6 +68,7 @@ import {
   handleSetSignalStatus,
   handleSignalSetup,
   handleSignalCounts,
+  handleTraceSignalIds,
   handleTraceSignals,
 } from "./route-handlers";
 
@@ -498,6 +501,29 @@ describe("reads", () => {
 
     core.requireProjectAccess.mockResolvedValueOnce({ error: Response.json({}, { status: 403 }) });
     expect((await handleSignalCounts(req(), params({ projectId: "p1" }))).status).toBe(403);
+  });
+
+  it("returns the listed traces' signal ids, each trace once, for project members only", async () => {
+    core.signalIdsForTraces.mockResolvedValue({ t1: ["s1", "s2"] });
+    const res = await handleTraceSignalIds(
+      req(undefined, "?trace_id=t1&trace_id=t2&trace_id=t1"),
+      params({ projectId: "p1" }),
+    );
+    expect(await res.json()).toEqual({ signalIds: { t1: ["s1", "s2"] } });
+    expect(core.signalIdsForTraces).toHaveBeenCalledWith(expect.anything(), {
+      projectId: "p1",
+      traceIds: ["t1", "t2"],
+    });
+
+    core.requireProjectAccess.mockResolvedValueOnce({ error: Response.json({}, { status: 403 }) });
+    expect((await handleTraceSignalIds(req(), params({ projectId: "p1" }))).status).toBe(403);
+  });
+
+  it("refuses more traces than one Tracing page holds", async () => {
+    const search = "?" + Array.from({ length: 201 }, (_, i) => `trace_id=t${i}`).join("&");
+    const res = await handleTraceSignalIds(req(undefined, search), params({ projectId: "p1" }));
+    expect(res.status).toBe(400);
+    expect(core.signalIdsForTraces).not.toHaveBeenCalled();
   });
 });
 

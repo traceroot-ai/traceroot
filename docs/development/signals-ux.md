@@ -46,6 +46,10 @@ It references #2399 and #2404 without closing the full UX issue.
 - Notification links open the Signals page with `?signalId=`; the path comes
   from one helper in core, and a page test checks that the page opens it.
 - Affected counts and View all open Tracing with the signal filter and range.
+  Tracing's signal filter is Signal IDs contains: a trace has one signal id per
+  hit, so it can belong to several signals, and it matches when any of them
+  contains the value. An optional Signal IDs column (off by default) lists each
+  trace's signals, read from Postgres only while the column is shown.
   Opening an individual affected trace navigates to the same Tracing list and
   opens that trace's detail through the existing traceId URL parameter. The
   sidebar selects Tracing; browser Back returns to the selected signal.

@@ -19,6 +19,7 @@ import {
   signalCriteriaEditSchema,
   signalStatusChangeSchema,
   signalsForTrace,
+  signalIdsForTraces,
   detectorSignalSettings,
   signalSetup,
   signalCountsByDetector,
@@ -546,4 +547,22 @@ export async function handleSignalCounts(
   const auth = await authorize(projectId);
   if (auth.error) return auth.error;
   return successResponse({ counts: await signalCountsByDetector(prisma, projectId) });
+}
+
+/** Traces looked up per call: a Tracing page holds at most this many. */
+const MAX_SIGNAL_ID_TRACES = 200;
+
+/** GET: each listed trace's signal ids, for the Tracing list's Signal IDs column. */
+export async function handleTraceSignalIds(
+  req: NextRequest,
+  { params }: Params<{ projectId: string }>,
+) {
+  const { projectId } = await params;
+  const auth = await authorize(projectId);
+  if (auth.error) return auth.error;
+  const traceIds = [...new Set(req.nextUrl.searchParams.getAll("trace_id").filter(Boolean))];
+  if (traceIds.length > MAX_SIGNAL_ID_TRACES) {
+    return errorResponse(`at most ${MAX_SIGNAL_ID_TRACES} trace_id values`, 400);
+  }
+  return successResponse({ signalIds: await signalIdsForTraces(prisma, { projectId, traceIds }) });
 }

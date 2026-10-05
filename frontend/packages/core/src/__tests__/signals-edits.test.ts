@@ -10,6 +10,7 @@ import {
   signalsForTrace,
   signalsForRuns,
   signalCountsByDetector,
+  signalIdsForTraces,
   detectorSignalSettings,
   signalSetup,
   signalsKeyConfigured,
@@ -956,6 +957,30 @@ describe("reads", () => {
     expect(await signalsForRuns(db as never, { projectId: "p", runIds: ["r1"] })).toEqual([]);
     expect(db.signalRca.findMany).not.toHaveBeenCalled();
     expect(db.detectorRcaExecution.findMany).not.toHaveBeenCalled();
+  });
+
+  it("lists each trace's signal ids once, in detection order, in the project only", async () => {
+    const db = {
+      signalHit: {
+        findMany: vi.fn(async () => [
+          { traceId: "t1", signalId: "s1" },
+          { traceId: "t2", signalId: "s1" },
+          { traceId: "t1", signalId: "s2" },
+          // A second hit of t1 in a signal it is already listed under.
+          { traceId: "t1", signalId: "s1" },
+        ]),
+      },
+    };
+    expect(
+      await signalIdsForTraces(db as never, { projectId: "p", traceIds: ["t1", "t2", "t3"] }),
+    ).toEqual({ t1: ["s1", "s2"], t2: ["s1"] });
+    expect(db.signalHit.findMany).toHaveBeenCalledWith({
+      where: { projectId: "p", traceId: { in: ["t1", "t2", "t3"] } },
+      select: { traceId: true, signalId: true },
+      orderBy: [{ seenAt: "asc" }, { runId: "asc" }],
+    });
+    expect(await signalIdsForTraces(db as never, { projectId: "p", traceIds: [] })).toEqual({});
+    expect(db.signalHit.findMany).toHaveBeenCalledTimes(1);
   });
 
   it("reads the signals settings of the named detectors, in the project only", async () => {

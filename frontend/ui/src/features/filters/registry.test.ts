@@ -16,7 +16,7 @@ describe("STATIC_FILTER_FIELDS fallback", () => {
         "metadata",
         "model_name",
         "name",
-        "signal_id",
+        "signal_ids",
         "span_kind",
         "status",
         "total_tokens",
@@ -43,8 +43,8 @@ describe("STATIC_FILTER_FIELDS fallback", () => {
     for (const f of STATIC_FILTER_FIELDS) {
       if (f.type === "categorical") expect(f.operators).toEqual(["in"]);
       else if (f.type === "numeric") expect(f.operators).toEqual(["eq", "gt", "gte", "lt", "lte"]);
-      // A signal id is copied whole, never typed in part: exact match only.
-      else if (f.field === "signal_id") expect(f.operators).toEqual(["eq"]);
+      // A trace can belong to several signals: the field is a list, matched with contains.
+      else if (f.field === "signal_ids") expect(f.operators).toEqual(["contains"]);
       else if (f.type === "text") expect(f.operators).toEqual(["eq", "contains"]);
     }
   });

@@ -364,6 +364,28 @@ export function useSignalSetup(projectId: string, enabled: boolean) {
 }
 
 /** Each detector's signal count (merged ones left out), keyed by detector id. */
+/**
+ * The signal ids of each listed trace, for the Tracing list's Signal IDs column; read only
+ * while that column is shown.
+ */
+export function useTraceSignalIds(
+  projectId: string,
+  traceIds: readonly string[],
+  enabled: boolean,
+) {
+  const params = new URLSearchParams(traceIds.map((id) => ["trace_id", id]));
+  return useQuery({
+    queryKey: ["signals", "by-trace", projectId, traceIds],
+    queryFn: () =>
+      getJson<{ signalIds: Record<string, string[]> }>(
+        `/api/projects/${projectId}/signals/by-trace?${params.toString()}`,
+        "trace signals",
+      ),
+    enabled: enabled && !!projectId && traceIds.length > 0,
+    staleTime: 30_000,
+  });
+}
+
 export function useSignalCounts(projectId: string) {
   return useQuery({
     queryKey: ["signals", "counts", projectId],

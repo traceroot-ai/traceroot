@@ -43,13 +43,16 @@ interface TableProps {
   traces: TraceListItem[];
   visibleColumns?: FixedColumnId[];
   onSelectTrace?: (traceId: string) => void;
+  signalIdsByTrace?: Record<string, string[]>;
 }
 
 function renderTable(props: TableProps) {
   const onSelectTrace = props.onSelectTrace ?? vi.fn();
   render(
     <TraceListTable
+      projectId="p-1"
       traces={props.traces}
+      signalIdsByTrace={props.signalIdsByTrace}
       selectedTraceId={null}
       onSelectTrace={onSelectTrace}
       // The resolved default-on set, never an empty list: empty is the "no columns selected"
@@ -180,6 +183,40 @@ describe("TraceListTable opt-in field columns", () => {
     });
     fireEvent.click(screen.getByText("u-1"));
     expect(onSelectTrace).toHaveBeenCalledWith("t-1");
+  });
+});
+
+describe("TraceListTable Signal IDs column", () => {
+  it("lists every signal of a trace, each linking to its signal", () => {
+    renderTable({
+      traces: [makeTrace({ trace_id: "t-1" }), makeTrace({ trace_id: "t-2" })],
+      visibleColumns: visibleFixedColumns(["signal_ids"]),
+      signalIdsByTrace: { "t-1": ["sig-a", "sig-b"] },
+    });
+    const cell = cellAt("t-1", "Signal IDs");
+    const links = within(cell).getAllByRole("link");
+    expect(links.map((a) => a.textContent)).toEqual(["sig-a", "sig-b"]);
+    expect(links[1].getAttribute("href")).toBe("/projects/p-1/signals?signalId=sig-b");
+    // A trace with no signal shows a dash once its signals are read.
+    expect(cellAt("t-2", "Signal IDs").textContent).toBe("-");
+  });
+
+  it("opens the signal, not the trace, when a signal id is clicked", () => {
+    const { onSelectTrace } = renderTable({
+      traces: [makeTrace({ trace_id: "t-1" })],
+      visibleColumns: visibleFixedColumns(["signal_ids"]),
+      signalIdsByTrace: { "t-1": ["sig-a"] },
+    });
+    fireEvent.click(screen.getByRole("link", { name: "sig-a" }));
+    expect(onSelectTrace).not.toHaveBeenCalled();
+  });
+
+  it("stays blank while the signals are being read", () => {
+    renderTable({
+      traces: [makeTrace({ trace_id: "t-1" })],
+      visibleColumns: visibleFixedColumns(["signal_ids"]),
+    });
+    expect(cellAt("t-1", "Signal IDs").textContent).toBe("");
   });
 });
 

@@ -156,7 +156,7 @@ describe("Signals page affected trace navigation", () => {
       expect(target.pathname).toBe("/projects/p1/traces");
       expect(target.searchParams.get("traceId")).toBe("trace-1");
       expect(JSON.parse(target.searchParams.get("filters")!)).toEqual([
-        { field: "signal_id", op: "eq", value: "s1" },
+        { field: "signal_ids", op: "contains", value: "s1" },
       ]);
       expect(target.searchParams.get("date_filter")).toBe(isCustom ? "custom" : "7d");
       if (isCustom) {

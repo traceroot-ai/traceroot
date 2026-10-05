@@ -665,27 +665,36 @@ def test_trace_id_condition_is_inline_not_a_semijoin():
     assert "spans" not in cond
 
 
-# --- signal (signal_id) lowering --------------------------------------------
+# --- signal (signal_ids) lowering -------------------------------------------
 
 
-def test_signal_id_lowers_to_a_semijoin_over_signal_assignments():
-    # The traces holding a hit of the signal, keyed on t.trace_id so the condition lands
-    # in both the page and count queries; the id binds as a parameter.
+def test_signal_ids_lowers_to_a_semijoin_over_signal_assignments():
+    # The traces with a hit whose signal id contains the value, keyed on t.trace_id so the
+    # condition lands in both the page and count queries; the value binds as a parameter.
     params = {"project_id": "p1"}
-    cond = build_conditions([Predicate(field="signal_id", op="eq", value="sig1")], params)[0]
+    cond = build_conditions([Predicate(field="signal_ids", op="contains", value="sig1")], params)[0]
     assert cond.startswith("t.trace_id IN (SELECT hit_trace_id FROM (")
     assert "FROM signal_assignments" in cond
     assert "WHERE project_id = {project_id:String}" in cond
-    assert cond.endswith("WHERE hit_signal_id = {f_signal_id_0:String})")
-    assert params["f_signal_id_0"] == "sig1"
+    # A given-up hit (empty signal id) never matches.
+    assert cond.endswith(
+        "WHERE hit_signal_id != '' AND hit_signal_id ILIKE {f_signal_ids_0:String})"
+    )
+    assert params["f_signal_ids_0"] == "%sig1%"
     assert "sig1" not in cond
 
 
-def test_signal_id_reads_each_hits_latest_placement_without_final():
+def test_signal_ids_escapes_wildcards_in_the_value():
+    params = {"project_id": "p1"}
+    build_conditions([Predicate(field="signal_ids", op="contains", value="a%_b")], params)
+    assert params["f_signal_ids_0"] == "%a\\%\\_b%"
+
+
+def test_signal_ids_reads_each_hits_latest_placement_without_final():
     # A moved hit has a newer row for the same run: the latest per run decides its
     # signal before the predicate applies, so it counts only where it now belongs.
     params = {"project_id": "p1"}
-    cond = build_conditions([Predicate(field="signal_id", op="eq", value="sig1")], params)[0]
+    cond = build_conditions([Predicate(field="signal_ids", op="contains", value="sig1")], params)[0]
     assert "argMax(signal_id, assigned_at)" in cond
     assert "argMax(trace_id, assigned_at)" in cond
     assert "GROUP BY detector_id, run_id" in cond
@@ -693,10 +702,10 @@ def test_signal_id_reads_each_hits_latest_placement_without_final():
     assert "FINAL" not in cond
 
 
-def test_signal_id_takes_only_an_exact_match():
+def test_signal_ids_takes_only_contains():
     with pytest.raises(ValueError):
         build_conditions(
-            [Predicate(field="signal_id", op="contains", value="sig")], {"project_id": "p1"}
+            [Predicate(field="signal_ids", op="eq", value="sig")], {"project_id": "p1"}
         )
 
 
