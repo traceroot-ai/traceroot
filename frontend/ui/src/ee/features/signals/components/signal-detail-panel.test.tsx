@@ -50,6 +50,7 @@ const signalDetail = vi.hoisted(() => ({
     createTime: "2026-01-01T00:00:00Z",
     criteriaCovers: "Covers X",
     criteriaExcludes: "Excludes Y",
+    criteriaValidated: true as boolean | null,
     rca: { currentState: null, canonicalFindingId: null },
     canonicalRca: null,
   },
@@ -106,10 +107,28 @@ function renderPanel(onOpenTrace = vi.fn()) {
 afterEach(() => {
   cleanup();
   signalQuery.isPlaceholderData = false;
+  signalDetail.signal.criteriaValidated = true;
   layoutMocks.setAiPanelOpen.mockReset();
   layoutMocks.setAiContext.mockReset();
   layoutMocks.setAiInitialSessionId.mockReset();
   layoutMocks.release.mockReset();
+});
+
+describe("SignalDetailPanel criteria check", () => {
+  it("says when the criteria did not pass their check at creation", () => {
+    signalDetail.signal.criteriaValidated = false;
+    renderPanel();
+    expect(screen.getByText(/did not pass the check when the signal was created/)).toBeTruthy();
+  });
+
+  it("says nothing when they passed, or when no check ran", () => {
+    for (const value of [true, null]) {
+      signalDetail.signal.criteriaValidated = value;
+      renderPanel();
+      expect(screen.queryByText(/did not pass the check/)).toBeNull();
+      cleanup();
+    }
+  });
 });
 
 describe("SignalDetailPanel AI host cleanup", () => {

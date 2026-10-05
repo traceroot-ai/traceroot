@@ -46,6 +46,8 @@ export interface SignalDetail {
   signal: SignalListItem & {
     criteriaCovers: string;
     criteriaExcludes: string;
+    /** Whether the criteria passed their check at creation; null when none ran. */
+    criteriaValidated: boolean | null;
     rca: { currentState: string | null; canonicalFindingId: string | null };
     canonicalRca: {
       findingId: string;

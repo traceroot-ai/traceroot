@@ -289,6 +289,13 @@ function SignalBlocks({
 
       <Block title="Summary">
         <p className="px-3 py-2.5 text-[13px] text-foreground">{signal.criteriaCovers}</p>
+        {signal.criteriaValidated === false && (
+          // A diagnostic only: the signal was created anyway.
+          <p className="px-3 pb-2.5 text-[12px] text-muted-foreground">
+            These criteria did not pass the check when the signal was created: they may not match
+            its first hit, or may also match another signal&apos;s hits.
+          </p>
+        )}
       </Block>
 
       <Block

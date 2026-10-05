@@ -54,6 +54,9 @@ It references #2399 and #2404 without closing the full UX issue.
   opens that trace's detail through the existing traceId URL parameter. The
   sidebar selects Tracing; browser Back returns to the selected signal.
   Tracing badges can reopen the signal panel.
+- The signal panel's Summary says when the criteria did not pass their check
+  at creation (signals.criteria_validated is false). The check is diagnostic:
+  the signal is created either way, and a hand edit clears the result.
 - Open in agent loads the signal's RCA chat. Closing its sidebar clears the
   preload session ID along with the chat, so reopening the same analysis
   reloads its transcript.
