@@ -207,10 +207,12 @@ describe("runAssignmentRound", () => {
       lagMs: 59_999,
       remaining: false,
     });
-    // The new signal's anchor is the hit's material and embedding.
+    // The new signal's anchor is the hit's material and embedding, and the write
+    // keeps whether its criteria passed their check.
     expect(mockApply.mock.calls[0][2]).toMatchObject({
       anchorText: expect.stringContaining("detector: Failure"),
       anchorEmbedding: [1, 0],
+      validated: true,
     });
     // Each hit's ClickHouse copy carries its signal, embedding and Postgres values.
     expect(written.map((w) => [w.run_id, w.signal_id])).toEqual([
