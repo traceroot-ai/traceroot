@@ -342,12 +342,13 @@ function pastCursor(cursor: SweepCursor) {
  *
  * Pages through every pending row in key order, past rows whose job exists,
  * so a busy queue cannot hide a job-less request behind it. Work is bounded by
- * how many RCAs one call starts, and the rows it reads have a generous cap,
- * logged when hit. A finding whose openings are all older than the lookback
- * and still has no job has outlived any lost-job window: it is marked failed
- * (only while pending and with no recent opening, so a job or request that
- * just landed is not overwritten), so the panel shows it failed and
- * requestSignalRca can ask again.
+ * how many RCAs one call starts (not how many it checks), and the rows it
+ * reads have a generous cap, logged when hit. A finding whose openings are all
+ * older than the lookback and still has no job is started if its trace is
+ * settled by now (a hit stuck that long is no longer waited for); otherwise it
+ * has outlived any lost-job window and is marked failed (only while pending
+ * and with no recent opening, so a job or request that just landed is not
+ * overwritten), so the panel shows it failed and requestSignalRca can ask again.
  */
 export async function sweepSignalRcas(
   db: Pick<PrismaClient, "signalRca" | "detectorRca" | "signalHit" | "detector">,
@@ -357,8 +358,6 @@ export async function sweepSignalRcas(
   const cutoff = new Date(now - RCA_ENQUEUE_GRACE_MS);
   const giveUpBefore = new Date(now - WAITING_LOOKBACK_MS);
   const seenFindings = new Set<string>();
-  const toStart = new Map<string, string[]>();
-  let candidates = 0;
   let started = 0;
   let failed = 0;
   let examined = 0;
@@ -385,6 +384,14 @@ export async function sweepSignalRcas(
     examined += page.length;
     cursor = page[page.length - 1];
 
+    // Started per page, so the cap counts RCAs actually started: findings whose
+    // trace still has a hit being assigned do not use it up.
+    const toStart = new Map<string, string[]>();
+    let candidates = 0;
+    const offer = (r: { findingId: string; rca: { projectId: string } }) => {
+      toStart.set(r.rca.projectId, [...(toStart.get(r.rca.projectId) ?? []), r.findingId]);
+      candidates++;
+    };
     for (const r of page) {
       // One finding can own several openings (one per detector hit on the same
       // trace); they share one job and one detector_rcas row.
@@ -400,6 +407,14 @@ export async function sweepSignalRcas(
           select: { createTime: true },
         });
         if (!newer) {
+          // A hit stuck in an outage keeps its trace unsettled for up to the
+          // lookback, and ages out of it with this opening: once the trace is
+          // settled its RCA still runs, analysing the hits that were assigned.
+          const settled = await settledFindings(db, backend, r.rca.projectId, [r.findingId], now);
+          if (settled.has(r.findingId)) {
+            if (started + candidates < RCA_SWEEP_START_CAP) offer(r);
+            continue;
+          }
           const res = await db.detectorRca.updateMany({
             // Only while still pending and with no recent opening, so a job that
             // just started or a request that just landed is not overwritten.
@@ -417,14 +432,13 @@ export async function sweepSignalRcas(
         if (newer.createTime.getTime() >= cutoff.getTime()) continue;
       }
       // The cap bounds queue adds only; ending a stale request stays cheap.
-      if (candidates >= RCA_SWEEP_START_CAP) continue;
-      toStart.set(r.rca.projectId, [...(toStart.get(r.rca.projectId) ?? []), r.findingId]);
-      candidates++;
+      if (started + candidates >= RCA_SWEEP_START_CAP) continue;
+      offer(r);
+    }
+    for (const [projectId, findingIds] of toStart) {
+      started += await startSettledRcas(db, backend, projectId, findingIds);
     }
     if (page.length < RCA_SWEEP_PAGE_SIZE) break;
-  }
-  for (const [projectId, findingIds] of toStart) {
-    started += await startSettledRcas(db, backend, projectId, findingIds);
   }
 
   if (examined >= RCA_SWEEP_EXAMINE_CAP) {
