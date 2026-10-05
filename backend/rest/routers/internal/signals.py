@@ -256,7 +256,6 @@ async def list_unsettled_runs(body: UnsettledRunsPayload):
           AND run_id NOT IN (
               SELECT run_id FROM signal_assignments
               WHERE project_id = {project_id:String}
-                AND assigned_at >= {since:DateTime64(3)}
           )
         ORDER BY finding_id, run_id
         """,
