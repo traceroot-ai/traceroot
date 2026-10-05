@@ -14,14 +14,13 @@ import {
   VersionConflict,
   type TestCaseSeed,
 } from "@/lib/eval/versions";
+import { listDatasetVersionsPage } from "@/lib/eval/dataset-read";
 import { encodeJsonValue } from "@/lib/eval/json-value";
+import { evalReadResponse } from "@/lib/eval/read-result";
 import { readLimitedJson } from "@/lib/eval/body";
 import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
 
 type RouteParams = { params: Promise<{ datasetId: string }> };
-
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
 
 // POST /api/public/datasets/[datasetId]/versions — publish ONE immutable version
 // from a batch of test-case changes (A4). One call → one version, atomically.
@@ -184,56 +183,19 @@ export async function POST(request: Request, { params }: RouteParams) {
 }
 
 // GET /api/public/datasets/[datasetId]/versions?limit=&cursor= — list versions (A5),
-// newest-first, cursor-paginated.
+// newest-first, cursor-paginated. The read is shared with the internal route
+// (`listDatasetVersionsPage`).
 export async function GET(request: Request, { params }: RouteParams) {
   const auth = await requireApiKeyProject(request);
   if (auth.error) return auth.error;
-  const { projectId } = auth;
   const { datasetId } = await params;
-
-  const dataset = await resolvePublicDataset(prisma, projectId, datasetId);
-  if (!dataset) return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
-
   const url = new URL(request.url);
-  const rawLimit = Number(url.searchParams.get("limit"));
-  const limit =
-    Number.isFinite(rawLimit) && rawLimit > 0
-      ? Math.min(Math.floor(rawLimit), MAX_LIMIT)
-      : DEFAULT_LIMIT;
-  const cursor = url.searchParams.get("cursor");
-
-  const rows = await prisma.datasetVersion.findMany({
-    where: { datasetId: dataset.id, projectId },
-    orderBy: { versionNumber: "desc" },
-    take: limit + 1,
-    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    select: { id: true, versionNumber: true, label: true, note: true, createTime: true },
-  });
-
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
-
-  // One grouped aggregate for the whole page instead of a per-version count (avoids an
-  // N+1 of up to MAX_LIMIT counts), mirroring the datasets-list route.
-  const versionIds = page.map((v) => v.id);
-  const caseCounts =
-    versionIds.length > 0
-      ? await prisma.testCase.groupBy({
-          by: ["datasetVersionId"],
-          where: { datasetVersionId: { in: versionIds } },
-          _count: { _all: true },
-        })
-      : [];
-  const countByVersion = new Map(caseCounts.map((c) => [c.datasetVersionId, c._count._all]));
-
-  const versions = page.map((v) => ({
-    dataset_version_id: v.id,
-    version_number: v.versionNumber,
-    label: v.label,
-    note: v.note,
-    case_count: countByVersion.get(v.id) ?? 0,
-    created_at: v.createTime.toISOString(),
-    is_current: v.id === dataset.currentVersionId,
-  }));
-  return NextResponse.json({ versions, next_cursor: hasMore ? page[page.length - 1].id : null });
+  return evalReadResponse(
+    await listDatasetVersionsPage({
+      projectId: auth.projectId,
+      datasetId,
+      limit: url.searchParams.get("limit"),
+      cursor: url.searchParams.get("cursor"),
+    }),
+  );
 }

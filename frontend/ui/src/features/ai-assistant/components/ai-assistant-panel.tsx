@@ -1,14 +1,16 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { isDecisionAdapter } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { PendingDecisionBar } from "./pending-decision-bar";
 import { SessionHistory } from "./session-history";
+import { AgentTraceSheet } from "./agent-trace-sheet";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -99,13 +101,15 @@ export function AiAssistantPanel({
     queryFn: () => getAvailableLLMModels(workspaceId!),
     enabled: !!workspaceId,
   });
+  // Decision models (TypeSafe) cannot run chat.
+  const chatProviders = llmModels?.byokProviders.filter((g) => !isDecisionAdapter(g.adapter)) ?? [];
   const hasModels =
     !llmModels ||
     llmModels.systemModels.some((g) => g.models.length > 0) ||
-    llmModels.byokProviders.some((g) => g.models.length > 0);
+    chatProviders.some((g) => g.models.length > 0);
 
   const unsupportedModels = llmModels
-    ? llmModels.byokProviders.flatMap((g) =>
+    ? chatProviders.flatMap((g) =>
         g.models.filter((m) => !m.supported).map((m) => ({ id: m.id, provider: g.provider })),
       )
     : [];
@@ -119,6 +123,7 @@ export function AiAssistantPanel({
     modelSelection,
     hasPendingDecision,
     pendingDecision,
+    known,
     setHistoryOpen,
     setModelSelection,
     handleSend,
@@ -130,6 +135,11 @@ export function AiAssistantPanel({
     handleSelectSession,
     handleDeleteSession,
   } = useAiChatContext();
+
+  // Per-step "Open span" into the turn's trace (Task 17). useAiChatContext() doesn't
+  // carry projectId — this component already receives it as its own prop, so
+  // that's what the sheet is given.
+  const [openTrace, setOpenTrace] = useState<{ traceId: string; spanId?: string } | null>(null);
 
   // Clicking X explicitly ends the conversation: abort any in-flight stream,
   // clear messages, drop the session id. Matches the upstream pre-decoupling
@@ -250,8 +260,14 @@ export function AiAssistantPanel({
           </div>
         ) : (
           <MessageList
+            known={known}
             messages={messages}
             sessionStreaming={isStreaming}
+            // The sheet below mounts only with a projectId; without one the
+            // links would open nothing.
+            onOpenTrace={
+              projectId ? (traceId, spanId) => setOpenTrace({ traceId, spanId }) : undefined
+            }
             projectId={projectId}
             retentionDays={projectId ? retentionDays : undefined}
           />
@@ -275,8 +291,13 @@ export function AiAssistantPanel({
           onModelChange={setModelSelection}
           disabled={!projectId || !hasModels}
           workspaceId={workspaceId}
-          // While a proposal awaits a decision, a typed reply revises it.
-          placeholder={hasPendingDecision ? "Reply to revise" : undefined}
+          // While a proposal awaits a decision, a typed reply revises it —
+          // except a delete, which a reply skips; the bar says so instead.
+          placeholder={
+            hasPendingDecision && pendingDecision?.approvalClass !== "approval"
+              ? "Reply to revise"
+              : undefined
+          }
           actions={
             isStreaming && (
               <button
@@ -291,6 +312,14 @@ export function AiAssistantPanel({
           }
         />
       </div>
+      {projectId && (
+        <AgentTraceSheet
+          projectId={projectId}
+          traceId={openTrace?.traceId ?? null}
+          spanId={openTrace?.spanId}
+          onClose={() => setOpenTrace(null)}
+        />
+      )}
     </div>
   );
 }

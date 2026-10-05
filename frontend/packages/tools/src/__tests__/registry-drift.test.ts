@@ -22,27 +22,100 @@ describe("committed registry", () => {
       "create_project",
       "create_widget",
       "create_workspace",
+      "delete_alert",
+      "delete_dashboard",
+      "delete_detector",
+      "delete_project",
+      "delete_widget",
+      "delete_workspace",
       "export_trace",
       "get_alert",
       "get_dashboard",
       "get_dashboard_data",
+      "get_dataset",
+      "get_dataset_version",
       "get_detector",
+      "get_evaluation_run",
       "get_finding",
       "get_finding_by_trace",
       "get_session",
+      "get_sql_schema",
       "get_trace",
+      "get_widget",
+      "get_widget_data",
       "list_alerts",
       "list_dashboards",
+      "list_dataset_versions",
+      "list_datasets",
       "list_detectors",
+      "list_evaluation_runs",
+      "list_evaluations",
       "list_findings",
       "list_projects",
       "list_sessions",
       "list_trace_filter_values",
       "list_traces",
       "list_workspaces",
+      "run_sql",
       "run_widget_query",
+      "set_alert_status",
+      "update_alert",
+      "update_dashboard",
+      "update_detector",
+      "update_project",
+      "update_widget",
+      "update_workspace",
       "whoami",
     ]);
+  });
+
+  it("generates the updates as PATCH tools whose nullable fields admit null", () => {
+    const update = REGISTRY.find((entry) => entry.name === "update_dashboard")!;
+    expect(update.method).toBe("patch");
+    expect(update.path).toBe("/api/v1/public/dashboards/{dashboard_id}");
+    expect(update.policy).toEqual({
+      approvalClass: "confirm",
+      minRole: "MEMBER",
+      tenancy: "project",
+    });
+    expect(update.bodyParams).toEqual(["description", "name", "project_id"]);
+    // Only the path id and the tenancy are required: every field is optional.
+    expect(update.inputSchema.required).toEqual(["dashboard_id", "project_id"]);
+    const props = update.inputSchema.properties as Record<string, { type?: unknown }>;
+    expect(props.description!.type).toEqual(["string", "null"]);
+    expect(props.name!.type).toBe("string");
+
+    const project = REGISTRY.find((entry) => entry.name === "update_project")!;
+    expect(project.policy!.minRole).toBe("ADMIN");
+    expect(project.agentHiddenParams).toEqual(["trace_ttl_days"]);
+    const projectProps = project.inputSchema.properties as Record<string, { type?: unknown }>;
+    expect(projectProps.trace_ttl_days!.type).toEqual(["integer", "null"]);
+  });
+
+  it("generates the deletes as approval-class tools with the reason in the query", () => {
+    const remove = REGISTRY.find((entry) => entry.name === "delete_detector")!;
+    expect(remove.method).toBe("delete");
+    expect(remove.path).toBe("/api/v1/public/detectors/{detector_id}");
+    expect(remove.bodyParams).toBeUndefined();
+    expect(remove.policy).toEqual({
+      approvalClass: "approval",
+      minRole: "MEMBER",
+      tenancy: "project",
+    });
+    expect(remove.inputSchema.required).toEqual(["detector_id", "project_id", "reason"]);
+    const props = remove.inputSchema.properties as Record<
+      string,
+      { type?: unknown; minLength?: number; maxLength?: number }
+    >;
+    expect(props.reason).toMatchObject({ type: "string", minLength: 3, maxLength: 500 });
+
+    const workspace = REGISTRY.find((entry) => entry.name === "delete_workspace")!;
+    expect(workspace.policy).toEqual({
+      approvalClass: "approval",
+      minRole: "ADMIN",
+      tenancy: "account",
+    });
+    expect(workspace.inputSchema.required).toEqual(["workspace_id", "name", "reason"]);
   });
 
   it("generates the dashboard reads as pure GET tools", () => {
@@ -63,6 +136,34 @@ describe("committed registry", () => {
     expect(get.policy).toBeUndefined();
     expect(Object.keys(get.inputSchema.properties).sort()).toEqual(["dashboard_id", "project_id"]);
     expect(get.inputSchema.required).toEqual(["dashboard_id"]);
+  });
+
+  it("generates the widget reads as pure GET tools with the window params on the data read", () => {
+    const get = REGISTRY.find((entry) => entry.name === "get_widget")!;
+    expect(get.method).toBe("get");
+    expect(get.path).toBe("/api/v1/public/widgets/{widget_id}");
+    expect(get.bodyParams).toBeUndefined();
+    expect(get.policy).toBeUndefined();
+    expect(Object.keys(get.inputSchema.properties).sort()).toEqual(["project_id", "widget_id"]);
+    expect(get.inputSchema.required).toEqual(["widget_id"]);
+
+    const data = REGISTRY.find((entry) => entry.name === "get_widget_data")!;
+    expect(data.method).toBe("get");
+    expect(data.path).toBe("/api/v1/public/widgets/{widget_id}/data");
+    expect(data.bodyParams).toBeUndefined();
+    expect(data.policy).toBeUndefined();
+    expect(Object.keys(data.inputSchema.properties).sort()).toEqual([
+      "end_time",
+      "project_id",
+      "range",
+      "start_time",
+      "widget_id",
+    ]);
+    expect(data.inputSchema.required).toEqual(["widget_id"]);
+    // The same window description run_widget_query takes, so the agent's
+    // page-window default applies to it unchanged.
+    const range = (data.inputSchema.properties as Record<string, { enum?: unknown[] }>).range!;
+    expect(range.enum).toContain("7d");
   });
 
   it("generates the alert create with the stable enums and a full policy", () => {

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as api from "@/features/dashboards/api";
 import { MessageList } from "./message-list";
+import { knownResources } from "../lib/resource-card";
 import type { AIMessage, ToolCallStep } from "../types";
 
 vi.mock("@/lib/auth-client", () => ({
@@ -367,6 +368,36 @@ describe("MessageList tool entries", () => {
     expect(screen.getByText("make me a chart")).toBeTruthy();
     expect(screen.getByText("Tokens by model")).toBeTruthy();
   });
+
+  it.each([
+    { name: "done", patch: {}, iconClass: "text-green-500" },
+    { name: "error", patch: { status: "error", isError: true }, iconClass: "text-destructive" },
+    {
+      name: "skipped",
+      patch: { status: "error", isError: true, skipped: true },
+      iconClass: "text-muted-foreground",
+      absent: "text-destructive",
+    },
+    {
+      name: "revised",
+      patch: { status: "done", revisedText: "use a line chart" },
+      iconClass: "text-muted-foreground",
+      absent: "text-green-500",
+    },
+    { name: "running", patch: { status: "running" }, iconClass: "animate-spin" },
+  ] as { name: string; patch: Partial<ToolCallStep>; iconClass: string; absent?: string }[])(
+    "shows one status icon on a $name tool line",
+    ({ patch, iconClass, absent }) => {
+      const step: ToolCallStep = { ...createWidgetStep(null), ...patch };
+      render(<MessageList messages={[toolEntry(step)]} />);
+      const row = screen.getByText("(create_widget)").closest("button")!;
+      // Every lucide icon on the line except the expand chevron is a status icon.
+      const icons = row.querySelectorAll("svg.lucide:not(.lucide-chevron-right)");
+      expect(icons).toHaveLength(1);
+      expect(icons[0].getAttribute("class")).toContain(iconClass);
+      if (absent) expect(row.querySelector(`svg[class*="${absent}"]`)).toBeNull();
+    },
+  );
 });
 
 describe("MessageList read result entries", () => {
@@ -526,6 +557,66 @@ describe("MessageList pending confirmation entries", () => {
     expect(container.querySelector(".animate-spin")).not.toBeNull();
   });
 
+  it("names a pending edit by what the transcript already knows the resource as", () => {
+    const receipt: ToolCallStep = {
+      toolCallId: "tc0",
+      toolName: "create_detector",
+      args: { name: "Timeouts", template: "failure", sample_rate: 100 },
+      status: "done",
+      result: {
+        details: {
+          kind: "resource_created",
+          resourceType: "detector",
+          resourceId: "d1",
+          created: true,
+          projectId: "p1",
+          name: "Timeouts",
+        },
+      },
+    };
+    const edit: ToolCallStep = {
+      toolCallId: "tc1",
+      toolName: "update_detector",
+      args: { detector_id: "d1", sample_rate: 25 },
+      status: "running",
+      pending: { decisionId: "d1" },
+    };
+    const messages = [toolEntry(receipt), toolEntry(edit)];
+    render(<MessageList messages={messages} known={knownResources(messages)} projectId="p1" />);
+
+    // The edit card carries the detector's name and the before → after chip.
+    expect(screen.getAllByText("Timeouts").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("sample rate: 100 → 25")).toBeTruthy();
+    expect(screen.getByText(/^Proposed · Detector/)).toBeTruthy();
+  });
+
+  it("names a pending edit by its id when no known resources were handed down", () => {
+    const edit: ToolCallStep = {
+      toolCallId: "tc1",
+      toolName: "update_detector",
+      args: { detector_id: "d1", sample_rate: 25 },
+      status: "running",
+      pending: { decisionId: "d1" },
+    };
+    render(<MessageList messages={[toolEntry(edit)]} projectId="p1" />);
+    expect(screen.getByText("d1")).toBeTruthy();
+    expect(screen.getByText("sample rate: 25")).toBeTruthy();
+  });
+
+  it("renders a pending delete as the destructive card with its reason", () => {
+    const step: ToolCallStep = {
+      toolCallId: "tc2",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "the user asked to remove the duplicate" },
+      status: "running",
+      pending: { decisionId: "d2", approvalClass: "approval" },
+    };
+    const { container } = render(<MessageList messages={[toolEntry(step)]} projectId="p1" />);
+    expect(screen.getByText("“the user asked to remove the duplicate”")).toBeTruthy();
+    expect(container.querySelector(".border-destructive")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+  });
+
   it("keeps the plain tool line for a pending tool it has no card for", () => {
     const step: ToolCallStep = {
       toolCallId: "tc9",
@@ -594,5 +685,242 @@ describe("MessageList pending confirmation entries", () => {
     expect(screen.getByRole("link", { name: "Open widget" }).getAttribute("href")).toBe(
       "/projects/p1/dashboard/db1",
     );
+  });
+});
+
+// ── Trace resolution and capture notes (agent self-trace) ────────────────────
+
+const step = (id: string): AIMessage =>
+  ({
+    id,
+    role: "tool_step",
+    content: "",
+    toolStep: { toolCallId: id, toolName: "read", args: {}, spanId: `span-${id}`, isError: false },
+  }) as unknown as AIMessage;
+
+const user = (id: string): AIMessage => ({ id, role: "user", content: "ask" }) as AIMessage;
+
+const assistant = (id: string, traceId: string, traceStatus = "available"): AIMessage =>
+  ({ id, role: "assistant", content: "answer", traceId, traceStatus }) as unknown as AIMessage;
+
+/** A text segment flushed at a tool boundary: no trace stamp, no usage. */
+const segment = (id: string): AIMessage =>
+  ({ id, role: "assistant", content: "thinking out loud" }) as AIMessage;
+
+/** The run's final bubble, with usage so the footer renders. */
+const finalBubble = (id: string, trace?: { traceId: string; traceStatus: string }): AIMessage =>
+  ({
+    id,
+    role: "assistant",
+    content: "answer",
+    inputTokens: 12,
+    outputTokens: 34,
+    ...trace,
+  }) as unknown as AIMessage;
+
+/** Expand every tool step so its "Open span" control is in the DOM. */
+function openSteps() {
+  // The step header is a button carrying the raw tool name in parentheses.
+  for (const b of screen.getAllByRole("button")) {
+    if (b.textContent?.includes("(read)")) fireEvent.click(b);
+  }
+}
+
+describe("MessageList tool-step trace resolution", () => {
+  it("links a tool step to its own turn's trace", () => {
+    const onOpenTrace = vi.fn();
+    render(
+      <MessageList
+        messages={[user("u1"), step("t1"), assistant("a1", "trace-1")]}
+        onOpenTrace={onOpenTrace}
+      />,
+    );
+    openSteps();
+    fireEvent.click(screen.getByText("Open span"));
+    expect(onOpenTrace).toHaveBeenCalledWith("trace-1", "span-t1");
+  });
+
+  it("does not reach past a turn boundary for a trace", () => {
+    // A tool-only run produces no assistant bubble. Scanning past the next user
+    // message would attach this step to the following turn's trace — a
+    // different trace, which does not contain this span.
+    const onOpenTrace = vi.fn();
+    render(
+      <MessageList
+        messages={[user("u1"), step("t1"), user("u2"), assistant("a2", "trace-2")]}
+        onOpenTrace={onOpenTrace}
+      />,
+    );
+    openSteps();
+    expect(screen.queryByText("Open span")).toBeNull();
+  });
+
+  it("links every step of a text → tool → text turn, not just the one before the final bubble", () => {
+    // The trace is stamped on the run's last segment only; the segment right
+    // after t1 carries none, and t1 used to lose its link because of it.
+    const onOpenTrace = vi.fn();
+    render(
+      <MessageList
+        messages={[user("u1"), step("t1"), segment("a1"), step("t2"), assistant("a2", "trace-1")]}
+        onOpenTrace={onOpenTrace}
+      />,
+    );
+    openSteps();
+    const links = screen.getAllByText("Open span");
+    expect(links).toHaveLength(2);
+    fireEvent.click(links[0]);
+    expect(onOpenTrace).toHaveBeenCalledWith("trace-1", "span-t1");
+    fireEvent.click(links[1]);
+    expect(onOpenTrace).toHaveBeenCalledWith("trace-1", "span-t2");
+  });
+
+  it("links a step while the turn's trace is still uploading (pending)", () => {
+    // A chat turn ends before its upload finishes; the trace exists and fills
+    // in within seconds, so the way into it is offered at once.
+    const onOpenTrace = vi.fn();
+    render(
+      <MessageList
+        messages={[user("u1"), step("t1"), assistant("a1", "trace-1", "pending")]}
+        onOpenTrace={onOpenTrace}
+      />,
+    );
+    openSteps();
+    fireEvent.click(screen.getByText("Open span"));
+    expect(onOpenTrace).toHaveBeenCalledWith("trace-1", "span-t1");
+  });
+
+  it("offers no link when the turn's trace failed or tracing was off", () => {
+    for (const status of ["failed", "disabled"]) {
+      const onOpenTrace = vi.fn();
+      render(
+        <MessageList
+          messages={[user("u1"), step("t1"), assistant("a1", "trace-1", status)]}
+          onOpenTrace={onOpenTrace}
+        />,
+      );
+      openSteps();
+      expect(screen.queryByText("Open span")).toBeNull();
+      cleanup();
+    }
+  });
+});
+
+describe("MessageList reply-level trace entry point", () => {
+  // Every turn has a way into its trace, tool calls or not (review item 4):
+  // the link sits under the reply that carries the trace stamp, which is the
+  // same final segment live (trace SSE frame) and after a reload (row metadata).
+  it("shows View trace under a reply whose trace is available, and opens it unfocused", () => {
+    const onOpenTrace = vi.fn();
+    render(
+      <MessageList
+        messages={[user("u1"), finalBubble("a1", { traceId: "trace-1", traceStatus: "available" })]}
+        onOpenTrace={onOpenTrace}
+      />,
+    );
+    fireEvent.click(screen.getByText("View trace"));
+    expect(onOpenTrace).toHaveBeenCalledWith("trace-1");
+  });
+
+  it("shows View trace while the upload is pending, and says so", () => {
+    const onOpenTrace = vi.fn();
+    render(
+      <MessageList
+        messages={[user("u1"), assistant("a1", "trace-1", "pending")]}
+        onOpenTrace={onOpenTrace}
+      />,
+    );
+    const link = screen.getByText("View trace");
+    expect(link.getAttribute("title")).toMatch(/still being uploaded/);
+    fireEvent.click(link);
+    expect(onOpenTrace).toHaveBeenCalledWith("trace-1");
+  });
+
+  it("says a failed upload has no trace, and offers nothing for a turn without one", () => {
+    render(
+      <MessageList
+        messages={[user("u1"), assistant("a1", "trace-1", "failed"), user("u2"), segment("a2")]}
+        onOpenTrace={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Trace not available")).toBeTruthy();
+    expect(screen.queryByText("View trace")).toBeNull();
+  });
+
+  it("keeps the usage line as it was, with the link after it", () => {
+    render(
+      <MessageList
+        messages={[user("u1"), finalBubble("a1", { traceId: "trace-1", traceStatus: "available" })]}
+        onOpenTrace={vi.fn()}
+      />,
+    );
+    const footer = screen.getByText("View trace").parentElement!;
+    expect(footer.textContent).toBe("12 in·34 out·View trace");
+  });
+
+  it("offers no link without an opener, even when the trace is available", () => {
+    render(
+      <MessageList
+        messages={[user("u1"), finalBubble("a1", { traceId: "trace-1", traceStatus: "available" })]}
+      />,
+    );
+    expect(screen.queryByText("View trace")).toBeNull();
+    expect(screen.getByText("12 in")).toBeTruthy();
+  });
+});
+
+describe("MessageList reloaded tool-step capture notes", () => {
+  const persistedStep = (toolStep: Record<string, unknown>): AIMessage =>
+    ({
+      id: "t1",
+      role: "tool_step",
+      content: "",
+      toolStep: { toolCallId: "t1", toolName: "read", args: {}, status: "done", ...toolStep },
+    }) as unknown as AIMessage;
+
+  it("explains a withheld result instead of showing a bubble with no output", () => {
+    render(
+      <MessageList
+        messages={[user("u1"), persistedStep({ withheld: "not-allowlisted", outputBytes: 44 })]}
+      />,
+    );
+    openSteps();
+    const note = screen.getByText("Output not stored after the run (44 bytes returned)");
+    expect(note.getAttribute("title")).toMatch(/source code and secrets/);
+    expect(screen.queryByText("Result")).toBeNull();
+  });
+
+  it("explains a result dropped for the run's storage limit", () => {
+    render(
+      <MessageList
+        messages={[user("u1"), persistedStep({ withheld: "budget", outputBytes: 9001 })]}
+      />,
+    );
+    openSteps();
+    const note = screen.getByText(
+      "Output not stored: this run reached its limit for stored tool output (9,001 bytes returned)",
+    );
+    expect(note.getAttribute("title")).toMatch(/bounded amount/);
+  });
+
+  it("marks a truncated capture next to what was kept", () => {
+    render(
+      <MessageList
+        messages={[
+          user("u1"),
+          persistedStep({ result: "abc… [truncated]", truncated: true, outputBytes: 90000 }),
+        ]}
+      />,
+    );
+    openSteps();
+    expect(screen.getByText("Result")).toBeTruthy();
+    const note = screen.getByText("Output stored up to the per-step limit (90,000 bytes returned)");
+    expect(note.getAttribute("title")).toMatch(/fixed size per step/);
+  });
+
+  it("adds no note to a live step, which shows its result in full", () => {
+    render(<MessageList messages={[user("u1"), persistedStep({ result: { ok: true } })]} />);
+    openSteps();
+    expect(screen.getByText("Result")).toBeTruthy();
+    expect(screen.queryByText(/withheld|truncated/)).toBeNull();
   });
 });

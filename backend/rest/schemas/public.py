@@ -1,9 +1,10 @@
 """Response schemas for the public, API-key-authenticated API."""
 
+import json
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from rest.schemas.common import PaginationMeta
 from rest.schemas.dashboards import QueryWindow
@@ -106,7 +107,12 @@ class DetectorResultItem(BaseModel):
 
 
 class RCAResult(BaseModel):
-    """Free-text root-cause analysis for a finding (Postgres ``detector_rcas``)."""
+    """Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).
+
+    The agent trace behind an RCA (``detector_rca_executions``) is internal and
+    deliberately not part of this contract: its trace id is not readable through
+    the public trace endpoints, so advertising it here would be misleading.
+    """
 
     status: str
     result: str | None
@@ -301,6 +307,56 @@ class DashboardDataResponse(BaseModel):
     failed: int
 
 
+class WidgetDetail(DashboardWidgetItem):
+    """One saved widget, as stored, with the dashboard it belongs to.
+
+    ``spec`` is exactly what the create parsed (defaults filled, unknown keys
+    stripped), so what a caller reads is what the engine runs. ``dashboard_id``
+    and ``dashboard_name`` let a caller holding only a widget id climb to the
+    dashboard without a second read. Widgets record no creator.
+    """
+
+    dashboard_id: str
+    dashboard_name: str
+    display_config: Any
+    update_time: datetime
+
+
+class WidgetRef(BaseModel):
+    """The identity of the widget a data read answered, with its dashboard."""
+
+    id: str
+    dashboard_id: str
+    title: str
+    type: str
+
+
+class WidgetDataResponse(BaseModel):
+    """One saved widget answered for one window.
+
+    The per-widget answer of a dashboard data read, addressed by widget id:
+    ``status`` says what happened — ``ok`` carries the engine's columns/rows/
+    meta; ``skipped`` is a feed or legacy detector widget (a trace list, not
+    an aggregate — read those with ``list_traces`` and the feed's filters);
+    ``error`` carries a short reason and no rows when the stored spec no
+    longer validates or the engine rejects it — so a broken widget is still a
+    200 a script can branch on. One widget has no fan-out to protect, so the
+    rows follow ``run_widget_query``: a series comes back whole and every
+    other display returns what the engine returns. ``truncated`` is kept for
+    parity with the dashboard read and is always false here. ``window`` is
+    the window the rows were answered for — the one to name with any figure.
+    """
+
+    widget: WidgetRef
+    window: QueryWindow
+    status: Literal["ok", "skipped", "error"]
+    columns: list[str] | None = None
+    rows: list[list[Any]] | None = None
+    meta: dict[str, Any] | None = None
+    truncated: bool = False
+    error: str | None = None
+
+
 class PublicDashboardListResponse(BaseModel):
     """The project's dashboards for the public API.
 
@@ -308,6 +364,106 @@ class PublicDashboardListResponse(BaseModel):
     """
 
     data: list[DashboardListItem]
+
+
+#: Longest query accepted, in characters. Parsing, validating and rewriting run in
+#: this process before any ClickHouse cap applies, and their cost grows with the
+#: query: about 0.4 s and 18 MB at 55 KB, 1.8 s at 140 KB. 64 KiB is far past any
+#: query a person or an agent writes.
+SQL_QUERY_MAX_CHARS = 65_536
+
+#: Most parameters one query may bind.
+SQL_MAX_PARAMETERS = 100
+
+#: Longest the whole parameter payload may be once serialised. A count alone
+#: bounds nothing: one key can carry a 100 MB string or a deeply nested
+#: structure, and every byte is held in this process and sent to ClickHouse.
+#: Values stay untyped so a query can still bind an array or a map.
+SQL_PARAMETERS_MAX_CHARS = 16_384
+
+
+class SqlRequest(BaseModel):
+    """A public SQL query. The project is never part of this body.
+
+    ``extra="forbid"`` is the point rather than tidiness: scope is resolved from
+    the credential, so a body carrying ``project_id`` or a ``scope_*`` key is a
+    caller trying to choose a tenant. Forbidding unknown keys turns that into a
+    422 instead of a silently ignored field.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    query: str = Field(
+        min_length=1,
+        max_length=SQL_QUERY_MAX_CHARS,
+        description="A single read-only SELECT over the public schema",
+    )
+    parameters: dict[str, Any] | None = Field(
+        default=None,
+        max_length=SQL_MAX_PARAMETERS,
+        description="Values for {name:Type} placeholders in the query",
+    )
+
+    @field_validator("parameters")
+    @classmethod
+    def _bounded_payload(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Refuse a parameter payload too large to be a set of query values."""
+        if value is None:
+            return value
+        encoded = json.dumps(value, default=str, separators=(",", ":"))
+        if len(encoded) > SQL_PARAMETERS_MAX_CHARS:
+            raise ValueError(
+                f"parameters must serialise to at most {SQL_PARAMETERS_MAX_CHARS} characters"
+            )
+        return value
+
+    max_rows: int | None = Field(
+        default=None,
+        ge=1,
+        le=1_000_000,
+        # Strict, because lax mode coerces JSON `true` to 1, `1.0` to 1 and "5" to
+        # 5, so a nonsense cap would execute a query instead of being refused.
+        strict=True,
+        description="Rows to return, clamped down to the server ceiling",
+    )
+
+
+class SqlColumn(BaseModel):
+    """One column of a result, named and typed as ClickHouse reported it."""
+
+    name: str
+    type: str
+
+
+class SqlResponse(BaseModel):
+    """A completed query, already trimmed to what the caller may receive."""
+
+    columns: list[SqlColumn]
+    rows: list[list[Any]]
+    row_count: int
+    truncated: bool = Field(description="True when more rows matched than were returned")
+    elapsed_ms: int
+    statistics: dict[str, Any] = Field(default_factory=dict)
+
+
+class SqlSchemaColumn(BaseModel):
+    """A curated column a caller may select."""
+
+    name: str
+    type: str
+
+
+class SqlSchemaTable(BaseModel):
+    """A logical table the gateway exposes."""
+
+    name: str
+    columns: list[SqlSchemaColumn]
+
+
+class SqlSchemaResponse(BaseModel):
+    """The curated analytical schema, which is all a caller can query."""
+
+    tables: list[SqlSchemaTable]
 
 
 class AlertSummary(BaseModel):

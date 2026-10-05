@@ -105,6 +105,11 @@ describe("NewDetectorPage", () => {
     render(<NewDetectorPage />);
     expect(mocks.selectorProps?.defaultModelId).toBe(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
   });
+
+  it("lets the detector picker offer decision models (TypeSafe)", () => {
+    render(<NewDetectorPage />);
+    expect(mocks.selectorProps?.allowDecisionModels).toBe(true);
+  });
 });
 
 describe("NewDetectorPage — an incomplete filter row", () => {

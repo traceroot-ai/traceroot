@@ -1,6 +1,6 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
+import { getRequestSession } from "@/lib/request-session";
 import {
   prisma,
   getStripeOrThrow,
@@ -9,9 +9,9 @@ import {
   METERED_PRICE_ENV_VARS,
 } from "@traceroot/core";
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await getRequestSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -98,3 +98,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to create checkout" }, { status: 500 });
   }
 }
+export const POST = withImpersonationPolicy(handlePOST);

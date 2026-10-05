@@ -1,0 +1,212 @@
+"""Single source of truth for the curated public SQL schema.
+
+The SQL Gateway exposes two logical tables, ``spans`` and ``traces``, to users.
+These are **curated analytical views** over the physical ClickHouse tables, not
+the physical tables themselves. This module defines the columns and ClickHouse-
+facing types each logical table exposes, plus the logical-table -> curated-view
+mapping. Everything downstream (validator, rewriter, view migration, schema
+endpoint, CLI ``sql schema``) derives from this contract.
+
+This is **analytical export only**. The curated column set intentionally
+excludes:
+
+* the tenant column ``project_id``;
+* the internal bookkeeping columns ``ch_create_time`` / ``ch_update_time``;
+* the large blob columns ``input`` / ``output`` and the raw ``metadata`` JSON
+  document (raw blob export is a future opt-in, out of scope here). Metadata
+  itself is not lost: the curated ``metadata`` column is the physical
+  ``metadata_map`` -- the materialized one-level map of that same document --
+  which is what the trace filters query and what the product calls "metadata"
+  everywhere a user sees it;
+* the internal classification columns ``source`` and ``is_evaluation``, which
+  are platform control flags rather than user data (see the row scope below).
+
+Because ``SELECT *`` resolves against these curated views, it returns exactly the
+analytical columns defined here -- never the underlying physical-table columns.
+
+Beyond the columns, the views also curate **rows**: on top of the per-project
+scope the rewriter binds, they apply ``VIEW_ROW_FILTERS`` and
+``VIEW_EVALUATION_EXCLUSION`` so a caller sees only their own customer traffic.
+A row the product hides on every other read path must not reappear through the
+SQL gateway.
+
+``span_start_time`` and ``trace_start_time`` are the canonical time-filter
+columns. ``duration_ms`` is not a physical column; the ``spans_public_v1`` view
+computes it as ``dateDiff('millisecond', span_start_time, span_end_time)``.
+``metadata`` is the physical ``metadata_map`` column surfaced under the name the
+rest of the product uses; the views rename it. Keying it (``metadata['user_id']``)
+is the supported access, and the raw JSON document behind it stays unexposed.
+``metadata_map`` is MATERIALIZED, which carries one consequence for whoever writes
+the view body: ``SELECT *`` does not include materialized columns, so a view that
+projects ``metadata_map AS metadata`` over an inner ``SELECT * FROM spans`` cannot
+resolve it. ClickHouse defers body validation for a parameterized view, so that
+shape creates cleanly and then fails on every read with ``Unknown expression
+identifier``. Name the columns off the physical table instead.
+
+The module is pure data: no database/network access, no configuration
+dependency, and no runtime side effects.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
+
+
+@dataclass(frozen=True)
+class PublicColumn:
+    """A single curated column exposed to users.
+
+    ``type`` is the ClickHouse-facing type as surfaced by the curated view.
+    """
+
+    name: str
+    type: str
+
+
+@dataclass(frozen=True)
+class PublicTable:
+    """A logical table in the public schema and its curated columns."""
+
+    name: str
+    columns: tuple[PublicColumn, ...]
+
+
+_SPANS = PublicTable(
+    name="spans",
+    columns=(
+        PublicColumn("span_id", "String"),
+        PublicColumn("trace_id", "String"),
+        PublicColumn("parent_span_id", "Nullable(String)"),
+        PublicColumn("span_start_time", "DateTime64(3)"),
+        PublicColumn("span_end_time", "Nullable(DateTime64(3))"),
+        PublicColumn("duration_ms", "Nullable(Int64)"),
+        PublicColumn("name", "String"),
+        PublicColumn("span_kind", "String"),
+        PublicColumn("status", "String"),
+        PublicColumn("status_message", "Nullable(String)"),
+        PublicColumn("model_name", "Nullable(String)"),
+        PublicColumn("cost", "Nullable(Decimal64(9))"),
+        PublicColumn("input_tokens", "Nullable(Int64)"),
+        PublicColumn("output_tokens", "Nullable(Int64)"),
+        PublicColumn("total_tokens", "Nullable(Int64)"),
+        PublicColumn("environment", "Nullable(String)"),
+        PublicColumn("metadata", "Map(LowCardinality(String), String)"),
+        PublicColumn("git_source_file", "Nullable(String)"),
+        PublicColumn("git_source_line", "Nullable(Int32)"),
+        PublicColumn("git_source_function", "Nullable(String)"),
+    ),
+)
+
+_TRACES = PublicTable(
+    name="traces",
+    columns=(
+        PublicColumn("trace_id", "String"),
+        PublicColumn("trace_start_time", "DateTime64(3)"),
+        PublicColumn("name", "String"),
+        PublicColumn("user_id", "Nullable(String)"),
+        PublicColumn("session_id", "Nullable(String)"),
+        PublicColumn("git_ref", "Nullable(String)"),
+        PublicColumn("git_repo", "Nullable(String)"),
+        PublicColumn("environment", "Nullable(String)"),
+        PublicColumn("metadata", "Map(LowCardinality(String), String)"),
+    ),
+)
+
+#: Curated logical tables exposed by the SQL Gateway, keyed by logical name.
+#: Read-only at runtime: the tables and columns are frozen dataclasses, so the
+#: mappings that hold them are wrapped too. Otherwise the contract is one
+#: assignment away from being edited in place by any importer, and the modules
+#: that derive from it (the validator's table allowlist, the rewriter's view
+#: names) would follow the edit without anything failing.
+PUBLIC_TABLES: Mapping[str, PublicTable] = MappingProxyType(
+    {_SPANS.name: _SPANS, _TRACES.name: _TRACES}
+)
+
+#: Logical table -> curated, project-scoped ClickHouse view it rewrites to.
+TABLE_VIEW_MAP: Mapping[str, str] = MappingProxyType(
+    {
+        "spans": "spans_public_v1",
+        "traces": "traces_public_v1",
+    }
+)
+
+#: Per-row predicates the curated views MUST apply to the physical tables, in
+#: addition to the bound project scope.
+#:
+#: ``source = 'user'`` names the one value that IS customer traffic instead of
+#: excluding the internal markers known today, so a marker added tomorrow is
+#: excluded the day it appears. That is the reasoning behind
+#: ``rest.services.trace_reader.customer_traffic_only``, which spells the same
+#: rule for the internal read paths.
+#:
+#: These apply to the DEDUPED row, and the distinction is not academic. Filtering
+#: raw versions first leaves a row visible through a stale version after its
+#: current version stopped qualifying: a span retracted to an internal ``source``
+#: still answers, because the older customer-traffic version survives the filter
+#: and wins the dedup among what is left. Note the contrast with
+#: ``VIEW_EVALUATION_EXCLUSION`` below, which must NOT be deduped: a per-row
+#: predicate reads the current state, while set membership deliberately reads
+#: every version.
+VIEW_ROW_FILTERS: tuple[str, ...] = ("source = 'user'",)
+
+#: Offline-evaluation exclusion the curated views MUST apply. Deliberately NOT a
+#: per-row ``is_evaluation = 0``, which would leak evaluation data two ways:
+#:
+#: * Ingest makes the flag monotonic only WITHIN a batch. A later batch carrying
+#:   just the non-eval spans of an evaluation trace rewrites the trace row with
+#:   ``is_evaluation = 0`` and a newer ``ch_update_time``, so a predicate read off
+#:   the deduped latest row un-hides the trace -- the common case, not a race.
+#: * Ordinary child spans of an evaluation trace are themselves stored as ``0``,
+#:   so a span-level flag check never hid them in the first place.
+#:
+#: Set membership on ``trace_id`` is dedup-independent: any row anywhere flagged
+#: ``1`` hides the trace permanently, whatever order the writes arrived in.
+#:
+#: The set is built from BOTH physical tables, and the ``spans`` half is not
+#: redundant. Ingest drops the trace record of a batch that carries no root span
+#: for a trace that already exists -- otherwise an intermediate batch would
+#: overwrite the authoritative trace name -- while still inserting that batch's
+#: spans. So an evaluation-kind span can land with no ``traces`` row ever
+#: carrying the flag, and a traces-only predicate would hand those spans back.
+#:
+#: The ``spans`` half is also the half that SURVIVES A MERGE, which is what makes
+#: "any row anywhere flagged" true of the table and not just of the query. Both
+#: tables are ``ReplacingMergeTree(ch_update_time)``: two ``traces`` rows for one
+#: trace collapse when they share the whole sort key, which for ``traces`` means
+#: the same ``toDate(trace_start_time)`` bucket as well as the same ``trace_id``.
+#: When they do, a background merge keeps only the newest and physically deletes
+#: the flagged one, after which a traces-only sub-select returns nothing
+#: (verified on 25.2 -- before the merge the trace is hidden, after it is not).
+#: Versions whose start times fall in different date buckets both survive, so the
+#: collapse is narrower than "every trace eventually loses its flag" -- but it is
+#: the common shape, since the versions of one trace usually start on one day. Span rows do not collapse into each other: ``span_id`` is in
+#: the sort key, so distinct spans are distinct rows, and the flag is derived
+#: from the span's own kind, which does not change between exports of that span.
+#: A trace is never flagged without an evaluation-kind span of its own -- ingest
+#: sets the trace flag FROM those spans -- so the surviving flagged span row is
+#: what keeps the trace excluded once the trace rows have collapsed.
+#:
+#: Both sub-selects repeat the project scope: ``project_id`` is the sort-key
+#: prefix of both tables, so each prunes to the caller's own data and can never
+#: read another tenant's rows. Neither is time-bounded, because a parameterized
+#: view cannot see the caller's ``WHERE`` clause -- the cost is one project-scoped
+#: probe of two narrow columns per query, and a maintained per-project evaluation
+#: set is the optimization if that ever shows up in a profile.
+VIEW_EVALUATION_EXCLUSION: str = (
+    "trace_id NOT IN ("
+    "SELECT trace_id FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1"
+    " UNION DISTINCT "
+    "SELECT trace_id FROM spans WHERE project_id = {project_id:String} AND is_evaluation = 1"
+    ")"
+)
+
+
+def column_names(table: str) -> set[str]:
+    """Return the set of curated column names for a logical ``table``.
+
+    Raises ``KeyError`` if ``table`` is not a public logical table.
+    """
+
+    return {column.name for column in PUBLIC_TABLES[table].columns}

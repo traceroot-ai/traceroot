@@ -6,7 +6,12 @@ from typing import ClassVar
 
 import pytest
 
-from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
+from tests.fixtures.otel_payloads import (
+    make_attr,
+    make_exception_event,
+    make_otel_payload,
+    make_span,
+)
 from worker.otel_transform import (
     attributes_to_dict,
     decode_otel_id,
@@ -2140,3 +2145,163 @@ class TestEnvironmentAttributeTypeGuard:
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
         assert "environment" not in spans[0]
+
+
+class TestPiExtensionCacheWrite:
+    """traceroot-pi-extension (src/handlers/llm.ts:131-136) reports the write bucket
+    as ``gen_ai.usage.cache_write_input_tokens`` and the read bucket as
+    ``gen_ai.usage.cache_read_input_tokens``. Before the write spelling was
+    accepted, every Pi span stored cache_write_tokens=0 while reads landed.
+
+    Numbers are taken verbatim from a captured local Pi run on gpt-5.6-luna
+    (OpenAI GPT-5.6 writes the new suffix on every call and reads the prior
+    prefix on the next). Pi reports input NET of cache, so the tiny uncached
+    remainder floors to 0 under the buckets rule; that is documented behaviour,
+    not what these tests pin.
+    """
+
+    SCOPE = "@traceroot-ai/pi-extension"
+    PRICES: ClassVar[dict[str, float]] = {
+        "input": 0.00000125,
+        "output": 0.00001,
+        "cacheRead": 0.000000125,
+        "cacheWrite": 0.0000015625,
+    }
+
+    def _pi_span(self, *, input_tokens, output_tokens, cache_read, cache_write):
+        attrs = [
+            make_attr("openinference.span.kind", "LLM"),
+            make_attr("gen_ai.system", "openai"),
+            make_attr("gen_ai.request.model", "gpt-5.6-luna"),
+            make_attr("gen_ai.usage.input_tokens", input_tokens),
+            make_attr("gen_ai.usage.output_tokens", output_tokens),
+            make_attr("gen_ai.usage.cache_read_input_tokens", cache_read),
+            make_attr("gen_ai.usage.cache_write_input_tokens", cache_write),
+        ]
+        return make_span("aa" * 16, "bb" * 8, name="openai/gpt-5.6-luna", attributes=attrs)
+
+    def _transform(self, span):
+        from unittest.mock import patch
+
+        payload = make_otel_payload([span], scope_name=self.SCOPE)
+        with patch("worker.tokens.pricing.get_model_price", return_value=self.PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        return spans[0]
+
+    def test_first_call_write_is_stored_not_zeroed(self):
+        # Call 1 of the capture: nothing to read yet, the whole prefix is written.
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=224, cache_read=0, cache_write=3326)
+        )
+        assert s["usage_details"]["cache_read_tokens"] == 0
+        assert s["usage_details"]["cache_write_tokens"] == 3326
+        assert s["input_tokens"] == 3326  # gross = uncached(0, floored) + read + write
+        assert s["output_tokens"] == 224
+        expected = 3326 * self.PRICES["cacheWrite"] + 224 * self.PRICES["output"]
+        assert s["cost"] == pytest.approx(expected)
+
+    def test_steady_state_read_and_write_both_stored(self):
+        # Call 3 of the capture. Its read (3581) is call 2's whole prompt and its
+        # write (834) is call 3's new suffix; call 4 then read 4415 = 3581 + 834.
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=27, cache_read=3581, cache_write=834)
+        )
+        assert s["usage_details"]["cache_read_tokens"] == 3581
+        assert s["usage_details"]["cache_write_tokens"] == 834
+        assert s["input_tokens"] == 4415
+        expected = (
+            3581 * self.PRICES["cacheRead"]
+            + 834 * self.PRICES["cacheWrite"]
+            + 27 * self.PRICES["output"]
+        )
+        assert s["cost"] == pytest.approx(expected)
+
+    def test_explicit_zero_write_is_stored_as_zero(self):
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=20, cache_read=7952, cache_write=0)
+        )
+        assert s["usage_details"]["cache_write_tokens"] == 0
+        assert s["usage_details"]["cache_read_tokens"] == 7952
+
+    def test_malformed_write_value_does_not_crash_or_shadow_read(self):
+        s = self._transform(
+            self._pi_span(input_tokens=3, output_tokens=20, cache_read=7952, cache_write="n/a")
+        )
+        assert s["usage_details"]["cache_write_tokens"] == 0
+        assert s["usage_details"]["cache_read_tokens"] == 7952
+
+    def test_cache_creation_spelling_still_wins_when_both_present(self):
+        # Documents priority: the semconv/pi.js "cache_creation" spelling is listed
+        # before the extension's "cache_write" spelling. No emitter sends both today.
+        span = self._pi_span(input_tokens=3, output_tokens=20, cache_read=0, cache_write=999)
+        span["attributes"].append(make_attr("gen_ai.usage.cache_creation_input_tokens", 555))
+        s = self._transform(span)
+        assert s["usage_details"]["cache_write_tokens"] == 555
+
+
+class TestErrorType:
+    """error_type is a bounded group key derived at ingest from the exception event."""
+
+    TRACE = "aa" * 16
+    SPAN = "bb" * 8
+
+    def _transform(self, span: dict) -> dict:
+        _, spans = transform_otel_to_clickhouse(make_otel_payload([span]), "proj-1")
+        return spans[0]
+
+    def test_error_span_with_exception_event_stores_type(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [make_exception_event("TimeoutError")]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_error_span_without_event_is_unknown(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        assert self._transform(span)["error_type"] == "unknown"
+
+    def test_error_span_with_event_lacking_type_is_unknown(self):
+        # The last exception event decides; an earlier typed one does not stand in.
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("RetryableError", time_nanos=1),
+            make_exception_event(exception_type=None, time_nanos=2),
+        ]
+        assert self._transform(span)["error_type"] == "unknown"
+
+    def test_ok_span_ignores_exception_event(self):
+        # A caught-and-recovered exception is not an error.
+        span = make_span(self.TRACE, self.SPAN, status_code=0)
+        span["events"] = [make_exception_event("ValueError")]
+        s = self._transform(span)
+        assert s["status"] == "OK"
+        assert s["error_type"] == ""
+
+    def test_latest_exception_event_wins(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("RetryableError", time_nanos=1),
+            make_exception_event("TimeoutError", time_nanos=2),
+        ]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_oversized_type_is_truncated(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [make_exception_event("E" * 1500)]
+        assert self._transform(span)["error_type"] == "E" * 1024
+
+    def test_non_exception_events_are_skipped(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("TimeoutError"),
+            {"name": "log", "attributes": [make_attr("exception.type", "Decoy")]},
+        ]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_string_status_code_format(self):
+        span = make_span(self.TRACE, self.SPAN)
+        span["status"] = {"code": "STATUS_CODE_ERROR", "message": "something failed"}
+        span["events"] = [make_exception_event("KeyError")]
+        assert self._transform(span)["error_type"] == "KeyError"
+
+    def test_ok_span_always_carries_the_field(self):
+        span = make_span(self.TRACE, self.SPAN)
+        assert self._transform(span)["error_type"] == ""

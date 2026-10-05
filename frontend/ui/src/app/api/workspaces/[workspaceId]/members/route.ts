@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role, RoleSchema } from "@traceroot/core";
@@ -16,7 +17,7 @@ const addMemberSchema = z.object({
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
 // GET /api/workspaces/[workspaceId]/members - List workspace members
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // POST /api/workspaces/[workspaceId]/members - Add a member (ADMIN+)
-export async function POST(request: NextRequest, { params }: RouteParams) {
+async function handlePOST(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -124,3 +125,5 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     { status: 201 },
   );
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

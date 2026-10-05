@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { prisma, syncStandardPrices, ModelSource } from "@traceroot/core";
+import { publicErrorMessage } from "@traceroot/core/public-error";
 import {
   createSession,
   getSession,
@@ -9,6 +10,8 @@ import {
   listSessions,
   deleteSession,
   updateSessionTitle,
+  executionBelongsToProject,
+  type TurnAttribution,
 } from "./session.js";
 import {
   getOrCreateAgent,
@@ -19,6 +22,13 @@ import {
 import { decisionsRoute } from "./decisions-route.js";
 import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "./pending-decisions.js";
 import { claimRun, releaseRun, runAgentStream, waitForRunToSettle } from "./run-stream.js";
+import {
+  isAgentTraceEnabled,
+  turnTraceId,
+  ROOT_SPAN_NAME,
+  type AgentTraceMeta,
+  type AgentTraceKind,
+} from "./self-trace.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
 import {
@@ -45,6 +55,13 @@ const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 
 // Per-session executor cache (executor lifecycle tied to session)
 const sessionExecutors = new Map<string, Executor>();
+
+/** The self-trace kind of a turn is its attribution's turn kind (the three this route produces). */
+const TRACE_KIND: Record<"rca_execution" | "rca_followup" | "chat", AgentTraceKind> = {
+  rca_execution: "rca",
+  rca_followup: "followup",
+  chat: "chat",
+};
 
 // When this module was (re-)executed. Reported by /health so a caller can tell
 // whether the running process predates the sources it is being graded against
@@ -77,13 +94,30 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
   const userId = c.req.header("x-user-id") || undefined;
   const workspaceId = c.req.header("x-workspace-id") || "";
-  const body = await c.req.json<{ title?: string }>();
+  const body = await c.req.json<{ title?: string; executionId?: unknown }>();
+
+  // Every message in this session reaches its execution through the session's
+  // executionId, so an id from another project would attribute this project's
+  // turns to that one. The caller is trusted to reach the route, not to name
+  // an execution: confirm it exists under this project before storing it. A
+  // malformed id is rejected here rather than surfacing later as an FK error
+  // on the session's first message — and rather than being dropped: a caller
+  // that sends an execution id of the wrong shape (a number, "") has a bug,
+  // and silently creating an unattributed session would hide it.
+  const { executionId } = body;
+  if (executionId !== undefined && (typeof executionId !== "string" || executionId.trim() === "")) {
+    return c.json({ error: "executionId must be a non-empty string" }, 400);
+  }
+  if (executionId && !(await executionBelongsToProject(prisma, executionId, projectId))) {
+    return c.json({ error: "executionId does not belong to this project" }, 400);
+  }
 
   const session = await createSession({
     projectId,
     workspaceId,
     userId, // undefined → stored as null for system/RCA sessions
     title: body.title,
+    executionId,
   });
   return c.json(session, 201);
 });
@@ -176,6 +210,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     traceSessionId?: string;
     providerName?: string;
     source?: ModelSource;
+    agentTrace?: { traceId: string; kind: "rca"; metadata: Record<string, unknown> };
     /** The page's selected time range: a preset id, or custom bounds. */
     range?: string;
     start_time?: string;
@@ -245,8 +280,24 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     return c.json({ error: "a run is already in progress for this session" }, 409);
   }
 
+  // Attribution is computed once per turn and applied to every row it
+  // produces (the user message, and every assistant/tool_step row the
+  // persister writes below) so a turn reads as one attributed unit.
+  // A follow-up's author is recorded (the RCA session has no user of its
+  // own); a chat turn's author is the session's user, so nothing is repeated.
+  const attribution = (
+    ownedSession.userId === null
+      ? userId
+        ? { turnKind: "rca_followup" as const, initiatorUserId: userId }
+        : { turnKind: "rca_execution" as const }
+      : { turnKind: "chat" as const }
+  ) satisfies TurnAttribution;
+
   let agent: Agent;
   let sessionManager: SessionManager;
+  // The user row's id is this turn's messageId, used below to derive a
+  // deterministic trace id for follow-up and chat turns.
+  let userRow: Awaited<ReturnType<SessionManager["appendMessage"]>>;
   try {
     ({ agent, sessionManager } = await getOrCreateAgent({
       sessionId,
@@ -262,8 +313,8 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
     console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
-    // Persist user message to DB via SessionManager
-    await sessionManager.appendMessage("user", body.message);
+    // Persist user message to DB via SessionManager, attributed to this turn
+    userRow = await sessionManager.appendMessage("user", body.message, attribution);
 
     // Auto-generate session title from first user message (we already have
     // the session loaded above for the auth check — reuse it).
@@ -277,6 +328,44 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     throw error;
   }
 
+  // The trace kind is the attribution's turn kind under another name — one
+  // source of truth for what this turn is. The worker's agentTrace (forced
+  // trace id + finding metadata) is only honoured on an execution turn.
+  const kind = TRACE_KIND[attribution.turnKind];
+  const rcaTrace = kind === "rca" ? body.agentTrace : undefined;
+
+  // A follow-up on a system (RCA) session is a child of the execution that
+  // opened the session — carry its trace/finding ids into the follow-up's own
+  // trace metadata so the two are linkable in the UI. A tracing-only read: it
+  // is skipped when the follow-up will not be traced and can never fail the
+  // turn.
+  let parent: { traceId: string; findingId: string } | null = null;
+  if (kind === "followup" && ownedSession.executionId && isAgentTraceEnabled(kind)) {
+    try {
+      parent = await prisma.detectorRcaExecution.findUnique({
+        where: { id: ownedSession.executionId },
+        select: { traceId: true, findingId: true },
+      });
+    } catch (err) {
+      console.error(`[AgentTrace] parent execution lookup failed for session ${sessionId}:`, err);
+    }
+  }
+
+  const traceMeta: AgentTraceMeta = {
+    traceId: rcaTrace?.traceId ?? turnTraceId(sessionId, userRow.id),
+    projectId,
+    kind,
+    name: ROOT_SPAN_NAME,
+    input: body.message,
+    systemPrompt,
+    metadata: {
+      ...rcaTrace?.metadata,
+      session_id: sessionId,
+      ...(ownedSession.executionId ? { execution_id: ownedSession.executionId } : {}),
+      ...(parent ? { finding_id: parent.findingId, parent_trace_id: parent.traceId } : {}),
+    },
+  };
+
   return streamSSE(c, (stream) =>
     runAgentStream(stream, {
       agent,
@@ -289,6 +378,8 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
       channelUserId: userId,
       isByok: body.source === ModelSource.BYOK,
       sessionManager,
+      attribution,
+      trace: traceMeta,
     }),
   );
 });

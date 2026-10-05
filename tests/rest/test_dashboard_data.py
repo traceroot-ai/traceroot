@@ -227,7 +227,7 @@ def test_a_series_over_a_window_with_too_many_buckets_is_an_inline_error():
         )
     assert resp.status_code == 200, resp.text
     widget = resp.json()["widgets"][0]
-    assert widget["status"] == "error" and "run_widget_query" in widget["error"]
+    assert widget["status"] == "error" and "get_widget_data" in widget["error"]
     assert run.call_count == 0
 
 
@@ -245,6 +245,9 @@ def test_query_widgets_past_the_cap_come_back_as_errors_without_running():
     assert [w["id"] for w in body["widgets"]] == [f"w-{i}" for i in range(1, n + 1)]
     statuses = [w["status"] for w in body["widgets"]]
     assert statuses == ["ok"] * DASHBOARD_DATA_QUERY_WIDGET_CAP + ["error"] * 2
+    assert all(
+        "get_widget_data" in w["error"] for w in body["widgets"][DASHBOARD_DATA_QUERY_WIDGET_CAP:]
+    )
     assert "query widgets" in body["widgets"][-1]["error"]
     assert (body["queried"], body["failed"]) == (DASHBOARD_DATA_QUERY_WIDGET_CAP, 2)
 

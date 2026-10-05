@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
@@ -7,7 +8,7 @@ import {
   GITHUB_WORKSPACE_ID_COOKIE,
 } from "@traceroot/github";
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   try {
     const authResult = await requireAuth();
     if (authResult.error) return authResult.error;
@@ -62,3 +63,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+export const GET = withImpersonationPolicy(handleGET);

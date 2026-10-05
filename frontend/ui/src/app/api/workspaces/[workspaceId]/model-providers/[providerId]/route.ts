@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import {
@@ -48,7 +49,7 @@ type RouteParams = {
 };
 
 // PATCH /api/workspaces/[workspaceId]/model-providers/[providerId]
-export async function PATCH(request: NextRequest, { params }: RouteParams) {
+async function handlePATCH(request: NextRequest, { params }: RouteParams) {
   const { workspaceId, providerId } = await params;
 
   const authResult = await requireAuth();
@@ -152,7 +153,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/workspaces/[workspaceId]/model-providers/[providerId]
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   const { workspaceId, providerId } = await params;
 
   const authResult = await requireAuth();
@@ -179,3 +180,5 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   return successResponse({ deleted: true });
 }
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

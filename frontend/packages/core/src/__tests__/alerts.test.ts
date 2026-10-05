@@ -18,6 +18,7 @@ import {
   DEFAULT_ALERT_NO_DATA_MODE,
   DEFAULT_ALERT_RENOTIFY,
   DEFAULT_ALERT_RENOTIFY_INTERVAL_MINUTES,
+  hasOutstandingAlertPage,
   DEFAULT_ALERT_SEVERITY,
   DEFAULT_ALERT_STATUS,
   DEFAULT_ALERT_VIEW,
@@ -137,6 +138,26 @@ describe("the statuses a client may ask for", () => {
         .slice()
         .sort(),
     );
+  });
+});
+
+describe("hasOutstandingAlertPage", () => {
+  const announced = new Date("2026-08-12T10:00:00.000Z");
+
+  it("reads an announced breach in ALERT or NO_DATA as an open page", () => {
+    expect(hasOutstandingAlertPage({ severity: "ALERT", alertedAt: announced })).toBe(true);
+    // In NO_DATA the page is the one carried across the gap.
+    expect(hasOutstandingAlertPage({ severity: "NO_DATA", alertedAt: announced })).toBe(true);
+  });
+
+  it("reads a silent entry into ALERT, and every other severity, as no page", () => {
+    // A null alertedAt means nothing was ever announced, so there is nothing
+    // to recover or to discard.
+    expect(hasOutstandingAlertPage({ severity: "ALERT", alertedAt: null })).toBe(false);
+    expect(hasOutstandingAlertPage({ severity: "NO_DATA", alertedAt: null })).toBe(false);
+    for (const severity of ["OK", "UNKNOWN"]) {
+      expect(hasOutstandingAlertPage({ severity, alertedAt: announced })).toBe(false);
+    }
   });
 });
 

@@ -13,6 +13,7 @@ import { AlertSeverityBadge } from "@/features/alerts/components/alert-severity-
 import { DashboardPreview } from "./dashboard-preview";
 import { CHART_TILE_ASPECT } from "./preview-constants";
 import type {
+  ChangePreview,
   DetectorPrompt,
   ReceiptRow,
   ResourceCardBody,
@@ -44,9 +45,9 @@ const AlertChartPreview = dynamic(
 );
 
 /**
- * The card for a resource the agent created (or, marked proposed, one it
- * wants to create), shown in the transcript where the plain tool line would
- * otherwise be.
+ * The card for a resource the agent created, changed or deleted (or, marked
+ * proposed, one it wants to), shown in the transcript where the plain tool
+ * line would otherwise be.
  *
  * The card IS the bubble: the resource itself — a widget's chart, a
  * dashboard scaled down, a detector's prompt, an alert's chart — comes first, and one footer row
@@ -141,15 +142,54 @@ function ReceiptRows({ rows }: { rows: ReceiptRow[] }) {
   );
 }
 
+/** What an edit card pictures beside its change chips, if anything. */
+function changePreview(preview: ChangePreview, resourceId: string): ReactNode {
+  switch (preview.kind) {
+    case "widget":
+      return (
+        <WidgetChartPreview
+          projectId={preview.chart.projectId}
+          widgetId={resourceId}
+          spec={preview.chart.spec}
+          rangeId={preview.chart.range.id}
+        />
+      );
+    case "alert":
+      return <AlertChartPreview chart={preview.chart} />;
+    case "prompt":
+      return <DetectorPromptBlock prompt={preview.prompt} />;
+  }
+}
+
 /**
  * The body: the resource itself, or null when there is nothing to picture —
  * a widget with no chart to draw, a detector with no prompt to show, a
  * dashboard with no tiles, an alert with no runnable rule, an empty
  * receipt. The chips that describe a widget, detector or alert are not
- * body; they live in the definition panel.
+ * body; they live in the definition panel. An edit's change chips ARE its
+ * body — the changes are what the user judges — under whatever it can
+ * picture of them; a delete's body is the reason the model gave, quoted, and
+ * what goes with the resource.
  */
 function cardBody(body: ResourceCardBody, resourceId: string): ReactNode | null {
   switch (body.kind) {
+    case "changes":
+      if (body.preview === null && body.chips.length === 0) return null;
+      return (
+        <div className="space-y-1.5">
+          {body.preview !== null && changePreview(body.preview, resourceId)}
+          <Chips chips={body.chips} />
+        </div>
+      );
+    case "delete":
+      return (
+        <div className="space-y-0.5 text-[11px]">
+          <p className="break-words italic text-foreground/80 [overflow-wrap:anywhere]">
+            {`“${body.reason}”`}
+          </p>
+          {body.cascade !== null && <p className="text-muted-foreground">{body.cascade}</p>}
+        </div>
+      );
     case "widget":
       if (body.chart === null) return null;
       return (
@@ -183,13 +223,21 @@ function hasPreview(body: ResourceCardBody): boolean {
   return (
     (body.kind === "widget" && body.chart !== null) ||
     (body.kind === "alert" && body.chart !== null) ||
-    (body.kind === "dashboard" && body.tiles.length > 0)
+    (body.kind === "dashboard" && body.tiles.length > 0) ||
+    (body.kind === "changes" && body.preview !== null && body.preview.kind !== "prompt")
   );
 }
 
-/** The chips a widget, detector or alert is defined by; a receipt or dashboard has none. */
+/**
+ * The chips a widget, detector or alert is defined by, and the ones a delete
+ * shows of the resource it would remove; a receipt or dashboard has none,
+ * and an edit's chips are its body rather than its definition.
+ */
 function definitionChips(body: ResourceCardBody): string[] {
-  return body.kind === "widget" || body.kind === "detector" || body.kind === "alert"
+  return body.kind === "widget" ||
+    body.kind === "detector" ||
+    body.kind === "alert" ||
+    body.kind === "delete"
     ? body.chips
     : [];
 }
@@ -221,7 +269,12 @@ export function ResourceCard({
   const previewLabel = previewHidden ? "Show preview" : "Hide preview";
 
   return (
-    <Card className="max-w-full overflow-hidden border-border bg-card">
+    <Card
+      className={cn(
+        "max-w-full overflow-hidden bg-card",
+        model.destructive === true ? "border-destructive" : "border-border",
+      )}
+    >
       {bodyShown && <div className="px-2.5 py-2">{body}</div>}
 
       <div
@@ -235,7 +288,10 @@ export function ResourceCard({
             type="button"
             aria-expanded={definitionOpen}
             onClick={() => setDefinitionOpen((open) => !open)}
-            className="flex min-w-0 flex-1 items-center gap-1 text-left text-xs font-medium text-foreground hover:text-foreground/80"
+            className={cn(
+              "flex min-w-0 flex-1 items-center gap-1 text-left text-xs font-medium hover:opacity-80",
+              model.destructive === true ? "text-destructive" : "text-foreground",
+            )}
           >
             <ChevronRight
               className={cn(
@@ -251,15 +307,22 @@ export function ResourceCard({
           </span>
         )}
         {/* A fresh create needs no badge — the card itself is the receipt. A
-            reused row is the one surprising outcome, so only that gets labeled. */}
+            reused row is the one surprising outcome, so only that gets labeled;
+            an update or delete receipt says which it is. */}
         {!model.created && (
           <Badge variant="default" className="shrink-0">
             Reused
           </Badge>
         )}
-        {/* An alert's state, as the alerts page badges it — never on a
-            proposal, whose rule has no state yet. */}
-        {model.badge !== undefined && !proposed && <AlertSeverityBadge {...model.badge} />}
+        {model.outcome !== undefined && (
+          <Badge variant="outline" className="shrink-0">
+            {model.outcome === "updated" ? "Updated" : "Deleted"}
+          </Badge>
+        )}
+        {/* An alert's state, as the alerts page badges it. A create proposal
+            never carries one — its rule has no state yet — but an edit of a
+            live alert does, so the user sees what the edit's reset clears. */}
+        {model.badge !== undefined && <AlertSeverityBadge {...model.badge} />}
         <span className="min-w-0 max-w-[45%] truncate text-[11px] text-muted-foreground/70">
           {meta}
         </span>
