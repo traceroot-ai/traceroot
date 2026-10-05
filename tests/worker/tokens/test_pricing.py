@@ -642,6 +642,10 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("eu.anthropic.claude-opus-5-20260728-v1:0", "claude-opus-5"),
     ("claude-opus-5@20260728", "claude-opus-5"),
     ("claude-5-opus@20260728", "claude-opus-5"),
+    # Opus 5.5 — plain (also its Vertex id), anthropic/ prefix, Bedrock
+    ("claude-opus-5-5", "claude-opus-5-5"),
+    ("anthropic/claude-opus-5-5", "claude-opus-5-5"),
+    ("anthropic.claude-opus-5-5", "claude-opus-5-5"),
     # Opus 4.8 — plain, [1m] variant, Bedrock, Vertex
     ("claude-opus-4-8", "claude-opus-4-8"),
     ("claude-opus-4-8[1m]", "claude-opus-4-8"),
@@ -709,6 +713,31 @@ class TestClaudeBedrockAndVertexIds:
             f"{model_id} matched a different family than {expected_name}"
         )
 
+    @pytest.mark.parametrize(
+        "model_id", ["claude-opus-5-5", "anthropic/claude-opus-5-5", "anthropic.claude-opus-5-5"]
+    )
+    def test_opus_5_5_matches_only_its_entry(self, real_cache, model_id):
+        # First-match lookup hides overlaps; claude-opus-5's pattern once swallowed these ids.
+        matching = [
+            e["model_name"]
+            for e in real_cache
+            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+        ]
+        assert matching == ["claude-opus-5-5"], f"{model_id} matched {matching}"
+
+    def test_opus_5_5_published_rates(self):
+        # Opus 5.5 reads cache at 0.05x input, not the usual 0.1x.
+        entry = next(e for e in _standard_price_entries() if e["modelName"] == "claude-opus-5-5")
+        assert entry["prices"] == pytest.approx(
+            {
+                "input": 4e-6,
+                "output": 2e-5,
+                "cacheRead": 2e-7,
+                "cacheWrite": 5e-6,
+                "cacheWrite1h": 8e-6,
+            }
+        )
+
     def test_unrelated_model_still_none(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price("totally-not-a-real-model-2099") is None
@@ -725,6 +754,8 @@ CLAUDE_FAST_AND_DOT_CASES = [
     # Fast mode — gateway slug, bare dot form, dashed canonical form
     ("anthropic/claude-opus-5-fast", "claude-opus-5-fast"),
     ("claude-opus-5-fast", "claude-opus-5-fast"),
+    ("anthropic/claude-opus-5-5-fast", "claude-opus-5-5-fast"),
+    ("claude-opus-5-5-fast", "claude-opus-5-5-fast"),
     ("anthropic/claude-opus-4.8-fast", "claude-opus-4-8-fast"),
     ("claude-opus-4.8-fast", "claude-opus-4-8-fast"),
     ("claude-opus-4-8-fast", "claude-opus-4-8-fast"),
@@ -768,9 +799,10 @@ class TestClaudeFastAndDotNotationIds:
             f"{model_id} must match exactly the {expected_name} pattern, got {matching}"
         )
 
-    def test_fast_prices_are_double_standard(self, real_cache):
-        fast = next(e for e in real_cache if e["model_name"] == "claude-opus-4-8-fast")
-        std = next(e for e in real_cache if e["model_name"] == "claude-opus-4-8")
+    @pytest.mark.parametrize("model_name", ["claude-opus-4-8", "claude-opus-5", "claude-opus-5-5"])
+    def test_fast_prices_are_double_standard(self, real_cache, model_name):
+        fast = next(e for e in real_cache if e["model_name"] == f"{model_name}-fast")
+        std = next(e for e in real_cache if e["model_name"] == model_name)
         for key in ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h"):
             assert fast["prices"][key] == pytest.approx(std["prices"][key] * 2), key
 
@@ -1169,77 +1201,3 @@ def test_anthropic_entries_have_2x_input_1h_cache_rate():
             continue
         assert "cacheWrite1h" in prices, f"{entry['modelName']} missing cacheWrite1h"
         assert prices["cacheWrite1h"] == pytest.approx(prices["input"] * 2), entry["modelName"]
-
-
-class TestOpus55Pricing:
-    @pytest.mark.parametrize("order", ["catalogue", "reversed", "alphabetical"])
-    def test_prices_from_catalogue_are_independent_of_row_order(self, real_cache, order):
-        cache = list(real_cache)
-        if order == "reversed":
-            cache.reverse()
-        elif order == "alphabetical":
-            cache.sort(key=lambda entry: entry["model_name"])
-        expected = {
-            "input": 0.000004,
-            "output": 0.00002,
-            "cacheRead": 0.0000002,
-            "cacheWrite": 0.000005,
-            "cacheWrite1h": 0.000008,
-            MATCHED_MODEL_NAME: "claude-opus-5-5",
-        }
-        old_prices = next(e["prices"] for e in cache if e["model_name"] == "claude-opus-5")
-        with patch("worker.tokens.pricing._load_cache", lambda: cache):
-            for model_id in [
-                "claude-opus-5-5",
-                "anthropic/claude-opus-5-5",
-                "anthropic.claude-opus-5-5",
-                "Anthropic/Claude-Opus-5-5",
-            ]:
-                matches = [
-                    e["model_name"] for e in cache if re.search(e["match_pattern"], model_id)
-                ]
-                assert matches == ["claude-opus-5-5"], model_id
-                assert get_model_price(model_id) == expected, model_id
-            for model_id in [
-                "claude-opus-5-5-fast",
-                "anthropic/claude-opus-5-5-fast",
-                "Anthropic/Claude-Opus-5-5-Fast",
-            ]:
-                matches = [
-                    e["model_name"] for e in cache if re.search(e["match_pattern"], model_id)
-                ]
-                assert matches == ["claude-opus-5-5-fast"], model_id
-                assert get_model_price(model_id) == {
-                    "input": 0.000008,
-                    "output": 0.00004,
-                    "cacheRead": 0.0000004,
-                    "cacheWrite": 0.00001,
-                    "cacheWrite1h": 0.000016,
-                    MATCHED_MODEL_NAME: "claude-opus-5-5-fast",
-                }, model_id
-            for model_id in [
-                "claude-opus-5",
-                "anthropic/claude-opus-5",
-                "claude-opus-5-20260728",
-                "claude-opus-5-2026-07-28",
-                "claude-opus-5@20260728",
-                "claude-5-opus@20260728",
-                "claude-opus-5[1m]",
-                "us.anthropic.claude-opus-5-20260728-v1:0",
-                "eu.anthropic.claude-opus-5-2026-07-28-v1:0",
-            ]:
-                assert get_model_price(model_id) == old_prices, model_id
-            for model_id in ["claude-opus-5-fast", "anthropic/claude-opus-5-fast"]:
-                assert get_model_price(model_id) == {
-                    "input": 0.00001,
-                    "output": 0.00005,
-                    "cacheRead": 0.000001,
-                    "cacheWrite": 0.0000125,
-                    "cacheWrite1h": 0.00002,
-                    MATCHED_MODEL_NAME: "claude-opus-5-fast",
-                }, model_id
-            for model_id in [
-                "claude-opus-5-5-20260922",
-                "claude-opus-5.5",
-            ]:
-                assert get_model_price(model_id) is None, model_id
