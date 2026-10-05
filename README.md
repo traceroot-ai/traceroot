@@ -107,10 +107,6 @@ Install the appropriate TraceRoot skill, guide me through any required
 configuration, and verify that my first trace appears in TraceRoot.
 ```
 
-Already sending traces? Ask your agent to investigate a trace, create a detector, build a dashboard, or review eval results.
-
-[CLI setup and reference →](https://github.com/traceroot-ai/traceroot-cli#readme)
-
 ### Manually with an SDK
 
 Prefer to configure instrumentation yourself? Use the **[Python SDK](https://github.com/traceroot-ai/traceroot-py#readme)** or **[TypeScript SDK](https://github.com/traceroot-ai/traceroot-ts#readme)**. The example below sends one traced model call from a TypeScript application.
