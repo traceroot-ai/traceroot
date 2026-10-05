@@ -669,7 +669,7 @@ def test_trace_id_condition_is_inline_not_a_semijoin():
 
 
 def test_signal_ids_lowers_to_a_semijoin_over_signal_assignments():
-    # The traces with a hit whose signal id contains the value, keyed on t.trace_id so the
+    # The traces with a hit whose signal id equals the value, keyed on t.trace_id so the
     # condition lands in both the page and count queries; the value binds as a parameter.
     params = {"project_id": "p1"}
     cond = build_conditions([Predicate(field="signal_ids", op="contains", value="sig1")], params)[0]
@@ -677,17 +677,21 @@ def test_signal_ids_lowers_to_a_semijoin_over_signal_assignments():
     assert "FROM signal_assignments" in cond
     assert "WHERE project_id = {project_id:String}" in cond
     # A given-up hit (empty signal id) never matches.
-    assert cond.endswith(
-        "WHERE hit_signal_id != '' AND hit_signal_id ILIKE {f_signal_ids_0:String})"
-    )
-    assert params["f_signal_ids_0"] == "%sig1%"
+    assert cond.endswith("WHERE hit_signal_id != '' AND hit_signal_id = {f_signal_ids_0:String})")
+    assert params["f_signal_ids_0"] == "sig1"
     assert "sig1" not in cond
 
 
-def test_signal_ids_escapes_wildcards_in_the_value():
+@pytest.mark.parametrize("signal_id", ["1", "sig1", "a%_b", "SIG1"])
+def test_signal_ids_contains_matches_a_complete_id(signal_id):
     params = {"project_id": "p1"}
-    build_conditions([Predicate(field="signal_ids", op="contains", value="a%_b")], params)
-    assert params["f_signal_ids_0"] == "%a\\%\\_b%"
+    cond = build_conditions(
+        [Predicate(field="signal_ids", op="contains", value=signal_id)], params
+    )[0]
+    # Contains means membership in the trace's set of IDs, including literal wildcard
+    # characters and case. A partial value such as "1" must not match "sig1".
+    assert "hit_signal_id = {f_signal_ids_0:String}" in cond
+    assert params["f_signal_ids_0"] == signal_id
 
 
 def test_signal_ids_reads_each_hits_latest_placement_without_final():
