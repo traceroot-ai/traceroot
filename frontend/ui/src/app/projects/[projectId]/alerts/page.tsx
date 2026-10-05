@@ -52,10 +52,12 @@ export default function AlertsPage() {
   // the search bar and the header action stay out of its way.
   const showListChrome = !isLoading && !error && !isEmptyProject;
 
+  // Off anything that is not running, on anything that is: a parked rule's
+  // action is to start it, not to pause a rule already stopped.
   const handleToggleStatus = (alert: AlertSummary) => {
     statusMutation.mutate({
       alertId: alert.id,
-      status: alert.status === "PAUSED" ? "ACTIVE" : "PAUSED",
+      status: alert.status === "ACTIVE" ? "PAUSED" : "ACTIVE",
     });
   };
 

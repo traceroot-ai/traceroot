@@ -5,17 +5,20 @@ an unknown one is that alert's ``error`` rather than a rejection of the batch.
 """
 
 from datetime import datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from rest.schemas.dashboards import AggName, WidgetFilter
 
 __all__ = [
+    "ALERT_ERROR_KIND_QUERY",
+    "ALERT_ERROR_KIND_SPEC",
     "MAX_ALERTS_PER_REQUEST",
     "MAX_ALERT_WINDOW",
     "MAX_ALERT_WINDOW_MS",
     "MAX_ALERT_WINDOW_END_LAG",
+    "AlertErrorKind",
     "AlertEvaluationSpec",
     "AlertEvaluationRequest",
     "AlertEvaluationResult",
@@ -65,6 +68,16 @@ class AlertEvaluationRequest(BaseModel):
     ]
 
 
+# What kind of failure ``error`` reports. ``spec`` means the stored rule is one
+# this build cannot express at all, so re-running it changes nothing; ``query``
+# means the run itself failed and the next tick may well succeed. The caller
+# parks a rule on the first and retries it on the second, so the two must stay
+# distinguishable without reading the message text.
+ALERT_ERROR_KIND_SPEC = "spec"
+ALERT_ERROR_KIND_QUERY = "query"
+AlertErrorKind = Literal["spec", "query"]
+
+
 class AlertEvaluationResult(BaseModel):
     """One alert's measured value, or why it could not be measured."""
 
@@ -72,6 +85,9 @@ class AlertEvaluationResult(BaseModel):
     value: float | None = None
     row_count: int = 0
     error: str | None = None
+    # Null exactly when ``error`` is: a result that measured something has no
+    # failure to classify.
+    error_kind: AlertErrorKind | None = None
 
 
 class AlertEvaluationResponse(BaseModel):

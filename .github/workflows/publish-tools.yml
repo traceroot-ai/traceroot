@@ -4,34 +4,50 @@ name: Publish @traceroot-ai/tools
 # traceroot-cli as a published dependency, so it needs its own release cadence
 # separate from the product releases this repo already tags as vX.Y.Z.
 #
-# Trigger with a tools-v prefixed tag, e.g. tools-v0.2.0:
-#   gh release create tools-v0.2.0 --generate-notes
+# Publishes silently, with no tag or GitHub Release: merging a version bump in
+# frontend/packages/tools/package.json publishes it if it is not on npm yet.
 on:
-  release:
-    types: [published]
-  # Re-run a publish after a workflow fix without recreating the release.
+  push:
+    branches: [main]
+    paths: [frontend/packages/tools/package.json]
+  # Re-run a publish after a workflow fix.
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing release tag to publish, e.g. tools-v0.2.0"
-        required: true
+
+permissions:
+  contents: read
 
 jobs:
+  check:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          VERSION=$(node -p "require('./frontend/packages/tools/package.json').version")
+          if npm view "@traceroot-ai/tools@$VERSION" version >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
   publish:
-    # Product releases (vX.Y.Z) must not publish this package.
-    if: >-
-      startsWith(github.event.release.tag_name, 'tools-v') ||
-      startsWith(inputs.tag, 'tools-v')
+    needs: check
+    if: needs.check.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write   # npm trusted publishing
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       - uses: pnpm/action-setup@v4
+        with:
+          # The pnpm version is pinned by the frontend workspace's packageManager
+          # field; the repo root has none, so point the action at it.
+          package_json_file: frontend/package.json
 
       - uses: actions/setup-node@v4
         with:
@@ -48,18 +64,6 @@ jobs:
 
       - name: Install dependencies
         run: cd frontend && pnpm install --frozen-lockfile
-
-      - name: Verify release tag matches package version
-        env:
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: |
-          PKG_VERSION=$(node -p "require('./frontend/packages/tools/package.json').version")
-          TAG_VERSION="${TAG#tools-v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::tag ($TAG_VERSION) does not match package.json ($PKG_VERSION)"
-            exit 1
-          fi
-          echo "version $PKG_VERSION matches tag $TAG"
 
       - name: Build
         run: cd frontend/packages/tools && pnpm build

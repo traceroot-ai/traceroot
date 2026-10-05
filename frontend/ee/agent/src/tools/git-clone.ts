@@ -3,6 +3,7 @@ import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
 import { setupGhCli } from "../executors/docker.js";
 import { setupGhCliDaytona } from "../executors/daytona.js";
+import { agentInternalSecret } from "../internal-secret.js";
 
 const schema = Type.Object({
   label: Type.String({ description: "Brief description of what you're cloning" }),
@@ -96,7 +97,7 @@ export function createGitCloneTool(
         {
           headers: {
             "x-workspace-id": workspaceId,
-            "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
+            "X-Internal-Secret": agentInternalSecret(),
           },
         },
       );

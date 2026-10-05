@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { Role, SaveResultToDatasetRequestSchema } from "@traceroot/core";
 import {
@@ -21,7 +22,7 @@ type RouteParams = { params: Promise<{ projectId: string; resultId: string }> };
 // save a new case, or duplicate as a variant. This is a dataset write (it publishes
 // a new immutable version), never a scoring action, and it never copies the
 // candidate output into `expected` implicitly.
-export async function POST(req: NextRequest, { params }: RouteParams) {
+async function handlePOST(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, resultId } = await params;
@@ -81,3 +82,4 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     throw e;
   }
 }
+export const POST = withImpersonationPolicy(handlePOST);

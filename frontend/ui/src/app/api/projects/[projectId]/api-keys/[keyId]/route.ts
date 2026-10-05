@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role } from "@traceroot/core";
@@ -15,7 +16,7 @@ const updateAccessKeySchema = z.object({
 type RouteParams = { params: Promise<{ projectId: string; keyId: string }> };
 
 // PATCH /api/projects/[projectId]/api-keys/[keyId] - Update access key name (MEMBER+)
-export async function PATCH(request: NextRequest, { params }: RouteParams) {
+async function handlePATCH(request: NextRequest, { params }: RouteParams) {
   const { projectId, keyId } = await params;
 
   const authResult = await requireAuth();
@@ -69,7 +70,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/projects/[projectId]/api-keys/[keyId] - Delete an access key (ADMIN+)
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+async function handleDELETE(request: NextRequest, { params }: RouteParams) {
   const { projectId, keyId } = await params;
 
   const authResult = await requireAuth();
@@ -97,3 +98,5 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   return NextResponse.json({ deleted: true }, { status: 200 });
 }
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

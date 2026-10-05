@@ -215,6 +215,79 @@ describe("flushDigest", () => {
         cost: 0.001,
       }),
     });
+    // No self-trace was emitted for this flush: nothing to store.
+    expect(aiMessageCreate.mock.calls[0][0].data).not.toHaveProperty("metadata");
+  });
+
+  it("stores the flush's trace id on the digest-summary row, so the trace can be found later", async () => {
+    detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
+    generateDigestSummary.mockResolvedValue({
+      summary: "Payments API is down.",
+      usage: {
+        model: "claude-haiku-4-5",
+        provider: "anthropic",
+        isByok: false,
+        inputTokens: 900,
+        outputTokens: 60,
+        cost: 0.001,
+      },
+      trace: { traceId: "f".repeat(32) },
+    });
+    await run();
+    expect(aiMessageCreate.mock.calls[0][0].data.metadata).toEqual({
+      traceId: "f".repeat(32),
+      traceStatus: "available",
+    });
+  });
+
+  it("keeps the trace id of a flush that produced no summary, and still sends the digest", async () => {
+    // The failing attempt emitted a trace and was billed for it; the row exists
+    // purely so that trace is reachable afterwards.
+    detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
+    generateDigestSummary.mockResolvedValue({
+      summary: null,
+      failure: "timeout",
+      trace: { traceId: "a".repeat(32) },
+    });
+    await run();
+    expect(sendDigestAlertSlack.mock.calls[0][0].summary).toBeUndefined();
+    expect(sendDigestAlertEmail.mock.calls[0][0].summary).toBeUndefined();
+    expect(aiMessageCreate.mock.calls[0][0].data.metadata).toEqual({
+      traceId: "a".repeat(32),
+      traceStatus: "available",
+      failure: "timeout",
+    });
+    // Nothing resolved, so the row carries no model or usage.
+    expect(aiMessageCreate.mock.calls[0][0].data).toMatchObject({
+      model: null,
+      provider: null,
+      inputTokens: null,
+      cost: null,
+    });
+  });
+
+  it("records the usage a summaryless attempt still burned", async () => {
+    detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
+    generateDigestSummary.mockResolvedValue({
+      summary: null,
+      failure: "no-summary",
+      trace: { traceId: "b".repeat(32) },
+      usage: {
+        model: "claude-haiku-4-5",
+        provider: "anthropic",
+        isByok: false,
+        inputTokens: 900,
+        outputTokens: 60,
+        cost: 0.001,
+      },
+    });
+    await run();
+    expect(aiMessageCreate.mock.calls[0][0].data).toMatchObject({
+      kind: "digest-summary",
+      model: "claude-haiku-4-5",
+      cost: 0.001,
+    });
+    expect(aiMessageCreate.mock.calls[0][0].data.metadata).toMatchObject({ failure: "no-summary" });
   });
 
   it("sends the digest unchanged when summary generation returns null", async () => {

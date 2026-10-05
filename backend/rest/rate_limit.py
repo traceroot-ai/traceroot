@@ -62,6 +62,7 @@ BUCKET_INGEST = "ingest"
 BUCKET_READ = "read"
 BUCKET_EXPORT = "export"
 BUCKET_WRITE = "write"
+BUCKET_SQL = "sql"
 _KEY_PREFIX = "rl"
 
 # Request-scoped exemption flag, set True by the access dependency for trusted
@@ -223,6 +224,17 @@ def key_export(request: Request) -> str:
     """
     request.state.rl_bucket = BUCKET_EXPORT
     return _bucket_key(BUCKET_EXPORT, request)
+
+
+def key_sql(request: Request) -> str:
+    """Bucket key for public SQL, which gets its own budget.
+
+    Separate from the read bucket because one gateway query can cost orders of
+    magnitude more than one trace read, so the two should not share a quota that
+    a handful of analytical queries could drain.
+    """
+    request.state.rl_bucket = BUCKET_SQL
+    return _bucket_key(BUCKET_SQL, request)
 
 
 def key_write(request: Request) -> str:

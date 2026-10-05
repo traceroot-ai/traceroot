@@ -96,8 +96,8 @@ function isFilterShaped(entry: unknown): entry is AlertFilter {
 
 /**
  * Null for a stored filter that cannot form a predicate, so the row is dropped
- * after its claim rather than sent on to fail evaluation. There is no parked
- * status, so such a row keeps being read and discarded once a minute.
+ * after its claim rather than sent on to fail evaluation. The caller parks such
+ * a row: no later tick can read what this one could not.
  */
 function parseFilters(value: unknown): readonly AlertFilter[] | null {
   if (value === null || value === undefined) return [];

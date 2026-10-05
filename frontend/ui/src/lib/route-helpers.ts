@@ -1,5 +1,6 @@
 import type { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import { isPlainObject } from "@/lib/is-plain-object";
 import {
   errorResponse,
   requireAuth,
@@ -59,4 +60,32 @@ export async function parseJsonObject(
  */
 export function isRecordGone(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025";
+}
+
+/**
+ * The reason a cookie-session delete records on its audit row when the web
+ * app sends none. The app's confirm dialogs are the consent step on this
+ * surface and send no body today; a body carrying `reason` is honored when
+ * one arrives.
+ */
+export const UI_DELETE_REASON = "Deleted from the web app";
+
+/**
+ * The optional JSON object a cookie-session delete may carry. No body, a
+ * non-object or unparsable JSON all read as an empty object: the web app's
+ * deletes send nothing today.
+ */
+export async function readJsonObject(req: Request): Promise<Record<string, unknown>> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return {};
+  }
+  return isPlainObject(body) ? body : {};
+}
+
+export async function readDeleteReason(req: Request): Promise<string> {
+  const { reason } = await readJsonObject(req);
+  return typeof reason === "string" ? reason : UI_DELETE_REASON;
 }

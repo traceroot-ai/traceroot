@@ -83,6 +83,20 @@ describe("AlertsTable", () => {
     expect(onToggleStatus).toHaveBeenCalledWith(alert);
   });
 
+  it("offers the same resume action for a parked alert, which is also not running", () => {
+    // The rule stopped on settings the evaluator refused; starting it again is
+    // the operator's retry of it, and the same write does both.
+    const alert = makeAlert({ status: "PARKED" });
+    const { onToggleStatus } = renderTable(alert);
+
+    openActionsMenu();
+
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+
+    expect(onToggleStatus).toHaveBeenCalledWith(alert);
+  });
+
   it("disables the status action while a status change is in flight", () => {
     const { onToggleStatus } = renderTable(makeAlert(), { isStatusPending: true });
 
