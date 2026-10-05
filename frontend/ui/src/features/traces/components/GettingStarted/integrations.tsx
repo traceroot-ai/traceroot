@@ -84,6 +84,8 @@ traceroot.initialize(integrations=[Integration.CLAUDE_AGENT_SDK])`,
         initSnippet: `import * as claudeAgentSDKModule from "@anthropic-ai/claude-agent-sdk";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
+// Spread the read-only ESM namespace into a mutable object so the patcher
+// can rewrite query. Always call the SDK via claudeAgentSDK to ensure calls are traced.
 const claudeAgentSDK = { ...claudeAgentSDKModule };
 TraceRoot.initialize({
   instrumentModules: { claudeAgentSDK },
