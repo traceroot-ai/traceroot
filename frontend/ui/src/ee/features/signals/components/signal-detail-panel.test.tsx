@@ -34,10 +34,19 @@ vi.mock("@/features/dashboards/components/renderers", () => ({
 }));
 
 vi.mock("./run-rca", () => ({
-  RunRca: ({ state, showState = true }: { state: string | null; showState?: boolean }) => (
+  RunRca: ({
+    state,
+    available,
+    showState = true,
+  }: {
+    state: string | null;
+    available: boolean;
+    showState?: boolean;
+  }) => (
     <div>
       run-rca:{String(state)}
       {showState ? "" : ":quiet"}
+      {available ? ":can-run" : ":cannot-run"}
     </div>
   ),
 }));
@@ -133,6 +142,7 @@ afterEach(() => {
   signalDetail.signal.rca = { currentState: null, canonicalFindingId: null };
   signalDetail.signal.canonicalRca = null;
   signalDetail.signal.rcaHistory = [];
+  signalDetail.grouping = false;
   layoutMocks.setAiPanelOpen.mockReset();
   layoutMocks.setAiContext.mockReset();
   layoutMocks.setAiInitialSessionId.mockReset();
@@ -141,6 +151,8 @@ afterEach(() => {
 
 describe("SignalDetailPanel analysis of an earlier opening", () => {
   const analysed = (reopenSeq: number) => {
+    // A deployment that can run analyses, so the panel can offer one.
+    signalDetail.grouping = true;
     signalDetail.signal.canonicalRca = {
       findingId: "f0",
       reopenSeq,
@@ -161,7 +173,7 @@ describe("SignalDetailPanel analysis of an earlier opening", () => {
     // No analysis was asked for the reopening: the cooldown or a Manual detector.
     expect(screen.getByText(/No new analysis ran/)).toBeTruthy();
     // One paragraph: the button adds no state line of its own here.
-    expect(screen.getByText("run-rca:null:quiet")).toBeTruthy();
+    expect(screen.getByText("run-rca:null:quiet:can-run")).toBeTruthy();
     expect(screen.getByText("Root cause: the tool times out")).toBeTruthy();
   });
 
@@ -180,7 +192,26 @@ describe("SignalDetailPanel analysis of an earlier opening", () => {
     );
     expect(note.textContent?.endsWith(sentence)).toBe(true);
     expect(note.textContent).not.toContain("No new analysis ran");
-    expect(screen.getByText(`run-rca:${state}:quiet`)).toBeTruthy();
+    expect(screen.getByText(`run-rca:${state}:quiet:can-run`)).toBeTruthy();
+  });
+
+  it("does not date an analysis carried over from a merged signal as before a reopening", () => {
+    analysed(-1);
+    signalDetail.signal.reopenSeq = 1;
+    renderPanel();
+    expect(screen.queryByText(/before the signal reopened/)).toBeNull();
+    expect(screen.queryByText(/run-rca:/)).toBeNull();
+  });
+
+  it("gives no cooldown reason where the deployment runs no analysis at all", () => {
+    analysed(0);
+    signalDetail.signal.reopenSeq = 1;
+    signalDetail.grouping = false;
+    renderPanel();
+    const note = screen.getByText(/before the signal reopened/);
+    expect(note.textContent).not.toContain("No new analysis ran");
+    // The run control explains the missing key.
+    expect(screen.getByText("run-rca:null:quiet:cannot-run")).toBeTruthy();
   });
 
   it("says nothing extra when the analysis is of the current opening", () => {
