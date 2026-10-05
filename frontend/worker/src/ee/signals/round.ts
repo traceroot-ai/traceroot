@@ -347,6 +347,7 @@ export async function runAssignmentRound(
                 signal: decision.signal,
                 anchorText: material,
                 anchorEmbedding: vector!,
+                validated: decision.validated,
               };
       }
 
