@@ -9,7 +9,7 @@ vi.mock("@traceroot/core", () => ({ calculateCost: mockCalculateCost }));
 
 import type { AssignmentRow, SignalsBackend, WaitingHitRow } from "../backend-client.js";
 import { runAssignmentRound, type RoundDeps } from "../round.js";
-import type { AssignmentModels, ModelUsage } from "../types.js";
+import { UnusableAnswerError, type AssignmentModels, type ModelUsage } from "../types.js";
 import type { Placement, WaitingHit } from "../write.js";
 
 const T0 = Date.parse("2026-09-30T10:00:00Z");
@@ -131,13 +131,16 @@ function chatModels(usage: ModelUsage[]): AssignmentModels {
 
 /** In-memory failure records: count and first failure time per run. */
 function fakeFailures(seed: Record<string, { count: number; firstAt: number }> = {}) {
-  const records = { ...seed };
+  const records: Record<string, { count: number; firstAt: number }> = { ...seed };
   return {
     records,
     record: vi.fn(async (runId: string, now: number) => {
       const r = (records[runId] ??= { count: 0, firstAt: now });
       r.count++;
       return { ...r };
+    }),
+    clear: vi.fn(async (runId: string) => {
+      delete records[runId];
     }),
   };
 }
@@ -353,7 +356,7 @@ describe("runAssignmentRound", () => {
     const { backend, written } = fakeBackend([row(1), row(2), row(3)]);
     const failures = fakeFailures();
     mockApply.mockImplementationOnce(async () => {
-      throw new Error("bad hit");
+      throw new UnusableAnswerError("no tool call");
     });
     const stats = await runAssignmentRound(
       deps(fakeDb().db, backend, () => T0, failures),
@@ -363,6 +366,24 @@ describe("runAssignmentRound", () => {
     expect(stats).toMatchObject({ failed: 1, gaveUp: 0, created: 2 });
     expect(written.map((w) => w.run_id)).toEqual(["run2", "run3"]);
     expect(failures.record).toHaveBeenCalledWith("run1", T0);
+    error.mockRestore();
+  });
+
+  it("does not count an outage failure toward giving up", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend, written } = fakeBackend([row(1), row(2)]);
+    const failures = fakeFailures();
+    mockApply.mockImplementationOnce(async () => {
+      throw new Error("embedding request returned 503: overloaded");
+    });
+    const stats = await runAssignmentRound(
+      deps(fakeDb().db, backend, () => T0, failures),
+      "p",
+      "d",
+    );
+    expect(stats).toMatchObject({ failed: 1, gaveUp: 0 });
+    expect(written.map((w) => w.run_id)).toEqual(["run2"]);
+    expect(failures.record).not.toHaveBeenCalled();
     error.mockRestore();
   });
 
@@ -377,11 +398,11 @@ describe("runAssignmentRound", () => {
     error.mockRestore();
   });
 
-  it("gives up on a hit that failed three times over six hours, and marks it so it stops waiting", async () => {
+  it("gives up on a hit whose answers stayed unusable three times over six hours, and marks it so it stops waiting", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { backend, written } = fakeBackend([row(1)]);
     const failures = fakeFailures({ run1: { count: 2, firstAt: T0 - 7 * 3_600_000 } });
-    mockApply.mockRejectedValueOnce(new Error("bad hit"));
+    mockApply.mockRejectedValueOnce(new UnusableAnswerError("malformed tool arguments"));
     const stats = await runAssignmentRound(
       deps(fakeDb().db, backend, () => T0, failures),
       "p",
@@ -391,21 +412,42 @@ describe("runAssignmentRound", () => {
     expect(written).toEqual([
       expect.objectContaining({ run_id: "run1", signal_id: "", gave_up: true, embedding: [] }),
     ]);
+    // A replay of the hit starts its count over.
+    expect(failures.clear).toHaveBeenCalledWith("run1");
+    expect(failures.records.run1).toBeUndefined();
     error.mockRestore();
   });
 
-  it("keeps retrying a hit that failed often but only recently, as in an outage", async () => {
+  it("never gives up during an outage, however long it has lasted", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { backend, written } = fakeBackend([row(1)]);
-    const failures = fakeFailures({ run1: { count: 9, firstAt: T0 - 3_600_000 } });
-    mockApply.mockRejectedValueOnce(new Error("provider down"));
+    // Unusable answers long ago, then a provider outage: the outage adds nothing.
+    const failures = fakeFailures({ run1: { count: 2, firstAt: T0 - 30 * 3_600_000 } });
+    mockApply.mockRejectedValueOnce(new Error("TypeSafe request failed: ECONNREFUSED"));
     await expect(
       runAssignmentRound(
         deps(fakeDb().db, backend, () => T0, failures),
         "p",
         "d",
       ),
-    ).rejects.toThrow("provider down");
+    ).rejects.toThrow("ECONNREFUSED");
+    expect(written).toEqual([]);
+    expect(failures.record).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("keeps retrying a hit with unusable answers that began only recently", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend, written } = fakeBackend([row(1)]);
+    const failures = fakeFailures({ run1: { count: 9, firstAt: T0 - 3_600_000 } });
+    mockApply.mockRejectedValueOnce(new UnusableAnswerError("no tool call"));
+    await expect(
+      runAssignmentRound(
+        deps(fakeDb().db, backend, () => T0, failures),
+        "p",
+        "d",
+      ),
+    ).rejects.toThrow("no tool call");
     expect(written).toEqual([]);
     error.mockRestore();
   });

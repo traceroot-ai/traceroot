@@ -163,6 +163,27 @@ class ClickHouseClient:
             column_names=columns,
         )
 
+    def delete_given_up_signal_assignments(self, project_id: str, run_ids: list[str]) -> None:
+        """Delete the give-up rows (empty ``signal_id``) of these runs, so the
+        signal assignment worker reads the hits as waiting again.
+
+        Args:
+            project_id (str): Project of the runs.
+            run_ids (list[str]): Runs whose give-up rows are deleted; rows that
+                place a hit in a signal are never touched.
+        """
+        if not run_ids:
+            return
+        self._client.command(
+            """
+            DELETE FROM signal_assignments
+            WHERE project_id = {project_id:String}
+              AND signal_id = ''
+              AND run_id IN {run_ids:Array(String)}
+            """,
+            parameters={"project_id": project_id, "run_ids": run_ids},
+        )
+
     def insert_spans_batch(self, spans: list[dict[str, Any]]) -> None:
         """Insert multiple span records.
 

@@ -176,8 +176,9 @@ class SignalAssignmentRow(BaseModel):
     score: float | None = None
     criteria_version: int | None = Field(default=None, ge=0)
     assigned_at_ms: int = Field(ge=0)
-    # The worker stopped retrying a hit that kept failing: the row is written
-    # with an empty signal_id so the hit no longer counts as waiting.
+    # The worker stopped retrying a hit whose model answers stayed unusable
+    # (never for an outage): the row is written with an empty signal_id so the
+    # hit no longer counts as waiting. scripts/replay_signal_hits.py undoes it.
     gave_up: bool = False
 
     @model_validator(mode="after")

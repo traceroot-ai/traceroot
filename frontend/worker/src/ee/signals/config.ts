@@ -65,15 +65,15 @@ export const DRAIN_MARGIN_MS = 10_000;
 /**
  * How far back the job looks for waiting hits, and how long a hit's failure
  * count is kept. It bounds the ClickHouse scan; a hit left unassigned for longer
- * (an outage of a week) is given up.
+ * (an outage of more than a week) is no longer read.
  */
 export const WAITING_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * A hit that keeps failing is given up after at least this many failures
- * spread over at least this long, so one bad hit stops being retried while an
- * outage shorter than that gives up nothing. A longer outage gives up the
- * oldest waiting hits of each detector, a couple at a time.
+ * A hit whose model answers stay unusable (UnusableAnswerError) is given up
+ * after at least this many of them spread over at least this long, so one bad
+ * hit stops being retried. Other failures (a provider, key, network or
+ * database outage) never count: the hit waits for the outage to end.
  */
 export const GIVE_UP_AFTER_FAILURES = 3;
 export const GIVE_UP_AFTER_MS = 6 * 60 * 60 * 1000;
