@@ -170,12 +170,15 @@ describe("signalCriteriaEditSchema", () => {
 
 describe("editSignalCriteria", () => {
   it("replaces the criteria under the partition lock and bumps the version", async () => {
-    const f = fakeDb([signal({})]);
+    const rows = [{ ...signal({}), criteriaValidated: false }];
+    const f = fakeDb(rows);
     expect(await editSignalCriteria(f.db, { projectId: "p", signalId: "a", edit })).toEqual({
       ok: true,
       criteriaVersion: 2,
     });
     expect(f.log).toEqual(["lock:p/d"]);
+    // The creation check judged the old criteria; none ran on the edited ones.
+    expect(rows[0].criteriaValidated).toBe(null);
   });
 
   it("refuses a stale edit, a merged signal, a category signal, and another project's signal", async () => {
@@ -592,6 +595,7 @@ describe("reads", () => {
           title: "A",
           reopenSeq: 2,
           mergedIntoId: null,
+          criteriaValidated: false,
           // Opening 1 kept its answer though the shared finding's latest attempt failed.
           rcas: [rca(2, "failed"), rca(1, "failed", "cause one"), rca(0, "done", "cause zero")],
         })),
@@ -614,11 +618,16 @@ describe("reads", () => {
       to: new Date("2026-10-01T00:00:00Z"),
     });
     expect(db.signal.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "a", projectId: "p" } }),
+      expect.objectContaining({
+        where: { id: "a", projectId: "p" },
+        select: expect.objectContaining({ criteriaValidated: true }),
+      }),
     );
     expect(r).toMatchObject({
       merged: false,
       signal: {
+        // Whether the criteria passed their check at creation reaches the page.
+        criteriaValidated: false,
         rca: { currentState: "failed", canonicalFindingId: "f1" },
         canonicalRca: { findingId: "f1", reopenSeq: 1, result: "cause one", sessionId: "sess-1" },
       },

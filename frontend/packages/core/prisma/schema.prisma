@@ -596,6 +596,11 @@ model Signal {
   criteriaExcludes  String    @map("criteria_excludes") @db.Text
   // Bumped on every criteria edit; each hit records the version it was judged under.
   criteriaVersion   Int       @default(1) @map("criteria_version")
+  // Whether the criteria written at creation passed their check (accept the first
+  // hit, reject every shortlisted anchor). A failed check still creates the signal;
+  // this keeps the result findable. Null when no check ran: a category signal, or
+  // criteria edited by hand since.
+  criteriaValidated Boolean?  @map("criteria_validated")
   // The first hit's embedded text and its embedding: the shortlist compares new
   // hits with the embedding, and new criteria must reject the shortlisted
   // anchors' text. Kept as a plain array (no pgvector); cosine runs in memory.

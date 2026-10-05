@@ -314,6 +314,7 @@ export async function getSignal(
       criteriaCovers: true,
       criteriaExcludes: true,
       criteriaVersion: true,
+      criteriaValidated: true,
       groupKey: true,
       status: true,
       resolvedAt: true,
