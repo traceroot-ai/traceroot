@@ -63,6 +63,17 @@ def given_up_hits(ch, project_id, detector_id=None, now=None):
     return [(d, r) for d, r in result.result_rows]
 
 
+def mark_pending(pg, project_id, detectors, now=None):
+    """Mark detectors pending so the sweeper re-enqueues them; raw timestamps, as
+    the worker writes them, so the detector's update time stays put."""
+    with pg.cursor() as cursor:
+        cursor.execute(
+            "UPDATE detectors SET assignment_pending_at = %s WHERE project_id = %s AND id = ANY(%s)",
+            ((now or datetime.now(UTC)).replace(tzinfo=None), project_id, detectors),
+        )
+    pg.commit()
+
+
 def replay(pg, ch, project_id, detector_id=None, *, apply=False, now=None):
     """List (and with apply, replay) the given-up hits; returns them."""
     hits = given_up_hits(ch, project_id, detector_id, now)
@@ -70,16 +81,12 @@ def replay(pg, ch, project_id, detector_id=None, *, apply=False, now=None):
         return hits
     detectors = sorted({d for d, _ in hits})
     # Mark the detectors pending first: if the delete then fails, a rerun still
-    # finds the rows, and the sweeper's extra round finds nothing to do. The
-    # sweeper re-enqueues a detector marked pending; raw timestamps, as the
-    # worker writes them, so the detector's update time stays put.
-    with pg.cursor() as cursor:
-        cursor.execute(
-            "UPDATE detectors SET assignment_pending_at = %s WHERE project_id = %s AND id = ANY(%s)",
-            ((now or datetime.now(UTC)).replace(tzinfo=None), project_id, detectors),
-        )
-    pg.commit()
+    # finds the rows, and the sweeper's extra round finds nothing to do.
+    mark_pending(pg, project_id, detectors, now)
     ch.delete_given_up_signal_assignments(project_id, [r for _, r in hits])
+    # Again after the delete: a round that ran during it may have read the
+    # give-up rows and cleared the first mark.
+    mark_pending(pg, project_id, detectors, now)
     return hits
 
 

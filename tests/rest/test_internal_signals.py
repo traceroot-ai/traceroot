@@ -99,6 +99,10 @@ class TestWaitingHits:
         assert "finding_id IS NOT NULL" in sql
         assert "status = 'completed'" in sql
         assert "run_id NOT IN" in sql and "FROM signal_assignments" in sql
+        # A run's assignment counts however long ago it was written: a trace
+        # evaluated again keeps its run id, and must not wait forever.
+        assignments = sql[sql.index("FROM signal_assignments") :]
+        assert "assigned_at" not in assignments
         # Status and finding filters run after the collapse, the time filter before.
         assert (
             sql.index("FINAL")
@@ -318,8 +322,10 @@ class TestUnsettledRuns:
             {"finding_id": "f2", "run_id": "r2", "detector_id": "d2", "timestamp_ms": 2000},
         ]
         sql = mock_ch.query.call_args.args[0]
-        # Collapsed like waiting-hits, and any assignment row (a give-up too) settles a run.
+        # Collapsed like waiting-hits, and any assignment row (a give-up too) settles a run,
+        # however long ago it was written.
         assert "detector_runs FINAL" in sql and "NOT IN" in sql and "signal_assignments" in sql
+        assert "assigned_at" not in sql[sql.index("FROM signal_assignments") :]
         params = mock_ch.query.call_args.kwargs["parameters"]
         assert params["finding_ids"] == ["f1", "f2"]
         assert params["since"] == datetime.fromtimestamp(0.5, tz=UTC)
