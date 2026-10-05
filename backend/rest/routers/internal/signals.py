@@ -263,6 +263,12 @@ async def list_unsettled_runs(body: UnsettledRunsPayload):
           AND run_id NOT IN (
               SELECT run_id FROM signal_assignments
               WHERE project_id = {project_id:String}
+                AND run_id IN (
+                    SELECT run_id FROM detector_runs
+                    WHERE project_id = {project_id:String}
+                      AND timestamp >= {since:DateTime64(3)}
+                      AND finding_id IN {finding_ids:Array(String)}
+                )
           )
         ORDER BY finding_id, run_id
         """,

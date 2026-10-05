@@ -276,7 +276,10 @@ class TestUnsettledRuns:
         # Collapsed like waiting-hits, and any assignment row (a give-up too) settles a run,
         # however long ago it was written.
         assert "detector_runs FINAL" in sql and "NOT IN" in sql and "signal_assignments" in sql
-        assert "assigned_at" not in sql[sql.index("FROM signal_assignments") :]
+        assignments = sql[sql.index("FROM signal_assignments") :]
+        assert "assigned_at" not in assignments
+        # Only these findings' runs are looked up, so the lookup does not grow with history.
+        assert "run_id IN (" in assignments and "finding_id IN" in assignments
         params = mock_ch.query.call_args.kwargs["parameters"]
         assert params["finding_ids"] == ["f1", "f2"]
         assert params["since"] == datetime.fromtimestamp(0.5, tz=UTC)
