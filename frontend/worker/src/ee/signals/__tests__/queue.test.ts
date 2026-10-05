@@ -28,6 +28,9 @@ const { mockAdd, mockUpsertScheduler, mockRound, fakeRedis } = vi.hoisted(() => 
       this.expiries.set(key, ms);
       return 1;
     },
+    async del(key: string) {
+      return this.hashes.delete(key) ? 1 : 0;
+    },
   };
   return { mockAdd: vi.fn(), mockUpsertScheduler: vi.fn(), mockRound: vi.fn(), fakeRedis };
 });
@@ -134,6 +137,7 @@ import {
   enqueueSignalHits,
   markDrained,
   partitionsToSweep,
+  clearHitFailures,
   recordHitFailure,
   type SignalAssignJobData,
 } from "../queue.js";
@@ -278,6 +282,12 @@ describe("recordHitFailure", () => {
     expect(await recordHitFailure("r1", T0)).toEqual({ count: 1, firstAt: T0 });
     expect(await recordHitFailure("r1", T0 + 60_000)).toEqual({ count: 2, firstAt: T0 });
     expect(fakeRedis.expiries.get("signals:assign:failures:r1")).toBe(7 * 24 * 3_600_000);
+  });
+
+  it("starts over after the hit's failures are cleared", async () => {
+    await recordHitFailure("r2", T0);
+    await clearHitFailures("r2");
+    expect(await recordHitFailure("r2", T0 + 60_000)).toEqual({ count: 1, firstAt: T0 + 60_000 });
   });
 });
 

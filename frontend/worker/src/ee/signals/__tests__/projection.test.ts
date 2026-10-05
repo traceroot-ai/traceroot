@@ -80,7 +80,7 @@ describe("assignment projection repair", () => {
       },
       embed,
       models,
-      failures: { record: vi.fn() },
+      failures: { record: vi.fn(), clear: vi.fn() },
       enqueueRca: vi.fn(async () => {}),
       enqueueDigest: vi.fn(async () => {}),
       now: () => 2000,

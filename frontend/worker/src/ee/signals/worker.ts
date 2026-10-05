@@ -20,6 +20,7 @@ import {
   getSignalAssignQueue,
   markDrained,
   partitionsToSweep,
+  clearHitFailures,
   recordHitFailure,
   type SignalAssignJobData,
 } from "./queue.js";
@@ -34,7 +35,7 @@ function productionDeps(): RoundDeps {
   return {
     db: prisma,
     backend: signalsBackend,
-    failures: { record: recordHitFailure },
+    failures: { record: recordHitFailure, clear: clearHitFailures },
     enqueueRca: (findingId, projectId) => enqueueSignalRca(findingId, projectId),
     embed: (texts) => embedTexts(texts, apiKey),
     models: async (usage) => {

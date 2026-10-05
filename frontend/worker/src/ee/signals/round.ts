@@ -20,7 +20,12 @@ import { groupSignalText, jevGroupKey } from "./jev-group.js";
 import { embeddingText, hitMaterial } from "./material.js";
 import { shortlist } from "./shortlist.js";
 import { repairAssignmentCopies, writeAssignmentCopies } from "./projection.js";
-import type { AssignmentModels, Candidate, ModelUsage } from "./types.js";
+import {
+  UnusableAnswerError,
+  type AssignmentModels,
+  type Candidate,
+  type ModelUsage,
+} from "./types.js";
 import {
   applyAssignment,
   type AssignmentResult,
@@ -56,10 +61,12 @@ export type RoundDb = Pick<
   "$transaction" | "detector" | "signal" | "signalHit" | "aIMessage"
 >;
 
-/** Per-hit failure records, so a hit that keeps failing is eventually given up. */
+/** Per-hit counts of unusable answers, so a hit that keeps getting them is eventually given up. */
 export interface HitFailures {
   /** Count one more failure of this hit; returns the count and the first failure time. */
   record(runId: string, now: number): Promise<{ count: number; firstAt: number }>;
+  /** Forget the hit's failures, so a replayed hit starts over. */
+  clear(runId: string): Promise<void>;
 }
 
 export interface RoundDeps {
@@ -83,7 +90,7 @@ export interface RoundStats {
   duplicate: number;
   /** Hits whose processing threw this round; they stay waiting. */
   failed: number;
-  /** Hits given up on after failing repeatedly; they no longer count as waiting. */
+  /** Hits given up on after repeated unusable answers; they no longer count as waiting. */
   gaveUp: number;
   /** Findings whose RCA this round enqueued. */
   rcas: number;
@@ -359,7 +366,9 @@ export async function runAssignmentRound(
 
     // A hit that fails is left waiting and the round moves on, so one bad hit
     // cannot hold up the rest of its detector. Failures in a row look like an
-    // outage rather than a bad hit, so the round stops there.
+    // outage rather than a bad hit, so the round stops there. Only an unusable
+    // model answer counts toward giving up on a hit; any other failure is an
+    // outage, however long it lasts, and the hit is assigned once it ends.
     let consecutiveFailures = 0;
     for (const hit of waiting) {
       if (processed > 0 && deps.now() - started >= ROUND_MAX_MS) break;
@@ -382,17 +391,23 @@ export async function runAssignmentRound(
           if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
           continue;
         }
+        if (!(err instanceof UnusableAnswerError)) {
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
+          continue;
+        }
         const failure = await deps.failures.record(hit.runId, deps.now());
         if (
           failure.count >= GIVE_UP_AFTER_FAILURES &&
           deps.now() - failure.firstAt >= GIVE_UP_AFTER_MS
         ) {
           // Marked in ClickHouse so it stops counting as waiting; nothing is
-          // written to Postgres, so it belongs to no signal.
+          // written to Postgres, so it belongs to no signal. Its count is
+          // cleared, so a hit replayed by scripts/replay_signal_hits.py starts over.
           stats.gaveUp++;
           console.error(
-            `[Signals] giving up on run=${hit.runId} after ${failure.count} failures since ${new Date(failure.firstAt).toISOString()}`,
+            `[Signals] giving up on run=${hit.runId} after ${failure.count} unusable answers since ${new Date(failure.firstAt).toISOString()}; last: ${err.message}`,
           );
+          await deps.failures.clear(hit.runId);
           copies.push({
             project_id: projectId,
             detector_id: detectorId,
