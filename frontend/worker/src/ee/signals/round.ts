@@ -237,6 +237,9 @@ export async function runAssignmentRound(
   // that settles a trace's last hit starts its RCA.
   const settled = new Set<string>();
   let lastError: unknown = null;
+  // Hits given up this round: their failure counts are cleared once the give-up
+  // copy is written, so a copy that fails leaves the count to give them up again.
+  const gaveUp: string[] = [];
   try {
     // Hits recorded in Postgres whose ClickHouse copy is missing need no model call.
     const recorded = new Map(
@@ -408,12 +411,12 @@ export async function runAssignmentRound(
         ) {
           // Marked in ClickHouse so it stops counting as waiting; nothing is
           // written to Postgres, so it belongs to no signal. Its count is
-          // cleared, so a hit replayed by scripts/replay_signal_hits.py starts over.
+          // cleared after the copy lands, so a replayed hit starts over.
           stats.gaveUp++;
           console.error(
             `[Signals] giving up on run=${hit.runId} after ${failure.count} unusable answers since ${new Date(failure.firstAt).toISOString()}; last: ${err.message}`,
           );
-          await deps.failures.clear(hit.runId);
+          gaveUp.push(hit.runId);
           settled.add(hit.findingId);
           copies.push({
             project_id: projectId,
@@ -436,6 +439,7 @@ export async function runAssignmentRound(
     // Whatever was recorded in Postgres gets its copy and its RCA, and billed
     // calls stay findable, even when the round fails part-way.
     await flush();
+    if (!flushError) for (const runId of gaveUp) await deps.failures.clear(runId);
     await recordUsage(db, workspaceId, usage);
     if (settled.size > 0) {
       // A pending RCA row is committed with its opening; if this fails, the
