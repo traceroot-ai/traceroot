@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-TraceRoot turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
+Open Source Self-improving
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -23,13 +23,11 @@ TraceRoot turns production traces into actionable feedback and evals, closing th
 
 <p align="center">⭐ Help us reach more developers and grow the TraceRoot community. Star this repo!</p>
 
-<p align="center">
-  <a href="docs/videos/readme-demo.mp4">
-    <img src="docs/images/readme-demo-preview.jpg" alt="▶ Watch the demo: investigate, fix, and verify with TraceRoot (41 seconds)" width="100%">
-  </a>
-  <br>
-  <a href="docs/videos/readme-demo.mp4">▶ Watch the demo: investigate, fix, and verify with TraceRoot (41 seconds)</a>
-</p>
+## TraceRoot
+
+TraceRoot turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
+
+[readme-demo.mp4](docs/videos/readme-demo.mp4)
 
 ## Core Features
 

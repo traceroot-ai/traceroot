@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 자기 개선 루프를 완성합니다.
+오픈 소스 자기 개선
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -23,13 +23,11 @@ TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가�
 
 <p align="center">⭐ 더 많은 개발자에게 TraceRoot를 알리고 커뮤니티를 키울 수 있도록 이 저장소에 Star를 남겨 주세요!</p>
 
-<p align="center">
-  <a href="docs/videos/readme-demo.mp4">
-    <img src="docs/images/readme-demo-preview.jpg" alt="▶ 데모 보기: TraceRoot로 문제 분석, 수정, 검증하기 (41초)" width="100%">
-  </a>
-  <br>
-  <a href="docs/videos/readme-demo.mp4">▶ 데모 보기: TraceRoot로 문제 분석, 수정, 검증하기 (41초)</a>
-</p>
+## TraceRoot
+
+TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 자기 개선 루프를 완성합니다.
+
+[readme-demo.mp4](docs/videos/readme-demo.mp4)
 
 ## 핵심 기능
 
