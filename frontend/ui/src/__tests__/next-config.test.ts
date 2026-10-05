@@ -24,7 +24,7 @@ describe("next.config.js env block", () => {
     // throws (e.g. a shallow CI checkout with no tags fetched).
     let expected: string;
     try {
-      expected = execSync("git describe --tags --abbrev=0", {
+      expected = execSync("git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*'", {
         cwd: new URL("../../", import.meta.url),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],

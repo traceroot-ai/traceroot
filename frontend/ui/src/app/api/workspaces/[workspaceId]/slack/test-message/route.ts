@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
 import { prisma } from "@traceroot/core";
@@ -23,7 +24,7 @@ function mapSlackError(code: string): string {
   }
 }
 
-export async function POST(
+async function handlePOST(
   _request: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> },
 ) {
@@ -107,3 +108,4 @@ export async function POST(
     channel: { id: channelId, name: channelName },
   });
 }
+export const POST = withImpersonationPolicy(handlePOST);

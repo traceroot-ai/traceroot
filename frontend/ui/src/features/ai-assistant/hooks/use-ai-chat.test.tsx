@@ -1,40 +1,986 @@
 // @vitest-environment jsdom
-import { useEffect } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
-
-vi.mock("./use-ai-stream", () => ({
-  useAIStream: () => ({
-    messages: [],
-    isStreaming: false,
-    sendMessage: vi.fn(),
-    abort: vi.fn(),
-    setMessages: vi.fn(),
-  }),
-}));
+import { useEffect, type ReactNode } from "react";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useAiChat } from "./use-ai-chat";
+import { dateFilterStorageKey } from "@/lib/date-filter-storage";
+import type { AISession } from "../types";
+import type { ModelSelection } from "../components/model-selector";
+
+// The hook invalidates the react-query cache on write results, so every render
+// needs a client in scope; nothing asserted here depends on its contents.
+const queryClient = new QueryClient();
+
+function wrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
+function createSSE() {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+  const encoder = new TextEncoder();
+  return {
+    response: new Response(stream, { status: 200 }),
+    emit(delta: string) {
+      try {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              type: "message_update",
+              assistantMessageEvent: { type: "text_delta", delta },
+            })}\n`,
+          ),
+        );
+      } catch {
+        // stream cancelled — assertions read hook state
+      }
+    },
+    close() {
+      try {
+        controller.close();
+      } catch {
+        // already cancelled
+      }
+    },
+  };
+}
+
+const MODEL: ModelSelection = {
+  model: "test-model",
+  provider: "test-provider",
+  source: "system",
+  adapter: "anthropic",
+};
+
+const sessionB: AISession = {
+  id: "B",
+  projectId: "p1",
+  title: "older chat",
+  status: "active",
+  createTime: "2026-01-01T00:00:00Z",
+};
+
+const jsonResponse = (body: unknown) =>
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+
+describe("useAiChat session switching", () => {
+  let sseA: ReturnType<typeof createSSE>;
+  let fetchMock: ReturnType<typeof vi.fn>;
+  /** GET .../sessions/<id>/messages calls, by session id */
+  let historyFetches: string[];
+
+  beforeEach(() => {
+    sseA = createSSE();
+    historyFetches = [];
+    fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return jsonResponse({ id: "A" });
+      }
+      if (method === "POST" && url.endsWith("/ai/sessions/A/messages")) {
+        return sseA.response;
+      }
+      const historyMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "GET" && historyMatch) {
+        historyFetches.push(historyMatch[1]);
+        return jsonResponse({
+          messages: [
+            {
+              id: `${historyMatch[1]}-m1`,
+              role: "user",
+              content: `history of ${historyMatch[1]}`,
+              createTime: "2026-01-01T00:00:00Z",
+            },
+          ],
+        });
+      }
+      if (method === "GET" && url.endsWith("/ai/sessions")) {
+        return jsonResponse({ sessions: [sessionB] });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const renderChat = () => renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
+
+  const startStreamInA = async (result: ReturnType<typeof renderChat>["result"]) => {
+    await act(async () => {
+      await result.current.handleSend("hi there", MODEL);
+    });
+    sseA.emit("partial answer");
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "partial answer")).toBe(true),
+    );
+  };
+
+  it("loads an initialSessionId's history into its bucket on mount", async () => {
+    const { result } = renderHook(() => useAiChat({ projectId: "p1", initialSessionId: "rca-1" }), {
+      wrapper,
+    });
+    expect(result.current.currentSessionId).toBe("rca-1");
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "history of rca-1")).toBe(true),
+    );
+    expect(historyFetches).toContain("rca-1");
+  });
+
+  it("keeps a still-streaming session's deltas out of another session's view", async () => {
+    const { result } = renderChat();
+    await startStreamInA(result);
+    expect(result.current.isStreaming).toBe(true);
+
+    await act(async () => {
+      await result.current.handleSelectSession(sessionB);
+    });
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "history of B")).toBe(true),
+    );
+
+    // session A's stream keeps producing — nothing may bleed into B's view.
+    // Wait for the delta to land in A's own bucket (observable by switching
+    // back), not on a timer: a sleep either flakes or passes vacuously.
+    await act(async () => {
+      sseA.emit(" continues");
+    });
+    await act(async () => {
+      await result.current.handleSelectSession({ ...sessionB, id: "A" });
+    });
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "partial answer continues")).toBe(
+        true,
+      ),
+    );
+    // Back to B with its history fetch left hanging: the view is B's cached
+    // bucket, where a leaked delta would still be visible (a fresh history
+    // load would erase it and make this check vacuous).
+    // The captured implementation is typed as the fetch signature it was
+    // given: the mock's own return type also admits a constructor.
+    const answer = fetchMock.getMockImplementation() as (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if ((init?.method ?? "GET") === "GET" && url.endsWith("/ai/sessions/B/messages")) {
+        return new Promise<Response>(() => {});
+      }
+      return answer(input, init);
+    });
+    act(() => {
+      void result.current.handleSelectSession(sessionB);
+    });
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "history of B")).toBe(true),
+    );
+    expect(result.current.messages.every((m) => !m.content.includes("continues"))).toBe(true);
+    // and the visible session is not "streaming"
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("returning to a still-streaming session shows its accumulated progress without a history fetch", async () => {
+    const { result } = renderChat();
+    await startStreamInA(result);
+
+    await act(async () => {
+      await result.current.handleSelectSession(sessionB);
+    });
+    sseA.emit(" and more");
+
+    await act(async () => {
+      await result.current.handleSelectSession({ ...sessionB, id: "A" });
+    });
+
+    // live bucket is shown as-is: user turn + partial assistant text
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "partial answer and more")).toBe(
+        true,
+      ),
+    );
+    expect(result.current.messages.some((m) => m.content === "hi there")).toBe(true);
+    expect(result.current.isStreaming).toBe(true);
+    // the DB (which lacks the in-flight response) must not have been consulted
+    expect(historyFetches).not.toContain("A");
+  });
+
+  it("handleNewSession empties the view but leaves the previous stream running", async () => {
+    const { result } = renderChat();
+    await startStreamInA(result);
+
+    act(() => {
+      result.current.handleNewSession();
+    });
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.currentSessionId).toBeNull();
+
+    // stream A still accumulates in the background
+    sseA.emit(" background");
+    await act(async () => {
+      await result.current.handleSelectSession({ ...sessionB, id: "A" });
+    });
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "partial answer background")).toBe(
+        true,
+      ),
+    );
+  });
+
+  it("handleClose aborts every stream and clears all cached sessions", async () => {
+    const { result } = renderChat();
+    await startStreamInA(result);
+
+    act(() => {
+      result.current.handleClose();
+    });
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.currentSessionId).toBeNull();
+
+    // late chunks are dropped: revisiting A hits the DB, not a live bucket
+    sseA.emit(" ghost");
+    await act(async () => {
+      await result.current.handleSelectSession({ ...sessionB, id: "A" });
+    });
+    await waitFor(() => expect(historyFetches).toContain("A"));
+    expect(result.current.messages.every((m) => !m.content.includes("ghost"))).toBe(true);
+  });
+
+  it("a history load resolving after a send does not clobber the live run", async () => {
+    const { result } = renderChat();
+    const sseB = createSSE();
+    let resolveHistory!: (r: Response) => void;
+    const deferredHistory = new Promise<Response>((r) => {
+      resolveHistory = r;
+    });
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/ai/sessions/B/messages")) return deferredHistory;
+      if (method === "POST" && url.endsWith("/ai/sessions/B/messages")) return sseB.response;
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    // select B — its history fetch stays in flight
+    let selectPromise!: Promise<void>;
+    act(() => {
+      selectPromise = result.current.handleSelectSession(sessionB);
+    });
+    // user sends a message in B before the history load resolves
+    await act(async () => {
+      await result.current.handleSend("fresh question", MODEL);
+    });
+    sseB.emit("live reply");
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true),
+    );
+
+    // the stale history resolves now — it must not wipe the live run
+    resolveHistory(
+      new Response(
+        JSON.stringify({
+          messages: [
+            {
+              id: "b-old",
+              role: "user",
+              content: "history of B",
+              createTime: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await act(async () => {
+      await selectPromise;
+    });
+
+    expect(result.current.messages.some((m) => m.content === "fresh question")).toBe(true);
+    expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true);
+    expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("a history load resolving after the run finished keeps the completed transcript", async () => {
+    const { result } = renderChat();
+    const sseB = createSSE();
+    let resolveHistory!: (r: Response) => void;
+    const deferredHistory = new Promise<Response>((r) => {
+      resolveHistory = r;
+    });
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/ai/sessions/B/messages")) return deferredHistory;
+      if (method === "POST" && url.endsWith("/ai/sessions/B/messages")) return sseB.response;
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    let selectPromise!: Promise<void>;
+    act(() => {
+      selectPromise = result.current.handleSelectSession(sessionB);
+    });
+    await act(async () => {
+      await result.current.handleSend("fresh question", MODEL);
+    });
+    sseB.emit("live reply");
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true),
+    );
+    // The run completes before the stale history resolves.
+    sseB.close();
+    await waitFor(() => expect(result.current.isStreaming).toBe(false));
+
+    resolveHistory(
+      new Response(
+        JSON.stringify({
+          messages: [
+            {
+              id: "b-old",
+              role: "user",
+              content: "history of B",
+              createTime: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await act(async () => {
+      await selectPromise;
+    });
+
+    expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true);
+    expect(result.current.messages.some((m) => m.content === "history of B")).toBe(false);
+  });
+
+  it("a second send right after session creation reuses the session", async () => {
+    let sessionPosts = 0;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        sessionPosts += 1;
+        return jsonResponse({ id: "A" });
+      }
+      if (method === "POST" && url.endsWith("/ai/sessions/A/messages")) {
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    await act(async () => {
+      await result.current.handleSend("one", MODEL);
+      // fired before any rerender can commit the new session id to state
+      await result.current.handleSend("two", MODEL);
+    });
+
+    expect(sessionPosts).toBe(1);
+  });
+
+  it("sends the site's selected range for the project with every message", async () => {
+    // jsdom: the stored pick is the page's selection; no URL pin here.
+    window.localStorage.setItem(dateFilterStorageKey("p1"), JSON.stringify({ id: "7d" }));
+    const bodies: Record<string, unknown>[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) return jsonResponse({ id: "A" });
+      if (method === "POST" && url.endsWith("/ai/sessions/A/messages")) {
+        bodies.push(JSON.parse(String(init?.body)));
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+    await act(async () => {
+      await result.current.handleSend("summarize it", MODEL);
+    });
+    expect(bodies[0]).toMatchObject({ message: "summarize it", range: "7d" });
+    window.localStorage.removeItem(dateFilterStorageKey("p1"));
+  });
+
+  it("concurrent sends share one in-flight session creation", async () => {
+    let sessionPosts = 0;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        sessionPosts += 1;
+        return jsonResponse({ id: "A" });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    // both fired before the first creation resolves — they must share it
+    await act(async () => {
+      await Promise.all([
+        result.current.handleSend("one", MODEL),
+        result.current.handleSend("two", MODEL),
+      ]);
+    });
+
+    expect(sessionPosts).toBe(1);
+    expect(messagePosts).toEqual(["A", "A"]);
+  });
+
+  it("a project switch discards an in-flight session creation", async () => {
+    const sessionPosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      const createMatch = url.match(/\/api\/projects\/([^/]+)\/ai\/sessions$/);
+      if (method === "POST" && createMatch) {
+        sessionPosts.push(createMatch[1]);
+        if (createMatch[1] === "p1") {
+          // never resolves on its own — only the abort settles it
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          });
+        }
+        return jsonResponse({ id: "B-session" });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) return createSSE().response;
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result, rerender } = renderHook(({ projectId }) => useAiChat({ projectId }), {
+      initialProps: { projectId: "p1" },
+      wrapper,
+    });
+
+    // p1's creation is still in flight when the user switches projects
+    let firstSend!: Promise<boolean | void>;
+    act(() => {
+      firstSend = result.current.handleSend("hi", MODEL);
+    });
+    rerender({ projectId: "p2" });
+
+    await act(async () => {
+      await result.current.handleSend("hello", MODEL);
+      await firstSend;
+    });
+
+    // p2 got its own session; the aborted p1 creation never leaked in
+    expect(sessionPosts).toEqual(["p1", "p2"]);
+    expect(result.current.currentSessionId).toBe("B-session");
+  });
+
+  it("closing the panel drops a send whose creation resolved across the close", async () => {
+    let resolveCreation!: (r: Response) => void;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        // settles only via resolveCreation — deliberately ignores the abort
+        // signal, modeling a response that was already on the wire at close
+        return new Promise<Response>((r) => {
+          resolveCreation = r;
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    let send!: Promise<boolean | void>;
+    act(() => {
+      send = result.current.handleSend("hi", MODEL);
+    });
+    act(() => {
+      result.current.handleClose();
+    });
+    // the creation succeeds anyway — but the panel is closed: no run may start
+    resolveCreation(jsonResponse({ id: "A" }));
+    await act(async () => {
+      await send;
+    });
+
+    expect(messagePosts).toEqual([]);
+    expect(result.current.currentSessionId).toBeNull();
+  });
+
+  it("a send after close-and-reopen starts a fresh session instead of reusing the pre-close creation", async () => {
+    const creations: Array<(r: Response) => void> = [];
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        // deliberately ignores the abort signal — the pre-close creation's
+        // response is already on the wire and settles late
+        return new Promise<Response>((r) => {
+          creations.push(r);
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    let first!: Promise<boolean | void>;
+    act(() => {
+      first = result.current.handleSend("pre-close", MODEL);
+    });
+    act(() => {
+      result.current.handleClose();
+    });
+
+    // the user reopens the panel and starts a new conversation
+    let second!: Promise<boolean | void>;
+    act(() => {
+      second = result.current.handleSend("post-reopen", MODEL);
+    });
+
+    // the post-reopen send must not ride the pre-close creation
+    expect(creations).toHaveLength(2);
+
+    await act(async () => {
+      creations[1](jsonResponse({ id: "B" }));
+      await second;
+      creations[0](jsonResponse({ id: "A" }));
+      await first;
+    });
+
+    // the reopened chat runs in its own session; the pre-close send stays dropped
+    expect(messagePosts).toEqual(["B"]);
+    expect(result.current.currentSessionId).toBe("B");
+  });
+
+  it("a pre-close send settling does not blank the waiting state of a post-reopen send", async () => {
+    const creations: Array<(r: Response) => void> = [];
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return new Promise<Response>((r) => {
+          creations.push(r);
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    let first!: Promise<boolean | void>;
+    act(() => {
+      first = result.current.handleSend("pre-close", MODEL);
+    });
+    act(() => {
+      result.current.handleClose();
+    });
+    let second!: Promise<boolean | void>;
+    act(() => {
+      second = result.current.handleSend("post-reopen", MODEL);
+    });
+
+    // the pre-close creation settles (and its send winds down) while the
+    // post-reopen send is still waiting on its own creation
+    await act(async () => {
+      creations[0](jsonResponse({ id: "A" }));
+      await first;
+    });
+
+    // the panel must still show as busy — one send is genuinely in flight
+    expect(result.current.isStreaming).toBe(true);
+
+    await act(async () => {
+      creations[1](jsonResponse({ id: "B" }));
+      await second;
+    });
+    expect(messagePosts).toEqual(["B"]);
+  });
+
+  it("clicking New Session while a session creation is in flight does not restore the old session", async () => {
+    let resolveCreation!: (r: Response) => void;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return new Promise<Response>((r) => {
+          resolveCreation = r;
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    let send!: Promise<boolean | void>;
+    act(() => {
+      send = result.current.handleSend("hi", MODEL);
+    });
+    act(() => {
+      result.current.handleNewSession();
+    });
+    await act(async () => {
+      resolveCreation(jsonResponse({ id: "A" }));
+      await send;
+    });
+
+    // the in-flight message still delivers to the session created for it…
+    expect(messagePosts).toEqual(["A"]);
+    // …but it must not snap the panel back to that session
+    expect(result.current.currentSessionId).toBeNull();
+    expect(result.current.messages).toEqual([]);
+  });
+
+  it("a send after New Session creates a fresh session instead of reusing the pending creation", async () => {
+    const creations: Array<(r: Response) => void> = [];
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return new Promise<Response>((r) => {
+          creations.push(r);
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    let first!: Promise<boolean | void>;
+    act(() => {
+      first = result.current.handleSend("one", MODEL);
+    });
+    act(() => {
+      result.current.handleNewSession();
+    });
+    let second!: Promise<boolean | void>;
+    act(() => {
+      second = result.current.handleSend("two", MODEL);
+    });
+
+    // the post-boundary send must have started its own creation
+    expect(creations).toHaveLength(2);
+
+    await act(async () => {
+      creations[1](jsonResponse({ id: "B" }));
+      await second;
+      creations[0](jsonResponse({ id: "A" }));
+      await first;
+    });
+
+    expect(messagePosts).toEqual(["B", "A"]);
+    expect(result.current.currentSessionId).toBe("B");
+  });
+
+  it("selecting a history session while a creation is in flight is not clobbered by its late commit", async () => {
+    let resolveCreation!: (r: Response) => void;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return new Promise<Response>((r) => {
+          resolveCreation = r;
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      if (method === "GET" && messageMatch) return jsonResponse({ messages: [] });
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    let send!: Promise<boolean | void>;
+    act(() => {
+      send = result.current.handleSend("hi", MODEL);
+    });
+    await act(async () => {
+      await result.current.handleSelectSession(sessionB);
+    });
+    await act(async () => {
+      resolveCreation(jsonResponse({ id: "A" }));
+      await send;
+    });
+
+    expect(messagePosts).toEqual(["A"]);
+    expect(result.current.currentSessionId).toBe("B");
+  });
+
+  it("an RCA session arriving via initialSessionId is not clobbered by an in-flight creation's commit", async () => {
+    let resolveCreation!: (r: Response) => void;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return new Promise<Response>((r) => {
+          resolveCreation = r;
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      if (method === "GET" && messageMatch) return jsonResponse({ messages: [] });
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result, rerender } = renderHook(
+      ({ initialSessionId }: { initialSessionId?: string }) =>
+        useAiChat({ projectId: "p1", initialSessionId }),
+      { initialProps: {} as { initialSessionId?: string }, wrapper },
+    );
+
+    let send!: Promise<boolean | void>;
+    act(() => {
+      send = result.current.handleSend("hi", MODEL);
+    });
+    // the RCA session arrives while the creation is still in flight
+    await act(async () => {
+      rerender({ initialSessionId: "R" });
+    });
+    expect(result.current.currentSessionId).toBe("R");
+
+    await act(async () => {
+      resolveCreation(jsonResponse({ id: "A" }));
+      await send;
+    });
+
+    expect(messagePosts).toEqual(["A"]);
+    expect(result.current.currentSessionId).toBe("R");
+  });
+
+  it("a send immediately after New Session does not reuse the previous active session", async () => {
+    let sessionPosts = 0;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        sessionPosts += 1;
+        return jsonResponse({ id: `S${sessionPosts}` });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    // establish an active session the normal way
+    await act(async () => {
+      await result.current.handleSend("old chat", MODEL);
+    });
+    expect(result.current.currentSessionId).toBe("S1");
+
+    // New Session and a send in the same tick — before any rerender can sync refs
+    await act(async () => {
+      result.current.handleNewSession();
+      await result.current.handleSend("fresh chat", MODEL);
+    });
+
+    expect(sessionPosts).toBe(2);
+    expect(messagePosts).toEqual(["S1", "S2"]);
+    expect(result.current.currentSessionId).toBe("S2");
+  });
+
+  it("an initialSessionId history load resolving after a send does not clobber the live run", async () => {
+    const sseR = createSSE();
+    let resolveHistory!: (r: Response) => void;
+    const deferredHistory = new Promise<Response>((r) => {
+      resolveHistory = r;
+    });
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/ai/sessions/R/messages")) return deferredHistory;
+      if (method === "POST" && url.endsWith("/ai/sessions/R/messages")) return sseR.response;
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderHook(() => useAiChat({ projectId: "p1", initialSessionId: "R" }), {
+      wrapper,
+    });
+
+    // the user sends in R before its history load resolves
+    await act(async () => {
+      await result.current.handleSend("fresh question", MODEL);
+    });
+    sseR.emit("live reply");
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true),
+    );
+
+    await act(async () => {
+      resolveHistory(
+        jsonResponse({
+          messages: [
+            {
+              id: "r-old",
+              role: "user",
+              content: "history of R",
+              createTime: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+      );
+      await deferredHistory;
+    });
+
+    expect(result.current.messages.some((m) => m.content === "fresh question")).toBe(true);
+    expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true);
+    expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("a send immediately after deleting the active session opens a new one", async () => {
+    let sessionPosts = 0;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        sessionPosts += 1;
+        return jsonResponse({ id: `S${sessionPosts}` });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    await act(async () => {
+      await result.current.handleSend("old chat", MODEL);
+    });
+    expect(result.current.currentSessionId).toBe("S1");
+
+    // delete and send in the same tick — before any rerender can sync refs
+    await act(async () => {
+      result.current.handleDeleteSession("S1");
+      await result.current.handleSend("fresh chat", MODEL);
+    });
+
+    expect(sessionPosts).toBe(2);
+    expect(messagePosts).toEqual(["S1", "S2"]);
+    expect(result.current.currentSessionId).toBe("S2");
+  });
+
+  it("a send immediately after closing the panel opens a new session", async () => {
+    let sessionPosts = 0;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        sessionPosts += 1;
+        return jsonResponse({ id: `S${sessionPosts}` });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    await act(async () => {
+      await result.current.handleSend("old chat", MODEL);
+    });
+    expect(result.current.currentSessionId).toBe("S1");
+
+    await act(async () => {
+      result.current.handleClose();
+      await result.current.handleSend("after reopen", MODEL);
+    });
+
+    expect(sessionPosts).toBe(2);
+    expect(messagePosts).toEqual(["S1", "S2"]);
+    expect(result.current.currentSessionId).toBe("S2");
+  });
+
+  it("deleting the active session clears the view and stops its stream", async () => {
+    const { result } = renderChat();
+    await startStreamInA(result);
+
+    act(() => {
+      result.current.handleDeleteSession("A");
+    });
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentSessionId).toBeNull();
+    expect(result.current.isStreaming).toBe(false);
+  });
+});
 
 const PICK = { model: "kimi-k3", provider: "Moonshot", source: "byok" as const, adapter: "openai" };
 
-afterEach(() => {
-  window.localStorage.clear();
-});
-
 describe("useAiChat model selection", () => {
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+  });
+
   it("starts empty and exposes a setter", () => {
-    const { result } = renderHook(() => useAiChat({ projectId: "p1" }));
+    const { result } = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     expect(result.current.modelSelection.model).toBe("");
     act(() => result.current.setModelSelection(PICK));
     expect(result.current.modelSelection).toEqual(PICK);
   });
 
   it("restores the selection for the same project after a remount", () => {
-    const first = renderHook(() => useAiChat({ projectId: "p1" }));
+    const first = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     act(() => first.result.current.setModelSelection(PICK));
     first.unmount();
 
-    const second = renderHook(() => useAiChat({ projectId: "p1" }));
+    const second = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     expect(second.result.current.modelSelection).toEqual(PICK);
   });
 
@@ -51,7 +997,7 @@ describe("useAiChat model selection", () => {
         }, [projectId, model]);
         return chat;
       },
-      { initialProps: { projectId: "p1" } },
+      { initialProps: { projectId: "p1" }, wrapper },
     );
     act(() => result.current.setModelSelection(PICK));
     rerender({ projectId: "p2" });
@@ -65,11 +1011,839 @@ describe("useAiChat model selection", () => {
   });
 
   it("keeps selections separate per project", () => {
-    const a = renderHook(() => useAiChat({ projectId: "p1" }));
+    const a = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     act(() => a.result.current.setModelSelection(PICK));
     a.unmount();
 
-    const b = renderHook(() => useAiChat({ projectId: "p2" }));
+    const b = renderHook(() => useAiChat({ projectId: "p2" }), { wrapper });
     expect(b.result.current.modelSelection.model).toBe("");
+  });
+});
+
+describe("useAiChat pending-write decisions", () => {
+  /** SSE stream that can emit arbitrary event objects, not just text deltas. */
+  function createEventSSE() {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+    });
+    const encoder = new TextEncoder();
+    return {
+      response: new Response(stream, { status: 200 }),
+      emit(event: Record<string, unknown>) {
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n`));
+        } catch {
+          // stream cancelled — assertions read hook state
+        }
+      },
+    };
+  }
+
+  let sse: ReturnType<typeof createEventSSE>;
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let decisionCalls: { url: string; body: unknown }[];
+  let decisionResponse: () => Response | Promise<Response>;
+
+  beforeEach(() => {
+    sse = createEventSSE();
+    decisionCalls = [];
+    decisionResponse = () => jsonResponse({ ok: true });
+    fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return jsonResponse({ id: "A" });
+      }
+      if (method === "POST" && url.endsWith("/ai/sessions/A/messages")) {
+        return sse.response;
+      }
+      if (method === "POST" && url.endsWith("/decisions")) {
+        decisionCalls.push({ url, body: JSON.parse(String(init?.body)) });
+        return decisionResponse();
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const findStep = (result: { current: ReturnType<typeof useAiChat> }) =>
+    result.current.messages.find((m) => m.role === "tool_step")?.toolStep;
+
+  /** Send a message in session A and park a create_widget call on it. */
+  const parkPendingCall = async () => {
+    const rendered = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
+    await act(async () => {
+      await rendered.result.current.handleSend("make a widget", MODEL);
+    });
+    sse.emit({
+      type: "tool_execution_start",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      args: { title: "Tokens" },
+    });
+    sse.emit({
+      type: "confirmation_pending",
+      decisionId: "d1",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      args: { title: "Tokens" },
+    });
+    await waitFor(() => expect(findStep(rendered.result)?.pending).toEqual({ decisionId: "d1" }));
+    return rendered;
+  };
+
+  it("posts a create decision through the session's decisions route and clears pending", async () => {
+    const { result } = await parkPendingCall();
+
+    let settled!: boolean;
+    await act(async () => {
+      settled = await result.current.handleDecision({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        action: "create",
+      });
+    });
+
+    expect(settled).toBe(true);
+    expect(decisionCalls).toEqual([
+      {
+        url: "/api/projects/p1/ai/sessions/A/decisions",
+        body: { decisionId: "d1", action: "create" },
+      },
+    ]);
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBeFalsy();
+  });
+
+  it("marks the step skipped when the user's skip decision lands", async () => {
+    const { result } = await parkPendingCall();
+
+    await act(async () => {
+      await result.current.handleDecision({ toolCallId: "tc1", decisionId: "d1", action: "skip" });
+    });
+
+    expect(decisionCalls[0]?.body).toEqual({ decisionId: "d1", action: "skip" });
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBe(true);
+  });
+
+  it("treats 409 as already resolved: silent, no transcript error, stream owns the outcome", async () => {
+    decisionResponse = () =>
+      new Response(JSON.stringify({ error: "already decided" }), { status: 409 });
+    const { result } = await parkPendingCall();
+
+    let settled!: boolean;
+    await act(async () => {
+      settled = await result.current.handleDecision({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        action: "create",
+      });
+    });
+
+    expect(settled).toBe(true);
+    // No local mutation — the resolving tool result arrives on the stream.
+    expect(findStep(result)?.pending).toEqual({ decisionId: "d1" });
+    expect(result.current.messages.some((m) => m.content.startsWith("Error"))).toBe(false);
+  });
+
+  it("resolves a stale card (404) as a skip", async () => {
+    decisionResponse = () => new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+    const { result } = await parkPendingCall();
+
+    let settled!: boolean;
+    await act(async () => {
+      settled = await result.current.handleDecision({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        action: "create",
+      });
+    });
+
+    expect(settled).toBe(true);
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBe(true);
+  });
+
+  it("leaves the card pending and reports failure when the request cannot be delivered", async () => {
+    decisionResponse = () => Promise.reject(new Error("network down"));
+    const { result } = await parkPendingCall();
+
+    let settled!: boolean;
+    await act(async () => {
+      settled = await result.current.handleDecision({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        action: "create",
+      });
+    });
+
+    expect(settled).toBe(false);
+    expect(findStep(result)?.pending).toEqual({ decisionId: "d1" });
+    expect(result.current.messages.some((m) => m.content.startsWith("Error"))).toBe(false);
+  });
+});
+
+describe("useAiChat revision by chat", () => {
+  /** SSE stream that can emit arbitrary event objects, not just text deltas. */
+  function createEventSSE() {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+    });
+    const encoder = new TextEncoder();
+    return {
+      response: new Response(stream, { status: 200 }),
+      emit(event: Record<string, unknown>) {
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n`));
+        } catch {
+          // stream cancelled — assertions read hook state
+        }
+      },
+      /** End the stream: the run it carries is over. */
+      close() {
+        try {
+          controller.close();
+        } catch {
+          // already cancelled
+        }
+      },
+    };
+  }
+
+  let sse: ReturnType<typeof createEventSSE>;
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let decisionCalls: { url: string; body: unknown }[];
+  let decisionResponse: () => Response | Promise<Response>;
+  /** The history load a session switch fires; withheld to probe live buckets. */
+  let historyResponse: () => Response | Promise<Response>;
+  /** Every POST .../messages, in order — the run-starting sends. */
+  let messagePosts: { sessionId: string; message: string }[];
+
+  beforeEach(() => {
+    sse = createEventSSE();
+    decisionCalls = [];
+    messagePosts = [];
+    decisionResponse = () => jsonResponse({ ok: true });
+    historyResponse = () => jsonResponse({ messages: [] });
+    fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return jsonResponse({ id: "A" });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push({
+          sessionId: messageMatch[1],
+          message: (JSON.parse(String(init?.body)) as { message: string }).message,
+        });
+        // The first post rides the parked stream; later posts (fallbacks,
+        // other sessions) each get a fresh stream of their own.
+        return messagePosts.length === 1 ? sse.response : createEventSSE().response;
+      }
+      if (method === "GET" && messageMatch) {
+        return historyResponse();
+      }
+      if (method === "POST" && url.endsWith("/decisions")) {
+        decisionCalls.push({ url, body: JSON.parse(String(init?.body)) });
+        return decisionResponse();
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const findStep = (result: { current: ReturnType<typeof useAiChat> }) =>
+    result.current.messages.find((m) => m.role === "tool_step")?.toolStep;
+
+  /** Send a message in session A and park a create_widget call on it. */
+  const parkPendingCall = async () => {
+    const rendered = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
+    await act(async () => {
+      await rendered.result.current.handleSend("make a widget", MODEL);
+    });
+    sse.emit({
+      type: "tool_execution_start",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      args: { title: "Tokens" },
+    });
+    sse.emit({
+      type: "confirmation_pending",
+      decisionId: "d1",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      args: { title: "Tokens" },
+    });
+    await waitFor(() => expect(findStep(rendered.result)?.pending).toEqual({ decisionId: "d1" }));
+    return rendered;
+  };
+
+  it("a send while the active session has a parked decision revises it instead of messaging", async () => {
+    const { result } = await parkPendingCall();
+
+    await act(async () => {
+      await result.current.handleSend("make it a bar chart", MODEL);
+    });
+
+    // The message became the decision — revise, carrying the user's words.
+    expect(decisionCalls).toEqual([
+      {
+        url: "/api/projects/p1/ai/sessions/A/decisions",
+        body: { decisionId: "d1", action: "revise", text: "make it a bar chart" },
+      },
+    ]);
+    // The parked turn is still open: no second run was started for the text.
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget"]);
+    // The user's words still render as their bubble in the transcript…
+    expect(result.current.messages.filter((m) => m.role === "user").map((m) => m.content)).toEqual([
+      "make a widget",
+      "make it a bar chart",
+    ]);
+    // …and the old proposal collapsed to its declined line, buttons gone.
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBe(true);
+  });
+
+  it("a send with no pending decision behaves as a normal message", async () => {
+    const { result } = await parkPendingCall();
+    // The stream resolves the parked call (e.g. decided in another tab).
+    sse.emit({ type: "tool_execution_end", toolCallId: "tc1", result: { ok: true } });
+    await waitFor(() => expect(findStep(result)?.pending).toBeUndefined());
+
+    await act(async () => {
+      await result.current.handleSend("follow-up", MODEL);
+    });
+
+    expect(decisionCalls).toEqual([]);
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget", "follow-up"]);
+  });
+
+  it("a pending decision in a background session does not intercept the active session's send", async () => {
+    const { result } = await parkPendingCall();
+
+    // Switch to another session; A keeps its parked call in the background.
+    await act(async () => {
+      await result.current.handleSelectSession(sessionB);
+    });
+    await act(async () => {
+      await result.current.handleSend("hello in B", MODEL);
+    });
+
+    expect(decisionCalls).toEqual([]);
+    expect(messagePosts.at(-1)).toEqual({ sessionId: "B", message: "hello in B" });
+
+    // A's parked call is untouched and still offers its card on return.
+    await act(async () => {
+      await result.current.handleSelectSession({ ...sessionB, id: "A" });
+    });
+    expect(findStep(result)?.pending).toEqual({ decisionId: "d1" });
+  });
+
+  it("falls back to a normal send when the revise returns 404, collapsing the stale card", async () => {
+    decisionResponse = () => new Response(JSON.stringify({ error: "stale" }), { status: 404 });
+    const { result } = await parkPendingCall();
+
+    await act(async () => {
+      await result.current.handleSend("tweak it", MODEL);
+    });
+
+    // The revise was attempted, but the user's text still went out normally.
+    expect(decisionCalls).toHaveLength(1);
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget", "tweak it"]);
+    // Exactly one bubble for the text — the normal send's own.
+    expect(result.current.messages.filter((m) => m.content === "tweak it")).toHaveLength(1);
+    // The parked call is gone server-side (already released as a skip), so
+    // the card must not keep offering it — the next reply would re-target it.
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBe(true);
+  });
+
+  it("a second reply while the revise is in flight neither re-targets the card nor starts a run", async () => {
+    const decisions: Array<(r: Response) => void> = [];
+    decisionResponse = () =>
+      new Promise<Response>((r) => {
+        decisions.push(r);
+      });
+    const { result } = await parkPendingCall();
+
+    let first!: Promise<boolean | void>;
+    let second!: Promise<boolean | void>;
+    act(() => {
+      first = result.current.handleSend("make it a bar chart", MODEL);
+    });
+    act(() => {
+      second = result.current.handleSend("and blue", MODEL);
+    });
+    await act(async () => {
+      for (const resolve of decisions) resolve(jsonResponse({ ok: true }));
+      await Promise.all([first, second]);
+    });
+
+    // One decision for the one parked call…
+    expect(decisionCalls).toHaveLength(1);
+    // …and no plain send: that would abort the run now executing the revision.
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget"]);
+    expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("a reply typed while a card decision is in flight is refused, not silently dropped", async () => {
+    let resolveDecision!: (r: Response) => void;
+    decisionResponse = () =>
+      new Promise<Response>((r) => {
+        resolveDecision = r;
+      });
+    const { result } = await parkPendingCall();
+
+    let click!: Promise<boolean>;
+    let reply!: Promise<boolean | void>;
+    act(() => {
+      click = result.current.handleDecision({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        action: "create",
+      });
+    });
+    act(() => {
+      reply = result.current.handleSend("actually make it blue", MODEL);
+    });
+    let replied: boolean | void = undefined;
+    await act(async () => {
+      resolveDecision(jsonResponse({ ok: true }));
+      [, replied] = await Promise.all([click, reply]);
+    });
+
+    // Refused, and said so: the composer needs the answer to put the text back
+    // rather than leave the user staring at an empty box.
+    expect(replied).toBe(false);
+    expect(decisionCalls.map((c) => (c.body as { action: string }).action)).toEqual(["create"]);
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget"]);
+    expect(findStep(result)?.pending).toBeUndefined();
+  });
+
+  it("a revise returning 409 drops the reply instead of sending it as a message", async () => {
+    decisionResponse = () =>
+      new Response(JSON.stringify({ error: "decision already made" }), { status: 409 });
+    const { result } = await parkPendingCall();
+
+    await act(async () => {
+      await result.current.handleSend("tweak it", MODEL);
+    });
+
+    expect(decisionCalls).toHaveLength(1);
+    // Someone already decided: the run is acting on that decision and must
+    // not be aborted by a fallback send.
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget"]);
+    // The card no longer offers a decision the server has already taken.
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("falls back to a normal send when the revise cannot be delivered", async () => {
+    decisionResponse = () => Promise.reject(new Error("network down"));
+    const { result } = await parkPendingCall();
+
+    await act(async () => {
+      await result.current.handleSend("tweak it", MODEL);
+    });
+
+    expect(decisionCalls).toHaveLength(1);
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget", "tweak it"]);
+    expect(result.current.messages.filter((m) => m.content === "tweak it")).toHaveLength(1);
+  });
+
+  it("a revise landing after the panel closed does not resurrect the cleared buckets", async () => {
+    let resolveDecision!: (r: Response) => void;
+    decisionResponse = () =>
+      new Promise<Response>((r) => {
+        resolveDecision = r;
+      });
+    const { result } = await parkPendingCall();
+
+    let send!: Promise<boolean | void>;
+    act(() => {
+      send = result.current.handleSend("make it a bar chart", MODEL);
+    });
+    act(() => {
+      result.current.handleClose();
+    });
+    await act(async () => {
+      resolveDecision(jsonResponse({ ok: true }));
+      await send;
+    });
+
+    // The revision reached the server, so nothing falls back to a send…
+    expect(decisionCalls).toHaveLength(1);
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget"]);
+    // …and the closed panel stays empty — no stray bubble writes.
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentSessionId).toBeNull();
+  });
+
+  it("a revise landing after the session was deleted leaves no bucket behind", async () => {
+    let resolveDecision!: (r: Response) => void;
+    decisionResponse = () =>
+      new Promise<Response>((r) => {
+        resolveDecision = r;
+      });
+    // Hold the history load so the probe below reads the session's own bucket
+    // rather than a freshly fetched (and empty) transcript.
+    historyResponse = () => new Promise<Response>(() => {});
+    const { result } = await parkPendingCall();
+
+    let send!: Promise<boolean | void>;
+    act(() => {
+      send = result.current.handleSend("make it a bar chart", MODEL);
+    });
+    act(() => {
+      result.current.handleDeleteSession("A");
+    });
+    await act(async () => {
+      resolveDecision(jsonResponse({ ok: true }));
+      await send;
+    });
+
+    expect(decisionCalls).toHaveLength(1);
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentSessionId).toBeNull();
+
+    // Reopening the deleted session finds nothing cached for it: the revision
+    // that landed after the delete must not have rebuilt its bucket.
+    act(() => {
+      void result.current.handleSelectSession({ ...sessionB, id: "A" });
+    });
+    await waitFor(() => expect(result.current.currentSessionId).toBe("A"));
+    expect(result.current.messages).toEqual([]);
+  });
+
+  it("exposes hasPendingDecision for the active session only", async () => {
+    const { result } = await parkPendingCall();
+    expect(result.current.hasPendingDecision).toBe(true);
+
+    await act(async () => {
+      await result.current.handleSelectSession(sessionB);
+    });
+    expect(result.current.hasPendingDecision).toBe(false);
+  });
+
+  it("exposes the active session's parked proposal as pendingDecision", async () => {
+    const { result } = await parkPendingCall();
+    expect(result.current.pendingDecision).toEqual({
+      toolCallId: "tc1",
+      decisionId: "d1",
+      resourceType: "widget",
+      title: "Tokens",
+      action: "create",
+      approvalClass: "confirm",
+    });
+
+    // A background session's parked call is not the composer's to decide.
+    await act(async () => {
+      await result.current.handleSelectSession(sessionB);
+    });
+    expect(result.current.pendingDecision).toBeNull();
+    expect(result.current.hasPendingDecision).toBe(false);
+
+    await act(async () => {
+      await result.current.handleSelectSession({ ...sessionB, id: "A" });
+    });
+    expect(result.current.pendingDecision?.decisionId).toBe("d1");
+  });
+
+  it("clears pendingDecision once the parked call is decided", async () => {
+    const { result } = await parkPendingCall();
+    await act(async () => {
+      await result.current.handleDecision({ toolCallId: "tc1", decisionId: "d1", action: "skip" });
+    });
+    expect(result.current.pendingDecision).toBeNull();
+    expect(result.current.hasPendingDecision).toBe(false);
+  });
+
+  it("exposes a parked delete as an approval-class decision named by the transcript", async () => {
+    const rendered = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
+    await act(async () => {
+      await rendered.result.current.handleSend("remove the errors widget", MODEL);
+    });
+    // An earlier receipt in the same session is how the panel knows the widget's title.
+    sse.emit({
+      type: "tool_execution_start",
+      toolCallId: "tc0",
+      toolName: "create_widget",
+      args: { title: "Errors", dashboard_id: "db1" },
+    });
+    sse.emit({
+      type: "tool_execution_end",
+      toolCallId: "tc0",
+      result: {
+        details: {
+          kind: "resource_created",
+          resourceType: "widget",
+          resourceId: "w1",
+          created: true,
+          projectId: "p1",
+          dashboardId: "db1",
+          name: "Errors",
+        },
+      },
+    });
+    sse.emit({
+      type: "tool_execution_start",
+      toolCallId: "tc1",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "asked to remove it" },
+    });
+    sse.emit({
+      type: "confirmation_pending",
+      decisionId: "d1",
+      toolCallId: "tc1",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "asked to remove it" },
+      approvalClass: "approval",
+    });
+    await waitFor(() =>
+      expect(rendered.result.current.pendingDecision).toEqual({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        resourceType: "widget",
+        title: "Errors",
+        action: "delete",
+        approvalClass: "approval",
+      }),
+    );
+  });
+
+  /** Send a message in session A and park a delete_widget call on it. */
+  const parkPendingDelete = async () => {
+    const rendered = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
+    await act(async () => {
+      await rendered.result.current.handleSend("remove the errors widget", MODEL);
+    });
+    sse.emit({
+      type: "tool_execution_start",
+      toolCallId: "tc1",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "asked to remove it" },
+    });
+    sse.emit({
+      type: "confirmation_pending",
+      decisionId: "d1",
+      toolCallId: "tc1",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "asked to remove it" },
+      approvalClass: "approval",
+    });
+    await waitFor(() =>
+      expect(findStep(rendered.result)?.pending).toEqual({
+        decisionId: "d1",
+        approvalClass: "approval",
+      }),
+    );
+    return rendered;
+  };
+
+  /** How many sessions the hook has created so far. */
+  const sessionsCreated = () =>
+    fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        (init as RequestInit | undefined)?.method === "POST" &&
+        String(url).endsWith("/ai/sessions"),
+    ).length;
+
+  it("a send while a delete is parked skips it first, then sends the message once that run has ended", async () => {
+    const rendered = await parkPendingDelete();
+
+    let reply!: Promise<boolean | void>;
+    act(() => {
+      reply = rendered.result.current.handleSend("actually keep it, rename it instead", MODEL);
+    });
+
+    // No revise-by-typing for a delete: the reply resolved the park as a skip…
+    await waitFor(() =>
+      expect(decisionCalls).toEqual([
+        {
+          url: "/api/projects/p1/ai/sessions/A/decisions",
+          body: { decisionId: "d1", action: "skip" },
+        },
+      ]),
+    );
+    await waitFor(() => expect(findStep(rendered.result)?.skipped).toBe(true));
+    // …but the run the skip landed on is still open — the model is acting on
+    // the decline — and the service admits one run per session, so posting
+    // now would be refused. The reply is held back.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(rendered.result.current.isStreaming).toBe(true);
+
+    // The run ends; only now does the reply go out as a turn of its own.
+    sse.close();
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      accepted = await reply;
+    });
+    expect(accepted).not.toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual([
+      "remove the errors widget",
+      "actually keep it, rename it instead",
+    ]);
+    expect(findStep(rendered.result)?.pending).toBeUndefined();
+    expect(sessionsCreated()).toBe(1);
+  });
+
+  it("a reply whose skip is still in flight when the panel closes never starts a run", async () => {
+    let resolveSkip!: (r: Response) => void;
+    decisionResponse = () =>
+      new Promise<Response>((r) => {
+        resolveSkip = r;
+      });
+    const rendered = await parkPendingDelete();
+
+    let reply!: Promise<boolean | void>;
+    act(() => {
+      reply = rendered.result.current.handleSend("keep it", MODEL);
+    });
+    await waitFor(() => expect(decisionCalls).toHaveLength(1));
+    act(() => {
+      rendered.result.current.handleClose();
+    });
+
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      resolveSkip(jsonResponse({ ok: true }));
+      accepted = await reply;
+    });
+    // Refused, so the composer keeps the text — and nothing was posted: no
+    // fresh session for a closed panel, no message into the old one.
+    expect(accepted).toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(sessionsCreated()).toBe(1);
+  });
+
+  it("a reply waiting for the skipped run to end is refused when the panel closes first", async () => {
+    const rendered = await parkPendingDelete();
+
+    let reply!: Promise<boolean | void>;
+    act(() => {
+      reply = rendered.result.current.handleSend("keep it", MODEL);
+    });
+    await waitFor(() => expect(findStep(rendered.result)?.skipped).toBe(true));
+    // Closing aborts the run, which ends the wait — across a boundary the
+    // reply must not cross.
+    act(() => {
+      rendered.result.current.handleClose();
+    });
+
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      accepted = await reply;
+    });
+    expect(accepted).toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(sessionsCreated()).toBe(1);
+  });
+
+  it("a reply goes out once the user aborts the skipped run themselves", async () => {
+    const rendered = await parkPendingDelete();
+
+    let reply!: Promise<boolean | void>;
+    act(() => {
+      reply = rendered.result.current.handleSend("keep it", MODEL);
+    });
+    await waitFor(() => expect(findStep(rendered.result)?.skipped).toBe(true));
+    act(() => {
+      rendered.result.current.handleAbort();
+    });
+
+    await act(async () => {
+      await reply;
+    });
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget", "keep it"]);
+  });
+
+  it("a skip that cannot be delivered refuses the reply and leaves the card parked", async () => {
+    decisionResponse = () => Promise.reject(new TypeError("network down"));
+    const rendered = await parkPendingDelete();
+
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      accepted = await rendered.result.current.handleSend("keep it", MODEL);
+    });
+    // The call is still parked server-side, so a message would be refused by
+    // the run it is parked on; the composer keeps the text and the card
+    // keeps its buttons.
+    expect(accepted).toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(findStep(rendered.result)?.pending).toBeDefined();
+  });
+
+  it("a skip answered with a server error refuses the reply and leaves the card parked", async () => {
+    decisionResponse = () => new Response(JSON.stringify({ error: "boom" }), { status: 500 });
+    const rendered = await parkPendingDelete();
+
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      accepted = await rendered.result.current.handleSend("keep it", MODEL);
+    });
+    // The run is still parked server-side: a reply would wait on it or be
+    // answered 409, so it is refused like an undelivered skip.
+    expect(accepted).toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(findStep(rendered.result)?.pending).toBeDefined();
+  });
+
+  it("a skip answered 409 (decided elsewhere) refuses the send so the run acting on it is not cut", async () => {
+    decisionResponse = () => new Response(JSON.stringify({ error: "decided" }), { status: 409 });
+    const rendered = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
+    await act(async () => {
+      await rendered.result.current.handleSend("remove the errors widget", MODEL);
+    });
+    sse.emit({
+      type: "confirmation_pending",
+      decisionId: "d1",
+      toolCallId: "tc1",
+      toolName: "delete_widget",
+      args: { widget_id: "w1", reason: "asked to remove it" },
+      approvalClass: "approval",
+    });
+    await waitFor(() => expect(findStep(rendered.result)?.pending).toBeDefined());
+
+    let accepted: boolean | void = undefined;
+    await act(async () => {
+      accepted = await rendered.result.current.handleSend("keep it", MODEL);
+    });
+    // The composer gets its text back; the delete already decided runs on.
+    expect(accepted).toBe(false);
+    expect(messagePosts.map((p) => p.message)).toEqual(["remove the errors widget"]);
+    expect(findStep(rendered.result)?.pending).toBeUndefined();
+    expect(findStep(rendered.result)?.skipped).toBeUndefined();
+  });
+
+  it("keeps the same pendingDecision object across a streamed text delta", async () => {
+    const { result } = await parkPendingCall();
+    const before = result.current.pendingDecision;
+    sse.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "Shall I?" },
+    });
+    await waitFor(() => expect(result.current.messages.at(-1)?.content).toContain("Shall I?"));
+    expect(result.current.pendingDecision).toBe(before);
   });
 });

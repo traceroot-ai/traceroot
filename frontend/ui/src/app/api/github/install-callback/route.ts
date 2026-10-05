@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
@@ -10,7 +11,7 @@ import {
   getInstallation,
 } from "@traceroot/github";
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   try {
     const installationId = request.nextUrl.searchParams.get("installation_id");
     const state = request.nextUrl.searchParams.get("state");
@@ -130,3 +131,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+export const GET = withImpersonationPolicy(handleGET);

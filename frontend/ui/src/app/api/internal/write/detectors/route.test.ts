@@ -88,6 +88,37 @@ describe("POST /api/internal/write/detectors", () => {
     expect(createDetectorMock).not.toHaveBeenCalled();
   });
 
+  it("forwards a body without prompt to the service and returns its success", async () => {
+    const detector = {
+      id: "d1",
+      name: "Latency spike",
+      projectId: "p1",
+      enabled: true,
+      sampleRate: 25,
+    };
+    createDetectorMock.mockResolvedValue({ ok: true, created: true, data: detector });
+    const { prompt: _omitted, ...promptless } = validBody;
+
+    const res = await POST(makeRequest(promptless));
+
+    expect(createDetectorMock).toHaveBeenCalledTimes(1);
+    expect(createDetectorMock.mock.calls[0][0]).not.toHaveProperty("prompt");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ created: true, detector });
+  });
+
+  it("passes the service's template rule 400 through for a promptless body", async () => {
+    const error =
+      "prompt is required unless template is one of: failure, hallucination, logic, task, safety";
+    createDetectorMock.mockResolvedValue({ ok: false, status: 400, error });
+    const { prompt: _omitted, ...promptless } = validBody;
+
+    const res = await POST(makeRequest(promptless));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error });
+  });
+
   // The route must not re-declare the sampleRate range: doing so shadows the
   // service's canonical message with zod's generic "Too big"/"Too small" text.
   it.each([-1, 101, 12.5])(

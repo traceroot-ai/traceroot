@@ -21,14 +21,18 @@ import {
   type WidgetPreviewData,
 } from "@/features/dashboards/hooks/use-widget-data";
 import {
+  CHART_MARGIN,
   ChartTip,
-  SERIES_COLORS,
+  Y_AXIS_TICK,
+  Y_AXIS_WIDTH,
+  Y_AXIS_WIDTH_WITH_UNIT,
   bucketLabel,
   fmtAxisTick,
   isAdditiveAgg,
   seriesNameFormatter,
   pivotRows,
 } from "@/features/dashboards/components/renderers";
+import { SERIES_COLORS } from "@/features/dashboards/series-colors";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { makeRange } from "@/features/dashboards/range-presets";
 import { DEFAULT_DATE_FILTER, type DateFilterOption } from "@/lib/date-filter";
@@ -57,7 +61,7 @@ const DAY_MS = 86_400_000;
 
 // Mirrors MAX_EXPLICIT_BUCKETS in backend/rest/services/widget_query.py, which
 // rejects a range the rule's window divides into more points than this.
-const MAX_PREVIEW_BUCKETS = 500;
+export const MAX_PREVIEW_BUCKETS = 500;
 
 function rangeFor(
   option: DateFilterOption,
@@ -96,7 +100,12 @@ function PreviewMessage({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PreviewChart({
+/**
+ * The rule's chart: the measure as a series over the range, the threshold
+ * as a line with the breach side shaded. Exported for the assistant panel's
+ * alert cards, which draw the same chart in their own frame.
+ */
+export function AlertPreviewChart({
   data,
   thresholdValue,
   operator,
@@ -145,7 +154,7 @@ function PreviewChart({
     // The axes inherit currentColor; the threshold elements override it below.
     <div className="h-full text-muted-foreground">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+        <LineChart data={rows} margin={CHART_MARGIN}>
           <CartesianGrid strokeOpacity={0.15} vertical={false} />
           <XAxis
             dataKey="bucket"
@@ -156,10 +165,11 @@ function PreviewChart({
                 : (v: unknown) => String(v).slice(5, 16).replace("T", " ")
             }
           />
-          {/* Widths mirror the dashboard renderers' tick gutters. */}
+          {/* The dashboard renderers' own chrome, so both surfaces plot a
+              result on the same geometry. */}
           <YAxis
-            tick={{ fontSize: 10 }}
-            width={unit ? 58 : 42}
+            tick={Y_AXIS_TICK}
+            width={unit ? Y_AXIS_WIDTH_WITH_UNIT : Y_AXIS_WIDTH}
             tickFormatter={(v: unknown) => fmtAxisTick(v, unit)}
           />
           <Tooltip
@@ -288,7 +298,7 @@ export function AlertPreview({
         ) : preview.error ? (
           <PreviewMessage>Preview failed to load.</PreviewMessage>
         ) : preview.data ? (
-          <PreviewChart
+          <AlertPreviewChart
             data={preview.data}
             thresholdValue={thresholdValue}
             operator={operator}

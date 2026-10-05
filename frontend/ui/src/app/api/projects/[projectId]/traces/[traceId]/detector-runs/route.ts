@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import {
@@ -19,7 +20,7 @@ interface BackendRun {
   [key: string]: unknown;
 }
 
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, traceId } = await params;
@@ -57,3 +58,4 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
   return successResponse(data);
 }
+export const GET = withImpersonationPolicy(handleGET);

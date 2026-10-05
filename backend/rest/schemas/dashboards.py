@@ -10,7 +10,7 @@ is the single source of truth for which views and fields exist.
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, WithJsonSchema
 
 DisplayType = Literal["line", "area", "bar", "pie", "number", "table", "histogram"]
 AggName = Literal["count", "sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99", "uniq"]
@@ -32,13 +32,28 @@ class WidgetFilter(_StrictModel):
     # allow_inf_nan=False: json.loads accepts bare NaN/Infinity tokens, but a
     # stored non-finite float can never be re-encoded by a strict JSON encoder
     # (the write proxy's httpx client included) — reject it at validation.
-    value: (
+    # The union keeps a top-level JSON-Schema type array: this model feeds
+    # generated tool schemas (via the public widget-create body), and some
+    # model providers reject properties without a `type`. The empty-string
+    # guard lives in a per-branch anyOf rather than beside the type array —
+    # a bare minLength next to ["string", "number"] is applied to numbers by
+    # the agent's argument validator, which then rejects every numeric filter
+    # with no usable error.
+    value: Annotated[
         Annotated[str, StringConstraints(min_length=1)]
-        | Annotated[float, Field(allow_inf_nan=False)]
-    )
+        | Annotated[float, Field(allow_inf_nan=False)],
+        WithJsonSchema(
+            {
+                "type": ["string", "number"],
+                "anyOf": [{"type": "string", "minLength": 1}, {"type": "number"}],
+            }
+        ),
+    ]
     # The map key for a keyed field. Unconstrained here: whether a key is required,
     # forbidden or over-length depends on the field, so the compiler raises those.
-    key: str | None = None
+    # Typed as an array for the same reason as value: an anyOf-only property
+    # is rejected by some model providers' tool schemas.
+    key: Annotated[str | None, WithJsonSchema({"type": "string"})] = None
 
 
 class WidgetMetric(_StrictModel):
@@ -55,7 +70,12 @@ class WidgetDisplay(_StrictModel):
 
 
 class WidgetSpec(_StrictModel):
-    """Full declarative specification of a single dashboard widget."""
+    """Full declarative specification of a single dashboard widget.
+
+    Mirrors the canonical zod ``WidgetSpecSchema``
+    (frontend/ui/src/features/dashboards/types.ts); the frontend
+    widget-spec-parity test guards the two against structural drift.
+    """
 
     view: Literal["spans", "traces"]
     filters: list[WidgetFilter] = Field(default_factory=list)
@@ -64,17 +84,52 @@ class WidgetSpec(_StrictModel):
     display: WidgetDisplay
 
 
+# The preset ids a window may be described with; the durations live in
+# rest.services.date_presets (a test keeps this Literal equal to that table).
+RangeId = Literal["30m", "1h", "3h", "6h", "1d", "7d", "14d", "30d", "60d", "90d"]
+
+
 class WidgetQueryRequest(_StrictModel):
-    """Envelope that pairs a WidgetSpec with the dashboard time window."""
+    """Envelope that pairs a WidgetSpec with the time window to answer it for.
+
+    The window is either a ``range`` preset (the site picker's ids — how the
+    agent and the CLI describe one) or explicit ``start_time``/``end_time``
+    (how the dashboard page and the card previews do). Neither means the
+    site's default window; both, or one bound alone, is rejected. The rules
+    live in ``rest.services.date_presets.resolve_window`` so every query
+    surface applies the same ones.
+    """
 
     spec: WidgetSpec
-    start_time: datetime
-    end_time: datetime
+    range: RangeId | None = Field(
+        default=None,
+        description=(
+            "A preset window ending now, by the site picker's id. Give this or "
+            "explicit start_time/end_time; neither means the site's 24-hour default."
+        ),
+    )
+    start_time: datetime | None = None
+    end_time: datetime | None = None
     # Time-series bucket width, when the caller needs one specific grain rather than
     # the range-derived one. Rejected (422) on displays that carry no time axis.
     # 86_400 (one day) is the coarsest grain the range-derived path ever picks,
     # so an explicit bucket may refine the automatic grain but never exceed it.
     bucket_seconds: int | None = Field(default=None, ge=1, le=86_400)
+
+
+class QueryWindow(BaseModel):
+    """The window a query was actually answered for.
+
+    ``range`` is the preset id the caller gave (or the default's, when they
+    gave nothing) and None for explicit bounds. ``clamped`` is True when the
+    plan's retention pulled ``start_time`` forward — the honest reason a
+    caller's window and the answered one differ.
+    """
+
+    start_time: datetime
+    end_time: datetime
+    range: RangeId | None
+    clamped: bool
 
 
 class WidgetQueryResponse(BaseModel):
@@ -83,3 +138,4 @@ class WidgetQueryResponse(BaseModel):
     columns: list[str]
     rows: list[list[Any]]
     meta: dict[str, Any] = Field(default_factory=dict)
+    window: QueryWindow
