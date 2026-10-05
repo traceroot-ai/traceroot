@@ -27,7 +27,7 @@
 
 TraceRoot 将生产环境中的追踪转化为可执行的反馈与评测，与你的编程 Agent 一起形成自我改进闭环。
 
-[readme-demo.mp4](docs/videos/readme-demo.mp4)
+https://github.com/user-attachments/assets/b7b62cc5-9c58-40b6-bad8-f74dd75169a2
 
 ## 核心功能
 

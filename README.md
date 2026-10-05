@@ -27,7 +27,7 @@ Open Source Self-improving Layer for AI Agents
 
 TraceRoot turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
 
-[readme-demo.mp4](docs/videos/readme-demo.mp4)
+https://github.com/user-attachments/assets/b7b62cc5-9c58-40b6-bad8-f74dd75169a2
 
 ## Core Features
 
