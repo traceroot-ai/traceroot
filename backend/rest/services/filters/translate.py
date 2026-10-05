@@ -439,16 +439,13 @@ def _trace_condition(idx: int, col: FilterColumn, pred: Predicate, params: dict)
 
 
 def _signal_semijoin(idx: int, col: FilterColumn, pred: Predicate, params: dict) -> str:
-    """The traces whose signal IDs include the full value, read from ``signal_assignments``.
+    """The traces holding a hit of one signal, read from ``signal_assignments``.
 
-    A trace has one signal id per hit, so it matches when any of them equals the value
-    (case-sensitive, complete ID membership). The table keeps one row per detector run,
-    replaced when a user moves the hit
-    or merges its signal (``ReplacingMergeTree`` on ``assigned_at``). The inner query keeps
-    each run's latest placement before the signal predicate applies, so a moved hit counts
-    only for the signal it now belongs to, without FINAL. A hit given up on (empty signal
-    id) matches nothing. It is scoped to the outer query's project, and the value binds as
-    a parameter, never interpolated.
+    The table keeps one row per detector run, replaced when a user moves the hit or merges
+    its signal (``ReplacingMergeTree`` on ``assigned_at``). The inner query keeps each run's
+    latest placement before the signal predicate applies, so a moved hit counts only for the
+    signal it now belongs to, without FINAL. It is scoped to the outer query's project, and
+    the value binds as a parameter, never interpolated.
     """
     pname = f"f_{col.name}_{idx}"
     params[pname] = pred.value
@@ -461,7 +458,7 @@ def _signal_semijoin(idx: int, col: FilterColumn, pred: Predicate, params: dict)
     )
     return (
         f"t.trace_id IN (SELECT hit_trace_id FROM ({inner}) "
-        f"WHERE hit_signal_id != '' AND hit_signal_id = {{{pname}:String}})"
+        f"WHERE hit_signal_id = {{{pname}:String}})"
     )
 
 
