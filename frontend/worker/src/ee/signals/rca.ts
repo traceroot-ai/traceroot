@@ -8,7 +8,13 @@ import {
   type RcaJob,
 } from "../../queues/detector-run-queue.js";
 import type { SignalsBackend } from "./backend-client.js";
-import { RCA_STALE_MS, WAITING_LOOKBACK_MS } from "./config.js";
+import {
+  RCA_ENQUEUE_GRACE_MS,
+  RCA_SWEEP_EXAMINE_CAP,
+  RCA_SWEEP_PAGE_SIZE,
+  RCA_SWEEP_START_CAP,
+  WAITING_LOOKBACK_MS,
+} from "./config.js";
 
 let rcaQueue: Queue<RcaJob> | null = null;
 function getRcaQueue(): Queue<RcaJob> {
@@ -309,34 +315,138 @@ export async function closeEmptySignalRca(
   });
 }
 
+/** A pending signal RCA stuck with no job past the lookback gets this as its failure. */
+export const RCA_SWEEP_TIMEOUT_RESULT = "The analysis did not start in time.";
+
+type SweepCursor = { signalId: string; reopenSeq: number };
+
 /**
- * Re-enqueue signal RCAs still pending well after their job should have run
- * (the enqueue after the assignment commit failed, the job was lost, or the
- * trace's last hit was settled by its detector being switched off), once the
- * trace's hits are all settled.
+ * Rows strictly after `cursor` in primary-key order. The key is exact; a
+ * create_time cursor would lose its microseconds in a JavaScript Date and skip
+ * rows written within the same millisecond (a bulk seed writes many at once).
+ */
+function pastCursor(cursor: SweepCursor) {
+  return [
+    { signalId: { gt: cursor.signalId } },
+    { signalId: cursor.signalId, reopenSeq: { gt: cursor.reopenSeq } },
+  ];
+}
+
+/**
+ * Start the signal RCAs that are pending without a job: the start after the
+ * assignment round failed, the job was lost, a user asked for the RCA from the
+ * Signals page, or the trace's last hit was settled by its detector being
+ * switched off. A pending RCA whose job is waiting or running is left to it,
+ * and one whose trace still has a hit being assigned waits for the round that
+ * settles it (startSettledRcas).
+ *
+ * Pages through every pending row in key order, past rows whose job exists,
+ * so a busy queue cannot hide a job-less request behind it. Work is bounded by
+ * how many RCAs one call starts (not how many it checks), and the rows it
+ * reads have a generous cap, logged when hit. A finding whose openings are all
+ * older than the lookback and still has no job is started if its trace is
+ * settled by now (a hit stuck that long is no longer waited for); otherwise it
+ * has outlived any lost-job window and is marked failed (only while pending
+ * and with no recent opening, so a job or request that just landed is not
+ * overwritten), so the panel shows it failed and requestSignalRca can ask again.
  */
 export async function sweepSignalRcas(
   db: Pick<PrismaClient, "signalRca" | "detectorRca" | "signalHit" | "detector">,
   backend: Pick<SignalsBackend, "unsettledRuns">,
   now: number = Date.now(),
 ): Promise<number> {
-  const stale = await db.signalRca.findMany({
-    where: {
-      createTime: { gt: new Date(now - WAITING_LOOKBACK_MS), lt: new Date(now - RCA_STALE_MS) },
-      rca: { status: "pending" },
-    },
-    select: { findingId: true, rca: { select: { projectId: true } } },
-    distinct: ["findingId"],
-    take: 200,
-  });
-  const byProject = new Map<string, string[]>();
-  for (const r of stale) {
-    byProject.set(r.rca.projectId, [...(byProject.get(r.rca.projectId) ?? []), r.findingId]);
-  }
+  const cutoff = new Date(now - RCA_ENQUEUE_GRACE_MS);
+  const giveUpBefore = new Date(now - WAITING_LOOKBACK_MS);
+  const seenFindings = new Set<string>();
   let started = 0;
-  for (const [projectId, findingIds] of byProject) {
-    started += await startSettledRcas(db, backend, projectId, findingIds);
+  let failed = 0;
+  let examined = 0;
+  let cursor: SweepCursor | undefined;
+
+  while (examined < RCA_SWEEP_EXAMINE_CAP) {
+    const page = await db.signalRca.findMany({
+      where: {
+        createTime: { lt: cutoff },
+        rca: { status: "pending" },
+        ...(cursor ? { OR: pastCursor(cursor) } : {}),
+      },
+      select: {
+        signalId: true,
+        reopenSeq: true,
+        findingId: true,
+        createTime: true,
+        rca: { select: { projectId: true } },
+      },
+      orderBy: [{ signalId: "asc" }, { reopenSeq: "asc" }],
+      take: RCA_SWEEP_PAGE_SIZE,
+    });
+    if (page.length === 0) break;
+    examined += page.length;
+    cursor = page[page.length - 1];
+
+    // Started per page, so the cap counts RCAs actually started: findings whose
+    // trace still has a hit being assigned do not use it up.
+    const toStart = new Map<string, string[]>();
+    let candidates = 0;
+    const offer = (r: { findingId: string; rca: { projectId: string } }) => {
+      toStart.set(r.rca.projectId, [...(toStart.get(r.rca.projectId) ?? []), r.findingId]);
+      candidates++;
+    };
+    for (const r of page) {
+      // One finding can own several openings (one per detector hit on the same
+      // trace); they share one job and one detector_rcas row.
+      if (seenFindings.has(r.findingId)) continue;
+      seenFindings.add(r.findingId);
+      if (await getRcaQueue().getJob(signalRcaJobId(r.findingId))) continue;
+      if (r.createTime.getTime() < giveUpBefore.getTime()) {
+        // This opening is stale, but the finding may have a newer one (asked for
+        // again, or opened since): its RCA is still wanted.
+        const newer = await db.signalRca.findFirst({
+          where: { findingId: r.findingId, createTime: { gte: giveUpBefore } },
+          orderBy: { createTime: "desc" },
+          select: { createTime: true },
+        });
+        if (!newer) {
+          // A hit stuck in an outage keeps its trace unsettled for up to the
+          // lookback, and ages out of it with this opening: once the trace is
+          // settled its RCA still runs, analysing the hits that were assigned.
+          const settled = await settledFindings(db, backend, r.rca.projectId, [r.findingId], now);
+          if (settled.has(r.findingId)) {
+            if (started + candidates < RCA_SWEEP_START_CAP) offer(r);
+            continue;
+          }
+          const res = await db.detectorRca.updateMany({
+            // Only while still pending and with no recent opening, so a job that
+            // just started or a request that just landed is not overwritten.
+            where: {
+              findingId: r.findingId,
+              status: "pending",
+              signalRcas: { none: { createTime: { gte: giveUpBefore } } },
+            },
+            data: { status: "failed", result: RCA_SWEEP_TIMEOUT_RESULT, completedAt: new Date() },
+          });
+          failed += res.count;
+          continue;
+        }
+        // Too new to start yet: the round that wrote it enqueues it, or a later sweep.
+        if (newer.createTime.getTime() >= cutoff.getTime()) continue;
+      }
+      // The cap bounds queue adds only; ending a stale request stays cheap.
+      if (started + candidates >= RCA_SWEEP_START_CAP) continue;
+      offer(r);
+    }
+    for (const [projectId, findingIds] of toStart) {
+      started += await startSettledRcas(db, backend, projectId, findingIds);
+    }
+    if (page.length < RCA_SWEEP_PAGE_SIZE) break;
   }
-  if (started > 0) console.log(`[Signals] re-enqueued ${started} pending RCA(s)`);
+
+  if (examined >= RCA_SWEEP_EXAMINE_CAP) {
+    console.log(`[Signals] RCA sweep stopped after examining ${examined} row(s)`);
+  }
+  if (failed > 0) {
+    console.log(`[Signals] failed ${failed} pending RCA(s) stuck past the lookback with no job`);
+  }
+  if (started > 0) console.log(`[Signals] started ${started} pending RCA(s) without a job`);
   return started;
 }

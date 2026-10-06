@@ -9,12 +9,24 @@ export {
   type SetSignalStatusResult,
 } from "./status.ts";
 export { pickCanonicalRca } from "./canonical-rca.ts";
-export { listSignals, getSignal, signalsForTrace } from "./reads.ts";
+export {
+  listSignals,
+  getSignal,
+  signalsForTrace,
+  signalIdsForTraces,
+  signalsForRuns,
+  detectorSignalSettings,
+  signalSetup,
+  signalCountsByDetector,
+  agentRunCountsByDetector,
+  signalsKeyConfigured,
+} from "./reads.ts";
 export {
   signalCriteriaEditSchema,
   editSignalCriteria,
   mergeSignals,
   moveHit,
+  requestSignalRca,
   type SignalCriteriaEdit,
   type MovedHits,
   type EditResult,

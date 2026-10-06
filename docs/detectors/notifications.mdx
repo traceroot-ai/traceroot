@@ -19,7 +19,7 @@ Open **Project Settings → Detectors → Notifications**. From there you can:
 
 If the project has no email recipients and no Slack destination channel, nothing is sent.
 
-The **Run root cause analysis on findings** toggle does not affect notifications. On a self-hosted deployment, grouping into signals needs `OPENAI_API_KEY`; without it, detectors record findings and send no notifications.
+A detector with **Generate signals** turned off records findings without grouping them, so it sends no notifications. The **Root cause analysis** setting, Manual or Automatic, does not affect notifications. On a self-hosted deployment, grouping into signals needs `OPENAI_API_KEY`; without it, detectors record findings and send no notifications.
 
 ## Digest contents
 

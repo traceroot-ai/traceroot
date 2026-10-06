@@ -9,8 +9,8 @@ export type SignalStatus = (typeof SIGNAL_STATUSES)[number];
 
 /** Why a user resolved a signal. "other" requires a note. */
 export const RESOLVE_REASONS = [
-  "fixed_by_pr",
   "fixed_elsewhere",
+  "fixed_by_pr",
   "already_fixed_before",
   "other",
 ] as const;
@@ -18,11 +18,13 @@ export type ResolveReason = (typeof RESOLVE_REASONS)[number];
 
 /** Why a user dismissed a signal. "other" requires a note. */
 export const DISMISS_REASONS = [
-  "not_a_problem",
   "unclear",
   "rca_wrong",
-  "wont_fix_intentional",
-  "wont_fix_insignificant",
+  "grouped_wrong",
+  "expected_behavior",
+  "duplicate",
+  "already_fixed",
+  "low_impact",
   "other",
 ] as const;
 export type DismissReason = (typeof DISMISS_REASONS)[number];

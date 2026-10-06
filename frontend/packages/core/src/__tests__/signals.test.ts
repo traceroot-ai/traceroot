@@ -33,7 +33,7 @@ describe("signalStatusChangeSchema", () => {
   });
 
   it("rejects a reason from the other list", () => {
-    expect(parse({ status: "resolved", reason: "not_a_problem" }).success).toBe(false);
+    expect(parse({ status: "resolved", reason: "duplicate" }).success).toBe(false);
     expect(parse({ status: "dismissed", reason: "fixed_by_pr" }).success).toBe(false);
   });
 
