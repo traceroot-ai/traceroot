@@ -32,6 +32,20 @@ export interface AssignmentRow {
   gave_up?: boolean;
 }
 
+/** One detector finding of a trace; `payload` is the JSON array of per-detector entries. */
+export interface TraceFindingRow {
+  finding_id: string;
+  payload: string;
+}
+
+/** A fired run of a finding with no assignment row yet: a hit the trace's RCA may wait for. */
+export interface UnsettledRunRow {
+  finding_id: string;
+  run_id: string;
+  detector_id: string;
+  timestamp_ms: number;
+}
+
 export interface SignalsBackend {
   waitingHits(
     projectId: string,
@@ -40,6 +54,12 @@ export interface SignalsBackend {
     limit: number,
   ): Promise<WaitingHitRow[]>;
   writeAssignments(rows: AssignmentRow[]): Promise<void>;
+  traceFindings(projectId: string, traceId: string): Promise<TraceFindingRow[]>;
+  unsettledRuns(
+    projectId: string,
+    findingIds: string[],
+    sinceMs: number,
+  ): Promise<UnsettledRunRow[]>;
 }
 
 async function call<T>(
@@ -95,5 +115,22 @@ export const signalsBackend: SignalsBackend = {
   async writeAssignments(rows) {
     if (rows.length === 0) return;
     await call("POST", "/api/v1/internal/signals/assignments", { body: { rows } });
+  },
+  async traceFindings(projectId, traceId) {
+    const body = await call<{ findings: TraceFindingRow[] }>(
+      "GET",
+      `/api/v1/internal/traces/${encodeURIComponent(traceId)}/findings`,
+      { params: { project_id: projectId } },
+    );
+    return body.findings;
+  },
+  async unsettledRuns(projectId, findingIds, sinceMs) {
+    if (findingIds.length === 0) return [];
+    const body = await call<{ data: UnsettledRunRow[] }>(
+      "POST",
+      "/api/v1/internal/signals/unsettled-runs",
+      { body: { project_id: projectId, finding_ids: findingIds, since_ms: Math.floor(sinceMs) } },
+    );
+    return body.data;
   },
 };

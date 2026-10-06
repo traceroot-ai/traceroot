@@ -112,3 +112,20 @@ export function managedJevKey(): string | null {
   const key = process.env.TYPESAFE_API_KEY?.trim();
   return key ? key : null;
 }
+
+/**
+ * A reopened signal gets a new RCA only if its last one that succeeded or is
+ * still waiting or running is at least this old; a failed one does not count.
+ */
+export const RCA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long a signal RCA job waits before it runs again: after a run, when an
+ * opening landed during it, or when an empty finding's opening may still be
+ * committing. A trace's first run needs no delay: it starts once every hit of
+ * the trace is settled (startSettledRcas).
+ */
+export const RCA_DELAY_MS = 60_000;
+
+/** A signal RCA still pending after this long lost its job; the sweeper re-enqueues it. */
+export const RCA_STALE_MS = 10 * 60 * 1000;

@@ -33,6 +33,29 @@ import {
   type WaitingHit,
 } from "./write.js";
 
+/**
+ * Point each copy at the signal Postgres holds for its hit now. A user may have
+ * moved the hit since it was assigned, and that move's rewrite of the
+ * ClickHouse copy found no copy yet.
+ */
+async function followMoves(db: Pick<PrismaClient, "signalHit">, batch: AssignmentRow[]) {
+  const assigned = batch.filter((c) => !c.gave_up);
+  if (assigned.length === 0) return;
+  const rows = await db.signalHit.findMany({
+    where: { runId: { in: assigned.map((c) => c.run_id) } },
+    select: { runId: true, signalId: true, score: true, criteriaVersion: true, assignedAt: true },
+  });
+  const current = new Map(rows.map((r) => [r.runId, r]));
+  for (const copy of assigned) {
+    const hit = current.get(copy.run_id);
+    if (!hit || hit.assignedAt.getTime() <= copy.assigned_at_ms) continue;
+    copy.signal_id = hit.signalId;
+    copy.score = hit.score;
+    copy.criteria_version = hit.criteriaVersion;
+    copy.assigned_at_ms = hit.assignedAt.getTime();
+  }
+}
+
 export type RoundDb = Pick<
   PrismaClient,
   "$transaction" | "detector" | "signal" | "signalHit" | "aIMessage"
@@ -50,6 +73,11 @@ export interface RoundDeps {
   db: RoundDb;
   backend: SignalsBackend;
   failures: HitFailures;
+  /**
+   * Start the pending RCA of each of these findings whose hits are now all
+   * settled (startSettledRcas); returns how many it started.
+   */
+  startRcas(projectId: string, findingIds: string[]): Promise<number>;
   embed(texts: string[]): Promise<EmbeddingResult>;
   /** Model clients for one round; every call's usage is pushed to `usage`. */
   models(usage: ModelUsage[]): Promise<AssignmentModels>;
@@ -67,6 +95,8 @@ export interface RoundStats {
   failed: number;
   /** Hits given up on after repeated unusable answers; they no longer count as waiting. */
   gaveUp: number;
+  /** Findings whose RCA this round started. */
+  rcas: number;
   rejudged: number;
   unvalidated: number;
   /** Age of the oldest waiting hit when the round started: the partition's queue lag. */
@@ -122,6 +152,7 @@ export async function runAssignmentRound(
     duplicate: 0,
     failed: 0,
     gaveUp: 0,
+    rcas: 0,
     rejudged: 0,
     unvalidated: 0,
     lagMs: 0,
@@ -139,6 +170,7 @@ export async function runAssignmentRound(
     select: {
       name: true,
       enableSignals: true,
+      enableRca: true,
       signalsEnabledAt: true,
       project: { select: { workspaceId: true } },
     },
@@ -188,6 +220,7 @@ export async function runAssignmentRound(
     if (copies.length === 0) return;
     const batch = copies.splice(0);
     try {
+      await followMoves(db, batch);
       await writeAssignmentCopies(db, deps.backend, batch);
     } catch (err) {
       flushError = err;
@@ -200,6 +233,9 @@ export async function runAssignmentRound(
 
   let processed = 0;
   let succeeded = 0;
+  // Findings of the hits this round settled (assigned or given up): the round
+  // that settles a trace's last hit starts its RCA.
+  const settled = new Set<string>();
   let lastError: unknown = null;
   // Hits given up this round: their failure counts are cleared once the give-up
   // copy is written, so a copy that fails leaves the count to give them up again.
@@ -317,9 +353,11 @@ export async function runAssignmentRound(
       }
 
       const result: AssignmentResult = await applyAssignment(db, hit, placement, {
+        rca: detector.enableRca,
         embedding: vector ?? [],
         now: deps.now(),
       });
+      settled.add(hit.findingId);
       stats[result.outcome]++;
       updatePool(pool, result, placement, material, vector);
       copies.push({
@@ -379,6 +417,7 @@ export async function runAssignmentRound(
             `[Signals] giving up on run=${hit.runId} after ${failure.count} unusable answers since ${new Date(failure.firstAt).toISOString()}; last: ${err.message}`,
           );
           gaveUp.push(hit.runId);
+          settled.add(hit.findingId);
           copies.push({
             project_id: projectId,
             detector_id: detectorId,
@@ -397,8 +436,8 @@ export async function runAssignmentRound(
       if (copies.length >= ASSIGNMENT_FLUSH_ROWS) await flush();
     }
   } finally {
-    // Whatever was recorded in Postgres gets its copy, and billed calls stay
-    // findable, even when the round fails part-way.
+    // Whatever was recorded in Postgres gets its copy and its RCA, and billed
+    // calls stay findable, even when the round fails part-way.
     await flush();
     await recordUsage(db, workspaceId, usage);
     // After the usage is recorded, and best-effort: a kept count only gives
@@ -410,6 +449,15 @@ export async function runAssignmentRound(
           .catch((err) =>
             console.error(`[Signals] failed to clear failures of run=${runId}:`, err),
           );
+      }
+    }
+    if (settled.size > 0) {
+      // A pending RCA row is committed with its opening; if this fails, the
+      // sweeper starts it.
+      try {
+        stats.rcas = await deps.startRcas(projectId, [...settled]);
+      } catch (err) {
+        console.error(`[Signals] failed to start RCAs for ${settled.size} finding(s):`, err);
       }
     }
   }
@@ -424,7 +472,7 @@ export async function runAssignmentRound(
   console.log(
     `[Signals] round project=${projectId} detector=${detectorId} waiting=${stats.waiting} ` +
       `created=${stats.created} attached=${stats.attached} reopened=${stats.reopened} ` +
-      `duplicate=${stats.duplicate} failed=${stats.failed} gave_up=${stats.gaveUp} ` +
+      `duplicate=${stats.duplicate} failed=${stats.failed} gave_up=${stats.gaveUp} rcas=${stats.rcas} ` +
       `rejudged=${stats.rejudged} unvalidated=${stats.unvalidated} ` +
       `lag_ms=${stats.lagMs} duration_ms=${stats.durationMs} remaining=${stats.remaining}`,
   );

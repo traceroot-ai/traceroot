@@ -38,6 +38,8 @@ function fakeBackend(rows: WaitingHitRow[], opts: { failWrites?: boolean } = {})
       backend.calls.push(args);
       return waiting.slice(0, args[3] as number);
     }),
+    unsettledRuns: vi.fn(async () => []),
+    traceFindings: vi.fn(async () => []),
     writeAssignments: vi.fn(async (batch: AssignmentRow[]) => {
       if (opts.failWrites) throw new Error("clickhouse down");
       written.push(...batch);
@@ -51,7 +53,15 @@ function fakeBackend(rows: WaitingHitRow[], opts: { failWrites?: boolean } = {})
   return { backend, written, waiting };
 }
 
-function fakeDb(opts: { recorded?: string[]; detector?: unknown } = {}) {
+type CurrentHit = {
+  runId: string;
+  signalId: string;
+  score: number | null;
+  criteriaVersion: number | null;
+  assignedAt: Date;
+};
+
+function fakeDb(opts: { recorded?: string[]; detector?: unknown; current?: CurrentHit[] } = {}) {
   const aiRows: Record<string, unknown>[] = [];
   const db = {
     detector: {
@@ -60,6 +70,7 @@ function fakeDb(opts: { recorded?: string[]; detector?: unknown } = {}) {
           ? {
               name: "Failure",
               enableSignals: true,
+              enableRca: true,
               signalsEnabledAt: ENABLED_AT,
               project: { workspaceId: "ws" },
             }
@@ -67,10 +78,20 @@ function fakeDb(opts: { recorded?: string[]; detector?: unknown } = {}) {
       ),
     },
     signalHit: {
-      findMany: vi.fn(async ({ where }: { where: { copyPending?: boolean } }) =>
-        where.copyPending
-          ? []
-          : (opts.recorded ?? []).map((runId) => ({ runId, embedding: [1, 0] })),
+      // The duplicate check reads run ids; the copy flush reads each hit's placement.
+      findMany: vi.fn(
+        async ({
+          where,
+          select,
+        }: {
+          where: { copyPending?: boolean };
+          select: Record<string, boolean>;
+        }) =>
+          where.copyPending
+            ? []
+            : select.signalId
+              ? (opts.current ?? [])
+              : (opts.recorded ?? []).map((runId) => ({ runId, embedding: [1, 0] })),
       ),
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
@@ -155,6 +176,7 @@ function deps(
     db: db as RoundDeps["db"],
     backend,
     failures,
+    startRcas: vi.fn(async (_p: string, findingIds: string[]) => findingIds.length),
     embed,
     models: async (usage) => chatModels(usage),
     now,
@@ -167,7 +189,13 @@ const ASSIGNED_AT = new Date(T0 + 1_000);
 function simulateWrites() {
   let n = 0;
   mockApply.mockImplementation(async (_db: unknown, _hit: WaitingHit, placement: Placement) => {
-    const base = { reopenSeq: 0, score: null, criteriaVersion: 1, assignedAt: ASSIGNED_AT };
+    const base = {
+      reopenSeq: 0,
+      score: null,
+      criteriaVersion: 1,
+      assignedAt: ASSIGNED_AT,
+      rcaFindingId: null,
+    };
     if (placement.kind === "attach" && placement.signalId === "") {
       return { ...base, outcome: "duplicate", signalId: "sigOld", score: 0.8 };
     }
@@ -234,6 +262,59 @@ describe("runAssignmentRound", () => {
     });
   });
 
+  it("passes the detector's RCA switch to the write and, after the round, starts the RCAs of the findings it settled", async () => {
+    const { backend } = fakeBackend([row(1), row(2), row(3, { finding_id: "f1" })]);
+    const d = deps(fakeDb().db, backend);
+    const stats = await runAssignmentRound(d, "p", "d");
+    expect(mockApply.mock.calls[0][3]).toMatchObject({ rca: true, now: T0 });
+    // Every settled hit's finding is offered once, whether it opened a signal
+    // or attached: the last hit of a trace may be one that only attached.
+    expect(d.startRcas).toHaveBeenCalledTimes(1);
+    expect(d.startRcas).toHaveBeenCalledWith("p", ["f1", "f2"]);
+    expect(stats.rcas).toBe(2);
+  });
+
+  it("offers the finding of a hit it gave up on, which settles that hit", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend } = fakeBackend([row(1)]);
+    const failures = fakeFailures({ run1: { count: 2, firstAt: T0 - 7 * 3_600_000 } });
+    mockApply.mockRejectedValueOnce(new UnusableAnswerError("no tool call"));
+    const d = deps(fakeDb().db, backend, () => T0, failures);
+    await runAssignmentRound(d, "p", "d");
+    expect(d.startRcas).toHaveBeenCalledWith("p", ["f1"]);
+    error.mockRestore();
+  });
+
+  it("offers no finding whose hit is still waiting after an outage", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend } = fakeBackend([row(1), row(2)]);
+    mockApply.mockRejectedValueOnce(new Error("postgres down"));
+    const d = deps(fakeDb().db, backend);
+    await runAssignmentRound(d, "p", "d");
+    expect(d.startRcas).toHaveBeenCalledWith("p", ["f2"]);
+    error.mockRestore();
+  });
+
+  it("keeps the round's work when starting RCAs fails (the sweeper starts them)", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { backend, written } = fakeBackend([row(1)]);
+    mockApply.mockResolvedValueOnce({
+      outcome: "created",
+      signalId: "s",
+      reopenSeq: 0,
+      score: null,
+      criteriaVersion: 1,
+      assignedAt: ASSIGNED_AT,
+      rcaFindingId: "f1",
+    });
+    const d = deps(fakeDb().db, backend);
+    vi.mocked(d.startRcas).mockRejectedValueOnce(new Error("redis down"));
+    await expect(runAssignmentRound(d, "p", "d")).resolves.toMatchObject({ created: 1, rcas: 0 });
+    expect(d.startRcas).toHaveBeenCalledWith("p", ["f1"]);
+    expect(written).toHaveLength(1);
+    error.mockRestore();
+  });
+
   it("reads hits only from after the switch was turned on, and within the lookback", async () => {
     const { backend } = fakeBackend([]);
     await runAssignmentRound(deps(fakeDb().db, backend), "p", "d");
@@ -273,6 +354,30 @@ describe("runAssignmentRound", () => {
       signal_id: "sigOld",
       score: 0.8,
       embedding: [1, 0],
+    });
+  });
+
+  it("copies the signal a user moved the hit to before its copy was written", async () => {
+    const { backend, written } = fakeBackend([row(1)]);
+    const moved = new Date(ASSIGNED_AT.getTime() + 5_000);
+    const db = fakeDb({
+      current: [
+        {
+          runId: "run1",
+          signalId: "sigUser",
+          score: null,
+          criteriaVersion: null,
+          assignedAt: moved,
+        },
+      ],
+    }).db;
+    await runAssignmentRound(deps(db, backend), "p", "d");
+    expect(written[0]).toMatchObject({
+      run_id: "run1",
+      signal_id: "sigUser",
+      score: null,
+      criteria_version: null,
+      assigned_at_ms: moved.getTime(),
     });
   });
 

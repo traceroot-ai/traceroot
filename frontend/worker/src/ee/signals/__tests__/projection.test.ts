@@ -77,11 +77,12 @@ describe("assignment projection repair", () => {
         writeAssignments: vi.fn(async () => {}),
         waitingHits: vi.fn(async () => rows.slice(0, 200)),
         traceFindings: vi.fn(async () => []),
+        unsettledRuns: vi.fn(async () => []),
       },
       embed,
       models,
       failures: { record: vi.fn(), clear: vi.fn() },
-      enqueueRca: vi.fn(async () => {}),
+      startRcas: vi.fn(async () => 0),
       enqueueDigest: vi.fn(async () => {}),
       now: () => 2000,
     };

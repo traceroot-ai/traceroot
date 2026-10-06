@@ -72,6 +72,11 @@ vi.mock("../../../queues/detector-run-queue.js", () => ({
   createRedisConnection: () => fakeRedis,
 }));
 vi.mock("../round.js", () => ({ runAssignmentRound: mockRound }));
+const { mockStartRcas, mockSweepRcas } = vi.hoisted(() => ({
+  mockStartRcas: vi.fn(),
+  mockSweepRcas: vi.fn(),
+}));
+vi.mock("../rca.js", () => ({ startSettledRcas: mockStartRcas, sweepSignalRcas: mockSweepRcas }));
 const { mockPendingCopies, detectorRows, detectorDb, markWrites } = vi.hoisted(() => {
   /** The detectors table, reduced to the sweeper's pending mark. */
   const detectorRows = new Map<string, { projectId: string; assignmentPendingAt: Date | null }>();
@@ -368,6 +373,11 @@ describe("sweepPartitions", () => {
     detector("d", T0 - 180_000);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     expect(await sweepPartitions(T0)).toBe(1);
+    expect(mockSweepRcas).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: "prisma" }),
+      expect.anything(),
+      T0,
+    );
     expect(mockAdd).toHaveBeenCalledWith(
       "assign",
       { projectId: "p", detectorId: "d" },
@@ -515,6 +525,7 @@ describe("pending copy recovery", () => {
       { projectId: "p1", detectorId: "d1" },
       expect.objectContaining({ delay: 0 }),
     );
+    expect(mockSweepRcas).not.toHaveBeenCalled();
   });
 });
 
@@ -526,6 +537,13 @@ describe("production wiring", () => {
     expect(deps.db).toMatchObject({ tag: "prisma" });
     expect(deps.backend).toBeDefined();
     expect(deps.failures.record).toBe(recordHitFailure);
+    await deps.startRcas("p", ["f1"]);
+    expect(mockStartRcas).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: "prisma" }),
+      deps.backend,
+      "p",
+      ["f1"],
+    );
     expect(deps.now()).toBeGreaterThan(0);
 
     await deps.embed(["a"]);
