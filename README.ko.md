@@ -27,7 +27,7 @@ AI 에이전트를 위한 오픈 소스 자기 개선 레이어
 
 TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 자기 개선 루프를 완성합니다.
 
-https://github.com/user-attachments/assets/b7b62cc5-9c58-40b6-bad8-f74dd75169a2
+https://github.com/user-attachments/assets/4615970f-812c-4c8d-9c26-139eb89023cb
 
 ## 핵심 기능
 
