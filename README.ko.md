@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://traceroot.ai/">
-    <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo" width="420">
+    <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo" width="560">
   </a>
 
 AI 에이전트를 위한 오픈 소스 자기 개선 레이어
