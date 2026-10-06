@@ -112,7 +112,9 @@ export async function remarkUnmarked(): Promise<number> {
   for (const member of await redis().smembers(UNMARKED_KEY)) {
     // Neither id contains a colon: signalAssignJobId rejects one.
     const partition = member.split(":").slice(0, 2).join(":");
-    byPartition.set(partition, [...(byPartition.get(partition) ?? []), member]);
+    const members = byPartition.get(partition);
+    if (members) members.push(member);
+    else byPartition.set(partition, [member]);
   }
   for (const [partition, members] of byPartition) {
     const [projectId, detectorId] = partition.split(":");
