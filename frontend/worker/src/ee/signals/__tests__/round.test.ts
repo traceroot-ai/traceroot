@@ -177,6 +177,7 @@ function deps(
     backend,
     failures,
     startRcas: vi.fn(async (_p: string, findingIds: string[]) => findingIds.length),
+    enqueueDigest: vi.fn(async () => {}),
     embed,
     models: async (usage) => chatModels(usage),
     now,
@@ -313,6 +314,17 @@ describe("runAssignmentRound", () => {
     expect(d.startRcas).toHaveBeenCalledWith("p", ["f1"]);
     expect(written).toHaveLength(1);
     error.mockRestore();
+  });
+
+  it("enqueues the project's signal digest after a round that changed signals, and not otherwise", async () => {
+    const { backend } = fakeBackend([row(1)]);
+    const d = deps(fakeDb().db, backend);
+    await runAssignmentRound(d, "p", "d");
+    expect(d.enqueueDigest).toHaveBeenCalledWith("p");
+
+    const dup = deps(fakeDb({ recorded: ["run1"] }).db, fakeBackend([row(1)]).backend);
+    await runAssignmentRound(dup, "p", "d");
+    expect(dup.enqueueDigest).not.toHaveBeenCalled();
   });
 
   it("reads hits only from after the switch was turned on, and within the lookback", async () => {

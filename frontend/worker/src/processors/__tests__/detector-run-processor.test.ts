@@ -59,6 +59,10 @@ vi.mock("../../detection/self-trace-emitter.js", () => ({
   withSelfTrace: mockWithSelfTrace,
 }));
 vi.mock("../../ee/signals/queue.js", () => ({ enqueueSignalHits: mockEnqueueSignalHits }));
+const { mockScheduleFindingDigest } = vi.hoisted(() => ({ mockScheduleFindingDigest: vi.fn() }));
+vi.mock("../../notifications/digest-schedule.js", () => ({
+  scheduleFindingDigest: mockScheduleFindingDigest,
+}));
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -105,6 +109,7 @@ beforeEach(() => {
   mockPrisma.aIMessage.createMany.mockResolvedValue(undefined);
   mockPrisma.detectorRca.upsert.mockResolvedValue(undefined);
   mockEnqueueSignalHits.mockResolvedValue(0);
+  mockScheduleFindingDigest.mockResolvedValue(undefined);
   // Default: tracing works — run fn once, report selfTraced, surface throws
   // as ok:false (mirrors the real withSelfTrace contract).
   lastRecordedIo = undefined;
@@ -515,5 +520,45 @@ describe("processTrace — signals call site", () => {
     await processTrace("t1", "p1", ["d1"]);
     expect(mockRunDetection).toHaveBeenCalledOnce();
     expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+  });
+});
+
+describe("processTrace — notifications", () => {
+  const spans = JSON.stringify({ span_id: "s", span_start_time: "2026-09-30T09:00:00" });
+  function trigger(enableSignals: boolean) {
+    mockPrisma.detector.findMany.mockResolvedValue([
+      { id: "d1", name: "Failure", prompt: "p", outputSchema: [], enableRca: true, enableSignals },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: true,
+      summary: "tool timed out",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: null,
+      inferenceProvider: "anthropic",
+    });
+    mockPrisma.project.findUnique.mockResolvedValue({
+      workspaceId: "w1",
+      workspace: { billingPlan: "pro", detectorBlocked: false },
+    });
+  }
+
+  // Only the signal digest notifies, for new and reopened signals: a finding
+  // never schedules a per-finding notification, whatever its detector does.
+  it.each([
+    ["grouping into signals", true, "sk"],
+    ["not grouping into signals", false, "sk"],
+    ["in a deployment without the signals key", true, ""],
+  ])("schedules no per-finding notification for a detector %s", async (_, enableSignals, key) => {
+    vi.stubEnv("OPENAI_API_KEY", key);
+    mockFetches(60_000, spans);
+    trigger(enableSignals);
+    await processTrace("t1", "p1", ["d1"]);
+    expect(mockWriteFinding).toHaveBeenCalled();
+    expect(mockScheduleFindingDigest).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
   });
 });

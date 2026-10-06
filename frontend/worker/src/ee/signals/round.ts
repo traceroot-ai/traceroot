@@ -78,6 +78,8 @@ export interface RoundDeps {
    * settled (startSettledRcas); returns how many it started.
    */
   startRcas(projectId: string, findingIds: string[]): Promise<number>;
+  /** Enqueue the project's signal digest after a round that changed signals. */
+  enqueueDigest(projectId: string): Promise<void>;
   embed(texts: string[]): Promise<EmbeddingResult>;
   /** Model clients for one round; every call's usage is pushed to `usage`. */
   models(usage: ModelUsage[]): Promise<AssignmentModels>;
@@ -459,6 +461,13 @@ export async function runAssignmentRound(
       } catch (err) {
         console.error(`[Signals] failed to start RCAs for ${settled.size} finding(s):`, err);
       }
+    }
+    if (stats.created + stats.attached + stats.reopened > 0) {
+      await deps
+        .enqueueDigest(projectId)
+        .catch((err) =>
+          console.error(`[Signals] failed to enqueue the digest of project ${projectId}:`, err),
+        );
     }
   }
   // Postgres is correct either way; failing the job retries with backoff

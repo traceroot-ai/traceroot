@@ -452,8 +452,9 @@ model Detector {
   enableRca           Boolean   @default(true) @map("enable_rca") // run agent-model RCA on this detector's findings
   // Group this detector's hits into signals (ee/signals). RCA follows signals: it
   // runs only when a signal is created or reopened, and only if enableRca is also
-  // on. Off, or on in a deployment without the embedding and assignment keys: no
-  // grouping and no RCA; the digest still reports findings per finding.
+  // on. Notifications announce new and reopened signals only. Off, or on in a
+  // deployment without the embedding and assignment keys: no grouping, no RCA
+  // and no notifications.
   enableSignals       Boolean   @default(true) @map("enable_signals")
   // Hits detected before this are never grouped (no backfill). Set when signals
   // are switched on; the migration set it to the upgrade time.

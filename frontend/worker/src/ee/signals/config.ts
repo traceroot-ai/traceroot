@@ -92,7 +92,8 @@ export const BACKEND_TIMEOUT_MS = 30_000;
 
 /**
  * The OpenAI key signals run on. Without it the feature is off for every
- * detector: no grouping and no RCA, as if each detector's switch were off.
+ * detector: no grouping, no RCA and no notifications, as if each detector's
+ * switch were off.
  */
 export function signalsApiKey(): string | null {
   const key = process.env.OPENAI_API_KEY?.trim();
