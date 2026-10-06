@@ -55,6 +55,7 @@ EXPECTED_ROUTES = {
     # before its RCA.
     ("GET", "/api/v1/internal/signals/waiting-hits"),
     ("POST", "/api/v1/internal/signals/assignments"),
+    ("POST", "/api/v1/internal/signals/reassign"),
     ("POST", "/api/v1/internal/signals/unsettled-runs"),
 }
 
