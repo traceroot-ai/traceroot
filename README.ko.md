@@ -49,8 +49,10 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 <p align="center">
   <a href="https://github.com/traceroot-ai/traceroot-cli">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
-      <img src="docs/images/coding-agent-cli-light.png" alt="코딩 에이전트가 TraceRoot CLI를 통해 홈, 트레이스, 대시보드, 탐지기, 평가, 데이터셋, 알림, 신호에 연결됩니다." width="100%">
+      <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
+      <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/coding-agent-cli-light.png">
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.gif">
+      <img src="docs/images/coding-agent-cli-light.gif" alt="코딩 에이전트가 TraceRoot CLI를 통해 홈, 트레이스, 대시보드, 탐지기, 평가, 데이터셋, 알림, 신호에 연결됩니다." width="100%">
     </picture>
   </a>
 </p>
