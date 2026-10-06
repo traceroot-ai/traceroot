@@ -31,6 +31,21 @@ const { mockAdd, mockUpsertScheduler, mockRound, fakeRedis } = vi.hoisted(() => 
     async del(key: string) {
       return this.hashes.delete(key) ? 1 : 0;
     },
+    /** The set commands the unmarked partitions use. */
+    sets: new Map<string, Set<string>>(),
+    async sadd(key: string, member: string) {
+      if (!this.sets.has(key)) this.sets.set(key, new Set());
+      const set = this.sets.get(key)!;
+      if (set.has(member)) return 0;
+      set.add(member);
+      return 1;
+    },
+    async smembers(key: string) {
+      return [...(this.sets.get(key) ?? [])];
+    },
+    async srem(key: string, member: string) {
+      return this.sets.get(key)?.delete(member) ? 1 : 0;
+    },
   };
   return { mockAdd: vi.fn(), mockUpsertScheduler: vi.fn(), mockRound: vi.fn(), fakeRedis };
 });
@@ -159,6 +174,7 @@ beforeEach(() => {
   mockPendingCopies.mockResolvedValue([]);
   detectorRows.clear();
   fakeRedis.hashes.clear();
+  fakeRedis.sets.clear();
   vi.stubEnv("OPENAI_API_KEY", "sk-test");
   mockAdd.mockResolvedValue(undefined);
   mockUpsertScheduler.mockResolvedValue(undefined);
@@ -395,6 +411,52 @@ describe("recovery of a failed first enqueue", () => {
       expect.objectContaining({ jobId: "assign:p1:d1", delay: 0 }),
     );
     log.mockRestore();
+  });
+});
+
+describe("recovery of a failed pending mark", () => {
+  const hit = {
+    projectId: "p1",
+    detectors: [{ id: "d1", enableSignals: true }],
+    triggered: [{ detectorId: "d1" }],
+  };
+  const unmarked = () => [...(fakeRedis.sets.get("signals:assign:unmarked") ?? [])];
+
+  it("still adds the job, and keeps the partition in Redis until Postgres takes the mark", async () => {
+    vi.useFakeTimers({ now: T0 });
+    detector("d1", null, "p1");
+    markWrites.mockRejectedValueOnce(new Error("postgres down"));
+    await expect(enqueueSignalHits(hit)).rejects.toThrow("postgres down");
+    expect(pendingAt("d1")).toBeNull();
+    expect(unmarked()).toEqual(["p1:d1"]);
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+
+    // Postgres is still down at the next sweep: the partition stays on record.
+    markWrites.mockRejectedValueOnce(new Error("postgres down"));
+    await expect(sweepPartitions(T0 + 60_000)).rejects.toThrow("postgres down");
+    expect(unmarked()).toEqual(["p1:d1"]);
+
+    // Postgres is back, and no further hit arrived: the sweeper writes the
+    // mark and enqueues the partition, and from here the mark alone keeps it.
+    vi.setSystemTime(T0 + 120_000);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    expect(await sweepPartitions(T0 + 120_000)).toBe(1);
+    expect(pendingAt("d1")).toBe(T0 + 120_000);
+    expect(unmarked()).toEqual([]);
+    expect(mockAdd).toHaveBeenLastCalledWith(
+      "assign",
+      { projectId: "p1", detectorId: "d1" },
+      expect.objectContaining({ jobId: "assign:p1:d1", delay: 0 }),
+    );
+    log.mockRestore();
+  });
+
+  it("is still recorded when the job cannot be added either", async () => {
+    detector("d1", null, "p1");
+    markWrites.mockRejectedValueOnce(new Error("postgres down"));
+    mockAdd.mockRejectedValueOnce(new Error("queue full"));
+    await expect(enqueueSignalHits(hit)).rejects.toThrow("queue full");
+    expect(unmarked()).toEqual(["p1:d1"]);
   });
 });
 
