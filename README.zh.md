@@ -27,7 +27,7 @@
 
 TraceRoot 将生产环境中的追踪转化为可执行的反馈与评测，与你的编程 Agent 一起形成自我改进闭环。
 
-https://github.com/user-attachments/assets/4615970f-812c-4c8d-9c26-139eb89023cb
+https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
 ## 核心功能
 
@@ -103,8 +103,6 @@ traceroot login
 
 ```text
 使用 TraceRoot CLI 为此应用配置追踪。
-安装适用的 TraceRoot 技能，指导我完成必要的配置，
-并确认第一条追踪已出现在 TraceRoot 中。
 ```
 
 ### 手动配置 SDK
