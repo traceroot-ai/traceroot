@@ -20,6 +20,7 @@ import {
   getSignalAssignQueue,
   markDrained,
   partitionsToSweep,
+  remarkUnmarked,
   clearHitFailures,
   recordHitFailure,
   type SignalAssignJobData,
@@ -49,7 +50,8 @@ function productionDeps(): RoundDeps {
 
 /**
  * Re-enqueue partitions whose job may have been lost or whose enqueue failed
- * (see partitionsToSweep), and partitions with placements not yet copied to
+ * (see partitionsToSweep), partitions whose pending mark could not be written
+ * (see remarkUnmarked), and partitions with placements not yet copied to
  * ClickHouse. Enqueueing a partition whose job is alive is a no-op.
  */
 export async function sweepPartitions(now: number = Date.now()): Promise<number> {
@@ -58,7 +60,8 @@ export async function sweepPartitions(now: number = Date.now()): Promise<number>
   const waiting = signalsAvailable() ? await partitionsToSweep(now) : [];
   const waitingKeys = new Set(waiting.map((p) => `${p.projectId}:${p.detectorId}`));
   let cursor: { projectId: string; detectorId: string } | null = null;
-  let count = 0;
+  // First, partitions whose mark Postgres refused when their hit was detected.
+  let count = await remarkUnmarked();
   // Page all pending partitions, rather than repeatedly retrying the first
   // batch during an outage. Retain only a page and the bounded waiting batch.
   const pageSize = 500;
