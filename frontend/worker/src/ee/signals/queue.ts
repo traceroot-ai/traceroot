@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Queue } from "bullmq";
 import type { Redis } from "ioredis";
 import { prisma } from "@traceroot/core";
@@ -28,7 +29,11 @@ export function getSignalAssignQueue(): Queue<SignalAssignJobData> {
   return queue;
 }
 
-/** Redis set of "projectId:detectorId" whose pending mark is still to be written. */
+/**
+ * Redis set of partitions whose pending mark is still to be written. A member
+ * is "projectId:detectorId:nonce", one per failed mark, so removing the members
+ * a sweep read never removes one added while it worked.
+ */
 const UNMARKED_KEY = "signals:assign:unmarked";
 
 let bookkeeping: Redis | null = null;
@@ -54,17 +59,31 @@ export async function enqueueAssignment(
   delayMs: number = ASSIGN_DELAY_MS,
 ): Promise<void> {
   const jobId = signalAssignJobId(projectId, detectorId);
-  // Raw SQL: a client update would also advance the detector's updateTime,
-  // which the detector list shows as its last edit.
   let markError: unknown = null;
   try {
-    await prisma.$executeRaw`
-      UPDATE detectors SET assignment_pending_at = ${new Date()}
-      WHERE id = ${detectorId} AND project_id = ${projectId}`;
+    await markPending(projectId, detectorId);
   } catch (err) {
-    await redis().sadd(UNMARKED_KEY, `${projectId}:${detectorId}`);
+    await redis().sadd(UNMARKED_KEY, `${projectId}:${detectorId}:${randomUUID()}`);
     markError = err;
   }
+  await addAssignJob(projectId, detectorId, jobId, delayMs);
+  if (markError) throw markError;
+}
+
+async function markPending(projectId: string, detectorId: string): Promise<void> {
+  // Raw SQL: a client update would also advance the detector's updateTime,
+  // which the detector list shows as its last edit.
+  await prisma.$executeRaw`
+    UPDATE detectors SET assignment_pending_at = ${new Date()}
+    WHERE id = ${detectorId} AND project_id = ${projectId}`;
+}
+
+async function addAssignJob(
+  projectId: string,
+  detectorId: string,
+  jobId: string,
+  delayMs: number,
+): Promise<void> {
   await getSignalAssignQueue().add(
     ASSIGN_JOB_NAME,
     { projectId, detectorId },
@@ -77,25 +96,32 @@ export async function enqueueAssignment(
       backoff: { type: "exponential", delay: 10_000 },
     },
   );
-  if (markError) throw markError;
 }
 
 /**
  * Write the pending mark of each partition whose mark Postgres did not take
- * (see enqueueAssignment), and enqueue it. A partition is forgotten only once
- * its mark is written; a failure leaves it and the rest for the next sweep.
+ * (see enqueueAssignment), and enqueue it. A partition's members are forgotten
+ * only once its mark is written, and only the members read here: one added
+ * meanwhile, for a hit this mark may be too early for, waits for the next
+ * sweep. A failure leaves the partition and the rest for the next sweep.
  *
  * @returns the number of partitions marked
  */
 export async function remarkUnmarked(): Promise<number> {
-  const members = await redis().smembers(UNMARKED_KEY);
-  for (const member of members) {
+  const byPartition = new Map<string, string[]>();
+  for (const member of await redis().smembers(UNMARKED_KEY)) {
     // Neither id contains a colon: signalAssignJobId rejects one.
-    const [projectId, detectorId] = member.split(":");
-    await enqueueAssignment(projectId, detectorId, 0);
-    await redis().srem(UNMARKED_KEY, member);
+    const partition = member.split(":").slice(0, 2).join(":");
+    byPartition.set(partition, [...(byPartition.get(partition) ?? []), member]);
   }
-  return members.length;
+  for (const [partition, members] of byPartition) {
+    const [projectId, detectorId] = partition.split(":");
+    // Not enqueueAssignment: a mark that fails again must not add a member.
+    await markPending(projectId, detectorId);
+    await addAssignJob(projectId, detectorId, signalAssignJobId(projectId, detectorId), 0);
+    await redis().srem(UNMARKED_KEY, ...members);
+  }
+  return byPartition.size;
 }
 
 /**
