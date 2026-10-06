@@ -163,6 +163,27 @@ def test_compile_number_no_groupby():
     assert "GROUP BY" not in sql
 
 
+@pytest.mark.parametrize(
+    "spec",
+    [
+        # The default dashboard's KPI tiles and charts, one per base relation.
+        {"view": "traces", "metric": {"measure": "count", "agg": "count"}, "filters": []},
+        {"view": "traces", "metric": {"measure": "cost", "agg": "sum"}, "filters": []},
+        {"view": "spans", "metric": {"measure": "total_tokens", "agg": "sum"}, "filters": []},
+        {"view": "spans", "metric": {"measure": "duration_ms", "agg": "p95"}, "filters": []},
+    ],
+)
+def test_metric_tiles_exclude_evaluation_traces(spec):
+    """KPI tiles must not count the eval traces the trace-feed tile beside them hides."""
+    sql, params = compile_(make_spec(display={"type": "number"}, breakdown=None, **spec))
+    assert "is_evaluation = 1" in sql
+    # Both halves of the excluded set, bounded by the tile's own window parameters.
+    assert re.search(r"FROM traces WHERE project_id = \{project_id:String\} AND is_evaluation", sql)
+    assert re.search(r"FROM spans WHERE project_id = \{project_id:String\} AND is_evaluation", sql)
+    for name in set(re.findall(r"\{(\w+):", sql)):
+        assert name in params, f"placeholder {name} is unbound"
+
+
 def test_compile_histogram():
     spec = make_spec(display={"type": "histogram"}, breakdown=None)
     spec["metric"] = {"measure": "duration_ms", "agg": "avg"}  # agg ignored for histogram

@@ -31,6 +31,12 @@ TRACE_SPAN_LOOKBACK_HOURS = 1
 # open-ended custom ranges. Matches the UI's own default preset ("Last 24 hours").
 DEFAULT_SPAN_SCAN_LOOKBACK_HOURS = 24
 
+# How far past each edge of a window the window-bounded evaluation exclusion looks for
+# flagged rows (see windowed_evaluation_exclusion). Must exceed the longest evaluation
+# case: a case still running this long after its first flagged row can leak its
+# in-window spans at the window edge.
+EVALUATION_EXCLUSION_PADDING_HOURS = 24
+
 # Markers stored in spans.source / traces.source. Customer traffic carries 'user' (the
 # column's DEFAULT); internal telemetry carries a marker of its own.
 USER_SOURCE = "user"
@@ -118,6 +124,50 @@ def _evaluation_exclusion(params: dict) -> str:
     if "end_before" in params:
         bounds.append("trace_start_time <= {end_before:DateTime64(3)}")
     return "t.trace_id NOT IN (SELECT trace_id FROM traces WHERE " + " AND ".join(bounds) + ")"
+
+
+def windowed_evaluation_exclusion(start_param: str, end_param: str) -> str:
+    """SQL condition removing offline-evaluation traces from a window-bounded scan.
+
+    For static SQL whose window arrives as named ``DateTime64(3)`` parameters (the
+    widget base relations, which back dashboard tiles and metric alerts). Same
+    ``trace_id`` set-membership as ``_evaluation_exclusion``, for the same
+    monotonic-across-batches reason, but the set is built from BOTH tables like the SQL
+    gateway's ``VIEW_EVALUATION_EXCLUSION`` (see ``rest.services.sql.schema`` for the
+    full argument): an evaluation-kind span can land with no flagged ``traces`` row,
+    and a merge can physically delete the flagged ``traces`` row, while the flagged
+    span row survives both.
+
+    Each half is bounded to the caller's window widened by
+    ``EVALUATION_EXCLUSION_PADDING_HOURS`` on both sides, so it prunes to the same few
+    monthly partitions as the outer scan instead of probing the project all-time on
+    every tile and alert tick. The padding is what keeps the set complete at the
+    window edges: the outer scan bounds a trace or span start, and a trace's flagged
+    rows start somewhere in that trace's lifetime, not necessarily inside the window.
+    An evaluation case running longer than the padding is the accepted miss.
+
+    Unqualified ``trace_id``: callers place this in a scan whose only ``trace_id`` is
+    the scanned table's own.
+
+    Args:
+        start_param (str): Name of the window-start parameter (inclusive).
+        end_param (str): Name of the window-end parameter (exclusive).
+
+    Returns:
+        str: A WHERE-clause condition.
+    """
+    pad = f"INTERVAL {EVALUATION_EXCLUSION_PADDING_HOURS} HOUR"
+    start = f"{{{start_param}:DateTime64(3)}} - {pad}"
+    end = f"{{{end_param}:DateTime64(3)}} + {pad}"
+    return (
+        "trace_id NOT IN ("
+        "SELECT trace_id FROM traces WHERE project_id = {project_id:String}"
+        f" AND is_evaluation = 1 AND trace_start_time >= {start} AND trace_start_time < {end}"
+        " UNION DISTINCT "
+        "SELECT trace_id FROM spans WHERE project_id = {project_id:String}"
+        f" AND is_evaluation = 1 AND span_start_time >= {start} AND span_start_time < {end}"
+        ")"
+    )
 
 
 def _floor_minute(dt: datetime | None) -> datetime | None:
