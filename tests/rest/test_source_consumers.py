@@ -48,10 +48,7 @@ ALLOW_UNFILTERED_METHODS = {
         "source = 'user' itself (012_create_public_sql_views.sql); it can only "
         "remove rows from that guarded scan"
     ),
-    ("rest/services/trace_reader.py", "_evaluation_exclusion"): (
-        "NOT IN subquery: it can only remove rows from the guarded scan it is ANDed into"
-    ),
-    ("rest/services/trace_reader.py", "windowed_evaluation_exclusion"): (
+    ("rest/services/trace_reader.py", "_evaluation_trace_ids"): (
         "NOT IN subquery: it can only remove rows from the guarded scan it is ANDed into"
     ),
     ("rest/services/trace_reader.py", "get_trace_start_time"): (

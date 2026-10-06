@@ -20,6 +20,10 @@ Three invariants are load-bearing and each has its own test below.
 3. **No collision with user data.** The predicate keys off the ingest-set
    ``is_evaluation`` flag, never off ``environment``. ``environment`` is the customer's own
    free-text deployment tag, so a team that names a stack "evaluation" keeps every trace.
+
+4. **Both tables.** The set unions flagged ``traces`` rows with flagged ``spans`` rows. A
+   background merge deletes the flagged ``traces`` row of a same-day pair, and a batch
+   with no root span never writes one; the flagged span row survives both.
 """
 
 from datetime import datetime
@@ -156,6 +160,49 @@ class TestListTraces:
         sub = _exclusion_subselect(_queries(svc)[0][0])
         assert "start_after" in sub
         assert "end_before" in sub
+
+    def test_exclusion_set_also_reads_flagged_spans(self):
+        """A traces-only set un-hides a trace once its flagged traces row is merged away
+        or was never written; the flagged span row is what keeps it hidden."""
+        svc = _service_with_mock_client()
+        svc._client.query.side_effect = _rows([], [[0]])
+
+        svc.list_traces(project_id="p1")
+
+        sub = _exclusion_subselect(_queries(svc)[0][0])
+        assert "FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1" in sub
+        assert "UNION DISTINCT" in sub
+        assert "FROM spans WHERE project_id = {project_id:String} AND span_kind IN (" in sub
+
+    def test_window_bounds_both_halves_with_padding(self):
+        """Each half is bounded by its own start column, its start padded so a trace whose
+        flagged rows start before the window but which has rows inside it stays hidden.
+        The end is unpadded: a flagged row never starts after the rows it hides."""
+        svc = _service_with_mock_client()
+        svc._client.query.side_effect = _rows([], [[0]])
+
+        svc.list_traces(
+            project_id="p1",
+            start_after=datetime(2026, 6, 1),
+            end_before=datetime(2026, 6, 2),
+        )
+
+        sub = _exclusion_subselect(_queries(svc)[0][0])
+        for column in ("trace_start_time", "span_start_time"):
+            assert f"{column} >= {{start_after:DateTime64(3)}} - INTERVAL" in sub
+            assert f"{column} <= {{end_before:DateTime64(3)}}" in sub
+        assert "+ INTERVAL" not in sub
+
+    def test_open_window_leaves_both_halves_unbounded(self):
+        """No window, no bound: a bounded set under an open-ended list would let old
+        evaluation traces back in."""
+        svc = _service_with_mock_client()
+        svc._client.query.side_effect = _rows([], [[0]])
+
+        svc.list_traces(project_id="p1")
+
+        sub = _exclusion_subselect(_queries(svc)[0][0])
+        assert "_start_time" not in sub
 
 
 # ── list_sessions ───────────────────────────────────────────────────────

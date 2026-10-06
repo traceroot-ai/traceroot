@@ -32,10 +32,9 @@ TRACE_SPAN_LOOKBACK_HOURS = 1
 # open-ended custom ranges. Matches the UI's own default preset ("Last 24 hours").
 DEFAULT_SPAN_SCAN_LOOKBACK_HOURS = 24
 
-# How far before a window's start the window-bounded evaluation exclusion looks for
-# flagged rows (see windowed_evaluation_exclusion). Must exceed the longest evaluation
-# case: a case still running this long after its first flagged row can leak its
-# in-window spans at the window's leading edge.
+# How far before a window's start the evaluation exclusion looks for flagged rows (see
+# _evaluation_trace_ids). Must exceed the longest evaluation case: a case still running
+# this long after its first flagged row can leak its in-window rows at the leading edge.
 EVALUATION_EXCLUSION_PADDING_HOURS = 24
 
 # Markers stored in spans.source / traces.source. Customer traffic carries 'user' (the
@@ -78,87 +77,101 @@ def customer_traffic_only(alias: str = "") -> str:
     return f"{column} = '{USER_SOURCE}'"
 
 
-def _evaluation_exclusion(params: dict) -> str:
-    """SQL condition removing offline-evaluation traces from a ``traces AS t`` scan.
+def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str:
+    """Sub-select of every offline-evaluation ``trace_id`` in a project, around a window.
 
-    KEYED ON ``is_evaluation``, deliberately not on ``environment``. ``environment`` is the
-    customer's own deployment tag — free text passed straight through from
-    ``TRACEROOT_ENVIRONMENT``, and the filter dropdown offers back whatever strings they
-    actually sent. Overloading it as the evaluation marker would make a team that names a
-    pre-prod stack "evaluation" lose its entire trace list with no in-product way back.
+    The one definition of "which traces are evaluations", shared by every read-path
+    exclusion below. KEYED ON ``is_evaluation``, deliberately not on ``environment``.
+    ``environment`` is the customer's own deployment tag — free text passed straight
+    through from ``TRACEROOT_ENVIRONMENT`` — so overloading it as the evaluation marker
+    would make a team that names a pre-prod stack "evaluation" lose its entire trace list.
     ``is_evaluation`` is set by ingest from the SDK's eval span kinds and a customer cannot
-    collide with it. It is ``UInt8 DEFAULT 0``, never NULL, so there is no NULL branch:
-    "unknown" and "not an evaluation" are the same answer.
+    collide with it. It is ``UInt8 DEFAULT 0``, never NULL.
 
-    MONOTONIC ACROSS BATCHES — this is the read-side half of the guarantee. Ingest makes
-    the flag monotonic *within* a batch (any eval-kind span sets it for the trace, 0 -> 1
-    only). It cannot make it monotonic *between* batches: a later batch carrying only
-    non-eval-kind spans of an evaluation trace — say just the candidate task's LLM leaves —
-    rewrites the trace row with ``is_evaluation = 0`` and a newer ``ch_update_time``. So a
-    predicate read off the *deduped latest* row (``LIMIT 1 BY`` / ``argMax``) would un-hide
-    the trace the moment such a batch landed last, which is the common case rather than an
-    exotic race. This is a trace_id set-membership instead: any row anywhere flagged 1
-    hides the trace permanently, whatever order the writes arrived in. Because it never
-    reads the deduped row it is also safe in the SHARED where-clause, so the page and count
-    queries agree by construction rather than by both picking the same tie-break.
+    A trace_id SET, never a predicate on a deduped row: ingest makes the flag monotonic
+    only within a batch, so a later batch carrying only non-eval-kind spans rewrites the
+    trace row with ``is_evaluation = 0`` and a newer ``ch_update_time``. Membership hides
+    the trace whatever order the writes arrived in.
 
-    Scans ``traces`` (one row per trace per batch), not ``spans``, reading only the two
-    narrow columns in the predicate. Bound to the caller's window when there is one so it
-    prunes the same monthly partitions as the outer query.
+    Built from BOTH tables, like the SQL gateway's ``VIEW_EVALUATION_EXCLUSION`` (see
+    ``rest.services.sql.schema`` for the full argument). A ``traces``-only set loses a
+    trace two ordinary ways: a background merge keeps only the newer, unflagged
+    ``traces`` row of a same-day pair and physically deletes the flagged one; and a batch
+    with no root span for an existing trace drops its trace record while still inserting
+    its spans, so the flagged rows never reach ``traces`` at all. Span rows never collapse
+    into each other (``span_id`` is in the sort key) and a span's flag comes from its own
+    kind, so the flagged span row survives both.
 
-    Args:
-        params (dict): Query parameters for this statement. Must already contain
-            ``project_id``; ``start_after`` / ``end_before`` are reused as sub-select
-            bounds when the caller set them.
-
-    Returns:
-        str: A condition for the ``traces AS t`` where-clause.
-    """
-    bounds = [
-        "project_id = {project_id:String}",
-        "is_evaluation = 1",
-    ]
-    # Reuse the outer window. A trace outside it cannot reach the result anyway, and
-    # widening the excluded set here could only ever drop rows the outer query already does.
-    if "start_after" in params:
-        bounds.append("trace_start_time >= {start_after:DateTime64(3)}")
-    if "end_before" in params:
-        bounds.append("trace_start_time <= {end_before:DateTime64(3)}")
-    return "t.trace_id NOT IN (SELECT trace_id FROM traces WHERE " + " AND ".join(bounds) + ")"
-
-
-def windowed_evaluation_exclusion(start_param: str, end_param: str) -> str:
-    """SQL condition removing offline-evaluation traces from a window-bounded scan.
-
-    For static SQL whose window arrives as named ``DateTime64(3)`` parameters (the
-    widget base relations, which back dashboard tiles and metric alerts). Same
-    ``trace_id`` set-membership as ``_evaluation_exclusion``, for the same
-    monotonic-across-batches reason, but the set is built from BOTH tables like the SQL
-    gateway's ``VIEW_EVALUATION_EXCLUSION`` (see ``rest.services.sql.schema`` for the
-    full argument): an evaluation-kind span can land with no flagged ``traces`` row,
-    and a merge can physically delete the flagged ``traces`` row, while the flagged
-    span row survives both.
-
-    Each half is bounded to the caller's window, its start moved back by
-    ``EVALUATION_EXCLUSION_PADDING_HOURS``, so it prunes to the window's partitions
-    instead of probing the project all-time on every tile and alert tick. The leading
-    padding keeps the set complete at the window's start: an in-window row of an
+    Each half is bounded to the window, its start moved back by
+    ``EVALUATION_EXCLUSION_PADDING_HOURS``, so it prunes to the window's partitions. The
+    leading padding keeps the set complete at the window's start: an in-window row of an
     evaluation trace can belong to a case whose flagged rows started before the window.
     No trailing padding is needed: every row of an evaluation trace sits under an
     EVALUATION or TASK span that starts no later than it does, and a ``traces`` row
     starts at its batch's earliest span, so the flagged row of any trace with an
     in-window row starts at or before that row. The end bound is inclusive so the set
-    covers the outer window whatever its own end operator. An evaluation case running
-    longer than the padding is the accepted miss.
+    covers the outer window whatever its own end operator; widening the set can only
+    drop rows the outer window already does. A side with no parameter is unbounded, as
+    the outer scan is.
 
     The spans half matches on ``span_kind`` rather than ``is_evaluation``: ingest sets
     the span flag from exactly these kinds, but only ``span_kind`` is carried by the
-    ``spans_no_io_by_start_time`` projection, so this half prunes to the padded window
-    through the projection instead of reading every granule of the project's month
-    from the trace_id-ordered base table.
+    ``spans_no_io_by_start_time`` projection, so a windowed spans half prunes through
+    the projection instead of reading every granule of the window's months from the
+    trace_id-ordered base table.
 
-    Unqualified ``trace_id``: callers place this in a scan whose only ``trace_id`` is
-    the scanned table's own.
+    Args:
+        start_param (str | None): Name of the window-start parameter, or ``None``.
+        end_param (str | None): Name of the window-end parameter, or ``None``.
+
+    Returns:
+        str: A parenthesised ``SELECT trace_id ... UNION DISTINCT ...`` sub-select.
+    """
+    pad = f"INTERVAL {EVALUATION_EXCLUSION_PADDING_HOURS} HOUR"
+    kinds = ", ".join(f"'{kind}'" for kind in sorted(EVALUATION_SPAN_KINDS))
+
+    def half(table: str, time_column: str, flagged: str) -> str:
+        bounds = ["project_id = {project_id:String}", flagged]
+        if start_param is not None:
+            bounds.append(f"{time_column} >= {{{start_param}:DateTime64(3)}} - {pad}")
+        if end_param is not None:
+            bounds.append(f"{time_column} <= {{{end_param}:DateTime64(3)}}")
+        return f"SELECT trace_id FROM {table} WHERE " + " AND ".join(bounds)
+
+    return (
+        f"({half('traces', 'trace_start_time', 'is_evaluation = 1')}"
+        f" UNION DISTINCT {half('spans', 'span_start_time', f'span_kind IN ({kinds})')})"
+    )
+
+
+def _evaluation_exclusion(params: dict) -> str:
+    """SQL condition removing offline-evaluation traces from a ``traces AS t`` scan.
+
+    See ``_evaluation_trace_ids`` for what counts as an evaluation trace and why the set
+    reads both tables. Because the condition never reads the deduped row it is safe in a
+    SHARED where-clause, so the page and count queries agree by construction rather than
+    by both picking the same tie-break.
+
+    Args:
+        params (dict): Query parameters for this statement. Must already contain
+            ``project_id``; ``start_after`` / ``end_before`` bound the sub-select when the
+            caller set them.
+
+    Returns:
+        str: A condition for the ``traces AS t`` where-clause.
+    """
+    start = "start_after" if "start_after" in params else None
+    end = "end_before" if "end_before" in params else None
+    return f"t.trace_id NOT IN {_evaluation_trace_ids(start, end)}"
+
+
+def windowed_evaluation_exclusion(start_param: str, end_param: str) -> str:
+    """SQL condition removing offline-evaluation traces from a window-bounded scan.
+
+    For static SQL whose window always arrives as named ``DateTime64(3)`` parameters (the
+    widget base relations, which back dashboard tiles and metric alerts). Unqualified
+    ``trace_id``: callers place this in a scan whose only ``trace_id`` is the scanned
+    table's own. See ``_evaluation_trace_ids`` for the set itself.
 
     Args:
         start_param (str): Name of the window-start parameter (inclusive).
@@ -167,19 +180,7 @@ def windowed_evaluation_exclusion(start_param: str, end_param: str) -> str:
     Returns:
         str: A WHERE-clause condition.
     """
-    pad = f"INTERVAL {EVALUATION_EXCLUSION_PADDING_HOURS} HOUR"
-    start = f"{{{start_param}:DateTime64(3)}} - {pad}"
-    end = f"{{{end_param}:DateTime64(3)}}"
-    kinds = ", ".join(f"'{kind}'" for kind in sorted(EVALUATION_SPAN_KINDS))
-    return (
-        "trace_id NOT IN ("
-        "SELECT trace_id FROM traces WHERE project_id = {project_id:String}"
-        f" AND is_evaluation = 1 AND trace_start_time >= {start} AND trace_start_time <= {end}"
-        " UNION DISTINCT "
-        "SELECT trace_id FROM spans WHERE project_id = {project_id:String}"
-        f" AND span_kind IN ({kinds}) AND span_start_time >= {start} AND span_start_time <= {end}"
-        ")"
-    )
+    return f"trace_id NOT IN {_evaluation_trace_ids(start_param, end_param)}"
 
 
 def _floor_minute(dt: datetime | None) -> datetime | None:
