@@ -43,8 +43,8 @@ const { mockAdd, mockUpsertScheduler, mockRound, fakeRedis } = vi.hoisted(() => 
     async smembers(key: string) {
       return [...(this.sets.get(key) ?? [])];
     },
-    async srem(key: string, member: string) {
-      return this.sets.get(key)?.delete(member) ? 1 : 0;
+    async srem(key: string, ...members: string[]) {
+      return members.filter((m) => this.sets.get(key)?.delete(m)).length;
     },
   };
   return { mockAdd: vi.fn(), mockUpsertScheduler: vi.fn(), mockRound: vi.fn(), fakeRedis };
@@ -420,7 +420,9 @@ describe("recovery of a failed pending mark", () => {
     detectors: [{ id: "d1", enableSignals: true }],
     triggered: [{ detectorId: "d1" }],
   };
-  const unmarked = () => [...(fakeRedis.sets.get("signals:assign:unmarked") ?? [])];
+  const unmarkedSet = () => fakeRedis.sets.get("signals:assign:unmarked") ?? new Set<string>();
+  /** The partitions on record, one entry per failed mark, without the nonces. */
+  const unmarked = () => [...unmarkedSet()].map((m) => m.split(":").slice(0, 2).join(":"));
 
   it("still adds the job, and keeps the partition in Redis until Postgres takes the mark", async () => {
     vi.useFakeTimers({ now: T0 });
@@ -448,6 +450,39 @@ describe("recovery of a failed pending mark", () => {
       { projectId: "p1", detectorId: "d1" },
       expect.objectContaining({ jobId: "assign:p1:d1", delay: 0 }),
     );
+    log.mockRestore();
+  });
+
+  it("keeps a failure recorded while the sweeper was writing the partition's mark", async () => {
+    detector("d1", null, "p1");
+    markWrites.mockRejectedValueOnce(new Error("postgres down"));
+    await expect(enqueueSignalHits(hit)).rejects.toThrow("postgres down");
+    // While the sweeper adds the partition's job, another hit's mark fails.
+    mockAdd.mockImplementationOnce(async () => {
+      markWrites.mockRejectedValueOnce(new Error("postgres down"));
+      await expect(enqueueSignalHits(hit)).rejects.toThrow("postgres down");
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    expect(await sweepPartitions(T0)).toBe(1);
+    // The sweep forgot only the failure it read; the later one is swept next.
+    expect(unmarked()).toEqual(["p1:d1"]);
+    expect(await sweepPartitions(T0 + 60_000)).toBe(1);
+    expect(unmarked()).toEqual([]);
+    log.mockRestore();
+  });
+
+  it("marks a partition once however many of its marks failed", async () => {
+    detector("d1", null, "p1");
+    for (let i = 0; i < 3; i++) {
+      markWrites.mockRejectedValueOnce(new Error("postgres down"));
+      await expect(enqueueSignalHits(hit)).rejects.toThrow("postgres down");
+    }
+    expect(unmarked()).toEqual(["p1:d1", "p1:d1", "p1:d1"]);
+    mockAdd.mockClear();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    expect(await sweepPartitions(T0)).toBe(1);
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    expect(unmarked()).toEqual([]);
     log.mockRestore();
   });
 
