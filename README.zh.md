@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-TraceRoot 将生产环境中的追踪转化为可执行的反馈与评测，与你的编程 Agent 一起形成自我改进闭环。
+面向 AI Agent 的开源自我改进层
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -22,6 +22,12 @@ TraceRoot 将生产环境中的追踪转化为可执行的反馈与评测，与�
 </p>
 
 <p align="center">⭐ 为本仓库点亮 Star，让更多开发者了解 TraceRoot，一起壮大社区！</p>
+
+## TraceRoot
+
+TraceRoot 将生产环境中的追踪转化为可执行的反馈与评测，与你的编程 Agent 一起形成自我改进闭环。
+
+https://github.com/user-attachments/assets/4615970f-812c-4c8d-9c26-139eb89023cb
 
 ## 核心功能
 

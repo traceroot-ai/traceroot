@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-TraceRoot turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
+Open Source Self-improving Layer for AI Agents
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -22,6 +22,12 @@ TraceRoot turns production traces into actionable feedback and evals, closing th
 </p>
 
 <p align="center">⭐ Help us reach more developers and grow the TraceRoot community. Star this repo!</p>
+
+## TraceRoot
+
+TraceRoot turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
+
+https://github.com/user-attachments/assets/4615970f-812c-4c8d-9c26-139eb89023cb
 
 ## Core Features
 

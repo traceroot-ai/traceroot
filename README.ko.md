@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 자기 개선 루프를 완성합니다.
+AI 에이전트를 위한 오픈 소스 자기 개선 레이어
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -22,6 +22,12 @@ TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가�
 </p>
 
 <p align="center">⭐ 더 많은 개발자에게 TraceRoot를 알리고 커뮤니티를 키울 수 있도록 이 저장소에 Star를 남겨 주세요!</p>
+
+## TraceRoot
+
+TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 자기 개선 루프를 완성합니다.
+
+https://github.com/user-attachments/assets/4615970f-812c-4c8d-9c26-139eb89023cb
 
 ## 핵심 기능
 
