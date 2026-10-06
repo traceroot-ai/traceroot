@@ -43,7 +43,7 @@ Trace production runs, use detectors to evaluate behavior, and surface recurring
 | ---- | ----------- |
 | **[Trace](https://traceroot.ai/docs/tracing/get-started)** | See each model call, tool call, and response, with inputs, outputs, latency, and cost. |
 | **[Detect](https://traceroot.ai/docs/detectors/get-started)** | Define what good behavior looks like. Automatically flag production runs that miss the mark. |
-| **Signals** | Surface recurring patterns from judge outputs, review the supporting traces, and identify what to change. |
+| **Signals** | Cluster judge outputs into signals. A background coding agent investigates traces and connected GitHub code in a sandbox to suggest fixes. |
 | **[Verify](https://traceroot.ai/docs/evals/get-started)** | Run evals against your datasets and compare versions to measure improvements and catch regressions. |
 
 ### Built for your coding agent

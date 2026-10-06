@@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 | ---- | ----------- |
 | **[追踪](https://traceroot.ai/docs/tracing/get-started)** | 查看每次模型调用、工具调用和响应，以及输入、输出、延迟和成本。 |
 | **[检测](https://traceroot.ai/docs/detectors/get-started)** | 定义符合预期的行为，自动标记未达标准的生产运行。 |
-| **信号** | 从评审输出中提炼反复出现的模式，查看相关追踪，确定需要改进的地方。 |
+| **信号** | 将评审输出聚类为信号。后台编程 Agent 在沙箱中结合追踪与已连接的 GitHub 代码，调查问题并提出修复建议。 |
 | **[验证](https://traceroot.ai/docs/evals/get-started)** | 基于数据集运行评测并比较版本，衡量改进效果并发现回归问题。 |
 
 ### 为你的编程 Agent 而设计
