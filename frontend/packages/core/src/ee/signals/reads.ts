@@ -590,6 +590,9 @@ export async function agentRunCountsByDetector(
 ) {
   // Several signal openings can share one execution. A session marks an agent
   // start, so quota skips and failures before session creation do not count.
+  // An execution counts for a detector whose signal existed when it started.
+  // The signal's creation time is compared, not the opening's: running the
+  // analysis again by hand moves the opening's time past its earlier attempts.
   const rows = await db.$queryRaw<{ detectorId: string; count: number }[]>`
     SELECT s.detector_id AS "detectorId", count(DISTINCT e.id)::int AS count
     FROM detector_rca_executions e
@@ -598,7 +601,7 @@ export async function agentRunCountsByDetector(
     WHERE e.project_id = ${params.projectId}
       AND s.project_id = ${params.projectId}
       AND e.session_id IS NOT NULL
-      AND r.create_time <= e.started_at
+      AND s.create_time <= e.started_at
       AND e.started_at >= ${params.from}
       AND e.started_at < ${params.to}
     GROUP BY s.detector_id
