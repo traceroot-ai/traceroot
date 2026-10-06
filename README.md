@@ -49,8 +49,10 @@ Give your coding agent read and write access to TraceRoot through an agent-nativ
 <p align="center">
   <a href="https://github.com/traceroot-ai/traceroot-cli">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
-      <img src="docs/images/coding-agent-cli-light.png" alt="Your coding agent connects through the TraceRoot CLI to Home, traces, dashboards, detectors, evals, datasets, alerts, and signals." width="100%">
+      <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
+      <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/coding-agent-cli-light.png">
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.gif">
+      <img src="docs/images/coding-agent-cli-light.gif" alt="Your coding agent connects through the TraceRoot CLI to Home, traces, dashboards, detectors, evals, datasets, alerts, and signals." width="100%">
     </picture>
   </a>
 </p>
