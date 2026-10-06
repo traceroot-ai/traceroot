@@ -1,6 +1,10 @@
 <div align="center">
   <a href="https://traceroot.ai/">
-    <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo" width="560">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="frontend/ui/public/images/traceroot_logo_dark.png">
+      <source media="(prefers-color-scheme: light)" srcset="frontend/ui/public/images/traceroot_logo.png">
+      <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo" width="560">
+    </picture>
   </a>
 
 面向 AI Agent 的开源自我改进层
