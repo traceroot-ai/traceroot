@@ -2,8 +2,8 @@
   <a href="https://traceroot.ai/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="frontend/ui/public/images/traceroot_logo_dark.png">
-      <source media="(prefers-color-scheme: light)" srcset="frontend/ui/public/images/traceroot_logo.png">
-      <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo" width="560">
+      <source media="(prefers-color-scheme: light)" srcset="frontend/ui/public/images/traceroot_logo_light.png">
+      <img src="frontend/ui/public/images/traceroot_logo_light.png" alt="TraceRoot Logo" width="560">
     </picture>
   </a>
 
