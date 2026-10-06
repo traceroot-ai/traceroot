@@ -293,6 +293,11 @@ function SignalBlocks({
   const earlierAt = earlier
     ? signal.rcaHistory.find((h) => h.reopenSeq === earlier.reopenSeq)?.createTime
     : undefined;
+  // The analysis shown came with a merged signal, and hides that this signal's
+  // own analysis failed or is running.
+  const ownState = signal.rca.currentState;
+  const mergedIn =
+    !!rca?.result && rca.reopenSeq < 0 && (ownState === "failed" || rcaInProgress(ownState));
   const affected = hitSeries.reduce((sum, b) => sum + b.hits, 0);
   // The traces the signal's detector checked in the window; null when that count is unavailable.
   const total = hitSeries.some((b) => b.unaffected === null)
@@ -340,22 +345,30 @@ function SignalBlocks({
         <div className="px-3 py-2.5">
           {rca?.result ? (
             <div className="space-y-3">
-              {earlier && (
+              {(earlier || mergedIn) && (
                 <div className="space-y-2">
                   <p className="text-[12px] text-muted-foreground">
-                    This analysis is from{" "}
-                    {earlierAt ? (
-                      <span title={formatDate(earlierAt)}>{formatRelativeTime(earlierAt)}</span>
+                    {earlier ? (
+                      <>
+                        This analysis is from{" "}
+                        {earlierAt ? (
+                          <span title={formatDate(earlierAt)}>{formatRelativeTime(earlierAt)}</span>
+                        ) : (
+                          "earlier"
+                        )}
+                        , before the signal reopened. {reopeningState(ownState, detail.grouping)}
+                      </>
                     ) : (
-                      "earlier"
+                      <>
+                        This analysis is from a signal merged into this one. This signal&apos;s own
+                        analysis {ownState === "failed" ? "failed" : "is running"}.
+                      </>
                     )}
-                    , before the signal reopened.{" "}
-                    {reopeningState(signal.rca.currentState, detail.grouping)}
                   </p>
                   <RunRca
                     projectId={projectId}
                     signalId={signal.id}
-                    state={signal.rca.currentState}
+                    state={ownState}
                     available={detail.grouping}
                     showState={false}
                   />

@@ -168,6 +168,22 @@ describe("TraceDetectorsTab", () => {
     expect(screen.queryByText(/triggered/i)).toBeNull();
   });
 
+  it("shows a dash, not No, under Identified for a failed run", () => {
+    mocks.runs = [
+      run({ run_id: "1", name: "Timed out", status: "failed" }),
+      run({ run_id: "2", name: "Clean" }),
+      run({ run_id: "3", name: "Hit", finding_id: "f-3", summary: "Too slow" }),
+    ];
+    render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
+    // Identified is the third column, after the name and the time.
+    const identified = (name: string) =>
+      screen.getByText(name).closest("tr")!.querySelectorAll("td")[2].textContent;
+    // The judge reached no verdict: neither Yes nor No.
+    expect(identified("Timed out")).toBe("—");
+    expect(identified("Clean")).toBe("No");
+    expect(identified("Hit")).toBe("Yes");
+  });
+
   const nameLink = (name: string) => screen.getByRole("link", { name });
 
   it("links the detector's name to its runs", () => {

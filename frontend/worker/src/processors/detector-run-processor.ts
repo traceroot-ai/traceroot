@@ -478,8 +478,8 @@ async function evaluateTrace(
   // Signals (ee): enqueue assignment for detectors with signals on; the job
   // reads the hits back from ClickHouse. Notifications come only from the
   // signal digest, for new and reopened signals. A failure here must not fail
-  // the finding, which is written: the partition is marked pending in Postgres
-  // before the Redis enqueue, so the sweeper picks the hits up later.
+  // the finding, which is written: the partition is on record in Postgres, or in
+  // Redis when Postgres refused it, and the sweeper picks the hits up later.
   await enqueueSignalHits({ projectId, detectors, triggered }).catch((err) =>
     console.error(`[Detector] Failed to enqueue signal assignment for finding ${findingId}:`, err),
   );

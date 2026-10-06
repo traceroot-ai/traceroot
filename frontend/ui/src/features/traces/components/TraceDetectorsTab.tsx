@@ -176,7 +176,12 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
                   {formatDate(r.timestamp)}
                 </td>
                 <td className={DETECTOR_TD}>
-                  <IdentifiedBadge identified={isIdentified(r)} />
+                  {/* A failed run reached no verdict, so it is neither Yes nor No. */}
+                  {r.status === "failed" ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    <IdentifiedBadge identified={isIdentified(r)} />
+                  )}
                 </td>
                 <td className={cn(DETECTOR_TD, "text-foreground")}>
                   <SummaryText summary={r.summary} />

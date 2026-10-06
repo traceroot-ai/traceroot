@@ -203,6 +203,24 @@ describe("SignalDetailPanel analysis of an earlier opening", () => {
     expect(screen.queryByText(/run-rca:/)).toBeNull();
   });
 
+  it.each([
+    ["failed", "This signal's own analysis failed."],
+    ["running", "This signal's own analysis is running."],
+  ])(
+    "shows this signal's own %s analysis beside one carried over by a merge",
+    (state, sentence) => {
+      analysed(-1);
+      signalDetail.signal.rca = { currentState: state, canonicalFindingId: null };
+      renderPanel();
+      const note = screen.getByText(/from a signal merged into this one/);
+      expect(note.textContent?.endsWith(sentence)).toBe(true);
+      expect(screen.queryByText(/before the signal reopened/)).toBeNull();
+      // The carried-over answer stays, and the run control retries or shows the run.
+      expect(screen.getByText(`run-rca:${state}:quiet:can-run`)).toBeTruthy();
+      expect(screen.getByText("Root cause: the tool times out")).toBeTruthy();
+    },
+  );
+
   it("gives no cooldown reason where the deployment runs no analysis at all", () => {
     analysed(0);
     signalDetail.signal.reopenSeq = 1;

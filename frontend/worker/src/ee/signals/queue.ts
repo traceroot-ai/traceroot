@@ -28,6 +28,9 @@ export function getSignalAssignQueue(): Queue<SignalAssignJobData> {
   return queue;
 }
 
+/** Redis set of "projectId:detectorId" whose pending mark is still to be written. */
+const UNMARKED_KEY = "signals:assign:unmarked";
+
 let bookkeeping: Redis | null = null;
 function redis(): Redis {
   bookkeeping ??= createRedisConnection();
@@ -40,7 +43,10 @@ function redis(): Redis {
  * at most one job. Finished and failed jobs are removed at once: a kept job
  * would swallow every later add under the same id. The enqueue time is recorded
  * in Postgres first (detectors.assignment_pending_at), so an add that fails or
- * is lost, Redis outage included, is still found by the sweeper.
+ * is lost, Redis outage included, is still found by the sweeper. If Postgres
+ * does not take the mark, the partition is kept in Redis instead (UNMARKED_KEY)
+ * and the job is still added; the sweeper writes the mark later. The error is
+ * thrown either way, and with neither store there is no record at all.
  */
 export async function enqueueAssignment(
   projectId: string,
@@ -50,9 +56,15 @@ export async function enqueueAssignment(
   const jobId = signalAssignJobId(projectId, detectorId);
   // Raw SQL: a client update would also advance the detector's updateTime,
   // which the detector list shows as its last edit.
-  await prisma.$executeRaw`
-    UPDATE detectors SET assignment_pending_at = ${new Date()}
-    WHERE id = ${detectorId} AND project_id = ${projectId}`;
+  let markError: unknown = null;
+  try {
+    await prisma.$executeRaw`
+      UPDATE detectors SET assignment_pending_at = ${new Date()}
+      WHERE id = ${detectorId} AND project_id = ${projectId}`;
+  } catch (err) {
+    await redis().sadd(UNMARKED_KEY, `${projectId}:${detectorId}`);
+    markError = err;
+  }
   await getSignalAssignQueue().add(
     ASSIGN_JOB_NAME,
     { projectId, detectorId },
@@ -65,6 +77,25 @@ export async function enqueueAssignment(
       backoff: { type: "exponential", delay: 10_000 },
     },
   );
+  if (markError) throw markError;
+}
+
+/**
+ * Write the pending mark of each partition whose mark Postgres did not take
+ * (see enqueueAssignment), and enqueue it. A partition is forgotten only once
+ * its mark is written; a failure leaves it and the rest for the next sweep.
+ *
+ * @returns the number of partitions marked
+ */
+export async function remarkUnmarked(): Promise<number> {
+  const members = await redis().smembers(UNMARKED_KEY);
+  for (const member of members) {
+    // Neither id contains a colon: signalAssignJobId rejects one.
+    const [projectId, detectorId] = member.split(":");
+    await enqueueAssignment(projectId, detectorId, 0);
+    await redis().srem(UNMARKED_KEY, member);
+  }
+  return members.length;
 }
 
 /**
