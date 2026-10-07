@@ -220,11 +220,18 @@ def test_evaluation_exclusion_reads_both_tables_within_a_padded_window():
     sql = _EVALUATION_GUARD
     assert sql.startswith("trace_id NOT IN (")
     assert "FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1" in sql
-    assert "FROM spans WHERE project_id = {project_id:String} AND is_evaluation = 1" in sql
+    # The spans half keys on the kinds ingest derives the flag from: span_kind is in the
+    # spans_no_io_by_start_time projection and is_evaluation is not, so only this form
+    # prunes to the window instead of reading the project's whole month.
+    assert (
+        "FROM spans WHERE project_id = {project_id:String}"
+        " AND span_kind IN ('EVALUATION', 'SCORER', 'TASK')" in sql
+    )
     assert "UNION DISTINCT" in sql
+    # The padding is load-bearing (it must outlast an evaluation case), so pin it.
     for column in ("trace_start_time", "span_start_time"):
-        assert f"{column} >= {{start_time:DateTime64(3)}} - INTERVAL" in sql
-        assert f"{column} < {{end_time:DateTime64(3)}} + INTERVAL" in sql
+        assert f"{column} >= {{start_time:DateTime64(3)}} - INTERVAL 24 HOUR" in sql
+        assert f"{column} < {{end_time:DateTime64(3)}} + INTERVAL 24 HOUR" in sql
     # Keyed on the ingest flag, never on the customer's free-text environment tag.
     assert "environment" not in sql
 

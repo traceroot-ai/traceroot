@@ -7,6 +7,7 @@ from db.clickhouse import get_clickhouse_client
 from db.clickhouse.query_settings import READ_QUERY_SETTINGS
 from rest.services.filters.translate import Predicate, build_conditions
 from rest.sql_utils import escape_ilike, to_utc_naive
+from shared.enums import EVALUATION_SPAN_KINDS
 from shared.span_attributes import (
     SPAN_IDS_PATH,
     SPAN_PATH,
@@ -146,6 +147,12 @@ def windowed_evaluation_exclusion(start_param: str, end_param: str) -> str:
     rows start somewhere in that trace's lifetime, not necessarily inside the window.
     An evaluation case running longer than the padding is the accepted miss.
 
+    The spans half matches on ``span_kind`` rather than ``is_evaluation``: ingest sets
+    the span flag from exactly these kinds, but only ``span_kind`` is carried by the
+    ``spans_no_io_by_start_time`` projection, so this half prunes to the padded window
+    through the projection instead of reading every granule of the project's month
+    from the trace_id-ordered base table.
+
     Unqualified ``trace_id``: callers place this in a scan whose only ``trace_id`` is
     the scanned table's own.
 
@@ -159,13 +166,14 @@ def windowed_evaluation_exclusion(start_param: str, end_param: str) -> str:
     pad = f"INTERVAL {EVALUATION_EXCLUSION_PADDING_HOURS} HOUR"
     start = f"{{{start_param}:DateTime64(3)}} - {pad}"
     end = f"{{{end_param}:DateTime64(3)}} + {pad}"
+    kinds = ", ".join(f"'{kind}'" for kind in sorted(EVALUATION_SPAN_KINDS))
     return (
         "trace_id NOT IN ("
         "SELECT trace_id FROM traces WHERE project_id = {project_id:String}"
         f" AND is_evaluation = 1 AND trace_start_time >= {start} AND trace_start_time < {end}"
         " UNION DISTINCT "
         "SELECT trace_id FROM spans WHERE project_id = {project_id:String}"
-        f" AND is_evaluation = 1 AND span_start_time >= {start} AND span_start_time < {end}"
+        f" AND span_kind IN ({kinds}) AND span_start_time >= {start} AND span_start_time < {end}"
         ")"
     )
 

@@ -179,7 +179,7 @@ def test_metric_tiles_exclude_evaluation_traces(spec):
     assert "is_evaluation = 1" in sql
     # Both halves of the excluded set, bounded by the tile's own window parameters.
     assert re.search(r"FROM traces WHERE project_id = \{project_id:String\} AND is_evaluation", sql)
-    assert re.search(r"FROM spans WHERE project_id = \{project_id:String\} AND is_evaluation", sql)
+    assert re.search(r"FROM spans WHERE project_id = \{project_id:String\} AND span_kind IN", sql)
     for name in set(re.findall(r"\{(\w+):", sql)):
         assert name in params, f"placeholder {name} is unbound"
 
