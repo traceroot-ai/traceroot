@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { DEFAULT_ALERT_WINDOW, type AlertWindow } from "@traceroot/core";
 import {
   DEFAULT_ALERT_NO_DATA_MODE,
@@ -69,6 +70,7 @@ const INITIAL_DRAFT: AlertDraft = {
  */
 export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) {
   const router = useRouter();
+  const listHref = useListReturnHref(`alerts:${projectId}`, `/projects/${projectId}/alerts`);
   const [draft, setDraft] = useState<AlertDraft>(initialDraft ?? INITIAL_DRAFT);
   const createAlert = useCreateAlert(projectId);
   const updateAlert = useUpdateAlert(projectId);
@@ -126,7 +128,11 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
       renotify: draft.renotify,
       noDataMode: draft.noDataMode,
     };
-    const options = { onSuccess: () => router.push(`/projects/${projectId}/alerts`) };
+    // Both saves return to the list page the user came from. A created rule is
+    // no exception: the list is oldest-first, so a new rule lands on the last
+    // page. Resetting to the first page would not reliably show it either, and
+    // would lose the user's place.
+    const options = { onSuccess: () => router.push(listHref) };
     // The whole rule goes on every edit, not a diff: the route's change
     // detection compares values, so unchanged fields stay unchanged.
     if (alertId !== undefined) updateAlert.mutate({ alertId, input }, options);
@@ -186,7 +192,7 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => router.push(`/projects/${projectId}/alerts`)}
+              onClick={() => router.push(listHref)}
               className="h-7 text-[12px]"
             >
               Cancel

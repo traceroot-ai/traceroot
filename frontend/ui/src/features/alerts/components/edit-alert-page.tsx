@@ -3,6 +3,7 @@
 import { LoadingState } from "@/components/ui/loading-state";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
+import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { AlertForm, type AlertDraft } from "./alert-form";
 import { isAlertGone, useAlert, type AlertRecord } from "../hooks/use-alerts";
 
@@ -32,7 +33,7 @@ function toDraft(alert: AlertRecord): AlertDraft {
  * metric the user is not editing.
  */
 export function EditAlertPage({ projectId, alertId }: EditAlertPageProps) {
-  const listHref = `/projects/${projectId}/alerts`;
+  const listHref = useListReturnHref(`alerts:${projectId}`, `/projects/${projectId}/alerts`);
   const { data: alert, isPending, error } = useAlert(projectId, alertId);
 
   return (

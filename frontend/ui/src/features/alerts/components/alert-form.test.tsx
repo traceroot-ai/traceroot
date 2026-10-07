@@ -527,4 +527,45 @@ describe("AlertForm", () => {
     expect(screen.getByRole("button", { name: "Span kind" })).toBeTruthy();
     expect(screen.queryByRole("alert", { name: /Filter fields unavailable/ })).toBeNull();
   });
+
+  describe("returning to the alerts list", () => {
+    // What the list page records for the page the user opened the form from.
+    const rememberListPage = () =>
+      sessionStorage.setItem("list-return:alerts:proj-1", "page_index=2&page_limit=10");
+    const rememberedList = "/projects/proj-1/alerts?page_index=2&page_limit=10";
+
+    afterEach(() => sessionStorage.clear());
+
+    it("cancels back to the list page the user came from", () => {
+      rememberListPage();
+      stubCreateSuccess();
+      renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(mocks.push).toHaveBeenCalledWith(rememberedList);
+    });
+
+    it("returns to the list page the user came from after saving an edit", async () => {
+      rememberListPage();
+      stubFetch({ alert: { id: "alert-9" } });
+      renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
+      fireEvent.click(screen.getByRole("button", { name: "Save Alert" }));
+      await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(rememberedList));
+    });
+
+    it("returns to the list page the user came from after creating a rule", async () => {
+      rememberListPage();
+      stubCreateSuccess();
+      renderForm();
+      fillRequiredFields();
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(rememberedList));
+    });
+
+    it("falls back to the bare list when no list page was recorded", async () => {
+      stubFetch({ alert: { id: "alert-9" } });
+      renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
+      fireEvent.click(screen.getByRole("button", { name: "Save Alert" }));
+      await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/alerts"));
+    });
+  });
 });
