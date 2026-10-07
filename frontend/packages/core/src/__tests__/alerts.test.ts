@@ -11,11 +11,14 @@ import {
   ALERT_RENOTIFY_MIN_MINUTES,
   ALERT_SEVERITIES,
   ALERT_STATUSES,
+  SETTABLE_ALERT_STATUSES,
+  STOPPED_ALERT_STATUSES,
   ALERT_THRESHOLD_OPERATORS,
   ALERT_VIEWS,
   DEFAULT_ALERT_NO_DATA_MODE,
   DEFAULT_ALERT_RENOTIFY,
   DEFAULT_ALERT_RENOTIFY_INTERVAL_MINUTES,
+  hasOutstandingAlertPage,
   DEFAULT_ALERT_SEVERITY,
   DEFAULT_ALERT_STATUS,
   DEFAULT_ALERT_VIEW,
@@ -29,6 +32,7 @@ import {
   isAlertNoDataMode,
   isAlertSeverity,
   isAlertStatus,
+  isSettableAlertStatus,
   isAlertThresholdOperator,
   isAlertView,
   isEvaluableAlertMetric,
@@ -114,6 +118,45 @@ describe("clampRenotifyInterval", () => {
       expect(Number.isInteger(clamped)).toBe(true);
       expect(clamped).toBeGreaterThanOrEqual(ALERT_RENOTIFY_MIN_MINUTES);
       expect(clamped).toBeLessThanOrEqual(ALERT_RENOTIFY_MAX_MINUTES);
+    }
+  });
+});
+
+describe("the statuses a client may ask for", () => {
+  it("holds PARKED back from the settable pair, while still reading it as a status", () => {
+    // A client that could ask for PARKED could stop a rule that still runs; the
+    // evaluator reaches it by refusing the stored rule, and an edit leaves it.
+    for (const status of SETTABLE_ALERT_STATUSES) expect(isSettableAlertStatus(status)).toBe(true);
+    expect(isSettableAlertStatus("PARKED")).toBe(false);
+    expect(isAlertStatus("PARKED")).toBe(true);
+  });
+
+  it("counts every status the scheduler will not claim as stopped", () => {
+    // The claim query reads ACTIVE alone, so this is the rest of the vocabulary.
+    expect([...STOPPED_ALERT_STATUSES].sort()).toEqual(
+      ALERT_STATUSES.filter((status) => status !== "ACTIVE")
+        .slice()
+        .sort(),
+    );
+  });
+});
+
+describe("hasOutstandingAlertPage", () => {
+  const announced = new Date("2026-08-12T10:00:00.000Z");
+
+  it("reads an announced breach in ALERT or NO_DATA as an open page", () => {
+    expect(hasOutstandingAlertPage({ severity: "ALERT", alertedAt: announced })).toBe(true);
+    // In NO_DATA the page is the one carried across the gap.
+    expect(hasOutstandingAlertPage({ severity: "NO_DATA", alertedAt: announced })).toBe(true);
+  });
+
+  it("reads a silent entry into ALERT, and every other severity, as no page", () => {
+    // A null alertedAt means nothing was ever announced, so there is nothing
+    // to recover or to discard.
+    expect(hasOutstandingAlertPage({ severity: "ALERT", alertedAt: null })).toBe(false);
+    expect(hasOutstandingAlertPage({ severity: "NO_DATA", alertedAt: null })).toBe(false);
+    for (const severity of ["OK", "UNKNOWN"]) {
+      expect(hasOutstandingAlertPage({ severity, alertedAt: announced })).toBe(false);
     }
   });
 });

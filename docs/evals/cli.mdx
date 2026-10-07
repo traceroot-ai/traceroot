@@ -1,0 +1,113 @@
+---
+title: From the Terminal
+description: Read datasets, evaluations, and runs with the TraceRoot CLI
+---
+
+The [TraceRoot CLI](/cli/get-started) reads the evaluation data the web app shows — your datasets, the versions you published, and the runs that scored them — without leaving the terminal where the eval ran.
+
+```bash
+npm install -g traceroot-cli
+traceroot login                 # or use a project API key
+```
+
+A project API key is already scoped to one project. A browser login identifies you rather than a project, so pass `--project <id>` (or set `TRACEROOT_PROJECT_ID`) — `traceroot projects list` shows the ids.
+
+## Find a run
+
+Start at the evaluation, narrow to its runs, then read one. Each step prints the id the next one takes.
+
+```bash
+# Which evaluations exist, how many runs each has, and how the latest one ended
+traceroot evals list
+
+# That evaluation's runs, newest first — the RUN ID column is what you read next
+traceroot evals runs list --evaluation-id ev_… --limit 20
+
+# Only the runs that went wrong
+traceroot evals runs list --status failed
+```
+
+`--status` takes `running`, `completed`, `completed_with_errors`, `failed`, `incomplete`, or `cancelled`. Both lists take `--name <substring>` filtering, case-insensitively, on the evaluation name.
+
+A run row is identity and outcome only — which run it is, what it was testing, and when it started. Scores and counts are aggregates over a run's results, so they come from reading the run itself.
+
+## Read a run
+
+```bash
+traceroot evals runs get run_…
+```
+
+```
+support-triage · run #12 · completed
+candidate: git:9f2a1c        environment: ci
+dataset:   ds_2a97  @ dsv_1
+
+results    26 reported · 25 scored · 1 task error · 0 scorer errors · 0 not scored
+
+METRIC     VALUE   UNIT  CASES
+accuracy   0.84    —     25
+duration   1,205   ms    25    (mean per case)
+cost       0.0123  $     25    (mean per case)
+```
+
+Each score is a **mean over the results that carried it**, not a headline number for the run:
+
+- A **numeric** score's value is its mean, and `CASES` is how many results it was taken over.
+- A **boolean** score's value is the share that came back true, marked `(share true)`.
+- A **categorical** score has no mean. It prints `categorical` rather than a number — a label has no average.
+- **Cost** and **duration** are labelled `(mean per case)`. A run's total cost is a different, and usually much larger, number.
+
+## Read a dataset
+
+Datasets read from the dataset down to the cases inside one published version.
+
+```bash
+traceroot datasets list --name triage        # newest first, with each one's current version
+traceroot datasets get ds_…                  # name, key, description, current version
+traceroot datasets versions list ds_…        # every published version; * marks the current one
+traceroot datasets versions get dsv_… --limit 50
+```
+
+`datasets versions get` prints the version's cases — case id, input, expected, and the trace a case was captured from where it has one. Versions are immutable, so this is exactly what a run measured: take `dataset_version_id` off a run and read the cases behind it.
+
+A dataset with nothing published yet has no version to read. The CLI says so instead of printing an empty table — publish one from the SDK first, as in [Datasets](/evals/datasets).
+
+## Scripting
+
+Every command takes `--json` and prints the API response verbatim on stdout. Warnings and counts go to stderr, so a redirect stays valid JSON.
+
+```bash
+traceroot evals runs get run_… --json > run.json
+traceroot evals runs list --status failed --json | jq -r '.runs[].evaluation_run_id'
+```
+
+Commands exit `0` on success and with a class-specific code otherwise — `2` usage, `3` auth, `4` not found, `5` network — so a script can retry a blip and give up on a missing run without parsing prose.
+
+## Two things to know about the output
+
+**An absent value prints `—`, never `0`.** A run that is still going has no scored, task-error or scorer-error count yet, and the em dash says exactly that; a `0` would claim a measurement nobody made. `(none)` is a third thing again: a dataset that exists and has no published version.
+
+**Each read returns one page.** There is no cursor flag, so when more matched than came back, the command says so on stderr and names the ceiling. The lists return 50 by default and take `--limit` up to 200; `datasets versions get` reads 200 cases by default and takes `--limit` up to 1000. To pull a whole dataset version into code, use `pull_dataset_version()` from the SDK rather than the CLI.
+
+## Command reference
+
+| Command | What it does |
+| :-- | :-- |
+| `datasets list` | List the project's datasets, newest first. `--limit <n>`, `--name <substring>` |
+| `datasets get <dataset-id>` | Show one dataset and the version its cases are read from. |
+| `datasets versions list <dataset-id>` | List a dataset's published versions with their case counts. `--limit <n>` |
+| `datasets versions get <version-id>` | Show one version and a page of its cases. `--limit <n>` (200 by default, up to 1000) |
+| `evals list` | List evaluations with their run count and latest run. `--limit <n>`, `--name <substring>` |
+| `evals runs list` | List runs, newest first. `--limit <n>`, `--evaluation-id <id>`, `--status <status>` |
+| `evals runs get <run-id>` | Show one run: counts, per-scorer means, per-case cost and duration, and its URL. |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Reading Results" icon="list-check" href="/evals/reading-results">
+    The summary and per-case results <code>evaluate()</code> returns in process.
+  </Card>
+  <Card title="CLI" icon="terminal" href="/cli/get-started">
+    Traces, exports, and the rest of what the CLI reads.
+  </Card>
+</CardGroup>

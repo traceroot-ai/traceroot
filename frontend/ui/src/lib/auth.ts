@@ -6,12 +6,16 @@ import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
 import { trustedProxyCidrs } from "@/lib/trusted-proxies";
+import { createAccessControl } from "better-auth/plugins/access";
+import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
+import { supportPlugin } from "@/lib/support/auth-plugin";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
   SESSION_UPDATE_AGE_SECONDS,
 } from "@/lib/session-config";
 
+const ac = createAccessControl(defaultStatements);
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",
@@ -79,8 +83,15 @@ export const auth = betterAuth({
 
   plugins: [
     admin({
-      impersonationSessionDuration: 60 * 60 * 24, // 1 day
+      ac,
+      roles: {
+        admin: adminAc,
+        support: ac.newRole({ user: ["list", "get", "impersonate"], session: [] }),
+      },
+      adminRoles: ["admin", "support"],
+      impersonationSessionDuration: SESSION_EXPIRES_IN_SECONDS,
     }),
+    supportPlugin(),
     // The CLI credential is a session token, but bearer() is deliberately NOT
     // enabled: it would let that token authenticate every /api/auth/* endpoint
     // and would expose session tokens to page JS on sign-in. The backend
@@ -101,6 +112,8 @@ export const auth = betterAuth({
     // `jwks` table. bearer() stays off — the exchange route validates the
     // session by a direct lookup, so the session token never rides /api/auth.
     jwt({
+      // Browser get-session must never mint an exportable customer JWT.
+      disableSettingJwtHeader: true,
       jwt: { expirationTime: "10m" },
       jwks: { keyPairConfig: { alg: "EdDSA" } },
     }),

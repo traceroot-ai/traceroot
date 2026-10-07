@@ -18,13 +18,18 @@ from rest.services.filters.translate import (
     MAX_VALUE_LENGTH,
     NUMERIC_TYPE_MAX,
 )
+from rest.services.widget_registry import registry_schema
 
 PUBLIC_PREFIX = "/api/v1/public/"
 TITLE = "TraceRoot Public API"
 
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 _BEARER_SCHEME = {"type": "http", "scheme": "bearer"}
-_ERROR_SCHEMA = {"type": "object", "properties": {"detail": {"type": "string"}}}
+#: The canonical envelope, by reference. Inline, these responses generated an
+#: anonymous type per operation, so a client branching on an error saw one shape
+#: for the statuses a route declares itself and another for the two added here.
+#: ErrorResponse is the same object and also marks ``detail`` required.
+_ERROR_SCHEMA = {"$ref": "#/components/schemas/ErrorResponse"}
 
 
 def _error_response(description: str) -> dict[str, Any]:
@@ -130,6 +135,36 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
         if op is not None:
             op["responses"].setdefault("404", _error_response("Finding not found"))
             op["responses"].setdefault("500", _error_response("Failed to read finding"))
+
+    # Dashboard read error contract (matches the route code): the proxy passes
+    # the internal route's 404 through; ambiguity fails closed as the shared 503.
+    dashboard_get_op = (
+        schema["paths"].get("/api/v1/public/dashboards/{dashboard_id}", {}).get("get")
+    )
+    if dashboard_get_op is not None:
+        dashboard_get_op["responses"].setdefault("404", _error_response("Dashboard not found"))
+    dashboard_data_op = (
+        schema["paths"].get("/api/v1/public/dashboards/{dashboard_id}/data", {}).get("get")
+    )
+    if dashboard_data_op is not None:
+        dashboard_data_op["responses"].setdefault("404", _error_response("Dashboard not found"))
+
+    # Widget read error contract (matches the route code): the widget is
+    # resolved through the caller's project, so a foreign id is the same 404
+    # as an unknown one; ambiguity fails closed as the shared 503.
+    for path in (
+        "/api/v1/public/widgets/{widget_id}",
+        "/api/v1/public/widgets/{widget_id}/data",
+    ):
+        op = schema["paths"].get(path, {}).get("get")
+        if op is not None:
+            op["responses"].setdefault("404", _error_response("Widget not found"))
+
+    # Alert read error contract (matches the route code): the proxy passes the
+    # internal route's 404 through; ambiguity fails closed as the shared 503.
+    alert_get_op = schema["paths"].get("/api/v1/public/alerts/{alert_id}", {}).get("get")
+    if alert_get_op is not None:
+        alert_get_op["responses"].setdefault("404", _error_response("Alert not found"))
 
     # Session read error contract (matches the route code).
     sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
@@ -240,6 +275,105 @@ def _apply_filters_param_schema(schema: dict[str, Any]) -> None:
             }
 
 
+def _inline_component_refs(node: Any, schemas: dict[str, Any]) -> Any:
+    """Deep-copy ``node`` with every ``#/components/schemas/`` ``$ref`` replaced
+    by its (recursively inlined) target, so a copy can be specialized without
+    mutating the shared component. Sibling keys beside a ``$ref`` override the
+    target's, matching the tools generator's resolution rule.
+
+    Args:
+        node (Any): Schema fragment to copy; dicts/lists are walked, scalars
+            returned as-is.
+        schemas (dict[str, Any]): ``components.schemas`` to resolve refs against.
+
+    Returns:
+        Any: A fully inlined deep copy of ``node``.
+    """
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
+            target = schemas[ref.rsplit("/", 1)[1]]
+            merged = {**target, **{k: v for k, v in node.items() if k != "$ref"}}
+            return _inline_component_refs(merged, schemas)
+        return {key: _inline_component_refs(value, schemas) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_inline_component_refs(value, schemas) for value in node]
+    return node
+
+
+def _widget_query_spec_variants(schemas: dict[str, Any]) -> list[dict[str, Any]]:
+    """One inline query-spec variant per widget registry view.
+
+    Each variant is the ``WidgetSpec`` component (refs inlined) specialized to
+    one view: ``view`` pinned to a const, and the measure, breakdown, and
+    filter-field vocabularies enumerated from the widget field registry — the
+    same source the write service validates against — so generated tool schemas
+    and API docs show exactly the fields create accepts, never hand-listed.
+
+    Args:
+        schemas (dict[str, Any]): ``components.schemas`` of the public document.
+
+    Returns:
+        list[dict[str, Any]]: The per-view ``anyOf`` variants, in registry order.
+    """
+    variants: list[dict[str, Any]] = []
+    for view_name, view in registry_schema().items():
+        fields = view["fields"]
+        measures = [name for name, f in fields.items() if f["aggs"]]
+        groupables = [name for name, f in fields.items() if f["groupable"]]
+        filterables = [name for name, f in fields.items() if f["filterOps"]]
+        variant = _inline_component_refs(schemas["WidgetSpec"], schemas)
+        variant["title"] = f"WidgetSpec ({view_name})"
+        variant["description"] = (
+            f'Chart spec over the "{view_name}" view; the enums below are the '
+            "complete field vocabulary for this view."
+        )
+        properties = variant["properties"]
+        # Explicit `type` alongside const/enum throughout: these variants feed
+        # model tool definitions, and some providers reject untyped properties.
+        properties["view"] = {"const": view_name, "title": "View", "type": "string"}
+        properties["metric"]["properties"]["measure"] = {
+            "enum": measures,
+            "title": "Measure",
+            "type": "string",
+        }
+        properties["breakdown"] = {
+            "enum": [*groupables, None],
+            "title": "Breakdown",
+            "type": ["string", "null"],
+        }
+        properties["filters"]["items"]["properties"]["field"] = {
+            "enum": filterables,
+            "title": "Field",
+            "type": "string",
+        }
+        variants.append(variant)
+    return variants
+
+
+def _apply_widget_spec_vocabulary(schema: dict[str, Any]) -> None:
+    """Replace the widget create and update bodies' ``spec`` ``WidgetSpec``
+    branch with the per-view variants from :func:`_widget_query_spec_variants`;
+    the trace_feed branch keeps its ``$ref``. The ``WidgetSpec`` component
+    itself stays in the document even though the unions no longer reference
+    it: the frontend widget-spec-parity test anchors on it to guard the
+    pydantic/zod mirror.
+
+    Args:
+        schema (dict[str, Any]): The public-only OpenAPI document; mutated in
+            place. A request schema that is absent is skipped.
+    """
+    schemas = (schema.get("components") or {}).get("schemas", {})
+    for name in ("CreateWidgetRequest", "UpdateWidgetRequest"):
+        request = schemas.get(name)
+        if request is None:
+            continue
+        request["properties"]["spec"]["anyOf"] = [
+            *_widget_query_spec_variants(schemas),
+            {"$ref": "#/components/schemas/TraceFeedSpec"},
+        ]
+
+
 # Agent/CLI-facing tool curation, keyed by operationId. Reviewed in the same PR
 # as any endpoint change so tool naming can't drift from the API. Every public
 # operation MUST have an entry: enabled tools carry the agent-facing
@@ -253,6 +387,29 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
     },
     "ingest_traces": {"enabled": False},
+    "run_sql": {
+        "name": "run_sql",
+        "description": (
+            "Run one read-only SQL query over the project's own spans and traces "
+            "and return the rows. Use get_sql_schema first to see the columns "
+            "available; the query may only read the curated spans and traces "
+            "tables, and results are capped and may be truncated."
+        ),
+        "enabled": True,
+        # A read that happens to arrive by POST, because the query travels in the
+        # body. VIEWER and no approval match the other read operations; the
+        # method is what forces a policy entry here at all.
+        "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
+    },
+    "get_sql_schema": {
+        "name": "get_sql_schema",
+        "description": (
+            "List the tables and columns available to run_sql, with their types. "
+            "Read this before writing a query: it is the whole surface a query "
+            "may reference."
+        ),
+        "enabled": True,
+    },
     "list_traces": {
         "name": "list_traces",
         "description": (
@@ -337,10 +494,450 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         ),
         "enabled": True,
     },
+    "list_dashboards": {
+        "name": "list_dashboards",
+        "description": (
+            "List the project's dashboards (id, name, description, default "
+            "flag, creator, widget count, timestamps). To resolve a dashboard "
+            "by name, list here and match its name — never guess a dashboard id."
+        ),
+        "enabled": True,
+    },
+    "get_dashboard": {
+        "name": "get_dashboard",
+        "description": (
+            "Fetch one dashboard with its widgets (id, title, type, query "
+            "spec, creation time). Resolve the dashboard id by listing the "
+            "project's dashboards and matching the name — never guess an id."
+        ),
+        "enabled": True,
+    },
+    "run_widget_query": {
+        "name": "run_widget_query",
+        "description": (
+            "Run a widget query and return its rows — the way to answer a "
+            "metric question (error counts, p95 latency, cost by model) without "
+            "a dashboard existing. Takes the same spec shape as create_widget "
+            "(view, metric, breakdown, display, filters) plus a window: a "
+            "range preset by the site picker's id (1h, 1d, 7d, 30d, …) or "
+            "explicit start_time/end_time; neither means the site's default "
+            "24-hour window. The response echoes the window it was answered "
+            "for and says when retention clamped it. A read that happens to "
+            "be a POST: nothing is written."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "project"},
+    },
+    "get_dashboard_data": {
+        "name": "get_dashboard_data",
+        "description": (
+            "Answer a dashboard's query widgets (up to 24) for one window — the way "
+            "to say what a dashboard shows, not just what it contains. Resolve "
+            "the dashboard id with list_dashboards and match its name; never "
+            "guess an id. Takes a window like run_widget_query (range preset "
+            "or explicit bounds; neither means the site's default). Widgets come "
+            "back in the dashboard's order with a status each: ok with rows "
+            "(a series carries every bucket; any other display is capped at 25 "
+            "rows, with truncated set), "
+            "skipped for a trace feed (read those with list_traces and the "
+            "feed's filters), or error with a reason. Every figure you report "
+            "must come from these rows, and name the window it was answered for."
+        ),
+        "enabled": True,
+    },
+    "get_widget": {
+        "name": "get_widget",
+        "description": (
+            "Fetch one saved widget's definition by id: its title, type, the "
+            "query spec exactly as stored (what get_widget_data runs), display "
+            "config, timestamps, and the id and name of the dashboard it sits "
+            "on. Resolve a widget id from get_dashboard (which lists a "
+            "dashboard's widgets) — never guess an id. For what the widget "
+            "shows, use get_widget_data."
+        ),
+        "enabled": True,
+    },
+    "get_widget_data": {
+        "name": "get_widget_data",
+        "description": (
+            "Answer one saved widget for a window — the way to say what a "
+            "widget shows without re-sending its spec. Prefer this over "
+            "run_widget_query whenever the widget already exists on a "
+            "dashboard; run_widget_query is for a spec that is saved nowhere. "
+            "Takes a widget id plus a window like run_widget_query (range "
+            "preset or explicit start_time/end_time; neither means the site's "
+            "default). The answer carries a status: ok with every row the "
+            "engine returns (a series comes back whole; no row cap), skipped "
+            "for a trace feed or legacy detector widget (read those with "
+            "list_traces and the feed's filters), or error with a reason when "
+            "the stored spec no longer runs. Every figure you report must come "
+            "from these rows, and name the window it was answered for — the "
+            "response echoes it and says when retention clamped it."
+        ),
+        "enabled": True,
+    },
+    "list_alerts": {
+        "name": "list_alerts",
+        "description": (
+            "List the project's threshold alerts (id, name, rule summary, status, "
+            "current severity, last evaluation and notification state, creator) "
+            "with the project's alert capacity. Paginated; search_query matches "
+            "the alert name. To resolve an alert by name, list here and match "
+            "its name — never guess an alert id."
+        ),
+        "enabled": True,
+    },
+    "get_alert": {
+        "name": "get_alert",
+        "description": (
+            "Fetch one alert's full rule by id: view, measure, aggregation, "
+            "filters, window, threshold, renotify and no-data handling, plus its "
+            "evaluation state. Resolve the alert id by listing the project's "
+            "alerts and matching the name — never guess an id."
+        ),
+        "enabled": True,
+    },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
+    # Dataset READS are tool-exposed; the dataset writes stay off the registry entirely.
+    # Not because the registry cannot carry a write (it can, behind an x-tool policy
+    # block), but because no policy decision has been made for dataset writes.
+    "list_datasets": {
+        "name": "list_datasets",
+        "description": (
+            "List the project's evaluation datasets, newest first, with each dataset's "
+            "current published version. Filter by a case-insensitive substring of the "
+            "name. Use this for discovery before reading a specific dataset."
+        ),
+        "enabled": True,
+    },
+    "get_dataset": {
+        "name": "get_dataset",
+        "description": (
+            "Read one evaluation dataset by id: its name, description, key, and current "
+            "published version. A dataset with no published version has none, and its "
+            "cases cannot be read until one exists."
+        ),
+        "enabled": True,
+    },
+    "list_dataset_versions": {
+        "name": "list_dataset_versions",
+        "description": (
+            "List a dataset's published versions, newest first, each with its case count "
+            "and whether it is the current one. Versions are immutable snapshots: editing a "
+            "dataset's test cases publishes a new version rather than changing an old one, "
+            "while renaming a dataset or changing its description publishes nothing."
+        ),
+        "enabled": True,
+    },
+    "get_dataset_version": {
+        "name": "get_dataset_version",
+        "description": (
+            "Read one immutable dataset version and its test cases (input, expected, "
+            "metadata, and trace provenance where the case was captured from one). Always "
+            "pass limit (for example 20) and follow next_cursor until it is null: without "
+            "limit the whole version comes back in one response, which can be very large."
+        ),
+        "enabled": True,
+    },
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
     "complete_run": {"enabled": False},
+    # The run read is tool-exposed; the reporting writes above stay SDK-facing. Its payload
+    # is bounded by scorer count rather than case count, and the route reads no per-case
+    # TEXT and sits in the READ bucket, so an agent calling it in a loop cannot pull an
+    # unbounded body.
+    "list_evaluations": {
+        "name": "list_evaluations",
+        "description": (
+            "List the project's evaluations, newest first: each one's name, the key an SDK "
+            "reports it under, the dataset it runs against, how many runs it has, and its "
+            "latest run. Filter by a case-insensitive substring of the name. An evaluation "
+            "that has never been run reports a null latest_run. Use this to find an "
+            "evaluation before listing its runs."
+        ),
+        "enabled": True,
+    },
+    "list_evaluation_runs": {
+        "name": "list_evaluation_runs",
+        "description": (
+            "List evaluation runs, newest first. Filter by evaluation_id to see one "
+            "evaluation's runs, or by status to see only runs in that state. Each row is "
+            "identity and outcome only: which "
+            "run it is, what was evaluated, the dataset version it pinned, its status, and "
+            "when it started and finished. A run's counts and per-scorer means come from "
+            "get_evaluation_run. Use this to find a run id."
+        ),
+        "enabled": True,
+    },
+    "read_run": {
+        "name": "get_evaluation_run",
+        "description": (
+            "Read one evaluation run's summary: its status, result counts, per-scorer "
+            "scores, and mean cost and duration per case. scored_count, task_error_count "
+            "and scorer_error_count are null until the run completes. A case is errored "
+            "or not_scored; passed and failed are older statuses, so passed_count and "
+            "failed_count are usually 0. Each score and metric carries "
+            "observed_count, the number of results it was taken over. A numeric score's "
+            "value is its mean and a boolean score's is its pass rate. A categorical or "
+            "mixed-type score, or one no result reported, has a null value: it has no "
+            "mean, and is not a score of 0."
+        ),
+        "enabled": True,
+    },
+    # Account-tenancy ops have no membership to gate; minRole VIEWER is the no-role-floor convention.
+    "create_workspace": {
+        "name": "create_workspace",
+        "description": (
+            "Create a workspace administered by the logged-in user. Idempotent: "
+            "re-creating a same-named workspace the caller already administers "
+            "returns it instead of duplicating."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "VIEWER", "tenancy": "account"},
+    },
+    "create_project": {
+        "name": "create_project",
+        "description": (
+            "Create a project in a workspace the logged-in user can write to "
+            "(idempotent on the project name within the workspace)."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "workspace"},
+        # API/CLI-visible but hidden from the agent: no UI form exposes the
+        # field, so the model shouldn't interrogate users about it.
+        "agentHiddenParams": ["trace_ttl_days"],
+    },
+    "create_detector": {
+        "name": "create_detector",
+        "description": (
+            "Create a detector (name, template, prompt, optional sampling/RCA "
+            "settings) in a project — idempotent on the detector name within "
+            "the project. The standard detector types (failure, hallucination, "
+            "logic, task, safety) have canonical default instructions: pass "
+            "the matching template id and OMIT prompt to use them. Only supply "
+            "prompt when the user provides genuinely custom instructions — a "
+            "supplied prompt is stored verbatim and overrides the template "
+            "default."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "create_dashboard": {
+        "name": "create_dashboard",
+        "description": (
+            "Create a dashboard in a project (idempotent on the dashboard name "
+            "within the project); add charts to it with create_widget."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "create_widget": {
+        "name": "create_widget",
+        "description": (
+            "Add a widget (title, type, spec) to an existing dashboard. Type "
+            '"query" charts a metric (spec: view/filters/metric/breakdown/'
+            'display); type "trace_feed" lists recent traces (spec: predicate '
+            "filters + limit). Strict create: every call adds a new widget. "
+            "The spec schema enumerates the only available views, metrics, "
+            "filter operators, and display types — nothing outside it exists. "
+            "If the user asks for a visualization or option that is not in "
+            "the schema (for example a display type the enum lacks), say so "
+            "explicitly and propose the closest available match instead of "
+            "silently substituting. Pick the view first — spans and traces "
+            "expose different fields, and the enums in this schema are the "
+            "complete field vocabulary for each view. If the user asks for a "
+            "dimension or metric that exists on neither view, say so and "
+            'propose the closest available one (for example "traces by model" '
+            "is built on the spans view via model_name)."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "create_alert": {
+        "name": "create_alert",
+        "description": (
+            "Create a threshold alert in a project: a measure of the spans view, "
+            "aggregated over a window and compared to a threshold, with optional "
+            "row filters and renotify/no-data settings. Strict create, never "
+            "idempotent: alerts share names freely, so to avoid a duplicate list "
+            "the project's alerts first and match the name."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    # Edits are PATCH: a field left out is untouched, an explicit null clears a
+    # nullable field. Updates take the creates' confirm class; deletes take
+    # approval, which parks on a destructive card attended and is blocked
+    # unattended. Role floors follow the cookie routes: renaming a workspace
+    # or changing a project's retention is administrative (ADMIN), the four
+    # project resources take MEMBER.
+    "update_workspace": {
+        "name": "update_workspace",
+        "description": (
+            "Rename a workspace the logged-in user administers. Fields left out "
+            "are untouched. The response lists the fields that actually changed; "
+            "a name the caller already uses for another workspace is a conflict."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "ADMIN", "tenancy": "account"},
+    },
+    "update_project": {
+        "name": "update_project",
+        "description": (
+            "Edit a project's name (or, via the API, its trace retention). "
+            "Fields left out are untouched; a null trace_ttl_days returns "
+            "retention to the plan default. Requires ADMIN in the workspace. "
+            "The response lists the fields that actually changed."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "ADMIN", "tenancy": "workspace"},
+        # API/CLI-visible but hidden from the agent, as on create: no UI form
+        # exposes the field, so the model shouldn't interrogate users about it.
+        "agentHiddenParams": ["trace_ttl_days"],
+    },
+    "update_detector": {
+        "name": "update_detector",
+        "description": (
+            "Edit a detector: name, prompt, enabled (the pause switch), "
+            "sample_rate, enable_rca, output_schema, trigger_conditions, or the "
+            "detection model settings. Send only the fields the user asked to "
+            "change — fields left out are untouched, and a null detection_model/"
+            "detection_provider/detection_source clears it. output_schema and "
+            "trigger_conditions replace the whole array; [] removes the trigger. "
+            "The template cannot change. Read the detector first so the "
+            "proposal names its current values; the response lists the fields "
+            "that actually changed."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "update_dashboard": {
+        "name": "update_dashboard",
+        "description": (
+            "Rename a dashboard or change its description. Fields left out are "
+            "untouched; a null description clears it. Tile layout is not "
+            "editable here. The response lists the fields that actually changed."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "update_widget": {
+        "name": "update_widget",
+        "description": (
+            "Edit a widget's title, spec, or display_config. Fields left out are "
+            "untouched; a sent spec replaces the whole spec and must be in the "
+            "dialect of the widget's existing type (query: view/filters/metric/"
+            "breakdown/display; trace_feed: predicate filters + limit) — the "
+            "type itself cannot change. A null display_config resets it. Read "
+            "the widget's dashboard first so the new spec starts from the "
+            "current one; the spec schema enumerates the only available views, "
+            "metrics, filter operators, and display types. The response lists "
+            "the fields that actually changed."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "update_alert": {
+        "name": "update_alert",
+        "description": (
+            "Edit an alert's rule: name, view, measure, aggregation, filters, "
+            "window, threshold_operator, threshold, renotify, no_data_mode. "
+            "Fields left out are untouched; the patch is validated against the "
+            "stored rule, so an aggregation edit must fit the stored measure. "
+            "Any edit to an evaluated field (everything but name) resets the "
+            "alert's evaluation state and clears any open page — the response "
+            "reports state_reset and page_cleared, and lists the fields that "
+            "actually changed. To pause or resume, use set_alert_status instead."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "set_alert_status": {
+        "name": "set_alert_status",
+        "description": (
+            "Pause (PAUSED) or resume (ACTIVE) an alert without touching its "
+            "rule — prefer this over update_alert for pause and resume. Pausing "
+            "keeps the severity the alert stopped at; resuming is a cold start "
+            "(evaluation state reset, due now). PARKED is the evaluator's "
+            "verdict and cannot be requested; pausing a parked alert is a "
+            "conflict, resume it to run it again. Setting the status the alert "
+            "already has changes nothing."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "delete_workspace": {
+        "name": "delete_workspace",
+        "description": (
+            "Permanently delete a workspace and everything in it: every "
+            "project, its access keys, memberships and invites. Requires ADMIN, "
+            "the workspace's current name typed as confirmation, and a reason "
+            "(3-500 characters) that is recorded on the audit row. The caller's "
+            "only workspace cannot be deleted. Not reversible."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "ADMIN", "tenancy": "account"},
+    },
+    "delete_project": {
+        "name": "delete_project",
+        "description": (
+            "Delete a project: it drops out of every list and read and its API "
+            "keys stop authenticating (its data stays for the retention window). "
+            "Requires ADMIN in the workspace and a reason (3-500 characters) "
+            "that is recorded on the audit row."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "ADMIN", "tenancy": "workspace"},
+    },
+    "delete_detector": {
+        "name": "delete_detector",
+        "description": (
+            "Permanently delete a detector; its existing findings stay readable. "
+            "Requires a reason (3-500 characters) stating why — the user's "
+            "actual instruction, recorded on the audit row. Resolve the id by "
+            "listing the project's detectors and matching the name; never delete "
+            "more than the user named."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "delete_dashboard": {
+        "name": "delete_dashboard",
+        "description": (
+            "Permanently delete a dashboard together with its widgets. A "
+            "project's last dashboard cannot be deleted. Requires a reason "
+            "(3-500 characters) stating why — the user's actual instruction, "
+            "recorded on the audit row. Resolve the id by listing the project's "
+            "dashboards and matching the name; never delete more than the user "
+            "named."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "delete_widget": {
+        "name": "delete_widget",
+        "description": (
+            "Permanently delete one widget from its dashboard (its layout slot "
+            "is removed with it). Requires a reason (3-500 characters) stating "
+            "why — the user's actual instruction, recorded on the audit row. "
+            "Resolve the id from the dashboard's detail; never delete more than "
+            "the user named."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "delete_alert": {
+        "name": "delete_alert",
+        "description": (
+            "Permanently delete an alert. An open page is discarded, not "
+            "resolved (the response says when one was). Requires a reason "
+            "(3-500 characters) stating why — the user's actual instruction, "
+            "recorded on the audit row. Resolve the id by listing the project's "
+            "alerts and matching the name; never delete more than the user named."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "approval", "minRole": "MEMBER", "tenancy": "project"},
+    },
     "list_workspaces": {
         "name": "list_workspaces",
         "description": (
@@ -363,6 +960,123 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
 }
 
 
+# Legal values for each required write-tool policy key. Mirrors the registry
+# generator's validation exactly, so a policy mistake fails the schema build
+# here before the generated artifact can even drift.
+#
+# approvalClass semantics:
+#   "none"     — execute immediately.
+#   "confirm"  — an attended surface shows the proposal and waits for the
+#                user's yes; an unattended surface executes as if "none".
+#                A taste gate, not a security control.
+#   "approval" — destructive ops (deletes). Each surface decides how to
+#                honor it; a surface that has not implemented it fails closed.
+_POLICY_VALUES: dict[str, tuple[str, ...]] = {
+    "approvalClass": ("none", "confirm", "approval"),
+    "minRole": ("VIEWER", "MEMBER", "ADMIN"),
+    "tenancy": ("account", "workspace", "project"),
+}
+
+
+def _validate_curation_policy(
+    entry: dict[str, Any], method: str, path: str, op_id: str | None
+) -> None:
+    """Enforce the write-only policy contract on one curation entry.
+
+    Args:
+        entry (dict[str, Any]): The ``_TOOL_CURATION`` entry for the operation.
+        method (str): Lowercase HTTP method of the operation.
+        path (str): Public path the operation lives on (for error messages).
+        op_id (str | None): The operation's ``operationId`` (for error messages).
+
+    Raises:
+        ValueError: If a GET entry carries a ``policy`` key (the vocabulary is
+            write-only), or if an enabled non-GET entry's ``policy`` is not a
+            dict with exactly the keys ``{approvalClass, minRole, tenancy}``
+            and legal values.
+    """
+    if method == "get":
+        if "policy" in entry:
+            raise ValueError(
+                f"read tool GET {path} ({op_id}): x-tool entries on GET "
+                "operations must not carry a policy — the vocabulary is write-only"
+            )
+        return
+    if not entry.get("enabled"):
+        return
+    policy = entry.get("policy")
+    valid = (
+        isinstance(policy, dict)
+        and set(policy) == set(_POLICY_VALUES)
+        and all(policy[key] in values for key, values in _POLICY_VALUES.items())
+    )
+    if not valid:
+        raise ValueError(
+            f"enabled write tool {method.upper()} {path} ({op_id}): x-tool policy "
+            "must be a dict with exactly the keys {approvalClass, minRole, tenancy} "
+            "and legal values"
+        )
+
+
+def _validate_agent_hidden_params(
+    entry: dict[str, Any],
+    op: dict[str, Any],
+    schema: dict[str, Any],
+    method: str,
+    path: str,
+    op_id: str | None,
+) -> None:
+    """Enforce the agent-hidden-params contract on one curation entry.
+
+    ``agentHiddenParams`` marks request-body fields that stay in the public
+    API/CLI contract but that the agent's tool factory must neither expose to
+    the model nor accept from it.
+
+    Args:
+        entry (dict[str, Any]): The ``_TOOL_CURATION`` entry for the operation.
+        op (dict[str, Any]): The OpenAPI operation (for its ``requestBody``).
+        schema (dict[str, Any]): The public-only document, used to resolve a
+            request-body ``$ref`` against ``components.schemas``.
+        method (str): Lowercase HTTP method of the operation.
+        path (str): Public path the operation lives on (for error messages).
+        op_id (str | None): The operation's ``operationId`` (for error messages).
+
+    Raises:
+        ValueError: If ``agentHiddenParams`` appears on a GET or disabled
+            entry, is not a non-empty list of strings, or names a field that
+            does not exist in the operation's JSON request-body properties
+            (stale after a field rename or removal).
+    """
+    hidden = entry.get("agentHiddenParams")
+    if hidden is None:
+        return
+    if method == "get" or not entry.get("enabled"):
+        raise ValueError(
+            f"tool {method.upper()} {path} ({op_id}): agentHiddenParams is only "
+            "legal on an enabled non-GET entry"
+        )
+    if not (isinstance(hidden, list) and hidden and all(isinstance(n, str) for n in hidden)):
+        raise ValueError(
+            f"enabled write tool {method.upper()} {path} ({op_id}): "
+            "agentHiddenParams must be a non-empty list of strings"
+        )
+    body_schema = (
+        op.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
+    )
+    ref = body_schema.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
+        body_schema = (
+            (schema.get("components") or {}).get("schemas", {}).get(ref.rsplit("/", 1)[1], {})
+        )
+    properties = body_schema.get("properties", {})
+    for name in hidden:
+        if name not in properties:
+            raise ValueError(
+                f"enabled write tool {method.upper()} {path} ({op_id}): "
+                f"agentHiddenParams names unknown requestBody property {name!r}"
+            )
+
+
 def _apply_tool_curation(schema: dict[str, Any]) -> None:
     """Stamp the per-operation ``x-tool`` block from ``_TOOL_CURATION``.
 
@@ -372,9 +1086,12 @@ def _apply_tool_curation(schema: dict[str, Any]) -> None:
 
     Raises:
         ValueError: If a public operation has no curation entry — forces every
-            new endpoint to make an explicit tool decision in the same PR — or
-            if a curation entry matches no public operation (stale after a
-            rename or removal).
+            new endpoint to make an explicit tool decision in the same PR — if
+            a curation entry matches no public operation (stale after a rename
+            or removal), if an entry violates the write-tool policy contract
+            (see :func:`_validate_curation_policy`), or if an entry violates
+            the agent-hidden-params contract (see
+            :func:`_validate_agent_hidden_params`).
     """
     consumed: set[str] = set()
     for path, item in schema["paths"].items():
@@ -388,6 +1105,8 @@ def _apply_tool_curation(schema: dict[str, Any]) -> None:
                     f"public operation {method.upper()} {path} ({op_id}) has no "
                     "_TOOL_CURATION entry — add one (enabled or disabled)"
                 )
+            _validate_curation_policy(entry, method, path, op_id)
+            _validate_agent_hidden_params(entry, op, schema, method, path, op_id)
             consumed.add(op_id)
             op["x-tool"] = copy.deepcopy(entry)
     stale = set(_TOOL_CURATION) - consumed
@@ -456,6 +1175,7 @@ def build_public_schema(app: Any) -> dict[str, Any]:
     }
     _apply_public_contract(schema)
     _apply_filters_param_schema(schema)
+    _apply_widget_spec_vocabulary(schema)
     _apply_tool_curation(schema)
     return schema
 

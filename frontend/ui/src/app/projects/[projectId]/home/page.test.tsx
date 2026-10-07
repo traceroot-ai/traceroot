@@ -72,6 +72,7 @@ vi.mock("@/features/ai-assistant/components/ai-chat-context", () => ({
     sessions: [],
     historyOpen: false,
     currentSessionId: null,
+    pendingDecision: null,
     setHistoryOpen: vi.fn(),
     handleSend: mocks.handleSend,
     handleAbort: vi.fn(),

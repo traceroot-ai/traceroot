@@ -6,6 +6,11 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: auth.requireAuth,

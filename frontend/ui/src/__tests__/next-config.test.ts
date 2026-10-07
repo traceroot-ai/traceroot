@@ -14,7 +14,7 @@ describe("next.config.js env block", () => {
   it("reads NEXT_PUBLIC_APP_VERSION from APP_VERSION env var when set", async () => {
     vi.stubEnv("APP_VERSION", "v0.2.0");
     const config = await import("../../next.config.js");
-    expect(config.default.env.NEXT_PUBLIC_APP_VERSION).toBe("v0.2.0");
+    expect(config.default.env?.NEXT_PUBLIC_APP_VERSION).toBe("v0.2.0");
   });
 
   it("falls back to git describe (or 'dev' when no tag is reachable) when APP_VERSION is unset", async () => {
@@ -24,7 +24,7 @@ describe("next.config.js env block", () => {
     // throws (e.g. a shallow CI checkout with no tags fetched).
     let expected: string;
     try {
-      expected = execSync("git describe --tags --abbrev=0", {
+      expected = execSync("git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*'", {
         cwd: new URL("../../", import.meta.url),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
@@ -32,12 +32,15 @@ describe("next.config.js env block", () => {
     } catch {
       expected = "dev";
     }
-    expect(config.default.env.NEXT_PUBLIC_APP_VERSION).toBe(expected);
+    expect(config.default.env?.NEXT_PUBLIC_APP_VERSION).toBe(expected);
   });
 
   it("falls back to dev when APP_VERSION is explicitly set to dev", async () => {
     vi.stubEnv("APP_VERSION", "dev");
+    // The query string is a vitest cache-buster so the module re-evaluates; TypeScript
+    // cannot resolve it as a path, hence the expect-error.
+    // @ts-expect-error query-string import is not a resolvable module path
     const config = await import("../../next.config.js?fallback-dev");
-    expect(config.default.env.NEXT_PUBLIC_APP_VERSION).toBe("dev");
+    expect(config.default.env?.NEXT_PUBLIC_APP_VERSION).toBe("dev");
   });
 });

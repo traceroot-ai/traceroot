@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
@@ -5,7 +6,7 @@ import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-h
 type RouteParams = { params: Promise<{ projectId: string }> };
 
 // GET — evaluation lineages (stable purposes) with their latest run + run count.
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId } = await params;
@@ -78,3 +79,4 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
   return successResponse({ data });
 }
+export const GET = withImpersonationPolicy(handleGET);

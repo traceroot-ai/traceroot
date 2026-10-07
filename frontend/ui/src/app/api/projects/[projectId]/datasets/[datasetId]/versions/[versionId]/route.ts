@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import {
@@ -14,7 +15,7 @@ type RouteParams = {
 };
 
 // GET — a specific immutable dataset version and the test cases it snapshotted.
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, datasetId, versionId } = await params;
@@ -40,3 +41,4 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
   return successResponse({ version: { ...version, testCases }, testCases });
 }
+export const GET = withImpersonationPolicy(handleGET);

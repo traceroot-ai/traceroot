@@ -8,7 +8,7 @@ import {
   type AlertSeverity,
   type AlertThresholdOperator,
 } from "@traceroot/core";
-import { escapeMrkdwn, formatWindowRange, truncate } from "./block-kit.ts";
+import { escapeMrkdwn, formatWindowRange, truncate, truncateEscaped } from "./block-kit.ts";
 
 const HEADER_LIMIT = 150;
 
@@ -166,7 +166,10 @@ export function buildAlertBlocks(params: AlertBlockParams): AlertSlackMessage {
 
   const blocks = [
     { type: "header", text: { type: "plain_text", text: truncate(title, HEADER_LIMIT) } },
-    { type: "section", text: { type: "mrkdwn", text: truncate(escapeMrkdwn(outcome + where)) } },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: truncateEscaped(escapeMrkdwn(outcome + where)) },
+    },
     { type: "section", text: { type: "mrkdwn", text: truncate(links.join(" · ")) } },
     { type: "context", elements: [{ type: "mrkdwn", text: footer }] },
   ];
@@ -178,6 +181,6 @@ export function buildAlertBlocks(params: AlertBlockParams): AlertSlackMessage {
     // unescaped, an alert named "<!channel>" would broadcast.
     // The filters ride on the fallback too: a client that renders no blocks
     // must still tell two rules on the same measure apart.
-    text: truncate(escapeMrkdwn(`${title} — ${outcome}${where}`), HEADER_LIMIT * 2),
+    text: truncateEscaped(escapeMrkdwn(`${title} — ${outcome}${where}`), HEADER_LIMIT * 2),
   };
 }

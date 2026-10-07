@@ -50,6 +50,7 @@ const stored = {
   // The dataset key (pre-image of dataset_id) is echoed back so a pulled dataset
   // recovers it when key != name.
   key: "support-tickets",
+  updateTime: new Date("2026-09-14T00:00:00Z"),
 };
 
 async function body(res: { json: () => Promise<unknown> }) {
@@ -78,6 +79,7 @@ describe("GET", () => {
       description: "tickets",
       current_dataset_version_id: "dv2",
       key: "support-tickets",
+      updated_at: "2026-09-14T00:00:00.000Z",
     });
     // The project comes from the key, so another project's id reads as not found.
     expect(prismaMock.dataset.findFirst.mock.calls[0][0].where).toEqual({
@@ -97,6 +99,13 @@ describe("GET", () => {
       projectId_clientDatasetId: { projectId: "p1", clientDatasetId: "ds1" },
     });
     expect(prismaMock.dataset.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("answers with the SDK's own id when the dataset is addressed by its row id", async () => {
+    // The list and version reads report `clientDatasetId ?? id`; the detail read must
+    // too, or one dataset shows up under two ids.
+    prismaMock.dataset.findFirst.mockResolvedValue({ ...stored, clientDatasetId: "ds_sdk" });
+    expect((await body(await GET(getReq(), params))).dataset_id).toBe("ds_sdk");
   });
 
   it("reports a null version for a dataset with nothing published yet", async () => {

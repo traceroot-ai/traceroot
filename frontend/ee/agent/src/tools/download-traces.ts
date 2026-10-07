@@ -1,6 +1,7 @@
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
+import { agentInternalSecret } from "../internal-secret.js";
 
 const FASTAPI_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 
@@ -45,7 +46,7 @@ export async function downloadOneTrace(
     headers: {
       "Content-Type": "application/json",
       "x-user-id": userId,
-      "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
+      "X-Internal-Secret": agentInternalSecret(),
     },
     signal,
   });

@@ -3,6 +3,8 @@
 // The trace list table: one column per visible registry entry. Header and body rows map the
 // same column list, so they cannot disagree about column order.
 import type { ReactElement } from "react";
+import Link from "next/link";
+import { signalDeepLinkPath } from "@traceroot/core/signals";
 import type { TraceListItem } from "@/types/api";
 import {
   formatDuration,
@@ -42,18 +44,26 @@ const HEADER_WIDTH: Partial<Record<FixedColumnId, string>> = {
 };
 
 interface TraceListTableProps {
+  projectId: string;
   traces: TraceListItem[];
   selectedTraceId: string | null;
   onSelectTrace: (traceId: string) => void;
   /** Fixed columns to show, already resolved and in registry order. */
   visibleColumns: FixedColumnId[];
+  /** Each trace's signal ids for the Signal IDs column; undefined until read. */
+  signalIdsByTrace?: Record<string, string[]>;
+  /** Reading the signal ids failed: the column says so rather than staying blank. */
+  signalIdsFailed?: boolean;
 }
 
 export function TraceListTable({
+  projectId,
   traces,
   selectedTraceId,
   onSelectTrace,
   visibleColumns,
+  signalIdsByTrace,
+  signalIdsFailed = false,
 }: TraceListTableProps) {
   const hasAddedColumns = visibleColumns.some((id) => !isDefaultOnColumn(id));
   const hasColumns = visibleColumns.length > 0;
@@ -75,7 +85,10 @@ export function TraceListTable({
           traces.map((trace) => (
             <TraceRow
               key={trace.trace_id}
+              projectId={projectId}
               trace={trace}
+              signalIds={signalIdsByTrace && (signalIdsByTrace[trace.trace_id] ?? [])}
+              signalIdsFailed={signalIdsFailed}
               isSelected={selectedTraceId === trace.trace_id}
               onSelect={onSelectTrace}
               columns={visibleColumns}
@@ -112,12 +125,18 @@ function ColumnHeader({ id, isLast }: { id: FixedColumnId; isLast: boolean }) {
 }
 
 function TraceRow({
+  projectId,
   trace,
+  signalIds,
+  signalIdsFailed,
   isSelected,
   onSelect,
   columns,
 }: {
+  projectId: string;
   trace: TraceListItem;
+  signalIds: readonly string[] | undefined;
+  signalIdsFailed: boolean;
   isSelected: boolean;
   onSelect: (traceId: string) => void;
   /** The same column list the header row walked, so the two cannot fall out of step. */
@@ -136,7 +155,10 @@ function TraceRow({
         return (
           <Cell
             key={id}
+            projectId={projectId}
             trace={trace}
+            signalIds={signalIds}
+            signalIdsFailed={signalIdsFailed}
             borderClassName={position === columns.length - 1 ? false : CELL_BORDER}
           />
         );
@@ -146,7 +168,11 @@ function TraceRow({
 }
 
 interface FixedCellProps {
+  projectId: string;
   trace: TraceListItem;
+  /** The trace's signal ids; undefined until read. */
+  signalIds: readonly string[] | undefined;
+  signalIdsFailed: boolean;
   /** The row divider, or false on the column that ends the row. */
   borderClassName: string | false;
 }
@@ -225,6 +251,36 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
   session_id: ({ trace, borderClassName }) => (
     <FixedFieldCell value={trace.session_id} borderClassName={borderClassName} />
   ),
+  signal_ids: ({ projectId, signalIds, signalIdsFailed, borderClassName }) =>
+    signalIds?.length ? (
+      <td className={cn("max-w-[180px]", borderClassName, "px-3 py-1.5")}>
+        <span className="flex flex-col gap-0.5 font-mono text-[11px] text-muted-foreground">
+          {signalIds.map((signalId) => (
+            <Link
+              key={signalId}
+              href={signalDeepLinkPath(projectId, signalId)}
+              // The row opens the trace; a signal id opens the signal instead.
+              onClick={(e) => e.stopPropagation()}
+              title={`${signalId} — open the signal`}
+              className="block truncate transition-colors hover:text-foreground hover:underline"
+            >
+              {signalId}
+            </Link>
+          ))}
+        </span>
+      </td>
+    ) : (
+      // A dash once read with none, blank while loading, and a mark if the read failed.
+      <td className={cn(borderClassName, "px-3 py-1.5 text-[12px] text-muted-foreground")}>
+        {signalIds ? (
+          "-"
+        ) : signalIdsFailed ? (
+          <span title="Signal IDs could not be loaded">?</span>
+        ) : (
+          ""
+        )}
+      </td>
+    ),
   // The three quantities the Tokens chip compresses into `in → out (total)`, each exact.
   input_usage: ({ trace, borderClassName }) => (
     <UsageCell value={trace.total_input_tokens} borderClassName={borderClassName} />

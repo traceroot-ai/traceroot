@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
@@ -16,7 +17,7 @@ interface UserInstallation {
   account: { login: string };
 }
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   try {
     const code = request.nextUrl.searchParams.get("code");
     const state = request.nextUrl.searchParams.get("state");
@@ -188,7 +189,7 @@ async function processGitHubCallback(
   return response;
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     // Used exclusively by the direct GitHub install confirm page. State check
     // is intentionally skipped (no cookie set in that flow); security is enforced by:
@@ -221,3 +222,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+export const GET = withImpersonationPolicy(handleGET);
+export const POST = withImpersonationPolicy(handlePOST);

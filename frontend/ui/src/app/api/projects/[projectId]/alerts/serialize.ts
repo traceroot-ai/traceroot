@@ -96,12 +96,17 @@ export async function withCreators(rows: AlertSummaryRow[]): Promise<AlertSummar
   return rows.map((row) => toSummary(row, byId.get(row.createdBy) ?? null));
 }
 
-export async function serializeAlert(row: AlertRow): Promise<AlertRecord> {
-  const byId = await resolveCreators([row.createdBy]);
+/** Pure: the full record from a row plus an already-resolved creator name. */
+export function toAlertRecord(row: AlertRow, creator: string | null): AlertRecord {
   return {
-    ...toSummary(row, byId.get(row.createdBy) ?? null),
+    ...toSummary(row, creator),
     filters: row.filters as unknown as AlertFilter[],
     renotify: row.renotify as unknown as AlertRenotify,
     noDataMode: row.noDataMode,
   };
+}
+
+export async function serializeAlert(row: AlertRow): Promise<AlertRecord> {
+  const byId = await resolveCreators([row.createdBy]);
+  return toAlertRecord(row, byId.get(row.createdBy) ?? null);
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { ImpersonationError } from "@/lib/api/errors";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
 import { Check, ChevronDown, ExternalLink, Hash, Lock, Send, Settings, Unlink } from "lucide-react";
@@ -42,12 +43,13 @@ export function SlackConnectButton({ workspaceId }: Props) {
     testFeedbackTimer.current = setTimeout(() => setTestFeedback(null), 2500);
   }
 
-  const { data, isLoading } = useSlackStatus(workspaceId);
+  const { data, isLoading, error } = useSlackStatus(workspaceId);
   // Fetch channels when the channel picker is open
-  const { data: channelData, isLoading: channelsLoading } = useSlackChannels(
-    workspaceId,
-    channelOpen,
-  );
+  const {
+    data: channelData,
+    isLoading: channelsLoading,
+    error: channelError,
+  } = useSlackChannels(workspaceId, channelOpen);
   const saveChannel = useSaveSlackChannel(workspaceId);
   const disconnect = useDisconnectSlack(workspaceId);
   const testMessage = useSendSlackTest(workspaceId);
@@ -86,6 +88,22 @@ export function SlackConnectButton({ workspaceId }: Props) {
           setSearch("");
         },
       },
+    );
+  }
+
+  const denial = [error, channelError, saveChannel.error, disconnect.error, testMessage.error].find(
+    (err) => err instanceof ImpersonationError,
+  );
+  if (denial instanceof ImpersonationError) {
+    return (
+      <Row>
+        <div>
+          <div className="text-sm font-medium">Slack</div>
+          <p role="alert" className="text-sm text-muted-foreground">
+            {denial.message}
+          </p>
+        </div>
+      </Row>
     );
   }
 

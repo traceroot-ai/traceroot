@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, PlanType } from "@traceroot/core";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
+import { auth } from "@/lib/auth";
+import { impersonationContext } from "@/lib/support/session";
 
 const validateAccessSchema = z.object({
-  userId: z.string().min(1, "User ID is required"),
+  userId: z.string().min(1, "User ID is required").optional(),
+  browserSession: z.boolean().optional(),
   projectId: z.string().min(1, "Project ID is required"),
 });
 
@@ -31,7 +34,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { userId, projectId } = result.data;
+  const { projectId } = result.data;
+  let userId = result.data.userId;
+  if (result.data.browserSession) {
+    const session = await auth.api.getSession({ headers: request.headers });
+    const support = session?.session.impersonatedBy
+      ? await impersonationContext(session.session)
+      : null;
+    if (!session || (support && !support.valid))
+      return NextResponse.json({ hasAccess: false, error: "Session ended" }, { status: 401 });
+    userId = session.user.id;
+  }
+  if (!userId)
+    return NextResponse.json({ hasAccess: false, error: "User ID is required" }, { status: 400 });
 
   // Find the project (with workspace billing plan, used for tiered rate limits)
   const project = await prisma.project.findUnique({
@@ -70,6 +85,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     hasAccess: true,
+    userId,
     role: membership.role,
     workspaceId: project.workspaceId,
     billingPlan: project.workspace?.billingPlan || PlanType.FREE,

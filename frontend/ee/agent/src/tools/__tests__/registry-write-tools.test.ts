@@ -1,0 +1,1446 @@
+import { describe, expect, it, vi } from "vitest";
+import { ApiClient, ApiError, REGISTRY } from "@traceroot-ai/tools";
+import { validateToolArguments } from "@earendil-works/pi-ai";
+import { createRegistryWriteTools } from "../registry-write-tools.js";
+
+function stubClient(response: unknown = {}) {
+  const request = vi.fn(async () => response);
+  return { client: { request } as unknown as ApiClient, request };
+}
+
+function makeTools(client: ApiClient) {
+  return createRegistryWriteTools({
+    client,
+    actorUserId: "u1",
+    agentSessionId: "as1",
+    projectId: "p1",
+  });
+}
+
+describe("createRegistryWriteTools", () => {
+  it("exposes exactly the thirteen project-scoped write tools — no structural writes", () => {
+    const names = makeTools(stubClient().client).map((t) => t.name);
+    expect(names).toEqual([
+      "create_detector",
+      "create_dashboard",
+      "create_widget",
+      "create_alert",
+      "update_detector",
+      "update_dashboard",
+      "update_widget",
+      "update_alert",
+      "set_alert_status",
+      "delete_detector",
+      "delete_dashboard",
+      "delete_widget",
+      "delete_alert",
+    ]);
+  });
+
+  it("keeps all six write tools in the registry — the agent trim must not leak into codegen", () => {
+    const registryWrites = REGISTRY.filter((e) => e.name.startsWith("create_")).map((e) => e.name);
+    expect(registryWrites.sort()).toEqual([
+      "create_alert",
+      "create_dashboard",
+      "create_detector",
+      "create_project",
+      "create_widget",
+      "create_workspace",
+    ]);
+  });
+
+  it("create_detector hides the ambient project_id but keeps the model-supplied fields", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "create_detector")!;
+    expect(tool.parameters.properties).not.toHaveProperty("project_id");
+    expect(tool.parameters.required).not.toContain("project_id");
+    for (const field of ["name", "template", "prompt", "sample_rate", "output_schema"]) {
+      expect(tool.parameters.properties).toHaveProperty(field);
+    }
+    // Same injected-label convention as the read tools.
+    expect(tool.parameters.properties.label).toMatchObject({ type: "string" });
+    expect(tool.parameters.required[0]).toBe("label");
+  });
+
+  it("tells the model what a trigger condition is, so a numeric ask is not silently one-sided", () => {
+    // A threshold like "over 30 seconds" can be a judged prompt or a
+    // deterministic duration_ms filter, and the two detectors behave
+    // differently. Without the field vocabulary reaching the schema, the
+    // second option is invisible and the agent cannot offer the choice.
+    const tool = makeTools(stubClient().client).find((t) => t.name === "create_detector")!;
+    const conditions = tool.parameters.properties.trigger_conditions as { description?: string };
+    expect(conditions.description).toBeDefined();
+    expect(conditions.description).toContain("duration_ms");
+    expect(conditions.description).toContain("metadata also takes key");
+    expect(conditions.description).toContain("deterministic");
+    // The public contract describes the field; telling the agent to ask is the prompt's job.
+    expect(conditions.description).not.toMatch(/ask which/);
+  });
+
+  it("leaves tools without agent-hidden params untouched", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "create_detector")!;
+    expect(Object.keys(tool.parameters.properties).sort()).toEqual(
+      [
+        "detection_model",
+        "detection_provider",
+        "detection_source",
+        "enable_rca",
+        "enabled",
+        "label",
+        "name",
+        "prompt",
+        "output_schema",
+        "sample_rate",
+        "template",
+        "trigger_conditions",
+      ].sort(),
+    );
+  });
+
+  it("create_detector POSTs the exact camelCase body with actor and provenance injected", async () => {
+    const { client, request } = stubClient({
+      created: true,
+      detector: { id: "d1", name: "latency", projectId: "p1", enabled: true, sampleRate: 25 },
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_detector")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      name: "latency",
+      template: "custom",
+      prompt: "Flag slow traces",
+      sample_rate: 25,
+      output_schema: [{ name: "reason", type: "string" }],
+      trigger_conditions: [{ field: "root_span_finished", op: "=", value: true }],
+      detection_source: "system",
+      detection_model: "claude-haiku-4-5",
+      detection_provider: "anthropic",
+      enable_rca: true,
+      enabled: true,
+    });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/detectors", {
+      body: {
+        actorUserId: "u1",
+        transport: "agent",
+        agentSessionId: "as1",
+        projectId: "p1",
+        name: "latency",
+        template: "custom",
+        prompt: "Flag slow traces",
+        sampleRate: 25,
+        outputSchema: [{ name: "reason", type: "string" }],
+        triggerConditions: [{ field: "root_span_finished", op: "=", value: true }],
+        detectionSource: "system",
+        detectionModel: "claude-haiku-4-5",
+        detectionProvider: "anthropic",
+        enableRca: true,
+        enabled: true,
+      },
+      signal: undefined,
+    });
+    expect(result.content[0]!.text).toBe('Created detector "latency" (id d1)');
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "detector",
+      resourceId: "d1",
+      name: "latency",
+      created: true,
+      projectId: "p1",
+    });
+  });
+
+  it("create_detector does not require prompt and leaves an unset prompt out of the body", async () => {
+    const { client, request } = stubClient({
+      created: true,
+      detector: { id: "d1", name: "latency", projectId: "p1", enabled: true, sampleRate: 25 },
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_detector")!;
+    expect(tool.parameters.required).toEqual(["label", "name", "template"]);
+    await tool.execute("id", { label: "x", name: "latency", template: "failure" });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/detectors", {
+      body: {
+        actorUserId: "u1",
+        transport: "agent",
+        agentSessionId: "as1",
+        projectId: "p1",
+        name: "latency",
+        template: "failure",
+      },
+      signal: undefined,
+    });
+  });
+
+  it("hides a registry-curated agent-hidden field from the model and drops it from the body", async () => {
+    vi.resetModules();
+    vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();
+      return {
+        ...actual,
+        REGISTRY: actual.REGISTRY.map((e) =>
+          e.name === "create_dashboard" ? { ...e, agentHiddenParams: ["description"] } : e,
+        ),
+      };
+    });
+    const { createRegistryWriteTools: create } = await import("../registry-write-tools.js");
+    const { client, request } = stubClient({
+      created: true,
+      dashboard: { id: "db1", name: "Spend", projectId: "p1" },
+    });
+    const tool = create({
+      client,
+      actorUserId: "u1",
+      agentSessionId: "as1",
+      projectId: "p1",
+    }).find((t) => t.name === "create_dashboard")!;
+    expect(tool.parameters.properties).not.toHaveProperty("description");
+    expect(tool.parameters.required).not.toContain("description");
+    // A hidden field the model passes anyway must never reach the body.
+    await tool.execute("id", { label: "x", name: "Spend", description: "sneaky" });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/dashboards", {
+      body: {
+        actorUserId: "u1",
+        transport: "agent",
+        agentSessionId: "as1",
+        projectId: "p1",
+        name: "Spend",
+      },
+      signal: undefined,
+    });
+    vi.doUnmock("@traceroot-ai/tools");
+    vi.resetModules();
+  });
+
+  it("create_widget's model-visible spec schema carries per-view query dialects plus the feed", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "create_widget")!;
+    interface VariantSchema {
+      properties: Record<
+        string,
+        {
+          const?: string;
+          enum?: (string | null)[];
+          properties?: Record<string, { enum?: string[] }>;
+        }
+      >;
+      required?: string[];
+    }
+    const spec = tool.parameters.properties.spec as { type?: string; anyOf?: VariantSchema[] };
+    // The union of object dialects keeps an explicit type for providers that
+    // reject untyped properties, plus one query variant per registry view and
+    // the trace_feed variant for the model to compose.
+    expect(spec.type).toBe("object");
+    expect(spec.anyOf).toHaveLength(3);
+    const queryVariants = spec.anyOf!.filter((variant) => "view" in variant.properties);
+    const measures = (variant: VariantSchema) =>
+      variant.properties.metric!.properties!.measure!.enum;
+    expect(queryVariants.map((v) => v.properties.view!.const).sort()).toEqual(["spans", "traces"]);
+    for (const query of queryVariants) {
+      expect(Object.keys(query.properties).sort()).toEqual([
+        "breakdown",
+        "display",
+        "filters",
+        "metric",
+        "view",
+      ]);
+      expect(query.required).toEqual(["view", "metric", "display"]);
+      // The field vocabulary is enumerated per view, straight from the widget
+      // field registry, so the model cannot invent measures or breakdowns.
+      expect(measures(query)).toContain("cost");
+      expect(query.properties.breakdown!.enum).toContain("environment");
+    }
+    const [spansQuery, tracesQuery] = [...queryVariants].sort((a, b) =>
+      a.properties.view!.const!.localeCompare(b.properties.view!.const!),
+    );
+    expect(measures(tracesQuery)).toContain("error_count");
+    expect(measures(spansQuery)).not.toContain("error_count");
+    const feed = spec.anyOf!.find((variant) => "limit" in variant.properties)!;
+    expect(Object.keys(feed.properties).sort()).toEqual(["filters", "limit"]);
+  });
+
+  it("create_widget maps dashboard_id and display_config and names the widget by title", async () => {
+    const { client, request } = stubClient({
+      created: true,
+      widget: { id: "wg1", dashboardId: "db1", title: "Spend by model", type: "query" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_widget")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      dashboard_id: "db1",
+      title: "Spend by model",
+      type: "query",
+      spec: { metric: "cost" },
+      display_config: { color: "blue" },
+    });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/widgets", {
+      body: {
+        actorUserId: "u1",
+        transport: "agent",
+        agentSessionId: "as1",
+        projectId: "p1",
+        dashboardId: "db1",
+        title: "Spend by model",
+        type: "query",
+        spec: { metric: "cost" },
+        displayConfig: { color: "blue" },
+      },
+      signal: undefined,
+    });
+    expect(result.content[0]!.text).toBe('Created widget "Spend by model" (id wg1)');
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "widget",
+      resourceId: "wg1",
+      name: "Spend by model",
+      created: true,
+      projectId: "p1",
+      dashboardId: "db1",
+    });
+  });
+
+  it("reports an idempotent created:false result as already existing", async () => {
+    const { client } = stubClient({
+      created: false,
+      detector: { id: "d1", name: "latency", projectId: "p1", enabled: true, sampleRate: 25 },
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_detector")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      name: "latency",
+      template: "custom",
+      prompt: "p",
+    });
+    expect(result.content[0]!.text).toBe('Detector "latency" already exists (id d1) — reusing it');
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "detector",
+      resourceId: "d1",
+      name: "latency",
+      created: false,
+      projectId: "p1",
+    });
+  });
+
+  it("returns the internal route's {error} message as tool text instead of throwing", async () => {
+    const request = vi.fn(async () => {
+      throw new ApiError(403, JSON.stringify({ error: "Requires MEMBER role or higher" }));
+    });
+    const tool = makeTools({ request } as unknown as ApiClient).find(
+      (t) => t.name === "create_detector",
+    )!;
+    const result = await tool.execute("id", {
+      label: "x",
+      name: "latency",
+      template: "custom",
+      prompt: "p",
+    });
+    expect(result.content[0]!.text).toBe(
+      "Error calling create_detector: API error 403: Requires MEMBER role or higher",
+    );
+    expect(result.details).toBeUndefined();
+  });
+
+  it("returns thrown fetch errors as tool text instead of throwing", async () => {
+    const request = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    const tool = makeTools({ request } as unknown as ApiClient).find(
+      (t) => t.name === "create_dashboard",
+    )!;
+    const result = await tool.execute("id", { label: "x", name: "Spend" });
+    expect(result.content[0]!.text).toBe("Error calling create_dashboard: fetch failed");
+    expect(result.details).toBeUndefined();
+  });
+
+  it("leaves unset optional args out of the body entirely", async () => {
+    const { client, request } = stubClient({
+      created: true,
+      dashboard: { id: "db1", name: "Spend", projectId: "p1" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_dashboard")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      name: "Spend",
+      description: undefined,
+    });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/dashboards", {
+      body: {
+        actorUserId: "u1",
+        transport: "agent",
+        agentSessionId: "as1",
+        projectId: "p1",
+        name: "Spend",
+      },
+      signal: undefined,
+    });
+    expect(result.content[0]!.text).toBe('Created dashboard "Spend" (id db1)');
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "dashboard",
+      resourceId: "db1",
+      name: "Spend",
+      created: true,
+      projectId: "p1",
+    });
+  });
+
+  it("stamps dashboard results with the ambient projectId for navigation", async () => {
+    const { client } = stubClient({
+      created: true,
+      dashboard: { id: "db1", name: "Spend", projectId: "p1" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_dashboard")!;
+    const result = await tool.execute("id", { label: "x", name: "Spend" });
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "dashboard",
+      resourceId: "db1",
+      name: "Spend",
+      created: true,
+      projectId: "p1",
+    });
+  });
+
+  it("reports a renamed dashboard create with the name it landed under and what it was renamed from", async () => {
+    const { client } = stubClient({
+      created: true,
+      dashboard: { id: "db2", name: "Spend (2)", projectId: "p1" },
+      renamedFrom: "Spend",
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_dashboard")!;
+    const result = await tool.execute("id", { label: "x", name: "Spend" });
+    expect(result.content[0]!.text).toBe(
+      'Created dashboard "Spend (2)" — a dashboard named "Spend" already existed, so this one got a new name (id db2)',
+    );
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "dashboard",
+      resourceId: "db2",
+      name: "Spend (2)",
+      renamedFrom: "Spend",
+      created: true,
+      projectId: "p1",
+    });
+  });
+
+  it("tells the model create_dashboard renames on a collision instead of the registry's idempotent wording", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "create_dashboard")!;
+    expect(tool.description).not.toMatch(/idempotent/i);
+    expect(tool.description).toContain("(2)");
+    // The suffix goes on the REQUESTED name, and the result is trimmed to the
+    // name limit — promising a literal "<name> (2)" would have the model
+    // reason about a name a long request never gets.
+    expect(tool.description).toMatch(/requested name/i);
+    expect(tool.description).toMatch(/trimmed|shortened|fit/i);
+    expect(tool.description).not.toContain("<name> (2)");
+    // Only the tool whose agent behaviour diverges from the public API is reworded.
+    const detector = makeTools(stubClient().client).find((t) => t.name === "create_detector")!;
+    expect(detector.description).toBe(
+      REGISTRY.find((e) => e.name === "create_detector")!.description,
+    );
+  });
+
+  it("carries no details when the success payload has an unexpected shape", async () => {
+    const { client } = stubClient({ ok: true });
+    const tool = makeTools(client).find((t) => t.name === "create_dashboard")!;
+    const result = await tool.execute("id", { label: "x", name: "Spend" });
+    expect(result.content[0]!.text).toBe(JSON.stringify({ ok: true }, null, 2));
+    expect(result.details).toBeUndefined();
+  });
+
+  it("drops explicit nulls the way the public route drops unset optionals", async () => {
+    const { client, request } = stubClient({
+      created: true,
+      dashboard: { id: "db1", name: "Spend", projectId: "p1" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_dashboard")!;
+    await tool.execute("id", { label: "x", name: "Spend", description: null });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/dashboards", {
+      body: {
+        actorUserId: "u1",
+        transport: "agent",
+        agentSessionId: "as1",
+        projectId: "p1",
+        name: "Spend",
+      },
+      signal: undefined,
+    });
+  });
+});
+
+describe("create_alert", () => {
+  const alertTool = () => makeTools(stubClient().client).find((t) => t.name === "create_alert")!;
+  const createdAlert = {
+    created: true,
+    alert: {
+      id: "al1",
+      name: "p95 latency",
+      view: "SPANS",
+      measure: "latency",
+      aggregation: "p95",
+      window: "10m",
+      thresholdOperator: ">",
+      threshold: 2000,
+      filters: [],
+      renotify: { mode: "OFF" },
+      noDataMode: "HOLD",
+      status: "ACTIVE",
+      severity: "UNKNOWN",
+      lastEvaluatedAt: null,
+      lastError: null,
+      lastNotifyStatus: null,
+      lastNotifyError: null,
+    },
+  };
+
+  it("hides the ambient project_id and requires the rule fields the public schema requires", () => {
+    const tool = alertTool();
+    expect(tool.parameters.properties).not.toHaveProperty("project_id");
+    expect(tool.parameters.required).toEqual([
+      "label",
+      "name",
+      "view",
+      "measure",
+      "aggregation",
+      "window",
+      "threshold_operator",
+      "threshold",
+      "renotify",
+    ]);
+    expect(Object.keys(tool.parameters.properties).sort()).toEqual([
+      "aggregation",
+      "filters",
+      "label",
+      "measure",
+      "name",
+      "no_data_mode",
+      "renotify",
+      "threshold",
+      "threshold_operator",
+      "view",
+      "window",
+    ]);
+  });
+
+  it("tells the model the measure vocabulary and its units, since the registry text does not", () => {
+    const { description } = alertTool();
+    expect(description).toContain("latency in milliseconds");
+    expect(description).toContain("2 seconds of latency is 2000");
+    expect(description).toContain("aggregation uniq only");
+    expect(description).toMatch(/list the project's alerts first/);
+  });
+
+  it("POSTs the camelCase rule with renotify and filters reshaped, actor and provenance injected", async () => {
+    const { client, request } = stubClient(createdAlert);
+    const tool = makeTools(client).find((t) => t.name === "create_alert")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      name: "p95 latency",
+      view: "SPANS",
+      measure: "latency",
+      aggregation: "p95",
+      window: "10m",
+      threshold_operator: ">",
+      threshold: 2000,
+      filters: [
+        { field: "environment", op: "=", value: "production", key: null },
+        { field: "metadata", key: "tenant", op: "contains", value: "acme" },
+      ],
+      renotify: { mode: "EVERY", interval_minutes: 30 },
+      no_data_mode: "ZERO",
+    });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/alerts", {
+      body: {
+        actorUserId: "u1",
+        transport: "agent",
+        agentSessionId: "as1",
+        projectId: "p1",
+        name: "p95 latency",
+        view: "SPANS",
+        measure: "latency",
+        aggregation: "p95",
+        window: "10m",
+        thresholdOperator: ">",
+        threshold: 2000,
+        filters: [
+          { field: "environment", op: "=", value: "production" },
+          { field: "metadata", op: "contains", value: "acme", key: "tenant" },
+        ],
+        renotify: { mode: "EVERY", intervalMinutes: 30 },
+        noDataMode: "ZERO",
+      },
+      signal: undefined,
+    });
+    expect(result.content[0]!.text).toBe(
+      'Created alert "p95 latency" (id al1) — http://localhost:3000/projects/p1/alerts/al1',
+    );
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "alert",
+      resourceId: "al1",
+      name: "p95 latency",
+      created: true,
+      projectId: "p1",
+      // The receipt's badge reads the state the row was created in: a rule
+      // that has never run, not an OK the scheduler has not yet earned.
+      alertState: {
+        status: "ACTIVE",
+        severity: "UNKNOWN",
+        lastEvaluatedAt: null,
+        lastError: null,
+        lastNotifyStatus: null,
+        lastNotifyError: null,
+      },
+    });
+  });
+
+  it("carries no alert state when the route's row omits it, and none for the other creates", async () => {
+    const { client } = stubClient({ created: true, alert: { id: "al1", name: "n" } });
+    const tool = makeTools(client).find((t) => t.name === "create_alert")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      name: "n",
+      view: "SPANS",
+      measure: "count",
+      aggregation: "count",
+      window: "1m",
+      threshold_operator: ">",
+      threshold: 1,
+      renotify: { mode: "OFF" },
+    });
+    expect(result.details).not.toHaveProperty("alertState");
+
+    const detectorClient = stubClient({
+      created: true,
+      detector: { id: "d1", name: "latency", status: "ACTIVE", severity: "OK" },
+    }).client;
+    const detector = makeTools(detectorClient).find((t) => t.name === "create_detector")!;
+    const created = await detector.execute("id", {
+      label: "x",
+      name: "latency",
+      template: "failure",
+    });
+    expect(created.details).not.toHaveProperty("alertState");
+  });
+
+  it("links the created alert on the browser-reachable origin, not the internal one", async () => {
+    const previous = process.env.TRACEROOT_PUBLIC_UI_URL;
+    process.env.TRACEROOT_PUBLIC_UI_URL = "https://app.example.com";
+    try {
+      const { client } = stubClient(createdAlert);
+      const tool = makeTools(client).find((t) => t.name === "create_alert")!;
+      const result = await tool.execute("id", {
+        label: "x",
+        name: "p95 latency",
+        view: "SPANS",
+        measure: "latency",
+        aggregation: "p95",
+        window: "10m",
+        threshold_operator: ">",
+        threshold: 2000,
+        renotify: { mode: "OFF" },
+      });
+      expect(result.content[0]!.text).toContain("https://app.example.com/projects/p1/alerts/al1");
+    } finally {
+      if (previous === undefined) delete process.env.TRACEROOT_PUBLIC_UI_URL;
+      else process.env.TRACEROOT_PUBLIC_UI_URL = previous;
+    }
+  });
+
+  it("sends an empty filters list when the model omits filters — the write service requires the array", async () => {
+    const { client, request } = stubClient(createdAlert);
+    const tool = makeTools(client).find((t) => t.name === "create_alert")!;
+    await tool.execute("id", {
+      label: "x",
+      name: "p95 latency",
+      view: "SPANS",
+      measure: "latency",
+      aggregation: "p95",
+      window: "10m",
+      threshold_operator: ">",
+      threshold: 2000,
+      renotify: { mode: "OFF" },
+    });
+    const [, , options] = request.mock.calls[0] as unknown as [
+      string,
+      string,
+      { body: Record<string, unknown> },
+    ];
+    expect(options.body.filters).toEqual([]);
+    expect(options.body.renotify).toEqual({ mode: "OFF" });
+    expect(options.body).not.toHaveProperty("noDataMode");
+  });
+
+  it("passes a malformed renotify or filters value through for the service to refuse", async () => {
+    const { client, request } = stubClient(createdAlert);
+    const tool = makeTools(client).find((t) => t.name === "create_alert")!;
+    await tool.execute("id", {
+      label: "x",
+      name: "n",
+      view: "SPANS",
+      measure: "count",
+      aggregation: "count",
+      window: "1m",
+      threshold_operator: ">",
+      threshold: 1,
+      renotify: "off",
+      filters: "none",
+    });
+    const [, , options] = request.mock.calls[0] as unknown as [
+      string,
+      string,
+      { body: Record<string, unknown> },
+    ];
+    expect(options.body.renotify).toBe("off");
+    expect(options.body.filters).toBe("none");
+  });
+
+  describe("under pi's argument validation", () => {
+    const call = (overrides: Record<string, unknown>) => ({
+      id: "tc1",
+      name: "create_alert",
+      arguments: {
+        label: "add",
+        name: "p95 latency",
+        view: "SPANS",
+        measure: "latency",
+        aggregation: "p95",
+        window: "10m",
+        threshold_operator: ">",
+        threshold: 2000,
+        renotify: { mode: "OFF" },
+        ...overrides,
+      },
+    });
+
+    it("keeps the threshold numeric: a numeric string is coerced, a word is refused", () => {
+      // The service stores threshold as a decimal and compares it as a
+      // number; pi's validation coerces "2000" to 2000 before the tool runs
+      // and refuses anything that is not a number at all.
+      const tool = alertTool();
+      expect(() => validateToolArguments(tool, call({ threshold: 2000 }))).not.toThrow();
+      expect(() => validateToolArguments(tool, call({ threshold: 0.5 }))).not.toThrow();
+      expect(validateToolArguments(tool, call({ threshold: "2000" }))).toMatchObject({
+        threshold: 2000,
+      });
+      expect(() => validateToolArguments(tool, call({ threshold: "two" }))).toThrow(
+        /threshold: must be number/,
+      );
+    });
+
+    it("accepts renotify EVERY with an integer interval and rejects a non-integer or missing mode", () => {
+      const tool = alertTool();
+      expect(() =>
+        validateToolArguments(tool, call({ renotify: { mode: "EVERY", interval_minutes: 30 } })),
+      ).not.toThrow();
+      expect(() =>
+        validateToolArguments(tool, call({ renotify: { mode: "EVERY", interval_minutes: 1.5 } })),
+      ).toThrow();
+      expect(() =>
+        validateToolArguments(tool, call({ renotify: { interval_minutes: 30 } })),
+      ).toThrow();
+      expect(() => validateToolArguments(tool, call({ renotify: { mode: "HOURLY" } }))).toThrow();
+    });
+
+    it("rejects a window, operator or view outside the stable enums", () => {
+      const tool = alertTool();
+      expect(() => validateToolArguments(tool, call({ window: "15m" }))).toThrow();
+      expect(() => validateToolArguments(tool, call({ threshold_operator: "=>" }))).toThrow();
+      expect(() => validateToolArguments(tool, call({ view: "TRACES" }))).toThrow();
+    });
+
+    it("accepts string and numeric filter values", () => {
+      const tool = alertTool();
+      expect(() =>
+        validateToolArguments(
+          tool,
+          call({
+            filters: [
+              { field: "model_name", op: "=", value: "gpt-4o" },
+              { field: "metadata", key: "retries", op: "=", value: 3 },
+            ],
+          }),
+        ),
+      ).not.toThrow();
+    });
+  });
+});
+
+describe("createRegistryWriteTools construction", () => {
+  it("throws at construction when the registry lacks one of the bound write entries", async () => {
+    vi.resetModules();
+    vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();
+      return {
+        ...actual,
+        REGISTRY: actual.REGISTRY.filter((e) => e.name !== "create_widget"),
+      };
+    });
+    const { createRegistryWriteTools: create } = await import("../registry-write-tools.js");
+    expect(() =>
+      create({
+        client: {} as ApiClient,
+        actorUserId: "u1",
+        agentSessionId: "as1",
+        projectId: "p1",
+      }),
+    ).toThrow("registry entry missing: create_widget");
+    vi.doUnmock("@traceroot-ai/tools");
+    vi.resetModules();
+  });
+
+  it("throws at construction when a write entry lacks policy", async () => {
+    vi.resetModules();
+    vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();
+      return {
+        ...actual,
+        REGISTRY: actual.REGISTRY.map((e) =>
+          e.name === "create_detector" ? { ...e, policy: undefined } : e,
+        ),
+      };
+    });
+    const { createRegistryWriteTools: create } = await import("../registry-write-tools.js");
+    expect(() =>
+      create({
+        client: {} as ApiClient,
+        actorUserId: "u1",
+        agentSessionId: "as1",
+        projectId: "p1",
+      }),
+    ).toThrow("registry entry missing policy: create_detector");
+    vi.doUnmock("@traceroot-ai/tools");
+    vi.resetModules();
+  });
+
+  it("throws at construction when a bound write entry is not project-scoped", async () => {
+    // The chat agent injects its session's project as the only ambient
+    // tenancy; a registry flip to another scope must fail loud, not inject
+    // the wrong id silently.
+    vi.resetModules();
+    vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();
+      return {
+        ...actual,
+        REGISTRY: actual.REGISTRY.map((e) =>
+          e.name === "create_dashboard" && e.policy
+            ? { ...e, policy: { ...e.policy, tenancy: "workspace" as const } }
+            : e,
+        ),
+      };
+    });
+    const { createRegistryWriteTools: create } = await import("../registry-write-tools.js");
+    expect(() =>
+      create({
+        client: {} as ApiClient,
+        actorUserId: "u1",
+        agentSessionId: "as1",
+        projectId: "p1",
+      }),
+    ).toThrow("create_dashboard: unsupported tenancy for the chat agent: workspace");
+    vi.doUnmock("@traceroot-ai/tools");
+    vi.resetModules();
+  });
+
+  it("throws at construction when the registry carries a field the body map does not", async () => {
+    vi.resetModules();
+    vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();
+      return {
+        ...actual,
+        REGISTRY: actual.REGISTRY.map((e) =>
+          e.name === "create_dashboard"
+            ? {
+                ...e,
+                inputSchema: {
+                  ...e.inputSchema,
+                  properties: { ...e.inputSchema.properties, color: { type: "string" } },
+                },
+              }
+            : e,
+        ),
+      };
+    });
+    const { createRegistryWriteTools: create } = await import("../registry-write-tools.js");
+    expect(() =>
+      create({
+        client: {} as ApiClient,
+        actorUserId: "u1",
+        agentSessionId: "as1",
+        projectId: "p1",
+      }),
+    ).toThrow("create_dashboard: unmapped registry field: color");
+    vi.doUnmock("@traceroot-ai/tools");
+    vi.resetModules();
+  });
+});
+
+describe("create_widget schema under pi's argument validation", () => {
+  const widgetTool = () => makeTools(stubClient().client).find((t) => t.name === "create_widget")!;
+  const call = (spec: Record<string, unknown>) => ({
+    id: "tc1",
+    name: "create_widget",
+    arguments: { label: "add", dashboard_id: "d1", title: "t", type: "query", spec },
+  });
+  const base = {
+    view: "traces",
+    metric: { agg: "count", measure: "count" },
+    display: { type: "number" },
+    breakdown: null,
+  };
+
+  it("accepts a numeric filter value — pi validates before the tool ever runs", () => {
+    // The filter value is a string-or-number union whose empty-string guard
+    // must not leak onto numbers: a leaked minLength failed every numeric
+    // filter with an empty error the model could not act on.
+    const tool = widgetTool();
+    expect(() =>
+      validateToolArguments(
+        tool,
+        call({ ...base, filters: [{ field: "duration_ms", op: ">", value: 5 }] }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("accepts a string filter value and still rejects an empty one", () => {
+    const tool = widgetTool();
+    expect(() =>
+      validateToolArguments(
+        tool,
+        call({ ...base, filters: [{ field: "name", op: "contains", value: "checkout" }] }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateToolArguments(
+        tool,
+        call({ ...base, filters: [{ field: "name", op: "=", value: "" }] }),
+      ),
+    ).toThrow(/fewer than 1 characters/);
+  });
+});
+
+describe("update tools", () => {
+  const ENVELOPE = {
+    actorUserId: "u1",
+    transport: "agent",
+    agentSessionId: "as1",
+    projectId: "p1",
+  };
+  const updatedDetector = {
+    updated: true,
+    changed: ["name", "sample_rate"],
+    detector: { id: "d1", name: "Timeouts", projectId: "p1", enabled: true, sampleRate: 25 },
+  };
+
+  it("update_detector hides project_id, keeps detector_id and requires only the label and id", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "update_detector")!;
+    expect(tool.parameters.properties).not.toHaveProperty("project_id");
+    expect(tool.parameters.required).toEqual(["label", "detector_id"]);
+    expect(Object.keys(tool.parameters.properties).sort()).toEqual(
+      [
+        "detection_model",
+        "detection_provider",
+        "detection_source",
+        "detector_id",
+        "enable_rca",
+        "enabled",
+        "label",
+        "name",
+        "output_schema",
+        "prompt",
+        "sample_rate",
+        "trigger_conditions",
+      ].sort(),
+    );
+    // The nullable fields say so in the model-visible schema.
+    expect(tool.parameters.properties.detection_model).toMatchObject({ type: ["string", "null"] });
+  });
+
+  it("update_detector PATCHes the id into the path and sends only the fields the model sent", async () => {
+    const { client, request } = stubClient(updatedDetector);
+    const tool = makeTools(client).find((t) => t.name === "update_detector")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      detector_id: "d1",
+      name: "Timeouts",
+      sample_rate: 25,
+    });
+    expect(request).toHaveBeenCalledWith("patch", "/api/internal/write/detectors/d1", {
+      body: { ...ENVELOPE, name: "Timeouts", sampleRate: 25 },
+      signal: undefined,
+    });
+    expect(result.content[0]!.text).toBe(
+      'Updated detector "Timeouts" (id d1) — changed: name, sample_rate',
+    );
+    expect(result.details).toEqual({
+      kind: "resource_updated",
+      resourceType: "detector",
+      resourceId: "d1",
+      name: "Timeouts",
+      changed: ["name", "sample_rate"],
+      projectId: "p1",
+    });
+  });
+
+  it("forwards an explicit null on an update so a nullable field can be cleared, and still drops undefined", async () => {
+    const { client, request } = stubClient({
+      updated: true,
+      changed: ["detection_model"],
+      detector: { id: "d1", name: "Timeouts", projectId: "p1" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "update_detector")!;
+    await tool.execute("id", {
+      label: "x",
+      detector_id: "d1",
+      detection_model: null,
+      detection_provider: undefined,
+    });
+    expect(request).toHaveBeenCalledWith("patch", "/api/internal/write/detectors/d1", {
+      body: { ...ENVELOPE, detectionModel: null },
+      signal: undefined,
+    });
+  });
+
+  it("never lets the path id leak into the body, and never takes it from the ambient project", async () => {
+    const { client, request } = stubClient({
+      updated: true,
+      changed: ["name"],
+      dashboard: { id: "db1", name: "Reliability", projectId: "p1" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "update_dashboard")!;
+    await tool.execute("id", { label: "x", dashboard_id: "db1", name: "Reliability" });
+    const [, path, opts] = request.mock.calls[0] as unknown as [
+      string,
+      string,
+      { body: Record<string, unknown> },
+    ];
+    expect(path).toBe("/api/internal/write/dashboards/db1");
+    expect(opts.body).not.toHaveProperty("dashboardId");
+    expect(opts.body).not.toHaveProperty("dashboard_id");
+    expect(opts.body).not.toHaveProperty("id");
+  });
+
+  it("update_dashboard forwards a null description as the clear", async () => {
+    const { client, request } = stubClient({
+      updated: true,
+      changed: ["description"],
+      dashboard: { id: "db1", name: "Spend", projectId: "p1" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "update_dashboard")!;
+    await tool.execute("id", { label: "x", dashboard_id: "db1", description: null });
+    expect(request).toHaveBeenCalledWith("patch", "/api/internal/write/dashboards/db1", {
+      body: { ...ENVELOPE, description: null },
+      signal: undefined,
+    });
+  });
+
+  it("update_widget maps display_config and stamps the receipt with the widget's dashboard", async () => {
+    const { client, request } = stubClient({
+      updated: true,
+      changed: ["title", "display_config"],
+      widget: { id: "w1", title: "Errors", dashboardId: "db1", type: "query" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "update_widget")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      widget_id: "w1",
+      title: "Errors",
+      display_config: null,
+    });
+    expect(request).toHaveBeenCalledWith("patch", "/api/internal/write/widgets/w1", {
+      body: { ...ENVELOPE, title: "Errors", displayConfig: null },
+      signal: undefined,
+    });
+    expect(result.details).toEqual({
+      kind: "resource_updated",
+      resourceType: "widget",
+      resourceId: "w1",
+      name: "Errors",
+      changed: ["title", "display_config"],
+      projectId: "p1",
+      dashboardId: "db1",
+    });
+  });
+
+  it("update_alert reshapes renotify and filters like the create, without the create's filters default", async () => {
+    const { client, request } = stubClient({
+      updated: true,
+      changed: ["threshold", "renotify"],
+      stateReset: true,
+      pageCleared: true,
+      alert: {
+        id: "al1",
+        name: "p95 latency",
+        status: "ACTIVE",
+        severity: "OK",
+        lastEvaluatedAt: null,
+        lastError: null,
+        lastNotifyStatus: null,
+        lastNotifyError: null,
+      },
+    });
+    const tool = makeTools(client).find((t) => t.name === "update_alert")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      alert_id: "al1",
+      threshold: 3000,
+      renotify: { mode: "EVERY", interval_minutes: 30 },
+      filters: [{ field: "environment", op: "=", value: "production", key: null }],
+    });
+    expect(request).toHaveBeenCalledWith("patch", "/api/internal/write/alerts/al1", {
+      body: {
+        ...ENVELOPE,
+        threshold: 3000,
+        renotify: { mode: "EVERY", intervalMinutes: 30 },
+        filters: [{ field: "environment", op: "=", value: "production" }],
+      },
+      signal: undefined,
+    });
+    expect(result.content[0]!.text).toBe(
+      'Updated alert "p95 latency" (id al1) — changed: threshold, renotify; its evaluation ' +
+        "state was reset and the open page was cleared — http://localhost:3000/projects/p1/alerts/al1",
+    );
+    expect(result.details).toEqual({
+      kind: "resource_updated",
+      resourceType: "alert",
+      resourceId: "al1",
+      name: "p95 latency",
+      changed: ["threshold", "renotify"],
+      stateReset: true,
+      pageCleared: true,
+      projectId: "p1",
+      alertState: {
+        status: "ACTIVE",
+        severity: "OK",
+        lastEvaluatedAt: null,
+        lastError: null,
+        lastNotifyStatus: null,
+        lastNotifyError: null,
+      },
+    });
+  });
+
+  it("a name-only alert edit leaves the rule alone: no filters, no state reset in the text", async () => {
+    const { client, request } = stubClient({
+      updated: true,
+      changed: ["name"],
+      stateReset: false,
+      pageCleared: false,
+      alert: { id: "al1", name: "Latency page" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "update_alert")!;
+    const result = await tool.execute("id", { label: "x", alert_id: "al1", name: "Latency page" });
+    expect(request).toHaveBeenCalledWith("patch", "/api/internal/write/alerts/al1", {
+      body: { ...ENVELOPE, name: "Latency page" },
+      signal: undefined,
+    });
+    expect(result.content[0]!.text).toBe(
+      'Updated alert "Latency page" (id al1) — changed: name — http://localhost:3000/projects/p1/alerts/al1',
+    );
+    expect(result.details).toMatchObject({ stateReset: false, pageCleared: false });
+  });
+
+  it("set_alert_status sends the status alone and reports a resume's state reset", async () => {
+    const { client, request } = stubClient({
+      updated: true,
+      changed: ["status"],
+      stateReset: true,
+      pageCleared: false,
+      alert: { id: "al1", name: "p95 latency", status: "ACTIVE", severity: "UNKNOWN" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "set_alert_status")!;
+    expect(tool.parameters.required).toEqual(["label", "alert_id", "status"]);
+    const result = await tool.execute("id", { label: "x", alert_id: "al1", status: "ACTIVE" });
+    expect(request).toHaveBeenCalledWith("patch", "/api/internal/write/alerts/al1/status", {
+      body: { ...ENVELOPE, status: "ACTIVE" },
+      signal: undefined,
+    });
+    expect(result.content[0]!.text).toBe(
+      'Updated alert "p95 latency" (id al1) — changed: status; its evaluation state was reset' +
+        " — http://localhost:3000/projects/p1/alerts/al1",
+    );
+  });
+
+  it("says nothing changed when the patch matched the stored values", async () => {
+    const { client } = stubClient({
+      updated: true,
+      changed: [],
+      detector: { id: "d1", name: "Timeouts" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "update_detector")!;
+    const result = await tool.execute("id", { label: "x", detector_id: "d1", sample_rate: 25 });
+    expect(result.content[0]!.text).toBe(
+      'Detector "Timeouts" (id d1) is unchanged — the values already matched, nothing was written',
+    );
+    expect(result.details).toMatchObject({ kind: "resource_updated", changed: [] });
+  });
+
+  it("returns the internal route's {error} message as tool text, like the creates", async () => {
+    const request = vi.fn(async () => {
+      throw new ApiError(
+        409,
+        JSON.stringify({ error: "A detector named Timeouts already exists" }),
+      );
+    });
+    const tool = makeTools({ request } as unknown as ApiClient).find(
+      (t) => t.name === "update_detector",
+    )!;
+    const result = await tool.execute("id", { label: "x", detector_id: "d1", name: "Timeouts" });
+    expect(result.content[0]!.text).toBe(
+      "Error calling update_detector: API error 409: A detector named Timeouts already exists",
+    );
+    expect(result.details).toBeUndefined();
+  });
+
+  it("carries no details when the update payload has an unexpected shape", async () => {
+    const { client } = stubClient({ ok: true });
+    const tool = makeTools(client).find((t) => t.name === "update_dashboard")!;
+    const result = await tool.execute("id", { label: "x", dashboard_id: "db1", name: "S" });
+    expect(result.content[0]!.text).toBe(JSON.stringify({ ok: true }, null, 2));
+    expect(result.details).toBeUndefined();
+  });
+
+  it("requires a valid id argument under pi's validation before anything is sent", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "update_detector")!;
+    expect(() =>
+      validateToolArguments(tool, {
+        id: "tc1",
+        name: "update_detector",
+        arguments: { label: "rename", name: "Timeouts" },
+      }),
+    ).toThrow(/detector_id/);
+  });
+});
+
+describe("delete tools", () => {
+  const ENVELOPE = {
+    actorUserId: "u1",
+    transport: "agent",
+    agentSessionId: "as1",
+    projectId: "p1",
+  };
+
+  it("keeps reason model-visible and required beside the label and the id, hiding project_id", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "delete_widget")!;
+    expect(tool.parameters.required).toEqual(["label", "widget_id", "reason"]);
+    expect(Object.keys(tool.parameters.properties).sort()).toEqual([
+      "label",
+      "reason",
+      "widget_id",
+    ]);
+    expect(tool.parameters.properties.reason).toMatchObject({ minLength: 3, maxLength: 500 });
+    expect(tool.parameters.properties).not.toHaveProperty("project_id");
+  });
+
+  it("the model cannot call a delete without a reason", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "delete_detector")!;
+    expect(() =>
+      validateToolArguments(tool, {
+        id: "tc1",
+        name: "delete_detector",
+        arguments: { label: "remove it", detector_id: "d1" },
+      }),
+    ).toThrow(/reason/);
+    expect(() =>
+      validateToolArguments(tool, {
+        id: "tc1",
+        name: "delete_detector",
+        arguments: { label: "remove it", detector_id: "d1", reason: "no" },
+      }),
+    ).toThrow(/reason/);
+  });
+
+  it("delete_widget DELETEs the id in the path with the envelope and reason as the JSON body", async () => {
+    const { client, request } = stubClient({
+      deleted: true,
+      reason: "the user asked to remove the duplicate error chart",
+      widget: { id: "w1", name: "Errors" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "delete_widget")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      widget_id: "w1",
+      reason: "the user asked to remove the duplicate error chart",
+    });
+    expect(request).toHaveBeenCalledWith("delete", "/api/internal/write/widgets/w1", {
+      body: { ...ENVELOPE, reason: "the user asked to remove the duplicate error chart" },
+      signal: undefined,
+    });
+    expect(result.content[0]!.text).toBe(
+      'Deleted widget "Errors" (id w1) — reason: the user asked to remove the duplicate error chart',
+    );
+    expect(result.details).toEqual({
+      kind: "resource_deleted",
+      resourceType: "widget",
+      resourceId: "w1",
+      name: "Errors",
+      reason: "the user asked to remove the duplicate error chart",
+      projectId: "p1",
+    });
+  });
+
+  it("delete_dashboard reports what cascaded with it", async () => {
+    const { client, request } = stubClient({
+      deleted: true,
+      reason: "cleaning up the test dashboards",
+      dashboard: { id: "db1", name: "Test alpha" },
+      cascaded: { widgets: 4 },
+    });
+    const tool = makeTools(client).find((t) => t.name === "delete_dashboard")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      dashboard_id: "db1",
+      reason: "cleaning up the test dashboards",
+    });
+    expect(request).toHaveBeenCalledWith("delete", "/api/internal/write/dashboards/db1", {
+      body: { ...ENVELOPE, reason: "cleaning up the test dashboards" },
+      signal: undefined,
+    });
+    expect(result.content[0]!.text).toBe(
+      'Deleted dashboard "Test alpha" (id db1) and its 4 widgets — reason: cleaning up the test dashboards',
+    );
+    expect(result.details).toEqual({
+      kind: "resource_deleted",
+      resourceType: "dashboard",
+      resourceId: "db1",
+      name: "Test alpha",
+      reason: "cleaning up the test dashboards",
+      cascaded: { widgets: 4 },
+      projectId: "p1",
+    });
+  });
+
+  it("says nothing about a cascade when nothing cascaded — an empty dashboard has no widgets to name", async () => {
+    const { client } = stubClient({
+      deleted: true,
+      reason: "cleaning up",
+      dashboard: { id: "db1", name: "Empty" },
+      cascaded: { widgets: 0 },
+    });
+    const tool = makeTools(client).find((t) => t.name === "delete_dashboard")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      dashboard_id: "db1",
+      reason: "cleaning up",
+    });
+    expect(result.content[0]!.text).toBe(
+      'Deleted dashboard "Empty" (id db1) — reason: cleaning up',
+    );
+    expect(result.details).toMatchObject({ cascaded: { widgets: 0 } });
+  });
+
+  it("refuses an empty id before anything reaches the wire", async () => {
+    const { client, request } = stubClient();
+    const tool = makeTools(client).find((t) => t.name === "delete_detector")!;
+    const result = await tool.execute("id", { label: "x", detector_id: "", reason: "asked to" });
+    expect(request).not.toHaveBeenCalled();
+    expect(result.content[0]!.text).toBe(
+      "Error calling delete_detector: detector_id must be a non-empty string",
+    );
+    expect(result.details).toBeUndefined();
+  });
+
+  it("delete_alert says when the open page was cleared", async () => {
+    const { client } = stubClient({
+      deleted: true,
+      reason: "superseded by the p99 rule",
+      alert: { id: "al1", name: "p95 latency" },
+      pageCleared: true,
+    });
+    const tool = makeTools(client).find((t) => t.name === "delete_alert")!;
+    const result = await tool.execute("id", {
+      label: "x",
+      alert_id: "al1",
+      reason: "superseded by the p99 rule",
+    });
+    expect(result.content[0]!.text).toBe(
+      'Deleted alert "p95 latency" (id al1) — reason: superseded by the p99 rule; its open page was cleared',
+    );
+    expect(result.details).toEqual({
+      kind: "resource_deleted",
+      resourceType: "alert",
+      resourceId: "al1",
+      name: "p95 latency",
+      reason: "superseded by the p99 rule",
+      pageCleared: true,
+      projectId: "p1",
+    });
+  });
+
+  it("delete_detector returns a refusal as tool text, like the creates", async () => {
+    const request = vi.fn(async () => {
+      throw new ApiError(404, JSON.stringify({ error: "Detector not found" }));
+    });
+    const tool = makeTools({ request } as unknown as ApiClient).find(
+      (t) => t.name === "delete_detector",
+    )!;
+    const result = await tool.execute("id", { label: "x", detector_id: "d9", reason: "gone" });
+    expect(result.content[0]!.text).toBe(
+      "Error calling delete_detector: API error 404: Detector not found",
+    );
+    expect(result.details).toBeUndefined();
+  });
+});
+
+describe("update and delete construction", () => {
+  it("throws at construction when an update entry gains a field the body map does not know", async () => {
+    vi.resetModules();
+    vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();
+      return {
+        ...actual,
+        REGISTRY: actual.REGISTRY.map((e) =>
+          e.name === "update_detector"
+            ? {
+                ...e,
+                inputSchema: {
+                  ...e.inputSchema,
+                  properties: { ...e.inputSchema.properties, owner: { type: "string" } },
+                },
+              }
+            : e,
+        ),
+      };
+    });
+    const { createRegistryWriteTools: create } = await import("../registry-write-tools.js");
+    expect(() =>
+      create({
+        client: {} as ApiClient,
+        actorUserId: "u1",
+        agentSessionId: "as1",
+        projectId: "p1",
+      }),
+    ).toThrow("update_detector: unmapped registry field: owner");
+    vi.doUnmock("@traceroot-ai/tools");
+    vi.resetModules();
+  });
+
+  it("throws at construction when an update or delete entry lost its id parameter", async () => {
+    vi.resetModules();
+    vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();
+      return {
+        ...actual,
+        REGISTRY: actual.REGISTRY.map((e) => {
+          if (e.name !== "delete_alert") return e;
+          const { alert_id: _dropped, ...properties } = e.inputSchema.properties;
+          return {
+            ...e,
+            inputSchema: {
+              ...e.inputSchema,
+              properties,
+              required: e.inputSchema.required.filter((f) => f !== "alert_id"),
+            },
+          };
+        }),
+      };
+    });
+    const { createRegistryWriteTools: create } = await import("../registry-write-tools.js");
+    expect(() =>
+      create({
+        client: {} as ApiClient,
+        actorUserId: "u1",
+        agentSessionId: "as1",
+        projectId: "p1",
+      }),
+    ).toThrow("delete_alert: registry entry has no alert_id parameter for the path");
+    vi.doUnmock("@traceroot-ai/tools");
+    vi.resetModules();
+  });
+});

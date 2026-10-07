@@ -52,10 +52,20 @@ def _mint(
     exp_delta=900,
     iat_delta=0,
     kid=KID,
+    sid="sess-1",
     drop=(),
 ):
     now = int(time.time())
-    payload = {"sub": sub, "aud": aud, "iss": iss, "iat": now + iat_delta, "exp": now + exp_delta}
+    # sid mirrors the minting session's row id; verification requires it, so
+    # every token here carries one just as the issuer's do.
+    payload = {
+        "sub": sub,
+        "aud": aud,
+        "iss": iss,
+        "iat": now + iat_delta,
+        "exp": now + exp_delta,
+        "sid": sid,
+    }
     for claim in drop:
         payload.pop(claim, None)
     headers = {"kid": kid} if kid else {}

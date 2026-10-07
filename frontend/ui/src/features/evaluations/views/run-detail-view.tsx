@@ -44,6 +44,7 @@ function evalSpan(
     span_end_time: "1970-01-01T00:00:00.000Z",
     status: "OK" as SpanStatus,
     status_message: null,
+    error_type: partial.status === "ERROR" ? "unknown" : "",
     model_name: null,
     cost: null,
     input_tokens: null,

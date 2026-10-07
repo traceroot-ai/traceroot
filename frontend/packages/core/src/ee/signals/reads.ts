@@ -1,0 +1,629 @@
+import type { PrismaClient } from "@prisma/client";
+import { pickCanonicalRca } from "./canonical-rca.ts";
+
+type ReadDb = Pick<
+  PrismaClient,
+  "signal" | "signalHit" | "signalStatusEvent" | "detector" | "$queryRaw"
+>;
+
+/** Most recent hits and status changes returned with a signal. */
+const DETAIL_LIMIT = 50;
+const DAY_MS = 86_400_000;
+/** The window a signal's hits are counted in when the caller names none: the last 7 days. */
+const DEFAULT_RANGE_MS = 7 * DAY_MS;
+/** At or below this window the hit series is per hour, as on the dashboards; above, per day. */
+const HOUR_BUCKET_MAX_MS = 2 * DAY_MS;
+
+type OpeningRow = {
+  reopenSeq: number;
+  findingId: string;
+  createTime: Date;
+  /** The last successful answer that covered this opening, kept on it. */
+  result: string | null;
+  /** The finding's latest attempt. */
+  rca: { status: string };
+};
+
+/** The RCA state of the signal's current opening, and whether any RCA succeeded. */
+function rcaSummary(rcas: OpeningRow[], reopenSeq: number) {
+  const current = rcas.find((r) => r.reopenSeq === reopenSeq);
+  const canonical = pickCanonicalRca(rcas);
+  return {
+    /** RCA of the current opening: null when none ran (RCA off, or within the cooldown). */
+    currentState: current ? current.rca.status : null,
+    canonicalFindingId: canonical?.findingId ?? null,
+  };
+}
+
+/**
+ * One page of a project's signals, newest first, and how many there are.
+ * Merged signals are left out.
+ */
+export async function listSignals(
+  db: Pick<PrismaClient, "signal" | "signalHit" | "detector">,
+  params: {
+    projectId: string;
+    detectorIds?: string[];
+    /** Detectors picked by name; a name need not be unique, so every match counts. */
+    detectorNames?: string[];
+    statuses?: string[];
+    /** Case-insensitive substring of the title. */
+    title?: string;
+    signalId?: string;
+    /**
+     * A time window that does not filter the list: each signal also gets
+     * `rangeHitCount`, the number of affected traces starting in [from, to).
+     */
+    hitsIn?: { from: Date; to: Date };
+    page: number;
+    limit: number;
+  },
+) {
+  let detectorIds = params.detectorIds;
+  if (params.detectorNames) {
+    const named = await db.detector.findMany({
+      where: { projectId: params.projectId, name: { in: params.detectorNames } },
+      select: { id: true },
+    });
+    const ids = named.map((d) => d.id);
+    detectorIds = detectorIds ? detectorIds.filter((id) => ids.includes(id)) : ids;
+  }
+  const where = {
+    projectId: params.projectId,
+    mergedIntoId: null,
+    ...(detectorIds ? { detectorId: { in: detectorIds } } : {}),
+    ...(params.statuses ? { status: { in: params.statuses } } : {}),
+    ...(params.title ? { title: { contains: params.title, mode: "insensitive" as const } } : {}),
+    ...(params.signalId ? { id: params.signalId } : {}),
+  };
+  const [rows, total] = await Promise.all([
+    db.signal.findMany({
+      where,
+      orderBy: [{ createTime: "desc" }, { id: "asc" }],
+      skip: params.page * params.limit,
+      take: params.limit,
+      select: {
+        id: true,
+        detectorId: true,
+        title: true,
+        status: true,
+        hitCount: true,
+        firstSeenAt: true,
+        lastSeenAt: true,
+        reopenSeq: true,
+        criteriaVersion: true,
+        groupKey: true,
+        createTime: true,
+        rcas: {
+          select: {
+            reopenSeq: true,
+            findingId: true,
+            createTime: true,
+            result: true,
+            rca: { select: { status: true } },
+          },
+        },
+      },
+    }),
+    db.signal.count({ where }),
+  ]);
+  const [names, inRange] = await Promise.all([
+    detectorNames(
+      db,
+      rows.map((r) => r.detectorId),
+    ),
+    params.hitsIn && rows.length > 0
+      ? db.signalHit.groupBy({
+          by: ["signalId"],
+          where: {
+            signalId: { in: rows.map((r) => r.id) },
+            traceStartTime: { gte: params.hitsIn.from, lt: params.hitsIn.to },
+          },
+          _count: { _all: true },
+        })
+      : null,
+  ]);
+  const rangeCounts = new Map(inRange?.map((g) => [g.signalId, g._count._all]));
+  return {
+    signals: rows.map(({ rcas, ...s }) => ({
+      ...s,
+      detectorName: names.get(s.detectorId) ?? null,
+      rca: rcaSummary(rcas, s.reopenSeq),
+      ...(params.hitsIn ? { rangeHitCount: rangeCounts.get(s.id) ?? 0 } : {}),
+    })),
+    total,
+  };
+}
+
+/** Detector id -> name; signals have no relation to detectors in the schema. */
+async function detectorNames(db: Pick<PrismaClient, "detector">, ids: string[]) {
+  if (ids.length === 0) return new Map<string, string>();
+  const detectors = await db.detector.findMany({
+    where: { id: { in: [...new Set(ids)] } },
+    select: { id: true, name: true },
+  });
+  return new Map(detectors.map((d) => [d.id, d.name]));
+}
+
+export type HitGranularity = "hour" | "day";
+
+/**
+ * `tz`'s UTC offset at `date`, in minutes east of UTC (negative west). Computed by
+ * reading the zone's wall clock at this instant and comparing it to the instant
+ * itself, so a DST change elsewhere in the year has no bearing on the answer.
+ */
+function tzOffsetMinutes(date: Date, tz: string): number {
+  const format = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const part = Object.fromEntries(format.formatToParts(date).map((p) => [p.type, p.value]));
+  const asIfUtc = Date.UTC(
+    Number(part.year),
+    Number(part.month) - 1,
+    Number(part.day),
+    Number(part.hour),
+    Number(part.minute),
+    Number(part.second),
+  );
+  return Math.round((asIfUtc - date.getTime()) / 60_000);
+}
+
+/**
+ * "+HH:MM" / "-HH:MM" for an offset in minutes. The backend's chart population
+ * (ClickHouse, `_format_tz_offset` in `detectors.py`) must format identically, since
+ * route-handlers.ts joins the two series by this bucket key.
+ */
+function formatOffset(totalMinutes: number): string {
+  const sign = totalMinutes < 0 ? "-" : "+";
+  const abs = Math.abs(totalMinutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+  return `${sign}${hh}:${mm}`;
+}
+
+/**
+ * Formats a moment as its local bucket in `tz`: "YYYY-MM-DD" for a day,
+ * "YYYY-MM-DDTHH:00±HH:MM" for an hour.
+ *
+ * The hour form carries `tz`'s UTC offset AT THIS INSTANT, not just the local hour
+ * number: on a DST fall-back night, two real instants both print "01:00", and the
+ * offset is the only thing that tells them apart. Every layer that buckets by local
+ * hour (this function, the Postgres query in hitSeries below, and the ClickHouse chart
+ * query in detectors.py) has to key hours the same way, or the two never counted
+ * separately and the UI's bucket-key join between them silently drops one.
+ */
+function bucketFormatter(tz: string, granularity: HitGranularity) {
+  const format = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  });
+  return (date: Date) => {
+    const part = Object.fromEntries(format.formatToParts(date).map((p) => [p.type, p.value]));
+    const day = `${part.year}-${part.month}-${part.day}`;
+    if (granularity === "day") return day;
+    return `${day}T${part.hour}:00${formatOffset(tzOffsetMinutes(date, tz))}`;
+  };
+}
+
+/** Every local bucket the window [from, to) touches, oldest first. */
+function windowBuckets(from: Date, to: Date, tz: string, granularity: HitGranularity): string[] {
+  if (from.getTime() >= to.getTime()) return [];
+  const bucketOf = bucketFormatter(tz, granularity);
+  // A step shorter than any bucket lands in each of them, whatever the zone's
+  // offset: local hours can start on a quarter hour, local days last 23h or more.
+  // Days step by 12h rather than 1h: a local day lasts far longer, even across a
+  // DST change, and a 10,000-day window would otherwise format every hour.
+  const step = granularity === "hour" ? 15 * 60_000 : 12 * 3_600_000;
+  const buckets: string[] = [];
+  const add = (t: number) => {
+    const b = bucketOf(new Date(t));
+    if (buckets[buckets.length - 1] !== b) buckets.push(b);
+  };
+  for (let t = from.getTime(); t < to.getTime(); t += step) add(t);
+  add(to.getTime() - 1);
+  return buckets;
+}
+
+/**
+ * The signal's hits per local bucket of [from, to), oldest first; a bucket
+ * without hits is 0.
+ */
+async function hitSeries(
+  db: Pick<PrismaClient, "$queryRaw">,
+  signalId: string,
+  window: { from: Date; to: Date },
+  tz: string,
+  granularity: HitGranularity,
+) {
+  const format = granularity === "hour" ? 'YYYY-MM-DD"T"HH24:00' : "YYYY-MM-DD";
+  // trace_start_time is UTC without a zone: read it as UTC, then shift it to the viewer's zone.
+  // For hour buckets, also compute each row's own UTC offset (not the truncated
+  // bucket's) and group by it alongside the label: on a DST fall-back night this is
+  // what keeps the two real local "01:00" hours in separate SQL groups instead of
+  // merging them before the offset ever reaches bucketFormatter's output format.
+  const rows = await db.$queryRaw<{ bucket: string; offsetMinutes: number; hits: number }[]>`
+    SELECT to_char(date_trunc(${granularity}, (trace_start_time AT TIME ZONE 'UTC') AT TIME ZONE ${tz}), ${format}) AS bucket,
+      round(extract(epoch from (((trace_start_time AT TIME ZONE 'UTC') AT TIME ZONE ${tz}) - trace_start_time)) / 60)::int AS "offsetMinutes",
+      count(*)::int AS hits
+    FROM signal_hits
+    WHERE signal_id = ${signalId}
+      AND trace_start_time >= (${window.from.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+      AND trace_start_time < (${window.to.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+    GROUP BY 1, 2`;
+  const byBucket = new Map<string, number>();
+  for (const r of rows) {
+    // Day buckets drop the offset (a local day never repeats); two rows that share a
+    // day label but straddle a DST change (different offsetMinutes) are merged here.
+    const key =
+      granularity === "day" ? r.bucket : `${r.bucket}${formatOffset(Number(r.offsetMinutes))}`;
+    byBucket.set(key, (byBucket.get(key) ?? 0) + Number(r.hits));
+  }
+  return windowBuckets(window.from, window.to, tz, granularity).map((bucket) => ({
+    bucket,
+    hits: byBucket.get(bucket) ?? 0,
+  }));
+}
+
+/**
+ * The window a signal is read in: [from, to) as asked, or the last 7 days,
+ * and whether its hits are counted per hour or per day. Retention is enforced by the caller.
+ */
+function readWindow(from?: Date, to?: Date, now = new Date()) {
+  const end = to ?? now;
+  let start = from ?? new Date(end.getTime() - DEFAULT_RANGE_MS);
+  if (start.getTime() > end.getTime()) start = end;
+  const granularity: HitGranularity =
+    end.getTime() - start.getTime() <= HOUR_BUCKET_MAX_MS ? "hour" : "day";
+  return { from: start, to: end, granularity };
+}
+
+/**
+ * One signal with its criteria, canonical RCA, recent hits and status history.
+ * A merged signal returns only where it went, so a caller can follow it.
+ */
+export async function getSignal(
+  db: ReadDb,
+  params: {
+    projectId: string;
+    signalId: string;
+    /** The window hits are read in, [from, to); the last 7 days by default. */
+    from?: Date;
+    to?: Date;
+    now?: Date;
+    /** An IANA zone name the caller has already validated; local buckets follow it. */
+    tz?: string;
+  },
+) {
+  const signal = await db.signal.findFirst({
+    where: { id: params.signalId, projectId: params.projectId },
+    select: {
+      id: true,
+      detectorId: true,
+      title: true,
+      criteriaCovers: true,
+      criteriaExcludes: true,
+      criteriaVersion: true,
+      criteriaValidated: true,
+      groupKey: true,
+      status: true,
+      resolvedAt: true,
+      reopenSeq: true,
+      hitCount: true,
+      firstSeenAt: true,
+      lastSeenAt: true,
+      mergedIntoId: true,
+      createTime: true,
+      rcas: {
+        select: {
+          reopenSeq: true,
+          findingId: true,
+          createTime: true,
+          result: true,
+          sessionId: true,
+          rca: { select: { status: true } },
+        },
+        orderBy: { reopenSeq: "desc" },
+      },
+    },
+  });
+  if (!signal) return null;
+  if (signal.mergedIntoId) return { merged: true as const, mergedIntoId: signal.mergedIntoId };
+
+  const { rcas, ...rest } = signal;
+  const canonical = pickCanonicalRca(rcas);
+  const window = readWindow(params.from, params.to, params.now);
+  const tz = params.tz ?? "UTC";
+  const [hits, events, names, series, analysed] = await Promise.all([
+    db.signalHit.findMany({
+      where: { signalId: signal.id, traceStartTime: { gte: window.from, lt: window.to } },
+      orderBy: [{ traceStartTime: "desc" }, { runId: "asc" }],
+      take: DETAIL_LIMIT,
+      select: {
+        runId: true,
+        traceId: true,
+        findingId: true,
+        seenAt: true,
+        traceStartTime: true,
+        score: true,
+        criteriaVersion: true,
+        assignedAt: true,
+      },
+    }),
+    db.signalStatusEvent.findMany({
+      where: { signalId: signal.id },
+      orderBy: { createTime: "desc" },
+      take: DETAIL_LIMIT,
+      select: {
+        actorUserId: true,
+        fromStatus: true,
+        toStatus: true,
+        reason: true,
+        note: true,
+        createTime: true,
+      },
+    }),
+    detectorNames(db, [signal.detectorId]),
+    hitSeries(db, signal.id, window, tz, window.granularity),
+    // The trace the canonical RCA analysed: the assistant's context when it is reopened.
+    canonical
+      ? db.signalHit.findFirst({
+          where: { findingId: canonical.findingId },
+          select: { traceId: true },
+        })
+      : null,
+  ]);
+  return {
+    merged: false as const,
+    signal: {
+      ...rest,
+      detectorName: names.get(rest.detectorId) ?? null,
+      rca: rcaSummary(rcas, rest.reopenSeq),
+      // The newest opening that kept a successful answer: a later failed or
+      // pending attempt on a shared finding does not take it away.
+      canonicalRca: canonical
+        ? {
+            findingId: canonical.findingId,
+            traceId: analysed?.traceId ?? null,
+            // The agent session of the kept answer, to reopen it in the assistant.
+            sessionId: canonical.sessionId,
+            reopenSeq: canonical.reopenSeq,
+            result: canonical.result,
+          }
+        : null,
+      rcaHistory: rcas.map((r) => ({
+        reopenSeq: r.reopenSeq,
+        findingId: r.findingId,
+        status: r.rca.status,
+        createTime: r.createTime,
+      })),
+    },
+    /** The latest affected traces starting in the window. */
+    hits,
+    window: { from: window.from, to: window.to, granularity: window.granularity },
+    /** Hits per local bucket of the window, oldest first. */
+    hitSeries: series,
+    statusEvents: events,
+  };
+}
+
+/**
+ * Each trace's signal ids, one per hit and in detection order, for the Tracing list's
+ * Signal IDs column. A trace with no hit is absent.
+ */
+export async function signalIdsForTraces(
+  db: Pick<PrismaClient, "signalHit">,
+  params: { projectId: string; traceIds: readonly string[] },
+): Promise<Record<string, string[]>> {
+  if (params.traceIds.length === 0) return {};
+  const hits = await db.signalHit.findMany({
+    where: { projectId: params.projectId, traceId: { in: [...params.traceIds] } },
+    select: { traceId: true, signalId: true },
+    orderBy: [{ seenAt: "asc" }, { runId: "asc" }],
+  });
+  const out: Record<string, string[]> = {};
+  for (const h of hits) {
+    const ids = (out[h.traceId] ??= []);
+    if (!ids.includes(h.signalId)) ids.push(h.signalId);
+  }
+  return out;
+}
+
+/** The signal each hit of a trace belongs to, for the trace page and the finding panel. */
+export async function signalsForTrace(
+  db: Pick<PrismaClient, "signalHit">,
+  params: { projectId: string; traceId: string },
+) {
+  const hits = await db.signalHit.findMany({
+    where: { projectId: params.projectId, traceId: params.traceId },
+    select: {
+      runId: true,
+      detectorId: true,
+      findingId: true,
+      signal: { select: { id: true, title: true, status: true } },
+    },
+  });
+  return hits.map((h) => ({
+    runId: h.runId,
+    detectorId: h.detectorId,
+    findingId: h.findingId,
+    signalId: h.signal.id,
+    signalTitle: h.signal.title,
+    signalStatus: h.signal.status,
+  }));
+}
+
+/**
+ * The signal each of these runs' hits belongs to, for a detector's runs table,
+ * with the agent trace of the RCA that analysed this run's own judge output:
+ * an opening of one of its detector's signals that records the run's trace
+ * (finding). A run that only joined a signal analysed on another trace has
+ * none, a later RCA does not change an earlier run's, and a hit moved to
+ * another signal keeps its own, as the RCA record does. The trace shown is the
+ * attempt whose answer the opening kept, else the newest attempt that landed.
+ */
+export async function signalsForRuns(
+  db: Pick<PrismaClient, "signalHit" | "signalRca" | "detectorRcaExecution">,
+  params: { projectId: string; runIds: readonly string[] },
+) {
+  if (params.runIds.length === 0) return [];
+  const hits = await db.signalHit.findMany({
+    where: { projectId: params.projectId, runId: { in: [...params.runIds] } },
+    select: { runId: true, signalId: true, detectorId: true, findingId: true },
+  });
+  if (hits.length === 0) return [];
+  // The openings an RCA of one of these runs' own traces covered, for its detector.
+  const openings = await db.signalRca.findMany({
+    where: {
+      findingId: { in: [...new Set(hits.map((h) => h.findingId))] },
+      signal: {
+        projectId: params.projectId,
+        detectorId: { in: [...new Set(hits.map((h) => h.detectorId))] },
+      },
+    },
+    select: {
+      signalId: true,
+      findingId: true,
+      reopenSeq: true,
+      sessionId: true,
+      signal: { select: { detectorId: true } },
+    },
+  });
+  const byOutput = new Map<string, typeof openings>();
+  for (const o of openings) {
+    const key = `${o.signal.detectorId}:${o.findingId}`;
+    byOutput.set(key, [...(byOutput.get(key) ?? []), o]);
+  }
+  // A run's own opening: the one under its current signal if there is one (it
+  // has not moved), else the one it carried from before a move; a kept answer,
+  // then the newest opening, first.
+  const openingOf = (h: (typeof hits)[number]) =>
+    [...(byOutput.get(`${h.detectorId}:${h.findingId}`) ?? [])].sort(
+      (a, b) =>
+        Number(b.signalId === h.signalId) - Number(a.signalId === h.signalId) ||
+        Number(!!b.sessionId) - Number(!!a.sessionId) ||
+        b.reopenSeq - a.reopenSeq,
+    )[0];
+  const own = new Map(hits.map((h) => [h.runId, openingOf(h)]));
+  const findingIds = [...new Set([...own.values()].flatMap((o) => (o ? [o.findingId] : [])))];
+  const executions =
+    findingIds.length === 0
+      ? []
+      : await db.detectorRcaExecution.findMany({
+          where: {
+            projectId: params.projectId,
+            findingId: { in: findingIds },
+            traceStatus: "available",
+          },
+          select: { findingId: true, sessionId: true, traceId: true, attempt: true },
+        });
+  const traceBySession = new Map<string, string>();
+  const newest = new Map<string, { attempt: number; traceId: string }>();
+  for (const e of executions) {
+    if (e.sessionId) traceBySession.set(e.sessionId, e.traceId);
+    const seen = newest.get(e.findingId);
+    if (!seen || e.attempt > seen.attempt) newest.set(e.findingId, e);
+  }
+  return hits.map((h) => {
+    const o = own.get(h.runId);
+    if (!o) return { runId: h.runId, signalId: h.signalId, agentTraceId: null };
+    const kept = o.sessionId ? traceBySession.get(o.sessionId) : undefined;
+    const agentTraceId = kept ?? newest.get(o.findingId)?.traceId ?? null;
+    return { runId: h.runId, signalId: h.signalId, agentTraceId };
+  });
+}
+
+/**
+ * Whether this deployment can group hits at all: assignment runs on the
+ * OpenAI key, which the worker and the web app read from the same setting.
+ */
+export function signalsKeyConfigured(env: Record<string, string | undefined> = process.env) {
+  return !!env.OPENAI_API_KEY?.trim();
+}
+
+/**
+ * The signals settings of the detectors that ran on a trace, so the trace page
+ * can tell a hit waiting for assignment from one whose detector does not group.
+ */
+export async function detectorSignalSettings(
+  db: Pick<PrismaClient, "detector">,
+  params: { projectId: string; detectorIds: readonly string[] },
+) {
+  if (params.detectorIds.length === 0) return [];
+  return db.detector.findMany({
+    where: { projectId: params.projectId, id: { in: [...params.detectorIds] } },
+    select: { id: true, enableSignals: true, signalsEnabledAt: true },
+  });
+}
+
+/**
+ * How many signals each of the project's detectors has, merged ones left out:
+ * what the Signals page lists for that detector, in any status and any time
+ * range. Detectors without a signal are absent.
+ */
+export async function signalCountsByDetector(
+  db: Pick<PrismaClient, "signal">,
+  projectId: string,
+): Promise<Record<string, number>> {
+  const rows = await db.signal.groupBy({
+    by: ["detectorId"],
+    where: { projectId, mergedIntoId: null },
+    _count: { _all: true },
+  });
+  return Object.fromEntries(rows.map((r) => [r.detectorId, r._count._all]));
+}
+
+/** RCA executions started in the window, counted once per covered detector. */
+export async function agentRunCountsByDetector(
+  db: Pick<PrismaClient, "$queryRaw">,
+  params: { projectId: string; from: Date; to: Date },
+) {
+  // Several signal openings can share one execution. A session marks an agent
+  // start, so quota skips and failures before session creation do not count.
+  // An execution counts for a detector whose signal existed when it started.
+  // The signal's creation time is compared, not the opening's: running the
+  // analysis again by hand moves the opening's time past its earlier attempts.
+  const rows = await db.$queryRaw<{ detectorId: string; count: number }[]>`
+    SELECT s.detector_id AS "detectorId", count(DISTINCT e.id)::int AS count
+    FROM detector_rca_executions e
+    JOIN signal_rcas r ON r.finding_id = e.finding_id
+    JOIN signals s ON s.id = r.signal_id
+    WHERE e.project_id = ${params.projectId}
+      AND s.project_id = ${params.projectId}
+      AND e.session_id IS NOT NULL
+      AND s.create_time <= e.started_at
+      AND e.started_at >= ${params.from}
+      AND e.started_at < ${params.to}
+    GROUP BY s.detector_id
+  `;
+  return Object.fromEntries(rows.map((r) => [r.detectorId, r.count]));
+}
+
+/**
+ * What the Signals page shows when it has nothing to list: whether the project
+ * has any signals, and how far its detectors are set up to produce them.
+ */
+export async function signalSetup(
+  db: Pick<PrismaClient, "signal" | "detector">,
+  projectId: string,
+) {
+  const signals = { projectId, enableSignals: true };
+  const [signalCount, detectorCount, signalDetectorCount, sampledSignalDetectorCount] =
+    await Promise.all([
+      db.signal.count({ where: { projectId, mergedIntoId: null } }),
+      db.detector.count({ where: { projectId } }),
+      db.detector.count({ where: signals }),
+      db.detector.count({ where: { ...signals, enabled: true, sampleRate: { gt: 0 } } }),
+    ]);
+  return { signalCount, detectorCount, signalDetectorCount, sampledSignalDetectorCount };
+}

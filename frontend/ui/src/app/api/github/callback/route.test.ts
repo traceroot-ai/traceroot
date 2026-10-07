@@ -1,6 +1,11 @@
 // All vi.mock() calls are hoisted by Vitest before imports — keep them at the top.
 import { describe, it, expect, vi, afterEach } from "vitest";
 
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
+}));
+
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_URL: "http://localhost:3000",

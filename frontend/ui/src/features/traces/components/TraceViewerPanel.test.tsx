@@ -70,7 +70,7 @@ import { TraceViewerPanel } from "./TraceViewerPanel";
 function renderPanel(
   props: {
     initialFullscreen?: boolean;
-    source?: "detector" | "user";
+    source?: "detector" | "agent" | "user";
     runTimestamp?: string;
   } = {},
 ) {
@@ -285,6 +285,37 @@ describe("detector self-trace not-yet-ingested state", () => {
     renderPanel({ source: "user" });
     expect(screen.getByText("Error loading trace")).toBeTruthy();
     expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+});
+
+describe("agent trace not-yet-ingested state", () => {
+  it("reads a 404 as ingest lag with analysis wording, not detector copy", () => {
+    mocks.trace = null;
+    mocks.traceError = new ApiError(404, "Trace not found");
+    renderPanel({ source: "agent" });
+    expect(screen.getByText(/analysis trace has been exported/i)).toBeTruthy();
+    expect(screen.queryByText(/detector run/i)).toBeNull();
+    expect(screen.queryByText("Error loading trace")).toBeNull();
+  });
+
+  it("never reads a stale detector-run timestamp as a failed analysis export", () => {
+    // The detectors page used to pass the run's timestamp for a finding's
+    // agent trace too; the RCA starts after the run and takes minutes, so an
+    // available-but-not-yet-ingested trace read as "didn't reach the backend".
+    mocks.trace = null;
+    mocks.traceError = new ApiError(404, "Trace not found");
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString().replace("Z", "");
+    renderPanel({ source: "agent", runTimestamp: tenMinutesAgo });
+    expect(screen.getByText(/analysis trace has been exported/i)).toBeTruthy();
+    expect(screen.queryByText(/didn’t reach the backend/i)).toBeNull();
+  });
+
+  it("surfaces a non-404 failure as a real error for an agent trace", () => {
+    mocks.trace = null;
+    mocks.traceError = new ApiError(500, "backend exploded");
+    renderPanel({ source: "agent" });
+    expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/analysis trace has been exported/i)).toBeNull();
   });
 });
 

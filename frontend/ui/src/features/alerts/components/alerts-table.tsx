@@ -47,13 +47,15 @@ export function AlertsTable({
       </thead>
       <tbody>
         {alerts.map((alert) => {
-          const { isPaused } = resolveAlertDisplayState(alert);
+          // Dimmed and offering "Resume" for parked as well as paused: both are
+          // rules no tick will run, and the same write starts either one.
+          const { isStopped } = resolveAlertDisplayState(alert);
           return (
             <tr
               key={alert.id}
               className={cn(
                 "border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50",
-                isPaused && "opacity-50",
+                isStopped && "opacity-50",
               )}
             >
               <td className={DETECTOR_TD}>
@@ -103,12 +105,12 @@ export function AlertsTable({
                         setActionsOpen(null);
                       }}
                     >
-                      {isPaused ? (
+                      {isStopped ? (
                         <Play className="h-3.5 w-3.5 text-muted-foreground" />
                       ) : (
                         <Pause className="h-3.5 w-3.5 text-muted-foreground" />
                       )}
-                      {isPaused ? "Resume" : "Pause"}
+                      {isStopped ? "Resume" : "Pause"}
                     </button>
                     <Link
                       href={`/projects/${projectId}/alerts/${alert.id}`}

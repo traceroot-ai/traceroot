@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TraceListItem } from "@/types/api";
 import type { TimeRange } from "../types";
@@ -195,5 +195,34 @@ describe("TraceFeedWidget", () => {
       expect.objectContaining({ limit: 10 }),
       expect.anything(),
     );
+  });
+});
+
+describe("TraceFeedWidget query options", () => {
+  it("refires no query on window focus when the caller pins a snapshot", async () => {
+    vi.mocked(getTraces).mockResolvedValue({
+      data: [makeTrace()],
+      meta: { page: 0, limit: 10, total: 1 },
+    });
+    render(
+      <TraceFeedWidget
+        projectId="p1"
+        spec={{}}
+        range={RANGE}
+        queryOptions={{ staleTime: Infinity, refetchOnWindowFocus: false }}
+      />,
+      { wrapper },
+    );
+    await waitFor(() => expect(getTraces).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    // The focus subscriber checks staleness asynchronously; give it the
+    // chance to (wrongly) refetch before asserting.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 25)));
+    focusManager.setFocused(undefined);
+    expect(getTraces).toHaveBeenCalledTimes(1);
   });
 });

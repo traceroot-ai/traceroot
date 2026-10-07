@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
+import type { TraceSource } from "@/lib/api/traces";
 import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -35,6 +36,7 @@ import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
 // Imported from the hook's own module, not the feature barrel: the page tests replace that
 // barrel wholesale with a factory mock, and a barrel import here would go missing under it.
 import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
+import { useTraceSignalIds } from "@/ee/features/signals/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
 // Tab definitions
@@ -54,6 +56,11 @@ export default function TracesPage() {
   const { isPending: authPending } = useAuthSession();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
+  // Set alongside traceId when the popped-out trace is an RCA agent trace (the
+  // viewer was showing the analysis when "open in new tab" was clicked). Only
+  // the deep-linked id is ever opened under that scope — see the panel's
+  // `source` below.
+  const sourceFromUrl = searchParams.get("source");
   // Set when a trace is opened in a new tab via the panel's "open in new tab"
   // button, so the panel mounts already expanded to full width. Held as state
   // (not a derived value) so it only seeds the first trace opened from the URL:
@@ -75,6 +82,17 @@ export default function TracesPage() {
   } = useListPageState({ retentionDays: retention.retentionDays });
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
+  // Scope of the open trace. The list is customer-only, so selecting a row
+  // always means "user"; the one way to open an internal trace here is the
+  // ?traceId=&source=agent deep link (an RCA agent trace popped out of a
+  // viewer).
+  const [selectedSource, setSelectedSource] = useState<TraceSource>(
+    traceIdFromUrl && sourceFromUrl === "agent" ? "agent" : "user",
+  );
+  const selectTrace = (traceId: string | null, source: TraceSource = "user") => {
+    setSelectedTraceId(traceId);
+    setSelectedSource(source);
+  };
   // Warm the span→dataset chip data as soon as a trace is selected, so the
   // "Dataset:" chip is ready before the user opens a span (no per-span latency).
   useTraceTestCases(projectId, selectedTraceId ?? "");
@@ -138,6 +156,13 @@ export default function TracesPage() {
 
   const traces = data?.data || [];
   const total = data?.meta?.total ?? 0;
+  // Read only while the Signal IDs column is shown.
+  const traceIds = useMemo(() => (data?.data ?? []).map((t) => t.trace_id), [data]);
+  const { data: signalIds, isError: signalIdsFailed } = useTraceSignalIds(
+    projectId,
+    traceIds,
+    visibleColumns.includes("signal_ids"),
+  );
   const showGettingStarted = !checking && !hasEverTraced && !existsError;
 
   // Hide AI button during loading AND when GettingStarted is shown
@@ -287,10 +312,13 @@ export default function TracesPage() {
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
                 <TraceListTable
+                  projectId={projectId}
                   traces={traces}
                   selectedTraceId={selectedTraceId}
-                  onSelectTrace={setSelectedTraceId}
+                  onSelectTrace={selectTrace}
                   visibleColumns={visibleColumns}
+                  signalIdsByTrace={signalIds?.signalIds}
+                  signalIdsFailed={signalIdsFailed}
                 />
               </div>
 
@@ -318,7 +346,7 @@ export default function TracesPage() {
           projectId={projectId}
           traceId={selectedTraceId}
           onClose={() => {
-            setSelectedTraceId(null);
+            selectTrace(null);
             setStartFullscreen(false);
           }}
           onNavigate={(direction) => {
@@ -326,9 +354,9 @@ export default function TracesPage() {
               (t: TraceListItem) => t.trace_id === selectedTraceId,
             );
             if (direction === "up" && currentIndex > 0) {
-              setSelectedTraceId(traces[currentIndex - 1].trace_id);
+              selectTrace(traces[currentIndex - 1].trace_id);
             } else if (direction === "down" && currentIndex < traces.length - 1) {
-              setSelectedTraceId(traces[currentIndex + 1].trace_id);
+              selectTrace(traces[currentIndex + 1].trace_id);
             }
           }}
           canNavigateUp={traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) > 0}
@@ -379,8 +407,10 @@ export default function TracesPage() {
           // the reader already defaults to customer traffic, so this is defense in depth,
           // and it also pins the trace-detail cache key this panel shares with the live
           // SSE writer. Self-traces are reached from the detector runs surface, which
-          // asks for source="detector" explicitly.
-          source="user"
+          // asks for source="detector" explicitly; here an internal trace is open only
+          // via the ?source=agent deep link (selectedSource), and navigating to a
+          // list row drops back to "user".
+          source={selectedSource}
         />
       )}
 

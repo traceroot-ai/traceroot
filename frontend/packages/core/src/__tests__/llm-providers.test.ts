@@ -7,6 +7,7 @@ import {
   LLMAdapter,
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
   defaultApiProtocol,
+  isDecisionModelId,
 } from "../llm-providers.ts";
 
 describe("defaultApiProtocol", () => {
@@ -27,7 +28,20 @@ describe("defaultApiProtocol", () => {
   });
 });
 
+describe("isDecisionModelId", () => {
+  it("owns only the decision adapters' catalog ids, not other jev- ids or chat model ids", () => {
+    expect(isDecisionModelId("jev-1.13.0")).toBe(true);
+    expect(isDecisionModelId("jev-latest")).toBe(false);
+    expect(isDecisionModelId("jev-custom")).toBe(false);
+    expect(isDecisionModelId("gpt-4o")).toBe(false);
+  });
+});
+
 describe("ADAPTER_MODELS", () => {
+  it("lists claude-opus-5-5 first, so it is the default Anthropic model", () => {
+    expect(ADAPTER_MODELS["anthropic"]?.[0]?.id).toBe("claude-opus-5-5");
+  });
+
   it("contains no duplicate model IDs within a single adapter", () => {
     for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
       if (!models) continue;
@@ -164,6 +178,14 @@ describe("ADAPTER_MODELS", () => {
         }
       }
     });
+  });
+
+  it.each(["grok-4.6", "grok-4.7"])("includes %s in the xAI model list", (id) => {
+    expect(ADAPTER_MODELS["xai"]).toContainEqual({ id, label: id });
+  });
+
+  it("lists grok-4.7 first, so it is the default xAI model", () => {
+    expect(ADAPTER_MODELS["xai"]?.[0]?.id).toBe("grok-4.7");
   });
 });
 

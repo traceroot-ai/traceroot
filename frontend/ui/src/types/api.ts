@@ -13,6 +13,8 @@ export interface UsageStats {
   spans: number;
   tokens: number;
   updatedAt: string;
+  /** Same rows as traces/spans, split by writer. Absent on workspaces not yet re-metered. */
+  bySource?: Record<"user" | "detector" | "agent", { traces: number; spans: number }>;
   ai?: AIUsageData;
   rca?: RcaUsageData;
   detector?: DetectorUsageData;
@@ -130,6 +132,9 @@ export interface Span {
   span_end_time: string | null;
   status: SpanStatus;
   status_message: string | null;
+  // Exception class name stamped at ingest; "unknown" on ERROR spans without one.
+  // "" when nothing was stamped: OK spans, and spans ingested before this column.
+  error_type: string;
   model_name: string | null;
   cost: number | null;
   input_tokens: number | null;

@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { installer, SlackOAuthResponseSchema } from "@traceroot/slack";
 import { env } from "@/env";
@@ -28,7 +29,7 @@ function destination(workspaceId: string | undefined, params: string): URL {
   return new URL(path, env.BETTER_AUTH_URL);
 }
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -89,3 +90,4 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.redirect(destination(meta.workspaceId, "slack=connected"));
 }
+export const GET = withImpersonationPolicy(handleGET);

@@ -4,7 +4,7 @@ The gateway concatenates a caller-influenced subpath onto the control-plane
 origin and relays headers across the trust boundary, so the properties under
 test here are the ones that keep it from becoming an open proxy:
 
-* only the nine real upstream routes are reachable, and nothing containing a
+* only the eight real upstream routes are reachable, and nothing containing a
   dot-segment (raw or percent-encoded) is ever forwarded;
 * forwarded headers are an allowlist — the caller's session `Cookie` and its
   `X-Forwarded-For` never reach the control plane;
@@ -31,6 +31,7 @@ from rest.rate_limit import limiter
 from rest.routers.public.deps import (
     AuthResult,
     authenticate_and_stamp_identity,
+    authenticate_and_stamp_public_caller,
     authenticate_api_key,
 )
 
@@ -117,18 +118,6 @@ class TestUpstreamPathAllowlist:
     @pytest.mark.parametrize(
         ("method", "path", "expected_upstream"),
         [
-            ("GET", "/api/v1/public/datasets", f"{UI}/api/public/datasets"),
-            ("GET", "/api/v1/public/datasets/ds1", f"{UI}/api/public/datasets/ds1"),
-            (
-                "GET",
-                "/api/v1/public/datasets/ds1/versions",
-                f"{UI}/api/public/datasets/ds1/versions",
-            ),
-            (
-                "GET",
-                "/api/v1/public/dataset-versions/dv1",
-                f"{UI}/api/public/dataset-versions/dv1",
-            ),
             (
                 "POST",
                 "/api/v1/public/evaluation-runs/run1/results/tc1/scores",
@@ -166,8 +155,11 @@ class TestUpstreamPathAllowlist:
 
 class TestForwardedHeaderAllowlist:
     def test_cookie_and_spoofable_headers_are_stripped(self, client, upstream):
-        resp = client.get(
+        # A write: the reads are no longer forwarded, so the header allowlist is exercised
+        # on the traffic that still crosses the boundary.
+        resp = client.post(
             "/api/v1/public/datasets",
+            json={"dataset_id": "ds1", "name": "x"},
             headers={
                 **AUTH_HEADER,
                 "Cookie": "better-auth.session_token=stolen",
@@ -190,8 +182,9 @@ class TestForwardedHeaderAllowlist:
 
     def test_allowlisted_tracing_headers_are_forwarded(self, client, upstream):
         traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-        client.get(
+        client.post(
             "/api/v1/public/datasets",
+            json={"dataset_id": "ds1", "name": "x"},
             headers={**AUTH_HEADER, "traceparent": traceparent, "Idempotency-Key": "k1"},
         )
         forwarded = upstream.calls.last.request.headers
@@ -222,10 +215,34 @@ class TestRateLimiting:
 
     def test_every_eval_route_stamps_the_rate_limit_identity(self):
         """Without the stamped dependency the limiter keys off an unstamped
-        request.state, so the decorator above would be inert."""
+        request.state, so the decorator above would be inert.
+
+        The typed reads take the dual credential (API key or user login), stamped by
+        its own dependency; every other route, including each catch-all, stays on the
+        API-key one.
+        """
+        # The typed reads are the published GET routes: the catch-alls are hidden, and the
+        # typed writes are POSTs. Derived from the routes rather than listed, so the set
+        # can't name a route that doesn't exist, and a read added later is covered.
+        typed_reads = {
+            route.endpoint.__name__
+            for route in _eval_routes()
+            if route.include_in_schema and route.methods == {"GET"}
+        }
+        assert {
+            "list_datasets",
+            "get_dataset",
+            "list_dataset_versions",
+            "get_dataset_version",
+        } <= typed_reads, typed_reads
         for route in _eval_routes():
             calls = [d.call for d in route.dependant.dependencies]
-            assert authenticate_and_stamp_identity in calls, route.path
+            if route.endpoint.__name__ in typed_reads:
+                assert authenticate_and_stamp_public_caller in calls, route.path
+                assert authenticate_and_stamp_identity not in calls, route.path
+            else:
+                assert authenticate_and_stamp_identity in calls, route.path
+                assert authenticate_and_stamp_public_caller not in calls, route.path
 
 
 # --- Body cap ----------------------------------------------------------------

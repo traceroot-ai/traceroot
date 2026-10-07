@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
@@ -9,7 +10,7 @@ type RouteParams = { params: Promise<{ projectId: string; traceId: string }> };
 // that have already been saved as a test case. Only the dataset's CURRENT
 // version is reported, so an edited case shows its dataset once, not once per
 // historical snapshot. Read from Postgres, so it works without ClickHouse.
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, traceId } = await params;
@@ -57,3 +58,4 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
   return successResponse({ data });
 }
+export const GET = withImpersonationPolicy(handleGET);

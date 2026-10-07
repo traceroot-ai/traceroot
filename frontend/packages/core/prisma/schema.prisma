@@ -67,6 +67,11 @@ model WorkspaceMember {
 model Workspace {
   id                    String            @id @db.VarChar
   name                  String            @db.VarChar
+  // Who created the workspace — the indexable half of the write paths'
+  // workspace idempotency key (creator + name). Nullable: legacy rows with no
+  // ADMIN member to backfill from stay NULL and never collide (unique indexes
+  // treat NULLs as distinct). Bare user id, no FK — mirrors Dashboard.createdBy.
+  createdBy             String?           @map("created_by") @db.VarChar
   createTime            DateTime          @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime            DateTime          @default(now()) @map("update_time") @db.Timestamp(6)
   invites               Invite[]
@@ -100,6 +105,9 @@ model Workspace {
   slackIntegration    SlackIntegration?
   usageNotifications  WorkspaceUsageNotification[]
 
+  // Backs the idempotent create: two concurrent create_workspace calls by the
+  // same user with the same name cannot both insert.
+  @@unique([createdBy, name], map: "uq_workspace_created_by_name")
   @@index([billingCustomerId])
   @@index([billingSubscriptionId])
   @@map("workspaces")
@@ -165,12 +173,18 @@ model Project {
   detectors    Detector[]
   alertConfig  DetectorAlertConfig?
   detectorRcas DetectorRca[]
+  signals      Signal[]
   dashboards   Dashboard[]
   alerts       Alert[]
   datasets     Dataset[]
   evaluations  Evaluation[]
   workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  // A partial unique index uq_project_workspace_live_name on
+  // (workspace_id, name) WHERE delete_time IS NULL backs the idempotent
+  // create. Partial indexes can't be expressed here, so it lives in the
+  // migration as raw SQL; soft-deleted rows keep their names without
+  // blocking the name's reuse.
   @@index([workspaceId], map: "ix_project_workspace_id")
   @@map("projects")
 }
@@ -338,22 +352,38 @@ model SlackIntegration {
 
 // AI Sessions - Conversation sessions for the AI debugging assistant
 model AISession {
-  id          String      @id @default(cuid()) @db.VarChar
-  projectId   String      @map("project_id") @db.VarChar
-  workspaceId String      @map("workspace_id") @db.VarChar
-  userId      String?     @map("user_id") @db.VarChar // null for system/RCA sessions
-  title       String?     @db.VarChar
-  status      String      @default("active") @db.VarChar // active, completed, failed
-  metadata    Json?       @db.JsonB
-  createTime  DateTime    @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime  DateTime    @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
-  messages    AIMessage[]
-  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id            String                 @id @default(cuid()) @db.VarChar
+  projectId     String                 @map("project_id") @db.VarChar
+  workspaceId   String                 @map("workspace_id") @db.VarChar
+  userId        String?                @map("user_id") @db.VarChar // null for system/RCA sessions
+  title         String?                @db.VarChar
+  status        String                 @default("active") @db.VarChar // active, completed, failed
+  metadata      Json?                  @db.JsonB
+  // The execution that opened this system session (null for user sessions and
+  // for system sessions predating executions — no backfill by design).
+  executionId   String?                @map("execution_id") @db.VarChar
+  createTime    DateTime               @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime    DateTime               @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
+  messages      AIMessage[]
+  project       Project                @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  execution     DetectorRcaExecution?  @relation("sessionExecution", fields: [executionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  // Executions that recorded this session as theirs once they completed (see
+  // DetectorRcaExecution.sessionId) — the reverse of `execution` above.
+  rcaExecutions DetectorRcaExecution[] @relation("executionSession")
 
   @@index([projectId], map: "ix_ai_session_project_id")
   @@index([workspaceId], map: "ix_ai_session_workspace_id")
   @@index([userId], map: "ix_ai_session_user_id")
+  @@index([executionId], map: "ix_ai_session_execution_id")
   @@map("ai_sessions")
+}
+
+enum TurnKind {
+  rca_execution
+  rca_followup
+  chat
+  detector
+  digest
 }
 
 // AI Messages - Individual messages within an AI session
@@ -362,6 +392,9 @@ model AIMessage {
   workspaceId  String     @map("workspace_id") @db.VarChar // direct workspace pointer for per-kind aggregation (detector scans have no session)
   sessionId    String?    @map("session_id") @db.VarChar // nullable: detector scans have no chat session
   kind         String     @default("chat") @db.VarChar // "chat" | "rca" | "detector" | "digest-summary" — categorical tag; usage metering aggregates only chat|rca|detector (digest-summary is recorded, not metered)
+  // Per-turn attribution. `kind` is kept one release for old readers and is
+  // derived from turnKind at write time; metering will move to turnKind (E-09 follow-up).
+  turnKind     TurnKind   @default(chat) @map("turn_kind")
   role         String     @db.VarChar // user, assistant, tool
   content      String     @db.Text
   metadata     Json?      @db.JsonB // tool name, tool result, etc.
@@ -408,32 +441,48 @@ model StandardModelPrice {
 // Detectors — automatic production monitoring for AI agents
 
 model Detector {
-  id                String   @id @default(cuid()) @db.VarChar
-  projectId         String   @map("project_id") @db.VarChar
-  name              String   @db.VarChar
-  template          String   @db.VarChar // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
-  prompt            String   @db.Text
-  outputSchema      Json     @map("output_schema") @db.JsonB
-  sampleRate        Int      @default(25) @map("sample_rate") // 0–100
-  enabled           Boolean  @default(true)
-  enableRca         Boolean  @default(true) @map("enable_rca") // run agent-model RCA on this detector's findings
-  detectionModel    String?  @map("detection_model") @db.VarChar // model id; null = worker picks default
-  detectionProvider String?  @map("detection_provider") @db.VarChar // provider label (system: "anthropic"/"openai"; BYOK: ModelProvider.provider row label)
-  detectionSource   String?  @map("detection_source") @db.VarChar // "system" | "byok" | null (legacy/seeded)
-  createTime        DateTime @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime        DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+  id                  String    @id @default(cuid()) @db.VarChar
+  projectId           String    @map("project_id") @db.VarChar
+  name                String    @db.VarChar
+  template            String    @db.VarChar // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
+  prompt              String    @db.Text
+  outputSchema        Json      @map("output_schema") @db.JsonB
+  sampleRate          Int       @default(25) @map("sample_rate") // 0–100
+  enabled             Boolean   @default(true)
+  enableRca           Boolean   @default(true) @map("enable_rca") // run agent-model RCA on this detector's findings
+  // Group this detector's hits into signals (ee/signals). RCA follows signals: it
+  // runs only when a signal is created or reopened, and only if enableRca is also
+  // on. Notifications announce new and reopened signals only. Off, or on in a
+  // deployment without the embedding and assignment keys: no grouping, no RCA
+  // and no notifications.
+  enableSignals       Boolean   @default(true) @map("enable_signals")
+  // Hits detected before this are never grouped (no backfill). Set when signals
+  // are switched on; the migration set it to the upgrade time.
+  signalsEnabledAt    DateTime  @default(now()) @map("signals_enabled_at") @db.Timestamp(6)
+  // When hits were last handed to signal assignment and not yet seen drained.
+  // Written before the Redis enqueue, so a hit whose enqueue failed is still
+  // found by the sweeper; cleared once a round reads nothing waiting.
+  assignmentPendingAt DateTime? @map("assignment_pending_at") @db.Timestamp(6)
+  detectionModel      String?   @map("detection_model") @db.VarChar // model id; null = worker picks default
+  detectionProvider   String?   @map("detection_provider") @db.VarChar // provider label (system: "anthropic"/"openai"; BYOK: ModelProvider.provider row label)
+  detectionSource     String?   @map("detection_source") @db.VarChar // "system" | "byok" | null (legacy/seeded)
+  createTime          DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime          DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
 
   project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   trigger DetectorTrigger?
 
+  // Backs the idempotent create; detectors have no soft delete, so the
+  // unique is unconditional.
+  @@unique([projectId, name], map: "uq_detector_project_name")
   @@index([projectId], map: "ix_detector_project_id")
   @@map("detectors")
 }
 
 model DetectorTrigger {
-  id         String   @id @default(cuid()) @db.VarChar
-  detectorId String   @unique @map("detector_id") @db.VarChar
-  conditions Json     @db.JsonB
+  id         String @id @default(cuid()) @db.VarChar
+  detectorId String @unique @map("detector_id") @db.VarChar
+  conditions Json   @db.JsonB
   // [{field: "environment", op: "=", value: "prod"}] — `environment` with =/!= is the
   // only condition evaluated today (editor: features/detectors/components/trigger-editor.tsx,
   // evaluator: backend/worker/detector_tasks.py). Empty list matches every completed trace.
@@ -479,8 +528,201 @@ model DetectorRca {
   // DetectorAlertConfig when a project is deleted.
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  // The current execution (status, attempt) is the one with the highest
+  // attempt; the trace to link is the highest attempt whose trace_status is
+  // `available`, so a pending retry does not hide a working trace (see
+  // rca-executions.ts and the findings/[findingId]/rca route). Empty on legacy
+  // rows created before executions existed (no backfill by design).
+  executions DetectorRcaExecution[]
+  signalRcas SignalRca[]
+
   @@index([projectId], map: "ix_detector_rcas_project_id")
   @@map("detector_rcas")
+}
+
+enum TraceStatus {
+  disabled
+  pending
+  available
+  failed
+}
+
+// One row per RCA agent run for a finding, append-only. Allocated BEFORE the run
+// so the attempt and trace id are fixed even if the process dies mid-run; a retry
+// allocates the next attempt instead of reusing the first trace id.
+model DetectorRcaExecution {
+  id          String      @id @default(cuid()) @db.VarChar
+  findingId   String      @map("finding_id") @db.VarChar
+  projectId   String      @map("project_id") @db.VarChar
+  attempt     Int
+  traceId     String      @map("trace_id") @db.VarChar // 32-hex; attempt 1 = dashless finding id
+  traceStatus TraceStatus @default(pending) @map("trace_status")
+  sessionId   String?     @map("session_id") @db.VarChar
+  startedAt   DateTime    @default(now()) @map("started_at") @db.Timestamp(6)
+  finishedAt  DateTime?   @map("finished_at") @db.Timestamp(6)
+
+  rca            DetectorRca @relation(fields: [findingId], references: [findingId], onDelete: Cascade, onUpdate: NoAction)
+  session        AISession?  @relation("executionSession", fields: [sessionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  // Sessions opened for this execution (AISession.executionId, set at creation);
+  // a message reaches its execution through its session.
+  openedSessions AISession[] @relation("sessionExecution")
+
+  @@unique([findingId, attempt], map: "uq_rca_execution_finding_attempt")
+  @@map("detector_rca_executions")
+}
+
+// ---------------------------------------------------------------------------
+// Signals (ee/signals)
+//
+// A signal is one recurring problem within a (project, detector) partition. Each
+// detector hit (a triggered detector_runs row in ClickHouse) joins exactly one
+// signal. signal_hits is the record of that membership; ClickHouse
+// signal_assignments is its query copy, which also tells the assignment job
+// which hits are still waiting. Every write to a partition's signals and hits
+// runs under the partition advisory lock
+// (lockSignalPartition in core ee/signals), so the assignment worker and UI
+// edits never interleave.
+// ---------------------------------------------------------------------------
+
+model Signal {
+  id                String    @id @default(cuid()) @db.VarChar
+  projectId         String    @map("project_id") @db.VarChar
+  // No FK: detectors are hard-deleted, and a signal and its status history
+  // outlive the detector (same as DetectorRca).
+  detectorId        String    @map("detector_id") @db.VarChar
+  title             String    @db.VarChar
+  // Membership criteria the assignment model judges a hit against.
+  criteriaCovers    String    @map("criteria_covers") @db.Text
+  criteriaExcludes  String    @map("criteria_excludes") @db.Text
+  // Bumped on every criteria edit; each hit records the version it was judged under.
+  criteriaVersion   Int       @default(1) @map("criteria_version")
+  // Whether the criteria written at creation passed their check (accept the first
+  // hit, reject every shortlisted anchor). A failed check still creates the signal;
+  // this keeps the result findable. Null when no check ran: a category signal, or
+  // criteria edited by hand since.
+  criteriaValidated Boolean?  @map("criteria_validated")
+  // The first hit's embedded text and its embedding: the shortlist compares new
+  // hits with the embedding, and new criteria must reject the shortlisted
+  // anchors' text. Kept as a plain array (no pgvector); cosine runs in memory.
+  anchorText        String    @map("anchor_text") @db.Text
+  anchorEmbedding   Float[]   @map("anchor_embedding") @db.Real
+  // Fixed grouping key for hits that skip the assignment model (Jev-path hits:
+  // their category). Null for model-assigned signals.
+  groupKey          String?   @map("group_key") @db.VarChar
+  status            String    @default("open") @db.VarChar // SIGNAL_STATUSES: "open" | "resolved" | "dismissed"
+  // Set while status is "resolved"; a hit from a trace that started after it reopens the signal.
+  resolvedAt        DateTime? @map("resolved_at") @db.Timestamp(6)
+  // 0 at creation, +1 on every automatic reopen. Keys signal_rcas, and tells the
+  // digest whether this opening was announced.
+  reopenSeq         Int       @default(0) @map("reopen_seq")
+  hitCount          Int       @default(0) @map("hit_count")
+  firstSeenAt       DateTime  @map("first_seen_at") @db.Timestamp(6)
+  lastSeenAt        DateTime  @map("last_seen_at") @db.Timestamp(6)
+  // Digest state. notifiedReopenSeq: the opening last announced (null = never);
+  // notifiedHitCount: number of hits with reportedAt; notifiedAt: last digest that
+  // included this signal (rate-limits ongoing-only digests).
+  notifiedReopenSeq Int?      @map("notified_reopen_seq")
+  notifiedHitCount  Int       @default(0) @map("notified_hit_count")
+  notifiedAt        DateTime? @map("notified_at") @db.Timestamp(6)
+  // Set when a user merges this signal into another. Its hits move to the
+  // target; the row stays so an in-flight assignment can follow the pointer.
+  mergedIntoId      String?   @map("merged_into_id") @db.VarChar
+  createTime        DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime        DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
+
+  project      Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mergedInto   Signal?             @relation("signalMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  mergedFrom   Signal[]            @relation("signalMerge")
+  hits         SignalHit[]
+  rcas         SignalRca[]
+  statusEvents SignalStatusEvent[]
+
+  // A partial unique index uq_signal_group_key on (project_id, detector_id,
+  // group_key) WHERE group_key IS NOT NULL lives in the migration as raw SQL.
+  @@index([projectId, detectorId], map: "ix_signal_project_detector")
+  @@map("signals")
+}
+
+// One row per detector hit, keyed by the ClickHouse run_id, which is already
+// deterministic per (project, trace, detector): a re-detected trace lands on
+// the same row instead of counting twice.
+model SignalHit {
+  runId           String    @id @map("run_id") @db.VarChar
+  signalId        String    @map("signal_id") @db.VarChar
+  projectId       String    @map("project_id") @db.VarChar
+  detectorId      String    @map("detector_id") @db.VarChar
+  traceId         String    @map("trace_id") @db.VarChar
+  findingId       String    @map("finding_id") @db.VarChar
+  // The detector_runs timestamp; firstSeenAt/lastSeenAt are recomputed from it
+  // when hits move between signals.
+  seenAt          DateTime  @map("seen_at") @db.Timestamp(6)
+  // Trace window and chart time; null only for legacy or missing traces.
+  traceStartTime  DateTime? @map("trace_start_time") @db.Timestamp(6)
+  // Assignment model's probability for the chosen signal; null when the chat
+  // model or a user placed the hit.
+  score           Float?
+  // Criteria version the hit was judged under; null when a user placed it.
+  criteriaVersion Int?      @map("criteria_version")
+  assignedAt      DateTime  @default(now()) @map("assigned_at") @db.Timestamp(6)
+  // Retained in Postgres so a missing/stale projection needs no model call.
+  embedding       Float[]   @default([])
+  // Cleared only after this placement version was copied successfully.
+  copyPending     Boolean   @default(true) @map("copy_pending")
+  // The digest consumed this specific hit, including silently counted hits.
+  reportedAt      DateTime? @map("reported_at") @db.Timestamp(6)
+
+  signal Signal @relation(fields: [signalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([signalId, seenAt], map: "ix_signal_hit_signal_seen")
+  @@index([signalId, traceStartTime], map: "ix_signal_hit_signal_trace_start")
+  @@index([findingId], map: "ix_signal_hit_finding")
+  @@index([projectId, traceId], map: "ix_signal_hit_project_trace")
+  // The pending-copy partial index is defined in the signals migration.
+  @@map("signal_hits")
+}
+
+// The RCA run for one opening of a signal (creation is reopenSeq 0). The RCA
+// itself stays per finding in detector_rcas; a finding's RCA can serve several
+// signals when one trace opens more than one. The signal's canonical RCA is its
+// highest-reopenSeq row whose RCA is done, so a slow RCA from an earlier opening
+// can never replace a newer one. A negative reopenSeq is an RCA carried over
+// from a signal merged into this one.
+model SignalRca {
+  signalId   String   @map("signal_id") @db.VarChar
+  reopenSeq  Int      @map("reopen_seq")
+  findingId  String   @map("finding_id") @db.VarChar
+  createTime DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  // The last successful RCA that analysed this opening, kept here because the
+  // finding's detector_rcas row only holds the latest attempt: the full answer,
+  // the root cause given for this opening's hit, and the agent session.
+  result     String?  @db.Text
+  rootCause  String?  @map("root_cause") @db.Text
+  sessionId  String?  @map("session_id") @db.VarChar
+
+  signal Signal      @relation(fields: [signalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  rca    DetectorRca @relation(fields: [findingId], references: [findingId], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([signalId, reopenSeq], map: "signal_rcas_pkey")
+  @@index([findingId], map: "ix_signal_rca_finding")
+  @@map("signal_rcas")
+}
+
+// Append-only history of status changes, written in the same transaction as
+// the change itself (unlike the best-effort AuditLog), so every change has a row.
+model SignalStatusEvent {
+  id          String   @id @default(cuid()) @db.VarChar
+  signalId    String   @map("signal_id") @db.VarChar
+  actorUserId String   @map("actor_user_id") @db.VarChar // user id, or "system" for an automatic reopen
+  fromStatus  String   @map("from_status") @db.VarChar
+  toStatus    String   @map("to_status") @db.VarChar
+  reason      String?  @db.VarChar // RESOLVE_REASONS / DISMISS_REASONS; "new_hit" for an automatic reopen
+  note        String?  @db.Text // at most SIGNAL_NOTE_MAX_LENGTH characters
+  createTime  DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+
+  signal Signal @relation(fields: [signalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([signalId, createTime], map: "ix_signal_status_event_signal_time")
+  @@map("signal_status_events")
 }
 
 // ---------------------------------------------------------------------------
@@ -685,20 +927,20 @@ model EvaluationRun {
 // One test case's outcome within one run. Links to its source test case
 // (`testCaseId`, stable) and the produced trace (`traceId`, may arrive later).
 model EvaluationResult {
-  id              String   @id @default(cuid()) @db.VarChar
-  runId           String   @map("run_id") @db.VarChar
-  evaluationId    String   @map("evaluation_id") @db.VarChar
-  projectId       String   @map("project_id") @db.VarChar
-  testCaseId      String   @map("test_case_id") @db.VarChar // stable source-case id
-  traceId         String?  @map("trace_id") @db.VarChar
-  input           String   @db.Text
-  expectedOutput  String?  @map("expected_output") @db.Text
-  candidateOutput String?  @map("candidate_output") @db.Text // null when the task errored
-  baselineOutput  String?  @map("baseline_output") @db.Text
-  status          String   @db.VarChar // passed|failed|errored|not_scored
-  change          String?  @db.VarChar // improved|regressed|unchanged
-  taskError       String?  @map("task_error") @db.Text // application/task failure
-  durationMs      Int?     @map("duration_ms")
+  id              String    @id @default(cuid()) @db.VarChar
+  runId           String    @map("run_id") @db.VarChar
+  evaluationId    String    @map("evaluation_id") @db.VarChar
+  projectId       String    @map("project_id") @db.VarChar
+  testCaseId      String    @map("test_case_id") @db.VarChar // stable source-case id
+  traceId         String?   @map("trace_id") @db.VarChar
+  input           String    @db.Text
+  expectedOutput  String?   @map("expected_output") @db.Text
+  candidateOutput String?   @map("candidate_output") @db.Text // null when the task errored
+  baselineOutput  String?   @map("baseline_output") @db.Text
+  status          String    @db.VarChar // passed|failed|errored|not_scored
+  change          String?   @db.VarChar // improved|regressed|unchanged
+  taskError       String?   @map("task_error") @db.Text // application/task failure
+  durationMs      Int?      @map("duration_ms")
   cost            Float?
   // Set whenever cost derivation RUNS for this result, independent of the outcome — a
   // zero-cost trace legitimately leaves `cost` NULL (via NULLIF), so this marker is what
@@ -707,11 +949,11 @@ model EvaluationResult {
   // probes (`ix_eval_result_cost_backfill`, WHERE cost_derived_at IS NULL AND trace_id IS
   // NOT NULL) can't be expressed here, so it lives in the migration as raw SQL.
   costDerivedAt   DateTime? @map("cost_derived_at") @db.Timestamp(6)
-  createTime      DateTime @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime      DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+  createTime      DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime      DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
 
-  run         EvaluationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  scores      Score[]
+  run    EvaluationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  scores Score[]
 
   @@unique([runId, testCaseId], map: "uq_result_run_test_case")
   @@index([projectId], map: "ix_evaluation_result_project_id")
@@ -769,6 +1011,9 @@ model Dashboard {
   widgets Widget[]
   project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  // Backs the idempotent create; dashboards have no soft delete, so the
+  // unique is unconditional.
+  @@unique([projectId, name], map: "uq_dashboard_project_name")
   @@index([projectId], map: "ix_dashboard_project_id")
   @@map("dashboards")
 }
@@ -845,4 +1090,44 @@ model Widget {
 
   @@index([dashboardId], map: "ix_widget_dashboard_id")
   @@map("widgets")
+}
+
+// The audit trail for non-interactive writes: one append-only row per write
+// that changes account state — who (actorUserId), what (operation, resource,
+// summary), where (workspace/project), and HOW: `transport` distinguishes a
+// public-API call from an in-app agent action (with its session id), because
+// "who" alone stops identifying intent once machines write on a user's behalf.
+// This table is new with the public write paths — before them, every write was
+// a human in the UI on their own cookie session, so attribution was structural
+// (the actor WAS the session, the result was on screen). Once the CLI, agent,
+// and API can create resources with no human watching, provenance has to be
+// answerable from storage. UI writes join the trail (transport "ui") when the
+// cookie routes migrate onto the shared write services.
+// No relations on purpose: audit rows must survive resource deletion (an FK
+// cascade would erase history).
+model AuditLog {
+  id                     String    @id @default(cuid()) @db.VarChar
+  actorUserId            String    @map("actor_user_id") @db.VarChar
+  actorEmail             String?   @map("actor_email") @db.VarChar
+  targetUserId           String?   @map("target_user_id") @db.VarChar
+  targetEmail            String?   @map("target_email") @db.VarChar
+  impersonationSessionId String?   @map("impersonation_session_id") @db.VarChar
+  outcome                String?   @db.VarChar
+  expiresAt              DateTime? @map("expires_at") @db.Timestamp(6)
+  endedAt                DateTime? @map("ended_at") @db.Timestamp(6)
+  endReason              String?   @map("end_reason") @db.VarChar
+  operation              String    @db.VarChar // e.g. "create_detector"
+  resourceType           String    @map("resource_type") @db.VarChar
+  resourceId             String    @map("resource_id") @db.VarChar
+  workspaceId            String?   @map("workspace_id") @db.VarChar
+  projectId              String?   @map("project_id") @db.VarChar
+  summary                Json      @db.JsonB // payload summary, never secrets
+  transport              String    @db.VarChar // "public-api" | "agent"
+  agentSessionId         String?   @map("agent_session_id") @db.VarChar
+  createTime             DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+
+  @@index([workspaceId], map: "ix_audit_workspace_id")
+  @@index([actorUserId], map: "ix_audit_actor_user_id")
+  @@index([impersonationSessionId], map: "ix_audit_impersonation_session_id")
+  @@map("audit_logs")
 }

@@ -1,0 +1,50 @@
+---
+title: Notifications
+description: Send new and reopened signals to email and Slack
+---
+
+Detector notifications announce **signals**: the recurring problems that a detector's findings are grouped into. A signal is announced when it is created and when it is reopened, which happens when a trace that started after the signal was resolved hits it again. Further findings on an open signal update it in TraceRoot without sending anything, and dismissed signals stay silent.
+
+Announcements are batched into **windowed digests**: TraceRoot sends one digest per project for each configured window to every configured channel. The default window is **10 minutes**; the available windows are **1 minute, 5 minutes, 10 minutes, 30 minutes, 1 hour, and 2 hours**.
+
+The digest does not wait for, or report on, root cause analysis: it reads the same whether the analysis is off, running, finished or failed. The analysis is read on the signal in TraceRoot.
+
+## Configure notifications
+
+Open **Project Settings → Detectors → Notifications**. From there you can:
+
+- Add the email recipients for this project.
+- Change the **Alert window** from its 10-minute default.
+- See whether the workspace Slack integration is connected and open its settings.
+
+If the project has no email recipients and no Slack destination channel, nothing is sent.
+
+A detector with **Generate signals** turned off records findings without grouping them, so it sends no notifications. The **Root cause analysis** setting, Manual or Automatic, does not affect notifications. On a self-hosted deployment, grouping into signals needs `OPENAI_API_KEY`; without it, detectors record findings and send no notifications.
+
+## Digest contents
+
+Email and Slack receive the same digest content, in a **New** and a **Reopened** section. For each signal:
+
+- Its title, linked to the signal on the **Signals** page.
+- A short summary: what the signal covers, as its page shows it.
+- The detector's name and the signal's number of hits.
+
+A digest lists at most 45 signals and counts the rest. The email also links to the Signals page.
+
+## Email
+
+Email recipients are configured per project under **Project Settings → Detectors → Notifications → Email**. Add one or more addresses and save the list; an empty list disables email delivery for that project.
+
+## Slack
+
+Slack delivery is available on every plan. The integration is workspace-level — one Slack workspace per TraceRoot workspace, with a single destination channel.
+
+<Frame>
+  <img src="/images/detector_slack_v1.png" alt="Detector notification digest posted to a Slack channel" />
+</Frame>
+
+### Connect Slack
+
+1. Open **Settings** then **Integrations** as a workspace admin.
+2. Click **Connect** and complete the OAuth flow in your Slack workspace.
+3. Pick the channel TraceRoot should post notification digests to.

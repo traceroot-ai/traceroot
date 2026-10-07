@@ -103,7 +103,8 @@ async def get_finding(
 ):
     """Get a single finding by id for the key's project."""
     return await require_finding(
-        lambda: service.get_finding(auth.project_id, finding_id), auth.billing_plan
+        lambda: service.get_finding(auth.project_id, finding_id, auth.billing_plan),
+        auth.billing_plan,
     )
 
 
@@ -122,7 +123,8 @@ async def get_finding_by_trace(
 ):
     """Get the finding for a single trace (findings are 1-per-trace)."""
     return await require_finding(
-        lambda: service.get_finding_by_trace(auth.project_id, trace_id), auth.billing_plan
+        lambda: service.get_finding_by_trace(auth.project_id, trace_id, auth.billing_plan),
+        auth.billing_plan,
     )
 
 

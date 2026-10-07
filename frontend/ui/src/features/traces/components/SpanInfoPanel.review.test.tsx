@@ -71,6 +71,7 @@ describe("SpanInfoPanel - Error box source location badges", () => {
       span_end_time: "2026-07-12T12:00:01Z",
       status: SpanStatus.ERROR,
       status_message: "Traceback (most recent call last): ...",
+      error_type: "",
       model_name: "gpt-4o",
       cost: 0.005,
       input_tokens: 150,
@@ -249,6 +250,7 @@ describe("SpanInfoPanel - eval-shaped reconstructed trace", () => {
       span_end_time: "1970-01-01T00:00:00.001Z",
       status: SpanStatus.OK,
       status_message: null,
+      error_type: "",
       model_name: null,
       // Non-null cost/tokens so the token/cost chips would render if they weren't
       // gated on isEvalShaped (they'd otherwise also self-gate on these being null,
@@ -314,6 +316,7 @@ describe("SpanInfoPanel - eval-shaped reconstructed trace", () => {
           span_end_time: "1970-01-01T00:00:00.001Z",
           status: SpanStatus.OK,
           status_message: null,
+          error_type: "",
           model_name: null,
           cost: 0.0025,
           input_tokens: 10,

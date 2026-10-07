@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
@@ -10,7 +11,7 @@ type RouteParams = {
 // newest first, with the result this case got in each. Powers the CasePanel "Runs"
 // tab. testCaseId is globally unique, so the dataset in the path is for grouping
 // and access scoping only.
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, datasetId, testCaseId } = await params;
@@ -77,3 +78,4 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
   return successResponse({ data });
 }
+export const GET = withImpersonationPolicy(handleGET);

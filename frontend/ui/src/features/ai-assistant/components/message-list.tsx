@@ -2,7 +2,9 @@
 
 import {
   Children,
+  Fragment,
   isValidElement,
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -16,8 +18,21 @@ import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { describeCapture } from "@traceroot/core/capture-note";
 import type { AIMessage, ToolCallStep } from "../types";
 import { PANEL_MAX_WIDTH } from "../constants";
+import {
+  createdWidgetsByDashboard,
+  pendingCardModel,
+  readCardModel,
+  resourceCardModel,
+  suppressedWidgetStepIds,
+  type KnownResource,
+} from "../lib/resource-card";
+import { ResourceCard } from "./resource-card";
+import { PendingResourceCard } from "./pending-resource-card";
+import { useStableToolSteps } from "../hooks/use-stable-tool-steps";
+import { AlertListCard } from "./alert-list-card";
 
 // ---------------------------------------------------------------------------
 // Lightweight markdown normalization for streamed, partial content.
@@ -321,7 +336,25 @@ function formatToolName(name: string): string {
   return name.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
-function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolean }) {
+/** Cap the revision text shown on the tool line; the full text stays in the result. */
+const REVISED_NOTE_MAX_CHARS = 80;
+
+function revisedNote(text: string): string {
+  const trimmed =
+    text.length > REVISED_NOTE_MAX_CHARS ? `${text.slice(0, REVISED_NOTE_MAX_CHARS)}…` : text;
+  return `revised — ${trimmed}`;
+}
+
+function ToolStepItem({
+  step,
+  isActive,
+  onOpenSpan,
+}: {
+  step: ToolCallStep;
+  isActive: boolean;
+  /** Present only when this step's turn has a resolved trace to focus into. */
+  onOpenSpan?: (spanId: string) => void;
+}) {
   const [isOpen, setIsOpen] = useState(isActive);
 
   useEffect(() => {
@@ -336,6 +369,7 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
 
   const argsStr = JSON.stringify(step.args, null, 2);
   const resultStr = step.result != null ? JSON.stringify(step.result, null, 2) : null;
+  const captureNote = describeCapture(step);
 
   return (
     <div className="text-[11px]">
@@ -343,13 +377,37 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
         onClick={() => setIsOpen((v) => !v)}
         className="flex w-full cursor-pointer select-none items-center gap-1.5 rounded px-1 py-0.5 hover:bg-muted/50"
       >
-        {step.status === "running" && (
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground/60" />
+        {/* A declined call (skipped or revised) was not broken — its line stays muted. */}
+        {step.skipped || step.revisedText !== undefined ? (
+          <XCircle className="h-3 w-3 shrink-0 text-muted-foreground/50" />
+        ) : (
+          <>
+            {step.status === "running" && (
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground/60" />
+            )}
+            {step.status === "done" && (
+              <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />
+            )}
+            {step.status === "error" && (
+              <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />
+            )}
+          </>
         )}
-        {step.status === "done" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />}
-        {step.status === "error" && <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />}
-        <span className="italic text-muted-foreground/80">{formatToolName(step.toolName)}</span>
-        <span className="font-mono text-[10px] text-muted-foreground/40">({step.toolName})</span>
+        <span className="shrink-0 whitespace-nowrap italic text-muted-foreground/80">
+          {formatToolName(step.toolName)}
+        </span>
+        <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/40">
+          ({step.toolName})
+        </span>
+        {step.skipped ? (
+          <span className="text-muted-foreground/60">skipped</span>
+        ) : (
+          step.revisedText !== undefined && (
+            <span className="min-w-0 flex-1 truncate text-left text-muted-foreground/60">
+              {revisedNote(step.revisedText)}
+            </span>
+          )
+        )}
         <ChevronRight
           className={cn(
             "ml-auto h-3 w-3 shrink-0 text-muted-foreground/30 transition-transform duration-200",
@@ -376,15 +434,37 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
                 <p
                   className={cn(
                     "mb-0.5",
-                    step.isError ? "text-destructive/70" : "text-muted-foreground/50",
+                    step.isError && !step.skipped && step.revisedText === undefined
+                      ? "text-destructive/70"
+                      : "text-muted-foreground/50",
                   )}
                 >
-                  {step.isError ? "Error" : "Result"}
+                  {step.skipped
+                    ? "Skipped"
+                    : step.revisedText !== undefined
+                      ? "Revised"
+                      : step.isError
+                        ? "Error"
+                        : "Result"}
                 </p>
                 <pre className="max-h-[200px] overflow-auto rounded bg-background/70 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-foreground/60">
                   {resultStr}
                 </pre>
               </div>
+            )}
+            {captureNote && (
+              <p className="italic text-muted-foreground/50" title={captureNote.why}>
+                {captureNote.text}
+              </p>
+            )}
+            {step.spanId && onOpenSpan && (
+              <button
+                type="button"
+                className="text-muted-foreground/60 hover:underline"
+                onClick={() => onOpenSpan(step.spanId!)}
+              >
+                Open span
+              </button>
             )}
           </div>
         </div>
@@ -392,6 +472,100 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
     </div>
   );
 }
+
+/**
+ * One tool-step row of the transcript, with the card model derived inside so
+ * it lives behind this memo boundary. Streamed text deltas rebuild the
+ * messages array many times a second, but every prop here is stable across a
+ * delta-only update (the step objects survive by identity, and the derived
+ * maps are pinned by useStableToolSteps) — so neither the model derivation
+ * nor the preview subtrees rerun per delta.
+ */
+const ToolStepEntry = memo(function ToolStepEntry({
+  step,
+  suppressed,
+  widgetsByDashboard,
+  known,
+  projectId,
+  retentionDays,
+  isActive,
+  bubbleMaxWidth,
+  traceId,
+  onOpenTrace,
+}: {
+  step: ToolCallStep;
+  /** True when this widget's card would duplicate the preview of a CREATED
+   *  dashboard's card above it (a reused dashboard draws none). */
+  suppressed: boolean;
+  widgetsByDashboard: ReadonlyMap<string, readonly ToolCallStep[]>;
+  /** What the transcript knows each resource as — a pending edit or delete
+   *  names its resource and shows its before-values from here. */
+  known: ReadonlyMap<string, KnownResource>;
+  projectId?: string;
+  /** The plan's retention window, which clamps every card's charted range.
+   *  Undefined while the plan is still resolving — nothing is clamped then. */
+  retentionDays?: number | null;
+  isActive: boolean;
+  bubbleMaxWidth: string;
+  /** The trace of this step's turn, when it has one to focus into. Passed as
+   *  data (with the stable opener) rather than a per-step closure, so a
+   *  streamed delta does not hand every step a new function and break this memo. */
+  traceId?: string;
+  onOpenTrace?: (traceId: string, spanId?: string) => void;
+}) {
+  const onOpenSpan = useMemo(
+    () => (onOpenTrace && traceId ? (spanId: string) => onOpenTrace(traceId, spanId) : undefined),
+    [onOpenTrace, traceId],
+  );
+  // A parked write shows the card BEFORE the resource exists, marked
+  // proposed; the decision itself is taken at the composer (create/skip
+  // buttons there, or a typed reply that revises). The tool result (or a
+  // posted decision) clears `pending` and the step falls through to the
+  // receipt flow.
+  const pendingCard = useMemo(
+    () => (step.pending ? pendingCardModel(step, projectId, retentionDays, known) : null),
+    [step, projectId, retentionDays, known],
+  );
+  // A read whose result carries card details (the alert reads) becomes its
+  // card: rows for a list, the alert's own card for a detail.
+  const readCard = useMemo(
+    () => (pendingCard !== null ? null : readCardModel(step, projectId, retentionDays)),
+    [pendingCard, step, projectId, retentionDays],
+  );
+  // A write that created something we can show becomes its card; every other
+  // step — and every write we can't read a resource out of, or whose card
+  // would duplicate a created dashboard's preview above it — keeps the
+  // plain expandable tool line.
+  const card = useMemo(
+    () =>
+      pendingCard !== null || readCard !== null || suppressed
+        ? null
+        : resourceCardModel(step, widgetsByDashboard, retentionDays),
+    [pendingCard, readCard, suppressed, step, widgetsByDashboard, retentionDays],
+  );
+  const carded = card !== null || pendingCard !== null || readCard !== null;
+  return (
+    <AnimatedItem>
+      <div className="flex justify-start">
+        {/* Cards span the message column — the width text bubbles get — so
+            every card shares one edge instead of each sizing to its content. */}
+        <div className={cn("min-w-0", carded && "w-full")} style={{ maxWidth: bubbleMaxWidth }}>
+          {pendingCard ? (
+            <PendingResourceCard model={pendingCard} />
+          ) : readCard?.kind === "alert_list" ? (
+            <AlertListCard model={readCard.model} />
+          ) : readCard?.kind === "alert" ? (
+            <ResourceCard model={readCard.model} />
+          ) : card ? (
+            <ResourceCard model={card} />
+          ) : (
+            <ToolStepItem step={step} isActive={isActive} onOpenSpan={onOpenSpan} />
+          )}
+        </div>
+      </div>
+    </AnimatedItem>
+  );
+});
 
 function AssistantBubble({ msg, panelWidth }: { msg: AIMessage; panelWidth: number }) {
   const normalizedContent = useMemo(
@@ -442,45 +616,180 @@ function UserBubble({ msg }: { msg: AIMessage }) {
   );
 }
 
-function UsageFooter({ msg }: { msg: AIMessage }) {
+/**
+ * A turn's trace is reachable while its export is `pending` (a chat turn
+ * ends before the upload finishes; the row is stamped a few seconds later)
+ * and once `available`. A `failed` or `disabled` export has nothing to open.
+ */
+function reachableTrace(msg: AIMessage): string | undefined {
+  return msg.traceId && (msg.traceStatus === "available" || msg.traceStatus === "pending")
+    ? msg.traceId
+    : undefined;
+}
+
+/**
+ * The line under a reply: its token usage, and the way into the turn's trace
+ * — the one entry point every turn has, with or without tool calls, live and
+ * after a reload (the trace id sits on the same final segment both ways).
+ */
+function ReplyFooter({
+  msg,
+  onOpenTrace,
+}: {
+  msg: AIMessage;
+  onOpenTrace?: (traceId: string, spanId?: string) => void;
+}) {
+  const traceId = reachableTrace(msg);
+  const parts: ReactNode[] = [];
+  if (msg.inputTokens != null) {
+    parts.push(
+      <span key="in" title="Input tokens">
+        {msg.inputTokens.toLocaleString()} in
+      </span>,
+      <span key="out" title="Output tokens">
+        {(msg.outputTokens ?? 0).toLocaleString()} out
+      </span>,
+    );
+    if (msg.totalTokens != null) {
+      parts.push(
+        <span key="session" title="Cumulative session tokens">
+          {msg.totalTokens.toLocaleString()} session
+        </span>,
+      );
+    }
+    if (msg.costUsd != null && msg.costUsd > 0) {
+      parts.push(
+        <span key="cost" title="Estimated cost">
+          ${msg.costUsd.toFixed(4)}
+        </span>,
+      );
+    }
+  }
+  if (traceId && onOpenTrace) {
+    parts.push(
+      <button
+        key="trace"
+        type="button"
+        className="hover:underline"
+        title={
+          msg.traceStatus === "pending"
+            ? "The trace is still being uploaded; it may take a few seconds to fill in"
+            : "Open this turn's trace"
+        }
+        onClick={() => onOpenTrace(traceId)}
+      >
+        View trace
+      </button>,
+    );
+  } else if (msg.traceStatus === "failed") {
+    parts.push(
+      <span key="trace" title="The trace upload failed; this turn has no trace to open">
+        Trace not available
+      </span>,
+    );
+  }
+  if (parts.length === 0) return null;
   return (
-    <div className="mt-1 flex items-center gap-2 px-1 text-[10px] text-muted-foreground/60">
-      <span title="Input tokens">{msg.inputTokens!.toLocaleString()} in</span>
-      <span>&middot;</span>
-      <span title="Output tokens">{msg.outputTokens!.toLocaleString()} out</span>
-      {msg.totalTokens != null && (
-        <>
-          <span>&middot;</span>
-          <span title="Cumulative session tokens">{msg.totalTokens.toLocaleString()} session</span>
-        </>
-      )}
-      {msg.costUsd != null && msg.costUsd > 0 && (
-        <>
-          <span>&middot;</span>
-          <span title="Estimated cost">${msg.costUsd.toFixed(4)}</span>
-        </>
-      )}
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap px-1 text-[10px] text-muted-foreground/60">
+      {parts.map((part, i) => (
+        <Fragment key={(part as ReactElement).key ?? i}>
+          {i > 0 && <span>&middot;</span>}
+          {part}
+        </Fragment>
+      ))}
     </div>
   );
+}
+
+/**
+ * Each turn's reachable trace, keyed by the id of every tool step in it. A
+ * tool step belongs to the turn that produced it, and that turn's trace id
+ * arrives on an assistant bubble later in the list — on the run's LAST text
+ * segment only (persister and live hook alike), so in a text → tool → text
+ * turn the bubble right after a step has none. The walk stops at each user
+ * message: a tool-only run produces no assistant bubble, and scanning past
+ * the turn boundary would attach a step to the *next* turn's trace — a
+ * different trace that does not contain its span. Built once per change of
+ * the message list, not once per step per render.
+ */
+function traceByToolStep(messages: readonly AIMessage[]): ReadonlyMap<string, string> {
+  const out = new Map<string, string>();
+  let stepIds: string[] = [];
+  let traceId: string | undefined;
+  const close = () => {
+    if (traceId) for (const id of stepIds) out.set(id, traceId);
+    stepIds = [];
+    traceId = undefined;
+  };
+  for (const m of messages) {
+    if (m.role === "user") close();
+    else if (m.role === "tool_step") stepIds.push(m.id);
+    else if (m.role === "assistant") traceId = reachableTrace(m) ?? traceId;
+  }
+  close();
+  return out;
 }
 
 // ---------------------------------------------------------------------------
 // MessageList
 // ---------------------------------------------------------------------------
+/** What no transcript has said about any resource. */
+const NOTHING_KNOWN: ReadonlyMap<string, KnownResource> = new Map();
+
 interface MessageListProps {
   messages: AIMessage[];
   sessionStreaming?: boolean;
+  /** Opens the sidebar's agent-trace sheet on `traceId`, focused on a tool step's `spanId`. */
+  onOpenTrace?: (traceId: string, spanId?: string) => void;
+  /** What the transcript knows each resource as (the chat hook derives it
+   *  once from these messages); a pending edit or delete names its resource
+   *  and shows its before-values from here. Nothing known when absent. */
+  known?: ReadonlyMap<string, KnownResource>;
+  /** The project the panel is mounted in — a pending widget card aims its
+   *  chart preview here, the scope the proposed write would land in. */
+  projectId?: string;
+  /** The plan's retention window. It clamps the range every card charts and
+   *  labels, so a selection left in storage by a workspace that has since
+   *  downgraded is neither queried nor named. Undefined while the plan is
+   *  still resolving, and with no project to look one up by. */
+  retentionDays?: number | null;
 }
 
-export function MessageList({ messages, sessionStreaming = false }: MessageListProps) {
+export function MessageList({
+  messages,
+  sessionStreaming = false,
+  onOpenTrace,
+  known = NOTHING_KNOWN,
+  projectId,
+  retentionDays,
+}: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
   const [panelWidth, setPanelWidth] = useState(400);
   const isStreaming = messages.some((m) => m.isStreaming);
+  // Derived off the identity-stable tool-step list, not `messages`: a delta
+  // replaces the array per tick, and rebuilding these maps then would churn
+  // the memoized rows' props on every keystroke of streamed text.
+  const toolSteps = useStableToolSteps(messages);
+  // A dashboard's widget count lives nowhere in its own call — the widgets are
+  // separate calls that land after it — so it is read back off the transcript.
+  const widgetsByDashboard = useMemo(() => createdWidgetsByDashboard(toolSteps), [toolSteps]);
+  // A widget created into a CREATED (not reused) dashboard carded earlier in
+  // this transcript keeps the plain tool line: that dashboard's preview
+  // already draws it, and a second card right under the preview reads as a
+  // duplicate. A reused dashboard's card draws no preview, so its widget
+  // cards stay.
+  const suppressedWidgets = useMemo(() => suppressedWidgetStepIds(toolSteps), [toolSteps]);
+  // Keyed off the full list: the trace stamp lands on an assistant bubble, not
+  // a tool step, so the stable tool-step list alone cannot see it arrive.
+  const traceByStep = useMemo(() => traceByToolStep(messages), [messages]);
   // True when the session is active but no text bubble is open - the LLM is processing
-  // a tool result before it starts writing its next response.
-  const isWaiting = sessionStreaming && !isStreaming;
+  // a tool result before it starts writing its next response. Not while a call is
+  // parked on a confirmation card: the run is alive, but it is waiting on the
+  // user, and a spinner there reads as "still generating".
+  const hasPendingDecision = toolSteps.some((m) => m.toolStep?.pending !== undefined);
+  const isWaiting = sessionStreaming && !isStreaming && !hasPendingDecision;
   const lastToolStepIdx = messages.reduce((acc, m, i) => (m.role === "tool_step" ? i : acc), -1);
   const hasTextAfterLastTool =
     lastToolStepIdx !== -1 &&
@@ -542,13 +851,19 @@ export function MessageList({ messages, sessionStreaming = false }: MessageListP
         {messages.map((msg) => {
           if (msg.role === "tool_step" && msg.toolStep) {
             return (
-              <AnimatedItem key={msg.id}>
-                <div className="flex justify-start">
-                  <div className="min-w-0" style={{ maxWidth: bubbleMaxWidth }}>
-                    <ToolStepItem step={msg.toolStep} isActive={msg.id === activeToolStepId} />
-                  </div>
-                </div>
-              </AnimatedItem>
+              <ToolStepEntry
+                key={msg.id}
+                step={msg.toolStep}
+                suppressed={suppressedWidgets.has(msg.id)}
+                widgetsByDashboard={widgetsByDashboard}
+                known={known}
+                projectId={projectId}
+                retentionDays={retentionDays}
+                isActive={msg.id === activeToolStepId}
+                traceId={traceByStep.get(msg.id)}
+                onOpenTrace={onOpenTrace}
+                bubbleMaxWidth={bubbleMaxWidth}
+              />
             );
           }
           return (
@@ -560,8 +875,8 @@ export function MessageList({ messages, sessionStreaming = false }: MessageListP
                   ) : (
                     <AssistantBubble msg={msg} panelWidth={panelWidth} />
                   )}
-                  {msg.role === "assistant" && msg.inputTokens != null && !msg.isStreaming && (
-                    <UsageFooter msg={msg} />
+                  {msg.role === "assistant" && !msg.isStreaming && (
+                    <ReplyFooter msg={msg} onOpenTrace={onOpenTrace} />
                   )}
                 </div>
               </div>

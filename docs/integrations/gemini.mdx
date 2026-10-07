@@ -16,7 +16,7 @@ traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])
 
 ## Usage
 
-Once initialized, all Gemini calls are captured automatically — including tool calls:
+Once initialized, all Gemini calls are captured automatically — including tool-call requests:
 
 ```python
 import os
@@ -39,19 +39,24 @@ weather_tool = types.Tool(function_declarations=[
 
 # This call is automatically traced
 response = client.models.generate_content(
-    model="gemini-2.5-flash",
+    model="gemini-3.8-flash",
     contents="What's the weather in Tokyo?",
     config=types.GenerateContentConfig(tools=[weather_tool]),
 )
 
-print(response.text)
+# The model asks to call get_weather; run it and send the result back yourself
+print(response.function_calls)
 ```
+
+<Warning>
+  If you pass Python functions as `tools`, the SDK's automatic function calling runs the whole tool loop inside one `generate_content` call. That records one span, priced on the last model call only. For accurate cost, pass function declarations instead (as above) or set `automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)`, and run the tool loop yourself as the [example](#run-the-example) does.
+</Warning>
 
 ## What Gets Captured
 
 | Attribute | Description |
 |-----------|-------------|
-| Model | `gemini-2.5-flash`, `gemini-2.0-pro`, etc. |
+| Model | `gemini-3.8-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`, etc. |
 | Contents | Input messages |
 | Response | Generated text and function calls |
 | Tokens | Input and output token counts |

@@ -1,0 +1,82 @@
+import type { QueryKey } from "@tanstack/react-query";
+import {
+  resourceCreatedDetails,
+  resourceDeletedDetails,
+  resourceUpdatedDetails,
+} from "./resource-created";
+
+/** An optional scoping id from the payload, kept only when it is really a string. */
+function stringId(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * Query keys made stale by a write the agent just performed server-side — a
+ * create, an update or a delete alike.
+ *
+ * The agent writes outside react-query, so nothing in the cache knows the row
+ * exists, changed or is gone; without this the resource stays as it was until
+ * a refetch trigger the user may never produce (they watch the agent work in
+ * the same tab, so no window-focus refetch fires).
+ *
+ * Scoping ids come from the result payload rather than the panel's current
+ * project, so a background session's write stales the project it actually
+ * wrote to. Unknown resource types and malformed details yield no keys.
+ */
+export function invalidationKeysForResult(result: unknown): QueryKey[] {
+  const created = resourceCreatedDetails(result);
+  const details = created ?? resourceUpdatedDetails(result) ?? resourceDeletedDetails(result);
+  if (details === null) return [];
+  const projectId = stringId(details.projectId);
+  const workspaceId = created === null ? undefined : stringId(created.workspaceId);
+  const dashboardId =
+    details.kind === "resource_deleted" ? undefined : stringId(details.dashboardId);
+
+  switch (details.resourceType) {
+    case "dashboard":
+      if (projectId === undefined) return [];
+      return [
+        ["dashboards", projectId],
+        ["dashboard", projectId, details.resourceId],
+      ];
+    case "widget":
+      // The widget's placement is written into the dashboard's layout, which
+      // bumps the update time the dashboards list displays — so the list is
+      // stale too. Matches useDashboardMutations.createWidget, whose
+      // invalidateDashboards stales both the list and the dashboard itself.
+      // A delete receipt never names the dashboard the widget left, so every
+      // dashboard of the project is staled by prefix instead.
+      if (projectId === undefined) return [];
+      if (dashboardId === undefined) {
+        return details.kind === "resource_deleted"
+          ? [
+              ["dashboards", projectId],
+              ["dashboard", projectId],
+            ]
+          : [];
+      }
+      return [
+        ["dashboards", projectId],
+        ["dashboard", projectId, dashboardId],
+      ];
+    case "detector":
+      // Coarse on purpose: the detector list, counts, and by-id queries all
+      // hang off this prefix, matching what the feature's own mutations do.
+      return [["detectors"]];
+    case "alert":
+      // The alerts feature keys its list, capacity and detail queries under
+      // one prefix and its own create invalidates exactly that.
+      return [["alerts"]];
+    case "project": {
+      const keys: QueryKey[] = [["workspaces"]];
+      if (workspaceId !== undefined) {
+        keys.push(["projects", workspaceId], ["workspace", workspaceId]);
+      }
+      return keys;
+    }
+    case "workspace":
+      return [["workspaces"]];
+    default:
+      return [];
+  }
+}

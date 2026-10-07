@@ -95,6 +95,22 @@ class TestListDetectorRuns:
         body = resp.json()
         assert body["meta"] == {"page": 0, "limit": 50, "total": 1}
         assert body["data"][0]["run_id"] == "r1"
+        assert body["data"][0]["signal_gave_up"] is False
+
+    def test_flags_a_hit_signal_assignment_gave_up_on(self, client, mock_ch, secret):
+        data = self._fake_data()
+        data.column_names = [*data.column_names, "signal_gave_up"]
+        data.result_rows = [(*data.result_rows[0], 1)]
+        mock_ch.query.side_effect = [data, self._fake_count(1)]
+        resp = client.get(
+            "/api/v1/internal/detector-runs",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.json()["data"][0]["signal_gave_up"] is True
+        data_sql = mock_ch.query.call_args_list[0].args[0]
+        # Only the give-up row (empty signal_id) of this detector's hit counts.
+        assert "signal_id = ''" in data_sql and "AS signal_gave_up" in data_sql
 
     def test_search_query_hits_trace_id_and_joined_summary(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_data(), self._fake_count(0)]
@@ -893,6 +909,145 @@ class TestListDetectorWindowSummary:
 
 
 # =============================================================================
+# /trace-counts
+# =============================================================================
+
+
+class TestListTraceCounts:
+    URL = "/api/v1/internal/trace-counts"
+
+    def _rows(self, rows: list[tuple]):
+        # Rows are (bucket, count) from the bucketed query.
+        return _make_query_result(rows=rows, column_names=["bucket", "count"])
+
+    def _get(self, client, secret, **extra_params):
+        return client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "detector_id": "d-a",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+                **extra_params,
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+
+    def _sql(self, client, mock_ch, secret, **extra_params):
+        mock_ch.query.side_effect = [self._rows([])]
+        self._get(client, secret, **extra_params)
+        return mock_ch.query.call_args.args[0], mock_ch.query.call_args.kwargs["parameters"]
+
+    def test_returns_counts_per_bucket(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._rows([("2026-04-20", 3), ("2026-04-21", 5)])]
+        resp = self._get(client, secret, detector_id="d-a")
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "data": [
+                {"bucket": "2026-04-20", "count": 3},
+                {"bucket": "2026-04-21", "count": 5},
+            ]
+        }
+
+    def test_with_a_detector_counts_checked_traces(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "FROM detector_runs" in sql
+        assert "detector_id = {detector_id:String}" in sql
+        assert params["project_id"] == "p1"
+        assert params["detector_id"] == "d-a"
+
+    def test_retries_and_trace_versions_count_once_at_latest_trace_start(
+        self, client, mock_ch, secret
+    ):
+        sql, _ = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "FINAL" not in sql
+        assert "argMax(t.trace_start_time, t.ch_update_time) AS ts" in sql
+        assert "GROUP BY t.trace_id" in sql
+        assert "uniqExact(id)" in sql
+        assert "max(timestamp)" not in sql
+        assert sql.index("GROUP BY t.trace_id") < sql.index("ts >=")
+
+    def test_requires_a_detector(self, client, mock_ch, secret):
+        resp = client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_scans_only_the_window(self, client, mock_ch, secret):
+        sql, _ = self._sql(client, mock_ch, secret)
+        # The inner range keeps the scan inside the window's partitions.
+        assert "trace_start_time >= {start_after:DateTime64(3)}" in sql
+
+    def test_day_buckets_by_local_day(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, tz="America/New_York")
+        assert "toString(toDate(ts, {tz:String}))" in sql
+        assert "GROUP BY bucket" in sql
+        assert "ORDER BY bucket" in sql
+        assert params["tz"] == "America/New_York"
+
+    def test_hour_buckets_by_local_hour(self, client, mock_ch, secret):
+        sql, _ = self._sql(client, mock_ch, secret, granularity="hour")
+        assert "toStartOfHour(ts, {tz:String})" in sql
+        assert "'%Y-%m-%dT%H:00'" in sql
+
+    def test_unknown_granularity_is_422(self, client, mock_ch, secret):
+        resp = self._get(client, secret, granularity="week")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_tz_defaults_to_utc(self, client, mock_ch, secret):
+        _, params = self._sql(client, mock_ch, secret)
+        assert params["tz"] == "UTC"
+
+    def test_invalid_tz_is_422(self, client, mock_ch, secret):
+        resp = self._get(client, secret, tz="Not/AZone")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_malformed_tz_is_422_not_500(self, client, mock_ch, secret):
+        resp = self._get(client, secret, tz="../../etc/passwd")
+        assert resp.status_code == 422
+        mock_ch.query.assert_not_called()
+
+    def test_window_bounds_both_ends(self, client, mock_ch, secret):
+        sql, params = self._sql(client, mock_ch, secret, detector_id="d-a")
+        assert "ts >= {start_after:DateTime64(3)}" in sql
+        assert "ts < {end_before:DateTime64(3)}" in sql
+        assert "start_after" in params and "end_before" in params
+
+    def test_requires_internal_secret(self, client, mock_ch):
+        resp = client.get(
+            self.URL,
+            params={
+                "project_id": "p1",
+                "detector_id": "d-a",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            },
+        )
+        assert resp.status_code == 403
+
+    def test_requires_both_bounds(self, client, mock_ch, secret):
+        for missing in ("start_after", "end_before"):
+            params = {
+                "project_id": "p1",
+                "detector_id": "d-a",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-04-27T00:00:00Z",
+            }
+            del params[missing]
+            resp = client.get(self.URL, params=params, headers={"X-Internal-Secret": secret})
+            assert resp.status_code == 422
+
+
+# =============================================================================
 # /traces (internal OTLP ingest for detector self-traces)
 # =============================================================================
 
@@ -934,6 +1089,7 @@ def _otlp_body(
 class TestInternalTraceIngest:
     CH_FAMILY = "ingest"
     URL = "/api/v1/internal/traces?project_id=proj-1"
+    AGENT_URL = "/api/v1/internal/traces/agent?project_id=proj-1"
 
     def test_rejects_missing_secret(self, client):
         resp = client.post(self.URL, content=_otlp_body())
@@ -1073,6 +1229,34 @@ class TestInternalTraceIngest:
         call_order = [name for name, _args, _kw in mock_ch.method_calls]
         assert call_order.index("insert_spans_batch") < call_order.index("insert_traces_batch")
 
+    def test_the_agent_path_stamps_agent_source(self, client, secret, mock_ch):
+        """The agent service's own path, same secret, different stored source."""
+        resp = client.post(
+            self.AGENT_URL, content=_otlp_body(), headers={"X-Internal-Secret": secret}
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        traces = mock_ch.insert_traces_batch.call_args[0][0]
+        assert spans and all(s["source"] == "agent" for s in spans)
+        assert traces and all(t["source"] == "agent" for t in traces)
+
+    def test_the_agent_path_needs_the_secret_too(self, client, mock_ch):
+        resp = client.post(self.AGENT_URL, content=_otlp_body())
+        assert resp.status_code == 403
+        mock_ch.insert_spans_batch.assert_not_called()
+
+    def test_source_header_is_ignored(self, client, secret, mock_ch):
+        """The client cannot choose its source: the path decides, a header naming
+        another source changes nothing."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret, "X-Internal-Source": "agent"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert all(s["source"] == "detector" for s in spans)
+
     def test_rejects_corrupt_gzip_body(self, client, secret, mock_ch, caplog):
         with caplog.at_level(logging.WARNING):
             resp = client.post(
@@ -1211,6 +1395,15 @@ class TestPerSpanProjectAttribution:
 # =============================================================================
 
 
+def _source_filters(sql: str) -> str:
+    """The SQL with its legitimate `source` uses (select list, GROUP BY) removed.
+
+    What is left must not mention `source`: any remaining occurrence is a WHERE
+    predicate, and a predicate on source would stop billing self-traces again.
+    """
+    return sql.replace("SELECT source,", "").replace("GROUP BY source", "")
+
+
 class TestUsageBillsEveryStoredRow:
     CH_FAMILY = "usage"
     PARAMS: typing.ClassVar[dict[str, str]] = {
@@ -1221,8 +1414,9 @@ class TestUsageBillsEveryStoredRow:
 
     def test_usage_details_counts_rows_from_every_source(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [
-            _make_query_result([(3,)], ["total"]),  # traces
-            _make_query_result([(9,)], ["total"]),  # spans
+            _make_query_result(
+                [("user", 3, 0), ("agent", 0, 9)], ["source", "traces", "spans"]
+            ),  # traces + spans, grouped by writer
             _make_query_result([(2,)], ["total"]),  # detector_runs
         ]
         resp = client.get(
@@ -1231,16 +1425,31 @@ class TestUsageBillsEveryStoredRow:
             headers={"X-Internal-Secret": secret},
         )
         assert resp.status_code == 200
-        traces_sql = mock_ch.query.call_args_list[0].args[0]
-        spans_sql = mock_ch.query.call_args_list[1].args[0]
-        runs_sql = mock_ch.query.call_args_list[2].args[0]
+        assert resp.json()["traces"] == 3 and resp.json()["spans"] == 9
+        rows_sql = mock_ch.query.call_args_list[0].args[0]
+        runs_sql = mock_ch.query.call_args_list[1].args[0]
         # Storage is billed whoever produced it, so metering must not filter on source
         # at all. Asserted rather than left to the commit message: re-adding a filter here
         # would silently stop billing self-traces again.
-        assert "source" not in traces_sql
-        assert "source" not in spans_sql
+        assert "source" not in _source_filters(rows_sql)
         # detector_runs was never filtered — it is the per-evaluation result record.
         assert "source" not in runs_sql
+
+    def test_usage_details_scans_each_table_once(self, client, mock_ch, secret):
+        """The breakdown is the count: one grouped scan per table, not a second pass."""
+        mock_ch.query.side_effect = [
+            _make_query_result([], ["source", "traces", "spans"]),
+            _make_query_result([(0,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert mock_ch.query.call_count == 2
+        rows_sql = mock_ch.query.call_args_list[0].args[0]
+        assert rows_sql.count("FROM traces") == 1 and rows_sql.count("FROM spans") == 1
 
     def test_usage_total_counts_rows_from_every_source(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [_make_query_result([(12,)], ["total"])]
@@ -1256,8 +1465,7 @@ class TestUsageBillsEveryStoredRow:
     def test_usage_bounds_are_normalized_to_utc(self, client, mock_ch, secret):
         """An aware non-UTC offset must bill the UTC instant, not the wall clock sent."""
         mock_ch.query.side_effect = [
-            _make_query_result([(1,)], ["total"]),
-            _make_query_result([(1,)], ["total"]),
+            _make_query_result([], ["source", "traces", "spans"]),
             _make_query_result([(0,)], ["total"]),
         ]
         resp = client.get(
@@ -1300,6 +1508,84 @@ class TestUsageBillsEveryStoredRow:
             headers={b"X-Internal-Secret": "sécret\xff".encode("latin-1")},
         )
         assert resp.status_code == 403
+
+    def test_non_ascii_configured_secret_matches_its_utf8_wire_bytes(
+        self, client, mock_ch, monkeypatch
+    ):
+        """The wire carries the secret's UTF-8 bytes; Starlette's latin-1 str must still match."""
+        monkeypatch.setattr(settings, "internal_api_secret", "sécret")
+        mock_ch.query.side_effect = [_make_query_result([(0,)], ["total"])]
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params=self.PARAMS,
+            headers={b"X-Internal-Secret": "sécret".encode()},
+        )
+        assert resp.status_code == 200
+
+    def test_details_totals_are_the_sum_of_the_per_source_buckets(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            _make_query_result(  # (source, traces, spans), one row per table and writer
+                [("user", 7, 0), ("detector", 3, 0), ("user", 0, 80), ("detector", 0, 20)],
+                ["source", "traces", "spans"],
+            ),
+            _make_query_result([(2,)], ["total"]),  # detector_runs
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # A row id belongs to exactly one source, so the buckets partition the total.
+        assert body["traces"] == 10 and body["spans"] == 100
+        assert body["by_source"] == {
+            "user": {"traces": 7, "spans": 80},
+            "detector": {"traces": 3, "spans": 20},
+            "agent": {"traces": 0, "spans": 0},
+        }
+        rows_sql = mock_ch.query.call_args_list[0].args[0]
+        assert "GROUP BY source" in rows_sql
+        assert "source" not in _source_filters(rows_sql)
+
+    def test_details_keeps_a_bucket_for_a_source_it_did_not_seed(self, client, mock_ch, secret):
+        """A new writer must show up, and count toward the total, without a code change."""
+        mock_ch.query.side_effect = [
+            _make_query_result([("user", 1, 0), ("digest", 4, 0)], ["source", "traces", "spans"]),
+            _make_query_result([(0,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        body = resp.json()
+        assert body["traces"] == 5
+        assert body["by_source"]["digest"] == {"traces": 4, "spans": 0}
+
+    def test_details_for_no_projects_returns_seeded_breakdown_without_querying(
+        self, client, mock_ch, secret
+    ):
+        """The projectless short-circuit must return the same shape as the
+        queried path — all three buckets present — so consumers never see two
+        shapes for one field."""
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params={**self.PARAMS, "project_ids": ""},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "traces": 0,
+            "spans": 0,
+            "detector_runs": 0,
+            "by_source": {
+                "user": {"traces": 0, "spans": 0},
+                "detector": {"traces": 0, "spans": 0},
+                "agent": {"traces": 0, "spans": 0},
+            },
+        }
+        mock_ch.query.assert_not_called()
 
 
 # =============================================================================

@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
@@ -23,7 +24,7 @@ const MAX_MANIFEST_RUNS = 2_000;
 // distribution, pass/error rates with recent failures, usage across runs and
 // evaluations, and when it was last used. Everything is DERIVED from stored data —
 // the SDK owns the scorer's definition; TraceRoot shows only what it has observed.
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId } = await params;
@@ -80,3 +81,4 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     },
   });
 }
+export const GET = withImpersonationPolicy(handleGET);

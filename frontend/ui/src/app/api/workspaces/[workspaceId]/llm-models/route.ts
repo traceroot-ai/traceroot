@@ -1,12 +1,14 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
-import { prisma, SYSTEM_MODELS, ModelSource, ADAPTER_MODELS } from "@traceroot/core";
-import type { LLMAdapter } from "@traceroot/core";
+import { listWorkspaceModels } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership, successResponse } from "@/lib/auth-helpers";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
-// GET /api/workspaces/[workspaceId]/llm-models
-export async function GET(request: NextRequest, { params }: RouteParams) {
+// GET /api/workspaces/[workspaceId]/llm-models — the models a detector (or the
+// assistant) in this workspace can run on: system providers the deployment
+// holds keys for, plus the workspace's BYOK providers and their models.
+async function handleGET(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
   const authResult = await requireAuth();
@@ -15,37 +17,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const membershipResult = await requireWorkspaceMembership(authResult.user.id, workspaceId);
   if (membershipResult.error) return membershipResult.error;
 
-  // System models: include entries where env var is set
-  const systemModels = SYSTEM_MODELS.filter((s) => !!process.env[s.envVar]).map((s) => ({
-    provider: s.provider,
-    adapter: s.piAIProvider,
-    source: ModelSource.SYSTEM,
-    models: s.models,
-  }));
-
-  // BYOK providers: only user-configured custom models
-  const dbProviders = await prisma.modelProvider.findMany({
-    where: { workspaceId, enabled: true },
-    select: {
-      adapter: true,
-      provider: true,
-      customModels: true,
-    },
-  });
-
-  const byokProviders = dbProviders.map((p) => ({
-    provider: p.provider,
-    adapter: p.adapter,
-    source: ModelSource.BYOK,
-    models: (p.customModels || [])
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .map((id) => {
-        const catalog = ADAPTER_MODELS[p.adapter as LLMAdapter];
-        const match = catalog?.find((m) => m.id === id);
-        return { id, label: id, supported: catalog ? !!match : true };
-      }),
-  }));
-
-  return successResponse({ systemModels, byokProviders });
+  return successResponse(await listWorkspaceModels(workspaceId));
 }
+export const GET = withImpersonationPolicy(handleGET);

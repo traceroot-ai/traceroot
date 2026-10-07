@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { isDecisionAdapter } from "@traceroot/core";
 import { getAvailableLLMModels } from "@/lib/api";
 import { flattenAvailableModels, pickDefaultModel } from "../lib/resolve-model";
 
@@ -28,6 +29,8 @@ interface ModelSelectorProps {
    * leave this unset and get the auto-pick.
    */
   defaultModelId?: string;
+  /** List decision models (TypeSafe); only detector pickers set it. */
+  allowDecisionModels?: boolean;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
@@ -39,6 +42,7 @@ export function ModelSelector({
   onChange,
   workspaceId,
   defaultModelId,
+  allowDecisionModels = false,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
@@ -51,7 +55,9 @@ export function ModelSelector({
   // BYOK models first, then system models. No deduplication. Only shows the
   // compiled-in fallback list while the query is still pending — once settled,
   // an empty response means the workspace genuinely has no models.
-  const models = flattenAvailableModels(data, isPending);
+  const models = flattenAvailableModels(data, isPending).filter(
+    (m) => allowDecisionModels || !isDecisionAdapter(m.adapter),
+  );
 
   // Reconcile the incoming selection against the catalog:
   //   1. exact match on (model, provider, source) → check adapter; backfill if empty/wrong

@@ -6,6 +6,7 @@ import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { createAccessKey } from "@/lib/api";
+import { ImpersonationError } from "@/lib/api/errors";
 
 interface ApiKeyBlockProps {
   projectId: string;
@@ -26,8 +27,12 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
       queryClient.invalidateQueries({ queryKey: ["traces", projectId] });
       setGeneratedKey(response.data.key);
     },
-    onError: () => {
-      setError("Failed to generate key. Please try again.");
+    onError: (error) => {
+      setError(
+        error instanceof ImpersonationError
+          ? error.message
+          : "Failed to generate key. Please try again.",
+      );
     },
   });
 

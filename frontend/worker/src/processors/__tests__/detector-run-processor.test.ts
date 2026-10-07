@@ -12,7 +12,9 @@ const {
   mockPrisma,
   mockCalculateCost,
   mockWithSelfTrace,
+  mockEnqueueSignalHits,
 } = vi.hoisted(() => ({
+  mockEnqueueSignalHits: vi.fn(),
   mockRunDetection: vi.fn(),
   mockWriteRun: vi.fn(),
   mockWriteFinding: vi.fn(),
@@ -55,6 +57,11 @@ vi.mock("../../detection/clickhouse-writer.js", () => ({
 }));
 vi.mock("../../detection/self-trace-emitter.js", () => ({
   withSelfTrace: mockWithSelfTrace,
+}));
+vi.mock("../../ee/signals/queue.js", () => ({ enqueueSignalHits: mockEnqueueSignalHits }));
+const { mockScheduleFindingDigest } = vi.hoisted(() => ({ mockScheduleFindingDigest: vi.fn() }));
+vi.mock("../../notifications/digest-schedule.js", () => ({
+  scheduleFindingDigest: mockScheduleFindingDigest,
 }));
 
 const mockFetch = vi.fn();
@@ -101,6 +108,8 @@ beforeEach(() => {
   mockCalculateCost.mockResolvedValue(0);
   mockPrisma.aIMessage.createMany.mockResolvedValue(undefined);
   mockPrisma.detectorRca.upsert.mockResolvedValue(undefined);
+  mockEnqueueSignalHits.mockResolvedValue(0);
+  mockScheduleFindingDigest.mockResolvedValue(undefined);
   // Default: tracing works — run fn once, report selfTraced, surface throws
   // as ok:false (mirrors the real withSelfTrace contract).
   lastRecordedIo = undefined;
@@ -168,7 +177,7 @@ describe("handleDetectorRunJob — quiescence gate", () => {
 });
 
 describe("processTrace — finding + RCA", () => {
-  it("writes a finding, runs, and an RCA job when a detector triggers", async () => {
+  it("writes a finding and its runs with one capture time, and starts no RCA itself", async () => {
     mockFetches(60_000, '{"span":1}\n');
     mockPrisma.detector.findMany.mockResolvedValue([
       {
@@ -180,6 +189,7 @@ describe("processTrace — finding + RCA", () => {
         detectionProvider: null,
         detectionSource: "system",
         enableRca: true,
+        enableSignals: false,
       },
     ]);
     mockRunDetection.mockResolvedValue({
@@ -200,51 +210,15 @@ describe("processTrace — finding + RCA", () => {
     // never passes a `retracted` flag anymore
     expect(mockWriteFinding.mock.calls[0][0]).not.toHaveProperty("retracted");
     expect(mockWriteRun).toHaveBeenCalled();
-    expect(mockQueueAdd).toHaveBeenCalledTimes(1); // one RCA job
+    // RCA follows signals: the assignment job starts it when a hit opens a
+    // signal. Detection itself neither seeds an RCA row nor enqueues a job.
+    expect(mockPrisma.detectorRca.upsert).not.toHaveBeenCalled();
+    expect(mockQueueAdd).not.toHaveBeenCalled();
 
-    // The finding row, its triggered run, and the RCA job that keys the digest
-    // flush all carry the SAME capture time, so the count window the flush reads
-    // matches the window the key selects (no clock-boundary skew).
+    // The finding row and its triggered run carry the SAME capture time.
     const ts = mockWriteFinding.mock.calls[0][0].timestampMs;
     expect(typeof ts).toBe("number");
     expect(mockWriteRun.mock.calls[0][0].timestampMs).toBe(ts);
-    expect(mockQueueAdd.mock.calls[0][1].findingTimestamp).toBe(ts);
-  });
-
-  it("enqueues the RCA job with retry attempts and backoff so transient agent failures retry", async () => {
-    mockFetches(60_000, '{"span":1}\n');
-    mockPrisma.detector.findMany.mockResolvedValue([
-      {
-        id: "d1",
-        name: "Slow",
-        prompt: "p",
-        outputSchema: [],
-        detectionModel: null,
-        detectionProvider: null,
-        detectionSource: "system",
-        enableRca: true,
-      },
-    ]);
-    mockRunDetection.mockResolvedValue({
-      identified: true,
-      summary: "found it",
-      data: {},
-      inferenceCost: 0,
-      inferenceInputTokens: 0,
-      inferenceOutputTokens: 0,
-      inferenceSource: "system",
-      inferenceModel: "m",
-      inferenceProvider: "anthropic",
-    });
-
-    await processTrace("t1", "p1", ["d1"]);
-
-    expect(mockQueueAdd.mock.calls[0][2]).toEqual(
-      expect.objectContaining({
-        attempts: 3,
-        backoff: { type: "exponential", delay: 10000 },
-      }),
-    );
   });
 
   it("writes no finding when nothing triggers", async () => {
@@ -392,12 +366,10 @@ describe("processTrace — self-trace emission", () => {
     expect(mockWithSelfTrace).toHaveBeenCalledTimes(1);
     const meta = mockWithSelfTrace.mock.calls[0][0];
     expect(meta.projectId).toBe("p1");
-    expect(meta.scannedTraceId).toBe("t1");
-    expect(meta.detectorId).toBe("d1");
-    expect(meta.detectorName).toBe("Slow");
-    // Dashless 32-hex — the same shape as a trace id, and the self-trace's
-    // trace_id verbatim.
-    expect(meta.runId).toMatch(/^[0-9a-f]{32}$/);
+    expect(meta.name).toBe("detector-run: Slow");
+    expect(meta.metadata).toEqual({ detectorId: "d1", detectorName: "Slow", scannedTraceId: "t1" });
+    // Dashless 32-hex — the run id verbatim, forced as the self-trace's trace_id.
+    expect(meta.traceId).toMatch(/^[0-9a-f]{32}$/);
     // The eval genuinely ran inside the wrapper.
     expect(mockRunDetection).toHaveBeenCalledTimes(1);
     expect(mockWriteRun).toHaveBeenCalledWith(expect.objectContaining({ selfTraced: true }));
@@ -470,5 +442,123 @@ describe("processTrace — self-trace emission", () => {
     expect(mockWriteRun).toHaveBeenCalledWith(
       expect.not.objectContaining({ selfTraced: expect.anything() }),
     );
+  });
+});
+
+describe("processTrace — signals call site", () => {
+  const spans = JSON.stringify({ span_id: "s", span_start_time: "2026-09-30T09:00:00" });
+
+  function triggerOne() {
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Failure",
+        prompt: "p",
+        outputSchema: [],
+        enableRca: true,
+        enableSignals: true,
+        template: "failure",
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: true,
+      summary: "tool timed out",
+      data: { tool: "search" },
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: null,
+      inferenceProvider: "anthropic",
+    });
+  }
+
+  it("enqueues assignment for the finding's triggered detectors after the finding is written", async () => {
+    mockFetches(60_000, spans);
+    triggerOne();
+    await processTrace("t1", "p1", ["d1"]);
+    expect(mockEnqueueSignalHits).toHaveBeenCalledOnce();
+    const args = mockEnqueueSignalHits.mock.calls[0][0];
+    expect(args.projectId).toBe("p1");
+    expect(args.detectors[0]).toMatchObject({ id: "d1", enableSignals: true });
+    expect(args.triggered.map((t: { detectorId: string }) => t.detectorId)).toEqual(["d1"]);
+    // The job reads hits back from ClickHouse, so they must be written first.
+    const enqueueOrder = mockEnqueueSignalHits.mock.invocationCallOrder[0];
+    const lastRunWrite = Math.max(...mockWriteRun.mock.invocationCallOrder);
+    expect(enqueueOrder).toBeGreaterThan(lastRunWrite);
+    expect(enqueueOrder).toBeGreaterThan(mockWriteFinding.mock.invocationCallOrder[0]);
+  });
+
+  it("keeps the finding when enqueueing for signals fails", async () => {
+    mockFetches(60_000, spans);
+    triggerOne();
+    mockEnqueueSignalHits.mockRejectedValueOnce(new Error("pg down"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(processTrace("t1", "p1", ["d1"])).resolves.toBeUndefined();
+    expect(mockWriteFinding).toHaveBeenCalledOnce();
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to enqueue signal assignment"),
+      expect.any(Error),
+    );
+    error.mockRestore();
+  });
+
+  it("does not queue anything when a detector with signals on evaluates clean", async () => {
+    mockFetches(60_000, spans);
+    triggerOne();
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: null,
+      inferenceProvider: "anthropic",
+    });
+    await processTrace("t1", "p1", ["d1"]);
+    expect(mockRunDetection).toHaveBeenCalledOnce();
+    expect(mockEnqueueSignalHits).not.toHaveBeenCalled();
+  });
+});
+
+describe("processTrace — notifications", () => {
+  const spans = JSON.stringify({ span_id: "s", span_start_time: "2026-09-30T09:00:00" });
+  function trigger(enableSignals: boolean) {
+    mockPrisma.detector.findMany.mockResolvedValue([
+      { id: "d1", name: "Failure", prompt: "p", outputSchema: [], enableRca: true, enableSignals },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: true,
+      summary: "tool timed out",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: null,
+      inferenceProvider: "anthropic",
+    });
+    mockPrisma.project.findUnique.mockResolvedValue({
+      workspaceId: "w1",
+      workspace: { billingPlan: "pro", detectorBlocked: false },
+    });
+  }
+
+  // Only the signal digest notifies, for new and reopened signals: a finding
+  // never schedules a per-finding notification, whatever its detector does.
+  it.each([
+    ["grouping into signals", true, "sk"],
+    ["not grouping into signals", false, "sk"],
+    ["in a deployment without the signals key", true, ""],
+  ])("schedules no per-finding notification for a detector %s", async (_, enableSignals, key) => {
+    vi.stubEnv("OPENAI_API_KEY", key);
+    mockFetches(60_000, spans);
+    trigger(enableSignals);
+    await processTrace("t1", "p1", ["d1"]);
+    expect(mockWriteFinding).toHaveBeenCalled();
+    expect(mockScheduleFindingDigest).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
   });
 });

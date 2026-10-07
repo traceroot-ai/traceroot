@@ -1,47 +1,34 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
-import { decodeJsonValue } from "@/lib/eval/json-value";
-import { TEST_CASE_ORDER } from "@/lib/eval/versions";
+import { getDatasetVersionPage } from "@/lib/eval/dataset-read";
+import { evalReadResponse } from "@/lib/eval/read-result";
 
 type RouteParams = { params: Promise<{ versionId: string }> };
 
-// GET /api/public/dataset-versions/[versionId] — SDK fetches the immutable
-// snapshot it will run against: the version plus its test-case items.
+// GET /api/public/dataset-versions/[versionId]?limit=&cursor= — SDK fetches the
+// immutable snapshot it will run against. With neither `limit` nor `cursor` that is the
+// whole version in one body, which is what the released SDKs rely on; with `limit` it is a
+// page of the cases and a cursor for the rest.
+//
+// Two layers bound `limit`, and they behave differently ON PURPOSE. The PUBLISHED contract
+// is the gateway's `Query(..., le=1000)`, which REJECTS an out-of-range value with 422 —
+// the convention every other public paged read follows, and the better answer, since a
+// caller who asked for 999999 learns their request was not honoured instead of silently
+// receiving 1000. The clamp inside the shared read (`getDatasetVersionPage`) is a BACKSTOP
+// for a request that reaches the control plane without passing the gateway (dev, or an
+// internal caller): it keeps the response bounded rather than erroring, because by that
+// point nobody is reading the status code as a contract. Once a caller asks for a page,
+// neither layer will return an unbounded one.
 export async function GET(request: Request, { params }: RouteParams) {
   const auth = await requireApiKeyProject(request);
   if (auth.error) return auth.error;
-  const { projectId } = auth;
   const { versionId } = await params;
-
-  const version = await prisma.datasetVersion.findFirst({
-    where: { id: versionId, projectId },
-    include: {
-      dataset: { select: { clientDatasetId: true } },
-      // Pulling the same version twice must yield the same order. create_time
-      // alone does not: Postgres' CURRENT_TIMESTAMP default is the transaction
-      // start time, so every case a publish writes shares one value, and among
-      // ties the row order is whatever the plan happens to produce. testCaseId
-      // is unique within a version, so it makes the order total.
-      testCases: { orderBy: TEST_CASE_ORDER },
-    },
-  });
-  if (!version) return NextResponse.json({ error: "Dataset version not found" }, { status: 404 });
-
-  return NextResponse.json({
-    dataset_version_id: version.id,
-    dataset_id: version.dataset.clientDatasetId ?? version.datasetId,
-    version_number: version.versionNumber,
-    label: version.label,
-    // input/expected are returned as NATIVE JSON values (decoded from the stored
-    // JSON-encoded text). Legacy plain-text rows fall back to the raw string.
-    items: version.testCases.map((t) => ({
-      test_case_id: t.testCaseId,
-      input: decodeJsonValue(t.input),
-      expected: t.expected === null ? null : decodeJsonValue(t.expected),
-      metadata: t.metadata,
-      source_trace_id: t.sourceTraceId,
-      source_span_id: t.sourceSpanId,
-    })),
-  });
+  const url = new URL(request.url);
+  return evalReadResponse(
+    await getDatasetVersionPage({
+      projectId: auth.projectId,
+      versionId,
+      limit: url.searchParams.get("limit"),
+      cursor: url.searchParams.get("cursor"),
+    }),
+  );
 }

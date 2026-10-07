@@ -6,6 +6,10 @@ import { createRoot, type Root } from "react-dom/client";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const navigation = { pathname: "/workspaces", params: {} as Record<string, string> };
+let sessionData: {
+  user: { role: string | null; name: string; email: string };
+  session: { impersonatedBy?: string };
+} | null = null;
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
@@ -14,7 +18,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
-    useSession: () => ({ data: null }),
+    useSession: () => ({ data: sessionData }),
     admin: { stopImpersonating: vi.fn() },
   },
 }));
@@ -40,6 +44,7 @@ describe("Sidebar", () => {
   beforeEach(() => {
     navigation.pathname = "/workspaces";
     navigation.params = {};
+    sessionData = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -115,4 +120,35 @@ describe("Sidebar", () => {
     render();
     expect(container.innerHTML).toBe("");
   });
+  it.each(["admin", "support", null, "impersonated"])(
+    "places the staff-only console in the account menu (%s)",
+    (role) => {
+      sessionData = {
+        user: {
+          role: role === "impersonated" ? "admin" : role,
+          name: "Jared",
+          email: "jared@local.dev",
+        },
+        session: { impersonatedBy: role === "impersonated" ? "staff" : undefined },
+      };
+      render();
+      expect(container.querySelector('nav a[href="/admin"]')).toBeNull();
+      expect(document.querySelector('a[href="/admin"]')).toBeNull();
+      act(() =>
+        (container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click(),
+      );
+      const link = document.querySelector('a[href="/admin"]');
+      expect(!!link).toBe(role === "admin" || role === "support");
+      const sessions = document.querySelector('a[href="/account/settings/sessions"]');
+      expect(sessions?.className).toContain("text-left");
+      expect(sessions?.firstElementChild?.tagName.toLowerCase()).toBe("svg");
+      if (link) {
+        act(() => {
+          link.addEventListener("click", (event) => event.preventDefault());
+          (link as HTMLElement).click();
+        });
+        expect(document.querySelector('a[href="/admin"]')).toBeNull();
+      }
+    },
+  );
 });

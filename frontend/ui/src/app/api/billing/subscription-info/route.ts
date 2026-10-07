@@ -1,6 +1,6 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
+import { getRequestSession } from "@/lib/request-session";
 import { prisma, getStripeOrThrow, mapPriceIdToPlan } from "@traceroot/core";
 
 export interface SubscriptionInfo {
@@ -9,9 +9,9 @@ export interface SubscriptionInfo {
   billingPeriod: { start: Date; end: Date } | null;
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await getRequestSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -104,3 +104,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Failed to get subscription info" }, { status: 500 });
   }
 }
+export const GET = withImpersonationPolicy(handleGET);

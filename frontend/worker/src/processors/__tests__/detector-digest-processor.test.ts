@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const readDetectorWindowSummary = vi.fn();
 const detectorFindMany = vi.fn();
-const projectFindUnique = vi.fn();
+const projectFindFirst = vi.fn();
 const sendDigestAlertSlack = vi.fn();
 const sendDigestAlertEmail = vi.fn();
 const generateDigestSummary = vi.fn();
@@ -15,11 +15,13 @@ vi.mock("../../detection/findings-reader.js", () => ({
 vi.mock("@traceroot/core", () => ({
   prisma: {
     detector: { findMany: (...a: any[]) => detectorFindMany(...a) },
-    project: { findUnique: (...a: any[]) => projectFindUnique(...a) },
+    project: { findFirst: (...a: any[]) => projectFindFirst(...a) },
     aIMessage: { create: (...a: any[]) => aiMessageCreate(...a) },
   },
   PlanType: { FREE: "free" },
 }));
+
+vi.mock("../../ee/signals/digest.js", () => ({ flushSignalDigest: vi.fn() }));
 
 vi.mock("../../notifications/digest-summary.js", () => ({
   generateDigestSummary: (...a: any[]) => generateDigestSummary(...a),
@@ -55,6 +57,7 @@ const PROJECT = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   readDetectorWindowSummary.mockResolvedValue({
     distinctFindingCount: 5,
     data: {
@@ -66,7 +69,7 @@ beforeEach(() => {
     { id: "d1", name: "Latency", enableRca: true },
     { id: "d2", name: "Errors", enableRca: true },
   ]);
-  projectFindUnique.mockResolvedValue(PROJECT);
+  projectFindFirst.mockResolvedValue(PROJECT);
   sendDigestAlertSlack.mockResolvedValue(undefined);
   sendDigestAlertEmail.mockResolvedValue(undefined);
   generateDigestSummary.mockResolvedValue(null);
@@ -150,7 +153,7 @@ describe("flushDigest", () => {
     expect(slackArg.total).toBe(4);
     expect(detectorFindMany).toHaveBeenCalledWith({
       where: { projectId: "p1", enableRca: true },
-      select: { id: true, name: true, enableRca: true },
+      select: { id: true, name: true, enableRca: true, enableSignals: true },
     });
     expect(readDetectorWindowSummary.mock.calls[0][3].detectorIds).toEqual(["d1"]);
   });
@@ -193,6 +196,60 @@ describe("flushDigest", () => {
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
   });
 
+  it("scopes distinct findings and triggers before excluding signal-grouped detectors", async () => {
+    detectorFindMany.mockResolvedValue([
+      { id: "d1", name: "Latency", enableRca: true, enableSignals: true },
+      { id: "d2", name: "Errors", enableRca: true, enableSignals: false },
+    ]);
+    const runs = [
+      { detectorId: "d1", findingId: "signal-only", traceId: "trace-signal" },
+      { detectorId: "d2", findingId: "legacy", traceId: "trace-legacy" },
+    ];
+    readDetectorWindowSummary.mockImplementation(async (_project, _start, _end, opts) => {
+      const eligible = runs.filter((run) => opts.detectorIds.includes(run.detectorId));
+      return {
+        distinctFindingCount: new Set(eligible.map((run) => run.findingId)).size,
+        data: Object.fromEntries(
+          eligible.map((run) => [
+            run.detectorId,
+            {
+              finding_count: 1,
+              run_count: 1,
+              sample_trace_ids: [run.traceId],
+            },
+          ]),
+        ),
+      };
+    });
+    vi.stubEnv("OPENAI_API_KEY", "configured-signals-key");
+    await run();
+    expect(readDetectorWindowSummary.mock.calls[0][3].detectorIds).toEqual(["d2"]);
+    expect(sendDigestAlertSlack.mock.calls[0][0].total).toBe(1);
+    expect(sendDigestAlertEmail.mock.calls[0][0].total).toBe(1);
+    expect(
+      sendDigestAlertSlack.mock.calls[0][0].entries.map(
+        (e: { detectorId: string }) => e.detectorId,
+      ),
+    ).toEqual(["d2"]);
+    vi.stubEnv("OPENAI_API_KEY", "");
+    sendDigestAlertSlack.mockClear();
+    await run();
+    expect(readDetectorWindowSummary.mock.calls[1][3].detectorIds).toEqual(["d1", "d2"]);
+    expect(sendDigestAlertSlack.mock.calls[0][0].total).toBe(2);
+    expect(sendDigestAlertSlack.mock.calls[0][0].entries).toHaveLength(2);
+  });
+
+  it("does not read or send a legacy digest when all detectors group into signals", async () => {
+    detectorFindMany.mockResolvedValue([
+      { id: "d1", name: "Latency", enableRca: true, enableSignals: true },
+    ]);
+    vi.stubEnv("OPENAI_API_KEY", "configured-signals-key");
+    await run();
+    expect(readDetectorWindowSummary).not.toHaveBeenCalled();
+    expect(sendDigestAlertSlack).not.toHaveBeenCalled();
+    expect(sendDigestAlertEmail).not.toHaveBeenCalled();
+  });
+
   it("sends nothing when no detector has findings in the window", async () => {
     readDetectorWindowSummary.mockResolvedValue({
       distinctFindingCount: 0,
@@ -225,7 +282,7 @@ describe("flushDigest", () => {
   });
 
   it("skips Slack when no channel is configured but still emails", async () => {
-    projectFindUnique.mockResolvedValue({
+    projectFindFirst.mockResolvedValue({
       ...PROJECT,
       alertConfig: { emailAddresses: ["a@example.com"], slackChannelId: null },
       workspace: { id: "ws1", slackIntegration: null },
@@ -238,9 +295,14 @@ describe("flushDigest", () => {
   });
 
   it("returns without sending when the project is gone", async () => {
-    projectFindUnique.mockResolvedValue(null);
+    projectFindFirst.mockResolvedValue(null);
 
     await run();
+
+    // A soft-deleted project counts as gone.
+    expect(projectFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: expect.any(String), deleteTime: null } }),
+    );
 
     expect(readDetectorWindowSummary).not.toHaveBeenCalled(); // resolved first, bailed before the summary read
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
@@ -248,7 +310,7 @@ describe("flushDigest", () => {
   });
 
   it("short-circuits before reading counts when the project has no channels", async () => {
-    projectFindUnique.mockResolvedValue({
+    projectFindFirst.mockResolvedValue({
       name: "Acme Corp",
       alertConfig: { emailAddresses: [], slackChannelId: null },
       workspace: { id: "ws1", slackIntegration: null },
@@ -304,6 +366,79 @@ describe("flushDigest", () => {
         cost: 0.001,
       }),
     });
+    // No self-trace was emitted for this flush: nothing to store.
+    expect(aiMessageCreate.mock.calls[0][0].data).not.toHaveProperty("metadata");
+  });
+
+  it("stores the flush's trace id on the digest-summary row, so the trace can be found later", async () => {
+    detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
+    generateDigestSummary.mockResolvedValue({
+      summary: "Payments API is down.",
+      usage: {
+        model: "claude-haiku-4-5",
+        provider: "anthropic",
+        isByok: false,
+        inputTokens: 900,
+        outputTokens: 60,
+        cost: 0.001,
+      },
+      trace: { traceId: "f".repeat(32) },
+    });
+    await run();
+    expect(aiMessageCreate.mock.calls[0][0].data.metadata).toEqual({
+      traceId: "f".repeat(32),
+      traceStatus: "available",
+    });
+  });
+
+  it("keeps the trace id of a flush that produced no summary, and still sends the digest", async () => {
+    // The failing attempt emitted a trace and was billed for it; the row exists
+    // purely so that trace is reachable afterwards.
+    detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
+    generateDigestSummary.mockResolvedValue({
+      summary: null,
+      failure: "timeout",
+      trace: { traceId: "a".repeat(32) },
+    });
+    await run();
+    expect(sendDigestAlertSlack.mock.calls[0][0].summary).toBeUndefined();
+    expect(sendDigestAlertEmail.mock.calls[0][0].summary).toBeUndefined();
+    expect(aiMessageCreate.mock.calls[0][0].data.metadata).toEqual({
+      traceId: "a".repeat(32),
+      traceStatus: "available",
+      failure: "timeout",
+    });
+    // Nothing resolved, so the row carries no model or usage.
+    expect(aiMessageCreate.mock.calls[0][0].data).toMatchObject({
+      model: null,
+      provider: null,
+      inputTokens: null,
+      cost: null,
+    });
+  });
+
+  it("records the usage a summaryless attempt still burned", async () => {
+    detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
+    generateDigestSummary.mockResolvedValue({
+      summary: null,
+      failure: "no-summary",
+      trace: { traceId: "b".repeat(32) },
+      usage: {
+        model: "claude-haiku-4-5",
+        provider: "anthropic",
+        isByok: false,
+        inputTokens: 900,
+        outputTokens: 60,
+        cost: 0.001,
+      },
+    });
+    await run();
+    expect(aiMessageCreate.mock.calls[0][0].data).toMatchObject({
+      kind: "digest-summary",
+      model: "claude-haiku-4-5",
+      cost: 0.001,
+    });
+    expect(aiMessageCreate.mock.calls[0][0].data.metadata).toMatchObject({ failure: "no-summary" });
   });
 
   it("sends the digest unchanged when summary generation returns null", async () => {
@@ -315,7 +450,7 @@ describe("flushDigest", () => {
   });
 
   it("skips summary generation entirely for rca-blocked free workspaces", async () => {
-    projectFindUnique.mockResolvedValue({
+    projectFindFirst.mockResolvedValue({
       ...PROJECT,
       workspace: { ...PROJECT.workspace, billingPlan: "free", rcaBlocked: true },
     });

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import type { AIMessage } from "../types";
+import { proposalDeclined } from "../utils/proposal-declined";
+import type { AIMessage, PendingConfirmation } from "../types";
 
 /** Generate a UUID that works in both secure (HTTPS) and insecure (HTTP) contexts. */
 function generateId(): string {
@@ -15,16 +16,253 @@ function generateId(): string {
   });
 }
 
-export function useAIStream() {
-  const [messages, setMessages] = useState<AIMessage[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
-  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
-  // Bumped on send AND on abort — invalidates in-flight setMessages from prior streams.
-  const generationRef = useRef(0);
-  // Bumped only on send — finally checks this to distinguish "I was aborted"
-  // from "a newer send superseded me" (only the latter must skip cleanup).
-  const latestSendRef = useRef(0);
+/**
+ * Settle a message list whose run is over: freeze any still-streaming bubbles
+ * and release any parked tool step as skipped. A parked call cannot outlive
+ * its run — the server releases it as a skip the moment the stream drops or
+ * the run fails — so a card left pending here would keep offering a decision
+ * nothing can deliver (and keep the input in "reply to revise" mode).
+ */
+function frozen(messages: AIMessage[]): AIMessage[] {
+  return messages.map((m) => {
+    if (m.toolStep?.pending !== undefined) {
+      return {
+        ...m,
+        isStreaming: false,
+        toolStep: {
+          ...m.toolStep,
+          pending: undefined,
+          skipped: true,
+          status: "done" as const,
+        },
+      };
+    }
+    return m.isStreaming ? { ...m, isStreaming: false } : m;
+  });
+}
+
+interface SessionRun {
+  abortController: AbortController;
+  reader: ReadableStreamDefaultReader<Uint8Array> | null;
+  /** Set by stopRun (superseded or aborted): the run's bucket writes are void
+   *  from then on. A run that merely finished deregisters itself without it,
+   *  so its final updates (freezing its bubble) still count. */
+  stopped: boolean;
+  /** Resolves once the run is over — finished, superseded or aborted — for a
+   *  caller that must not open the session's next turn while this one is
+   *  live. */
+  settled: Promise<void>;
+  settle: () => void;
+}
+
+/**
+ * A finished tool call observed on a live stream: the call's result, handed
+ * to the caller so it can refresh whatever cache the write just made stale.
+ */
+export interface LiveToolResult {
+  result: unknown;
+}
+
+export interface UseAIStreamOptions {
+  /**
+   * Called for each tool_execution_end on a run that still owns its session
+   * (superseded and aborted runs never fire it). Lets the caller react to
+   * live tool results — e.g. refresh caches a write just made stale.
+   */
+  onToolResult?: (event: LiveToolResult) => void;
+}
+
+/**
+ * Streams agent responses into per-session message buckets.
+ *
+ * Every state element is keyed by sessionId so an in-flight SSE run keeps
+ * writing to the session it belongs to — switching the visible session can
+ * never make another session's deltas bleed into the current view, and a
+ * still-running session shows its accumulated progress when the user returns
+ * to it.
+ */
+export function useAIStream(options?: UseAIStreamOptions) {
+  const [messagesBySession, setMessagesBySession] = useState<Record<string, AIMessage[]>>({});
+  const [streamingSessions, setStreamingSessions] = useState<Record<string, boolean>>({});
+  const runsRef = useRef<Map<string, SessionRun>>(new Map());
+  // Per-session write epoch, bumped by every send: a history load carries the
+  // epoch it began under, and one older than the latest send is stale even
+  // after that run has finished (it would restore the transcript from before).
+  const writeEpochRef = useRef<Map<string, number>>(new Map());
+  // Sessions no send or removal has touched sit at a shared baseline. Clearing every
+  // bucket raises the baseline past every epoch, so a load that began before
+  // the clear mismatches afterwards whether or not its session was known.
+  const baseEpochRef = useRef(0);
+  const epochOf = (sessionId: string) =>
+    writeEpochRef.current.get(sessionId) ?? baseEpochRef.current;
+  const bumpWriteEpoch = (sessionId: string) =>
+    writeEpochRef.current.set(sessionId, epochOf(sessionId) + 1);
+  // Ref so the stream loop always sees the latest callback without resubscribing.
+  const onToolResultRef = useRef(options?.onToolResult);
+  onToolResultRef.current = options?.onToolResult;
+
+  const updateBucket = useCallback(
+    (sessionId: string, updater: (prev: AIMessage[]) => AIMessage[]) => {
+      setMessagesBySession((prev) => ({ ...prev, [sessionId]: updater(prev[sessionId] ?? []) }));
+    },
+    [],
+  );
+
+  /** Cancel a session's in-flight run (reader + fetch). State cleanup is the caller's job. */
+  const stopRun = useCallback((sessionId: string) => {
+    const run = runsRef.current.get(sessionId);
+    if (!run) return;
+    run.stopped = true;
+    runsRef.current.delete(sessionId);
+    run.reader?.cancel().catch(() => {});
+    run.abortController.abort();
+    run.settle();
+  }, []);
+
+  const clearStreamingFlag = useCallback((sessionId: string) => {
+    setStreamingSessions((prev) => {
+      if (!(sessionId in prev)) return prev;
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+  }, []);
+
+  const abortSession = useCallback(
+    (sessionId: string) => {
+      stopRun(sessionId);
+      clearStreamingFlag(sessionId);
+      updateBucket(sessionId, frozen);
+    },
+    [stopRun, clearStreamingFlag, updateBucket],
+  );
+
+  const abortAll = useCallback(() => {
+    for (const sessionId of [...runsRef.current.keys()]) stopRun(sessionId);
+    setStreamingSessions({});
+    setMessagesBySession((prev) =>
+      Object.fromEntries(Object.entries(prev).map(([id, msgs]) => [id, frozen(msgs)])),
+    );
+  }, [stopRun]);
+
+  const clearAll = useCallback(() => {
+    // Dropping a bucket is a write too: a history load still in flight for
+    // it must not bring it back.
+    baseEpochRef.current = Math.max(baseEpochRef.current, ...writeEpochRef.current.values()) + 1;
+    writeEpochRef.current.clear();
+    setMessagesBySession({});
+    setStreamingSessions({});
+  }, []);
+
+  /** The session's current write epoch; snapshot it when a history load begins. */
+  const sessionWriteEpoch = useCallback((sessionId: string) => epochOf(sessionId), []);
+
+  /**
+   * Replace a session's cached messages (history loads) — unless a run owns
+   * the session, or the load began before the latest send (`asOf`, the epoch
+   * snapshot the caller took). A history request that resolves after a send
+   * would otherwise overwrite the live bucket, or the finished transcript,
+   * with the state from before it. Checked inside the updater, since a run
+   * can start between scheduling and evaluation. Both checks are needed: a
+   * snapshot taken while a run is live shares that run's epoch.
+   */
+  const setSessionMessages = useCallback(
+    (sessionId: string, messages: AIMessage[], asOf: number) => {
+      setMessagesBySession((prev) => {
+        if (runsRef.current.has(sessionId)) return prev;
+        if (asOf !== epochOf(sessionId)) return prev;
+        return { ...prev, [sessionId]: messages };
+      });
+    },
+    [],
+  );
+
+  /**
+   * Locally resolve a parked call once its decision was accepted server-side.
+   * Create reverts the step to the plain running line (the tool now actually
+   * executes; its result arrives on the stream as usual); skip collapses it to
+   * the skipped line immediately, ahead of the declined result. The chat-revise
+   * path also passes "skip": a provisional collapse that the declined result's
+   * proposal_declined details relabel as revised once it lands.
+   */
+  const resolvePendingDecision = useCallback(
+    (sessionId: string, toolCallId: string, action: "create" | "skip") => {
+      updateBucket(sessionId, (prev) =>
+        prev.map((m) =>
+          m.id === toolCallId && m.toolStep?.pending !== undefined
+            ? {
+                ...m,
+                toolStep: {
+                  ...m.toolStep,
+                  pending: undefined,
+                  skipped: action === "skip" ? true : m.toolStep.skipped,
+                },
+              }
+            : m,
+        ),
+      );
+    },
+    [updateBucket],
+  );
+
+  /**
+   * Append a locally-authored user bubble to a session's bucket without
+   * starting a run. Used when the user's message resolves a parked decision
+   * as a revision: the words reach the model through the declined tool result
+   * on the already-open turn, but they are still the user's message and
+   * belong in the transcript.
+   */
+  const appendUserMessage = useCallback(
+    (sessionId: string, content: string) => {
+      updateBucket(sessionId, (prev) => [
+        ...prev,
+        {
+          id: generateId(),
+          role: "user" as const,
+          content,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+    },
+    [updateBucket],
+  );
+
+  /**
+   * Synchronous truth for "does this session have a live run?". Unlike the
+   * streamingSessions state (which lags until the next render), runsRef is
+   * registered before sendMessage's first await, so callers racing a send —
+   * e.g. a history fetch resolving after the user sent a message — get an
+   * exact answer.
+   */
+  const isSessionStreaming = useCallback((sessionId: string) => runsRef.current.has(sessionId), []);
+
+  /**
+   * Resolves once no run owns the session: at once when none does, otherwise
+   * when the live one finishes, is superseded, or is aborted. The service
+   * admits one run per session, so a caller with a message that must follow
+   * the current run — rather than be refused by it — waits on this.
+   */
+  const runSettled = useCallback(
+    (sessionId: string): Promise<void> =>
+      runsRef.current.get(sessionId)?.settled ?? Promise.resolve(),
+    [],
+  );
+
+  /** Drop a session entirely (delete): cancel its run and forget its bucket. */
+  const removeSession = useCallback(
+    (sessionId: string) => {
+      stopRun(sessionId);
+      clearStreamingFlag(sessionId);
+      bumpWriteEpoch(sessionId);
+      setMessagesBySession((prev) => {
+        if (!(sessionId in prev)) return prev;
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
+    },
+    [stopRun, clearStreamingFlag],
+  );
 
   const sendMessage = useCallback(
     async (params: {
@@ -36,17 +274,35 @@ export function useAIStream() {
       source?: "system" | "byok";
       traceId?: string;
       traceSessionId?: string;
+      /** The page's selected time range: the default window for the agent's dashboard reads. */
+      range?: string;
+      start_time?: string;
+      end_time?: string;
     }) => {
-      const myGen = ++generationRef.current;
-      latestSendRef.current = myGen;
-      const safeSetMessages: typeof setMessages = (updater) => {
-        if (generationRef.current !== myGen) return;
-        setMessages(updater);
-      };
+      const { sessionId } = params;
+      bumpWriteEpoch(sessionId);
 
-      // Cancel any prior in-flight stream so its tail chunks can't race with this run.
-      readerRef.current?.cancel();
-      abortRef.current?.abort();
+      // Single-flight per session: cancel a prior run in THIS session only.
+      // Runs in other sessions keep streaming into their own buckets.
+      stopRun(sessionId);
+
+      const abortController = new AbortController();
+      let settle!: () => void;
+      const settled = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+      const run: SessionRun = { abortController, reader: null, stopped: false, settled, settle };
+      runsRef.current.set(sessionId, run);
+
+      // Void once stopRun has marked this run stopped — superseded/aborted
+      // runs' buffered chunks become no-ops. Checked inside the updater too,
+      // not only before scheduling it: React may evaluate a queued updater
+      // after a newer run has taken the session or after abort cleared the
+      // bucket, and a stale one must then leave that bucket alone.
+      const safeUpdate = (updater: (prev: AIMessage[]) => AIMessage[]) => {
+        if (run.stopped) return;
+        updateBucket(sessionId, (prev) => (run.stopped ? prev : updater(prev)));
+      };
 
       // Bubble tracking is local to this run so superseded streams cannot
       // mutate the live run's state via shared refs.
@@ -59,16 +315,17 @@ export function useAIStream() {
         content: params.message,
         timestamp: new Date().toISOString(),
       };
-      safeSetMessages((prev) => [...prev, userMsg]);
+      // Freeze any bubble a superseded run left open, then append the user turn.
+      safeUpdate((prev) => [...frozen(prev), userMsg]);
 
-      setIsStreaming(true);
+      setStreamingSessions((prev) => ({ ...prev, [sessionId]: true }));
 
       // Opens a new streaming assistant text bubble and returns its id.
       // Subsequent text deltas append to this bubble until it is frozen.
       const openTextBubble = (): string => {
         const id = generateId();
         currentTextId = id;
-        safeSetMessages((prev) => [
+        safeUpdate((prev) => [
           ...prev,
           {
             id,
@@ -87,7 +344,7 @@ export function useAIStream() {
         const frozenId = currentTextId;
         lastFrozenId = frozenId;
         currentTextId = null;
-        safeSetMessages((prev) =>
+        safeUpdate((prev) =>
           prev.map((m) => (m.id === frozenId ? { ...m, isStreaming: false } : m)),
         );
       };
@@ -95,20 +352,28 @@ export function useAIStream() {
       // Helper: show an error in the current bubble or open a new one.
       const showError = (errorMessage: string) => {
         const targetId = currentTextId ?? openTextBubble();
-        safeSetMessages((prev) =>
+        safeUpdate((prev) =>
           prev.map((m) =>
-            m.id === targetId ? { ...m, content: `Error: ${errorMessage}`, isStreaming: false } : m,
+            m.id === targetId
+              ? {
+                  ...m,
+                  // Append rather than replace: the persisted transcript keeps
+                  // whatever the assistant already said, so a bubble that drops
+                  // it would not survive a reload of the same session.
+                  content: m.content
+                    ? `${m.content}\n\nError: ${errorMessage}`
+                    : `Error: ${errorMessage}`,
+                  isStreaming: false,
+                }
+              : m,
           ),
         );
         currentTextId = null;
       };
 
-      const abortController = new AbortController();
-      abortRef.current = abortController;
-
       try {
         // Goes through Next.js proxy which handles auth + adds headers
-        const url = `/api/projects/${params.projectId}/ai/sessions/${params.sessionId}/messages`;
+        const url = `/api/projects/${params.projectId}/ai/sessions/${sessionId}/messages`;
         const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -119,6 +384,9 @@ export function useAIStream() {
             source: params.source,
             traceId: params.traceId,
             traceSessionId: params.traceSessionId,
+            range: params.range,
+            start_time: params.start_time,
+            end_time: params.end_time,
           }),
           signal: abortController.signal,
         });
@@ -131,9 +399,14 @@ export function useAIStream() {
         if (!response.body) throw new Error("No response body");
 
         const reader = response.body.getReader();
-        readerRef.current = reader;
+        run.reader = reader;
         const decoder = new TextDecoder();
         let buffer = "";
+        // Name from the preceding `event:` line, consumed by the next `data:`
+        // line. The agent's final trace event is a NAMED event whose payload
+        // has no `type` field, so without this it would be silently skipped
+        // and the live turn's steps would never grow their "Open span" links.
+        let namedEvent = "";
 
         while (true) {
           const { done, value } = await reader.read();
@@ -144,9 +417,41 @@ export function useAIStream() {
           buffer = lines.pop() || "";
 
           for (const line of lines) {
+            // A blank line ends the SSE event: a name with no data line of
+            // its own must not leak onto the next event's data.
+            if (line === "") {
+              namedEvent = "";
+              continue;
+            }
+            if (line.startsWith("event: ")) {
+              namedEvent = line.slice(7).trim();
+              continue;
+            }
             if (line.startsWith("data: ")) {
+              // The name is consumed by this data line whether or not it
+              // parses (`event: error` can carry a raw string).
+              const eventName = namedEvent;
+              namedEvent = "";
               try {
                 const eventData = JSON.parse(line.slice(6));
+
+                if (eventName === "trace") {
+                  // {status, traceId} — same fields the persisted row carries,
+                  // so the reloaded session renders the identical footer link.
+                  if (eventData.traceId && eventData.status !== "disabled") {
+                    const lastId = currentTextId ?? lastFrozenId;
+                    if (lastId) {
+                      safeUpdate((prev) =>
+                        prev.map((m) =>
+                          m.id === lastId
+                            ? { ...m, traceId: eventData.traceId, traceStatus: eventData.status }
+                            : m,
+                        ),
+                      );
+                    }
+                  }
+                  continue;
+                }
 
                 if (eventData.type === "message_update") {
                   const delta = eventData.assistantMessageEvent;
@@ -155,7 +460,7 @@ export function useAIStream() {
                     // Open a new bubble if there isn't one (first text, or post-tool text)
                     if (!currentTextId) openTextBubble();
                     const targetId = currentTextId!;
-                    safeSetMessages((prev) =>
+                    safeUpdate((prev) =>
                       prev.map((msg) =>
                         msg.id === targetId ? { ...msg, content: msg.content + delta.delta } : msg,
                       ),
@@ -165,7 +470,7 @@ export function useAIStream() {
                   if (delta?.type === "thinking_delta" && delta.delta) {
                     if (!currentTextId) openTextBubble();
                     const targetId = currentTextId!;
-                    safeSetMessages((prev) =>
+                    safeUpdate((prev) =>
                       prev.map((msg) =>
                         msg.id === targetId
                           ? { ...msg, thinking: (msg.thinking ?? "") + delta.delta }
@@ -186,7 +491,7 @@ export function useAIStream() {
                   if (msg?.usage) {
                     const lastId = currentTextId ?? lastFrozenId;
                     if (lastId) {
-                      safeSetMessages((prev) =>
+                      safeUpdate((prev) =>
                         prev.map((m) =>
                           m.id === lastId
                             ? {
@@ -219,11 +524,69 @@ export function useAIStream() {
                       status: "running",
                     },
                   };
-                  safeSetMessages((prev) => [...prev, toolStepMsg]);
+                  safeUpdate((prev) => [...prev, toolStepMsg]);
+                }
+
+                // A confirm- or approval-class write was parked: mark its tool
+                // step pending so the panel can offer the decision. The step normally exists
+                // already (tool_execution_start precedes the park); if the
+                // start event was missed, the entry is appended whole. Keyed by
+                // toolCallId, a superseding event replaces the pending entry in
+                // place — one call can never show two pending cards.
+                if (eventData.type === "confirmation_pending") {
+                  // The class decides the card and what a reply does; only
+                  // the two known values are carried, so a future one cannot
+                  // reach the composer as a string it never checks.
+                  const approvalClass = eventData.approvalClass;
+                  const pending: PendingConfirmation = {
+                    decisionId: eventData.decisionId,
+                    ...(approvalClass === "confirm" || approvalClass === "approval"
+                      ? { approvalClass }
+                      : {}),
+                  };
+                  safeUpdate((prev) => {
+                    if (prev.some((m) => m.id === eventData.toolCallId)) {
+                      return prev.map((m) =>
+                        m.id === eventData.toolCallId
+                          ? { ...m, toolStep: { ...m.toolStep!, pending } }
+                          : m,
+                      );
+                    }
+                    return [
+                      ...prev,
+                      {
+                        id: eventData.toolCallId,
+                        role: "tool_step" as const,
+                        content: "",
+                        timestamp: new Date().toISOString(),
+                        toolStep: {
+                          toolCallId: eventData.toolCallId,
+                          toolName: eventData.toolName,
+                          args: eventData.args ?? {},
+                          status: "running" as const,
+                          pending,
+                        },
+                      },
+                    ];
+                  });
                 }
 
                 if (eventData.type === "tool_execution_end") {
-                  safeSetMessages((prev) =>
+                  if (!run.stopped) {
+                    onToolResultRef.current?.({ result: eventData.result });
+                  }
+                  // A declined proposal's result names its outcome in its
+                  // structured details — authoritative when present (it can
+                  // correct the provisional skip mark the chat-revise path
+                  // set locally). Every decline the server sends carries
+                  // them, so an error WITHOUT details is a real failure even
+                  // if it lands on a step still marked pending: a confirmed
+                  // write that fails fast delivers its result before the
+                  // create decision's response clears `pending` locally, and
+                  // must not read as "skipped". A step no longer pending
+                  // keeps the skipped mark from the local skip that cleared it.
+                  const declined = proposalDeclined(eventData.result);
+                  safeUpdate((prev) =>
                     prev.map((m) =>
                       m.id === eventData.toolCallId
                         ? {
@@ -233,6 +596,15 @@ export function useAIStream() {
                               result: eventData.result,
                               isError: eventData.isError,
                               status: eventData.isError ? ("error" as const) : ("done" as const),
+                              // The result resolves the parked decision.
+                              pending: undefined,
+                              skipped: declined
+                                ? declined.outcome === "skipped" || undefined
+                                : m.toolStep!.skipped || undefined,
+                              revisedText:
+                                declined?.outcome === "revised"
+                                  ? (declined.text ?? "")
+                                  : m.toolStep!.revisedText,
                             },
                           }
                         : m,
@@ -244,6 +616,9 @@ export function useAIStream() {
                   const errorMsg =
                     eventData.message || eventData.error?.errorMessage || "Unknown error";
                   showError(errorMsg);
+                  // The run is dead: the server released its parked call as
+                  // a skip before sending this, so the card goes with it.
+                  safeUpdate(frozen);
                 }
               } catch {
                 // Skip unparseable lines
@@ -257,35 +632,47 @@ export function useAIStream() {
           showError((error as Error).message || "Failed to get response.");
         }
       } finally {
-        // Freeze the last open bubble (if streaming was cut short).
+        // Freeze the last open bubble (if streaming was cut short) and
+        // release any step still parked — a finished run cannot deliver a
+        // decision, and the server has already skipped it.
         freezeCurrentBubble();
-        // Skip cleanup if a newer send already began — would clobber its state.
-        if (latestSendRef.current === myGen) {
-          setIsStreaming(false);
-          abortRef.current = null;
-          readerRef.current = null;
+        safeUpdate(frozen);
+        // Skip cleanup if a newer run owns this session — would clobber its state.
+        if (runsRef.current.get(sessionId) === run) {
+          runsRef.current.delete(sessionId);
+          clearStreamingFlag(sessionId);
         }
+        run.settle();
       }
     },
-    [],
+    [stopRun, updateBucket, clearStreamingFlag],
   );
 
-  const abort = useCallback(() => {
-    // Bump first so chunks still buffered in the stream loop noop via safeSetMessages.
-    generationRef.current++;
-    readerRef.current?.cancel();
-    abortRef.current?.abort();
-  }, []);
-
   // Defensive cleanup: if the host component truly unmounts (logout, tab
-  // close, hard route swap), abort any in-flight stream so we don't leak the
-  // SSE connection or keep burning LLM tokens after the UI is gone.
+  // close, hard route swap), abort every in-flight stream so we don't leak
+  // SSE connections or keep burning LLM tokens after the UI is gone.
   useEffect(() => {
+    const runs = runsRef.current;
+    // stopRun marks each run stopped before aborting it: an event already
+    // buffered must not reach the tool callback or write state after teardown.
     return () => {
-      readerRef.current?.cancel();
-      abortRef.current?.abort();
+      for (const sessionId of [...runs.keys()]) stopRun(sessionId);
     };
-  }, []);
+  }, [stopRun]);
 
-  return { messages, isStreaming, sendMessage, abort, setMessages };
+  return {
+    messagesBySession,
+    streamingSessions,
+    isSessionStreaming,
+    runSettled,
+    sendMessage,
+    setSessionMessages,
+    sessionWriteEpoch,
+    appendUserMessage,
+    resolvePendingDecision,
+    abortSession,
+    abortAll,
+    clearAll,
+    removeSession,
+  };
 }

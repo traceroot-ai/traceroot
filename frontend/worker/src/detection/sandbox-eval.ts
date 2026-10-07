@@ -10,8 +10,14 @@ import {
   isSystemModelId,
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
-import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
+import {
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  isDecisionAdapter,
+  LLMAdapter,
+} from "@traceroot/core/llm-providers";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
+import { runJevDetection, JEV_DEFAULT_MODEL_ID } from "./jev-eval.js";
+import { usageFromError } from "./typesafe-client.js";
 
 export interface DetectorConfig {
   id: string;
@@ -21,6 +27,7 @@ export interface DetectorConfig {
   detectionModel?: string | null;
   detectionProvider?: string | null;
   detectionSource?: "system" | "byok" | null;
+  template?: string | null;
 }
 
 export interface EvalResult {
@@ -159,6 +166,31 @@ export async function runDetectionForTrace(params: {
         `BYOK provider "${detector.detectionProvider}" not found or disabled in workspace settings`,
         source,
       );
+    }
+    // A decision-model provider (TypeSafe) is judged by Jev, not a chat LLM.
+    if (isDecisionAdapter(providerConfig.adapter)) {
+      try {
+        return await runJevDetection({
+          spansJsonl,
+          detector,
+          providerConfig,
+          timeoutMs: parseDetectorEvalTimeoutMs(process.env.DETECTOR_EVAL_TIMEOUT_MS),
+        });
+      } catch (err) {
+        // TypeSafe bills a 200 whose answers we then reject, and the thrown
+        // error carries those tokens. Attribute them as the LLM path does, so
+        // the billed call still gets a usage row instead of being dropped.
+        const usage = usageFromError(err);
+        return errorResult(
+          err instanceof Error ? err.message : String(err),
+          source,
+          0,
+          usage?.inputTokens ?? 0,
+          usage?.outputTokens ?? 0,
+          usage ? detector.detectionModel || JEV_DEFAULT_MODEL_ID : null,
+          usage ? LLMAdapter.TYPESAFE : null,
+        );
+      }
     }
   }
 

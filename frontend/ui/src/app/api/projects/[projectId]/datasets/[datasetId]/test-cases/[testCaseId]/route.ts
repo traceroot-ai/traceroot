@@ -1,3 +1,4 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, Role, UpdateTestCaseRequestSchema } from "@traceroot/core";
 import {
@@ -16,7 +17,7 @@ type RouteParams = {
 // PATCH — edit a test case. This publishes a NEW dataset version (the historical
 // snapshot a run pinned is never rewritten). Editing content returns a "ready"
 // case to "needs_review" unless the caller sets review explicitly.
-export async function PATCH(req: NextRequest, { params }: RouteParams) {
+async function handlePATCH(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, datasetId, testCaseId } = await params;
@@ -100,7 +101,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 // DELETE — remove a test case. Like PATCH, this publishes a NEW dataset version
 // with the case dropped; earlier snapshots (and any run pinned to them) keep it,
 // so a delete is recoverable by viewing/branching an older version.
-export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+async function handleDELETE(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, datasetId, testCaseId } = await params;
@@ -141,3 +142,5 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     throw err;
   }
 }
+export const PATCH = withImpersonationPolicy(handlePATCH);
+export const DELETE = withImpersonationPolicy(handleDELETE);

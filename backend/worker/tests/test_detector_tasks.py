@@ -1,6 +1,8 @@
 """Tests for detector trigger condition evaluation."""
 
-from worker.detector_tasks import _eval_condition, _passes_trigger
+from unittest.mock import MagicMock, patch
+
+from worker.detector_tasks import _eval_condition, _get_trace_summaries, _passes_trigger
 
 # ── Tests for _eval_condition ──────────────────────────────────────
 
@@ -164,3 +166,18 @@ def test_passes_trigger_single_condition_passes():
     trace_summary = {"cost": 100.0}
     conditions = [{"field": "cost", "op": ">", "value": 50.0}]
     assert _passes_trigger(trace_summary, conditions) is True
+
+
+# ── Fail-closed source guard ───────────────────────────────────────
+
+
+def test_trace_summaries_query_scopes_to_user_source():
+    """The judge's read names the one source that IS customer traffic, never the
+    fail-open inequality against the detector marker."""
+    ch = MagicMock()
+    ch.query.return_value = MagicMock(result_rows=[])
+    with patch("db.clickhouse.client.get_clickhouse_client", return_value=ch):
+        _get_trace_summaries("p1", ["t1"], include_trace_metadata=False)
+    sql = ch.query.call_args_list[0].args[0]
+    assert "AND source = 'user'" in sql
+    assert "!= 'detector'" not in sql

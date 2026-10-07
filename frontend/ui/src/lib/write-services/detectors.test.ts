@@ -1,0 +1,565 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  DEFAULT_DETECTOR_SAMPLE_RATE,
+  DETECTOR_TEMPLATES,
+  getTemplate,
+} from "@/features/detectors/templates";
+
+// The transaction client and the root client carry separate auditLog mocks so
+// the tests can tell which one the audit row was written through.
+const { tx, root, listWorkspaceModels } = vi.hoisted(() => ({
+  tx: {
+    project: { findUnique: vi.fn() },
+    workspaceMember: { findUnique: vi.fn() },
+    detector: { findFirst: vi.fn(), create: vi.fn() },
+    auditLog: { create: vi.fn() },
+  },
+  root: { auditLog: { create: vi.fn() }, detector: { findFirst: vi.fn() } },
+  listWorkspaceModels: vi.fn(),
+}));
+vi.mock("@traceroot/core", async (importOriginal) => {
+  const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
+  // The model check itself is real: these tests pin that the service reads the
+  // workspace's list through the transaction and turns a problem into a 400.
+  const { detectorModelProblem } = await importOriginal<typeof import("@traceroot/core")>();
+  return {
+    prisma: {
+      $transaction: (fn: (t: unknown) => unknown) => fn(tx),
+      auditLog: root.auditLog,
+      detector: root.detector,
+    },
+    Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
+    hasMinRole: (userRole: string, minRole: string) =>
+      ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
+    detectorModelProblem,
+    listWorkspaceModels,
+  };
+});
+import { createDetector } from "./detectors";
+
+const baseInput = {
+  actorUserId: "u1",
+  projectId: "p1",
+  name: "Latency spike",
+  template: "custom",
+  prompt: "Find traces with slow spans",
+  provenance: { transport: "public-api" as const },
+};
+
+function run(overrides: Record<string, unknown> = {}) {
+  return createDetector({
+    ...baseInput,
+    ...overrides,
+  } as Parameters<typeof createDetector>[0]);
+}
+
+function mockAccess(role = "MEMBER") {
+  tx.project.findUnique.mockResolvedValue({ workspaceId: "w1", deleteTime: null });
+  tx.workspaceMember.findUnique.mockResolvedValue({ role });
+}
+
+const createdRow = {
+  id: "d1",
+  name: "Latency spike",
+  projectId: "p1",
+  enabled: true,
+  sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
+};
+
+beforeEach(() => {
+  tx.project.findUnique.mockReset();
+  tx.workspaceMember.findUnique.mockReset();
+  tx.detector.findFirst.mockReset();
+  tx.detector.create.mockReset();
+  tx.auditLog.create.mockReset();
+  tx.auditLog.create.mockResolvedValue({});
+  root.auditLog.create.mockReset();
+  root.auditLog.create.mockResolvedValue({});
+  root.detector.findFirst.mockReset();
+  listWorkspaceModels.mockReset();
+  listWorkspaceModels.mockResolvedValue({
+    systemModels: [
+      {
+        provider: "Anthropic",
+        adapter: "anthropic",
+        source: "system",
+        models: [{ id: "claude-haiku-4-5", label: "claude-haiku-4-5" }],
+      },
+    ],
+    byokProviders: [
+      {
+        provider: "My OpenAI",
+        adapter: "openai",
+        source: "byok",
+        models: [{ id: "gpt-5.4", label: "gpt-5.4", supported: true }],
+      },
+    ],
+  });
+});
+
+/** A duck-typed Prisma unique-violation, as the P2002 handlers match it. */
+const p2002 = () => Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+
+describe("createDetector", () => {
+  it("returns 404 when the project does not exist", async () => {
+    tx.project.findUnique.mockResolvedValue(null);
+    const r = await run();
+    expect(r).toEqual({ ok: false, status: 404, error: "Project not found" });
+    expect(tx.detector.create).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when the project is soft-deleted", async () => {
+    tx.project.findUnique.mockResolvedValue({
+      workspaceId: "w1",
+      deleteTime: new Date(),
+    });
+    const r = await run();
+    expect(r).toEqual({ ok: false, status: 404, error: "Project not found" });
+    expect(tx.workspaceMember.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("returns the same 404 as a missing project for a non-member, so foreign project ids are not confirmed to exist", async () => {
+    tx.project.findUnique.mockResolvedValue({ workspaceId: "w1", deleteTime: null });
+    tx.workspaceMember.findUnique.mockResolvedValue(null);
+    const r = await run();
+    expect(r).toEqual({ ok: false, status: 404, error: "Project not found" });
+    expect(tx.detector.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a VIEWER with 403", async () => {
+    mockAccess("VIEWER");
+    const r = await run();
+    expect(r).toEqual({
+      ok: false,
+      status: 403,
+      error: "Requires MEMBER role or higher",
+    });
+    expect(tx.detector.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a whitespace-only name with 400", async () => {
+    mockAccess();
+    const r = await run({ name: "   " });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "name must be a non-empty string",
+    });
+  });
+
+  it("rejects an empty template with 400", async () => {
+    mockAccess();
+    const r = await run({ template: "" });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "template must be a non-empty string",
+    });
+  });
+
+  it("rejects a whitespace-only prompt with 400", async () => {
+    mockAccess();
+    const r = await run({ prompt: "  " });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "prompt must be a non-empty string",
+    });
+  });
+
+  it.each([-1, 101, 2.5, "50"])("rejects sampleRate=%s with 400", async (rate) => {
+    mockAccess();
+    const r = await run({ sampleRate: rate });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "sampleRate must be an integer between 0 and 100",
+    });
+  });
+
+  it("rejects a non-array outputSchema with 400", async () => {
+    mockAccess();
+    const r = await run({ outputSchema: { type: "object" } });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "outputSchema must be an array",
+    });
+  });
+
+  it("surfaces the trigger validator's message for a non-array payload", async () => {
+    mockAccess();
+    const r = await run({ triggerConditions: "cost > 5" });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "triggerConditions must be an array",
+    });
+  });
+
+  it("surfaces the trigger validator's message for an unknown field", async () => {
+    mockAccess();
+    const r = await run({
+      triggerConditions: [{ field: "nope", op: "=", value: "x" }],
+    });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "condition 1 has an unknown field",
+    });
+  });
+
+  it("rejects an invalid detectionSource with 400", async () => {
+    mockAccess();
+    const r = await run({ detectionSource: "syetm" });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: 'detectionSource must be "system" or "byok"',
+    });
+  });
+
+  describe("detection model", () => {
+    it("does not read the workspace's models for the default choice", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await run({ detectionSource: "system" });
+      expect(r.ok).toBe(true);
+      expect(listWorkspaceModels).not.toHaveBeenCalled();
+    });
+
+    it("reads the list through the transaction and stores a system model it contains", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await run({ detectionModel: "claude-haiku-4-5" });
+      expect(r.ok).toBe(true);
+      expect(listWorkspaceModels).toHaveBeenCalledWith("w1", { db: tx });
+      expect(tx.detector.create.mock.calls[0][0].data).toMatchObject({
+        detectionModel: "claude-haiku-4-5",
+        detectionProvider: null,
+        detectionSource: null,
+      });
+    });
+
+    it("rejects a system model the workspace cannot use with 400 and the models it can", async () => {
+      mockAccess();
+      const r = await run({ detectionModel: "claude-9" });
+      expect(r).toEqual({
+        ok: false,
+        status: 400,
+        error: expect.stringMatching(
+          /^detection_model "claude-9" is not a system model this workspace can use\. System models: "claude-haiku-4-5"\. /,
+        ),
+      });
+      expect(tx.detector.findFirst).not.toHaveBeenCalled();
+      expect(tx.detector.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects a byok choice without a provider with 400", async () => {
+      mockAccess();
+      const r = await run({ detectionSource: "byok", detectionModel: "gpt-5.4" });
+      expect(r).toMatchObject({
+        ok: false,
+        status: 400,
+        error: expect.stringMatching(
+          /^detection_provider is required when detection_source is "byok"\. /,
+        ),
+      });
+    });
+
+    it("rejects a byok model not configured on the provider with 400", async () => {
+      mockAccess();
+      const r = await run({
+        detectionSource: "byok",
+        detectionProvider: "My OpenAI",
+        detectionModel: "gpt-5.5",
+      });
+      expect(r).toEqual({
+        ok: false,
+        status: 400,
+        error:
+          'detection_model "gpt-5.5" is not configured on provider "My OpenAI". Models on "My OpenAI": "gpt-5.4".',
+      });
+    });
+
+    it("stores a byok model configured on the named provider", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await run({
+        detectionSource: "byok",
+        detectionProvider: "My OpenAI",
+        detectionModel: "gpt-5.4",
+      });
+      expect(r.ok).toBe(true);
+      expect(tx.detector.create.mock.calls[0][0].data).toMatchObject({
+        detectionModel: "gpt-5.4",
+        detectionProvider: "My OpenAI",
+        detectionSource: "byok",
+      });
+    });
+  });
+
+  it("rejects a non-boolean enableRca with 400", async () => {
+    mockAccess();
+    const r = await run({ enableRca: "yes" });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "enableRca must be a boolean",
+    });
+  });
+
+  it("rejects a non-boolean enabled with 400", async () => {
+    mockAccess();
+    const r = await run({ enabled: 1 });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error: "enabled must be a boolean",
+    });
+  });
+
+  it("creates a paused detector when sampleRate is 0 and enabled is omitted", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue({ ...createdRow, enabled: false, sampleRate: 0 });
+    const r = await run({ sampleRate: 0 });
+    expect(r.ok).toBe(true);
+    expect(tx.detector.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ sampleRate: 0, enabled: false }),
+      }),
+    );
+  });
+
+  it("applies the default sample rate when sampleRate is omitted", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+    const r = await run();
+    expect(r.ok).toBe(true);
+    expect(tx.detector.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
+          enabled: true,
+        }),
+      }),
+    );
+  });
+
+  it("returns the existing detector by name, created=false, no create, no audit", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(createdRow);
+    const r = await run();
+    expect(r).toEqual({ ok: true, created: false, data: createdRow });
+    expect(tx.detector.findFirst).toHaveBeenCalledWith({
+      where: { projectId: "p1", name: "Latency spike" },
+      select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
+    });
+    expect(tx.detector.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("returns the raced detector as created=false when the insert loses the unique race", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockRejectedValue(p2002());
+    root.detector.findFirst.mockResolvedValue(createdRow);
+    const r = await run();
+    expect(r).toEqual({ ok: true, created: false, data: createdRow });
+    expect(root.detector.findFirst).toHaveBeenCalledWith({
+      where: { projectId: "p1", name: "Latency spike" },
+      select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
+    });
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a P2002 whose winner vanished before the re-read", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockRejectedValue(p2002());
+    root.detector.findFirst.mockResolvedValue(null);
+    await expect(run()).rejects.toMatchObject({ code: "P2002" });
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("propagates non-P2002 transaction failures without a re-read", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockRejectedValue(new Error("connection lost"));
+    await expect(run()).rejects.toThrow("connection lost");
+    expect(root.detector.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("audits through the root client, not the transaction, so a failed audit cannot roll the detector back", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+    root.auditLog.create.mockRejectedValue(new Error("audit store down"));
+    const r = await run();
+    expect(r).toEqual({ ok: true, created: true, data: createdRow });
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).toHaveBeenCalled();
+  });
+
+  it("creates the detector without a nested trigger when conditions are absent", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+    const r = await run({ detectionModel: "", detectionProvider: "" });
+    expect(r).toEqual({ ok: true, created: true, data: createdRow });
+    const createArg = tx.detector.create.mock.calls[0][0];
+    expect(createArg.data).not.toHaveProperty("id");
+    expect(createArg.data).not.toHaveProperty("trigger");
+    expect(createArg.data).toMatchObject({
+      projectId: "p1",
+      name: "Latency spike",
+      template: "custom",
+      prompt: "Find traces with slow spans",
+      outputSchema: [],
+      sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
+      enabled: true,
+      enableRca: true,
+      detectionModel: null,
+      detectionProvider: null,
+      detectionSource: null,
+    });
+    expect(root.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorUserId: "u1",
+        operation: "create_detector",
+        resourceType: "detector",
+        resourceId: "d1",
+        workspaceId: "w1",
+        projectId: "p1",
+        summary: {
+          name: "Latency spike",
+          template: "custom",
+          sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
+          enabled: true,
+        },
+        transport: "public-api",
+        agentSessionId: null,
+      }),
+    });
+  });
+
+  describe("canonical template prompts", () => {
+    // The exact 400 message the service must emit for a promptless create
+    // outside the standard templates. The drift guard below keeps this
+    // literal honest against DETECTOR_TEMPLATES.
+    const promptRequiredMessage =
+      "prompt is required unless template is one of: failure, hallucination, logic, task, safety";
+
+    function runWithoutPrompt(overrides: Record<string, unknown> = {}) {
+      const { prompt: _omitted, ...rest } = baseInput;
+      return createDetector({ ...rest, ...overrides } as Parameters<typeof createDetector>[0]);
+    }
+
+    it("keeps the pinned message in sync with DETECTOR_TEMPLATES (drift guard)", () => {
+      const standardIds = DETECTOR_TEMPLATES.filter((t) => t.id !== "blank").map((t) => t.id);
+      expect(promptRequiredMessage).toBe(
+        `prompt is required unless template is one of: ${standardIds.join(", ")}`,
+      );
+    });
+
+    it("fills prompt and outputSchema from the canonical template when prompt is omitted", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await runWithoutPrompt({ template: "failure" });
+      expect(r).toEqual({ ok: true, created: true, data: createdRow });
+      const template = getTemplate("failure")!;
+      expect(tx.detector.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            template: "failure",
+            prompt: template.prompt,
+            outputSchema: template.outputSchema,
+          }),
+        }),
+      );
+    });
+
+    it("keeps a caller-provided outputSchema over the template's when prompt is omitted", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const outputSchema = [{ name: "custom", type: "string" }];
+      const r = await runWithoutPrompt({ template: "safety", outputSchema });
+      expect(r.ok).toBe(true);
+      expect(tx.detector.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            prompt: getTemplate("safety")!.prompt,
+            outputSchema,
+          }),
+        }),
+      );
+    });
+
+    it("stores an explicit prompt verbatim without applying the template defaults", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await run({ template: "failure" });
+      expect(r.ok).toBe(true);
+      expect(tx.detector.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            prompt: "Find traces with slow spans",
+            outputSchema: [],
+          }),
+        }),
+      );
+    });
+
+    it("rejects a promptless create with a non-standard template with 400", async () => {
+      mockAccess();
+      const r = await runWithoutPrompt({ template: "custom-x" });
+      expect(r).toEqual({ ok: false, status: 400, error: promptRequiredMessage });
+      expect(tx.detector.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects a promptless create with the blank template with 400", async () => {
+      mockAccess();
+      const r = await runWithoutPrompt({ template: "blank" });
+      expect(r).toEqual({ ok: false, status: 400, error: promptRequiredMessage });
+      expect(tx.detector.create).not.toHaveBeenCalled();
+    });
+  });
+
+  it("nests the trigger create when conditions are present and forwards agent provenance", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+    const conditions = [{ field: "cost", op: ">", value: 5 }];
+    const r = await run({
+      triggerConditions: conditions,
+      detectionSource: "byok",
+      detectionModel: "gpt-5.4",
+      detectionProvider: "My OpenAI",
+      enableRca: false,
+      provenance: { transport: "agent", agentSessionId: "as1" },
+    });
+    expect(r).toEqual({ ok: true, created: true, data: createdRow });
+    expect(tx.detector.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          trigger: { create: { conditions } },
+          detectionSource: "byok",
+          detectionModel: "gpt-5.4",
+          detectionProvider: "My OpenAI",
+          enableRca: false,
+        }),
+      }),
+    );
+    expect(root.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
+    });
+  });
+});

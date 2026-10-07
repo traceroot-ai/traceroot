@@ -6,7 +6,8 @@ OpenTelemetry multi-tenancy pattern, the worker stamps each span with a
 per-span ``traceroot.project_id`` attribute and this wrapper routes on it:
 spans are grouped by project and the shared single-project transform runs
 once per group. The transform never classifies traffic; the secret-gated
-internal ingest route stamps ``source='detector'`` on what comes back.
+internal ingest route stamps the authenticated caller's source ('detector' or
+'agent') on what comes back.
 
 Only the internal route imports this module. The public ingest path cannot
 honor a payload project id because this code simply is not in its chain —
