@@ -26,6 +26,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/traces/{trace_id}/findings"),
     ("GET", "/api/v1/internal/traces/{trace_id}/detector-runs"),
     ("GET", "/api/v1/internal/detector-window-summary"),
+    ("POST", "/api/v1/internal/detector-window-summary"),
     ("GET", "/api/v1/internal/trace-counts"),
     ("POST", "/api/v1/internal/traces"),
     ("POST", "/api/v1/internal/traces/agent"),
