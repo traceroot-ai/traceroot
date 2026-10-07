@@ -180,13 +180,19 @@ function RunsTab({ projectId }: { projectId: string }) {
   const urlDateFilterId = searchParams.get("date_filter");
   const urlStart = searchParams.get("start");
   const urlEnd = searchParams.get("end");
-  const dateFilter = React.useMemo(
-    () => DATE_FILTER_OPTIONS.find((o) => o.id === urlDateFilterId) ?? DEFAULT_RUNS_DATE_FILTER,
-    [urlDateFilterId],
-  );
   // Memoized on the raw params so the Date identities (and the bounds below) are stable.
   const customStart = React.useMemo(() => parseUrlDate(urlStart), [urlStart]);
   const customEnd = React.useMemo(() => parseUrlDate(urlEnd), [urlEnd]);
+  // A custom window needs both bounds, in order; a hand-edited or truncated URL
+  // without them falls back to the default window rather than querying unbounded.
+  const dateFilter = React.useMemo(() => {
+    const option = DATE_FILTER_OPTIONS.find((o) => o.id === urlDateFilterId);
+    if (!option) return DEFAULT_RUNS_DATE_FILTER;
+    if (option.isCustom && !(customStart && customEnd && customStart <= customEnd)) {
+      return DEFAULT_RUNS_DATE_FILTER;
+    }
+    return option;
+  }, [urlDateFilterId, customStart, customEnd]);
   // A narrower filter/date-range can otherwise land on a page past the end of its
   // (now shorter) result set, so reset to the first page whenever ANY server query
   // input changes — the search text OR the date window. Done from the change itself,
@@ -211,12 +217,11 @@ function RunsTab({ projectId }: { projectId: string }) {
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
-  const setDateFilter = (option: DateFilterOption) =>
-    writeDateWindow(
-      option.id,
-      option.isCustom ? customStart : null,
-      option.isCustom ? customEnd : null,
-    );
+  // Picking "Custom" is always followed by `setCustomRange` with the chosen bounds,
+  // which does the single URL write; writing here too would briefly drop the bounds.
+  const setDateFilter = (option: DateFilterOption) => {
+    if (!option.isCustom) writeDateWindow(option.id, null, null);
+  };
   const setCustomRange = (start: Date, end: Date) => writeDateWindow("custom", start, end);
 
   // Resolve the selected range to actual bounds. Memoized on the filter/custom-range
@@ -226,7 +231,7 @@ function RunsTab({ projectId }: { projectId: string }) {
     () => toTimestampBounds(dateFilter.id, customStart ?? undefined, customEnd ?? undefined),
     [dateFilter.id, customStart, customEnd],
   );
-  const { data, isLoading, error } = useEvaluationRuns(projectId, {
+  const { data, isLoading, isPlaceholderData, error } = useEvaluationRuns(projectId, {
     search_query: searchQuery,
     started_after: startAfter,
     started_before: endBefore,
@@ -241,12 +246,13 @@ function RunsTab({ projectId }: { projectId: string }) {
 
   // After a delete shrinks the result set, the current page can point past the new
   // end (empty table + invalid "showing X–Y of N" range). Clamp back to the last
-  // page that still has rows.
+  // page that still has rows. Skipped while placeholder rows from the previous query
+  // are shown: their total belongs to a different query and would clamp a valid page.
   React.useEffect(() => {
-    if (isLoading || total === 0) return;
+    if (isLoading || isPlaceholderData || total === 0) return;
     const lastPage = Math.max(0, Math.ceil(total / RUNS_PAGE_LIMIT) - 1);
     if (page > lastPage) goToPage(lastPage);
-  }, [total, page, isLoading, goToPage]);
+  }, [total, page, isLoading, isPlaceholderData, goToPage]);
 
   const confirmDelete = () => {
     if (!deleteRun) return;
