@@ -26,6 +26,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/traces/{trace_id}/findings"),
     ("GET", "/api/v1/internal/traces/{trace_id}/detector-runs"),
     ("GET", "/api/v1/internal/detector-window-summary"),
+    ("GET", "/api/v1/internal/trace-counts"),
     ("POST", "/api/v1/internal/traces"),
     ("POST", "/api/v1/internal/traces/agent"),
     # Alerts (#1889): the worker asks REST to evaluate a rule's measure over a window.
@@ -50,6 +51,13 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}"),
     ("GET", "/api/v1/internal/projects/{project_id}/datasets/{dataset_id}/versions"),
     ("GET", "/api/v1/internal/projects/{project_id}/dataset-versions/{version_id}"),
+    # Signal assignment (ee/signals): the worker reads waiting hits and writes
+    # the ClickHouse copy of assignments, and checks a trace's hits are settled
+    # before its RCA.
+    ("GET", "/api/v1/internal/signals/waiting-hits"),
+    ("POST", "/api/v1/internal/signals/assignments"),
+    ("POST", "/api/v1/internal/signals/reassign"),
+    ("POST", "/api/v1/internal/signals/unsettled-runs"),
 }
 
 

@@ -191,6 +191,9 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
 # magnitude beyond any shipped context window, so nothing legitimate is near it.
 _MAX_PLAUSIBLE_TOKENS = 10**9
 
+# Matches the filter's MAX_VALUE_LENGTH: a longer value could never be filtered on.
+_MAX_ERROR_TYPE_LENGTH = 1024
+
 
 def _usable_token_value(value: Any) -> bool:
     """Check whether a token attribute will survive ``int_or_zero`` intact.
@@ -597,6 +600,24 @@ def _extract_session_id(attrs: dict[str, Any]) -> str | None:
     return str_or_none(attrs.get("traceroot.trace.session_id") or attrs.get("session.id"))
 
 
+def _extract_error_type(otel_span: dict, span_is_error: bool) -> str:
+    """Return the bounded error group key for a span.
+
+    ERROR spans take `exception.type` from their last recorded exception event,
+    truncated to _MAX_ERROR_TYPE_LENGTH, or "unknown" when there is none or it
+    carries no type. OK spans store "" so the error-rate and error-type totals agree.
+    """
+    if not span_is_error:
+        return ""
+    exceptions = [e for e in otel_span.get("events") or [] if e.get("name") == "exception"]
+    if not exceptions:
+        return "unknown"
+    error_type = attributes_to_dict(exceptions[-1].get("attributes") or []).get("exception.type")
+    if not isinstance(error_type, str) or not error_type:
+        return "unknown"
+    return error_type[:_MAX_ERROR_TYPE_LENGTH]
+
+
 def transform_otel_to_clickhouse(
     otel_data: dict,
     project_id: str,
@@ -747,6 +768,7 @@ def transform_otel_to_clickhouse(
                 if span_is_error:
                     span_record["status"] = SpanStatus.ERROR
                     span_record["status_message"] = status.get("message")
+                span_record["error_type"] = _extract_error_type(otel_span, span_is_error)
 
                 # Extract git source fields for span
                 git_source_file = str_or_none(span_attrs.get("traceroot.git.source_file"))

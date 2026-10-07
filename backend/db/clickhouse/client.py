@@ -134,6 +134,59 @@ class ClickHouseClient:
             ],
         )
 
+    def insert_signal_assignments(self, rows: list[dict[str, Any]]) -> None:
+        """Insert signal assignment rows (the query copy of Postgres signal_hits).
+
+        Args:
+            rows (list[dict[str, Any]]): One dict per hit with project_id,
+                detector_id, run_id, trace_id, signal_id, embedding (list of
+                floats, empty when the hit has none), score and
+                criteria_version (either may be None), and assigned_at (an
+                aware datetime).
+        """
+        if not rows:
+            return
+        columns = [
+            "project_id",
+            "detector_id",
+            "run_id",
+            "trace_id",
+            "signal_id",
+            "embedding",
+            "score",
+            "criteria_version",
+            "assigned_at",
+        ]
+        self._client.insert(
+            "signal_assignments",
+            [[r[c] for c in columns] for r in rows],
+            column_names=columns,
+        )
+
+    def delete_given_up_signal_assignments(self, project_id: str, run_ids: list[str]) -> None:
+        """Delete the give-up rows (empty ``signal_id``) of these runs, so the
+        signal assignment worker reads the hits as waiting again.
+
+        Args:
+            project_id (str): Project of the runs.
+            run_ids (list[str]): Runs whose give-up rows are deleted; rows that
+                place a hit in a signal are never touched.
+        """
+        if not run_ids:
+            return
+        self._client.command(
+            """
+            DELETE FROM signal_assignments
+            WHERE project_id = {project_id:String}
+              AND signal_id = ''
+              AND run_id IN {run_ids:Array(String)}
+            """,
+            parameters={"project_id": project_id, "run_ids": run_ids},
+            # Wait until the rows are gone on every replica before returning,
+            # so a hit is waiting again by the time the sweeper reads it.
+            settings={"lightweight_deletes_sync": 2},
+        )
+
     def insert_spans_batch(self, spans: list[dict[str, Any]]) -> None:
         """Insert multiple span records.
 
@@ -161,6 +214,7 @@ class ClickHouseClient:
                     s.get("source", "user"),
                     s.get("status", "OK"),
                     s.get("status_message"),
+                    s.get("error_type", ""),
                     s.get("model_name"),
                     s.get("cost"),
                     s.get("input_tokens"),
@@ -195,6 +249,7 @@ class ClickHouseClient:
                 "source",
                 "status",
                 "status_message",
+                "error_type",
                 "model_name",
                 "cost",
                 "input_tokens",

@@ -6,7 +6,12 @@ from typing import ClassVar
 
 import pytest
 
-from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
+from tests.fixtures.otel_payloads import (
+    make_attr,
+    make_exception_event,
+    make_otel_payload,
+    make_span,
+)
 from worker.otel_transform import (
     attributes_to_dict,
     decode_otel_id,
@@ -2232,3 +2237,71 @@ class TestPiExtensionCacheWrite:
         span["attributes"].append(make_attr("gen_ai.usage.cache_creation_input_tokens", 555))
         s = self._transform(span)
         assert s["usage_details"]["cache_write_tokens"] == 555
+
+
+class TestErrorType:
+    """error_type is a bounded group key derived at ingest from the exception event."""
+
+    TRACE = "aa" * 16
+    SPAN = "bb" * 8
+
+    def _transform(self, span: dict) -> dict:
+        _, spans = transform_otel_to_clickhouse(make_otel_payload([span]), "proj-1")
+        return spans[0]
+
+    def test_error_span_with_exception_event_stores_type(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [make_exception_event("TimeoutError")]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_error_span_without_event_is_unknown(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        assert self._transform(span)["error_type"] == "unknown"
+
+    def test_error_span_with_event_lacking_type_is_unknown(self):
+        # The last exception event decides; an earlier typed one does not stand in.
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("RetryableError", time_nanos=1),
+            make_exception_event(exception_type=None, time_nanos=2),
+        ]
+        assert self._transform(span)["error_type"] == "unknown"
+
+    def test_ok_span_ignores_exception_event(self):
+        # A caught-and-recovered exception is not an error.
+        span = make_span(self.TRACE, self.SPAN, status_code=0)
+        span["events"] = [make_exception_event("ValueError")]
+        s = self._transform(span)
+        assert s["status"] == "OK"
+        assert s["error_type"] == ""
+
+    def test_latest_exception_event_wins(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("RetryableError", time_nanos=1),
+            make_exception_event("TimeoutError", time_nanos=2),
+        ]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_oversized_type_is_truncated(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [make_exception_event("E" * 1500)]
+        assert self._transform(span)["error_type"] == "E" * 1024
+
+    def test_non_exception_events_are_skipped(self):
+        span = make_span(self.TRACE, self.SPAN, status_code=2)
+        span["events"] = [
+            make_exception_event("TimeoutError"),
+            {"name": "log", "attributes": [make_attr("exception.type", "Decoy")]},
+        ]
+        assert self._transform(span)["error_type"] == "TimeoutError"
+
+    def test_string_status_code_format(self):
+        span = make_span(self.TRACE, self.SPAN)
+        span["status"] = {"code": "STATUS_CODE_ERROR", "message": "something failed"}
+        span["events"] = [make_exception_event("KeyError")]
+        assert self._transform(span)["error_type"] == "KeyError"
+
+    def test_ok_span_always_carries_the_field(self):
+        span = make_span(self.TRACE, self.SPAN)
+        assert self._transform(span)["error_type"] == ""

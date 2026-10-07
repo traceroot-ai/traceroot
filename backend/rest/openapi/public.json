@@ -1143,6 +1143,7 @@
                     "enum": [
                       "name",
                       "span_kind",
+                      "error_type",
                       "model_name",
                       "environment",
                       null
@@ -1187,6 +1188,7 @@
                             "name",
                             "span_kind",
                             "status",
+                            "error_type",
                             "model_name",
                             "environment",
                             "is_root",
@@ -2318,6 +2320,39 @@
             "title": "Identified",
             "type": "boolean"
           },
+          "signal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Id"
+          },
+          "signal_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Status"
+          },
+          "signal_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Title"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -2605,6 +2640,14 @@
             "title": "Run Ids",
             "type": "array"
           },
+          "signals": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FindingSignal"
+            },
+            "title": "Signals",
+            "type": "array"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -2632,6 +2675,35 @@
         "title": "FindingDetail",
         "type": "object"
       },
+      "FindingSignal": {
+        "description": "The signal one detector's hit in a finding belongs to.",
+        "properties": {
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "signal_status": {
+            "title": "Signal Status",
+            "type": "string"
+          },
+          "signal_title": {
+            "title": "Signal Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detector_id",
+          "signal_id",
+          "signal_title",
+          "signal_status"
+        ],
+        "title": "FindingSignal",
+        "type": "object"
+      },
       "FindingSummary": {
         "description": "A detector finding row for the list view; ``detectors`` are display labels.",
         "properties": {
@@ -2656,6 +2728,14 @@
               "type": "string"
             },
             "title": "Run Ids",
+            "type": "array"
+          },
+          "signals": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FindingSignal"
+            },
+            "title": "Signals",
             "type": "array"
           },
           "summary": {
@@ -3854,6 +3934,11 @@
       "RCAResult": {
         "description": "Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).\n\nThe agent trace behind an RCA (``detector_rca_executions``) is internal and\ndeliberately not part of this contract: its trace id is not readable through\nthe public trace endpoints, so advertising it here would be misleading.",
         "properties": {
+          "inherited": {
+            "default": false,
+            "title": "Inherited",
+            "type": "boolean"
+          },
           "result": {
             "anyOf": [
               {
@@ -4982,6 +5067,11 @@
             "title": "Cost Details",
             "type": "object"
           },
+          "error_type": {
+            "default": "",
+            "title": "Error Type",
+            "type": "string"
+          },
           "git_source_file": {
             "anyOf": [
               {
@@ -5906,6 +5996,7 @@
                     "enum": [
                       "name",
                       "span_kind",
+                      "error_type",
                       "model_name",
                       "environment",
                       null
@@ -5950,6 +6041,7 @@
                             "name",
                             "span_kind",
                             "status",
+                            "error_type",
                             "model_name",
                             "environment",
                             "is_root",
@@ -12208,6 +12300,33 @@
                         "additionalProperties": false,
                         "properties": {
                           "field": {
+                            "const": "signal_id",
+                            "title": "Signal ID",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
                             "const": "model_name",
                             "title": "Model",
                             "type": "string"
@@ -12300,6 +12419,36 @@
                           "field": {
                             "const": "status",
                             "title": "Status",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "items": {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "error_type",
+                            "title": "Error type",
                             "type": "string"
                           },
                           "op": {

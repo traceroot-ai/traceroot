@@ -5,7 +5,7 @@ description: Monitor trace metrics and notify your team in Slack
 
 Metric alerts watch your project's spans over a recent time window. Each rule summarizes a measure, compares the result with a threshold, and posts changes to your workspace's Slack channel.
 
-Metric alerts are separate from [detector notifications](/detectors/notifications). Detectors use an LLM-as-a-judge to find problems in individual traces, while metric alerts evaluate numeric conditions such as latency, cost, token usage, or span count.
+Metric alerts are separate from [detector notifications](/detectors/notifications). Detectors use an LLM-as-a-judge to find problems in individual traces and can group recurring findings into signals. Metric alerts evaluate numeric conditions such as latency, cost, token usage, or span count.
 
 ## Before you create an alert
 
@@ -40,7 +40,14 @@ Under **Conditions**:
 
 1. Choose a comparison operator and enter the threshold.
 2. Choose a lookback window from 1 minute to 2 hours.
-3. Choose how often to repeat a notification while the rule remains in breach.
+3. Choose what happens when a window has no data.
+4. Choose how often to repeat a notification while the rule remains in breach.
+
+**When a window has no data** offers three modes:
+
+- **Show no data, don't notify** (default) shows **No Data** without sending or clearing a notification. An announced breach stays outstanding until data returns and the rule evaluates again.
+- **Treat as zero** compares an empty window as 0 against the threshold, producing **OK** or **Alert**.
+- **Notify when data stops** announces a gap after it has lasted the shorter of the rule's window or 10 minutes. Once that gap has been announced, data returning sends another notification.
 
 **Off (alert only on transitions)** posts when the metric enters the alert state and when it recovers. **Re-alert at a regular interval** also repeats the breach notification at the interval you enter.
 
@@ -61,8 +68,6 @@ The Alerts table shows the rule's latest state:
 - **Parked** — the rule's settings cannot be evaluated, so automatic evaluation has stopped. Open the badge for the reason, then edit the affected evaluation settings or select **Resume** to retry. Renaming the rule alone does not restart it.
 - **Paused** — evaluation and notifications are stopped until you resume the rule.
 
-For rules created in the current form, an empty window doesn't send a notification or resolve an outstanding breach. If a breach was already announced, it remains outstanding until data returns and the rule can evaluate again.
-
 ## Use Slack notifications
 
 Slack messages show the rule name, state, measured value, threshold, window, and filters. A breach notification includes:
@@ -81,7 +86,7 @@ If a notification could not be delivered, open the alert's state badge for the d
 Use the actions menu on an alert to:
 
 - **Pause** or **Resume** evaluation and notifications.
-- **Edit** the metric, condition, filters, name, or renotify setting.
+- **Edit** the metric, condition, filters, no-data mode, name, or renotify setting.
 - **Delete** the rule permanently. Deleting stops evaluation and notifications immediately and removes the recorded state.
 
 You can also search alerts by name from the Alerts page.

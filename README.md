@@ -1,9 +1,13 @@
 <div align="center">
   <a href="https://traceroot.ai/">
-    <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="frontend/ui/public/images/traceroot_logo_dark.png">
+      <source media="(prefers-color-scheme: light)" srcset="frontend/ui/public/images/traceroot_logo_light.png">
+      <img src="frontend/ui/public/images/traceroot_logo_light.png" alt="TraceRoot Logo" width="560">
+    </picture>
   </a>
 
-[TraceRoot](https://traceroot.ai/) is the open-source self-improving layer for AI agents — observability that detects failures in production, root-causes them against your source code and GitHub history, opens verified fix PRs, and evals every fix — so your agent gets more robust, accurate, and efficient with every release.
+Open Source Self-improving Layer for AI Agents
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -21,75 +25,146 @@
   <a href="./README.ko.md"><img alt="한국어 README" src="https://img.shields.io/badge/한국어-f8f8f8"></a>
 </p>
 
-## Features
+<p align="center">⭐ Help us reach more developers and grow the TraceRoot community. Star this repo!</p>
 
-<div align="center">
-  <kbd><img src="docs/images/rca_v1.png" alt="Agentic Debugging - Root Cause Analysis"></kbd>
-</div>
+## TraceRoot
 
-<br>
+TraceRoot turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
 
-| Feature | Description |
-| ------- | ----------- |
-| Detectors | LLM-as-judge evaluator monitors incoming traces for hallucinations, tool/logic failures, safety violations, and intent drift — surfaces findings and auto-triggers root cause analysis with email and Slack alerts. |
-| Agentic Debugging | AI that sees all your traces, connects to a sandbox with your production source code, identifies the exact failing line, and correlates the failure with your GitHub commits, PRs, and issues. BYOK support for any model provider. |
-| Datasets & Evals | Turn production findings into golden datasets with one click. Run offline evals from the TraceRoot CLI or SDK inside coding agents like Claude Code, Codex, and Cursor — verifying every fix and systematically improving your agent's robustness and performance over time. |
-| Tracing | Capture LLM calls, agent actions, and tool usage via OpenTelemetry-compatible SDK. Intelligently surfaces the traces that matter — noise filtered, signal prioritized. |
+https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
-## Why TraceRoot?
+## Core Features
 
-- **Traces alone don't scale.**
+### Turn production failures into tested improvements
 
-  As AI agent systems grow more complex, manually sifting through every trace is unsustainable. TraceRoot's Detectors selectively screen incoming traces — flagging hallucinations, tool failures, logic errors, and safety issues automatically, so you spend time fixing problems, not hunting for them.
+Trace production runs, use detectors to evaluate behavior, and surface recurring patterns as improvement signals. Your coding agent uses the TraceRoot CLI to investigate those signals and make local changes, then verifies them with offline evals. After you ship, new production traces feed the next round of detection, signals, and verification—closing a continuous improvement loop.
 
-- **Debugging AI agent systems in production is painful.**
+| Step | Description |
+| ---- | ----------- |
+| **[Trace](https://traceroot.ai/docs/tracing/get-started)** | See each model call, tool call, and response, with inputs, outputs, latency, and cost. |
+| **[Detect](https://traceroot.ai/docs/detectors/get-started)** | Define what good behavior looks like. Automatically flag production runs that miss the mark. |
+| **Signals** | Cluster judge outputs into signals. A background coding agent investigates traces and connected GitHub code in a sandbox to suggest fixes. |
+| **[Verify](https://traceroot.ai/docs/evals/get-started)** | Run evals against your datasets and compare versions to measure improvements and catch regressions. |
 
-  Root-causing failures across agent hallucinations, tool call instabilities, and version changes is hard. TraceRoot's AI connects to a sandbox running your production source code, identifies the exact failing line, cross-references your GitHub history — commits, PRs, open issues — and opens a PR to fix it.
+### Built for your coding agent
 
-- **Agent improvement should be systematic, not ad hoc.**
+Give your coding agent read and write access to TraceRoot through an agent-native CLI. Explore traces, signals, and the home workspace; create and update detectors, datasets, evals, dashboards, and alerts—all from your coding agent.
 
-  Most teams debug production issues and move on — the learning evaporates. TraceRoot connects online and offline evaluation in a single loop: Detectors evaluate live traffic, confirmed failures become golden datasets, and offline evals verify every fix against them. Release over release, your agent gets measurably more robust and performant — improvement becomes a repeatable process, not a one-off firefight.
+<p align="center">
+  <a href="https://github.com/traceroot-ai/traceroot-cli">
+    <picture>
+      <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.png">
+      <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/coding-agent-cli-light.png">
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/coding-agent-cli-dark.gif">
+      <img src="docs/images/coding-agent-cli-light.gif" alt="Your coding agent connects through the TraceRoot CLI to Home, traces, dashboards, detectors, evals, datasets, alerts, and signals." width="100%">
+    </picture>
+  </a>
+</p>
 
-- **Fully open source, no vendor lock-in.**
+## ⭐ Star the Repository
 
-  Both the observability platform and the AI debugging layer are open source. BYOK support for any model provider — OpenAI, Anthropic, Gemini, xAI, DeepSeek, OpenRouter, Kimi, GLM and more.
+If you like what we’re building, give TraceRoot a star ⭐ to help more developers discover it.
 
-## Documentation
+<p align="center">
+  <a href="https://github.com/traceroot-ai/traceroot">
+    <img src="docs/images/github-star-demo.gif" alt="How to star the TraceRoot repository on GitHub" width="100%">
+  </a>
+</p>
 
-Full documentation available at [traceroot.ai/docs](https://traceroot.ai/docs).
-
-## Getting Started
+## Getting Started With TraceRoot
 
 ### TraceRoot Cloud
 
-The fastest way to get started. Ample storage and LLM tokens for testing, no credit card needed. Sign up [here](https://app.traceroot.ai)!
+[Create an account](https://app.traceroot.ai) to get started without running the platform yourself.
 
 ### Self-Hosting
 
-- Developer mode: Run TraceRoot locally to contribute.
+With Git, Docker Compose, and Make installed, run locally:
 
-  ```bash
-  # Get a copy of the latest repo
-  git clone https://github.com/traceroot-ai/traceroot.git
-  cd traceroot
+```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
+cp .env.example .env
+make prod-lite
+```
 
-  # Host the infra in Docker and the app itself locally
-  make dev
-  ```
-  For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
 
-- Local docker mode: Run TraceRoot locally to test.
+## Setting up TraceRoot
 
-  ```bash
-  # Get a copy of the latest repo
-  git clone https://github.com/traceroot-ai/traceroot.git
-  cd traceroot
+Once you have a TraceRoot instance, create a project in your dashboard and choose how to send your first trace: let your coding agent set up instrumentation through the CLI, or configure an SDK manually.
 
-  # Host everything in Docker
-  make prod
-  ```
+### With your coding agent
 
-- [Terraform (AWS)](./deploy/): Run TraceRoot on k8s with Helm and Terraform. This is for production hosting. Still in experimental stage.
+<a id="cli-quickstart"></a>
+
+Install the [TraceRoot CLI](https://github.com/traceroot-ai/traceroot-cli#readme) and log in:
+
+```bash
+npm install -g traceroot-cli
+traceroot login
+```
+
+Then ask your coding agent:
+
+```text
+Use the TraceRoot CLI to set up tracing for this application.
+```
+
+### Manually with an SDK
+
+Prefer to configure instrumentation yourself? Use the **[Python SDK](https://github.com/traceroot-ai/traceroot-py#readme)** or **[TypeScript SDK](https://github.com/traceroot-ai/traceroot-ts#readme)**. The example below sends one traced model call from a TypeScript application.
+
+<details>
+<summary>Run a minimal TypeScript example</summary>
+
+You need Node.js and npm, a TraceRoot project API key, and an OpenAI API key. For self-hosting, replace the cloud host URL below with your instance URL.
+
+**1. Install the SDK** in your TypeScript project:
+
+```sh
+npm install @traceroot-ai/traceroot openai
+```
+
+**2. Set your API keys:**
+
+```bash
+export TRACEROOT_API_KEY="your-project-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+**3. Trace an agent call.** Save this as `example.ts`:
+
+```typescript
+import OpenAI from 'openai';
+import { TraceRoot, observe } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+const openai = new OpenAI();
+
+const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: query }],
+  });
+  return response.choices[0].message.content;
+});
+
+async function main() {
+  try {
+    await myAgent("What's the weather in SF?");
+  } finally {
+    await TraceRoot.shutdown();
+  }
+}
+
+main().catch(console.error);
+```
+
+**4. Run it** with `npx tsx example.ts`, then open your project's **Traces** page to inspect the agent run. This example makes one OpenAI API call.
+
+</details>
 
 ## Integrations
 
@@ -99,6 +174,9 @@ The fastest way to get started. Ample storage and LLM tokens for testing, no cre
 | -------- | ---------- |
 | Python | [traceroot-py](https://github.com/traceroot-ai/traceroot-py) |
 | TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
+
+<details open>
+<summary>Supported frameworks and model providers</summary>
 
 ### Agent Frameworks
 
@@ -129,65 +207,9 @@ The fastest way to get started. Ample storage and LLM tokens for testing, no cre
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Automated instrumentation of Chat Completions and Responses API. |
 | [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI-compatible tracing via the OpenAI SDK base URL; see the [Python](./examples/python/openrouter-tool-agent) and [TypeScript](./examples/typescript/openrouter) examples. |
 
+</details>
+
 > Don't see your framework or provider? [Request an integration](https://github.com/traceroot-ai/traceroot/issues).
-
-## Python SDK Quickstart
-
-```bash
-pip install traceroot openai
-```
-
-```python
-import traceroot
-from traceroot import Integration, observe
-from openai import OpenAI
-
-traceroot.initialize(integrations=[Integration.OPENAI])
-client = OpenAI()
-
-@observe(name="my_agent", type="agent")
-def my_agent(query: str) -> str:
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": query}],
-    )
-    return response.choices[0].message.content
-
-if __name__ == "__main__":
-    my_agent("What's the weather in SF?")
-```
-
-## TypeScript SDK Quickstart
-
-```sh
-npm install @traceroot-ai/traceroot openai
-```
-
-```typescript
-import OpenAI from 'openai';
-import { TraceRoot, observe } from '@traceroot-ai/traceroot';
-
-TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
-const openai = new OpenAI();
-
-const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [{ role: 'user', content: query }],
-  });
-  return response.choices[0].message.content;
-});
-
-async function main() {
-  try {
-    await myAgent("What's the weather in SF?");
-  } finally {
-    await TraceRoot.shutdown();
-  }
-}
-
-main().catch(console.error);
-```
 
 ## Security & Privacy
 
@@ -195,18 +217,19 @@ Your data security and privacy are our top priorities. Learn more in our [Securi
 
 ## Community
 
-Special Thanks for [pi-mono](https://github.com/badlogic/pi-mono) project, which powers the foundation of our agentic debugging runtime!
+Special thanks to [pi-mono](https://github.com/badlogic/pi-mono), which powers our agent runtime.
 
-**Contributing** 🤝: If you're interested in contributing, you can check out our guide [here](/CONTRIBUTING.md). All types of help are appreciated :)
+**Contributing** 🤝: Help with code, documentation, integrations, or runnable examples. Start with the [contribution guide](CONTRIBUTING.md) and [unassigned beginner issues that do not need approval](https://github.com/traceroot-ai/traceroot/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20-label%3A%22needs%20approval%22%20no%3Aassignee).
 
 **Support** 💬: If you need any type of support, we're typically most responsive on our [Discord channel](https://discord.gg/TM2m3CtKuC), but feel free to email us `founders@traceroot.ai` too!
 
 ## License
 
-This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise features](./ee/LICENSE).
+TraceRoot uses [Apache 2.0](LICENSE) for code outside directories named `ee`. Those directories are covered by the [Enterprise License](ee/LICENSE).
 
 ## Star History
 
+<p align="center">
 <a href="https://star-history.com/#traceroot-ai/traceroot&Date">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date&theme=dark" />
@@ -214,12 +237,19 @@ This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" style="border-radius: 15px;" />
  </picture>
 </a>
+</p>
 
 ## Contributors
 
+<p align="center">
 <a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" />
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" alt="TraceRoot contributors" />
 </a>
+</p>
+
+<br>
+
+<p align="center">⭐ <b>Star us on GitHub</b> to support TraceRoot!</p>
 
 <!-- Links -->
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb

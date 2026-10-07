@@ -219,8 +219,11 @@ function isTokenCount(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0;
 }
 
+/** TypeSafe answered, but the body is not a usable answer to the questions asked. */
+export class MalformedResponseError extends Error {}
+
 function malformed(reason: string): Error {
-  return new Error(`TypeSafe returned a malformed response: ${reason}`);
+  return new MalformedResponseError(`TypeSafe returned a malformed response: ${reason}`);
 }
 
 function parseResult<Q extends SystemOneQuestions>(text: string, questions: Q): SystemOneResult<Q> {

@@ -283,7 +283,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                 'Chart spec over the "spans" view; the enums below are the complete field vocabulary for this view.',
               properties: {
                 breakdown: {
-                  enum: ["name", "span_kind", "model_name", "environment", null],
+                  enum: ["name", "span_kind", "error_type", "model_name", "environment", null],
                   type: ["string", "null"],
                 },
                 display: {
@@ -308,6 +308,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           "name",
                           "span_kind",
                           "status",
+                          "error_type",
                           "model_name",
                           "environment",
                           "is_root",
@@ -1685,6 +1686,27 @@ export const REGISTRY: readonly RegistryEntry[] = [
                 additionalProperties: false,
                 properties: {
                   field: {
+                    const: "signal_id",
+                    title: "Signal ID",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["eq"],
+                    type: "string",
+                  },
+                  value: {
+                    maxLength: 1024,
+                    minLength: 1,
+                    type: "string",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
                     const: "model_name",
                     title: "Model",
                     type: "string",
@@ -1759,6 +1781,30 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "status",
                     title: "Status",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["in"],
+                    type: "string",
+                  },
+                  value: {
+                    items: {
+                      maxLength: 1024,
+                      type: "string",
+                    },
+                    minItems: 1,
+                    type: "array",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
+                    const: "error_type",
+                    title: "Error type",
                     type: "string",
                   },
                   op: {
@@ -2426,7 +2472,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                 'Chart spec over the "spans" view; the enums below are the complete field vocabulary for this view.',
               properties: {
                 breakdown: {
-                  enum: ["name", "span_kind", "model_name", "environment", null],
+                  enum: ["name", "span_kind", "error_type", "model_name", "environment", null],
                   type: ["string", "null"],
                 },
                 display: {
@@ -2451,6 +2497,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           "name",
                           "span_kind",
                           "status",
+                          "error_type",
                           "model_name",
                           "environment",
                           "is_root",

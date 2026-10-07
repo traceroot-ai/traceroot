@@ -96,6 +96,7 @@ const DEFAULT_POSTED_RULE = {
   thresholdOperator: ">",
   threshold: 500,
   renotify: { mode: "OFF" },
+  noDataMode: "HOLD",
 };
 
 import { AlertForm, type AlertDraft } from "./alert-form";
@@ -108,6 +109,7 @@ const SAVED_DRAFT: AlertDraft = {
   operator: ">",
   threshold: "250",
   window: "1h",
+  noDataMode: "NOTIFY",
   renotify: { mode: "OFF" },
   name: "Checkout latency",
 };
@@ -239,6 +241,18 @@ describe("AlertForm", () => {
     expect(screen.getByLabelText("window").textContent).toContain("Last 1h");
     await waitFor(() => expect(writeCalls(fetchMock)).toHaveLength(1));
     expect(postedRule(fetchMock).window).toBe("1h");
+  });
+
+  it("saves the no-data mode the Conditions section shows", async () => {
+    const fetchMock = stubCreateSuccess();
+    renderForm();
+    openSelect("no data mode");
+    fireEvent.click(await screen.findByRole("option", { name: "Notify when data stops" }));
+    fillRequiredFields();
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(writeCalls(fetchMock)).toHaveLength(1));
+    expect(postedRule(fetchMock).noDataMode).toBe("NOTIFY");
   });
 
   it("offers a numeric measure the engine-runnable aggregations, count excluded", async () => {
@@ -418,6 +432,8 @@ describe("AlertForm", () => {
         thresholdOperator: ">",
         threshold: 250,
         renotify: { mode: "OFF" },
+        // A stored non-default mode survives an edit that never touched it.
+        noDataMode: "NOTIFY",
       });
     });
 
@@ -456,6 +472,7 @@ describe("AlertForm", () => {
         operator: ">",
         threshold: "1",
         window: "1m",
+        noDataMode: "HOLD",
         renotify: { mode: "OFF" },
         name: "filtered",
       },
@@ -478,6 +495,7 @@ describe("AlertForm", () => {
         operator: ">",
         threshold: "1",
         window: "1m",
+        noDataMode: "HOLD",
         renotify: { mode: "OFF" },
         name: "filtered",
       },
@@ -500,6 +518,7 @@ describe("AlertForm", () => {
         operator: ">",
         threshold: "1",
         window: "1m",
+        noDataMode: "HOLD",
         renotify: { mode: "OFF" },
         name: "filtered",
       },

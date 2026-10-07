@@ -82,7 +82,7 @@ METADATA_MAP_COLUMN = "metadata_map"
 
 _SPANS_BASE = f"""
     SELECT
-        name, span_kind, status, model_name, environment, trace_id,
+        name, span_kind, status, error_type, model_name, environment, trace_id,
         parent_span_id, {_IS_ROOT_EXPR} AS is_root,
         span_start_time AS event_time,
         dateDiff('millisecond', span_start_time, span_end_time) AS duration_ms,
@@ -93,8 +93,9 @@ _SPANS_BASE = f"""
         {KEYED_COLUMN_SLOT}
     FROM (
         SELECT
-            span_id, trace_id, parent_span_id, name, span_kind, status, model_name, environment,
-            span_start_time, span_end_time, cost, input_tokens, output_tokens, total_tokens, usage_details
+            span_id, trace_id, parent_span_id, name, span_kind, status, error_type, model_name,
+            environment, span_start_time, span_end_time, cost, input_tokens, output_tokens,
+            total_tokens, usage_details
             {KEYED_COLUMN_SLOT}
         FROM spans
         WHERE project_id = {{project_id:String}}
@@ -206,6 +207,8 @@ REGISTRY: dict[str, ViewDef] = {
             "status": FieldDef(
                 expr="status", type="string", label="Status", filter_ops=FILTER_OPS_STRING
             ),
+            # Exception class name stamped at ingest; bounded, so it groups.
+            "error_type": _string_dim("error_type", "Error type"),
             "model_name": _string_dim("model_name", "Model"),
             "environment": _string_dim("environment", "Environment"),
             # Equality only: the domain is two values, so `contains` is a slower `=`.

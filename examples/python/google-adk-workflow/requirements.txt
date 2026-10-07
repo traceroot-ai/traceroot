@@ -1,0 +1,4 @@
+google-adk>=2.9.2
+python-dotenv>=1.0.0
+
+traceroot==0.2.0

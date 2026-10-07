@@ -50,6 +50,18 @@ def make_span(
     return span
 
 
+def make_exception_event(
+    exception_type: str | None = "ValueError",
+    message: str = "boom",
+    time_nanos: int = 1705320000500000000,
+) -> dict:
+    """Build an OTEL exception event. ``exception_type=None`` omits the type attr."""
+    attributes = [make_attr("exception.message", message)]
+    if exception_type is not None:
+        attributes.insert(0, make_attr("exception.type", exception_type))
+    return {"name": "exception", "timeUnixNano": str(time_nanos), "attributes": attributes}
+
+
 def make_otel_payload(
     spans: list[dict], scope_name: str = "openinference.instrumentation.test"
 ) -> dict:

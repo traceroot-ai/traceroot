@@ -2,6 +2,7 @@ import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
 import { prisma, PlanType } from "@traceroot/core";
+import { agentRunCountsByDetector } from "@traceroot/core/signals";
 import { clampStartAfter } from "@/lib/server/retention";
 import { env } from "@/env";
 
@@ -37,6 +38,13 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
     return errorResponse("start_after is required", 400);
   }
 
+  const from = new Date(startAfter);
+  const to = endBefore ? new Date(endBefore) : new Date();
+  if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime())) {
+    return errorResponse("start_after and end_before must be timestamps", 400);
+  }
+  if (from > to) return errorResponse("start_after must not be after end_before", 400);
+
   const backendParams = new URLSearchParams({
     project_id: projectId,
     start_after: startAfter,
@@ -59,7 +67,25 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
     return errorResponse("Failed to reach backend", 502);
   }
 
-  const data: unknown = await response.json();
-  return Response.json(data, { status: response.status });
+  const body = await response.json();
+  if (!response.ok) return Response.json(body, { status: response.status });
+
+  let agentCounts: Record<string, number>;
+  try {
+    agentCounts = await agentRunCountsByDetector(prisma, { projectId, from, to });
+  } catch (err) {
+    console.error("[detector-counts] agent-run counts failed:", err);
+    return errorResponse("Failed to read agent-run counts", 500);
+  }
+  const counts: Record<string, Record<string, unknown>> = body.data;
+  for (const detectorId of new Set([...Object.keys(counts), ...Object.keys(agentCounts)])) {
+    counts[detectorId] = {
+      finding_count: 0,
+      run_count: 0,
+      ...counts[detectorId],
+      agent_run_count: agentCounts[detectorId] ?? 0,
+    };
+  }
+  return Response.json(body);
 }
 export const GET = withImpersonationPolicy(handleGET);

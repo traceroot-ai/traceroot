@@ -669,7 +669,7 @@ describe("createWidget", () => {
         display: { type: "bar" },
       },
       error:
-        /^unknown breakdown "model" for view "spans" — valid breakdowns: environment, model_name, name, span_kind$/,
+        /^unknown breakdown "model" for view "spans" — valid breakdowns: environment, error_type, model_name, name, span_kind$/,
     },
     {
       spec: {

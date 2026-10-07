@@ -353,7 +353,9 @@ function detectorChips(args: Record<string, unknown>): string[] {
   if (typeof args.sample_rate === "number" && Number.isFinite(args.sample_rate)) {
     chips.push(`sample ${args.sample_rate}%`);
   }
-  if (typeof args.enable_rca === "boolean") chips.push(args.enable_rca ? "RCA on" : "RCA off");
+  if (typeof args.enable_rca === "boolean") {
+    chips.push(args.enable_rca ? "RCA automatic" : "RCA manual");
+  }
   const detectionModel = str(args.detection_model);
   if (detectionModel !== null) chips.push(`model ${detectionModel}`);
 
