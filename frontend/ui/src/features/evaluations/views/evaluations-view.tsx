@@ -17,7 +17,7 @@ import { useToast } from "@/components/ui/toast";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
-import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
+import { useUrlKeywordSearch } from "@/lib/hooks/use-url-keyword-search";
 import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
 import { useRememberListQuery } from "@/lib/hooks/use-list-return";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
@@ -169,10 +169,10 @@ function RunsTab({ projectId }: { projectId: string }) {
   // Row selection for bulk actions (compare / delete).
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
-  // The page and the date window live in the URL (`?page_index=`, `?date_filter=`,
-  // `?start=`/`?end=`) so opening a run and coming back lands on the same page of
+  // The page, the search text and the date window live in the URL (`?page_index=`,
+  // `?search=`, `?date_filter=`, `?start=`/`?end=`) so opening a run and coming back lands on the same page of
   // the same result set instead of the first page of the default window.
-  const { page, goToPage, resetPage, resetPageState } = useUrlPagination(RUNS_PAGE_LIMIT);
+  const { page, goToPage, resetPageState } = useUrlPagination(RUNS_PAGE_LIMIT);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const listQuery = searchParams.toString();
@@ -191,8 +191,9 @@ function RunsTab({ projectId }: { projectId: string }) {
   // (now shorter) result set, so reset to the first page whenever ANY server query
   // input changes — the search text OR the date window. Done from the change itself,
   // not an effect on the inputs: an effect would also fire on mount and throw away
-  // the page restored from the URL.
-  const { keyword, setKeyword, searchQuery } = useKeywordSearch(resetPage);
+  // the page restored from the URL. The search write drops `page_index` itself, so it
+  // takes the state-only reset.
+  const { keyword, setKeyword, searchQuery } = useUrlKeywordSearch(resetPageState);
   // One URL write per date change that also drops `page_index`; a separate page-reset
   // write would rebuild from the stale params and lose the new window.
   const writeDateWindow = (id: string, start: Date | null, end: Date | null) => {

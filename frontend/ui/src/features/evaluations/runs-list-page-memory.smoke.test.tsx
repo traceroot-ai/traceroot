@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * The Evaluations runs list keeps its page and date window across opening a run and
- * coming back: both live in the URL, and the run detail links back to the list query
- * it was opened from.
+ * The Evaluations runs list keeps its page, search text and date window across opening
+ * a run and coming back: all live in the URL, and the run detail links back to the
+ * list query it was opened from.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -70,6 +70,8 @@ function mount(node: React.ReactNode) {
   );
 }
 
+const SEARCH_PLACEHOLDER = "Search...";
+
 const requestedPages = () =>
   fetchMock.mock.calls
     .map(([url]) => new URL(String(url), "http://x").searchParams.get("page"))
@@ -98,6 +100,34 @@ describe("runs list page memory", () => {
     expect(await screen.findByText("Last 30 days")).toBeDefined();
     expect(await screen.findByText(/Showing 51–100 of 120/)).toBeDefined();
     expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it("restores the search text from the URL alongside the page", async () => {
+    nav.search = "search=foo&page_index=1";
+    mount(<EvaluationsView projectId="p1" />);
+    expect(await screen.findByText(/Showing 51–100 of 120/)).toBeDefined();
+    expect((screen.getByPlaceholderText(SEARCH_PLACEHOLDER) as HTMLInputElement).value).toBe("foo");
+    const searched = fetchMock.mock.calls
+      .map(([url]) => new URL(String(url), "http://x").searchParams)
+      .filter((p) => p.has("page"));
+    expect(searched.length).toBeGreaterThan(0);
+    expect(searched.every((p) => p.get("search_query") === "foo")).toBe(true);
+    expect(requestedPages()).not.toContain("0");
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it("typing a search writes it to the URL and drops the page in one write", async () => {
+    nav.search = "page_index=2";
+    mount(<EvaluationsView projectId="p1" />);
+    fireEvent.change(await screen.findByPlaceholderText(SEARCH_PLACEHOLDER), {
+      target: { value: "foo" },
+    });
+    await waitFor(() =>
+      expect(nav.replace).toHaveBeenCalledWith("/projects/p1/evaluations?search=foo", {
+        scroll: false,
+      }),
+    );
+    expect(nav.replace).toHaveBeenCalledTimes(1);
   });
 
   it("changing the date window writes it to the URL and drops the page", async () => {
