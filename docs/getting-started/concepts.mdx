@@ -1,0 +1,54 @@
+---
+title: Workspaces, projects, and access
+description: Organize trace data, invite teammates, and choose workspace roles
+---
+
+## Workspaces and projects
+
+A workspace brings together your team and its projects. Membership and roles belong to the workspace; your role applies to its projects. Workspace settings include members and integrations such as Slack and model providers.
+
+A project groups an application's traces, detectors, evaluations, datasets, dashboards, and alerts. Choose the workspace and project you want to work in before opening a product page.
+
+Project API keys are scoped to one project. Create a key in the project's settings and use it with the SDK for the application that should send data to that project. A key for one project does not grant access to another project's data. Keep keys secret.
+
+## Environments
+
+An environment labels traffic within a project, for example `production` or `staging`. It is a field on trace data, rather than a separate workspace, project, or permission boundary. Use environment filters to focus on one deployment.
+
+The deployment label is carried by the `traceroot.environment` span attribute. With the [TypeScript SDK](/tracing/typescript-sdk), set `TRACEROOT_ENVIRONMENT` to label the deployment.
+
+## Invite a teammate
+
+1. As a workspace ADMIN, open the workspace's **Settings** and select **Members**.
+2. Click **Invite member**, enter the teammate's email address, and choose VIEWER, MEMBER, or ADMIN.
+3. Send the invitation. The teammate receives an email linking to the invite page.
+4. The teammate opens the link and signs in with the invited email address to accept it.
+
+Admins can manage pending invitations and change members' roles from the Members tab. Invitations and acceptance are subject to the workspace's seat limit. If acceptance reports that the workspace is full, ask an admin to free a seat or change the plan.
+
+## Roles
+
+Roles are ordered VIEWER, MEMBER, ADMIN. A higher role includes the permissions of the roles below it. The table describes signed-in workspace members; project API keys use their own credential scope.
+
+| Action | VIEWER | MEMBER | ADMIN |
+| :-- | :--: | :--: | :--: |
+| View project traces, detectors, dashboards, and alerts | Yes | Yes | Yes |
+| Create and edit detectors | No | Yes | Yes |
+| Create and edit dashboards and widgets | No | Yes | Yes |
+| Create, edit, pause, and resume alerts | No | Yes | Yes |
+| Create a project | No | Yes | Yes |
+| Create and edit project API keys | No | Yes | Yes |
+| Delete project API keys | No | No | Yes |
+| Invite members, change roles, or remove members | No | No | Yes |
+| Rename a project or change its retention settings | No | No | Yes |
+| Delete a project | No | No | Yes |
+| Rename or delete a workspace | No | No | Yes |
+
+If an API or CLI write returns a permission error, check the role on the workspace containing the project. Having MEMBER access in one workspace does not make you an ADMIN in another. Ask a workspace admin to perform the action or update your role.
+
+## Choose your next workflow
+
+- [Tracing](/tracing/get-started): send your first trace.
+- [Evaluations](/evals/get-started): test an agent against a dataset.
+- [Dashboards](/dashboards/get-started): explore project metrics.
+- [Alerts](/alerts/get-started): monitor a metric threshold.
