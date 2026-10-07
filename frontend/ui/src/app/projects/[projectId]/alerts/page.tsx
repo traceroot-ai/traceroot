@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ListPagination } from "@/components/list-pagination";
@@ -21,6 +21,7 @@ import {
   type AlertSummary,
 } from "@/features/alerts/hooks/use-alerts";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useRememberListQuery } from "@/lib/hooks/use-list-return";
 
 export default function AlertsPage() {
   const params = useParams();
@@ -30,6 +31,10 @@ export default function AlertsPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const { state, queryOptions, updateKeyword, updateLimit, goToPage } = useListPageState();
+  // The page lives in the URL; recorded so an alert's Back, Cancel and Save
+  // return to this page instead of the first one.
+  const searchParams = useSearchParams();
+  useRememberListQuery(`alerts:${projectId}`, searchParams.toString());
 
   const { data, isLoading, error } = useAlertList(projectId, {
     page: queryOptions.page,
