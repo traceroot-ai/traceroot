@@ -5,6 +5,7 @@ import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers"
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
+  search: "",
   useDetectorList: vi.fn(),
   signalCounts: {
     data: { counts: { "det-1": 2 } } as { counts: Record<string, number> } | undefined,
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "proj-1" }),
   useRouter: () => ({ push: mocks.push }),
+  useSearchParams: () => new URLSearchParams(mocks.search),
 }));
 
 // Controlled list state so the test asserts the exact range carried into the URL.
@@ -134,6 +136,8 @@ mocks.useDetectorList.mockReturnValue(defaultDetectorList);
 afterEach(() => {
   cleanup();
   mocks.push.mockClear();
+  mocks.search = "";
+  sessionStorage.clear();
   mocks.useDetectorList.mockReset();
   mocks.useDetectorList.mockReturnValue(defaultDetectorList);
   mocks.signalCounts = { data: { counts: { "det-1": 2 } } };
@@ -190,6 +194,16 @@ describe("DetectorsPage", () => {
     fireEvent.click(screen.getByText("My Detector"));
 
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors/det-1?date_filter=7d");
+  });
+
+  it("remembers its page, page size and effective range for the detector page's back link", () => {
+    // No date_filter in the URL: the range shown came from the default/stored one.
+    mocks.search = "page_index=2&page_limit=100";
+    render(<DetectorsPage />);
+
+    expect(sessionStorage.getItem("list-return:detectors:proj-1")).toBe(
+      "page_index=2&page_limit=100&date_filter=7d",
+    );
   });
 
   it("links each count to what it counts, in the same time range, without opening the row", () => {
