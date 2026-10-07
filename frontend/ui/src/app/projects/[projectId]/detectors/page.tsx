@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
@@ -19,6 +19,7 @@ import {
   useDeleteDetector,
 } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useRememberListQuery, withDateWindow } from "@/lib/hooks/use-list-return";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -70,6 +71,7 @@ function CountLink({ href, label, value }: { href: string; label: string; value:
 export default function DetectorsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const projectId = params.projectId as string;
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
@@ -103,6 +105,15 @@ export default function DetectorsPage() {
       customEndDate: state.customEndDate,
       extraParams,
     });
+
+  // Remember this page, page size and filters so the detector page's "Detectors"
+  // link returns here. The effective date window is recorded too (it can come from
+  // the stored per-project range, not the URL), so the detector page can tell
+  // whether the range was changed there.
+  useRememberListQuery(
+    `detectors:${projectId}`,
+    withDateWindow(searchParams.toString(), buildUrl("")),
+  );
 
   const { data, isLoading, error } = useDetectorList(projectId, {
     page: queryOptions.page,
