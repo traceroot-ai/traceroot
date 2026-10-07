@@ -45,4 +45,15 @@ describe("captureServerEvent", () => {
       properties: { project_id: "p1" },
     });
   });
+
+  it("logs and swallows a capture error", async () => {
+    capture.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { captureServerEvent } = await import("../posthog-server");
+    expect(() => captureServerEvent("user-1", "project_created")).not.toThrow();
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
 });
