@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,8 @@ import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
 import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
+import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
+import { useRememberListQuery } from "@/lib/hooks/use-list-return";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -47,6 +49,15 @@ const RUNS_COLUMN_COUNT = 10;
 // Matches the route's default `limit` (runs/route.ts) so the page-count math lines
 // up with what the server actually returns per page.
 const RUNS_PAGE_LIMIT = 50;
+const DEFAULT_RUNS_DATE_FILTER =
+  DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0];
+
+/** Parses an ISO `?start=` / `?end=` param; null when absent or not a date. */
+function parseUrlDate(raw: string | null): Date | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 /** Human elapsed duration; "—" when unknown (never 0). */
 export function formatElapsed(ms: number | null | undefined): string {
@@ -158,19 +169,55 @@ function RunsTab({ projectId }: { projectId: string }) {
   // Row selection for bulk actions (compare / delete).
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
-  const { keyword, setKeyword, searchQuery } = useKeywordSearch();
-  const [dateFilter, setDateFilter] = React.useState<DateFilterOption>(
-    DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0],
+  // The page and the date window live in the URL (`?page_index=`, `?date_filter=`,
+  // `?start=`/`?end=`) so opening a run and coming back lands on the same page of
+  // the same result set instead of the first page of the default window.
+  const { page, goToPage, resetPage, resetPageState } = useUrlPagination(RUNS_PAGE_LIMIT);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const listQuery = searchParams.toString();
+  useRememberListQuery(`evaluations:${projectId}`, listQuery);
+  const urlDateFilterId = searchParams.get("date_filter");
+  const urlStart = searchParams.get("start");
+  const urlEnd = searchParams.get("end");
+  const dateFilter = React.useMemo(
+    () => DATE_FILTER_OPTIONS.find((o) => o.id === urlDateFilterId) ?? DEFAULT_RUNS_DATE_FILTER,
+    [urlDateFilterId],
   );
-  const [customStart, setCustomStart] = React.useState<Date | null>(null);
-  const [customEnd, setCustomEnd] = React.useState<Date | null>(null);
-  const [page, setPage] = React.useState(0);
+  // Memoized on the raw params so the Date identities (and the bounds below) are stable.
+  const customStart = React.useMemo(() => parseUrlDate(urlStart), [urlStart]);
+  const customEnd = React.useMemo(() => parseUrlDate(urlEnd), [urlEnd]);
   // A narrower filter/date-range can otherwise land on a page past the end of its
   // (now shorter) result set, so reset to the first page whenever ANY server query
-  // input changes — the search text OR the date window.
-  React.useEffect(() => {
-    setPage(0);
-  }, [searchQuery, dateFilter.id, customStart, customEnd]);
+  // input changes — the search text OR the date window. Done from the change itself,
+  // not an effect on the inputs: an effect would also fire on mount and throw away
+  // the page restored from the URL.
+  const { keyword, setKeyword, searchQuery } = useKeywordSearch(resetPage);
+  // One URL write per date change that also drops `page_index`; a separate page-reset
+  // write would rebuild from the stale params and lose the new window.
+  const writeDateWindow = (id: string, start: Date | null, end: Date | null) => {
+    const params = new URLSearchParams(listQuery);
+    if (id === DEFAULT_RUNS_DATE_FILTER.id) params.delete("date_filter");
+    else params.set("date_filter", id);
+    if (start && end) {
+      params.set("start", start.toISOString());
+      params.set("end", end.toISOString());
+    } else {
+      params.delete("start");
+      params.delete("end");
+    }
+    params.delete("page_index");
+    resetPageState();
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+  const setDateFilter = (option: DateFilterOption) =>
+    writeDateWindow(
+      option.id,
+      option.isCustom ? customStart : null,
+      option.isCustom ? customEnd : null,
+    );
+  const setCustomRange = (start: Date, end: Date) => writeDateWindow("custom", start, end);
 
   // Resolve the selected range to actual bounds. Memoized on the filter/custom-range
   // inputs: `toTimestampBounds` reads `new Date()` for preset windows, so recomputing
@@ -198,8 +245,8 @@ function RunsTab({ projectId }: { projectId: string }) {
   React.useEffect(() => {
     if (isLoading || total === 0) return;
     const lastPage = Math.max(0, Math.ceil(total / RUNS_PAGE_LIMIT) - 1);
-    if (page > lastPage) setPage(lastPage);
-  }, [total, page, isLoading]);
+    if (page > lastPage) goToPage(lastPage);
+  }, [total, page, isLoading, goToPage]);
 
   const confirmDelete = () => {
     if (!deleteRun) return;
@@ -314,10 +361,7 @@ function RunsTab({ projectId }: { projectId: string }) {
             customStartDate={customStart}
             customEndDate={customEnd}
             onDateFilterChange={setDateFilter}
-            onCustomRangeChange={(s, e) => {
-              setCustomStart(s);
-              setCustomEnd(e);
-            }}
+            onCustomRangeChange={setCustomRange}
           />
         </div>
       </SearchFilterBar>
@@ -387,7 +431,7 @@ function RunsTab({ projectId }: { projectId: string }) {
           <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              onClick={() => goToPage(Math.max(0, page - 1))}
               disabled={page === 0}
               aria-label="Previous page"
               className="rounded p-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
@@ -396,7 +440,7 @@ function RunsTab({ projectId }: { projectId: string }) {
             </button>
             <button
               type="button"
-              onClick={() => setPage((p) => p + 1)}
+              onClick={() => goToPage(page + 1)}
               disabled={(page + 1) * RUNS_PAGE_LIMIT >= total}
               aria-label="Next page"
               className="rounded p-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
