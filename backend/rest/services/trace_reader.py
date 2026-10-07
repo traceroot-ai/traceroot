@@ -77,6 +77,29 @@ def customer_traffic_only(alias: str = "") -> str:
     return f"{column} = '{USER_SOURCE}'"
 
 
+def _padded_window(time_column: str, start_param: str | None, end_param: str | None) -> str:
+    """``time_column`` bounds for one half of ``_evaluation_trace_ids``.
+
+    The start is padded back (see ``EVALUATION_EXCLUSION_PADDING_HOURS``); the end is
+    unpadded and inclusive (see ``_evaluation_trace_ids``).
+
+    Args:
+        time_column (str): The scanned table's own start column.
+        start_param (str | None): Name of the window-start parameter, or ``None``.
+        end_param (str | None): Name of the window-end parameter, or ``None``.
+
+    Returns:
+        str: One ``" AND ..."`` term per given side, or ``""`` when neither is given.
+    """
+    pad = f"INTERVAL {EVALUATION_EXCLUSION_PADDING_HOURS} HOUR"
+    bounds = ""
+    if start_param is not None:
+        bounds += f" AND {time_column} >= {{{start_param}:DateTime64(3)}} - {pad}"
+    if end_param is not None:
+        bounds += f" AND {time_column} <= {{{end_param}:DateTime64(3)}}"
+    return bounds
+
+
 def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str:
     """Sub-select of every offline-evaluation ``trace_id`` in a project, around a window.
 
@@ -93,10 +116,11 @@ def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str
     trace row with ``is_evaluation = 0`` and a newer ``ch_update_time``. Membership hides
     the trace whatever order the writes arrived in.
 
-    Built from BOTH tables, like the SQL gateway's ``VIEW_EVALUATION_EXCLUSION`` (see
-    ``rest.services.sql.schema`` for the full argument). A ``traces``-only set loses a
-    trace two ordinary ways: a background merge keeps only the newer, unflagged
-    ``traces`` row of a same-day pair and physically deletes the flagged one; and a batch
+    Built from BOTH tables when there is a window start (see below), like the SQL
+    gateway's ``VIEW_EVALUATION_EXCLUSION`` (see ``rest.services.sql.schema`` for the full
+    argument). A ``traces``-only set loses a trace two ordinary ways: a background merge
+    keeps only the newer, unflagged ``traces`` row of a same-day pair and physically
+    deletes the flagged one; and a batch
     with no root span for an existing trace drops its trace record while still inserting
     its spans, so the flagged rows never reach ``traces`` at all. Span rows never collapse
     into each other (``span_id`` is in the sort key) and a span's flag comes from its own
@@ -111,8 +135,8 @@ def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str
     starts at its batch's earliest span, so the flagged row of any trace with an
     in-window row starts at or before that row. The end bound is inclusive so the set
     covers the outer window whatever its own end operator; widening the set can only
-    drop rows the outer window already does. A side with no parameter is unbounded, as
-    the outer scan is.
+    drop rows the outer window already does. A ``traces`` side with no parameter is
+    unbounded, as the outer scan is.
 
     The spans half matches on ``span_kind`` rather than ``is_evaluation``: ingest sets
     the span flag from exactly these kinds, but only ``span_kind`` is carried by the
@@ -120,28 +144,40 @@ def _evaluation_trace_ids(start_param: str | None, end_param: str | None) -> str
     the projection instead of reading every granule of the window's months from the
     trace_id-ordered base table.
 
+    The ``spans`` half needs a window start and is left out without one: with no lower
+    bound it would read the project's whole span history on every request (the scan
+    ``DEFAULT_SPAN_SCAN_LOOKBACK_HOURS`` keeps every other read path off), and an upper
+    bound alone prunes no partition below it. An open-ended caller gets the ``traces``
+    half alone, the set these reads used before the ``spans`` half existed. That is only
+    an all-history read on a plan with unlimited retention or over internal-secret
+    traffic: every list router clamps a missing ``start_after`` to the plan's retention
+    cutoff (``rest.retention``), the filter dropdowns default a lookback, and the widget
+    and detector-chart windows are always bound. Accepted miss: such a read can show an
+    evaluation trace whose flagged ``traces`` row was merged away or never written.
+
     Args:
         start_param (str | None): Name of the window-start parameter, or ``None``.
         end_param (str | None): Name of the window-end parameter, or ``None``.
 
     Returns:
-        str: A parenthesised ``SELECT trace_id ... UNION DISTINCT ...`` sub-select.
+        str: A parenthesised ``SELECT trace_id ...`` sub-select, with the ``spans`` half
+        joined by ``UNION DISTINCT`` when ``start_param`` is given.
     """
-    pad = f"INTERVAL {EVALUATION_EXCLUSION_PADDING_HOURS} HOUR"
     kinds = ", ".join(f"'{kind}'" for kind in sorted(EVALUATION_SPAN_KINDS))
-
-    def half(table: str, time_column: str, flagged: str) -> str:
-        bounds = ["project_id = {project_id:String}", flagged]
-        if start_param is not None:
-            bounds.append(f"{time_column} >= {{{start_param}:DateTime64(3)}} - {pad}")
-        if end_param is not None:
-            bounds.append(f"{time_column} <= {{{end_param}:DateTime64(3)}}")
-        return f"SELECT trace_id FROM {table} WHERE " + " AND ".join(bounds)
-
-    return (
-        f"({half('traces', 'trace_start_time', 'is_evaluation = 1')}"
-        f" UNION DISTINCT {half('spans', 'span_start_time', f'span_kind IN ({kinds})')})"
-    )
+    # Table names spelled out, never templated: test_source_consumers finds a scan by its
+    # literal table name and judges it under the innermost `def` above it, so a templated
+    # or nested-helper scan would slip past that audit.
+    sub_selects = [
+        "SELECT trace_id FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1"
+        + _padded_window("trace_start_time", start_param, end_param)
+    ]
+    if start_param is not None:
+        sub_selects.append(
+            "SELECT trace_id FROM spans WHERE project_id = {project_id:String}"
+            f" AND span_kind IN ({kinds})"
+            + _padded_window("span_start_time", start_param, end_param)
+        )
+    return "(" + " UNION DISTINCT ".join(sub_selects) + ")"
 
 
 def _evaluation_exclusion(params: dict) -> str:
@@ -155,7 +191,7 @@ def _evaluation_exclusion(params: dict) -> str:
     Args:
         params (dict): Query parameters for this statement. Must already contain
             ``project_id``; ``start_after`` / ``end_before`` bound the sub-select when the
-            caller set them.
+            caller set them, and only ``start_after`` admits its ``spans`` half.
 
     Returns:
         str: A condition for the ``traces AS t`` where-clause.
