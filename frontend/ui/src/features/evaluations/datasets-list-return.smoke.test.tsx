@@ -106,13 +106,15 @@ describe("datasets list return link", () => {
     );
   });
 
-  it("the not-found state's back link returns to the same list page", async () => {
+  it("the not-found state's header and back links return to the same list page", async () => {
     await openListOnSecondPage();
     mount(<DatasetDetailView projectId="p1" datasetId="ds1" />);
     const back = await screen.findByText("Back to datasets");
-    await waitFor(() =>
-      expect(back.getAttribute("href")).toBe("/projects/p1/datasets?page_index=1"),
-    );
+    const header = screen.getByRole("link", { name: "Datasets" });
+    await waitFor(() => {
+      expect(back.getAttribute("href")).toBe("/projects/p1/datasets?page_index=1");
+      expect(header.getAttribute("href")).toBe("/projects/p1/datasets?page_index=1");
+    });
   });
 
   it("links to the bare list when no list query was recorded", async () => {
