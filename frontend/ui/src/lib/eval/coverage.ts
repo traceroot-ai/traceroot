@@ -95,23 +95,25 @@ const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 /**
  * The one-line label every surface shows, so coverage reads identically wherever it
- * appears:
- *   Full dataset · 500 cases
- *   Subset · 20 of 500 cases · first
- *   Subset · 20 of 500 cases · sample · seed 7
- *   All 500 cases · first
+ * appears. Plain words rather than mode names, because a reader should not need to know
+ * the SDK's flags to understand what a run covered:
+ *   All 500 cases
+ *   Ran 20 of 500 cases · first 20
+ *   Ran 20 of 500 cases · random sample (seed 7)
  *   Coverage unknown
  *
  * A `first`/`sample` run that selected every case is not a subset (see `isSubset`), so
- * it is labelled as covering all of them rather than as "Subset · 500 of 500".
+ * it reads exactly like a full run rather than as "Ran 500 of 500".
  */
 export function formatCoverage(coverage: RunCoverage): string {
   const { mode, datasetCaseCount, selectedCaseCount, sampleSeed } = coverage;
   if (mode === "unknown") return "Coverage unknown";
-  if (mode === "full") return `Full dataset · ${plural(datasetCaseCount ?? 0, "case")}`;
-  const seed = sampleSeed != null ? ` · seed ${sampleSeed}` : "";
-  if (!isSubset(coverage)) return `All ${plural(datasetCaseCount ?? 0, "case")} · ${mode}${seed}`;
-  return `Subset · ${selectedCaseCount} of ${plural(datasetCaseCount ?? 0, "case")} · ${mode}${seed}`;
+  if (mode === "full" || !isSubset(coverage)) return `All ${plural(datasetCaseCount ?? 0, "case")}`;
+  const how =
+    mode === "first"
+      ? `first ${selectedCaseCount}`
+      : `random sample${sampleSeed != null ? ` (seed ${sampleSeed})` : ""}`;
+  return `Ran ${selectedCaseCount} of ${plural(datasetCaseCount ?? 0, "case")} · ${how}`;
 }
 
 /** The compact `20 / 500` form for a table cell; "—" when nothing is known. */
@@ -130,10 +132,42 @@ export function formatCoverageRatio(coverage: RunCoverage): string {
  */
 export function coverageNote(coverage: RunCoverage): string | null {
   if (coverage.mode === "unknown") {
-    return "This run did not report which cases it measured.";
+    return "This run didn't report how many dataset cases it ran.";
   }
   if (isSubset(coverage)) {
-    return `This run measured ${coverage.selectedCaseCount} of ${plural(coverage.datasetCaseCount ?? 0, "case")}, so its totals and averages describe that subset — not the whole dataset.`;
+    const n = coverage.selectedCaseCount ?? 0;
+    const these = n === 1 ? "this 1 case" : `these ${n} cases`;
+    return `Averages here cover only ${these}, not the whole dataset.`;
   }
   return null;
+}
+
+/** What `runShortfall` needs from a run; structural so the read routes can pass rows. */
+export interface RunCompleteness {
+  status: string;
+  /** What the run declared it would run. For a subset this may be the dataset's size. */
+  caseCount: number;
+  /** How many result rows the run actually stored — NOT how many a capped response returned. */
+  resultCount: number;
+  coverage: RunCoverage;
+}
+
+/**
+ * A run that ended early: it stored fewer results than it set out to run. Null when it
+ * did not, or when it is still running (its results are still arriving, so a shortfall
+ * says nothing yet). A failed or cancelled run is exactly the case this exists for.
+ *
+ * What it set out to run is the declared selection when coverage is known — a
+ * `--first 20` run set out to run 20, whatever its `caseCount` says — and the run's own
+ * `caseCount` otherwise. Judged against `resultCount`, the stored total, so an API cap on
+ * the returned rows never reads as a run ending early; that is `resultsTruncated`'s job.
+ */
+export function runShortfall(run: RunCompleteness): { reported: number; expected: number } | null {
+  if (run.status === "running") return null;
+  const expected =
+    run.coverage.mode === "unknown"
+      ? run.caseCount
+      : (run.coverage.selectedCaseCount ?? run.caseCount);
+  if (!(expected > 0) || run.resultCount >= expected) return null;
+  return { reported: run.resultCount, expected };
 }

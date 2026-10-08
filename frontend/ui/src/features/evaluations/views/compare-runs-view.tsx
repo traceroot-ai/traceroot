@@ -11,7 +11,7 @@ import { ProjectBreadcrumb } from "@/features/projects/components";
 import { pctFraction, changeSentiment, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
 import { cn } from "@/lib/utils";
 import { useEvaluationRunDetails } from "../hooks";
-import { formatCoverage, isSubset } from "@/lib/eval/coverage";
+import { formatCoverage, isSubset, runShortfall } from "@/lib/eval/coverage";
 import type { ResultRow, RunDetail, ScoreRow } from "../types";
 
 // A run comparison is N runs (2+) measured on the SAME dataset, lined up by
@@ -289,6 +289,19 @@ export function CompareRunsView({
     [ordered],
   );
 
+  // INCOMPLETE: the run stored fewer results than it set out to run — it failed, was
+  // cancelled or stopped part-way. Distinct from both of the above: nothing was capped
+  // and nothing was chosen; the run simply ended early, so its numbers cover only the
+  // cases that finished. A run still running is exempt (see `runShortfall`).
+  const incompleteRuns = React.useMemo(
+    () =>
+      ordered.flatMap((b) => {
+        const shortfall = runShortfall(b.run);
+        return shortfall ? [{ bundle: b, ...shortfall }] : [];
+      }),
+    [ordered],
+  );
+
   // Per-run aggregates over the intersection (the compared population).
   const agg = React.useMemo(() => {
     const scorer = new Map<string, Map<string, number | null>>();
@@ -427,10 +440,25 @@ export function CompareRunsView({
                   .map((b) => `${runLabel(b)} (${formatCoverage(b.run.coverage)})`)
                   .join(", ")}{" "}
                 — this comparison is exploratory, not an authoritative whole-dataset result.
-                {/* Only when every run is a subset: a subset beside a full run does not
-                    "agree about that subset" — the full run measured everything. */}
+                {/* Only when every run is a subset. The table and its aggregates are built
+                    on the case ids every run has (`intersection`), so this holds for any
+                    mix of slices and any number of runs; beside a full run it would be
+                    noise, since the full run measured everything. */}
                 {subsetRuns.length === ordered.length &&
-                  " Two runs measuring the same subset still only agree about that subset."}
+                  " Runs that each measured only part of the dataset can only be compared on the cases they share."}
+              </div>
+            )}
+            {/* Separately: a run that ended early. Not a choice and not the API's cap. */}
+            {incompleteRuns.length > 0 && (
+              <div className="border-b border-amber-400/60 bg-amber-100/50 px-3 py-2 text-[11px] text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+                {incompleteRuns
+                  .map(
+                    (i) =>
+                      `${runLabel(i.bundle)} reported ${i.reported} of ${i.expected} ${i.expected === 1 ? "case" : "cases"}`,
+                  )
+                  .join("; ")}
+                , so {incompleteRuns.length === 1 ? "its" : "their"} scores, duration and cost cover
+                only the cases that finished.
               </div>
             )}
             {/* Separately: the API capped the rows it returned, so these aggregates are

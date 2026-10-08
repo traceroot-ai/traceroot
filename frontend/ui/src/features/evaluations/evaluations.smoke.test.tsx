@@ -365,11 +365,10 @@ describe("real Datasets + Evaluations views render server data", () => {
       // Silence on a full run is indistinguishable from silence on an unreported one,
       // so the label is shown either way.
       mount(<RunDetailView projectId="p1" runId="run1" />);
-      expect(await screen.findByText("Full dataset · 24 cases")).toBeDefined();
-      expect(screen.queryByText(/not final/)).toBeNull();
+      expect(await screen.findByText("All 24 cases")).toBeDefined();
     });
 
-    it("labels a subset run non-final with its selected / total", async () => {
+    it("labels a subset run with what it ran, in warning colour, and explains it on hover", async () => {
       global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
         ok: true,
         status: 200,
@@ -390,8 +389,10 @@ describe("real Datasets + Evaluations views render server data", () => {
             : payloadFor(String(url)),
       })) as unknown as typeof fetch;
       mount(<RunDetailView projectId="p1" runId="run1" />);
-      expect(await screen.findByText("Subset · 20 of 500 cases · sample · seed 7")).toBeDefined();
-      expect(screen.getByText(/not final/)).toBeDefined();
+      const badge = await screen.findByText("Ran 20 of 500 cases · random sample (seed 7)");
+      // "not final" read as "the run is unfinished"; the colour carries the caveat instead.
+      expect(screen.queryByText(/not final/)).toBeNull();
+      expect(badge.closest("[tabindex]")?.getAttribute("tabindex")).toBe("0");
     });
 
     it("warns that the API capped the rows only when the response says it did", async () => {
@@ -437,8 +438,7 @@ describe("real Datasets + Evaluations views render server data", () => {
             : payloadFor(String(url)),
       })) as unknown as typeof fetch;
       mount(<RunDetailView projectId="p1" runId="run1" />);
-      expect(await screen.findByText("All 24 cases · first")).toBeDefined();
-      expect(screen.queryByText(/not final/)).toBeNull();
+      expect(await screen.findByText("All 24 cases")).toBeDefined();
     });
 
     it("says so plainly when a run never reported its coverage, without calling it non-final", async () => {
@@ -452,8 +452,69 @@ describe("real Datasets + Evaluations views render server data", () => {
       })) as unknown as typeof fetch;
       mount(<RunDetailView projectId="p1" runId="run1" />);
       expect(await screen.findByText("Coverage unknown")).toBeDefined();
-      // Unknown coverage is information, not a downgrade: every run recorded today is here.
-      expect(screen.queryByText(/not final/)).toBeNull();
+    });
+
+    it("flags a run that ended early with how many cases it reported", async () => {
+      global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
+        ok: true,
+        status: 200,
+        json: async () =>
+          String(url).includes("/evaluations/runs/run1")
+            ? {
+                run: {
+                  ...RUN,
+                  status: "failed",
+                  caseCount: 30,
+                  coverage: {
+                    mode: "full",
+                    datasetCaseCount: 30,
+                    selectedCaseCount: 30,
+                    sampleSeed: null,
+                  },
+                },
+                results: RESULTS,
+              }
+            : payloadFor(String(url)),
+      })) as unknown as typeof fetch;
+      mount(<RunDetailView projectId="p1" runId="run1" />);
+      expect(
+        await screen.findByText(
+          withText(
+            /^This run reported 24 of 30 cases, so its scores, duration and cost cover only the cases that finished\.$/,
+          ),
+        ),
+      ).toBeDefined();
+    });
+
+    it("does not flag a complete run, or one still running, as ended early", async () => {
+      mount(<RunDetailView projectId="p1" runId="run1" />);
+      await screen.findByText("All 24 cases");
+      expect(screen.queryByText(/cases that finished/)).toBeNull();
+      cleanup();
+      global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
+        ok: true,
+        status: 200,
+        json: async () =>
+          String(url).includes("/evaluations/runs/run1")
+            ? {
+                run: {
+                  ...RUN,
+                  status: "running",
+                  caseCount: 30,
+                  coverage: {
+                    mode: "full",
+                    datasetCaseCount: 30,
+                    selectedCaseCount: 30,
+                    sampleSeed: null,
+                  },
+                },
+                results: RESULTS,
+              }
+            : payloadFor(String(url)),
+      })) as unknown as typeof fetch;
+      mount(<RunDetailView projectId="p1" runId="run1" />);
+      await screen.findByText("All 30 cases");
+      expect(screen.queryByText(/cases that finished/)).toBeNull();
     });
   });
 

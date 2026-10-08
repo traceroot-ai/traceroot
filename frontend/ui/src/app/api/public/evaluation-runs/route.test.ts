@@ -579,7 +579,7 @@ describe("dataset coverage", () => {
 
   it("rejects a declared total that is not the pinned version's size, naming both", async () => {
     // The SDK counted a stale or cut-short local list. Stored as declared, the run would
-    // read "Full dataset · 499 cases" against a version it never covered.
+    // read "All 499 cases" against a version it never covered.
     const res = await POST(
       post(
         body({

@@ -215,22 +215,24 @@ describe("CompareRunsView — N-run diff table", () => {
     });
 
     it("calls a subset comparison exploratory, and never blames the API for it", () => {
-      // The user chose 20 of 500. Nothing was lost in transit, so the old "(API limit)"
-      // wording was simply wrong. The baseline covered everything, so the two runs do
-      // not "agree about that subset" — that sentence is for subset-vs-subset only.
+      // The user chose 2 of 500. Nothing was lost in transit, so the old "(API limit)"
+      // wording was simply wrong. The baseline covered everything, so the shared-cases
+      // sentence (for subset-vs-subset only) does not apply, and the run finished every
+      // case it selected, so it did not end early either.
       withSonnetRun({
-        coverage: { mode: "first", datasetCaseCount: 500, selectedCaseCount: 20, sampleSeed: null },
+        coverage: { mode: "first", datasetCaseCount: 500, selectedCaseCount: 2, sampleSeed: null },
       });
       mount();
       expect(screen.getByText(/exploratory/)).toBeTruthy();
-      expect(screen.getByText(/Subset · 20 of 500 cases · first/)).toBeTruthy();
-      expect(screen.queryByText(/only agree about that subset/)).toBeNull();
+      expect(screen.getByText(/Ran 2 of 500 cases · first 2/)).toBeTruthy();
+      expect(screen.queryByText(/cases they share/)).toBeNull();
       expect(screen.queryByText(/API limit/)).toBeNull();
+      expect(screen.queryByText(/cases that finished/)).toBeNull();
     });
 
-    it("says two subsets only agree about that subset when every run is a subset", () => {
+    it("says subsets can only be compared on the cases they share when every run is a subset", () => {
       const subset = {
-        coverage: { mode: "first", datasetCaseCount: 500, selectedCaseCount: 20, sampleSeed: null },
+        coverage: { mode: "first", datasetCaseCount: 500, selectedCaseCount: 2, sampleSeed: null },
       };
       hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
         ids.map((id) => {
@@ -244,7 +246,11 @@ describe("CompareRunsView — N-run diff table", () => {
       );
       mount();
       expect(screen.getByText(/exploratory/)).toBeTruthy();
-      expect(screen.getByText(/only agree about that subset/)).toBeTruthy();
+      expect(
+        screen.getByText(
+          /Runs that each measured only part of the dataset can only be compared on the cases they share\./,
+        ),
+      ).toBeTruthy();
     });
 
     it("leaves a run whose coverage was never reported unflagged, as every run today is", () => {
@@ -267,6 +273,66 @@ describe("CompareRunsView — N-run diff table", () => {
       // A full run that was merely capped is still a whole-dataset run, so it does not
       // also earn the exploratory banner.
       expect(screen.queryByText(/exploratory/)).toBeNull();
+    });
+
+    it("flags a run that ended early, apart from the subset and API-limit banners", () => {
+      // Declared 5 cases, stored 2: the run failed part-way. This used to be caught by
+      // `caseCount > results.length`; it must not be lost with that check. With no
+      // coverage reported, the run's own case count is what it set out to run.
+      withSonnetRun({
+        status: "failed",
+        caseCount: 5,
+        resultCount: 2,
+        coverage: {
+          mode: "unknown",
+          datasetCaseCount: null,
+          selectedCaseCount: null,
+          sampleSeed: null,
+        },
+      });
+      mount();
+      expect(
+        screen.getByText(
+          /#42 · sonnet reported 2 of 5 cases, so its scores, duration and cost cover only the cases that finished\./,
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByText(/exploratory/)).toBeNull();
+      expect(screen.queryByText(/API limit/)).toBeNull();
+    });
+
+    it("judges a known subset against what it selected, not the run's case count", () => {
+      withSonnetRun({
+        caseCount: 500,
+        resultCount: 2,
+        coverage: { mode: "first", datasetCaseCount: 500, selectedCaseCount: 3, sampleSeed: null },
+      });
+      mount();
+      expect(screen.getByText(/reported 2 of 3 cases/)).toBeTruthy();
+    });
+
+    it("does not flag a run that is still running", () => {
+      withSonnetRun({
+        status: "running",
+        caseCount: 5,
+        resultCount: 2,
+        coverage: {
+          mode: "unknown",
+          datasetCaseCount: null,
+          selectedCaseCount: null,
+          sampleSeed: null,
+        },
+      });
+      mount();
+      expect(screen.queryByText(/cases that finished/)).toBeNull();
+    });
+
+    it("does not read an API cap as a run ending early", () => {
+      // resultCount is the stored total, so a capped response with every case stored
+      // is truncated, not incomplete.
+      withSonnetRun({ resultsTruncated: true, caseCount: 2, resultCount: 2 });
+      mount();
+      expect(screen.getByText(/API limit/)).toBeTruthy();
+      expect(screen.queryByText(/cases that finished/)).toBeNull();
     });
   });
 

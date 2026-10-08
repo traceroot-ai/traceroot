@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { useEvaluationRun } from "../hooks";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
 import type { ResultRow, RunDetail, ScoreRow } from "../types";
-import type { RunCoverage } from "@/lib/eval/coverage";
+import { runShortfall, type RunCompleteness, type RunCoverage } from "@/lib/eval/coverage";
 import { CoverageBadge } from "../components/coverage";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -252,6 +252,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             <ResultsSection
+              run={data.run}
               coverage={data.run.coverage}
               resultCount={data.run.resultCount}
               resultsTruncated={data.run.resultsTruncated}
@@ -398,6 +399,7 @@ function PendingTracePanel({
 }
 
 function ResultsSection({
+  run,
   results,
   coverage,
   resultCount,
@@ -405,6 +407,7 @@ function ResultsSection({
   onOpen,
   openResultId,
 }: {
+  run: RunCompleteness;
   results: ResultRow[];
   coverage: RunCoverage;
   resultCount: number;
@@ -413,6 +416,7 @@ function ResultsSection({
   openResultId: string | null;
 }) {
   const [keyword, setKeyword] = React.useState("");
+  const shortfall = runShortfall(run);
 
   const visible = React.useMemo(() => {
     const q = keyword.trim().toLowerCase();
@@ -474,6 +478,14 @@ function ResultsSection({
           ) : (
             <span className="text-[11px] text-muted-foreground">
               {results.length} {results.length === 1 ? "result" : "results"} reported
+            </span>
+          )}
+          {/* And separately again: the run itself ended early (failed, cancelled). */}
+          {shortfall && (
+            <span className="text-[11px] text-amber-700 dark:text-amber-400">
+              This run reported {shortfall.reported} of {shortfall.expected}{" "}
+              {shortfall.expected === 1 ? "case" : "cases"}, so its scores, duration and cost cover
+              only the cases that finished.
             </span>
           )}
         </div>

@@ -6,6 +6,7 @@ import {
   coversFullDataset,
   isSubset,
   coverageNote,
+  runShortfall,
   UNKNOWN_COVERAGE,
 } from "./coverage";
 
@@ -104,8 +105,15 @@ describe("coverage predicates", () => {
 
   it("explains a subset, notes unknown coverage without a caveat, and stays silent on a full run", () => {
     expect(coverageNote(full)).toBeNull();
-    expect(coverageNote(first)).toContain("20 of 500 cases");
-    expect(coverageNote(UNKNOWN_COVERAGE)).toBe("This run did not report which cases it measured.");
+    expect(coverageNote(first)).toBe(
+      "Averages here cover only these 20 cases, not the whole dataset.",
+    );
+    expect(coverageNote(toRunCoverage(stored({ selectedCaseCount: 1 })))).toBe(
+      "Averages here cover only this 1 case, not the whole dataset.",
+    );
+    expect(coverageNote(UNKNOWN_COVERAGE)).toBe(
+      "This run didn't report how many dataset cases it ran.",
+    );
   });
 });
 
@@ -113,29 +121,27 @@ describe("formatCoverage", () => {
   it("renders the four locked labels", () => {
     expect(
       formatCoverage(toRunCoverage(stored({ selectionMode: "full", selectedCaseCount: 500 }))),
-    ).toBe("Full dataset · 500 cases");
-    expect(formatCoverage(toRunCoverage(stored()))).toBe("Subset · 20 of 500 cases · first");
+    ).toBe("All 500 cases");
+    expect(formatCoverage(toRunCoverage(stored()))).toBe("Ran 20 of 500 cases · first 20");
     expect(formatCoverage(toRunCoverage(stored({ selectionMode: "sample", sampleSeed: 7 })))).toBe(
-      "Subset · 20 of 500 cases · sample · seed 7",
+      "Ran 20 of 500 cases · random sample (seed 7)",
     );
     expect(formatCoverage(UNKNOWN_COVERAGE)).toBe("Coverage unknown");
   });
 
   it("renders an unseeded sample without a phantom seed", () => {
     expect(formatCoverage(toRunCoverage(stored({ selectionMode: "sample" })))).toBe(
-      "Subset · 20 of 500 cases · sample",
+      "Ran 20 of 500 cases · random sample",
     );
   });
 
   it("labels a first/sample run that selected every case as all cases, not a subset", () => {
-    expect(formatCoverage(toRunCoverage(stored({ selectedCaseCount: 500 })))).toBe(
-      "All 500 cases · first",
-    );
+    expect(formatCoverage(toRunCoverage(stored({ selectedCaseCount: 500 })))).toBe("All 500 cases");
     expect(
       formatCoverage(
         toRunCoverage(stored({ selectionMode: "sample", selectedCaseCount: 500, sampleSeed: 7 })),
       ),
-    ).toBe("All 500 cases · sample · seed 7");
+    ).toBe("All 500 cases");
   });
 
   it("pluralises the dataset size", () => {
@@ -148,11 +154,43 @@ describe("formatCoverage", () => {
           sampleSeed: null,
         }),
       ),
-    ).toBe("Full dataset · 1 case");
+    ).toBe("All 1 case");
   });
 
   it("renders the compact ratio, and a dash when nothing is known", () => {
     expect(formatCoverageRatio(toRunCoverage(stored()))).toBe("20 / 500");
     expect(formatCoverageRatio(UNKNOWN_COVERAGE)).toBe("—");
+  });
+});
+
+describe("runShortfall", () => {
+  const run = (over: Partial<Parameters<typeof runShortfall>[0]> = {}) => ({
+    status: "failed",
+    caseCount: 10,
+    resultCount: 7,
+    coverage: UNKNOWN_COVERAGE,
+    ...over,
+  });
+
+  it("flags a run that stored fewer results than its declared case count", () => {
+    expect(runShortfall(run())).toEqual({ reported: 7, expected: 10 });
+    expect(runShortfall(run({ status: "cancelled" }))).toEqual({ reported: 7, expected: 10 });
+    expect(runShortfall(run({ status: "completed" }))).toEqual({ reported: 7, expected: 10 });
+  });
+
+  it("judges a known selection against what it selected, not the run's case count", () => {
+    // A --first 20 run whose caseCount is the dataset size: 20 results is complete.
+    const first20 = toRunCoverage(stored());
+    expect(runShortfall(run({ caseCount: 500, resultCount: 20, coverage: first20 }))).toBeNull();
+    expect(runShortfall(run({ caseCount: 500, resultCount: 12, coverage: first20 }))).toEqual({
+      reported: 12,
+      expected: 20,
+    });
+  });
+
+  it("stays silent for a complete run, a running run, and a run that declared nothing", () => {
+    expect(runShortfall(run({ resultCount: 10 }))).toBeNull();
+    expect(runShortfall(run({ status: "running" }))).toBeNull();
+    expect(runShortfall(run({ caseCount: 0, resultCount: 0 }))).toBeNull();
   });
 });

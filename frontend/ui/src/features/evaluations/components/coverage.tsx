@@ -77,12 +77,10 @@ export function CoverageCell({ coverage }: { coverage: RunCoverage }) {
  */
 export function CoverageBadge({ coverage }: { coverage: RunCoverage }) {
   const reason = coverageNote(coverage);
-  // Only a known subset is flagged: unknown coverage is shown, but it is not a caveat.
+  // Only a known subset is flagged, by colour alone: unknown coverage is shown, but it is
+  // not a caveat.
   const badge = (
-    <Badge variant={isSubset(coverage) ? "warning" : "default"}>
-      {formatCoverage(coverage)}
-      {isSubset(coverage) && <span className="opacity-70">· not final</span>}
-    </Badge>
+    <Badge variant={isSubset(coverage) ? "warning" : "default"}>{formatCoverage(coverage)}</Badge>
   );
   if (!reason) return badge;
   return (
