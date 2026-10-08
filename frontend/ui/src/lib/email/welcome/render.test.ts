@@ -29,7 +29,7 @@ it("renders text with the greeting, bullets and raw opt-out URL, and html with e
   expect(subject).toBe("Making the most of TraceRoot");
   expect(text.startsWith("Hi Lucas,\n")).toBe(true);
   expect(text).toContain(
-    "try now:\n- Install the CLI: `npm install -g traceroot-cli`, then `traceroot login`\n- Ask",
+    "try now:\n- Install the CLI: `npm install -g traceroot-cli` → `traceroot login`\n- Ask",
   );
   expect(text).toContain(
     `\n- Prefer a UI? The web app (${base.appUrl}) and docs (${links.NEXT_PUBLIC_DOCS_URL}) are always there\n`,
@@ -44,7 +44,7 @@ it("renders text with the greeting, bullets and raw opt-out URL, and html with e
   const { html } = renderWelcome({ ...base, firstName: "<b>x" });
   expect(html).toContain("Hi &lt;b&gt;x,");
   expect(html).toContain(
-    "try now:</p><ul><li>Install the CLI: <code>npm install -g traceroot-cli</code>, then <code>traceroot login</code></li><li>Ask",
+    "try now:</p><ul><li>Install the CLI: <code>npm install -g traceroot-cli</code> → <code>traceroot login</code></li><li>Ask",
   );
   expect(html).toContain(
     `<li>Prefer a UI? The <a href="${base.appUrl}">web app</a> and <a href="https://docs.example.com">docs</a> are always there</li></ul>`,
