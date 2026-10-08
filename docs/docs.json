@@ -109,6 +109,7 @@
               {
                 "group": "Get Started",
                 "pages": [
+                  "ai-agent/home",
                   "ai-agent/github-integration",
                   "ai-agent/byok"
                 ]
@@ -116,6 +117,8 @@
               {
                 "group": "Features",
                 "pages": [
+                  "ai-agent/tools",
+                  "ai-agent/write-actions",
                   "ai-agent/trace-analysis",
                   "ai-agent/root-cause-analysis",
                   "ai-agent/pr-creation"
