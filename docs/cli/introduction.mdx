@@ -1,0 +1,85 @@
+---
+title: Introduction
+description: Overview of the TraceRoot CLI
+---
+
+The TraceRoot CLI (`traceroot-cli`) brings the full capabilities of TraceRoot to your terminal. It allows developers, CI/CD pipelines, and AI coding agents (such as Claude Code, Cursor, and Codex) to inspect traces, manage detectors and findings, query telemetry using analytical SQL, configure alerts, and install agent skills directly from the command line.
+
+Full source code lives in the [`traceroot-cli`](https://github.com/traceroot-ai/traceroot-cli) repository.
+
+## Key Capabilities
+
+- **Trace Inspection & Export**: List recent traces, inspect detailed span hierarchies and I/O payloads, and export portable trace bundles to disk for offline evaluation and debugging.
+- **Continuous Quality & Failure Detection**: List, create, and manage detectors and inspect detector findings with full root cause analysis (RCA).
+- **Alerts & Dashboards**: View, configure, and manage threshold alerts and custom dashboard widgets.
+- **Analytical SQL Engine**: Run fast, read-only SQL queries over spans and traces using ClickHouse analytical syntax.
+- **AI Agent Tooling**: Install first-party agent skills into Claude Code, Codex, or generic agent directories, generate instrumentation prompts with `instrument`, and verify your setup with `doctor`.
+- **Scriptable by Design**: Predictable exit codes (0–5), a single-line JSON error contract on stderr, and native `--json` output across commands make the CLI ideal for automation with `jq` and shell pipelines.
+
+## Installation
+
+Run without installing via `npx`, or install globally via `npm`:
+
+<Tabs>
+  <Tab title="npx (One-off)">
+    ```bash
+    npx traceroot-cli --help
+    ```
+  </Tab>
+  <Tab title="npm (Global)">
+    ```bash
+    npm install -g traceroot-cli
+    ```
+  </Tab>
+</Tabs>
+
+Once installed, the CLI is available as `traceroot`:
+
+```bash
+traceroot --version
+```
+
+## Quick Tour
+
+```bash
+# 1. Sign in via browser device flow or API key
+traceroot login
+
+# 2. Check active credentials and resolved project
+traceroot status
+
+# 3. List recent traces from your project
+traceroot traces list --limit 10
+
+# 4. Query telemetry with SQL
+traceroot sql "SELECT model_name, quantile(0.95)(duration_ms) AS p95_ms FROM spans GROUP BY model_name"
+
+# 5. Check environment and permissions
+traceroot doctor
+```
+
+## Documentation Roadmap
+
+<CardGroup cols={2}>
+  <Card title="Get Started" icon="play" href="/cli/get-started">
+    Step-by-step walkthrough of installation, login, and initial commands.
+  </Card>
+  <Card title="Authentication" icon="key" href="/cli/authentication">
+    Browser login vs API keys, 7-level credential precedence, and project scoping.
+  </Card>
+  <Card title="Traces" icon="route" href="/cli/traces">
+    Listing, inspecting span trees, and exporting trace bundles.
+  </Card>
+  <Card title="Detectors & Findings" icon="shield-check" href="/cli/detectors-and-findings">
+    Managing failure detectors and reviewing RCA findings.
+  </Card>
+  <Card title="SQL Queries" icon="database" href="/cli/sql">
+    Querying telemetry tables and schemas using SQL.
+  </Card>
+  <Card title="Scripting & CI" icon="terminal" href="/cli/scripting">
+    Exit codes, JSON output error envelopes, and `jq` automation.
+  </Card>
+  <Card title="Command Reference" icon="book" href="/cli/reference">
+    Comprehensive reference of all 28 commands, global flags, and environment variables.
+  </Card>
+</CardGroup>

@@ -1,0 +1,134 @@
+---
+title: Traces
+description: List, inspect, and export execution traces
+---
+
+The `traces` command group lets you query, inspect, and export execution traces captured by TraceRoot SDKs and integrations.
+
+## Commands
+
+### `traceroot traces list`
+
+List traces for your project, sorted newest first.
+
+```bash
+traceroot traces list [options]
+```
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--limit <n>` | number | Maximum number of traces to return (default: `20`) |
+| `--since <duration>` | string | Filter traces within a relative duration (e.g. `1h`, `24h`, `7d`) |
+| `--from <iso-date>` | string | Start of the time range in ISO 8601 format |
+| `--to <iso-date>` | string | End of the time range in ISO 8601 format |
+| `--project <id>` | string | Project ID (required when using browser login) |
+| `--json` | boolean | Output raw JSON data |
+
+#### Examples
+
+```bash
+# List the last 10 traces
+traceroot traces list --limit 10
+
+# List traces captured in the past 2 hours
+traceroot traces list --since 2h
+
+# Filter traces within an explicit UTC time window
+traceroot traces list \
+  --from 2026-06-23T14:00:00Z \
+  --to 2026-06-23T20:00:00Z
+
+# Extract trace IDs using jq
+traceroot traces list --since 24h --json | jq -r '.data[].trace_id'
+```
+
+---
+
+### `traceroot traces get <trace-id>`
+
+Fetch and display a single trace by ID, showing its span hierarchy, duration breakdown, and deep link to TraceRoot Cloud.
+
+```bash
+traceroot traces get <trace-id> [options]
+```
+
+#### Arguments
+
+- `<trace-id>` *(required)*: The unique 32-character hexadecimal identifier of the trace.
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--fields <groups>` | string | Projection groups to retrieve: `skeleton` (default), `full`, or comma-separated `io`, `metadata` |
+| `--project <id>` | string | Project ID (required when using browser login) |
+| `--json` | boolean | Emit the complete trace record as JSON to stdout |
+
+#### Projections
+
+- **`skeleton` (Default)**: Retrieves the span tree hierarchy, operation names, durations, statuses, and service/model identifiers without fetching large input/output payloads. Keeps responses fast and compact.
+- **`full` (or `--fields io,metadata`)**: Fetches complete span attributes, including raw LLM prompts, completions, tool call arguments, outputs, and custom user attributes.
+
+#### Examples
+
+```bash
+# View the span tree skeleton
+traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef
+
+# View full span inputs, outputs, and metadata
+traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef --fields full
+
+# Extract all error messages within spans using jq
+traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef --json | \
+  jq '.spans[] | select(.status == "ERROR") | {name, status_message}'
+```
+
+---
+
+### `traceroot traces export <trace-id>`
+
+Export an entire trace bundle to a local directory. This is useful for archiving, offline evaluations, sharing reproducible bug reports, or feeding test fixtures into AI coding agents.
+
+```bash
+traceroot traces export <trace-id> [options]
+```
+
+#### Arguments
+
+- `<trace-id>` *(required)*: The trace identifier to export.
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--output <dir>` | string | Destination directory where the bundle will be written (default: `./<trace-id>`) |
+| `--force` | boolean | Overwrite the destination directory if it already exists |
+| `--fields <groups>` | string | Projection to export: `full` (default) or `skeleton` |
+| `--project <id>` | string | Project ID (required when using browser login) |
+
+#### Exported Bundle Structure
+
+A trace bundle directory contains four JSON files:
+
+```text
+my-trace/
+├── trace.json          # Root trace metadata, duration, start/end timestamps, tags
+├── spans.json          # Array of all spans with parent-child relationships and attributes
+├── git_context.json    # Commit hash, branch, remote repository, and dirty state (if captured)
+└── manifest.json       # Bundle schema version, export timestamp, and checksums
+```
+
+#### Examples
+
+```bash
+# Export the full trace bundle to a custom directory
+traceroot traces export 99224be337d725fd5e8f2e7b45dc22ef --output ./debug-trace
+
+# Overwrite existing bundle folder
+traceroot traces export 99224be337d725fd5e8f2e7b45dc22ef --output ./debug-trace --force
+
+# Export only the skeleton projection
+traceroot traces export 99224be337d725fd5e8f2e7b45dc22ef --fields skeleton --output ./skeleton-trace
+```

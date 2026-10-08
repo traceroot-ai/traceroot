@@ -1,0 +1,172 @@
+---
+title: Alerts
+description: Configure and monitor threshold-based alerting rules
+---
+
+TraceRoot alerts continuously evaluate telemetry metrics (such as error rates, token latency, and costs) against configured thresholds, triggering notifications when limits are breached.
+
+## Commands
+
+### `traceroot alerts list`
+
+List all threshold alerts in your project with their status, severity, and evaluation rule.
+
+```bash
+traceroot alerts list [options]
+```
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--limit <n>` | number | Maximum number of alerts to return |
+| `--page <n>` | number | Page number for pagination |
+| `--search <q>` | string | Search alerts by name substring |
+| `--project <id>` | string | Project ID (required when using browser login) |
+| `--json` | boolean | Output raw JSON records |
+
+```bash
+# List all active alerts
+traceroot alerts list
+
+# Search for latency alerts
+traceroot alerts list --search "latency"
+```
+
+---
+
+### `traceroot alerts get <id>`
+
+Inspect a single alert's complete configuration, evaluation rule, filter expressions, notification targets, and current trigger status.
+
+```bash
+traceroot alerts get <alert-id> [options]
+```
+
+```bash
+traceroot alerts get alt_1234abcd5678efgh
+```
+
+```text
+Alert ID:     alt_1234abcd5678efgh
+Name:         High Error Rate Spike
+Status:       ACTIVE
+Severity:     CRITICAL
+Condition:    error_rate > 5% over 5m window
+Last fired:   2026-10-01T08:15:22Z
+Channels:     Slack (#prod-incidents), PagerDuty
+```
+
+---
+
+### `traceroot alerts create`
+
+Create a new threshold alert. Like other write operations, alert creation accepts a full rule specification via `--from-file <path>` (or `-` for stdin), allowing flags to override specific fields.
+
+```bash
+traceroot alerts create --from-file <path> [options]
+```
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--from-file <path>` | string | Path to JSON file (or `-` for stdin) defining the alert rule |
+| `--name <string>` | string | Override alert name |
+| `--severity <string>` | string | Override severity level (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) |
+| `--project <id>` | string | Project ID (required when using browser login) |
+
+#### Example
+
+Create a rule file `alert_rule.json`:
+
+```json
+{
+  "name": "High P95 Latency Alert",
+  "severity": "HIGH",
+  "metric": "duration_ms",
+  "aggregation": "p95",
+  "operator": "GREATER_THAN",
+  "threshold": 3000,
+  "window_minutes": 5,
+  "filters": {
+    "model_name": "gpt-4o"
+  },
+  "renotify_minutes": 60
+}
+```
+
+Create the alert:
+
+```bash
+traceroot alerts create --from-file alert_rule.json
+
+# Or dynamically adjust fields via pipeline
+jq '.threshold = 2500' alert_rule.json | traceroot alerts create --from-file -
+```
+
+---
+
+### `traceroot alerts update <id>`
+
+Update an existing alert. Omitted fields remain unchanged.
+
+<Note>
+Updating an evaluated field (such as `threshold`, `metric`, or `window_minutes`) automatically resets the alert's internal evaluation state window.
+</Note>
+
+```bash
+traceroot alerts update <alert-id> [options]
+```
+
+```bash
+# Update threshold using a flag
+traceroot alerts update alt_1234abcd5678efgh --threshold 3500
+
+# Or apply an updated JSON definition
+traceroot alerts update alt_1234abcd5678efgh --from-file updated_rule.json
+```
+
+---
+
+### `traceroot alerts status <id>`
+
+Pause or resume an alert without modifying its underlying rules or notification settings.
+
+```bash
+traceroot alerts status <alert-id> --status <ACTIVE|PAUSED>
+```
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--status <ACTIVE\|PAUSED>` | string | *(Required)* Target status state |
+
+```bash
+# Pause alert during maintenance
+traceroot alerts status alt_1234abcd5678efgh --status PAUSED
+
+# Resume monitoring
+traceroot alerts status alt_1234abcd5678efgh --status ACTIVE
+```
+
+---
+
+### `traceroot alerts delete <id>`
+
+Permanently delete an alert.
+
+```bash
+traceroot alerts delete <alert-id> --reason <text>
+```
+
+#### Flags
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--reason <text>` | string | *(Required)* Audit justification (3–500 characters) recorded in the audit trail |
+
+```bash
+traceroot alerts delete alt_1234abcd5678efgh --reason "Consolidated into unified latency alert"
+```

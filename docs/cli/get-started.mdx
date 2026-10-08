@@ -3,96 +3,137 @@ title: Get Started
 description: Bring TraceRoot to your terminal
 ---
 
-The TraceRoot CLI wraps the TraceRoot API so you can work with your project directly from the terminal — list, inspect, and export traces, then pipe the JSON into whatever comes next. It is built for AI coding agents and power users who prefer the command line.
+The TraceRoot CLI wraps the TraceRoot API so you can work with your project directly from the terminal — list, inspect, and export traces, run analytical queries, and pipe the output into downstream tools.
 
-Full source and reference live in the [`traceroot-cli`](https://github.com/traceroot-ai/traceroot-cli) repo.
+## 1. Install
 
-## Install
+Install the CLI globally with `npm` (or run ad-hoc with `npx traceroot-cli`):
 
 ```bash
 npm install -g traceroot-cli
 ```
 
-## Authenticate
+Verify that the `traceroot` executable is installed:
 
 ```bash
-traceroot login
+traceroot --version
 ```
 
-This validates your project API key and saves it locally, so later commands need no flags. Create API keys in [TraceRoot Cloud](https://app.traceroot.ai) or your [self-hosted](/developer/self-hosting) dashboard.
+## 2. Authenticate
 
-For CI or scripts, set environment variables instead — the same ones the SDKs use:
+Authenticate using either your browser or a project API key:
 
-```bash .env
-TRACEROOT_API_KEY=tr_...
-TRACEROOT_HOST_URL=https://app.traceroot.ai
-```
+<Tabs>
+  <Tab title="Browser Login (Interactive)">
+    ```bash
+    traceroot login
+    ```
+    This launches a device login flow in your default browser. Once authorized, a session credential is saved to `~/.config/traceroot/credentials.json`.
+  </Tab>
+  <Tab title="API Key (CI & Automation)">
+    ```bash
+    traceroot login --api-key tr_your_project_key
+    ```
+    This validates your API key against the server and saves it to `./.traceroot/config.json`.
 
-Confirm the credentials resolve to the right place:
+    Alternatively, you can export environment variables without running `login`:
+    ```bash
+    export TRACEROOT_API_KEY="tr_your_project_key"
+    export TRACEROOT_HOST_URL="https://app.traceroot.ai"
+    ```
+  </Tab>
+</Tabs>
+
+## 3. Verify Identity and Status
+
+Confirm which identity, host, and project your credentials resolve to:
 
 ```bash
 traceroot status
 ```
 
-## Inspect and export traces
+Example output for a browser login:
+
+```text
+Logged in as:  user@example.com
+Credential:    session (browser login)
+Host:          https://app.traceroot.ai
+Project:       (none — pass --project or run traceroot projects list)
+Workspaces:    Acme Corp Engineering (wrk_11223344556677889900aabbccddeeff)
+Config source: ~/.config/traceroot/credentials.json
+```
+
+## 4. Find Your Project ID
+
+If you logged in via a browser session, commands that read project data require a project ID. Find your available project IDs:
 
 ```bash
-# List recent traces, newest first
+traceroot projects list
+```
+
+```text
+PROJECT ID                            NAME            WORKSPACE ID
+proj_91a0c8b21e054fbb8b1234567890abcd  Support Bot     wrk_11223344556677889900aabbccddeeff
+proj_09b8f7e6d5c4321a9876543210fedcba  Coding Copilot  wrk_11223344556677889900aabbccddeeff
+```
+
+Set `TRACEROOT_PROJECT_ID` in your environment (or pass `--project <id>`) so you don't need to specify it for every command:
+
+```bash
+export TRACEROOT_PROJECT_ID="proj_91a0c8b21e054fbb8b1234567890abcd"
+```
+
+<Note>
+If you authenticated using an API key (`tr_...`), the key is already scoped to a single project, so specifying `--project` is unnecessary.
+</Note>
+
+## 5. Inspect and Export Traces
+
+### List Recent Traces
+
+List the latest traces for your project, newest first:
+
+```bash
 traceroot traces list --limit 10
-
-# Inspect one: span tree, duration, I/O preview, and a link to open it in TraceRoot
-traceroot traces get <trace-id>
-
-# Write a full trace bundle to disk to share or feed into another tool
-traceroot traces export <trace-id> --output ./my-trace
 ```
 
-## Read evaluations
+### Inspect a Single Trace
 
-The CLI also reads your offline [evaluations](/evals/introduction) — the datasets you run against and the runs that scored them, so a run id no longer has to come from the web app.
+View the span tree, duration, and metadata for a specific trace:
 
 ```bash
-# Which evaluations exist, and how each one's latest run ended
-traceroot evals list
-
-# One evaluation's runs, newest first — the RUN ID column is what you read next
-traceroot evals runs list --evaluation-id <evaluation-id>
-
-# One run: its counts, per-scorer means, and per-case cost and duration
-traceroot evals runs get <run-id>
+traceroot traces get <trace-id>
 ```
 
-See [From the terminal](/evals/cli) for what each read shows, and for the dataset commands.
+By default, this renders a lightweight span tree skeleton. To fetch full span input, output, and metadata, add `--fields full`:
 
-## Command reference
+```bash
+traceroot traces get <trace-id> --fields full
+```
 
-Add `--json` to any command for machine-readable output, or run `traceroot <command> --help` for the full flag list.
+### Export a Trace Bundle
 
-| Command | What it does |
-| :-- | :-- |
-| `login` | Validate an API key and save credentials. |
-| `status` | Show the identity your credentials resolve to — workspace, project, host, and key hint. |
-| `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
-| `traces get <id>` | Show one trace: header, span tree, duration, and I/O preview. `--json` emits the full trace. |
-| `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index to a directory. Flags: `--output <dir>`, `--force`. |
-| `datasets list` | List the project's evaluation datasets, newest first. Flags: `--limit <n>`, `--name <substring>`. |
-| `datasets get <dataset-id>` | Show one dataset and the version its cases are read from. |
-| `datasets versions list <dataset-id>` | List a dataset's published versions with their case counts. Flag: `--limit <n>`. |
-| `datasets versions get <version-id>` | Show one version and a page of its cases. Flag: `--limit <n>` — 200 by default, up to 1000. |
-| `evals list` | List evaluations with their run count and latest run. Flags: `--limit <n>`, `--name <substring>`. |
-| `evals runs list` | List evaluation runs, newest first. Flags: `--limit <n>`, `--evaluation-id <id>`, `--status <status>`. |
-| `evals runs get <run-id>` | Show one run: counts, per-scorer means, per-case cost and duration, and its URL. |
+Export a complete trace bundle to disk as JSON files for offline analysis:
 
-## What's next
+```bash
+traceroot traces export <trace-id> --output ./exported-trace
+```
+
+This creates a directory containing `trace.json`, `spans.json`, `git_context.json`, and `manifest.json`.
+
+## What's Next
 
 <CardGroup cols={2}>
-  <Card title="Tracing" icon="route" href="/tracing/get-started">
-    Instrument your app so traces show up for the CLI to read.
+  <Card title="Authentication" icon="key" href="/cli/authentication">
+    Learn about credential resolution, precedence rules, and logout.
   </Card>
-  <Card title="Evaluations from the Terminal" icon="terminal" href="/evals/cli">
-    Read datasets, evaluations, and past runs.
+  <Card title="Traces" icon="route" href="/cli/traces">
+    Detailed options for filtering, projecting, and exporting traces.
   </Card>
-  <Card title="TraceRoot Cloud" icon="cloud" href="https://app.traceroot.ai">
-    Create API keys and open traces in the web app.
+  <Card title="Detectors & Findings" icon="shield-check" href="/cli/detectors-and-findings">
+    Inspect failure detectors and evaluate root-cause analysis findings.
+  </Card>
+  <Card title="Scripting & CI" icon="terminal" href="/cli/scripting">
+    Automate trace inspection with JSON output and exit code handling.
   </Card>
 </CardGroup>
