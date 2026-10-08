@@ -3,27 +3,99 @@ title: Python SDK
 description: Installation, initialization, and full API reference for the TraceRoot Python SDK
 ---
 
-The TraceRoot Python SDK provides automatic and manual instrumentation for AI agents using OpenTelemetry.
+The TraceRoot Python SDK provides automatic and manual instrumentation for AI agents and LLM applications using OpenTelemetry.
 
-## Instrumentation
+## Installation
+
+Install the core SDK via `pip`:
+
+```bash
+pip install traceroot
+```
+
+### Optional Extras
+
+Some integrations have additional dependencies and are available as extras:
+
+```bash
+# For DSPy integration
+pip install traceroot[dspy]
+
+# For Microsoft Agent Framework integration
+pip install traceroot[agent-framework]
+```
+
+Framework packages (such as `openai`, `anthropic`, or `langchain-core`) are installed separately alongside your application.
+
+## Initialization
+
+Call `traceroot.initialize()` once at application startup to configure the SDK and enable auto-instrumentation for supported frameworks:
 
 ```python
 import traceroot
 from traceroot import Integration
 
 traceroot.initialize(
+    api_key="your-api-key",
     integrations=[
         Integration.OPENAI,
         Integration.ANTHROPIC,
         Integration.LANGCHAIN,
-        Integration.GOOGLE_GENAI,
     ],
 )
 ```
 
+<Note>
+**Auto-initialization**: The `@observe` decorator works without calling `initialize()`. If no client exists, `@observe` calls `get_client()`, which automatically initializes the SDK from environment variables (such as `TRACEROOT_API_KEY`). However, auto-initialization will not instrument any frameworks. To auto-instrument libraries, explicit `initialize(integrations=[...])` is required.
+</Note>
+
+<Warning>
+**Repeat calls are ignored**: Calling `traceroot.initialize()` more than once logs a warning and returns the existing client instance without applying new parameters or integrations. If you need to reinitialize with different settings, call `traceroot.shutdown()` first before calling `initialize()` again.
+</Warning>
+
+### `initialize()` Parameters
+
+| Parameter | Type | Default | Env Var Fallback | Description |
+|-----------|------|---------|------------------|-------------|
+| `api_key` | `str \| None` | `None` | `TRACEROOT_API_KEY` | TraceRoot API key for authentication. Required to export traces to the backend. |
+| `host_url` | `str \| None` | `"https://app.traceroot.ai"` | `TRACEROOT_HOST_URL` | TraceRoot backend API endpoint URL (or self-hosted instance URL). |
+| `flush_interval` | `float \| None` | `5.0` | `TRACEROOT_FLUSH_INTERVAL` | Interval in seconds between automatic background flushes. |
+| `batch_size` | `int \| None` | `100` | `TRACEROOT_FLUSH_AT` | Maximum number of spans to buffer before triggering a flush. Falls back to `TRACEROOT_FLUSH_AT`. |
+| `timeout` | `float \| None` | `30.0` | `TRACEROOT_TIMEOUT` | HTTP request timeout in seconds when exporting batches. |
+| `enabled` | `bool \| None` | `True` | `TRACEROOT_ENABLED` | Enable or disable tracing. If `False` or if `api_key` is not set, span exporting is disabled. |
+| `integrations` | `list[Integration] \| None` | `None` | — | List of `Integration` enum members to auto-instrument. |
+| `git_repo` | `str \| None` | auto-detected | `TRACEROOT_GIT_REPO` | Git repository in `owner/repo` format. Auto-detected from CI environment or local git repository if unset. |
+| `git_ref` | `str \| None` | auto-detected | `TRACEROOT_GIT_REF` | Git reference (commit SHA, tag, or branch). Auto-detected from CI environment or local git repository if unset. |
+
+## Supported Integrations
+
+The `Integration` enum (`from traceroot import Integration`) provides auto-instrumentation for 17 AI frameworks and model providers.
+
+TraceRoot checks whether the required package is installed before instrumenting. If a package is not installed, the integration is skipped with a warning rather than raising an error.
+
+| Integration | Enum Member | Value | Required Package | Notes |
+|-------------|-------------|-------|------------------|-------|
+| OpenAI | `Integration.OPENAI` | `"openai"` | `openai` | Instruments OpenAI API client calls. |
+| Anthropic | `Integration.ANTHROPIC` | `"anthropic"` | `anthropic` | Instruments Anthropic API client calls. |
+| LangChain | `Integration.LANGCHAIN` | `"langchain"` | `langchain-core` or `langchain` | Instruments LangChain chains and LangGraph workflows. |
+| Google GenAI | `Integration.GOOGLE_GENAI` | `"google_genai"` | `google-genai` | Instruments Google Gemini / GenAI SDK. |
+| CrewAI | `Integration.CREWAI` | `"crewai"` | `crewai` | Instruments CrewAI agents and tasks. |
+| OpenAI Agents | `Integration.OPENAI_AGENTS` | `"openai_agents"` | `openai-agents` | Instruments OpenAI Agents SDK. |
+| Claude Agent SDK | `Integration.CLAUDE_AGENT_SDK` | `"claude_agent_sdk"` | `claude-agent-sdk` | Instruments Anthropic Claude Agent SDK via in-house wrapper. |
+| LlamaIndex | `Integration.LLAMA_INDEX` | `"llama_index"` | `llama-index-core` | Instruments LlamaIndex query engines, tools, and workflows. |
+| AutoGen | `Integration.AUTOGEN` | `"autogen"` | `ag2` | AutoGen instrumentation is gated on `ag2`. |
+| Agno | `Integration.AGNO` | `"agno"` | `agno` | Instruments Agno agents (formerly Phidata). |
+| Groq | `Integration.GROQ` | `"groq"` | `groq` | Instruments Groq API client calls. |
+| DSPy | `Integration.DSPY` | `"dspy"` | `dspy` or `dspy-ai` | Requires pip extra: `pip install traceroot[dspy]`. |
+| Google ADK | `Integration.GOOGLE_ADK` | `"google_adk"` | `google-adk` | Instruments Google Agent Development Kit. |
+| Mistral | `Integration.MISTRAL` | `"mistral"` | `mistralai` | Instruments Mistral AI client calls. |
+| PydanticAI | `Integration.PYDANTIC_AI` | `"pydantic_ai"` | `pydantic-ai` or `pydantic-ai-slim` | Instruments PydanticAI agents and models. |
+| AWS Bedrock | `Integration.BEDROCK` | `"bedrock"` | `boto3` | Instruments Amazon Bedrock runtime calls via `boto3`. |
+| Agent Framework | `Integration.AGENT_FRAMEWORK` | `"agent_framework"` | `agent-framework-core` | Requires pip extra: `pip install traceroot[agent-framework]`. |
+
 ## The Observe Decorator
 
-Wrap any function to create a span, works with sync functions, async functions, and generators.
+Wrap any function to create an OpenTelemetry span. Supports synchronous functions, asynchronous functions, and generators.
 
 ```python
 from traceroot import observe
@@ -41,18 +113,18 @@ async def async_agent(query: str) -> str:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `name` | `str` | function name | Span name |
-| `type` | `SpanKind \| str` | `"span"` | Span kind: `"llm"`, `"agent"`, `"tool"`, or `"span"` (accepts both `SpanKind` enum and string values) |
-| `metadata` | `dict` | `None` | Static metadata to attach |
-| `tags` | `list[str]` | `None` | Tags to attach |
-| `capture_input` | `bool` | `True` | Whether to auto-capture function arguments as input |
-| `capture_output` | `bool` | `True` | Whether to auto-capture the return value as output |
-| `session_id` | `str` | `None` | Session identifier to attach to the trace |
-| `user_id` | `str` | `None` | User identifier to attach to the trace |
+| `name` | `str \| None` | function name | Custom span name. Defaults to the decorated function's name. |
+| `type` | `SpanKind \| str` | `"span"` | Span kind: `"llm"`, `"agent"`, `"tool"`, or `"span"`. Accepts string literals or `SpanKind` imported via `from traceroot.constants import SpanKind`. Unrecognized values emit a warning and fall back to `"span"`. (The enum also defines `"evaluation"`, `"task"`, and `"scorer"` used internally by evaluations). |
+| `metadata` | `dict[str, Any] \| None` | `None` | Static metadata dictionary to attach to the span. |
+| `tags` | `list[str] \| None` | `None` | Tags to categorize the span. |
+| `capture_input` | `bool` | `True` | Whether to auto-capture function arguments as input. |
+| `capture_output` | `bool` | `True` | Whether to auto-capture the return value as output. |
+| `session_id` | `str \| None` | `None` | Session identifier to attach to the trace. |
+| `user_id` | `str \| None` | `None` | User identifier to attach to the trace. |
 
 ## Setting Trace Context
 
-Use `using_attributes` to set user and session context for all spans created within a block:
+Use `using_attributes` to set user and session context for all spans created within a block. This is re-exported from OpenInference for convenience:
 
 ```python
 from traceroot import using_attributes
@@ -70,14 +142,14 @@ with using_attributes(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `user_id` | `str` | User identifier |
-| `session_id` | `str` | Session / conversation ID |
-| `tags` | `list[str]` | Tags to attach to all spans |
-| `metadata` | `dict` | Arbitrary metadata |
+| `user_id` | `str` | User identifier. |
+| `session_id` | `str` | Session / conversation ID. |
+| `tags` | `list[str]` | Tags to attach to all spans created within the context. |
+| `metadata` | `dict` | Arbitrary metadata dictionary. |
 
 ## Updating Spans and Traces
 
-Update the current span or trace programmatically:
+Update the active span or trace programmatically from within any traced function:
 
 ```python
 from traceroot import update_current_span, update_current_trace
@@ -104,41 +176,103 @@ update_current_trace(
 )
 ```
 
+<Note>
+Both `update_current_span` and `update_current_trace` accept **keyword-only arguments**. Calling them with positional arguments will raise a `TypeError`.
+</Note>
+
 ### `update_current_span` Parameters
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `name` | `str` | Update the span name |
-| `input` | `Any` | Input data |
-| `output` | `Any` | Output data |
-| `metadata` | `dict` | Custom metadata key-value pairs |
-| `model` | `str` | LLM model name (e.g., `"gpt-4o"`) |
-| `model_parameters` | `dict` | Model parameters (e.g., temperature, max_tokens) |
-| `usage` | `dict` | Token usage (e.g., `{"input_tokens": 100, "output_tokens": 50}`) |
-| `prompt` | `Any` | Prompt/messages sent to the LLM |
+| `name` | `str \| None` | Update the active span name. |
+| `input` | `Any` | Input data (e.g. messages or arguments sent to an LLM). |
+| `output` | `Any` | Output data (e.g. LLM completion or function return value). |
+| `metadata` | `dict[str, Any] \| None` | Custom metadata key-value pairs. |
+| `model` | `str \| None` | LLM model name (e.g. `"gpt-4o"`, `"claude-3-5-sonnet"`). |
+| `model_parameters` | `dict[str, Any] \| None` | Model parameters (e.g. `{"temperature": 0.7, "max_tokens": 1024}`). |
+| `usage` | `dict[str, int] \| None` | Token usage dict (e.g. `{"input_tokens": 100, "output_tokens": 50}`). |
+| `prompt` | `Any` | Prompt or messages payload sent to the model. |
 
 ### `update_current_trace` Parameters
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `user_id` | `str` | User who initiated the trace |
-| `session_id` | `str` | Session identifier for grouping traces |
-| `metadata` | `dict` | Trace-level metadata |
-| `tags` | `list[str]` | Tags to categorize the trace |
+| `user_id` | `str \| None` | User identifier who initiated the trace. |
+| `session_id` | `str \| None` | Session identifier for grouping related traces into a conversation. |
+| `metadata` | `dict[str, Any] \| None` | Trace-level metadata key-value pairs. |
+| `tags` | `list[str] \| None` | Tags to categorize and filter the trace in the UI. |
 
+## SDK Utilities and Context
+
+The `traceroot` package exports client management and OpenTelemetry context utilities:
+
+```python
+import traceroot
+from traceroot import (
+    get_client,
+    flush,
+    shutdown,
+    get_current_trace_id,
+    get_current_span_id,
+)
+
+@traceroot.observe()
+def my_function():
+    # Retrieve current active OpenTelemetry IDs
+    trace_id = get_current_trace_id()
+    span_id = get_current_span_id()
+    print(f"Trace ID: {trace_id}, Span ID: {span_id}")
+
+# Flush pending spans (e.g. in serverless functions or notebooks)
+traceroot.flush()
+
+# Graceful shutdown on application exit
+traceroot.shutdown()
+```
+
+### Exported Utilities
+
+| Symbol | Type | Description |
+|--------|------|-------------|
+| `flush()` | Function | Flushes all pending spans and traces immediately to the backend. Crucial in serverless environments (AWS Lambda, Google Cloud Functions) and Jupyter notebooks before process termination. |
+| `shutdown()` | Function | Flushes pending spans and stops background exporter worker threads gracefully. Resets the global client so that a subsequent `initialize()` call can reconfigure the SDK. |
+| `get_client()` | Function | Returns the singleton `TracerootClient` instance. If no client exists and `TRACEROOT_API_KEY` is present, it auto-initializes one from environment variables. |
+| `TracerootClient` | Class | The client class instantiated by `initialize()` and `get_client()`. Manages batching, background workers, and OpenTelemetry trace exporting. |
+| `get_current_trace_id()` | Function | Returns the active 32-character hexadecimal trace ID string (e.g. `"4bf92f3577b34da6a3ce929d0e0e4736"`), or `None` if there is no active recording span. |
+| `get_current_span_id()` | Function | Returns the active 16-character hexadecimal span ID string (e.g. `"00f067aa0ba902b7"`), or `None` if there is no active recording span. |
+
+## Offline Evaluations
+
+TraceRoot includes a complete offline evaluation framework exported directly from the top-level `traceroot` module:
+
+- **Datasets & Cases**: `Dataset`, `DatasetSnapshot`, `EvalCase`, `pull_dataset`, `pull_dataset_version`
+- **Execution**: `evaluate`, `evaluate_async`, `Evaluation`, `EvalRunResult`, `EvalItemResult`, `RunDatasetRef`
+- **Scorers & Metrics**: `Scorer`, `ScorerContext`, `scorer`, `Score`, `ScoreSummary`, `llm_judge`, `DeferredScore`
+- **Exceptions**: `DatasetConflictError`, `DatasetPublishAborted`, `EvalCompletionError`
+
+Evaluation symbols are loaded lazily on demand to keep imports lightweight.
+
+<CardGroup cols={2}>
+  <Card title="Evaluations Overview" icon="chart-simple" href="/evals/introduction">
+    Learn how offline evaluations work in TraceRoot.
+  </Card>
+  <Card title="Running Evals" icon="play" href="/evals/running-evals">
+    Run your AI system against datasets and score outputs with <code>evaluate()</code>.
+  </Card>
+</CardGroup>
 
 ## Environment Variables
 
-All parameters can be set via environment variables:
+All parameters can be configured via environment variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TRACEROOT_API_KEY` | (required) | API key |
-| `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | API endpoint |
-| `TRACEROOT_ENABLED` | `true` | Enable/disable tracing |
-| `TRACEROOT_ENVIRONMENT` | — | Deployment environment tag (e.g. `production`, `staging`) |
-| `TRACEROOT_FLUSH_INTERVAL` | `5.0` | Flush interval in seconds |
-| `TRACEROOT_FLUSH_AT` | `100` | Batch size before flush |
-| `TRACEROOT_TIMEOUT` | `30.0` | HTTP timeout in seconds |
-| `TRACEROOT_GIT_REPO` | auto-detected | Git repository (`owner/repo`) |
-| `TRACEROOT_GIT_REF` | auto-detected | Git reference |
+| Variable | Default | Matches Parameter | Description |
+|----------|---------|-------------------|-------------|
+| `TRACEROOT_API_KEY` | (required) | `api_key` | TraceRoot API key for authentication. |
+| `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | `host_url` | API endpoint URL. |
+| `TRACEROOT_ENABLED` | `true` | `enabled` | Enable/disable tracing. |
+| `TRACEROOT_ENVIRONMENT` | — | — | Deployment environment tag (e.g. `production`, `staging`). |
+| `TRACEROOT_FLUSH_INTERVAL` | `5.0` | `flush_interval` | Interval in seconds between automatic flushes. |
+| `TRACEROOT_FLUSH_AT` | `100` | `batch_size` | Batch size before flush (note: maps to `batch_size` in `initialize()`). |
+| `TRACEROOT_TIMEOUT` | `30.0` | `timeout` | HTTP request timeout in seconds. |
+| `TRACEROOT_GIT_REPO` | auto-detected | `git_repo` | Git repository (`owner/repo`). |
+| `TRACEROOT_GIT_REF` | auto-detected | `git_ref` | Git reference (commit SHA, tag, or branch). |
