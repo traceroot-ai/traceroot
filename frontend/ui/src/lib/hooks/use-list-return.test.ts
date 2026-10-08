@@ -21,6 +21,19 @@ describe("withDateWindow", () => {
 describe("listReturnHrefWithDateWindow", () => {
   const list = "/projects/p1/detectors";
 
+  it("keeps the page when the same custom range was clamped a few ms apart", () => {
+    // Each page clamps a start older than retention to "now - retention" on its own,
+    // so the list and the detector page carry the same range with different ms.
+    expect(
+      listReturnHrefWithDateWindow(
+        `${list}?page_index=2&date_filter=custom&start=2026-09-24T10%3A00%3A00.102Z&end=2026-10-01T00%3A00%3A00.000Z`,
+        `${list}?date_filter=custom&start=2026-09-24T10%3A00%3A00.110Z&end=2026-10-01T00%3A00%3A00.000Z`,
+      ),
+    ).toBe(
+      `${list}?page_index=2&date_filter=custom&start=2026-09-24T10%3A00%3A00.110Z&end=2026-10-01T00%3A00%3A00.000Z`,
+    );
+  });
+
   it("falls back to the dated list link when the list recorded nothing", () => {
     expect(listReturnHrefWithDateWindow(list, `${list}?date_filter=7d`)).toBe(
       `${list}?date_filter=7d`,
@@ -36,7 +49,7 @@ describe("listReturnHrefWithDateWindow", () => {
     ).toBe(`${list}?page_index=2&page_limit=100&date_filter=7d`);
   });
 
-  it("carries a changed range back and drops the page, keeping page size and filters", () => {
+  it("carries a changed range back, keeping the page, page size and filters", () => {
     const filters = encodeURIComponent('[{"field":"name","op":"in","value":["a"]}]');
     expect(
       listReturnHrefWithDateWindow(
@@ -44,7 +57,7 @@ describe("listReturnHrefWithDateWindow", () => {
         `${list}?date_filter=custom&start=2026-01-01T00%3A00%3A00.000Z&end=2026-01-02T00%3A00%3A00.000Z`,
       ),
     ).toBe(
-      `${list}?page_limit=100&filters=${filters}&date_filter=custom&start=2026-01-01T00%3A00%3A00.000Z&end=2026-01-02T00%3A00%3A00.000Z`,
+      `${list}?page_index=2&page_limit=100&filters=${filters}&date_filter=custom&start=2026-01-01T00%3A00%3A00.000Z&end=2026-01-02T00%3A00%3A00.000Z`,
     );
   });
 });

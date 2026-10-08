@@ -108,8 +108,7 @@ export default function DetectorsPage() {
 
   // Remember this page, page size and filters so the detector page's "Detectors"
   // link returns here. The effective date window is recorded too (it can come from
-  // the stored per-project range, not the URL), so the detector page can tell
-  // whether the range was changed there.
+  // the stored per-project range, not the URL); the detector page overlays its own.
   useRememberListQuery(
     `detectors:${projectId}`,
     withDateWindow(searchParams.toString(), buildUrl("")),

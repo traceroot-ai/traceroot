@@ -64,18 +64,14 @@ export function withDateWindow(query: string, datedHref: string): string {
  * follows the user between list and detail). Starts from the list query recorded in
  * this tab (`rememberedHref`, from `useListReturnHref`) and overlays the detail
  * page's current window (`datedHref`), so a range changed on the detail page still
- * carries back. When that window differs from the one the list recorded, the list's
- * page is dropped: it may not exist in the new result set. With no recorded query,
- * this is just `datedHref`.
+ * carries back. The list's page is kept either way: only use this for a list whose
+ * rows don't depend on the window (the detectors list pages over detectors; the
+ * window only changes their counts), so the page still exists. With no recorded
+ * query, this is just `datedHref`.
  */
 export function listReturnHrefWithDateWindow(rememberedHref: string, datedHref: string): string {
   const [path, remembered] = splitHref(rememberedHref);
   if (!remembered) return datedHref;
-  const before = new URLSearchParams(remembered);
-  const after = new URLSearchParams(withDateWindow(remembered, datedHref));
-  if (DATE_WINDOW_PARAMS.some((key) => before.get(key) !== after.get(key))) {
-    after.delete("page_index");
-  }
-  const qs = after.toString();
+  const qs = withDateWindow(remembered, datedHref);
   return qs ? `${path}?${qs}` : path;
 }

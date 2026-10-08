@@ -206,7 +206,7 @@ describe("DetectorDetailPage", () => {
     });
   });
 
-  it("carries a range changed here back to the list, dropping the list's page", async () => {
+  it("carries a range changed here back to the list, keeping the list's page", async () => {
     // The list was on page 3 of the last 30 days; this page now shows the last 7.
     sessionStorage.setItem(
       "list-return:detectors:proj-1",
@@ -217,7 +217,7 @@ describe("DetectorDetailPage", () => {
     await waitFor(() => {
       fireEvent.click(screen.getByRole("button", { name: "Detectors" }));
       expect(mocks.push).toHaveBeenLastCalledWith(
-        "/projects/proj-1/detectors?page_limit=100&date_filter=7d",
+        "/projects/proj-1/detectors?page_index=2&page_limit=100&date_filter=7d",
       );
     });
   });
