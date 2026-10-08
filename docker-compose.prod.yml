@@ -281,6 +281,12 @@ services:
       # --- Email ---
       TRACEROOT_SMTP_URL: ${TRACEROOT_SMTP_URL:-}
       TRACEROOT_SMTP_MAIL_FROM: ${TRACEROOT_SMTP_MAIL_FROM:-}
+      # --- Sign-up follow-ups (hosted deployment only; off by default) ---
+      TRACEROOT_CLOUD: ${TRACEROOT_CLOUD:-false}
+      TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL: ${TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL:-}
+      POSTHOG_PERSONAL_API_KEY: ${POSTHOG_PERSONAL_API_KEY:-}
+      POSTHOG_PROJECT_ID: ${POSTHOG_PROJECT_ID:-}
+      POSTHOG_API_HOST: ${POSTHOG_API_HOST:-https://us.posthog.com}
       # --- Enterprise ---
       TRACEROOT_EE_LICENSE_KEY: ${TRACEROOT_EE_LICENSE_KEY:-}
     depends_on:
