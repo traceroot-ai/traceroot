@@ -352,3 +352,113 @@ describe("SDK reporting: run provenance is gone (SDK-agnostic identity)", () => 
     expect(reg.status).toBe(400);
   });
 });
+
+describe("SDK reporting: dataset coverage round-trip", () => {
+  // A 500-case version to declare coverage against: registration checks a declared total
+  // against the pinned version's real size.
+  beforeEach(() => {
+    fakePrisma.datasetVersion.rows.push({ id: "dv500", datasetId: "ds1", projectId: PROJECT_ID });
+    for (let i = 0; i < 500; i++) {
+      fakePrisma.testCase.rows.push({
+        id: `tc500row${i}`,
+        testCaseId: `case500-${i}`,
+        datasetVersionId: "dv500",
+        projectId: PROJECT_ID,
+      });
+    }
+  });
+  const register = (extra: Record<string, unknown>) =>
+    registerRun(
+      req({
+        evaluation_name: "Billing routing",
+        dataset_id: "ds1",
+        candidate_version: "git:abc123",
+        ...("run_selection" in extra ? { dataset_version_id: "dv500" } : {}),
+        ...extra,
+      }),
+    );
+  const storedRun = () => fakePrisma.evaluationRun.rows[0] as Record<string, unknown>;
+
+  it("persists a seeded-sample selection through registration and completion", async () => {
+    const reg = await register({
+      client_run_id: "c1",
+      dataset_case_count: 500,
+      run_selection: { mode: "sample", selected_case_count: 20, sample_seed: 7 },
+    });
+    expect(reg.status).toBe(201);
+    const runId = (await readJson(reg)).evaluation_run_id as string;
+
+    expect(storedRun()).toMatchObject({
+      datasetCaseCount: 500,
+      selectionMode: "sample",
+      selectedCaseCount: 20,
+      sampleSeed: 7,
+      // Derived from the selection, not from counting the pinned version's two cases.
+      caseCount: 20,
+    });
+
+    // Completion reports a different case_count. It is a completeness counter, not
+    // selection identity, so it must not be able to rewrite what the run measured.
+    const done = await completeRun(
+      req({ status: "completed", case_count: 19, scored_count: 19 }),
+      params(runId),
+    );
+    expect(done.status).toBe(200);
+    expect(storedRun()).toMatchObject({
+      datasetCaseCount: 500,
+      selectionMode: "sample",
+      selectedCaseCount: 20,
+      sampleSeed: 7,
+    });
+  });
+
+  it("leaves coverage null for a run that does not declare it", async () => {
+    const reg = await register({ client_run_id: "c2" });
+    expect(reg.status).toBe(201);
+    expect(storedRun()).toMatchObject({
+      datasetCaseCount: null,
+      selectionMode: null,
+      selectedCaseCount: null,
+      sampleSeed: null,
+      // Unchanged legacy behaviour: the pinned version's real size.
+      caseCount: 2,
+    });
+  });
+
+  it("rejects an impossible selection before anything is written", async () => {
+    const res = await register({
+      dataset_case_count: 10,
+      run_selection: { mode: "first", selected_case_count: 20 },
+    });
+    expect(res.status).toBe(400);
+    expect(fakePrisma.evaluationRun.rows).toHaveLength(0);
+  });
+
+  it("replays an identical retry, and refuses one that redefines the selection", async () => {
+    const first = await register({
+      client_run_id: "ci-42",
+      dataset_case_count: 500,
+      run_selection: { mode: "first", selected_case_count: 20 },
+    });
+    const runId = (await readJson(first)).evaluation_run_id as string;
+
+    const retry = await register({
+      client_run_id: "ci-42",
+      dataset_case_count: 500,
+      run_selection: { mode: "first", selected_case_count: 20 },
+    });
+    expect(retry.status).toBe(201);
+    expect((await readJson(retry)).evaluation_run_id).toBe(runId);
+
+    // Same idempotency key, different slice — reported rather than silently discarded,
+    // because the public surface is write-only and the caller could never find out.
+    const conflict = await register({
+      client_run_id: "ci-42",
+      dataset_case_count: 500,
+      run_selection: { mode: "first", selected_case_count: 50 },
+    });
+    expect(conflict.status).toBe(409);
+    expect(fakePrisma.evaluationRun.rows).toHaveLength(1);
+    expect(storedRun()).toMatchObject({ selectedCaseCount: 20 });
+  });
+});

@@ -196,6 +196,124 @@
             }
           ]
         }
+      },
+      {
+        "name": "coverage_full_dataset",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "full",
+            "selected_case_count": 500
+          }
+        }
+      },
+      {
+        "name": "coverage_first_n_subset",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": 20
+          }
+        }
+      },
+      {
+        "name": "coverage_seeded_sample",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "sample",
+            "selected_case_count": 20,
+            "sample_seed": 7
+          }
+        }
+      },
+      {
+        "name": "coverage_unseeded_sample",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "sample",
+            "selected_case_count": 20
+          }
+        }
+      },
+      {
+        "name": "coverage_negative_sample_seed",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "sample",
+            "selected_case_count": 20,
+            "sample_seed": -7
+          }
+        }
+      },
+      {
+        "name": "coverage_explicit_nulls",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": null,
+          "run_selection": null
+        }
+      },
+      {
+        "name": "coverage_case_count_agrees_with_selection",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": 20,
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": 20
+          }
+        }
+      },
+      {
+        "name": "coverage_empty_dataset_full_run",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 0,
+          "run_selection": {
+            "mode": "full",
+            "selected_case_count": 0
+          }
+        }
+      },
+      {
+        "name": "coverage_sample_seed_beyond_int32",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "sample",
+            "selected_case_count": 20,
+            "sample_seed": 1726000000000
+          }
+        }
       }
     ],
     "invalid": [
@@ -372,6 +490,158 @@
             }
           ]
         }
+      },
+      {
+        "name": "coverage_selection_without_dataset_case_count",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": 20
+          }
+        }
+      },
+      {
+        "name": "coverage_dataset_case_count_without_selection",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500
+        }
+      },
+      {
+        "name": "coverage_selected_exceeds_dataset",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 10,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": 20
+          }
+        }
+      },
+      {
+        "name": "coverage_full_mode_with_partial_selection",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "full",
+            "selected_case_count": 20
+          }
+        }
+      },
+      {
+        "name": "coverage_seed_on_first_mode",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": 20,
+            "sample_seed": 7
+          }
+        }
+      },
+      {
+        "name": "coverage_case_count_contradicts_selection",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": 99,
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": 20
+          }
+        }
+      },
+      {
+        "name": "coverage_unknown_selection_mode",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "random",
+            "selected_case_count": 20
+          }
+        }
+      },
+      {
+        "name": "coverage_negative_selected_case_count",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": -1
+          }
+        }
+      },
+      {
+        "name": "coverage_selected_case_count_as_string",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": "20"
+          }
+        }
+      },
+      {
+        "name": "coverage_selection_missing_mode",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "selected_case_count": 20
+          }
+        }
+      },
+      {
+        "name": "coverage_dataset_case_count_beyond_int4",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 2147483648,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": 20
+          }
+        }
+      },
+      {
+        "name": "coverage_selected_case_count_beyond_int4",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 2147483647,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": 2147483648
+          }
+        }
       }
     ],
     "degraded": [
@@ -414,6 +684,23 @@
         },
         "expect": {
           "scorers.0.unknown_scorer_field": null
+        }
+      },
+      {
+        "name": "unknown_run_selection_key_is_stripped",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "dataset_case_count": 500,
+          "run_selection": {
+            "mode": "first",
+            "selected_case_count": 20,
+            "unknown_selection_field": "x"
+          }
+        },
+        "expect": {
+          "run_selection.unknown_selection_field": null
         }
       }
     ]
