@@ -2,6 +2,10 @@
   "$schema": "https://mintlify.com/docs.json",
   "name": "TraceRoot",
   "theme": "mint",
+  "thumbnails": {
+    "appearance": "light",
+    "background": "/images/og-background.png"
+  },
   "colors": {
     "primary": "#0f172a",
     "light": "#FFFFFF",
