@@ -156,6 +156,27 @@ def _rows(rows):
     return SimpleNamespace(result_rows=rows)
 
 
+def test_trace_start_time_refreshes_after_root_arrives_late():
+    """A child-only lookup must not hide a root that arrives in a later batch."""
+    root_ready = False
+    query_count = 0
+    root_start = datetime(2024, 1, 1)
+
+    def side_effect(query, parameters=None):
+        nonlocal query_count
+        query_count += 1
+        return _rows([(root_start if root_ready else None,)])
+
+    service, _ = _make_service(side_effect)
+
+    assert service.get_trace_start_time("proj", "trace") is None
+
+    root_ready = True
+
+    assert service.get_trace_start_time("proj", "trace") == root_start
+    assert query_count == 2
+
+
 class TestGetTraceSkeleton:
     def test_spans_query_omits_io_blobs_and_extracts_only_span_path_attrs(self):
         """The spans SELECT must not ship the input/output/metadata blobs.
