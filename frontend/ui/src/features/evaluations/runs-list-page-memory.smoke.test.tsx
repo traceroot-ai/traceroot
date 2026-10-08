@@ -4,13 +4,17 @@
  * coming back: both live in the URL, and the run detail links back to the list query
  * it was opened from.
  */
+import * as React from "react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
 
+// Next hands out one URLSearchParams instance until the URL changes; `params` caches it
+// per query string so URL-sync effects only re-run when the URL does, as in the app.
 const nav = vi.hoisted(() => ({
   search: "",
+  params: undefined as { query: string; value: URLSearchParams } | undefined,
   replace: vi.fn(),
   push: vi.fn(),
 }));
@@ -18,7 +22,12 @@ const nav = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
   useRouter: () => ({ push: nav.push, replace: nav.replace }),
-  useSearchParams: () => new URLSearchParams(nav.search),
+  useSearchParams: () => {
+    if (nav.params?.query !== nav.search) {
+      nav.params = { query: nav.search, value: new URLSearchParams(nav.search) };
+    }
+    return nav.params.value;
+  },
   usePathname: () => "/projects/p1/evaluations",
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
@@ -102,6 +111,21 @@ describe("runs list page memory", () => {
     nav.search = "page_index=1";
     mount(<EvaluationsView projectId="p1" />);
     expect(await screen.findByText(/Showing 51–100 of 120/)).toBeDefined();
+    expect(requestedPages()).not.toContain("0");
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps the restored page under StrictMode's double-run of mount effects", async () => {
+    // The dev server runs StrictMode, which mounts, unmounts and remounts every effect.
+    // None of that may count as a search change and reset the page.
+    nav.search = "page_index=1";
+    mount(
+      <React.StrictMode>
+        <EvaluationsView projectId="p1" />
+      </React.StrictMode>,
+    );
+    expect(await screen.findByText(/Showing 51–100 of 120/)).toBeDefined();
+    await new Promise((r) => setTimeout(r, 400));
     expect(requestedPages()).not.toContain("0");
     expect(nav.replace).not.toHaveBeenCalled();
   });
