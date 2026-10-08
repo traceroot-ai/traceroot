@@ -9,7 +9,14 @@
  * The backend owns comparison: the SDK reports raw scores and a `baseline_run_id`
  * only. Stored `EvaluationResult.change` / `baselineOutput` are NOT consulted here —
  * everything is derived from the two runs' raw results and scores.
+ *
+ * Trust is separate from arithmetic: the deltas below are computed whenever there are
+ * two runs to compare, and `trustworthy` says whether they may be read as a verdict.
+ * A KNOWN partial run is one of its inputs, because matching case sets alone cannot
+ * establish that a comparison describes the dataset. Unknown coverage is neutral: it
+ * never changes the verdict.
  */
+import { isSubset, type RunCoverage } from "./coverage";
 
 // ── Vocabularies ────────────────────────────────────────────────────────
 
@@ -48,7 +55,12 @@ export type RunComparabilityReason =
   | "different_dataset_version"
   | "baseline_not_terminal"
   | "candidate_not_terminal"
-  | "case_set_mismatch";
+  | "case_set_mismatch"
+  /**
+   * A side recorded measuring fewer cases than the dataset holds (`--first` / `--sample`).
+   * Only a KNOWN partial run: unknown coverage is never a reason.
+   */
+  | "partial_coverage";
 
 /**
  * The four-state comparison discriminant, derived from `available`/`trustworthy`/
@@ -118,6 +130,12 @@ export interface ComparisonRun {
   baselineRunId: string | null;
   /** Declared scorers (`[{name, version}]` from the run, optionally enriched). */
   scorers: ComparisonScorerMeta[];
+  /**
+   * Which slice of the pinned dataset version this run measured. `unknown` for a run
+   * that predates coverage or an SDK that does not report it — read through
+   * lib/eval/coverage, never inferred here.
+   */
+  coverage: RunCoverage;
 }
 
 export interface CompareRunsInput {
@@ -321,6 +339,24 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
     // The candidate can be watched live (`running`) or stopped early — either way its
     // own numbers aren't final, so it's just as disqualifying as a non-terminal baseline.
     if (!TERMINAL_STATUSES.has(candidate.status)) reasons.push("candidate_not_terminal");
+
+    // Dataset coverage. `case_set_mismatch` below only catches sides that measured
+    // DIFFERENT cases; it is silent when both measured the same slice, which is exactly
+    // the shape a CLI encourages — the same `--first 20` in a loop while iterating. Two
+    // twenty-case runs of a five-hundred-case dataset pair perfectly, are both terminal,
+    // and share a dataset version, so without this they present as an authoritative
+    // verdict at four percent coverage.
+    //
+    // Reported once per distinct problem rather than once per side: which side is a
+    // subset changes nothing about what the reader may conclude, and the reasons list is
+    // a set of disqualifications, not a per-run audit.
+    //
+    // Unknown coverage is deliberately NEUTRAL. Every run recorded before coverage
+    // existed, and every run from an SDK that does not report it, lands there; a
+    // comparison between two such runs reads exactly as it did before coverage existed.
+    if (isSubset(candidate.coverage) || isSubset(baseline.coverage)) {
+      reasons.push("partial_coverage");
+    }
   }
 
   // Per-metric metadata keyed on the EMITTED-METRIC name (what a Score row reports), so a
