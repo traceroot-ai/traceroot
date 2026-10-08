@@ -16,7 +16,7 @@ export function welcomeBody({ appUrl, docsUrl, githubUrl }: WelcomeLinks): strin
     "Welcome to TraceRoot!",
     [
       "TraceRoot runs inside your coding agent. A few things to try now:",
-      "- Install the CLI: `npm install -g traceroot-cli`, then `traceroot login`",
+      "- Install the CLI: `npm install -g traceroot-cli` → `traceroot login`",
       "- Ask your agent to set up tracing for your project",
       `- Prefer a UI? The [web app](${appUrl}) and [docs](${docsUrl}) are always there`,
     ].join("\n"),
