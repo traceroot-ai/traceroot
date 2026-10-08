@@ -384,6 +384,84 @@ class TestEachModelCallIsCountedOnce:
         assert m.cost == pytest.approx(0.20)
 
 
+class TestAUsageLessCallBorrowsItsWrappersUsage:
+    """Streaming often leaves the client's LLM span without usage while the framework's
+    LLM span around it has it. The call is still counted once, at the inner span, but its
+    tokens come from the nearest LLM ancestor — as long as that ancestor wraps only this
+    call, so a step wrapper's total for several calls is never borrowed."""
+
+    def _metrics(self, rows):
+        return _task_metrics_by_trace(rows)[T]
+
+    def test_the_outer_spans_usage_stands_for_a_usage_less_inner_call(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", None, tokens=(18, 29, 47), ms=1100),
+                _row("client", "chain", "LLM", None, ms=1060),
+            ]
+        )
+        assert m.llm_calls == 1
+        assert (m.prompt_tokens, m.completion_tokens, m.total_tokens) == (18, 29, 47)
+        assert m.llm_duration_ms == 1060
+
+    def test_the_lookup_passes_through_non_llm_spans(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", None, tokens=(3, 4, 7)),
+                _row("tool", "chain", "TOOL", None),
+                _row("client", "tool", "LLM", None),
+            ]
+        )
+        assert (m.llm_calls, m.total_tokens) == (1, 7)
+
+    def test_the_inner_spans_own_usage_wins(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", None, tokens=(100, 100, 200)),
+                _row("client", "chain", "LLM", None, tokens=(1, 2, 3)),
+            ]
+        )
+        assert m.total_tokens == 3
+
+    def test_a_wrapper_around_several_calls_is_not_borrowed_from(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("step", "root", "LLM", None, tokens=(50, 50, 100)),
+                _row("call-a", "step", "LLM", None, tokens=(20, 20, 40)),
+                _row("call-b", "step", "LLM", None),
+            ]
+        )
+        assert m.llm_calls == 2
+        assert m.total_tokens == 40
+
+    def test_only_the_nearest_llm_ancestor_is_consulted(self):
+        # The step wraps only this call, but the chain between them reported nothing, so
+        # nothing further up is taken to be this call's usage.
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("step", "root", "LLM", None, tokens=(9, 9, 18)),
+                _row("chain", "step", "LLM", None),
+                _row("client", "chain", "LLM", None),
+            ]
+        )
+        assert (m.llm_calls, m.total_tokens) == (1, 0)
+
+    def test_cost_is_unchanged_by_the_fallback(self):
+        m = self._metrics(
+            [
+                _row("root", None, "EVALUATION", None),
+                _row("chain", "root", "LLM", 0.10, tokens=(18, 29, 47)),
+                _row("client", "chain", "LLM", None),
+            ]
+        )
+        assert m.cost == pytest.approx(0.10)
+
+
 class TestWriteIsUnconditional:
     """`if cost <= 0: continue` froze an over-report permanently. Under
     BatchSpanProcessor a parent exports after its children, so a scorer's LLM child can
@@ -429,7 +507,7 @@ class TestWriteIsUnconditional:
         assert updates[0][0][1][0] == pytest.approx(0.10)
 
     def test_every_metric_rides_the_same_statement_and_the_same_nullif(self):
-        """One UPDATE, so all six settle together under one `cost_derived_at` stamp —
+        """One UPDATE, so all six settle together under one derivation stamp —
         and each is NULLIF'd, so "no model call" reads NULL rather than a hard 0."""
         updates = self._run(
             [

@@ -102,6 +102,11 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
     an LLM-kind step wrapper (``agent_step``) spans several calls. Counting every LLM span
     would count both of those twice. Cost is summed as before.
 
+    A counted call that reported no usage takes its tokens from the nearest LLM ancestor
+    that did, provided that ancestor wraps no other counted call. Streaming often leaves
+    the client span without usage while the framework span around it has it; an ancestor
+    around several calls has a total for all of them, so it is never borrowed from.
+
     ``rows`` are ``(trace_id, span_id, parent_span_id, span_kind, cost, input_tokens,
     output_tokens, total_tokens, span_start_time, span_end_time)``. A trace with no model
     call folds to all-zero, which the writer turns back into NULL.
@@ -157,6 +162,19 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
                 wraps_llm.add(parent)
                 parent = t["parents"].get(parent)
 
+        # How many counted calls each span wraps, so a usage-less call only borrows from
+        # an ancestor whose usage is that call's alone.
+        calls_under: dict[str, int] = defaultdict(int)
+        for sid, sp in t["spans"].items():
+            if sid in excluded or sp["kind"] != SpanKind.LLM or sid in wraps_llm:
+                continue
+            parent = t["parents"].get(sid)
+            seen: set[str] = set()
+            while parent is not None and parent not in seen:
+                seen.add(parent)
+                calls_under[parent] += 1
+                parent = t["parents"].get(parent)
+
         cost = 0.0
         prompt_tokens = completion_tokens = total_tokens = 0
         llm_calls = 0
@@ -172,9 +190,10 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
             if sp["kind"] != SpanKind.LLM or sid in wraps_llm:
                 continue
             llm_calls += 1
-            prompt_tokens += int(sp["input_tokens"] or 0)
-            completion_tokens += int(sp["output_tokens"] or 0)
-            total_tokens += int(sp["total_tokens"] or 0)
+            usage = _call_usage(sid, t["spans"], t["parents"], calls_under)
+            prompt_tokens += int(usage["input_tokens"] or 0)
+            completion_tokens += int(usage["output_tokens"] or 0)
+            total_tokens += int(usage["total_tokens"] or 0)
             # An unfinished span has no end time; it contributes no duration rather than
             # being treated as instantaneous.
             if sp["start"] is not None and sp["end"] is not None:
@@ -189,6 +208,28 @@ def _task_metrics_by_trace(rows) -> dict[str, TaskMetrics]:
             llm_duration_ms=llm_duration_ms,
         )
     return result
+
+
+def _has_usage(span: dict) -> bool:
+    return any(span[k] for k in ("input_tokens", "output_tokens", "total_tokens"))
+
+
+def _call_usage(sid: str, spans: dict, parents: dict, calls_under: dict) -> dict:
+    """The span whose token counts stand for counted call ``sid``: the call itself if it
+    reported usage, else its nearest LLM ancestor when that ancestor wraps only this call."""
+    span = spans[sid]
+    if _has_usage(span):
+        return span
+    parent = parents.get(sid)
+    seen: set[str] = set()
+    while parent is not None and parent not in seen and calls_under[parent] == 1:
+        seen.add(parent)
+        ancestor = spans.get(parent)
+        if ancestor is not None and ancestor["kind"] == SpanKind.LLM:
+            # The nearest LLM ancestor decides; nothing above it is this one call's alone.
+            return ancestor
+        parent = parents.get(parent)
+    return span
 
 
 # The metric columns are Postgres INTEGER. A value outside that range raises inside the
@@ -259,9 +300,9 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
     its result row exists, the lookup below returns empty on each one and nothing ever
     revisits it — ``cost`` stays NULL despite fully-priced LLM spans sitting in
     ClickHouse. ``backfill_eval_result_costs`` closes that gap by re-running this
-    derivation for not-yet-derived result rows; it keys off the ``cost_derived_at`` marker
-    stamped below (NOT ``cost IS NULL``), so a zero-cost trace settles after one pass
-    instead of being re-swept forever.
+    derivation for not-yet-derived result rows; it keys off the ``cost_derived_at`` and
+    ``metrics_derived_at`` markers stamped below (NOT ``cost IS NULL``), so a zero-cost
+    trace settles after one pass instead of being re-swept forever.
 
     NOTE: once the SDK reports an authoritative per-result cost OR token counts, this
     derivation must DEFER to them rather than overwrite — it exists only because those
@@ -305,7 +346,7 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                     # cost-less (or model-call-less) trace at NULL rather than a misleading
                     # 0, while still letting a previously over-reported total be corrected
                     # back down. Every metric here shares that property, so they are written
-                    # in one statement and settle under one `cost_derived_at` stamp.
+                    # in one statement.
                     cur.execute(
                         "UPDATE evaluation_results SET cost = NULLIF(%s, 0),"
                         " prompt_tokens = NULLIF(%s, 0), completion_tokens = NULLIF(%s, 0),"
@@ -330,11 +371,17 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                 # Mark EVERY examined result row as derivation-attempted — a state distinct
                 # from `cost IS NULL`, so a zero-cost trace (NULLIF above) or one whose
                 # spans never landed settles instead of being re-swept by the backfill
-                # forever. Ingest never filters on this column, so the late-SPAN
+                # forever. Ingest never filters on these columns, so the late-SPAN
                 # self-healing above is unaffected; only ``backfill_eval_result_costs``
-                # reads it.
+                # reads them.
+                #
+                # Two markers because two writers exist during a deploy. A worker from
+                # before the LLM metrics writes `cost` and stamps `cost_derived_at` only,
+                # so a row it handled still reads `metrics_derived_at IS NULL` and the
+                # backfill re-derives it here, whichever worker got to it first.
                 cur.execute(
-                    "UPDATE evaluation_results SET cost_derived_at = now()"
+                    "UPDATE evaluation_results SET cost_derived_at = now(),"
+                    " metrics_derived_at = now()"
                     " WHERE project_id = %s AND trace_id = ANY(%s)",
                     (project_id, eval_trace_ids),
                 )
@@ -368,6 +415,12 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
     ``batch_size`` newest-first rows within a recent window (backed by the partial index
     ``ix_eval_result_cost_backfill``), the next run picks up any remainder.
 
+    The same sweep fills the LLM metrics for results that predate them or were handled by
+    a worker that does not derive them (``metrics_derived_at IS NULL``). That selection has
+    no time window: the marker is stamped whatever the outcome, including for a trace whose
+    spans are gone, so each pass shrinks the set by up to ``batch_size`` rows until it is
+    empty, backed by ``ix_eval_result_metrics_backfill``.
+
     Requires a Celery *beat* process to be scheduled (see ``celery_app.beat_schedule``).
     """
     from collections import defaultdict
@@ -390,9 +443,7 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
             # late row behind them. ORDER BY create_time DESC processes the newest (most
             # likely still-arriving) candidates first so no row is indefinitely skipped;
             # the recent-window bound keeps the scan on the partial index small. See
-            # migration ``ix_eval_result_cost_backfill``. Migration
-            # 20260927020000_rederive_eval_result_metrics uses the same 7-day cutoff;
-            # change both together.
+            # migration ``ix_eval_result_cost_backfill``.
             cur.execute(
                 "SELECT project_id, trace_id FROM evaluation_results "
                 "WHERE cost_derived_at IS NULL AND trace_id IS NOT NULL "
@@ -401,7 +452,18 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
                 "LIMIT %s",
                 (batch_size,),
             )
-            rows = cur.fetchall()
+            rows = list(cur.fetchall())
+            # Results whose LLM metrics were never derived, of any age. A separate query so
+            # each selection stays on its own partial index and a backlog of one cannot
+            # take the other's batch.
+            cur.execute(
+                "SELECT project_id, trace_id FROM evaluation_results "
+                "WHERE metrics_derived_at IS NULL AND trace_id IS NOT NULL "
+                "ORDER BY create_time DESC "
+                "LIMIT %s",
+                (batch_size,),
+            )
+            rows.extend(cur.fetchall())
         conn.commit()
     except Exception:
         broken = True

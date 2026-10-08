@@ -362,6 +362,9 @@ class TestUpdateEvalResultCosts:
         # so the zero-cost trace settles instead of being re-swept by the backfill forever.
         marking = [(sql, params) for sql, params in updates if "cost_derived_at" in sql]
         assert len(marking) == 1
+        # The same stamp sets the metrics' own marker, which a pre-metrics worker never
+        # sets — that is what lets the backfill find the rows such a worker handled.
+        assert "metrics_derived_at = now()" in marking[0][0]
         _, mark_params = marking[0]
         assert mark_params[0] == "proj-1"
         assert set(mark_params[1]) == {"t-costed", "t-zero"}
@@ -438,6 +441,43 @@ class TestUpdateEvalResultCosts:
         # Bounded window + newest-first ordering: converges, and no late row is starved.
         assert "create_time >" in select_sql
         assert "ORDER BY create_time DESC" in select_sql
+
+    def test_backfill_also_derives_metrics_for_results_of_any_age(self, monkeypatch):
+        """Results that predate the LLM metrics, or that a pre-metrics worker stamped
+        `cost_derived_at` on during a deploy, are found by `metrics_derived_at IS NULL` —
+        a selection with no time window, so none can age out before it is derived."""
+        from worker import ingest_tasks
+
+        class TwoQueryCursor(FakeCursor):
+            def fetchall(self):
+                sql = self.executed[-1][0]
+                if "metrics_derived_at IS NULL" in sql:
+                    return [("p1", "t-old"), ("p1", "t1")]
+                return [("p1", "t1")]
+
+        cursor = TwoQueryCursor(fetchall_result=None)
+        self._patch_connect(monkeypatch, cursor)
+        calls: list = []
+        monkeypatch.setattr(
+            ingest_tasks,
+            "_update_eval_result_costs",
+            lambda project_id, trace_ids, ch: calls.append((project_id, set(trace_ids))),
+        )
+        monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: MagicMock())
+
+        out = ingest_tasks.backfill_eval_result_costs(batch_size=10)
+
+        # A trace both selections return is derived once.
+        assert out == {"projects": 1, "traces": 2}
+        assert calls == [("p1", {"t1", "t-old"})]
+        selects = [(sql, p) for sql, p in cursor.executed if sql.strip().startswith("SELECT")]
+        assert len(selects) == 2
+        metrics_sql, metrics_params = selects[1]
+        assert "metrics_derived_at IS NULL" in metrics_sql
+        assert "trace_id IS NOT NULL" in metrics_sql
+        assert "create_time >" not in metrics_sql
+        assert "ORDER BY create_time DESC" in metrics_sql
+        assert metrics_params == (10,)
 
     def test_backfill_no_null_cost_results_is_a_noop(self, monkeypatch):
         from worker import ingest_tasks

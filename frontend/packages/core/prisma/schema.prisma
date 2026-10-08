@@ -946,8 +946,7 @@ model EvaluationResult {
   // walk that derives `cost` — scorer spans and their whole subtree excluded, because an
   // llm_judge's tokens are the judge's, not the system under test's. Nullable and
   // NULLIF'd on write like `cost`: a task that made no LLM calls reads NULL, never a
-  // misleading 0. Stamped by the same `cost_derived_at` marker, so the backfill settles
-  // for all of them together.
+  // misleading 0. They have their own backfill marker, `metricsDerivedAt`, below.
   promptTokens     Int?      @map("prompt_tokens")
   completionTokens Int?      @map("completion_tokens")
   totalTokens      Int?      @map("total_tokens")
@@ -962,6 +961,11 @@ model EvaluationResult {
   // probes (`ix_eval_result_cost_backfill`, WHERE cost_derived_at IS NULL AND trace_id IS
   // NOT NULL) can't be expressed here, so it lives in the migration as raw SQL.
   costDerivedAt    DateTime? @map("cost_derived_at") @db.Timestamp(6)
+  // Set whenever the LLM metrics above are derived for this result. Separate from
+  // `costDerivedAt` because a worker that predates the metrics still stamps that one
+  // after writing cost alone; it never sets this, so the backfill can still find the row.
+  // Its partial index (`ix_eval_result_metrics_backfill`) lives in the migration.
+  metricsDerivedAt DateTime? @map("metrics_derived_at") @db.Timestamp(6)
   createTime       DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime       DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
 
