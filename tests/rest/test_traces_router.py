@@ -219,6 +219,50 @@ class TestListTraces:
         assert response.status_code == 422
 
 
+class TestListTracesTraceIds:
+    """``?trace_ids=`` (repeatable): looks up a known, bounded set of traces —
+    e.g. a signal's member traces — rather than filtering a scan."""
+
+    def test_repeated_param_threads_the_list_to_the_service(self, client, mock_trace_reader):
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = client.get("/api/v1/projects/test-project/traces?trace_ids=a&trace_ids=b")
+        assert response.status_code == 200
+        assert mock_trace_reader.list_traces.call_args.kwargs["trace_ids"] == ["a", "b"]
+
+    def test_absent_param_threads_none(self, client, mock_trace_reader):
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = client.get("/api/v1/projects/test-project/traces")
+        assert response.status_code == 200
+        assert mock_trace_reader.list_traces.call_args.kwargs["trace_ids"] is None
+
+    def test_over_100_values_is_422(self, client, mock_trace_reader):
+        params = [("trace_ids", f"t{i}") for i in range(101)]
+        response = client.get("/api/v1/projects/test-project/traces", params=params)
+        assert response.status_code == 422
+        mock_trace_reader.list_traces.assert_not_called()
+
+    def test_exactly_100_values_is_accepted(self, client, mock_trace_reader):
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        params = [("trace_ids", f"t{i}") for i in range(100)]
+        response = client.get("/api/v1/projects/test-project/traces", params=params)
+        assert response.status_code == 200
+        assert len(mock_trace_reader.list_traces.call_args.kwargs["trace_ids"]) == 100
+
+    def test_empty_value_is_422(self, client, mock_trace_reader):
+        response = client.get("/api/v1/projects/test-project/traces", params=[("trace_ids", "")])
+        assert response.status_code == 422
+        mock_trace_reader.list_traces.assert_not_called()
+
+
 class TestGetTrace:
     def test_200(self, client, mock_trace_reader):
         mock_trace_reader.get_trace.return_value = TRACE_DETAIL
@@ -533,6 +577,19 @@ class TestRetentionGate:
         kw = mock_trace_reader.list_traces.call_args.kwargs
         expected = _now_naive() - timedelta(days=15, hours=1)
         assert abs((kw["start_after"] - expected).total_seconds()) < 2
+
+    def test_trace_ids_lookup_still_clamped_on_free_plan(self, free_plan_client, mock_trace_reader):
+        """An id-only lookup is not a loophole around retention: a signal's older
+        member traces stay out of reach on a finite-retention plan, same as any
+        other read."""
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = free_plan_client.get("/api/v1/projects/test-project/traces?trace_ids=old-trace")
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_traces.call_args.kwargs
+        assert kw["start_after"] is not None
 
     def test_get_filter_values_clamps_when_outside_window(
         self, free_plan_client, mock_trace_discovery

@@ -65,14 +65,16 @@ class FakeReader:
             raise RuntimeError("boom")
         return self.detectors_return
 
-    def get_finding(self, project_id, finding_id):
+    def get_finding(self, project_id, finding_id, billing_plan=None):
         self.last_get = (project_id, finding_id)
+        self.last_plan = billing_plan
         if self.raise_on_get_finding:
             raise RuntimeError("boom")
         return self.finding
 
-    def get_finding_by_trace(self, project_id, trace_id):
+    def get_finding_by_trace(self, project_id, trace_id, billing_plan=None):
         self.last_by_trace = (project_id, trace_id)
+        self.last_plan = billing_plan
         if self.raise_on_get_finding_by_trace:
             raise RuntimeError("boom")
         return self.by_trace
@@ -245,9 +247,11 @@ def test_detail_by_finding_id_returns_results_and_rca(client, reader):
     assert resp.status_code == 200
     body = resp.json()
     assert reader.last_get == ("proj-A", "f1")
+    # The key's plan bounds an RCA inherited from another trace.
+    assert reader.last_plan == "enterprise"
     assert body["results"][0]["detector_id"] == "d1"
     assert body["results"][0]["identified"] is True
-    assert body["rca"] == {"status": "done", "result": "rc"}
+    assert body["rca"] == {"status": "done", "result": "rc", "inherited": False}
 
 
 def test_detail_without_rca_returns_null(client, reader):

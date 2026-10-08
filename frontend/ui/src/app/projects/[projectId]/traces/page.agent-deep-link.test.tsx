@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
 // The URL the viewer's "open in new tab" button builds while showing an RCA
-// agent trace (the analysis hop from the Alert chip, or the sidebar sheet).
+// agent trace (opened from a finding's analysis, or the sidebar sheet).
 const AGENT_TRACE_ID = "f1f1";
 let search = `traceId=${AGENT_TRACE_ID}&source=agent&fullscreen=1`;
 

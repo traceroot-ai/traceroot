@@ -20,6 +20,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description: "Row predicates the measure is evaluated over",
           items: {
             additionalProperties: false,
+            description: "A row predicate an alert's measure is evaluated over.",
             properties: {
               field: {
                 description: "A span field, e.g. model_name or metadata",
@@ -1686,6 +1687,27 @@ export const REGISTRY: readonly RegistryEntry[] = [
                 additionalProperties: false,
                 properties: {
                   field: {
+                    const: "signal_id",
+                    title: "Signal ID",
+                    type: "string",
+                  },
+                  op: {
+                    enum: ["eq"],
+                    type: "string",
+                  },
+                  value: {
+                    maxLength: 1024,
+                    minLength: 1,
+                    type: "string",
+                  },
+                },
+                required: ["field", "op", "value"],
+                type: "object",
+              },
+              {
+                additionalProperties: false,
+                properties: {
+                  field: {
                     const: "model_name",
                     title: "Model",
                     type: "string",
@@ -2189,6 +2211,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description: "Row predicates the measure is evaluated over",
           items: {
             additionalProperties: false,
+            description: "A row predicate an alert's measure is evaluated over.",
             properties: {
               field: {
                 description: "A span field, e.g. model_name or metadata",

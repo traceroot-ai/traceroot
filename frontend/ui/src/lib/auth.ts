@@ -9,6 +9,7 @@ import { trustedProxyCidrs } from "@/lib/trusted-proxies";
 import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
+import { captureServerEvent } from "@/lib/posthog-server";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -27,6 +28,16 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
+  },
+
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          captureServerEvent(user.id, "user_signed_up");
+        },
+      },
+    },
   },
 
   socialProviders: {

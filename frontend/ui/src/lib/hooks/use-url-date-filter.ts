@@ -61,8 +61,8 @@ export function useUrlDateFilter(
   const initialCustomEnd = urlEndDate ? new Date(urlEndDate) : null;
 
   const [rawDateFilter, setRawDateFilter] = useState<DateFilterOption>(initialDateFilter);
-  const [customStartDate, setCustomStartDateState] = useState<Date | null>(initialCustomStart);
-  const [customEndDate, setCustomEndDateState] = useState<Date | null>(initialCustomEnd);
+  const [rawCustomStartDate, setCustomStartDateState] = useState<Date | null>(initialCustomStart);
+  const [rawCustomEndDate, setCustomEndDateState] = useState<Date | null>(initialCustomEnd);
   const [filterVersion, setFilterVersion] = useState(0);
 
   // Use ref for callback to avoid dependency issues
@@ -139,18 +139,18 @@ export function useUrlDateFilter(
 
     if (newStartDate) {
       const parsed = new Date(newStartDate);
-      if (!customStartDate || parsed.getTime() !== customStartDate.getTime()) {
+      if (!rawCustomStartDate || parsed.getTime() !== rawCustomStartDate.getTime()) {
         setCustomStartDateState(parsed);
       }
     }
 
     if (newEndDate) {
       const parsed = new Date(newEndDate);
-      if (!customEndDate || parsed.getTime() !== customEndDate.getTime()) {
+      if (!rawCustomEndDate || parsed.getTime() !== rawCustomEndDate.getTime()) {
         setCustomEndDateState(parsed);
       }
     }
-  }, [searchParams, rawDateFilter, customStartDate, customEndDate]);
+  }, [searchParams, rawDateFilter, rawCustomStartDate, rawCustomEndDate]);
 
   // Update URL when state changes
   const updateUrl = useCallback(
@@ -228,6 +228,41 @@ export function useUrlDateFilter(
     prevFilterIdsRef.current = { rawId: rawDateFilter.id, effectiveId: dateFilter.id };
     if (clampChanged) onFilterChangeRef.current?.();
   }, [rawDateFilter.id, dateFilter.id]);
+
+  // Keep the picker, query and outgoing links on the same retained custom range.
+  const { customStartDate, customEndDate } = useMemo(() => {
+    if (retentionDays == null || !dateFilter.isCustom) {
+      return { customStartDate: rawCustomStartDate, customEndDate: rawCustomEndDate };
+    }
+    const cutoff = Date.now() - retentionDays * 86_400_000;
+    const clamp = (date: Date | null) => (date ? new Date(Math.max(date.getTime(), cutoff)) : null);
+    return { customStartDate: clamp(rawCustomStartDate), customEndDate: clamp(rawCustomEndDate) };
+  }, [dateFilter.isCustom, rawCustomStartDate, rawCustomEndDate, retentionDays, filterVersion]);
+
+  const previousRetention = useRef(retentionDays);
+  // Compare the *effective* bounds across renders rather than against the raw
+  // selection: once retention lifts, the clamp memo above returns the raw
+  // dates directly, so effective-vs-raw is equal by construction right after
+  // a widen and would miss the very change this effect exists to report.
+  const previousEffectiveBounds = useRef({
+    start: customStartDate?.getTime() ?? null,
+    end: customEndDate?.getTime() ?? null,
+  });
+  useEffect(() => {
+    const retentionChanged = previousRetention.current !== retentionDays;
+    previousRetention.current = retentionDays;
+    const prevBounds = previousEffectiveBounds.current;
+    const nextBounds = {
+      start: customStartDate?.getTime() ?? null,
+      end: customEndDate?.getTime() ?? null,
+    };
+    previousEffectiveBounds.current = nextBounds;
+    const boundsChanged =
+      prevBounds.start !== nextBounds.start || prevBounds.end !== nextBounds.end;
+    if (retentionChanged && dateFilter.isCustom && boundsChanged) {
+      onFilterChangeRef.current?.();
+    }
+  }, [retentionDays, dateFilter.isCustom, customStartDate, customEndDate]);
 
   // Calculate timestamps
   const timestamps = useMemo(() => {
