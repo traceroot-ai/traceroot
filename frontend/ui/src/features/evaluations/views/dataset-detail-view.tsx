@@ -706,13 +706,11 @@ function CasePanel({
                     </THead>
                     <TBody>
                       {runs.map((r) => {
-                        // Run-level averages, same math as the Evaluations list.
-                        const avgCost =
-                          r.cost != null && r.caseCount > 0 ? r.cost / r.caseCount : null;
+                        // Run-level averages, served by the route the same way as the
+                        // Evaluations list.
+                        const avgCost = r.avgCost;
                         const avgDurationMs =
-                          r.elapsedMs != null && r.caseCount > 0
-                            ? Math.round(r.elapsedMs / r.caseCount)
-                            : null;
+                          r.avgDurationMs != null ? Math.round(r.avgDurationMs) : null;
                         return (
                           <TR
                             key={r.resultId}

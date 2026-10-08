@@ -11,6 +11,7 @@ import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
 import { countResultStatuses } from "@/lib/eval/result-status-counts";
 import { toRunCoverage } from "@/lib/eval/coverage";
+import { runAverages } from "@/lib/eval/run-summary";
 
 type RouteParams = { params: Promise<{ projectId: string; runId: string }> };
 
@@ -126,6 +127,8 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
   const resultAgg = await prisma.evaluationResult.aggregate({
     where: { runId, projectId },
     _sum: { durationMs: true, cost: true },
+    // Per column: SUM skips a NULL, so each mean divides by the results that reported it.
+    _count: { durationMs: true, cost: true },
   });
 
   // The run's TRUE result count, from the same grouped aggregate as the status counts
@@ -154,6 +157,9 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
       // Summed per-case cost — the runs list computes it the same way. Overrides any
       // stored run.cost (there is none), so the headline stat matches the case rows.
       cost: resultAgg._sum.cost,
+      // Per-case means over the results that reported each value, from the same helper
+      // as the runs list and the public run read.
+      ...runAverages(resultAgg._sum, resultAgg._count),
       ...countResultStatuses(statusGroups.map((g) => ({ status: g.status, count: g._count._all }))),
       resultCount,
       comparison,
