@@ -1,0 +1,10 @@
+```python
+import traceroot
+from traceroot import Integration
+from openai import OpenAI
+
+# This single line instruments all OpenAI API calls
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = OpenAI()
+```

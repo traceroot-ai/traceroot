@@ -7,6 +7,7 @@ The TraceRoot Python SDK provides automatic and manual instrumentation for AI ag
 
 ## Instrumentation
 
+<!-- [start:snippet:python-sdk-init] -->
 ```python
 import traceroot
 from traceroot import Integration
@@ -20,22 +21,27 @@ traceroot.initialize(
     ],
 )
 ```
+<!-- [end:snippet:python-sdk-init] -->
 
 ## The Observe Decorator
 
 Wrap any function to create a span, works with sync functions, async functions, and generators.
 
+<!-- [start:snippet:python-sdk-observe] -->
 ```python
 from traceroot import observe
 
+
 @observe(name="my_function", type="tool")
 def my_function(query: str) -> str:
-    return do_work(query)
+    return f"Processed: {query}"
+
 
 @observe(name="async_agent", type="agent")
 async def async_agent(query: str) -> str:
-    return await process(query)
+    return f"Result: {query}"
 ```
+<!-- [end:snippet:python-sdk-observe] -->
 
 ### Parameters
 

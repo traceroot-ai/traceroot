@@ -1,0 +1,13 @@
+```python
+from traceroot import observe
+
+
+@observe(name="my_function", type="tool")
+def my_function(query: str) -> str:
+    return f"Processed: {query}"
+
+
+@observe(name="async_agent", type="agent")
+async def async_agent(query: str) -> str:
+    return f"Result: {query}"
+```

@@ -68,20 +68,62 @@ See [From the terminal](/evals/cli) for what each read shows, and for the datase
 
 Add `--json` to any command for machine-readable output, or run `traceroot <command> --help` for the full flag list.
 
-| Command | What it does |
-| :-- | :-- |
-| `login` | Validate an API key and save credentials. |
+<!-- [start:cli-commands] -->
+
+| Command | Description |
+| :--- | :--- |
+| `login` | Validate an API key or authenticate with browser and save credentials. |
+| `logout` | Revoke the session server-side (best-effort) and remove the local credential. |
 | `status` | Show the identity your credentials resolve to — workspace, project, host, and key hint. |
-| `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
-| `traces get <id>` | Show one trace: header, span tree, duration, and I/O preview. `--json` emits the full trace. |
-| `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index to a directory. Flags: `--output <dir>`, `--force`. |
-| `datasets list` | List the project's evaluation datasets, newest first. Flags: `--limit <n>`, `--name <substring>`. |
-| `datasets get <dataset-id>` | Show one dataset and the version its cases are read from. |
-| `datasets versions list <dataset-id>` | List a dataset's published versions with their case counts. Flag: `--limit <n>`. |
-| `datasets versions get <version-id>` | Show one version and a page of its cases. Flag: `--limit <n>` — 200 by default, up to 1000. |
-| `evals list` | List evaluations with their run count and latest run. Flags: `--limit <n>`, `--name <substring>`. |
-| `evals runs list` | List evaluation runs, newest first. Flags: `--limit <n>`, `--evaluation-id <id>`, `--status <status>`. |
-| `evals runs get <run-id>` | Show one run: counts, per-scorer means, per-case cost and duration, and its URL. |
+| `doctor` | Check local environment, dependencies, configuration, and API connectivity. |
+| `instrument` | Auto-instrument your codebase for OpenTelemetry tracing. |
+| `skills list` | List available AI agent skills and their capabilities. |
+| `skills install` | Install skills into your coding agent workspace. |
+| `traces list` | List recent traces for the caller's project (newest first). (Flags: `--limit`, `--name`) |
+| `traces get <id>` | Get a single trace for the caller's project. |
+| `traces export <id>` | Export the V1 bundle (trace + spans + git_context + manifest) for the caller's project. |
+| `detectors list` | List the detectors in the caller's project (newest first). (Flags: `--limit`) |
+| `detectors get <id>` | Get one detector's full configuration for the key's project. |
+| `findings list` | List recent detector findings for the caller's project (newest first). (Flags: `--limit`) |
+| `findings get <finding-id>` | Get a single finding by id for the key's project. |
+| `alerts list` | List the alerts in the caller's project (oldest first) with its capacity. (Flags: `--limit`, `--page`) |
+| `alerts get <id>` | Get one alert with its full rule for the caller's project. |
+| `alerts create` | Create a threshold alert in a project the authenticated user can write to. |
+| `alerts update <id>` | Edit an alert's rule in a project the authenticated user can write to. |
+| `alerts status <id>` | Pause or resume an alert without touching its rule. |
+| `alerts delete <id>` | Hard-delete an alert. (Flags: `--reason`) |
+| `dashboards list` | List the dashboards in the caller's project (default first). |
+| `dashboards get <id>` | Get one dashboard with its widgets for the caller's project. |
+| `dashboards create` | Create a dashboard in a project the authenticated user can write to. |
+| `dashboards update <id>` | Edit a dashboard's name or description. |
+| `dashboards delete <id>` | Hard-delete a dashboard together with its widgets. (Flags: `--reason`) |
+| `workspaces list` | List the workspaces the authenticated user belongs to. |
+| `projects list` | List the projects the authenticated user can access, across workspaces. |
+| `workspaces create` | Create a workspace administered by the authenticated user. |
+| `workspaces update <workspace-id>` | Rename a workspace the authenticated user administers. |
+| `workspaces delete <workspace-id>` | Hard-delete a workspace and everything in it. (Flags: `--name`, `--reason`) |
+| `projects create` | Create a project in a workspace the authenticated user can write to. |
+| `projects update <project-id>` | Edit a project's name or trace retention. |
+| `projects delete <project-id>` | Soft-delete a project. (Flags: `--reason`) |
+| `detectors create` | Create a detector in a project the authenticated user can write to. |
+| `detectors update <id>` | Edit a detector in a project the authenticated user can write to. |
+| `detectors delete <id>` | Hard-delete a detector; its existing findings stay readable. (Flags: `--reason`) |
+| `widgets get <id>` | Get one saved widget's definition, with its dashboard, for the caller's project. |
+| `widgets data <id>` | Answer one saved widget for a window, with a status instead of an exception. (Flags: `--range`) |
+| `widgets create` | Create a widget on a dashboard the authenticated user can write to. |
+| `widgets update <id>` | Edit a widget's title, spec, or display config. |
+| `widgets delete <id>` | Hard-delete a widget and its entry in the dashboard's layout. (Flags: `--reason`) |
+| `sql` | Run one read-only SQL query scoped to the caller's project. |
+| `sql schema` | Return the curated tables and columns available to public SQL. |
+| `datasets list` | List datasets, newest first. (Flags: `--limit`, `--name`) |
+| `datasets get <dataset-id>` | Read one dataset. |
+| `datasets versions list <dataset-id>` | List versions newest-first, each with its case count and whether it is current. (Flags: `--limit`) |
+| `datasets versions get <version-id>` | Read an immutable snapshot: the version plus its cases, whole or a page at a time. (Flags: `--limit`) |
+| `evals list` | List evaluations, newest first, each with its run count and latest run. (Flags: `--limit`, `--name`) |
+| `evals runs list` | List evaluation runs, newest first, optionally one evaluation's or one status's. (Flags: `--limit`, `--evaluation-id`, `--status`) |
+| `evals runs get <id>` | Read a run's own summary: status, result counts, and per-score and per-metric. |
+
+<!-- [end:cli-commands] -->
 
 ## What's next
 

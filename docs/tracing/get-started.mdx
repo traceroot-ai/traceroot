@@ -12,12 +12,12 @@ Create API Keys either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self
 <Tabs>
   <Tab title="Python">
     ```bash
-    pip install traceroot
+    pip install traceroot openai
     ```
   </Tab>
   <Tab title="TypeScript">
     ```bash
-    npm install @traceroot-ai/traceroot
+    npm install @traceroot-ai/traceroot openai
     ```
   </Tab>
 </Tabs>
@@ -27,6 +27,7 @@ Create API Keys either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self
 ```bash .env
 TRACEROOT_API_KEY=your-api-key
 TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
+OPENAI_API_KEY=your-openai-api-key
 ```
 
 ## 4. Instrument Your Code
@@ -35,6 +36,7 @@ TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
   <Tab title="Python">
     Add a single line at the start of your application to instrument all OpenAI API calls.
 
+    <!-- [start:snippet:tracing-get-started-python] -->
     ```python
     import traceroot
     from traceroot import Integration
@@ -45,10 +47,12 @@ TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
 
     client = OpenAI()
     ```
+<!-- [end:snippet:tracing-get-started-python] -->
   </Tab>
   <Tab title="TypeScript">
     Add a single line at the start of your application to instrument all OpenAI API calls.
 
+    <!-- [start:snippet:tracing-get-started-typescript] -->
     ```typescript
     import OpenAI from 'openai';
     import { TraceRoot } from '@traceroot-ai/traceroot';
@@ -58,6 +62,7 @@ TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
 
     const openai = new OpenAI();
     ```
+<!-- [end:snippet:tracing-get-started-typescript] -->
   </Tab>
 </Tabs>
 

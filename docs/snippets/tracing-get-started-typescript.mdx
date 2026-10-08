@@ -1,0 +1,9 @@
+```typescript
+import OpenAI from 'openai';
+import { TraceRoot } from '@traceroot-ai/traceroot';
+
+// This single line instruments all OpenAI API calls
+TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+
+const openai = new OpenAI();
+```
