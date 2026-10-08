@@ -43,9 +43,11 @@ export interface SummaryResult {
  * The per-case metrics the summary averages, read from columns every result already
  * carries. `duration` is the whole case (task + scorers). The rest are derived from the
  * candidate task's trace, scorer spans excluded: `cost`, the token counts, `llm_calls`, and
- * `llm_duration` (time inside the task's model calls, not the whole case). A result whose
- * task made no LLM call stores NULL for them, so it is left out of those means rather than
- * averaged in as zero. All are `lower_is_better`, carried on the response rather than
+ * `llm_duration` (time inside the task's model calls, not the whole case). Each is averaged
+ * over the results that stored a value for it: a task that made no LLM call stores NULL for
+ * all of them, and one whose calls reported no usage stores NULL tokens but still counts its
+ * calls, so the metrics' observed counts can differ. NULL is left out, never averaged in as
+ * zero. All are `lower_is_better`, carried on the response rather than
  * assumed, so a client that disagrees can re-read the sign itself.
  */
 export const RUN_METRICS = [
