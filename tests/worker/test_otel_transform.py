@@ -1906,11 +1906,12 @@ class TestManualUsageAttribute:
         )
         assert span["cost"] == pytest.approx(expected)
 
-    def test_manual_net_input_floors_uncached_and_prices_cache_in_full(self):
+    def test_manual_net_input_keeps_uncached_and_prices_cache_in_full(self):
         from unittest.mock import patch
 
-        # Anthropic-style NET report: input_tokens excludes cache. The uncached
-        # bucket floors to zero and the gross input reconstructs from the buckets.
+        # Anthropic-style NET report: input_tokens excludes cache. Cache exceeds
+        # the input, so it is provably net: the input is the uncached bucket and
+        # the gross input reconstructs from the buckets.
         payload = make_otel_payload(
             [
                 self._manual_span(
@@ -1928,13 +1929,96 @@ class TestManualUsageAttribute:
             _, spans = transform_otel_to_clickhouse(payload, "proj-1")
 
         span = spans[0]
-        assert span["input_tokens"] == 950  # 0 uncached + 900 + 50
+        assert span["input_tokens"] == 952  # 2 uncached + 900 + 50
         expected = (
-            900 * MANUAL_USAGE_PRICES["cacheRead"]
+            2 * MANUAL_USAGE_PRICES["input"]
+            + 900 * MANUAL_USAGE_PRICES["cacheRead"]
             + 50 * MANUAL_USAGE_PRICES["cacheWrite"]
             + 204 * MANUAL_USAGE_PRICES["output"]
         )
         assert span["cost"] == pytest.approx(expected)
+
+    def test_manual_input_is_net_flag_keeps_uncached_when_cache_is_smaller(self):
+        from unittest.mock import patch
+
+        # cache <= input is not provably net, so without the flag this would be
+        # priced as gross and the cache subtracted from the input.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {
+                        "input_tokens": 1000,
+                        "output_tokens": 204,
+                        "cache_read_tokens": 300,
+                        "cache_write_tokens": 100,
+                        "input_is_net": True,
+                    }
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["input_tokens"] == 1400
+        assert span["usage_details"]["cache_read_tokens"] == 300
+        assert span["usage_details"]["cache_write_tokens"] == 100
+        expected = (
+            1000 * MANUAL_USAGE_PRICES["input"]
+            + 300 * MANUAL_USAGE_PRICES["cacheRead"]
+            + 100 * MANUAL_USAGE_PRICES["cacheWrite"]
+            + 204 * MANUAL_USAGE_PRICES["output"]
+        )
+        assert span["cost"] == pytest.approx(expected)
+
+    def test_manual_input_is_net_flag_is_not_reported_as_unrecognized(self, caplog):
+        import logging
+
+        payload = make_otel_payload(
+            [self._manual_span({"input_tokens": 10, "output_tokens": 5, "input_is_net": False})],
+            scope_name="traceroot",
+        )
+        with caplog.at_level(logging.WARNING):
+            transform_otel_to_clickhouse(payload, "proj-1")
+        assert not any("not recognized" in r.message for r in caplog.records)
+
+    @pytest.mark.parametrize("bad", ["yes", 1, 0, 1.5, [], {}, "nope"])
+    def test_manual_input_is_net_flag_ignores_non_boolean_values(self, bad):
+        # An unusable flag must not crash ingestion and must not flip the
+        # convention: the span is priced as gross.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {
+                        "input_tokens": 1000,
+                        "output_tokens": 1,
+                        "cache_read_tokens": 300,
+                        "input_is_net": bad,
+                    }
+                )
+            ],
+            scope_name="traceroot",
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input_tokens"] == 1000
+
+    def test_manual_input_is_net_flag_cannot_relabel_instrumentor_counts(self):
+        # Instrumentor attributes win whole-dict, so the flag inside a manual dict
+        # that was not adopted must not change how they are priced.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {"input_tokens": 9999, "output_tokens": 9999, "input_is_net": True},
+                    make_attr("gen_ai.usage.input_tokens", 1000),
+                    make_attr("gen_ai.usage.output_tokens", 50),
+                    make_attr("gen_ai.usage.cache_read.input_tokens", 300),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input_tokens"] == 1000  # gross: 700 uncached + 300 read
 
     def test_instrumentor_attributes_win_whole_dict(self):
         from unittest.mock import patch
@@ -2156,8 +2240,8 @@ class TestPiExtensionCacheWrite:
     Numbers are taken verbatim from a captured local Pi run on gpt-5.6-luna
     (OpenAI GPT-5.6 writes the new suffix on every call and reads the prior
     prefix on the next). Pi reports input NET of cache, so the tiny uncached
-    remainder floors to 0 under the buckets rule; that is documented behaviour,
-    not what these tests pin.
+    remainder is its own bucket, priced at the input rate and added to the
+    stored gross input.
     """
 
     SCOPE = "@traceroot-ai/pi-extension"
@@ -2195,9 +2279,13 @@ class TestPiExtensionCacheWrite:
         )
         assert s["usage_details"]["cache_read_tokens"] == 0
         assert s["usage_details"]["cache_write_tokens"] == 3326
-        assert s["input_tokens"] == 3326  # gross = uncached(0, floored) + read + write
+        assert s["input_tokens"] == 3329  # gross = uncached(3) + read + write
         assert s["output_tokens"] == 224
-        expected = 3326 * self.PRICES["cacheWrite"] + 224 * self.PRICES["output"]
+        expected = (
+            3 * self.PRICES["input"]
+            + 3326 * self.PRICES["cacheWrite"]
+            + 224 * self.PRICES["output"]
+        )
         assert s["cost"] == pytest.approx(expected)
 
     def test_steady_state_read_and_write_both_stored(self):
@@ -2208,9 +2296,10 @@ class TestPiExtensionCacheWrite:
         )
         assert s["usage_details"]["cache_read_tokens"] == 3581
         assert s["usage_details"]["cache_write_tokens"] == 834
-        assert s["input_tokens"] == 4415
+        assert s["input_tokens"] == 4418  # uncached(3) + 3581 + 834
         expected = (
-            3581 * self.PRICES["cacheRead"]
+            3 * self.PRICES["input"]
+            + 3581 * self.PRICES["cacheRead"]
             + 834 * self.PRICES["cacheWrite"]
             + 27 * self.PRICES["output"]
         )
@@ -2305,3 +2394,220 @@ class TestErrorType:
     def test_ok_span_always_carries_the_field(self):
         span = make_span(self.TRACE, self.SPAN)
         assert self._transform(span)["error_type"] == ""
+
+
+class TestNetInputConvention:
+    """Anthropic reports ``input_tokens`` NET of cache. An emitter that passes it
+    through unchanged must keep those tokens as the uncached bucket (#2392).
+    Before, the cache was subtracted from the input, the result floored to zero,
+    and every uncached token went unpriced.
+    """
+
+    # Claude Sonnet rates per token: $3/M input, $0.30/M read, $3.75/M write.
+    PRICES: ClassVar[dict[str, float]] = {
+        "input": 0.000003,
+        "output": 0.000015,
+        "cacheRead": 0.0000003,
+        "cacheWrite": 0.00000375,
+    }
+
+    @staticmethod
+    def _anthropic_span(*, input_tokens, output_tokens, cache_read, cache_write, extra=()):
+        attrs = [
+            make_attr("openinference.span.kind", "LLM"),
+            make_attr("gen_ai.request.model", "claude-sonnet-4-6"),
+            make_attr("gen_ai.usage.input_tokens", input_tokens),
+            make_attr("gen_ai.usage.output_tokens", output_tokens),
+            make_attr("gen_ai.usage.cache_read.input_tokens", cache_read),
+            make_attr("gen_ai.usage.cache_creation.input_tokens", cache_write),
+            *extra,
+        ]
+        return make_span("aa" * 16, "bb" * 8, name="Agent.completion", attributes=attrs)
+
+    def _transform(self, span, scope_name, scope_version=None):
+        from unittest.mock import patch
+
+        payload = make_otel_payload([span], scope_name=scope_name, scope_version=scope_version)
+        with patch("worker.tokens.pricing.get_model_price", return_value=self.PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        return spans[0]
+
+    def _cost(self, *, uncached, cache_read, cache_write, output):
+        return (
+            uncached * self.PRICES["input"]
+            + cache_read * self.PRICES["cacheRead"]
+            + cache_write * self.PRICES["cacheWrite"]
+            + output * self.PRICES["output"]
+        )
+
+    # The reproduction from #2392: a hand-made span per call that copies
+    # Anthropic's usage verbatim, from an unknown scope.
+    @pytest.mark.parametrize(
+        ("input_tokens", "cache_read", "cache_write"),
+        [(29, 0, 2281), (157, 2281, 0), (288, 2281, 0)],
+    )
+    def test_hand_made_span_stores_and_prices_the_uncached_tokens(
+        self, input_tokens, cache_read, cache_write
+    ):
+        s = self._transform(
+            self._anthropic_span(
+                input_tokens=input_tokens,
+                output_tokens=150,
+                cache_read=cache_read,
+                cache_write=cache_write,
+            ),
+            scope_name="repro-net-input",
+        )
+        assert s["input_tokens"] == input_tokens + cache_read + cache_write
+        assert s["total_tokens"] == s["input_tokens"] + 150
+        assert s["usage_details"]["cache_read_tokens"] == cache_read
+        assert s["usage_details"]["cache_write_tokens"] == cache_write
+        assert s["cost"] == pytest.approx(
+            self._cost(
+                uncached=input_tokens,
+                cache_read=cache_read,
+                cache_write=cache_write,
+                output=150,
+            )
+        )
+
+    def test_stored_input_grows_with_the_conversation(self):
+        # The 4-turn agent loop from the issue: a 5,187-token cached prefix and a
+        # growing uncached tail. The stored input used to stay pinned at 5187.
+        stored = [
+            self._transform(
+                self._anthropic_span(
+                    input_tokens=uncached, output_tokens=100, cache_read=5187, cache_write=0
+                ),
+                scope_name="@traceroot-ai/pi-extension",
+            )["input_tokens"]
+            for uncached in (447, 1290, 2137, 2989)
+        ]
+        assert stored == [5634, 6477, 7324, 8176]
+
+    def test_scope_version_selects_the_traceloop_convention(self):
+        span = self._anthropic_span(
+            input_tokens=1000, output_tokens=10, cache_read=300, cache_write=0
+        )
+        scope = "@traceloop/instrumentation-anthropic"
+
+        net = self._transform(span, scope_name=scope, scope_version="0.27.0")
+        assert net["input_tokens"] == 1300
+        assert net["cost"] == pytest.approx(
+            self._cost(uncached=1000, cache_read=300, cache_write=0, output=10)
+        )
+
+        gross = self._transform(span, scope_name=scope, scope_version="0.28.0")
+        assert gross["input_tokens"] == 1000
+        assert gross["cost"] == pytest.approx(
+            self._cost(uncached=700, cache_read=300, cache_write=0, output=10)
+        )
+
+    @pytest.mark.parametrize(
+        "scope",
+        [
+            "@traceroot-ai/claude-agent-sdk",
+            "openinference.instrumentation.anthropic",
+            "opentelemetry.instrumentation.anthropic",
+        ],
+    )
+    def test_gross_claude_emitters_are_priced_as_before(self, scope):
+        # These sum the three fields before emitting, so the input already
+        # contains the cache. Stored input and cost must not change.
+        s = self._transform(
+            self._anthropic_span(
+                input_tokens=6939, output_tokens=100, cache_read=5187, cache_write=0
+            ),
+            scope_name=scope,
+            scope_version="1.0.0",
+        )
+        assert s["input_tokens"] == 6939
+        assert s["cost"] == pytest.approx(
+            self._cost(uncached=1752, cache_read=5187, cache_write=0, output=100)
+        )
+
+    def test_js_openinference_bedrock_invoke_model_is_priced_as_net(self):
+        # @arizeai/openinference-instrumentation-bedrock stamps the provider's
+        # net input under llm.token_count.prompt, with cache as prompt_details.
+        attrs = [
+            make_attr("openinference.span.kind", "LLM"),
+            make_attr("llm.model_name", "claude-sonnet-4-6"),
+            make_attr("llm.token_count.prompt", 1000),
+            make_attr("llm.token_count.completion", 10),
+            make_attr("llm.token_count.prompt_details.cache_read", 300),
+            make_attr("llm.token_count.prompt_details.cache_write", 100),
+        ]
+        span = make_span("aa" * 16, "bb" * 8, name="bedrock.invoke_model", attributes=attrs)
+        s = self._transform(
+            span,
+            scope_name="@arizeai/openinference-instrumentation-bedrock",
+            scope_version="0.5.1",
+        )
+        assert s["input_tokens"] == 1400
+        assert s["usage_details"]["cache_read_tokens"] == 300
+        assert s["usage_details"]["cache_write_tokens"] == 100
+        assert s["cost"] == pytest.approx(
+            self._cost(uncached=1000, cache_read=300, cache_write=100, output=10)
+        )
+
+    @pytest.mark.parametrize("flag", [True, "true", "TRUE"])
+    def test_span_attribute_marks_the_input_as_net(self, flag):
+        s = self._transform(
+            self._anthropic_span(
+                input_tokens=1000,
+                output_tokens=10,
+                cache_read=300,
+                cache_write=0,
+                extra=(make_attr("traceroot.llm.usage.input_is_net", flag),),
+            ),
+            scope_name="openinference.instrumentation.anthropic",
+        )
+        assert s["input_tokens"] == 1300
+
+    def test_span_attribute_marks_the_input_as_gross(self):
+        s = self._transform(
+            self._anthropic_span(
+                input_tokens=1000,
+                output_tokens=10,
+                cache_read=300,
+                cache_write=0,
+                extra=(make_attr("traceroot.llm.usage.input_is_net", False),),
+            ),
+            scope_name="@traceroot-ai/pi-extension",
+        )
+        assert s["input_tokens"] == 1000
+
+    def test_malformed_span_attribute_is_ignored(self):
+        s = self._transform(
+            self._anthropic_span(
+                input_tokens=1000,
+                output_tokens=10,
+                cache_read=300,
+                cache_write=0,
+                extra=(make_attr("traceroot.llm.usage.input_is_net", "maybe"),),
+            ),
+            scope_name="openinference.instrumentation.anthropic",
+        )
+        assert s["input_tokens"] == 1000
+
+    def test_span_attribute_is_kept_out_of_metadata(self):
+        s = self._transform(
+            self._anthropic_span(
+                input_tokens=1000,
+                output_tokens=10,
+                cache_read=300,
+                cache_write=0,
+                extra=(make_attr("traceroot.llm.usage.input_is_net", True),),
+            ),
+            scope_name="traceroot",
+        )
+        assert "traceroot.llm.usage.input_is_net" not in (s.get("metadata") or "")
+
+    def test_malformed_scope_version_does_not_crash(self):
+        span = self._anthropic_span(
+            input_tokens=1000, output_tokens=10, cache_read=300, cache_write=0
+        )
+        payload = make_otel_payload([span], scope_name="@traceloop/instrumentation-anthropic")
+        payload["resourceSpans"][0]["scopeSpans"][0]["scope"]["version"] = {"major": 0}
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input_tokens"] == 1000
