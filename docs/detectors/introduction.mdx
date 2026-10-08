@@ -44,21 +44,26 @@ Every detector has a **Root cause analysis** setting in the Signals section of t
 - **Automatic**, the default for a new detector, however it is created: the AI agent (step 2) runs when a finding creates a signal or reopens a resolved one.
 - **Manual**: the agent runs only when you click **Run root cause analysis** on a signal, so agent-model cost goes only to the problems you look into.
 
-Detection and notifications are the same either way: the detector fires, records findings and announces new signals. A signal without an analysis, because its detector is Manual or an attempt failed, can be analysed from its panel on the Signals page.
+Detection and notifications are the same either way: the detector fires, records findings and announces new signals. A signal without an analysis, because its detector is Manual or an attempt failed, can be analyzed from its panel on the Signals page.
 
 RCA runs **per signal, not per finding**. A signal is one recurring problem: the findings of one detector that describe the same problem. With Automatic analysis:
 
 - A finding that joins an open signal starts no new analysis; the signal's existing analysis stands for it.
-- A resolved signal reopened within 24 hours of its last analysis keeps that analysis instead of starting a new one.
+- A resolved signal that a new finding reopens runs no new analysis while one of its analyses that succeeded, or is still waiting or running, was started within the last 24 hours. Failed attempts do not count toward this window.
 - When findings from several detectors on the same trace open signals, one agent run covers all of them, with one section per detector.
 
-A detector with **Generate signals** turned off records findings only, with no signals and no RCA. On a self-hosted deployment, grouping into signals and RCA need `OPENAI_API_KEY`; without it, detectors record findings only.
+With **Generate signals** turned off, a detector's new findings are recorded only: they join no signal, start no automatic RCA and send no notifications. Its existing signals stay and can still be analyzed by hand. On a self-hosted deployment, grouping into signals, RCA and notifications need `OPENAI_API_KEY`; without it, detectors record findings only.
+
+See [Signals](/signals/introduction) for how findings are grouped, how a signal is resolved, dismissed or reopened, and the Signals page.
 
 ## Where to start
 
-<CardGroup cols={2}>
+<CardGroup cols={3}>
   <Card title="Get Started" icon="rocket" href="/detectors/get-started">
     Create your first detector in a few minutes from a starting prompt.
+  </Card>
+  <Card title="Signals" icon="lightbulb" href="/signals/introduction">
+    Review, analyze and close the recurring problems your detectors find.
   </Card>
   <Card title="Notifications" icon="bell" href="/detectors/notifications">
     Configure email and Slack notifications for signals.

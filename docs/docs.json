@@ -136,6 +136,12 @@
             ]
           },
           {
+            "group": "Signals",
+            "pages": [
+              "signals/introduction"
+            ]
+          },
+          {
             "group": "Alerts",
             "pages": [
               "alerts/introduction",
