@@ -1,7 +1,11 @@
-// What follows a new account, run from better-auth's user.create.after hook:
-// today an internal Slack notice. Never rejects; each arm fails on its own.
+// Everything that follows a new account (Resend contact, welcome email, Slack
+// notice), run from better-auth's user.create.after hook. Never rejects; each
+// arm fails on its own. The contact is created before the welcome because
+// Resend delivers topic mail to non-contacts, and the opt-out needs a record.
 import { prisma } from "@traceroot/core";
+import { ensureContact } from "@traceroot/core/email";
 import { env } from "@/env";
+import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
 
@@ -51,7 +55,20 @@ export async function onUserCreated(
       }),
     )) != null;
 
-  await arm("slack", user.id, async () => {
+  const contact = await arm("resend contact", user.id, () =>
+    ensureContact({ email: user.email, name: user.name }),
+  );
+  if (!contact?.ok) {
+    console.warn(`[signup] welcome email skipped for user ${user.id}: contact not recorded`);
+  }
+
+  const welcome = contact?.ok
+    ? arm("welcome email", user.id, () =>
+        sendWelcomeEmail({ userId: user.id, email: user.email, name: user.name }),
+      )
+    : undefined;
+
+  const slack = arm("slack", user.id, async () => {
     if (!env.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL?.trim()) return false;
     const [facts, totalUsers] = await Promise.all([
       findPostHogPerson(user.id),
@@ -67,4 +84,6 @@ export async function onUserCreated(
       totalUsers,
     });
   });
+
+  await Promise.all([welcome, slack]);
 }
