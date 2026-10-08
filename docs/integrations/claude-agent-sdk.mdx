@@ -18,8 +18,12 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
   </Tab>
   <Tab title="TypeScript">
     ```typescript
-    import * as claudeAgentSDK from '@anthropic-ai/claude-agent-sdk';
+    import * as claudeAgentSDKModule from '@anthropic-ai/claude-agent-sdk';
     import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    // Spread the read-only ESM namespace into a mutable object so the patcher
+    // can rewrite query. Always call the SDK via claudeAgentSDK to ensure calls are traced.
+    const claudeAgentSDK = { ...claudeAgentSDKModule };
 
     TraceRoot.initialize({
       instrumentModules: { claudeAgentSDK },
@@ -57,8 +61,11 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
   </Tab>
   <Tab title="TypeScript">
     ```typescript
-    import { query, AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
+    import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 
+    // Assumes Setup ran first to initialize TraceRoot and claudeAgentSDK
+
+    // Define subagents
     const researcher: AgentDefinition = {
       description: 'Research specialist for gathering information.',
       prompt: 'You are a research specialist. Use WebSearch to find info.',
@@ -66,8 +73,9 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
       model: 'haiku',
     };
 
+    // Run the agent with subagents via the instrumented claudeAgentSDK
     async function main() {
-      for await (const message of query({
+      for await (const message of claudeAgentSDK.query({
         prompt: 'Research the latest trends in AI observability',
         options: {
           allowedTools: ['Agent', 'Bash', 'Read', 'Glob', 'Grep'],
