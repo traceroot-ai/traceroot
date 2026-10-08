@@ -13,6 +13,7 @@ import type {
   EvalResultStatus,
   ScoreRow,
 } from "./types";
+import type { RunCoverage } from "@/lib/eval/coverage";
 
 interface Meta {
   page: number;
@@ -198,6 +199,8 @@ export interface TestCaseRunRow {
   change: "improved" | "regressed" | "unchanged" | null;
   /** Run-level totals (summed over the run's cases), à la the Experiments list. */
   caseCount: number;
+  /** Which slice of the dataset the run measured (see RunRow.coverage). */
+  coverage: RunCoverage;
   cost: number | null;
   elapsedMs: number | null;
 }

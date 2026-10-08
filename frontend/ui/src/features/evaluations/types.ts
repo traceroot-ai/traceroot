@@ -3,6 +3,7 @@
  * as ISO strings over JSON, so these mirror the Prisma rows with string dates.
  */
 import type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
+import type { RunCoverage } from "@/lib/eval/coverage";
 
 export type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
 
@@ -139,6 +140,13 @@ export interface RunRow {
   status: EvalRunStatus;
   baselineRunId: string | null;
   caseCount: number;
+  /**
+   * Which slice of the pinned dataset version this run measured. Derived server-side
+   * from the run's stored selection so every surface reads it identically; `unknown`
+   * for a run that predates coverage or an SDK that does not report it, and never
+   * silently promoted to `full`.
+   */
+  coverage: RunCoverage;
   scoredCount: number;
   taskErrorCount: number;
   scorerErrorCount: number;
@@ -173,6 +181,18 @@ export interface RunDetail extends RunRow {
   elapsedMs: number | null;
   /** The backend-derived run-level comparison (single source of truth). */
   comparison: RunComparison;
+  /**
+   * How many result rows this run actually has. Distinct from `caseCount`, which is
+   * what the run DECLARED; `resultsTruncated` is judged against this.
+   */
+  resultCount: number;
+  /**
+   * True when the API capped `results` — the run produced more rows than were
+   * returned, so the table and the comparison derived from it are a partial view.
+   * Strictly about the RESPONSE: a deliberately-subsetted run is complete and reports
+   * false here; its slice is described by `coverage` instead.
+   */
+  resultsTruncated: boolean;
 }
 
 export interface RunDetailResponse {
