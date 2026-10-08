@@ -5,7 +5,9 @@ This server handles:
 - Trace reading from ClickHouse
 """
 
+import math
 import os
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -14,7 +16,7 @@ load_dotenv()
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -90,6 +92,22 @@ def _validation_message(exc: RequestValidationError) -> str:
     return f"{detail} (and {remaining} more error(s))" if remaining else detail
 
 
+def _json_safe(value: Any) -> Any:
+    """Replace non-finite floats with their string form so an error body can be encoded.
+
+    ``json.loads`` accepts bare ``NaN``/``Infinity`` tokens, and ``1e999`` overflows
+    to ``inf``. A 422 echoes the rejected input back, and ``JSONResponse`` refuses
+    non-finite floats, so such a body used to turn the 422 into a 500.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> Response:
     """Give the public API a single error envelope for request-validation failures.
@@ -99,10 +117,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     that formats `resp.json()["detail"]` as a message renders a repr'd list. Public
     routes therefore get the same string envelope their upstream/handler errors use.
     Non-public (dashboard/internal) routes keep FastAPI's default body, which the
-    Next.js app already parses.
+    Next.js app already parses, with non-finite input values rendered as strings.
     """
     if not request.url.path.startswith(PUBLIC_PREFIX):
-        return await request_validation_exception_handler(request, exc)
+        return JSONResponse(
+            status_code=422,
+            content={"detail": _json_safe(jsonable_encoder(exc.errors()))},
+        )
     return JSONResponse(status_code=422, content={"detail": _validation_message(exc)})
 
 
