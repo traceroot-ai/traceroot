@@ -1,0 +1,76 @@
+---
+title: Codex Plugin
+description: Trace OpenAI Codex sessions with TraceRoot
+---
+
+The [TraceRoot Codex plugin](https://github.com/traceroot-ai/traceroot-codex-plugin) sends real-time observability traces from OpenAI Codex sessions to TraceRoot.
+
+Every query becomes **one live trace** — capturing agent turns, model calls, tool executions, file edits, and any subagents spawned — streamed in the background as the agent works and linked to your git repository.
+
+## Installation
+
+Add the marketplace and install the plugin:
+
+```bash
+codex plugin marketplace add traceroot-ai/traceroot-codex-plugin
+codex plugin add tracing@traceroot-codex-plugin
+```
+
+Enable hooks in Codex (the plugin runs as a hook):
+
+```bash
+codex features enable hooks
+```
+
+This updates `~/.codex/config.toml` to enable the hook system and the plugin:
+
+```toml
+features.hooks = true
+
+[plugins."tracing@traceroot-codex-plugin"]
+enabled = true
+```
+
+## Configuration
+
+Create or update `~/.codex/traceroot.json` with your API key:
+
+```json
+{
+  "enabled": true,
+  "api_key": "your-api-key-from-app.traceroot.ai"
+}
+```
+
+<Note>
+Because Codex hooks run in isolated subprocesses that do not always inherit your shell environment, using `~/.codex/traceroot.json` is recommended over shell environment variables.
+</Note>
+
+### Optional Configuration
+
+Settings can be specified in project-local `.codex/traceroot.json`, global `~/.codex/traceroot.json`, or environment variables:
+
+| Setting | Env Var | Default | Description |
+| ------- | ------- | ------- | ----------- |
+| `enabled` | `TRACE_TO_TRACEROOT` | `false` | Enable/disable tracing (requires API key). |
+| `api_key` | `TRACEROOT_API_KEY` | — | Your TraceRoot API key. |
+| `host_url` | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | Ingest endpoint URL. Set if self-hosting. |
+| `max_chars` | `TRACEROOT_CODEX_MAX_CHARS` | `20000` | Truncate long span attributes to limit size. |
+| `debug` | `TRACEROOT_CODEX_DEBUG` | `false` | Enable verbose diagnostic logging to stderr. |
+
+## What Gets Captured
+
+| Attribute | Description |
+| --------- | ----------- |
+| Agent turns | User queries, reasoning, and final agent answers |
+| Tool calls | File edits, bash terminal commands, grep searches |
+| Model usage | LLM model names, token counts, and step latencies |
+| Git context | Repository name, branch, and active commit hash |
+
+## Repository
+
+The plugin is open-source on GitHub:
+
+<Card title="traceroot-codex-plugin" icon="github" href="https://github.com/traceroot-ai/traceroot-codex-plugin">
+  View source code, releases, and documentation on GitHub
+</Card>
