@@ -4,6 +4,7 @@ import {
   ALERT_THRESHOLD_OPERATOR_PHRASES,
   alertFiltersToTracePredicates,
   describeAlertFilter,
+  isCompleteAlertFilter,
   type AlertFilter,
   type AlertSeverity,
   type AlertThresholdOperator,
@@ -157,11 +158,16 @@ export function buildAlertBlocks(params: AlertBlockParams): AlertSlackMessage {
   // A recovery is within threshold and NO_DATA is empty: a traces link lands on nothing.
   // "Traces", not "spans": the list shows traces containing a matching span.
   if (severity === "ALERT") {
+    const predicates = alertFiltersToTracePredicates(filters);
+    const completeFilters = filters.filter(isCompleteAlertFilter);
+    const hasUnsupportedFilters = predicates.length < completeFilters.length;
+
+    const label = hasUnsupportedFilters ? "View traces (some filters not applied)" : "View traces";
+
     links.push(
-      `<${alertTracesUrl(appBaseUrl, projectId, windowStart, windowEnd, filters)}|View traces>`,
+      `<${alertTracesUrl(appBaseUrl, projectId, windowStart, windowEnd, filters)}|${label}>`,
     );
   }
-
   const footer = `${formatWindowRange(windowStart, windowEnd)} · ${previousSeverity} to ${severity}`;
 
   const blocks = [
