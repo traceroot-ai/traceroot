@@ -5,7 +5,17 @@ description: Auto-instrument Mistral AI API calls
 
 Automatically capture all Mistral AI chat completion calls, including tool/function calls and streaming responses.
 
-## Setup
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot mistralai
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
 
 <Tabs>
   <Tab title="Python">
@@ -44,7 +54,13 @@ response = client.chat.complete(
 print(response.choices[0].message.content)
 ```
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `mistral.chat.complete`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
@@ -56,11 +72,25 @@ print(response.choices[0].message.content)
 | Cost | Calculated from token usage and model pricing |
 | Latency | Request duration |
 
+## Limitations
+
+None known.
 
 ## Run the example
 
 Clone the repo and run a complete agent end-to-end.
 
-  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/mistral-tool-agent">
-    Run the Python example
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/mistral-tool-agent">
+  Run the Python example
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
   </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>

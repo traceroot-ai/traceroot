@@ -5,7 +5,22 @@ description: Trace OpenRouter calls through the OpenAI-compatible SDK
 
 OpenRouter is OpenAI-compatible: use the standard `openai` SDK with the OpenRouter base URL (`https://openrouter.ai/api/v1`). TraceRoot captures these calls through the existing OpenAI instrumentation — no new OpenRouter-specific instrumentor or enum is required.
 
-## Setup
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot openai
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot openai
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
 
 <Tabs>
   <Tab title="Python">
@@ -22,7 +37,6 @@ OpenRouter is OpenAI-compatible: use the standard `openai` SDK with the OpenRout
         base_url="https://openrouter.ai/api/v1",
     )
     ```
-
   </Tab>
   <Tab title="TypeScript">
     ```typescript
@@ -38,7 +52,6 @@ OpenRouter is OpenAI-compatible: use the standard `openai` SDK with the OpenRout
       baseURL: 'https://openrouter.ai/api/v1',
     });
     ```
-
   </Tab>
 </Tabs>
 
@@ -66,7 +79,6 @@ OpenRouter is OpenAI-compatible: use the standard `openai` SDK with the OpenRout
 
     print(response.choices[0].message.content)
     ```
-
   </Tab>
   <Tab title="TypeScript">
     ```typescript
@@ -88,11 +100,16 @@ OpenRouter is OpenAI-compatible: use the standard `openai` SDK with the OpenRout
 
     console.log(response.choices[0].message.content);
     ```
-
   </Tab>
 </Tabs>
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `openai.chat.completions.create`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute  | Description                                                                                                              |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -102,6 +119,10 @@ OpenRouter is OpenAI-compatible: use the standard `openai` SDK with the OpenRout
 | Tool calls | Function/tool call inputs and outputs when using the OpenAI SDK tool-calling API                                         |
 | Tokens     | Prompt, completion, and total tokens when returned by the provider                                                       |
 | Latency    | Request duration                                                                                                         |
+
+## Limitations
+
+- OpenRouter requests are traced through the standard OpenAI integration; token pricing requires provider-returned usage headers or recognized model mappings.
 
 ## Run the example
 
@@ -121,5 +142,16 @@ Clone the repo and run a complete OpenRouter agent end-to-end.
     href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/openrouter"
   >
     Run the TypeScript OpenRouter example
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
   </Card>
 </CardGroup>

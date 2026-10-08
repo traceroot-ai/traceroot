@@ -5,7 +5,22 @@ description: Auto-instrument Anthropic API calls
 
 Automatically capture all Anthropic Messages API calls.
 
-## Setup
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot anthropic
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot @anthropic-ai/sdk
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
 
 <Tabs>
   <Tab title="Python">
@@ -72,7 +87,13 @@ Once initialized, all Anthropic calls are captured automatically:
   </Tab>
 </Tabs>
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `anthropic.messages.create`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
@@ -83,6 +104,9 @@ Once initialized, all Anthropic calls are captured automatically:
 | Cost | Calculated from token usage and model pricing |
 | Latency | Request duration |
 
+## Limitations
+
+None known.
 
 ## Run the example
 
@@ -94,5 +118,16 @@ Clone the repo and run a complete agent end-to-end.
   </Card>
   <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/anthropic">
     Run the TypeScript example
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="TypeScript SDK Reference" icon="code" href="/tracing/typescript-sdk">
+    Explore the full TypeScript SDK reference and configuration options.
   </Card>
 </CardGroup>

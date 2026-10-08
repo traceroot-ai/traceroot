@@ -5,20 +5,34 @@ description: Auto-instrument LlamaIndex RAG pipelines and query engines
 
 Automatically capture document ingestion, embedding, retrieval, and LLM synthesis within LlamaIndex pipelines.
 
-## Setup
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot llama-index-core llama-index-llms-openai llama-index-embeddings-openai
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
 
 To capture the complete picture—including both the pipeline structure and the underlying token costs—we highly recommend initializing both the LlamaIndex integration and your specific LLM provider (e.g., OpenAI, Anthropic, Google GenAI).
 
-```python
-import traceroot
-from traceroot import Integration
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
 
-# Initialize LlamaIndex alongside your LLM provider to capture tokens and costs
-traceroot.initialize(integrations=[
-    Integration.LLAMA_INDEX,
-    Integration.OPENAI  # Or ANTHROPIC, GOOGLE_GENAI, etc.
-])
-```
+    # Initialize LlamaIndex alongside your LLM provider to capture tokens and costs
+    traceroot.initialize(integrations=[
+        Integration.LLAMA_INDEX,
+        Integration.OPENAI  # Or ANTHROPIC, GOOGLE_GENAI, etc.
+    ])
+    ```
+  </Tab>
+</Tabs>
 
 ## Usage
 
@@ -46,7 +60,13 @@ response = query_engine.query("What is TraceRoot?")
 print(response)
 ```
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `query` or `synthesize`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
@@ -57,11 +77,25 @@ print(response)
 | Tokens & Cost | Input/output tokens and calculated cost per LLM call |
 | Latency | Duration of each pipeline stage |
 
+## Limitations
+
+- Initializing both `Integration.LLAMA_INDEX` and your underlying LLM provider integration (such as `Integration.OPENAI`) is recommended to capture full token usage and pricing.
 
 ## Run the example
 
 Clone the repo and run a complete agent end-to-end.
 
-  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/llamaindex-rag">
-    Run the Python example
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/llamaindex-rag">
+  Run the Python example
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
   </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>

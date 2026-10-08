@@ -5,7 +5,22 @@ description: Auto-instrument the Claude Agent SDK for agent and tool tracing
 
 Automatically capture agent invocations, subagent delegations, tool calls, and token usage from the Claude Agent SDK (Claude Code as a library).
 
-## Setup
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot claude-agent-sdk
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot @anthropic-ai/claude-agent-sdk
+    ```
+  </Tab>
+</Tabs>
+
+## Set up
 
 <Tabs>
   <Tab title="Python">
@@ -84,7 +99,13 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
   </Tab>
 </Tabs>
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `query`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
@@ -95,6 +116,9 @@ Automatically capture agent invocations, subagent delegations, tool calls, and t
 | Cost | Total cost for the full query execution |
 | Model name | The model used (e.g., claude-sonnet-4-6, claude-haiku-4-5) |
 
+## Limitations
+
+None known.
 
 ## Run the example
 
@@ -106,5 +130,16 @@ Clone the repo and run a complete agent end-to-end.
   </Card>
   <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/claude-agent-sdk">
     Run the TypeScript example
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
+  </Card>
+  <Card title="TypeScript SDK Reference" icon="code" href="/tracing/typescript-sdk">
+    Explore the full TypeScript SDK reference and configuration options.
   </Card>
 </CardGroup>

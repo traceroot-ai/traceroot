@@ -5,14 +5,28 @@ description: Auto-instrument Microsoft Agent Framework agent runs, model calls, 
 
 Automatically capture agent runs, model calls, and tool executions from [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) through its built-in OpenTelemetry emission — no manual instrumentation of the framework required.
 
-## Setup
+## Install
 
-```python
-import traceroot
-from traceroot import Integration
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install "traceroot[agent-framework]" agent-framework-core agent-framework-openai
+    ```
+  </Tab>
+</Tabs>
 
-traceroot.initialize(integrations=[Integration.AGENT_FRAMEWORK])
-```
+## Set up
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.AGENT_FRAMEWORK])
+    ```
+  </Tab>
+</Tabs>
 
 Initialize TraceRoot **before** importing `agent_framework`, so the OpenTelemetry instrumentation is wired up before the framework emits its first span.
 
@@ -57,7 +71,13 @@ asyncio.run(main())
 
 Tools are plain functions — Agent Framework already emits an `execute_tool` span for each call, so they don't need manual decoration.
 
-## What Gets Captured
+## Verify
+
+Run your code and confirm the trace arrives:
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `Agent.run`.
+2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
+
+## What gets captured
 
 | Attribute | Description |
 |-----------|-------------|
@@ -69,10 +89,26 @@ Tools are plain functions — Agent Framework already emits an `execute_tool` sp
 | Cost | Calculated from token usage and model pricing |
 | Latency | Request duration |
 
+## Limitations
+
+- Requires installing the `agent-framework` extra via `pip install "traceroot[agent-framework]"`.
+- TraceRoot must be initialized before importing `agent_framework` so that OpenTelemetry listeners are attached before spans are generated. Requires OpenTelemetry >= 1.39.
+
 ## Run the example
 
 Clone the repo and run a complete multi-agent example end-to-end.
 
-  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/microsoft-agent-framework">
-    Run the Python example
+<Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/microsoft-agent-framework">
+  Run the Python example
+</Card>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
+    Explore the full Python SDK reference and instrumentation options.
   </Card>
+  <Card title="Cost Tracking" icon="chart-line" href="/tracing/cost-tracking">
+    Learn how TraceRoot calculates token costs and tracks model spend.
+  </Card>
+</CardGroup>
