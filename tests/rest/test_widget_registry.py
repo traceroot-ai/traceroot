@@ -214,7 +214,7 @@ def test_evaluation_exclusion_reads_both_tables_within_a_padded_window():
 
     A traces-only set loses traces whose flagged row was merged away or never written
     (see VIEW_EVALUATION_EXCLUSION in rest.services.sql.schema); the spans half is what
-    survives both. Each half is bounded to the widget window, padded, so it prunes
+    survives both. Each half is bounded to the widget window, its start padded, so it prunes
     partitions instead of probing the project all-time.
     """
     sql = _EVALUATION_GUARD
@@ -228,10 +228,13 @@ def test_evaluation_exclusion_reads_both_tables_within_a_padded_window():
         " AND span_kind IN ('EVALUATION', 'SCORER', 'TASK')" in sql
     )
     assert "UNION DISTINCT" in sql
-    # The padding is load-bearing (it must outlast an evaluation case), so pin it.
+    # The leading padding is load-bearing (it must outlast an evaluation case), so pin
+    # it. The end is unpadded: a flagged row never starts after the rows it hides, so a
+    # trailing pad would only widen every tile's and alert tick's scan.
     for column in ("trace_start_time", "span_start_time"):
         assert f"{column} >= {{start_time:DateTime64(3)}} - INTERVAL 24 HOUR" in sql
-        assert f"{column} < {{end_time:DateTime64(3)}} + INTERVAL 24 HOUR" in sql
+        assert f"{column} <= {{end_time:DateTime64(3)}}" in sql
+    assert "+ INTERVAL" not in sql
     # Keyed on the ingest flag, never on the customer's free-text environment tag.
     assert "environment" not in sql
 

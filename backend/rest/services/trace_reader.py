@@ -32,10 +32,10 @@ TRACE_SPAN_LOOKBACK_HOURS = 1
 # open-ended custom ranges. Matches the UI's own default preset ("Last 24 hours").
 DEFAULT_SPAN_SCAN_LOOKBACK_HOURS = 24
 
-# How far past each edge of a window the window-bounded evaluation exclusion looks for
+# How far before a window's start the window-bounded evaluation exclusion looks for
 # flagged rows (see windowed_evaluation_exclusion). Must exceed the longest evaluation
 # case: a case still running this long after its first flagged row can leak its
-# in-window spans at the window edge.
+# in-window spans at the window's leading edge.
 EVALUATION_EXCLUSION_PADDING_HOURS = 24
 
 # Markers stored in spans.source / traces.source. Customer traffic carries 'user' (the
@@ -139,13 +139,17 @@ def windowed_evaluation_exclusion(start_param: str, end_param: str) -> str:
     and a merge can physically delete the flagged ``traces`` row, while the flagged
     span row survives both.
 
-    Each half is bounded to the caller's window widened by
-    ``EVALUATION_EXCLUSION_PADDING_HOURS`` on both sides, so it prunes to the same few
-    monthly partitions as the outer scan instead of probing the project all-time on
-    every tile and alert tick. The padding is what keeps the set complete at the
-    window edges: the outer scan bounds a trace or span start, and a trace's flagged
-    rows start somewhere in that trace's lifetime, not necessarily inside the window.
-    An evaluation case running longer than the padding is the accepted miss.
+    Each half is bounded to the caller's window, its start moved back by
+    ``EVALUATION_EXCLUSION_PADDING_HOURS``, so it prunes to the window's partitions
+    instead of probing the project all-time on every tile and alert tick. The leading
+    padding keeps the set complete at the window's start: an in-window row of an
+    evaluation trace can belong to a case whose flagged rows started before the window.
+    No trailing padding is needed: every row of an evaluation trace sits under an
+    EVALUATION or TASK span that starts no later than it does, and a ``traces`` row
+    starts at its batch's earliest span, so the flagged row of any trace with an
+    in-window row starts at or before that row. The end bound is inclusive so the set
+    covers the outer window whatever its own end operator. An evaluation case running
+    longer than the padding is the accepted miss.
 
     The spans half matches on ``span_kind`` rather than ``is_evaluation``: ingest sets
     the span flag from exactly these kinds, but only ``span_kind`` is carried by the
@@ -165,15 +169,15 @@ def windowed_evaluation_exclusion(start_param: str, end_param: str) -> str:
     """
     pad = f"INTERVAL {EVALUATION_EXCLUSION_PADDING_HOURS} HOUR"
     start = f"{{{start_param}:DateTime64(3)}} - {pad}"
-    end = f"{{{end_param}:DateTime64(3)}} + {pad}"
+    end = f"{{{end_param}:DateTime64(3)}}"
     kinds = ", ".join(f"'{kind}'" for kind in sorted(EVALUATION_SPAN_KINDS))
     return (
         "trace_id NOT IN ("
         "SELECT trace_id FROM traces WHERE project_id = {project_id:String}"
-        f" AND is_evaluation = 1 AND trace_start_time >= {start} AND trace_start_time < {end}"
+        f" AND is_evaluation = 1 AND trace_start_time >= {start} AND trace_start_time <= {end}"
         " UNION DISTINCT "
         "SELECT trace_id FROM spans WHERE project_id = {project_id:String}"
-        f" AND span_kind IN ({kinds}) AND span_start_time >= {start} AND span_start_time < {end}"
+        f" AND span_kind IN ({kinds}) AND span_start_time >= {start} AND span_start_time <= {end}"
         ")"
     )
 
