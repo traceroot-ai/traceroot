@@ -59,10 +59,11 @@ export function useUrlKeywordSearch(onSearchChange?: () => void): UseKeywordSear
     setDebouncedKeyword(next);
   }, [searchParams]);
 
-  // Debounce the keyword for API queries and the URL.
+  // Debounce the keyword for API queries and the URL. Trimmed, so a stray space
+  // doesn't count as a new search (no URL write, refetch or page reset).
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedKeyword(keyword);
+      setDebouncedKeyword(keyword.trim());
     }, DEBOUNCE_DELAY_MS);
 
     return () => clearTimeout(timer);

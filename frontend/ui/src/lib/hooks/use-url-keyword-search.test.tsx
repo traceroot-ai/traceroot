@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import * as React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
@@ -37,6 +38,33 @@ describe("useUrlKeywordSearch", () => {
     settle();
     expect(replace).not.toHaveBeenCalled();
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("does not write or reset on mount under StrictMode's double-run of effects", () => {
+    currentParams = new URLSearchParams({ search: "foo", page_index: "2" });
+    const onChange = vi.fn();
+    renderHook(() => useUrlKeywordSearch(onChange), { wrapper: React.StrictMode });
+    settle();
+    expect(replace).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("ignores leading and trailing whitespace", () => {
+    currentParams = new URLSearchParams({ search: "foo", page_index: "2" });
+    const onChange = vi.fn();
+    const { result } = renderHook(() => useUrlKeywordSearch(onChange));
+
+    act(() => result.current.setKeyword("foo "));
+    settle();
+    expect(result.current.keyword).toBe("foo ");
+    expect(result.current.searchQuery).toBe("foo");
+    expect(replace).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+
+    act(() => result.current.setKeyword("  "));
+    settle();
+    expect(lastUrl().searchParams.has("search")).toBe(false);
+    expect(result.current.searchQuery).toBeUndefined();
   });
 
   it("writes only the debounced keyword, dropping page_index in the same replace", () => {
