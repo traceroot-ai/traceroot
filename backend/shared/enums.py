@@ -26,7 +26,7 @@ class SpanKind(StrEnum):
 # Note this membership answers "is this span part of an eval run", which is a DIFFERENT
 # question from "does this span count toward the candidate's cost" — the latter needs a
 # subtree walk that drops SCORER spans and everything under them (see
-# worker.ingest_tasks._task_cost_by_trace). Do not collapse the two.
+# worker.ingest_tasks._task_metrics_by_trace). Do not collapse the two.
 EVALUATION_SPAN_KINDS = frozenset(
     {SpanKind.EVALUATION, SpanKind.TASK, SpanKind.SCORER},
 )
