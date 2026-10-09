@@ -104,6 +104,13 @@ _DOT_SEGMENTS = frozenset({".", ".."})
 # (segment shape, allowed methods). `*` is one opaque id segment. This mirrors
 # `frontend/ui/src/app/api/public/**/route.ts` one-for-one; adding a route there
 # without adding it here means the gateway 404s it (fail closed, by design).
+#
+# The `evaluation-runs` shapes are deliberately write-only: reads of runs are
+# plan-windowed telemetry, and the only reader is the Next.js route
+# `api/projects/[projectId]/evaluations/runs`, which clamps the window to the
+# caller's plan. A listing GET added here would need the same clamp
+# (`rest.retention.clamp_retention_window`, as `routers/traces.py` applies it)
+# or it reopens that entitlement leak on a path the Next route never sees.
 _UPSTREAM_ROUTES: tuple[tuple[tuple[str, ...], frozenset[str]], ...] = (
     # Dataset writes only: the dataset reads are typed below and served by the read common,
     # so no GET is ever forwarded and a GET that reaches a catch-all is refused here.
