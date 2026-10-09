@@ -167,8 +167,43 @@ describe("resolveAlertDisplayState", () => {
       }).detail ?? "";
 
     // Rows from before the attempt's severity was kept are never replayed.
-    expect(detail).toContain("rolled back, so the next breach raises it again");
+    expect(detail).toContain(
+      "The alert state was rolled back, so a later evaluation may notify again.",
+    );
+    expect(detail).not.toContain("next breach");
     expect(detail).not.toContain("next evaluation");
+  });
+
+  it("treats a missing attempt severity like a null one, never a known one", () => {
+    // lastNotifySeverity is optional: callers that never carried it omit it.
+    const detail =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "COMPENSATED",
+        lastNotifyError: "retries-exhausted",
+      }).detail ?? "";
+
+    expect(detail).toContain(
+      "The alert state was rolled back, so a later evaluation may notify again.",
+    );
+    expect(detail).not.toContain("sent again on the next evaluation");
+  });
+
+  it("stays severity-neutral for a compensated failure that is not an exhausted retry", () => {
+    const detail =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "COMPENSATED",
+        lastNotifyError: "project-missing",
+        lastNotifySeverity: "ALERT",
+      }).detail ?? "";
+
+    // The row says what the attempt announced, never what it reverted to: a
+    // compensated recovery re-emits a recovery, not a breach.
+    expect(detail).toContain(
+      "The alert state was rolled back, so a later evaluation may notify again.",
+    );
+    expect(detail).not.toContain("next breach");
   });
 
   it("tells the reader how to fix a refused configuration failure and when it sends", () => {
