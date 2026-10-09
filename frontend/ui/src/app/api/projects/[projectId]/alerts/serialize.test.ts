@@ -23,6 +23,7 @@ const HEALTH_FIELDS = [
   "lastErrorAt",
   "lastNotifyStatus",
   "lastNotifyError",
+  "lastNotifySeverity",
   "lastNotifyAt",
 ] as const;
 
@@ -45,6 +46,7 @@ function summaryRow(overrides: Record<string, unknown> = {}): AlertSummaryRow {
     lastErrorAt: null,
     lastNotifyStatus: null,
     lastNotifyError: null,
+    lastNotifySeverity: null,
     lastNotifyAt: null,
     createTime: new Date("2026-07-01T00:00:00.000Z"),
     updateTime: new Date("2026-07-01T00:00:00.000Z"),
