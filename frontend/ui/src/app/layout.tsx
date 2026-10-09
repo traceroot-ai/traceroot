@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { Providers } from "./providers";
 import { AppLayout } from "@/components/layout/app-layout";
@@ -18,7 +19,11 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Set per request by proxy.ts for the page's Content-Security-Policy. Reading it
+  // also renders every page per request, which the policy needs: a prerendered
+  // page has no nonce.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
@@ -27,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <PostHogPageView />
           </Suspense>
           <PostHogIdentifier />
-          <Providers>
+          <Providers nonce={nonce}>
             <AppLayout>{children}</AppLayout>
           </Providers>
         </PHProvider>

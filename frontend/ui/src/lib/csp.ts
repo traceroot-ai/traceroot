@@ -20,6 +20,9 @@ export interface CspOptions {
   posthogHost?: string;
   // Absolute when the REST API is on another origin, as in local development.
   apiUrl?: string;
+  // NEXT_PUBLIC_APP_URL, which the auth client calls (lib/auth-client.ts). It
+  // matches the page's own origin unless the app is reached by another name.
+  appUrl?: string;
 }
 
 export function buildContentSecurityPolicy({
@@ -28,9 +31,11 @@ export function buildContentSecurityPolicy({
   posthogKey,
   posthogHost,
   apiUrl,
+  appUrl,
 }: CspOptions): string {
   const connectSrc = new Set([
     "'self'",
+    ...absoluteOrigin(appUrl),
     // The sidebar's star count (components/layout/GitHubStarWidget.tsx).
     "https://api.github.com",
     ...(posthogKey && posthogHost ? posthogOrigins(posthogHost) : []),

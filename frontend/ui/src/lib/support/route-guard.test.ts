@@ -187,7 +187,9 @@ describe("support policy", () => {
           if (
             /^(auth|internal|public|cli|support)\//.test(relative) ||
             relative === "billing/webhook/route.ts" ||
-            relative === "health/route.ts"
+            relative === "health/route.ts" ||
+            // Browsers post policy violation reports without the session.
+            relative === "csp-report/route.ts"
           )
             continue;
           const source = readFileSync(path, "utf8");

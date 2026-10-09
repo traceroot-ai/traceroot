@@ -62,6 +62,16 @@ describe("buildContentSecurityPolicy", () => {
     expect(directives(policy).get("connect-src")).toContain("http://localhost:8000");
   });
 
+  it("allows the configured app URL, which the auth client calls even when the page is reached by another name", () => {
+    const policy = buildContentSecurityPolicy({
+      nonce: NONCE,
+      appUrl: "https://traceroot.internal.example.com",
+    });
+    expect(directives(policy).get("connect-src")).toContain(
+      "https://traceroot.internal.example.com",
+    );
+  });
+
   it("allows PostHog Cloud's ingestion and assets hosts when analytics is configured", () => {
     const policy = buildContentSecurityPolicy({
       nonce: NONCE,
