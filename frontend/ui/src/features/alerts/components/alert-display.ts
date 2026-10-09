@@ -122,7 +122,10 @@ function describeUndelivered(alert: AlertDisplayInput): string | undefined {
     if (reason === RETRIES_EXHAUSTED && replayable) {
       return `${reasonText} It will be sent again on the next evaluation while the rule is still in the same state.`;
     }
-    return `${reasonText} The alert was rolled back, so the next breach raises it again.`;
+    // Severity-neutral on purpose: the row says what the attempt announced,
+    // never what it reverted to, so a compensated recovery re-emits a
+    // recovery, not a breach — and a legacy row says nothing at all.
+    return `${reasonText} The alert state was rolled back, so a later evaluation may notify again.`;
   }
 
   if (status !== FAILED) {
