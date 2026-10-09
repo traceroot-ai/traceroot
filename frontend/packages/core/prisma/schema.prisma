@@ -20,6 +20,10 @@ model AccessKey {
   secretHash  String    @unique @map("secret_hash") @db.VarChar
   keyHint     String    @map("key_hint") @db.VarChar
   name        String?   @db.VarChar
+  // "admin" (everything this project allows) or "ingest" (send telemetry only).
+  // Defaults to admin so every key that predates this column keeps working
+  // exactly as it did — a migration must not silently revoke live credentials.
+  scope       String    @default("admin") @db.VarChar
   expireTime  DateTime? @map("expire_time") @db.Timestamp(6)
   lastUseTime DateTime? @map("last_use_time") @db.Timestamp(6)
   createTime  DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
