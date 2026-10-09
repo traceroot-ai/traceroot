@@ -1,4 +1,11 @@
 import type { AlertSeverity, AlertStatus, AlertWindow } from "@traceroot/core";
+// Values (not the barrel): this module ships in the client bundle, and the
+// barrel evaluates `@prisma/client` through `./constants.ts`.
+import {
+  PERMANENT_SLACK_ERROR,
+  RETRIES_EXHAUSTED,
+  SLACK_CONFIGURATION_FAILURES,
+} from "@traceroot/core/alert-delivery";
 
 export type AlertTone = "ok" | "alert" | "warning" | "neutral";
 
@@ -25,10 +32,17 @@ export interface AlertDisplayInput {
   lastEvaluatedAt?: string | Date | null;
   lastNotifyStatus?: string | null;
   lastNotifyError?: string | null;
+  /**
+   * What the undelivered attempt announced. Null on rows recorded before the
+   * attempt's severity was kept: those are never replayed, so the badge must
+   * not promise a redelivery for them. Absent reads the same as null.
+   */
+  lastNotifySeverity?: string | null;
 }
 
 const DELIVERED = "DELIVERED";
 const COMPENSATED = "COMPENSATED";
+const FAILED = "FAILED";
 
 const SEVERITY_DISPLAY: Record<AlertSeverity, { label: string; tone: AlertTone }> = {
   OK: { label: "OK", tone: "ok" },
@@ -47,8 +61,7 @@ const DELIVERY_REASONS: Record<string, string> = {
     "This workspace's Slack connection is incomplete. Reconnect Slack in workspace settings.",
   "bot-token-undecryptable":
     "This workspace's Slack connection is incomplete. Reconnect Slack in workspace settings.",
-  "retries-exhausted":
-    "Slack did not accept the message after several attempts. It will be sent again the next time this rule changes.",
+  "retries-exhausted": "Slack did not accept the message after several attempts.",
   "permanent-slack-error":
     "Slack rejected the message. Check the channel still exists and the app is still in it.",
 };
@@ -78,18 +91,65 @@ export function resolveAlertDeliveryFix(alert: AlertDisplayInput): AlertDelivery
 }
 
 /**
- * A page the delivery worker took back outlives the error that recorded it: the
- * next successful run clears `lastError` within the minute, and the user still
- * never heard about the breach.
+ * What the badge says about a notification that never reached Slack, and what
+ * happens next. Both halves matter: the worker resends some non-deliveries on
+ * the next evaluation (`isAwaitingRedelivery`) and never resends others, so
+ * the second sentence is picked by status and reason together, never by
+ * status alone. It mirrors `docs/alerts/slack.mdx`.
+ *
+ * A page the delivery worker took back outlives the error that recorded it:
+ * the next successful run clears `lastError` within the minute, and the user
+ * still never heard about the breach — which is why this detail rides along
+ * on every badge state below.
  */
 function describeUndelivered(alert: AlertDisplayInput): string | undefined {
   const status = alert.lastNotifyStatus;
   if (!status || status === DELIVERED) return undefined;
 
-  const reason = describeDeliveryReason(alert.lastNotifyError);
-  return status === COMPENSATED
-    ? `${reason} The alert was rolled back, so the next breach raises it again.`
-    : `${reason} The alert it belonged to could not be rolled back.`;
+  const reason = alert.lastNotifyError ?? null;
+  const reasonText = describeDeliveryReason(reason);
+
+  // The worker replays a page only when it knows what the page announced: a
+  // row from before the attempt's severity was kept is never replayed, so for
+  // those the badge must not promise a redelivery. An empty string reads as
+  // unknown, same as null.
+  const severity = alert.lastNotifySeverity ?? null;
+  const replayable = severity !== null && severity !== "";
+
+  if (status === COMPENSATED) {
+    // COMPENSATED is only recorded after a revert succeeds, so the rollback
+    // happened. Only a retried transient failure pages again on its own.
+    if (reason === RETRIES_EXHAUSTED && replayable) {
+      return `${reasonText} It will be sent again on the next evaluation while the rule is still in the same state.`;
+    }
+    return `${reasonText} The alert was rolled back, so the next breach raises it again.`;
+  }
+
+  if (status !== FAILED) {
+    // A superseded page belongs to an emission a later evaluation replaced,
+    // which pages on its own terms. Nothing was rolled back and nothing is
+    // resent, so the reason stands alone.
+    return reasonText;
+  }
+
+  if (reason !== null && SLACK_CONFIGURATION_FAILURES.has(reason)) {
+    return replayable
+      ? `${reasonText} Once fixed in workspace settings, it is sent on the next evaluation while the rule is still in the same state.`
+      : `${reasonText} The missed notification will not be sent again; later notifications will deliver once the setting is fixed.`;
+  }
+
+  if (reason === RETRIES_EXHAUSTED) {
+    // The one rollback that was attempted and failed: reaching here as FAILED
+    // means the revert itself failed, since a successful revert records
+    // COMPENSATED instead.
+    return `${reasonText} The alert it belonged to could not be rolled back.`;
+  }
+
+  if (reason === PERMANENT_SLACK_ERROR) {
+    return `${reasonText} This notification is not sent again; the rule notifies on its next change of state or renotify interval.`;
+  }
+
+  return reasonText;
 }
 
 function withDetail(state: AlertDisplayState, extra: string | undefined): AlertDisplayState {

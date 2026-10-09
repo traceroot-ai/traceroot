@@ -42,6 +42,7 @@ const storedAlert: AlertRecord = {
   lastErrorAt: null,
   lastNotifyStatus: null,
   lastNotifyError: null,
+  lastNotifySeverity: null,
   lastNotifyAt: null,
   createTime: "2026-07-01T00:00:00.000Z",
   updateTime: "2026-07-01T00:00:00.000Z",

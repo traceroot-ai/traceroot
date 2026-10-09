@@ -35,6 +35,7 @@ export interface AlertSummary {
   lastErrorAt: string | null;
   lastNotifyStatus: string | null;
   lastNotifyError: string | null;
+  lastNotifySeverity: string | null;
   lastNotifyAt: string | null;
   createTime: string;
   updateTime: string;

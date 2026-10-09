@@ -497,3 +497,14 @@ export function describeAlertFilter(filter: AlertFilter): string {
     filter.key !== undefined && filter.key !== "" ? `${filter.field}[${filter.key}]` : filter.field;
   return `${subject} ${filter.op} ${String(filter.value)}`;
 }
+
+// Delivery-reason vocabulary lives in `./alert-delivery.ts`, a leaf module
+// with no imports: the alerts UI reads it through the
+// `@traceroot/core/alert-delivery` subpath so the client bundle never
+// evaluates this file's `./constants.ts` import chain (which reaches
+// `@prisma/client`). Server consumers use the barrel re-export below.
+export {
+  PERMANENT_SLACK_ERROR,
+  RETRIES_EXHAUSTED,
+  SLACK_CONFIGURATION_FAILURES,
+} from "./alert-delivery.ts";

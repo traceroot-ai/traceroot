@@ -184,6 +184,7 @@ describe("ResourceCard definition panel", () => {
             lastEvaluatedAt: "2026-09-11T14:48:00Z",
             lastNotifyStatus: null,
             lastNotifyError: null,
+            lastNotifySeverity: null,
           },
           facts: [{ label: "last evaluated", value: "2026-09-11 14:48:00" }],
           body: {
@@ -237,6 +238,7 @@ describe("ResourceCard definition panel", () => {
             lastEvaluatedAt: "2026-09-17T09:05:00Z",
             lastNotifyStatus: null,
             lastNotifyError: null,
+            lastNotifySeverity: null,
           },
           body: { kind: "changes", chips: ["threshold: 2000 → 3000"], preview: null },
         })}
