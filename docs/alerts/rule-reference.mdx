@@ -1,0 +1,129 @@
+---
+title: Rule Reference
+description: Every measure, aggregation, window, filter and state an alert can use
+---
+
+An alert rule reads as one sentence: *aggregation* of *measure*, over spans matching the *filters*, in the last *window*, compared to a *threshold*. This page lists what each part accepts.
+
+## Measures
+
+Alerts measure spans. Each measure has a unit, and the threshold you enter is in that unit.
+
+| Measure | ID | Unit | What it reads |
+| --- | --- | --- | --- |
+| Count | `count` | Spans | Number of spans in the window. |
+| Trace ID | `trace_id` | Traces | The trace each span belongs to. Aggregate with `uniq` to count distinct traces. |
+| Latency | `latency` | Milliseconds | Elapsed time of one span, from its start to its end. |
+| Cost | `cost` | USD | Cost recorded on one span. |
+| Input tokens | `input_tokens` | Tokens | Input tokens recorded on one span. |
+| Output tokens | `output_tokens` | Tokens | Output tokens recorded on one span. |
+| Total tokens | `total_tokens` | Tokens | Input plus output tokens recorded on one span. |
+| Total tokens per second | `total_tokens_per_second` | Tokens per second | A span's total tokens over its duration. A span with no measured duration has no value. |
+| Unique user ids | `unique_user_ids` | Users | The user a trace belongs to. Aggregate with `uniq` to count distinct users. |
+| Unique session ids | `unique_session_ids` | Sessions | The session a trace belongs to. Aggregate with `uniq` to count distinct sessions. |
+
+<Note>
+  Latency is in milliseconds and cost is in US dollars. "p95 latency over 2 seconds" is a threshold of `2000`, and "more than five cents" is `0.05`.
+</Note>
+
+## Aggregations
+
+There are 11 aggregations: `sum`, `avg`, `count`, `max`, `min`, `p50`, `p75`, `p90`, `p95`, `p99` and `uniq`. Which ones a measure accepts depends on its type:
+
+| Measures | Aggregations |
+| --- | --- |
+| Count | `count` only |
+| Trace ID, Unique user ids, Unique session ids | `uniq` only |
+| Latency, Cost, Input tokens, Output tokens, Total tokens, Total tokens per second | `sum`, `avg`, `min`, `max`, `p50`, `p75`, `p90`, `p95`, `p99`, `uniq` |
+
+The form only offers valid pairs. The API rejects an invalid pair.
+
+`uniq` counts distinct values, so its result is a count rather than a value in the measure's unit.
+
+## Trigger
+
+The aggregated value is compared to the threshold with one of six operators: `>`, `>=`, `<`, `<=`, `=`, `!=`.
+
+A rule has a single threshold. For two levels, such as a warning and a critical level, create two alerts.
+
+## Window
+
+The window is how far back each evaluation looks: **1m**, **5m**, **10m**, **30m**, **1h** or **2h**. The default is **10m**.
+
+The window is a lookback, not a notification rate. Rules with a window of 5 minutes or less are measured at the pace of their window, and wider windows are measured every 5 minutes.
+
+## Filters
+
+Filters limit which spans are measured. A span must match every filter on the rule.
+
+| Field | Matches | Operators |
+| --- | --- | --- |
+| `model_name` | The model a span called | `=`, `contains` |
+| `environment` | The environment the span was recorded in | `=`, `contains` |
+| `status` | The span's status, `OK` or `ERROR` | `=`, `contains` |
+| `span_kind` | The span's kind, such as `LLM`, `AGENT` or `TOOL` | `=`, `contains` |
+| `name` | The span's name | `=`, `contains` |
+| `is_root` | Whether the span is the root of its trace (`true` or `false`) | `=` |
+| `metadata` | A metadata value on the span. Requires a key. | `=`, `contains` |
+
+**Unique user ids** and **Unique session ids** cannot be combined with filters.
+
+## When a window has no data
+
+A window with no matching spans produces no value. The no-data mode decides what that means:
+
+| Mode | In the form | Behavior |
+| --- | --- | --- |
+| `HOLD` (default) | Show no data, don't notify | The rule reads **No Data**. Nothing is sent and nothing clears. An alert that was already open stays open until data returns. |
+| `ZERO` | Treat as zero | An empty window counts as `0`, so the threshold still decides and the rule never reads **No Data**. Suits counts, where no spans means zero. |
+| `NOTIFY` | Notify when data stops | The gap itself sends a notification, and the return of data sends another. Suits a source whose silence is the incident. |
+
+Under `NOTIFY`, a single empty window does not notify. The message is sent once the gap has lasted the shorter of the rule's window or 10 minutes.
+
+## Renotify
+
+Renotify controls whether a rule that stays in breach repeats its message.
+
+- **Off** (default): the rule notifies only when it enters **Alert** and when it recovers.
+- **Re-alert at a regular interval**: the breach message repeats every *N* minutes while the rule stays in **Alert**. The interval can be from 1 minute to 7 days (10,080 minutes) and defaults to 60 minutes.
+
+## Severities
+
+The severity is the result of the latest evaluation.
+
+| Severity | Shown as | Meaning |
+| --- | --- | --- |
+| `UNKNOWN` | No Data | The rule has not been evaluated yet, or was just edited or resumed. |
+| `OK` | OK | The value is within the threshold. |
+| `ALERT` | Alert | The value breaches the threshold. |
+| `NO_DATA` | No Data | The window had nothing to measure. |
+
+A rule whose last run failed shows **Failing** in the list, with the error, and retries on the next minute.
+
+## Statuses
+
+The status says whether the rule is being evaluated at all.
+
+| Status | Meaning |
+| --- | --- |
+| `ACTIVE` | The rule is evaluated on schedule. |
+| `PAUSED` | You stopped the rule. It is not evaluated and sends nothing until resumed. |
+| `PARKED` | TraceRoot stopped the rule because its saved settings cannot be evaluated. |
+
+You can set only `ACTIVE` and `PAUSED`. `PARKED` is set by the evaluator, and the rule's badge states the reason. To start a parked rule again, edit and save it, or resume it. A parked rule cannot be paused.
+
+## Limits
+
+- **100 alerts per project.** Paused and parked alerts count toward the limit.
+- **Names** can be up to 200 characters and do not have to be unique.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Get Started" icon="rocket" href="/alerts/get-started">
+    Create a rule and check it against the live preview.
+  </Card>
+  <Card title="Slack Delivery" icon="slack" href="/alerts/slack">
+    What each message contains and how to fix a failed delivery.
+  </Card>
+</CardGroup>
