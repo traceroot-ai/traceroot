@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The route keeps its log budget in module state, so each test loads a fresh copy.
+// The route and its rate limiter keep their budgets in module state, so each
+// test loads fresh copies.
 async function loadRoute() {
   vi.resetModules();
   return import("./route");
@@ -88,19 +89,38 @@ describe("POST /api/csp-report", () => {
     expect((await POST(reportRequest(JSON.stringify({ other: 1 })))).status).toBe(400);
   });
 
-  it("stops logging after 100 reports in a minute and starts again in the next", async () => {
+  it("gives each client its own budget, so one sender cannot hide another's reports", async () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date("2026-10-10T00:00:00Z"));
       const { POST } = await loadRoute();
-      for (let i = 0; i < 101; i++) {
-        expect((await POST(reportRequest(JSON.stringify(VIOLATION)))).status).toBe(204);
+      const flooder = { "x-forwarded-for": "203.0.113.7" };
+      for (let i = 0; i < 25; i++) {
+        expect((await POST(reportRequest(JSON.stringify(VIOLATION), flooder))).status).toBe(204);
       }
-      expect(warn).toHaveBeenCalledTimes(100);
+      expect(warn).toHaveBeenCalledTimes(20);
+
+      await POST(reportRequest(JSON.stringify(VIOLATION), { "x-forwarded-for": "198.51.100.9" }));
+      expect(warn).toHaveBeenCalledTimes(21);
 
       vi.setSystemTime(new Date("2026-10-10T00:01:00Z"));
-      await POST(reportRequest(JSON.stringify(VIOLATION)));
-      expect(warn).toHaveBeenCalledTimes(101);
+      await POST(reportRequest(JSON.stringify(VIOLATION), flooder));
+      expect(warn).toHaveBeenCalledTimes(22);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("logs at most 300 reports a minute across all clients", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-10T00:00:00Z"));
+      const { POST } = await loadRoute();
+      for (let i = 0; i < 301; i++) {
+        const client = { "x-forwarded-for": `10.0.${Math.floor(i / 200)}.${i % 200}` };
+        await POST(reportRequest(JSON.stringify(VIOLATION), client));
+      }
+      expect(warn).toHaveBeenCalledTimes(300);
     } finally {
       vi.useRealTimers();
     }
