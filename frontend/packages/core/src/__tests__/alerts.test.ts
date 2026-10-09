@@ -309,11 +309,11 @@ describe("getAlertUnitForSource", () => {
 });
 
 describe("withAlertUnit", () => {
-  it("puts a prefix before and a suffix after, with the gap on the suffix only", () => {
-    expect(withAlertUnit("5", { prefix: "$" }, " ")).toBe("$5");
-    expect(withAlertUnit("500", { suffix: "ms" })).toBe("500ms");
-    expect(withAlertUnit("500", { suffix: "ms" }, " ")).toBe("500 ms");
-    expect(withAlertUnit("12", undefined, " ")).toBe("12");
+  it("puts a prefix before and a suffix after, tight on the prefix and spaced on the suffix", () => {
+    expect(withAlertUnit("5", { prefix: "$" })).toBe("$5");
+    expect(withAlertUnit("500", { suffix: "ms" })).toBe("500 ms");
+    expect(withAlertUnit("12.5", { suffix: "tok/s" })).toBe("12.5 tok/s");
+    expect(withAlertUnit("12", undefined)).toBe("12");
   });
 });
 

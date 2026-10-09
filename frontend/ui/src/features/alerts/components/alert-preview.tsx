@@ -219,7 +219,7 @@ export function AlertPreviewChart({
             >
               <Label
                 className={THRESHOLD_TEXT_CLASS}
-                value={`Alert ${operator} ${withAlertUnit(String(thresholdValue), unit, " ")}`}
+                value={`Alert ${operator} ${withAlertUnit(String(thresholdValue), unit)}`}
                 position={side === "below" ? "insideBottomLeft" : "insideTopLeft"}
                 fill="currentColor"
                 fontSize={12}
