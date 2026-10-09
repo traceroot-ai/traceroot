@@ -122,7 +122,7 @@ Once initialized, every `generateText` / `streamText` call, model call, and tool
 | Response | Generated text output |
 | Tool calls | Each tool invocation with input and output |
 | Tokens | Input and output token counts |
-| Cost | Calculated from token usage and model pricing |
+| Cost | Calculated when the model ID matches TraceRoot's pricing table |
 | Latency | Request duration per span |
 | Multi-step iterations | Each step of a tool loop captured as a child span |
 
