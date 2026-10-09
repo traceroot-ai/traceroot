@@ -313,10 +313,13 @@ export function getAlertUnit(
   return getMeasure(view, measureId)?.unit;
 }
 
-/** `gap` separates the suffix only: "$5", "500ms", or "500 ms" with a space. */
-export function withAlertUnit(text: string, unit: AlertMeasureUnit | undefined, gap = ""): string {
+/**
+ * A prefix sits tight and a suffix takes a space: "$5", "500 ms". The same
+ * shape the dashboard renderers print, so a number reads alike everywhere.
+ */
+export function withAlertUnit(text: string, unit: AlertMeasureUnit | undefined): string {
   if (!unit) return text;
-  return `${unit.prefix ?? ""}${text}${unit.suffix ? `${gap}${unit.suffix}` : ""}`;
+  return `${unit.prefix ?? ""}${text}${unit.suffix ? ` ${unit.suffix}` : ""}`;
 }
 
 /** The query-engine view and field that compute a measure. */

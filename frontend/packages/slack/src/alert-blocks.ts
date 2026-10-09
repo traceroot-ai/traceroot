@@ -94,7 +94,7 @@ function codeSpan(text: string): string {
 // range, so two decimals would print every cost threshold and reading as 0
 // ("back within the 0 threshold"). Below 1 the message keeps three significant
 // digits instead; Intl never falls back to exponent notation, so 4.5e-5 reads
-// as 0.000045. At or above 1 two decimals stay the rule (1834.57ms).
+// as 0.000045. At or above 1 two decimals stay the rule (1834.57 ms).
 const SMALL_NUMBER_FORMAT = new Intl.NumberFormat("en-US", {
   maximumSignificantDigits: 3,
   useGrouping: false,

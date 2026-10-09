@@ -374,7 +374,7 @@ function detectorChips(args: Record<string, unknown>): string[] {
 
 /** "2000" as "2,000 ms", "5" as "$5": the threshold in the rule's unit. */
 function thresholdWords(measure: string, aggregation: string, threshold: number): string {
-  return withAlertUnit(threshold.toLocaleString("en-US"), getAlertUnit(measure, aggregation), " ");
+  return withAlertUnit(threshold.toLocaleString("en-US"), getAlertUnit(measure, aggregation));
 }
 
 /**
