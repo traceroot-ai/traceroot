@@ -25,8 +25,8 @@
   },
   "favicon": "/logo/favicon.png",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg",
+    "light": "/logo/light.png",
+    "dark": "/logo/dark.png",
     "href": "https://traceroot.ai",
     "size": 36
   },
