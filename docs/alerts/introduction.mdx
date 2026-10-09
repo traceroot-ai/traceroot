@@ -5,7 +5,7 @@ description: Watch a metric over time and get notified in Slack when it crosses 
 
 An alert is a **threshold rule**. It takes a measure over the spans in a project, aggregates it over a time window, compares the result to a threshold, and posts to Slack when the threshold is breached and again when it recovers.
 
-Alerts are different from [detectors](/detectors/introduction): a detector judges one trace with a prompt; an alert watches a number over time. If you are looking for email and Slack digests of detector findings, see [detector notifications](/detectors/notifications).
+Alerts are different from [detectors](/detectors/introduction): a detector judges one trace with a prompt; an alert watches a number over time. If you are looking for the email and Slack digests that announce new and reopened detector signals, see [detector notifications](/detectors/notifications).
 
 <Frame>
   <img src="/images/alerts_list_v1.png" alt="Alerts list showing each rule's severity, window and last evaluation" />
@@ -58,6 +58,6 @@ Alert names are not unique, so creating the same rule twice through any of these
     Connect Slack and read the messages an alert sends.
   </Card>
   <Card title="Detector Notifications" icon="bell" href="/detectors/notifications">
-    Email and Slack digests for detector findings.
+    Email and Slack digests for new and reopened detector signals.
   </Card>
 </CardGroup>
