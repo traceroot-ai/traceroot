@@ -18,39 +18,42 @@ You need:
 Open your project in [TraceRoot Cloud](https://app.traceroot.ai), select **Alerts** from the left nav, then click **New Alert**. The form has three sections on the left and a **Live preview** on the right.
 
 <Frame>
-  <img src="/images/alerts_form_v1.png" alt="Alert form with the metric, conditions and the live preview chart showing the threshold line" />
+  <img src="/images/alerts_form_v1.png" alt="Alert form with the scope, condition and notify sections and the live preview chart showing the threshold line" />
 </Frame>
 
-### Choose the metric
+### Set the scope
 
-Under **Metric**, pick a **Measure** and an **Aggregation**. The aggregation list only offers what the selected measure supports: for example, **Count** takes only `count`, and **Latency** takes `avg`, `p95` and the other numeric aggregations.
+Under **Scope**, use **Add filter** to limit which spans are measured, for example `Span kind is LLM`. Leave it empty to measure every span in the project. A metadata filter also needs a key. Half-filled filter rows are ignored.
 
-Use **Add filter** to limit which spans are measured, for example `Span kind is LLM`. A metadata filter also needs a key. Half-filled filter rows are ignored.
+### Set the condition
+
+**Condition** reads as one sentence: *aggregation* **of** *measure*, *operator* *threshold*, **over the last** *window*. For example, `p95` of **Latency** `>` `2000 ms` over the last `10m`.
+
+1. Pick the **aggregation** and the **measure**. The aggregation list only offers what the selected measure supports: for example, **Count** takes only `count`, and **Latency** takes `avg`, `p95` and the other numeric aggregations.
+2. Pick the **operator** and enter the **threshold**.
+3. Pick the **window**: how far back each evaluation looks. The default is `10m`.
 
 <Note>
-  Latency is measured in **milliseconds** and cost in **USD**. A rule for "p95 latency over 2 seconds" uses a threshold of `2000`. See the [rule reference](/alerts/rule-reference#measures) for every unit.
+  The threshold field shows the measure's unit: `ms` for latency, `$` for cost and `tok/s` for total tokens per second. A rule for "p95 latency over 2 seconds" uses a threshold of `2000`. Token counts have no unit, and neither do the `count` and `uniq` aggregations. See the [rule reference](/alerts/rule-reference#measures) for every unit.
 </Note>
 
-### Set the conditions
+### Choose how it notifies
 
-Under **Conditions**:
+Under **Notify**:
 
-1. **Trigger**: choose an operator and enter the threshold.
-2. **Window**: choose how far back each evaluation looks. The default is **Last 10m**.
-3. **When a window has no data**: choose what an empty window means. The default, **Show no data, don't notify**, sends nothing.
-4. **Renotify**: leave it **Off (alert only on transitions)**, or choose **Re-alert at a regular interval** to repeat the message while the rule stays in breach.
+1. **When a window has no data**: choose what an empty window means. The default, **Show no data, don't notify**, sends nothing.
+2. **Renotify**: leave it **Off (alert only on transitions)**, or choose **Re-alert at a regular interval** to repeat the message while the rule stays in breach.
+3. **Name**: how the alert identifies itself in Slack.
 
-### Name the alert and save
-
-Under **Notifications**, enter a **Name**. This is how the alert identifies itself in Slack. The **Integration** row shows the Slack workspace and channel the alert will post to.
+The **Integration** row shows the Slack workspace and channel the alert will post to.
 
 Click **Create Alert**. New alerts are active immediately, and the first result appears within a minute.
 
 ## Check the live preview
 
-The **Live preview** charts the metric as you edit, bucketed by the rule's window, so you can tune the rule before saving it:
+The **Live preview** charts the metric as you edit, so you can tune the rule before saving it. Over a short date range each point is one of the rule's windows; over a long range the points are coarser.
 
-- The **threshold line** is drawn across the chart and labelled with the trigger, for example `Alert > 2000`.
+- The **threshold line** is drawn across the chart and labelled with the trigger and its unit, for example `Alert > 2000 ms`.
 - The **shaded band** marks the side of the line that breaches.
 - The date range selector changes how much history the chart shows. It does not change the rule.
 
@@ -74,7 +77,7 @@ Click a badge to read why it shows what it does, including the reason a notifica
 Use the **Actions** menu on a row to pause or resume, edit, or delete a rule.
 
 - **Pause** stops evaluation and notifications. **Resume** starts the rule fresh: its state returns to **No Data** until the next evaluation.
-- **Edit** opens the same form. Changing the measure, aggregation, filters, window, trigger or no-data setting also starts the rule fresh. Renaming the rule or changing renotify does not.
+- **Edit** opens the same form. Changing the filters, aggregation, measure, operator, threshold, window or no-data setting also starts the rule fresh. Renaming the rule or changing renotify does not.
 - **Delete** removes the rule permanently.
 
 <Warning>
