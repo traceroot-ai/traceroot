@@ -38,7 +38,7 @@ export function IntegrationPickerCard({
           <img src={logoDark} alt="" className="hidden h-5 w-5 object-contain dark:block" />
         )}
       </span>
-      <span className="whitespace-nowrap text-sm font-medium text-foreground">{name}</span>
+      <span className="whitespace-nowrap text-[13px] font-medium text-foreground">{name}</span>
     </button>
   );
 }
