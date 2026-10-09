@@ -139,13 +139,137 @@ describe("resolveAlertDisplayState", () => {
     expect(state.detail).toContain("The last notification could not be sent. (channel revoked)");
   });
 
-  it("says whether the alert behind an undelivered page was rolled back", () => {
-    const detailFor = (lastNotifyStatus: string) =>
-      stateOf({ severity: "ALERT", lastNotifyStatus, lastNotifyError: "no-channel" }).detail;
+  it("sends a compensated transient failure again on the next evaluation in the same state", () => {
+    const detail =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "COMPENSATED",
+        lastNotifyError: "retries-exhausted",
+        lastNotifySeverity: "ALERT",
+      }).detail ?? "";
 
-    // The rollback is the difference between a breach that pages again and one recorded.
-    expect(detailFor("COMPENSATED")).toContain("rolled back, so the next breach raises it again");
-    expect(detailFor("FAILED")).toContain("could not be rolled back");
+    expect(detail).toContain("Slack did not accept the message after several attempts.");
+    expect(detail).toContain(
+      "sent again on the next evaluation while the rule is still in the same state",
+    );
+    // The old text promised the next breach instead, contradicting the resend above.
+    expect(detail).not.toContain("next breach");
+    expect(detail).not.toContain("could not be rolled back");
+  });
+
+  it("does not promise a resend for a compensated row that predates attempt severities", () => {
+    const detail =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "COMPENSATED",
+        lastNotifyError: "retries-exhausted",
+        lastNotifySeverity: null,
+      }).detail ?? "";
+
+    // Rows from before the attempt's severity was kept are never replayed.
+    expect(detail).toContain("rolled back, so the next breach raises it again");
+    expect(detail).not.toContain("next evaluation");
+  });
+
+  it("tells the reader how to fix a refused configuration failure and when it sends", () => {
+    for (const code of ["no-channel", "no-bot-token", "bot-token-undecryptable"]) {
+      const detail =
+        stateOf({
+          severity: "ALERT",
+          lastNotifyStatus: "FAILED",
+          lastNotifyError: code,
+          lastNotifySeverity: "ALERT",
+        }).detail ?? "";
+
+      expect(detail).toContain(
+        "Once fixed in workspace settings, it is sent on the next evaluation while the rule is still in the same state",
+      );
+      // Nothing was rolled back here: the failure is recorded, not reverted.
+      expect(detail).not.toContain("could not be rolled back");
+    }
+  });
+
+  it("does not promise a resend for a refused configuration failure with no attempt severity", () => {
+    const detail =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "FAILED",
+        lastNotifyError: "no-channel",
+        lastNotifySeverity: null,
+      }).detail ?? "";
+
+    expect(detail).toContain("No Slack channel is set for this workspace");
+    expect(detail).toContain("will not be sent again");
+    expect(detail).not.toContain("sent on the next evaluation");
+  });
+
+  it("reports the one rollback that was attempted and failed", () => {
+    const detail =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "FAILED",
+        lastNotifyError: "retries-exhausted",
+        lastNotifySeverity: "ALERT",
+      }).detail ?? "";
+
+    // A successful revert records COMPENSATED instead, so FAILED here means
+    // the revert itself failed — the only case this sentence fits.
+    expect(detail).toContain("could not be rolled back");
+    expect(detail).not.toContain("next evaluation");
+  });
+
+  it("does not resend a permanently rejected notification", () => {
+    const detail =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "FAILED",
+        lastNotifyError: "permanent-slack-error",
+        lastNotifySeverity: "ALERT",
+      }).detail ?? "";
+
+    expect(detail).toContain("Slack rejected the message");
+    expect(detail).toContain(
+      "not sent again; the rule notifies on its next change of state or renotify interval",
+    );
+    expect(detail).not.toContain("could not be rolled back");
+  });
+
+  it("promises nothing for failures no setting can clear", () => {
+    const entitlement =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "FAILED",
+        lastNotifyError: "no-entitlement:slack",
+        lastNotifySeverity: "ALERT",
+      }).detail ?? "";
+    expect(entitlement).toContain("not included in this workspace's plan");
+    expect(entitlement).not.toContain("could not be rolled back");
+    expect(entitlement).not.toContain("next evaluation");
+
+    const superseded =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "SUPERSEDED",
+        lastNotifyError: "superseded",
+        lastNotifySeverity: "ALERT",
+      }).detail ?? "";
+    // A superseded page belongs to a replaced emission; nothing was rolled
+    // back and nothing is resent, so the reason stands alone.
+    expect(superseded).not.toContain("could not be rolled back");
+    expect(superseded).not.toContain("next evaluation");
+  });
+
+  it("quotes an unknown code without inventing a follow-up for it", () => {
+    const detail =
+      stateOf({
+        severity: "ALERT",
+        lastNotifyStatus: "FAILED",
+        lastNotifyError: "channel revoked",
+        lastNotifySeverity: "ALERT",
+      }).detail ?? "";
+
+    expect(detail).toContain("The last notification could not be sent. (channel revoked)");
+    expect(detail).not.toContain("could not be rolled back");
   });
 
   it("says nothing about delivery when the last page landed", () => {

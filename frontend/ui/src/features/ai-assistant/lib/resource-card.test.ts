@@ -624,6 +624,7 @@ describe("alert cards", () => {
         lastError: null,
         lastNotifyStatus: null,
         lastNotifyError: null,
+        lastNotifySeverity: null,
       },
       body: {
         kind: "alert",
@@ -921,6 +922,7 @@ describe("readCardModel", () => {
               lastEvaluatedAt: "2026-09-11T14:48:00Z",
               lastNotifyStatus: null,
               lastNotifyError: null,
+              lastNotifySeverity: null,
             },
             href: "/projects/p1/alerts/al-1",
           },
@@ -1055,6 +1057,7 @@ describe("readCardModel", () => {
           lastEvaluatedAt: "2026-09-11T14:48:00Z",
           lastNotifyStatus: "DELIVERED",
           lastNotifyError: null,
+          lastNotifySeverity: null,
         },
         facts: [
           // formatDate renders local time, so only the seconds (and the shape)
