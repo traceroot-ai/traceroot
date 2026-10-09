@@ -24,6 +24,7 @@ vi.mock("@traceroot/core", async (importOriginal) => ({
 }));
 
 import { readRunSummary } from "./run-read";
+import { RUN_METRIC_SELECT } from "./run-summary";
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
@@ -72,8 +73,8 @@ beforeEach(() => {
   prismaMock.evaluationResult.groupBy.mockResolvedValue([]);
   prismaMock.evaluationResult.aggregate.mockReset();
   prismaMock.evaluationResult.aggregate.mockResolvedValue({
-    _avg: { durationMs: null, cost: null },
-    _count: { durationMs: 0, cost: 0 },
+    _avg: Object.fromEntries(Object.keys(RUN_METRIC_SELECT).map((f) => [f, null])),
+    _count: Object.fromEntries(Object.keys(RUN_METRIC_SELECT).map((f) => [f, 0])),
   });
   prismaMock.$queryRaw.mockReset();
   prismaMock.$queryRaw.mockResolvedValue([]);
