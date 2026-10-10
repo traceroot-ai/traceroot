@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
-import { prisma, getStripeOrThrow, mapPriceIdToPlan, PlanType } from "@traceroot/core";
+import {
+  prisma,
+  getStripeOrThrow,
+  mapPriceIdToPlan,
+  findPlanItem,
+  PlanType,
+} from "@traceroot/core";
 import Stripe from "stripe";
 
 export async function POST(req: NextRequest) {
@@ -48,7 +54,10 @@ export async function POST(req: NextRequest) {
           subscription = await stripe.subscriptions.retrieve(subscription.id);
         }
 
-        const priceId = subscription.items.data[0]?.price.id;
+        // The subscription also carries the metered usage prices, and a schedule
+        // phase transition recreates the plan item last, so items.data[0] is not
+        // reliably the plan. Reading a metered price there maps to the free plan.
+        const priceId = findPlanItem(subscription.items.data)?.price.id ?? null;
         const plan = mapPriceIdToPlan(priceId);
 
         // updateMany rather than update: a workspace that no longer exists must not
