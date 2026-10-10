@@ -6,6 +6,7 @@ const links = vi.hoisted(() => ({
 }));
 vi.mock("@/env.client", () => ({ clientEnv: links }));
 
+import { LINK_STYLE as LINK } from "./copy";
 import { displayFirstName, renderWelcome } from "./render";
 
 const base = {
@@ -47,16 +48,16 @@ it("renders text with the greeting, bullets and raw opt-out URL, and html with e
     "try now:</p><ul><li>Install the CLI: <code>npm install -g traceroot-cli</code> → <code>traceroot login</code></li><li>Ask",
   );
   expect(html).toContain(
-    `<li>Prefer a UI? The <a href="${base.appUrl}">web app</a> and <a href="https://docs.example.com">docs</a> are always there</li></ul>`,
+    `<li>Prefer a UI? The <a href="${base.appUrl}" ${LINK}>web app</a> and <a href="https://docs.example.com" ${LINK}>docs</a> are always there</li></ul>`,
   );
   expect(html.match(/<li>/g)).toHaveLength(3);
   expect(html).toContain(
-    '<p>TraceRoot is open source. Don&#39;t forget to <a href="https://github.com/example/repo">star ⭐ our repo on GitHub</a>!</p>',
+    `<p>TraceRoot is open source. Don&#39;t forget to <a href="https://github.com/example/repo" ${LINK}>star ⭐ our repo on GitHub</a>!</p>`,
   );
   expect(html).toContain("<p>Best,<br>The TraceRoot Devs</p>");
   expect(html).not.toMatch(/\[|- |Discord/);
   expect(html).toContain(
-    `<a href="${base.unsubscribeUrl.replace(/&/g, "&amp;")}">let us know</a>.`,
+    `<a href="${base.unsubscribeUrl.replace(/&/g, "&amp;")}" ${LINK}>let us know</a>.`,
   );
   expect(html).not.toContain("<table");
 });
