@@ -5,13 +5,14 @@ vi.mock("next/server", () => ({
   NextResponse: { json: (body: unknown, init?: { status?: number }) => Response.json(body, init) },
 }));
 
-vi.mock("next/headers", () => ({
-  headers: async () => new Map(),
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
 }));
 
 const getSessionMock = vi.fn();
-vi.mock("@/lib/auth", () => ({
-  auth: { api: { getSession: (...args: unknown[]) => getSessionMock(...args) } },
+vi.mock("@/lib/request-session", () => ({
+  getRequestSession: (...args: unknown[]) => getSessionMock(...args),
 }));
 
 const workspaceFindFirstMock = vi.fn();
@@ -344,9 +345,11 @@ describe("POST /api/billing/checkout — existing subscription", () => {
         [openSession("cs_pro", "pro")],
         [{ ...openSession("cs_pro", "pro"), status: "expired" }],
       );
-      checkoutCreateMock
-        .mockRejectedValueOnce(keyConflict())
-        .mockResolvedValueOnce({ id: "cs_starter", status: "open", url: "https://checkout.stripe.test/cs_starter" });
+      checkoutCreateMock.mockRejectedValueOnce(keyConflict()).mockResolvedValueOnce({
+        id: "cs_starter",
+        status: "open",
+        url: "https://checkout.stripe.test/cs_starter",
+      });
 
       const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
 
@@ -361,9 +364,11 @@ describe("POST /api/billing/checkout — existing subscription", () => {
       // key 24 hours later.
       workspaceFindFirstMock.mockResolvedValue(workspace());
       sessions([], [{ ...openSession("cs_pro", "pro"), status: "expired" }]);
-      checkoutCreateMock
-        .mockRejectedValueOnce(keyConflict())
-        .mockResolvedValueOnce({ id: "cs_starter", status: "open", url: "https://checkout.stripe.test/cs_starter" });
+      checkoutCreateMock.mockRejectedValueOnce(keyConflict()).mockResolvedValueOnce({
+        id: "cs_starter",
+        status: "open",
+        url: "https://checkout.stripe.test/cs_starter",
+      });
 
       const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
 
