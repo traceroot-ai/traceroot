@@ -13,6 +13,7 @@ import {
   getModelPricing,
   type ModelPricing,
 } from "../model-pricing/index.ts";
+import { stripGatewayPrefixes } from "../model-pricing/lookup.ts";
 import { prisma } from "../lib/prisma.ts";
 
 // opus-4.x-shaped rates: cacheWrite is the 5-minute / default rate (1.25x input);
@@ -171,6 +172,61 @@ describe("getModelPricing — regex fallback over catalogue-shaped patterns", ()
   });
 });
 
+// The TypeScript mirror of TestResolutionIsOrderIndependent in
+// tests/worker/tokens/test_pricing.py — the same guarantee has to hold on both
+// paths or the two price the same id differently.
+describe("getModelPricing — most specific entry wins", () => {
+  // Both patterns match "claude-sonnet-4-6": the predecessor's optional version
+  // tail subsumes its successors. Taking the first match made the answer depend
+  // on row order, and the two runtimes did not agree on that order. Ranking by
+  // specificity removes the dependency instead of pinning the order.
+  const OVERLAPPING = [
+    {
+      modelName: "claude-sonnet-4-6",
+      matchPattern: "(?i)^(anthropic\\/)?claude-sonnet-4-6$",
+      prices: [{ usageType: "input", price: 0.000004 }],
+    },
+    {
+      modelName: "claude-sonnet-4",
+      matchPattern: "(?i)^(anthropic\\/)?claude-sonnet-4(-\\d+)?$",
+      prices: [{ usageType: "input", price: 0.000003 }],
+    },
+  ];
+
+  it("asks the database for a deterministic order", async () => {
+    vi.resetModules();
+    const findMany = vi.fn().mockResolvedValue(OVERLAPPING);
+    vi.doMock("../lib/prisma", () => ({ prisma: { standardModel: { findMany } } }));
+    const { getModelPricing: lookup } = await import("../model-pricing/lookup.ts");
+
+    await lookup("claude-sonnet-4-6");
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { modelName: "asc" } }),
+    );
+  });
+
+  // Both row orders, because either one alone proves nothing: the predecessor-first
+  // order is what the ordered query produces, and the successor-first order is what
+  // the catalogue file happens to hold, which is the order that hides the bug.
+  it.each([
+    ["successor first", OVERLAPPING],
+    ["predecessor first", [...OVERLAPPING].reverse()],
+  ])("resolves the successor to its own entry with rows %s", async (_label, rows) => {
+    const { getModelPricing: lookup } = await loadWithCatalogue(rows);
+    const price = await lookup("anthropic/claude-sonnet-4-6");
+    expect(price?.input).toBe(0.000004);
+  });
+
+  it("still resolves the predecessor to itself", async () => {
+    // Ranking must not drag every id onto the longest pattern that happens to
+    // match it — the predecessor is the most specific entry for its own id.
+    const { getModelPricing: lookup } = await loadWithCatalogue(OVERLAPPING);
+    const price = await lookup("anthropic/claude-sonnet-4");
+    expect(price?.input).toBe(0.000003);
+  });
+});
+
 describe("getModelPricing — uncompilable pattern", () => {
   it("reports the catalogue defect instead of failing silently", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -186,5 +242,71 @@ describe("getModelPricing — uncompilable pattern", () => {
     expect(await lookup("anything")).toBeNull();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("broken-entry"), expect.anything());
     warn.mockRestore();
+  });
+});
+
+// Every catalogue pattern hand-encodes the gateway prefixes it tolerates, so
+// coverage drifted between siblings and no entry accepted the router prefixes real
+// deployments emit — cost silently resolved to $0. The fixture below keeps
+// the catalogue shape: it accepts `anthropic/` in-pattern and nothing else.
+describe("getModelPricing — gateway/router prefixes", () => {
+  const CANONICAL = "claude-opus-4-7";
+  const CATALOGUE_ROW = {
+    modelName: CANONICAL,
+    matchPattern: "(?i)^(anthropic\\/|us\\.anthropic\\.)?claude-opus-4-7(-v\\d+:\\d+)?$",
+    prices: [
+      { usageType: "input", price: 0.000005 },
+      { usageType: "output", price: 0.000025 },
+    ],
+  };
+
+  it.each([
+    "openrouter/anthropic/claude-opus-4-7",
+    "litellm/anthropic/claude-opus-4-7",
+    "vertex_ai/claude-opus-4-7",
+    "bedrock/us.anthropic.claude-opus-4-7",
+    "portkey/claude-opus-4-7",
+  ])("prices %s like the bare model", async (modelId) => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
+    const canonical = await lookup(CANONICAL);
+    expect(await lookup(modelId)).toEqual(canonical);
+  });
+
+  it("leaves an id that already matched in-pattern untouched", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
+    const canonical = await lookup(CANONICAL);
+    expect(await lookup("anthropic/claude-opus-4-7")).toEqual(canonical);
+  });
+
+  it("does not manufacture a match for an unknown model behind a gateway", async () => {
+    const { getModelPricing: lookup } = await loadWithCatalogue([CATALOGUE_ROW]);
+    expect(await lookup("openrouter/acme/not-a-real-model")).toBeNull();
+  });
+});
+
+describe("stripGatewayPrefixes", () => {
+  it.each([
+    ["openrouter/anthropic/claude-opus-4-8", "claude-opus-4-8"],
+    ["litellm/openai/gpt-5", "gpt-5"],
+    ["VERTEX_AI/gemini-2.5-pro", "gemini-2.5-pro"],
+    ["azure/gpt-5.4", "gpt-5.4"],
+  ])("strips %s", (modelId, expected) => {
+    expect(stripGatewayPrefixes(modelId)).toBe(expected);
+  });
+
+  it.each([
+    "gpt-5",
+    "my-org/gpt-5",
+    "ft:gpt-4o:acme/custom",
+    "us.anthropic.claude-opus-4-8-v1:0",
+    "openai/", // a bare prefix is not a model id; leave it rather than empty it
+  ])("leaves %s alone", (modelId) => {
+    expect(stripGatewayPrefixes(modelId)).toBe(modelId);
+  });
+
+  it("terminates on a pathological id instead of walking every segment", () => {
+    expect(stripGatewayPrefixes("openai/".repeat(50) + "gpt-5")).toBe(
+      "openai/".repeat(47) + "gpt-5",
+    );
   });
 });
