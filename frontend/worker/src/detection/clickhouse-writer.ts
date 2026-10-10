@@ -23,13 +23,22 @@ async function internalPost(path: string, body: unknown): Promise<void> {
   }
 }
 
+/**
+ * Terminal state of a detector run, as stored in ClickHouse.
+ *
+ * The distinction that matters for metering is whether a model was reached, not
+ * whether the run succeeded: 'failed' never reached one, so nothing was spent,
+ * while 'failed_after_inference' did and its tokens are billed like any scan.
+ */
+export type DetectorRunStatus = "completed" | "failed" | "failed_after_inference";
+
 export async function writeDetectorRun(params: {
   runId: string;
   detectorId: string;
   projectId: string;
   traceId: string;
   findingId: string | null;
-  status: "completed" | "failed";
+  status: DetectorRunStatus;
   // True when the worker emitted a self-trace for this run — set
   // optimistically at emit time, before ingestion is guaranteed; gates the
   // runs-tab link to the run's own trace. Omitted (false) when no emit
