@@ -188,7 +188,10 @@ class ReActAgent:
 
     OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-    def __init__(self, model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"):
+    # To use a free (unpriced) model instead, pass e.g.:
+    #   model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+    # Note: free / unpriced models will show $0 cost in TraceRoot.
+    def __init__(self, model: str = "openai/gpt-4o-mini"):
         self.client = openai.OpenAI(
             api_key=os.environ["OPENROUTER_API_KEY"],
             base_url=self.OPENROUTER_BASE_URL,

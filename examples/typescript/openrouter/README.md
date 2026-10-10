@@ -4,6 +4,13 @@ ReAct-style agent with [OpenRouter](https://openrouter.ai/) tool use, instrument
 
 OpenRouter provides a unified API to 200+ models (Claude, Llama, Gemini, Mistral, GPT-4o, etc.). Since it's OpenAI-compatible, TraceRoot's OpenAI integration captures all calls automatically — no extra configuration needed.
 
+## Prerequisites
+
+- Node.js ≥ 22
+- An [OpenRouter API key](https://openrouter.ai/keys)
+- A [TraceRoot API key](https://app.traceroot.ai)
+- `@traceroot-ai/traceroot` ≥ 0.4.0
+
 ## Setup
 
 ```bash
@@ -22,12 +29,16 @@ Tools: `get_weather`, `get_stock_price`, `calculate`, `get_current_time`
 
 ## Model selection
 
+The default model is `openai/gpt-4o-mini` (cheap and priced in TraceRoot).
 Change the model by passing a different OpenRouter model string to `new ReActAgent()`:
 
 ```typescript
-const agent = new ReActAgent("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free");
-const agent = new ReActAgent("anthropic/claude-sonnet-4");
-const agent = new ReActAgent("meta-llama/llama-4-maverick");
+const agent = new ReActAgent("openai/gpt-4o-mini");       // default — priced
+const agent = new ReActAgent("anthropic/claude-sonnet-4.5"); // priced
+const agent = new ReActAgent("meta-llama/llama-4-maverick"); // unpriced in TraceRoot, shows $0 cost
+
+// Free / unpriced models work but show $0 cost in TraceRoot:
+// const agent = new ReActAgent("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free");
 ```
 
 See [openrouter.ai/models](https://openrouter.ai/models) for the full list.
