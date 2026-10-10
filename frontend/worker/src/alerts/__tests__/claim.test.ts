@@ -4,7 +4,8 @@ import type { AlertRowLike } from "../rule.js";
 import type { AlertRuntimeState } from "../severity-state-machine.js";
 import type { AlertTick } from "../tick.js";
 
-const queryRaw = vi.fn<(query: Prisma.Sql) => Promise<AlertRowLike[]>>();
+// Loosely typed rows: the claim and the close read share this one raw client.
+const queryRaw = vi.fn<(query: Prisma.Sql) => Promise<unknown[]>>();
 const updateMany = vi.fn<(args: Record<string, unknown>) => Promise<{ count: number }>>();
 
 vi.mock("@traceroot/core", async (importOriginal) => {
@@ -20,6 +21,7 @@ const {
   completeAlertEvaluation,
   parkAlertRule,
   recordAlertEvaluationFailure,
+  readPendingAlertCloses,
   recordAlertNotifyOutcome,
   restoreAlertPendingClose,
   revertAlertEmissionState,
@@ -69,7 +71,6 @@ function row(overrides: Partial<AlertRowLike> = {}): AlertRowLike {
     lastNotifyAt: null,
     lastNotifySeverity: null,
     slackUpdatedAt: null,
-    pendingClose: null,
     ...overrides,
   };
 }
@@ -209,7 +210,6 @@ describe("claimDueAlerts — taking ownership", () => {
     expect(sql).toContain('last_notify_at AS "lastNotifyAt"');
     // What the page said, which the rule's own severity may have moved on from.
     expect(sql).toContain('last_notify_severity AS "lastNotifySeverity"');
-    expect(sql).toContain('pending_close AS "pendingClose"');
     expect(sql).toContain("CASE WHEN last_notify_status = 'FAILED' THEN");
     expect(sql).toContain("JOIN slack_integrations s ON s.workspace_id = sp.workspace_id");
     expect(sql).toContain('END AS "slackUpdatedAt"');
@@ -728,21 +728,54 @@ describe("the close an edit or a resume left on the rule", () => {
     actorUserId: "user-1",
     at: "2026-08-12T10:36:00.000Z",
   };
+  const closeRow = (overrides: Record<string, unknown> = {}) => ({
+    id: "alert-1",
+    projectId: "proj-1",
+    name: "P95 latency",
+    pendingClose: marker,
+    ...overrides,
+  });
 
-  it("is taken by clearing the marker under a guard that it is still there", async () => {
-    expect(await takeAlertPendingClose("alert-1")).toBe(true);
+  it("is read for every rule that carries one, whatever the rule's status", async () => {
+    queryRaw.mockResolvedValue([closeRow(), closeRow({ id: "alert-2", name: "Paused rule" })]);
 
-    // The marker is the mutex: the claim token is not in the guard, because the
-    // edit that left the marker has just voided it.
+    expect(await readPendingAlertCloses()).toEqual([
+      { alertId: "alert-1", projectId: "proj-1", name: "P95 latency", pendingClose: marker },
+      { alertId: "alert-2", projectId: "proj-1", name: "Paused rule", pendingClose: marker },
+    ]);
+
+    const sql = queryRaw.mock.calls[0][0].sql;
+    expect(sql).toContain("a.pending_close IS NOT NULL");
+    // A paused, parked or not-yet-due rule still owes its close, so neither the
+    // status nor the schedule narrows the read. A deleted project does.
+    expect(sql).not.toContain("status");
+    expect(sql).not.toContain("next_run_at");
+    expect(sql).toContain("p.delete_time IS NULL");
+    expect(queryRaw.mock.calls[0][0].values).toContain(ALERT_CLAIM_LIMIT);
+  });
+
+  it("leaves a stored value that is not a marker alone, and says so", async () => {
+    queryRaw.mockResolvedValue([closeRow({ pendingClose: { reason: "deleted" } }), closeRow()]);
+
+    expect(await readPendingAlertCloses()).toHaveLength(1);
+    expect(console.error).toHaveBeenCalledTimes(1);
+  });
+
+  it("is taken by clearing exactly the marker that was read", async () => {
+    expect(await takeAlertPendingClose("alert-1", marker)).toBe(true);
+
+    // Matching on the marker's own value is what leaves a newer one, written by
+    // an edit since the read, for the tick that reads it. No status either: a
+    // paused rule's close is still owed.
     expect(updateMany).toHaveBeenCalledWith({
-      where: { id: "alert-1", status: "ACTIVE", pendingClose: { not: PrismaRuntime.DbNull } },
+      where: { id: "alert-1", pendingClose: { equals: marker } },
       data: { pendingClose: PrismaRuntime.DbNull },
     });
   });
 
   it("is not this caller's to send once another tick has taken it", async () => {
     updateMany.mockResolvedValue({ count: 0 });
-    expect(await takeAlertPendingClose("alert-1")).toBe(false);
+    expect(await takeAlertPendingClose("alert-1", marker)).toBe(false);
   });
 
   it("goes back only into an empty marker, so a newer close is never overwritten", async () => {

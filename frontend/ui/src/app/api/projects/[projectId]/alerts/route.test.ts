@@ -125,6 +125,8 @@ vi.mock("@traceroot/core", async (importOriginal) => {
       findUnique: async () => ({ name: "Ada", email: "ada@example.com" }),
     },
     auditLog: { create: auditCreate },
+    // The row lock an edit and a resume take before reading the rule.
+    $queryRaw: async () => [],
     $transaction: (operations: Promise<unknown>[] | ((tx: unknown) => unknown)) =>
       typeof operations === "function" ? operations(client) : Promise.all(operations),
   };

@@ -276,8 +276,9 @@ function auditEntry(
 
 /**
  * Leaves the close of a discarded page for the worker, which is the only side
- * that can notify: the next tick posts it and clears the marker. Written in
- * the transaction that voided the page, so neither lands without the other.
+ * that can notify: the next tick posts it and clears the marker, whatever the
+ * rule's status is by then. Written in the transaction that voided the page,
+ * so neither lands without the other.
  *
  * Only into an empty marker. A close still waiting to go out is for the page
  * the channel actually saw, and a second edit before then has no page of its
@@ -326,6 +327,12 @@ export async function updateAlert(input: {
     if (!validated.ok) return { result: { ok: false, status: 400, error: validated.error } };
     const { patch } = validated;
 
+    // Locked before it is read: whether this write discards an open page is
+    // decided from `existing`, and a tick that lands a page between that read
+    // and the reset would leave the page open with no close marker behind it.
+    // Under the lock the tick's write waits, then misses the claim the reset
+    // voided. Raw because Prisma has no row-lock API.
+    await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
       select: alertSelect,
@@ -493,6 +500,8 @@ export async function setAlertStatus(input: {
     }
     const { status } = parsed.data;
 
+    // Locked for the same reason an edit locks it: a resume reads the page it discards.
+    await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
       select: alertSelect,

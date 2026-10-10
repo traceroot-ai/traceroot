@@ -224,6 +224,10 @@ export function buildAlertClosedBlocks(params: AlertClosedBlockParams): AlertSla
     blocks,
     color: ALERT_SEVERITY_COLORS.OK,
     // Escaped for the same reason the notification's fallback is: Slack parses it as mrkdwn.
-    text: truncateEscaped(escapeMrkdwn(`${title} — ${closed}`), HEADER_LIMIT * 2),
+    // Each half gets its own allowance: under one shared limit a long rule name
+    // would push out the only words that say this is a close and not a recovery.
+    text:
+      `${truncateEscaped(escapeMrkdwn(title), HEADER_LIMIT)} — ` +
+      truncateEscaped(escapeMrkdwn(closed), HEADER_LIMIT),
   };
 }

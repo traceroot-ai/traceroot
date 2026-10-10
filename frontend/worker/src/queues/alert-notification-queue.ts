@@ -3,6 +3,7 @@ import { Redis } from "ioredis";
 import type {
   AlertCloseReason,
   AlertFilter,
+  AlertPendingClose,
   AlertSeverity,
   AlertThresholdOperator,
   AlertWindow,
@@ -40,6 +41,13 @@ export interface AlertNotification {
   filters?: readonly AlertFilter[];
   // Optional: jobs enqueued before this field existed are delivered but never compensated.
   emission?: AlertEmissionClaim;
+  /**
+   * The close of the page this rule held before the state it is now paging from. Set
+   * when both came out of one tick, and posted by this same job ahead of the page: as
+   * two jobs they race on a concurrent consumer, and a page that lands first reads as
+   * the one the close then ends.
+   */
+  closeFirst?: AlertPendingClose;
 }
 
 /** The same notification as it survives Redis: JSON carries no Date. */

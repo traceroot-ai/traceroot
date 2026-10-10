@@ -697,7 +697,6 @@ describe("startAlertNotificationWorker", () => {
       lastNotifyAt: stored.lastNotifyAt as Date,
       lastNotifySeverity: stored.lastNotifySeverity as string,
       slackUpdatedAt: null,
-      pendingClose: null,
     });
     expect(rule).not.toBeNull();
     expect(isAwaitingRedelivery(rule!, "ALERT")).toBe(true);
@@ -708,7 +707,7 @@ describe("startAlertNotificationWorker", () => {
     startAlertNotificationWorker();
 
     const [, processor] = workerConstructed.mock.calls[0];
-    await processor({ data: closeJob });
+    await processor({ data: closeJob, updateData: vi.fn() });
 
     expect(buildAlertClosedBlocks).toHaveBeenCalledTimes(1);
     expect(buildAlertBlocks).not.toHaveBeenCalled();
@@ -728,6 +727,28 @@ describe("startAlertNotificationWorker", () => {
     expect(closeRestores()[0].data.pendingClose).toEqual(closeMarker);
     expect(notifyWrites()).toHaveLength(0);
     expect(stateWrites()).toHaveLength(0);
+  });
+
+  it("puts a carried close back too when the page it rode on runs out of attempts", async () => {
+    const { startAlertNotificationWorker } = await importModule();
+    startAlertNotificationWorker();
+
+    workerHandlers.get("failed")?.(
+      {
+        id: "j1",
+        attemptsMade: 12,
+        opts: { attempts: 12 },
+        data: { ...compensableJob, closeFirst: closeMarker },
+      },
+      new Error("rate limited"),
+    );
+    await vi.waitFor(() => expect(notifyWrites()).toHaveLength(1));
+
+    // The page is rolled back for the next tick to raise again, and the close
+    // goes back with it so that tick sends the pair in order once more.
+    expect(notifyWrites()[0].data.lastNotifyStatus).toBe("COMPENSATED");
+    expect(closeRestores()).toHaveLength(1);
+    expect(closeRestores()[0].data.pendingClose).toEqual(closeMarker);
   });
 
   it("leaves a job with attempts left alone, and logs the attempt as a retry", async () => {
@@ -809,17 +830,13 @@ describe("sendAlertClose", () => {
     expect(actors).toEqual(["ada@example.com", null]);
   });
 
-  it("keeps the close for the resume when the rule was paused before it went out", async () => {
+  it("posts the close of a paused rule: pausing does not undo the discard", async () => {
     alertFindUnique.mockResolvedValue(alertRow({ status: "PAUSED" }));
     const { sendAlertClose } = await importModule();
     await sendAlertClose(closeJob);
 
-    expect(postMessage).not.toHaveBeenCalled();
-    expect(closeRestores()).toHaveLength(1);
-    expect(closeRestores()[0]).toMatchObject({
-      where: { id: "al_1" },
-      data: { pendingClose: closeMarker },
-    });
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(alertUpdateMany).not.toHaveBeenCalled();
   });
 
   it("drops the close of a deleted rule, which has no page left to close", async () => {
@@ -849,5 +866,65 @@ describe("sendAlertClose", () => {
 
     await expect(sendAlertClose(closeJob)).rejects.toMatchObject({ statusCode: 503 });
     expect(alertUpdateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("processAlertJob", () => {
+  const pageWithClose = { ...compensableJob, closeFirst: closeMarker };
+  const posted = () =>
+    postMessage.mock.calls.map(([message]) => (message as { text: string }).text);
+
+  it("posts the carried close before the page, and drops it from the job once posted", async () => {
+    const updateData = vi.fn().mockResolvedValue(undefined);
+    const { processAlertJob } = await importModule();
+    await processAlertJob({ data: pageWithClose, updateData });
+
+    expect(posted()).toEqual(["[OK] rule", "[ALERT] rule"]);
+    expect(buildAlertClosedBlocks).toHaveBeenCalledWith(
+      expect.objectContaining({ alertId: "al_1", name: job.name, reason: "edited" }),
+    );
+    // A retry of the page alone must not post the close a second time.
+    expect(updateData).toHaveBeenCalledWith(compensableJob);
+  });
+
+  it("does not try the page while the close is still failing, so a retry keeps the order", async () => {
+    postMessage.mockRejectedValueOnce(slackHttpError(503));
+    const updateData = vi.fn();
+    const { processAlertJob } = await importModule();
+
+    await expect(processAlertJob({ data: pageWithClose, updateData })).rejects.toMatchObject({
+      statusCode: 503,
+    });
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(buildAlertBlocks).not.toHaveBeenCalled();
+    expect(updateData).not.toHaveBeenCalled();
+  });
+
+  it("still pages when the close is one no retry can deliver", async () => {
+    postMessage.mockRejectedValueOnce(slackPlatformError("invalid_blocks"));
+    const { processAlertJob } = await importModule();
+    await processAlertJob({ data: pageWithClose, updateData: vi.fn() });
+
+    expect(posted()).toEqual(["[OK] rule", "[ALERT] rule"]);
+    expect(notifyWrites()[0].data.lastNotifyStatus).toBe("DELIVERED");
+  });
+
+  it("pages even when the posted close cannot be cleared from the job", async () => {
+    const updateData = vi.fn().mockRejectedValue(new Error("redis down"));
+    const { processAlertJob } = await importModule();
+    await processAlertJob({ data: pageWithClose, updateData });
+
+    expect(posted()).toEqual(["[OK] rule", "[ALERT] rule"]);
+  });
+
+  it("sends a page that carries no close, and a close sent alone, as before", async () => {
+    const updateData = vi.fn();
+    const { processAlertJob } = await importModule();
+
+    await processAlertJob({ data: compensableJob, updateData });
+    await processAlertJob({ data: closeJob, updateData });
+
+    expect(posted()).toEqual(["[ALERT] rule", "[OK] rule"]);
+    expect(updateData).not.toHaveBeenCalled();
   });
 });

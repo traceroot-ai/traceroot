@@ -81,7 +81,7 @@ Use the **Actions** menu on a row to pause or resume, edit, or delete a rule.
 - **Delete** removes the rule permanently.
 
 <Note>
-  Starting a rule fresh closes any open alert. Within about a minute Slack gets an `[OK]` message that says who edited or resumed the rule. If the metric still breaches, the next evaluation announces it as a new alert. The edit form shows a reminder when the rule you are editing has an alert open.
+  Starting a rule fresh closes any open alert. TraceRoot queues an `[OK]` message for Slack that says who edited or resumed the rule, normally within about a minute. If the metric still breaches, the next evaluation announces it as a new alert, after the `[OK]`. The edit form shows a reminder when the rule you are editing has an alert open. The `[OK]` is delivered on the same terms as any other notification, so see [When a notification is not delivered](/alerts/slack#when-a-notification-is-not-delivered).
 </Note>
 
 Deleting a rule that has an alert open does not post a closing message.

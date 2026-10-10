@@ -25,9 +25,10 @@ The alert form and the Alerts onboarding page both show the connected workspace 
 
 ## What a message contains
 
-Every message has:
+Every message has a header with the new severity and the rule's name, such as `[ALERT] p95 LLM latency above 2s`.
 
-- A header with the new severity and the rule's name, such as `[ALERT] p95 LLM latency above 2s`.
+A breach, recovery or no-data message also has:
+
 - One sentence stating the measured value, the threshold and the window, followed by the rule's filters.
 - The evaluated time range in UTC and the transition, such as `OK to ALERT`.
 
@@ -40,7 +41,7 @@ The links depend on the kind of message:
 | No data (`NO_DATA`) | Only under **Notify when data stops**, once the gap has lasted long enough | **View alert** |
 | Closed (`OK`) | A rule with an open alert is edited or resumed, which starts it fresh | **View alert** |
 
-A closed message is not a recovery. It carries no measured value: it names who edited or resumed the rule and says the previous alert is closed. If the metric still breaches, a new `[ALERT]` follows from the next evaluation. A rule edited while paused sends its closed message when it is resumed.
+A closed message is not a recovery. It carries no measured value: it names who edited or resumed the rule and says the previous alert is closed. If the metric still breaches, a new `[ALERT]` follows it from the next evaluation. A rule edited while paused still sends its closed message, because the alert it closes was already announced.
 
 **View alert** opens the rule. **View traces** opens the trace list over the evaluated time window.
 
@@ -65,7 +66,9 @@ Other failures need a change on your side. Click the rule's badge in the Alerts 
 | This workspace's Slack connection is incomplete | Reconnect Slack under **Settings → Integrations**. The notification is sent on the next evaluation. |
 | Slack rejected the message | Check that the channel still exists and that the TraceRoot app is still in it. This notification is not sent again; the rule notifies on its next change of state. |
 
-A notification is never sent for a rule that was paused or deleted while the message was waiting to be delivered.
+A notification is never sent for a rule that was paused or deleted while the message was waiting to be delivered. A closed message is the exception for a paused rule: it is still sent.
+
+A closed message that Slack keeps refusing for about 30 minutes is queued again on the next evaluation. One that cannot be delivered because no channel is set, the Slack connection is incomplete, or Slack rejected it is not sent again.
 
 ## Next steps
 

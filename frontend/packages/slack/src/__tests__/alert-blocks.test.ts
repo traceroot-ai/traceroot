@@ -382,6 +382,15 @@ describe("buildAlertClosedBlocks", () => {
     expect(sectionTexts(unnamed)[0]).toContain("Rule edited, previous alert closed.");
   });
 
+  it("keeps the close reason in the fallback text however long the rule's name is", () => {
+    const message = buildAlertClosedBlocks({ ...closedBase, name: "n".repeat(400) });
+
+    // One shared limit would spend itself on the name and cut the only words
+    // that tell a client rendering no blocks this is a close.
+    expect(message.text).toContain("Rule edited by Ada, previous alert closed.");
+    expect(message.text.length).toBeLessThanOrEqual(310);
+  });
+
   it("escapes the rule's name and the actor's, both of which a user controls", () => {
     const message = buildAlertClosedBlocks({
       ...closedBase,

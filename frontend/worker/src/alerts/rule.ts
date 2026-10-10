@@ -7,11 +7,9 @@ import {
   isAlertThresholdOperator,
   isAlertView,
   isAlertWindow,
-  parseAlertPendingClose,
   type AlertAggregation,
   type AlertFilter,
   type AlertNoDataMode,
-  type AlertPendingClose,
   type AlertRenotify,
   type AlertSeverity,
   type AlertThresholdOperator,
@@ -43,7 +41,6 @@ export interface AlertRowLike {
   readonly lastNotifySeverity: string | null;
   /** The workspace Slack integration's `updateTime`; the claim reads it only for a failed page. */
   readonly slackUpdatedAt: Date | null;
-  readonly pendingClose: unknown;
 }
 
 /** The last delivery attempt, and when Slack's settings last moved, for a retry to judge. */
@@ -71,8 +68,6 @@ export interface AlertRule {
   readonly noDataMode: AlertNoDataMode;
   readonly state: AlertRuntimeState;
   readonly lastDelivery: AlertLastDelivery;
-  /** A page an edit or a resume discarded, whose close this tick still has to post. */
-  readonly pendingClose: AlertPendingClose | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -190,6 +185,5 @@ export function parseAlertRule(row: AlertRowLike): AlertRule | null {
       severity: parseNotifySeverity(row.lastNotifySeverity),
       slackUpdatedAt: row.slackUpdatedAt,
     },
-    pendingClose: parseAlertPendingClose(row.pendingClose),
   };
 }
