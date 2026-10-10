@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { config, proxy } from "./proxy";
 
@@ -27,6 +27,13 @@ describe("middleware matcher exemptions", () => {
     expect(isProtected("/api/internal/validate-api-key")).toBe(false);
     expect(isProtected("/api/billing/webhook")).toBe(false);
     expect(isProtected("/api/health")).toBe(false);
+    // Browsers post Content-Security-Policy violation reports without the session.
+    expect(isProtected("/api/csp-report")).toBe(false);
+  });
+
+  it("matches auth pages so they get the Content-Security-Policy; proxy() lets them through", () => {
+    expect(isProtected("/auth/sign-in")).toBe(true);
+    expect(isProtected("/auth/sign-up")).toBe(true);
   });
 
   it("exempts only the exact health path, not neighbours", () => {
@@ -71,5 +78,58 @@ describe("proxy middleware", () => {
   it("allows a protected route when a session token is present", () => {
     const res = proxy(request("/projects/p1/traces", { token: true }));
     expect(res.headers.get("location")).toBeNull();
+  });
+});
+
+// NextResponse.next({ request: { headers } }) hands each overridden request header
+// to rendering as x-middleware-request-<name>.
+function forwarded(res: Response, name: string): string | null {
+  return res.headers.get(`x-middleware-request-${name}`);
+}
+
+describe("proxy Content-Security-Policy", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("gives the sign-in page a policy and hands its nonce to rendering", () => {
+    const res = proxy(request("/auth/sign-in"));
+    const policy = res.headers.get("content-security-policy");
+    const nonce = forwarded(res, "x-nonce");
+
+    expect(nonce).toBeTruthy();
+    expect(policy).toContain(`'nonce-${nonce}'`);
+    // Next.js finds the nonce for its own scripts in the request's copy.
+    expect(forwarded(res, "content-security-policy")).toBe(policy);
+  });
+
+  it("uses a new nonce for every request", () => {
+    const first = forwarded(proxy(request("/auth/sign-in")), "x-nonce");
+    const second = forwarded(proxy(request("/auth/sign-in")), "x-nonce");
+    expect(first).not.toBe(second);
+  });
+
+  it("adds the policy to the device page and to pages for a signed-in visitor", () => {
+    expect(
+      proxy(request("/device?user_code=ABCD1234")).headers.get("content-security-policy"),
+    ).toContain("'strict-dynamic'");
+    expect(
+      proxy(request("/projects/p1/traces", { token: true })).headers.get("content-security-policy"),
+    ).toContain("frame-ancestors 'none'");
+  });
+
+  it("sends no policy with the sign-in redirect or with API responses", () => {
+    expect(proxy(request("/projects/p1/traces")).headers.get("content-security-policy")).toBeNull();
+    const api = proxy(request("/api/projects/p1/datasets", { token: true }));
+    expect(api.headers.get("content-security-policy")).toBeNull();
+    expect(forwarded(api, "x-nonce")).toBeNull();
+  });
+
+  it("only reports violations when CSP_MODE=report-only", () => {
+    vi.stubEnv("CSP_MODE", "report-only");
+    const res = proxy(request("/auth/sign-in"));
+    expect(res.headers.get("content-security-policy")).toBeNull();
+    expect(res.headers.get("content-security-policy-report-only")).toContain("'strict-dynamic'");
+    expect(forwarded(res, "content-security-policy-report-only")).toBeTruthy();
   });
 });
