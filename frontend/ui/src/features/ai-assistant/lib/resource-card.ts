@@ -193,6 +193,7 @@ export interface AlertBadge {
   lastEvaluatedAt: string | null;
   lastNotifyStatus: string | null;
   lastNotifyError: string | null;
+  lastNotifySeverity: string | null;
 }
 
 export interface ResourceCardModel {
@@ -554,6 +555,7 @@ function alertBadgeOf(record: Record<string, unknown>): AlertBadge | null {
     lastEvaluatedAt: str(record.last_evaluated_at),
     lastNotifyStatus: str(record.last_notify_status),
     lastNotifyError: str(record.last_notify_error),
+    lastNotifySeverity: str(record.last_notify_severity),
   };
 }
 
@@ -571,6 +573,7 @@ function alertBadgeOfState(state: unknown): AlertBadge | null {
     last_evaluated_at: record.lastEvaluatedAt,
     last_notify_status: record.lastNotifyStatus,
     last_notify_error: record.lastNotifyError,
+    last_notify_severity: record.lastNotifySeverity,
   });
 }
 
