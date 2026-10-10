@@ -6,6 +6,7 @@ import {
   describeAlertFilter,
   getAlertUnit,
   withAlertUnit,
+  type AlertCloseReason,
   type AlertFilter,
   type AlertSeverity,
   type AlertThresholdOperator,
@@ -179,5 +180,54 @@ export function buildAlertBlocks(params: AlertBlockParams): AlertSlackMessage {
     // The filters ride on the fallback too: a client that renders no blocks
     // must still tell two rules on the same measure apart.
     text: truncateEscaped(escapeMrkdwn(`${title} — ${outcome}${where}`), HEADER_LIMIT * 2),
+  };
+}
+
+export interface AlertClosedBlockParams {
+  appBaseUrl: string;
+  projectId: string;
+  alertId: string;
+  /** User-controlled; escaped at render. */
+  name: string;
+  reason: AlertCloseReason;
+  /** Who edited or resumed the rule; user-controlled. Null when the account is gone. */
+  actor: string | null;
+}
+
+/**
+ * The close of a page that an edit or a resume discarded. It is headed like a
+ * recovery because it ends the same thing, the alert the channel was told about, but
+ * it reports no reading: the rule that raised that alert has changed or was not
+ * running, so the message says who closed it and that a breach still standing will be
+ * announced again.
+ */
+export function buildAlertClosedBlocks(params: AlertClosedBlockParams): AlertSlackMessage {
+  const { appBaseUrl, projectId, alertId, name, reason, actor } = params;
+
+  const title = `[OK] ${name}`;
+  const closed =
+    `Rule ${reason}${actor === null ? "" : ` by ${actor}`}, previous alert closed. ` +
+    "It is evaluated fresh from here, so a breach that still stands is announced as a new alert.";
+  const footer = `Closed by a rule ${reason === "edited" ? "edit" : "resume"}, not by a recovery`;
+
+  const blocks = [
+    { type: "header", text: { type: "plain_text", text: truncate(title, HEADER_LIMIT) } },
+    { type: "section", text: { type: "mrkdwn", text: truncateEscaped(escapeMrkdwn(closed)) } },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `<${alertUrl(appBaseUrl, projectId, alertId)}|View alert>` },
+    },
+    { type: "context", elements: [{ type: "mrkdwn", text: footer }] },
+  ];
+
+  return {
+    blocks,
+    color: ALERT_SEVERITY_COLORS.OK,
+    // Escaped for the same reason the notification's fallback is: Slack parses it as mrkdwn.
+    // Each half gets its own allowance: under one shared limit a long rule name
+    // would push out the only words that say this is a close and not a recovery.
+    text:
+      `${truncateEscaped(escapeMrkdwn(title), HEADER_LIMIT)} — ` +
+      truncateEscaped(escapeMrkdwn(closed), HEADER_LIMIT),
   };
 }

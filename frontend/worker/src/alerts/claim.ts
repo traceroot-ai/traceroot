@@ -1,7 +1,9 @@
 import {
   ALERT_WINDOWS,
   Prisma,
+  parseAlertPendingClose,
   prisma,
+  type AlertPendingClose,
   type AlertSeverity,
   type AlertStatus,
 } from "@traceroot/core";
@@ -25,6 +27,13 @@ export interface ClaimedAlert {
   readonly rule: AlertRule;
   /** The `lastClaimedAt` this tick wrote; the write-back CAS matches on it. */
   readonly claimStamp: Date;
+  /**
+   * Whether the rule carried a close marker in the row this claim read. Read by the
+   * claim itself rather than beside it, so the tick that evaluates a rule knows of
+   * its close from the same snapshot it evaluates from: read apart, an edit landing
+   * between the two reads has its new page sent ahead of the close it owes.
+   */
+  readonly hasPendingClose: boolean;
 }
 
 /** Says what the owner can do about it: nothing else on the row will. */
@@ -145,6 +154,7 @@ function claimStatement(tick: AlertTick): Prisma.Sql {
       last_notify_error AS "lastNotifyError",
       last_notify_at AS "lastNotifyAt",
       last_notify_severity AS "lastNotifySeverity",
+      pending_close IS NOT NULL AS "hasPendingClose",
       -- Only a failed page can be waiting on Slack, so every other row skips the lookup.
       CASE WHEN last_notify_status = ${FAILED} THEN (
         SELECT s.update_time
@@ -202,8 +212,11 @@ async function parkUnevaluable(ids: readonly string[], tick: AlertTick): Promise
   }
 }
 
+/** The claimed row: the rule's columns plus what the claim reads about the row itself. */
+type ClaimedRow = AlertRowLike & { readonly hasPendingClose?: boolean };
+
 export async function claimDueAlerts(tick: AlertTick): Promise<ClaimedAlert[]> {
-  const claimed = await prisma.$queryRaw<AlertRowLike[]>(claimStatement(tick));
+  const claimed = await prisma.$queryRaw<ClaimedRow[]>(claimStatement(tick));
 
   // Claim before parse: an unevaluable row still needs `nextRunAt` advanced, or it
   // stays due. The statement above advances it off the raw `window` column for that
@@ -216,7 +229,7 @@ export async function claimDueAlerts(tick: AlertTick): Promise<ClaimedAlert[]> {
       logError(`unevaluable rule parked alert=${row.id} project=${row.projectId}`);
       unevaluable.push(row.id);
     } else {
-      claims.push({ rule, claimStamp: tick.now });
+      claims.push({ rule, claimStamp: tick.now, hasPendingClose: row.hasPendingClose === true });
     }
   }
   if (unevaluable.length > 0) await parkUnevaluable(unevaluable, tick);
@@ -405,4 +418,83 @@ export async function recordAlertNotifyOutcome(outcome: AlertNotifyOutcome): Pro
       error,
     );
   }
+}
+
+/** A rule whose open page an edit or a resume discarded, and whose close is still owed. */
+export interface AlertCloseTarget {
+  readonly alertId: string;
+  readonly projectId: string;
+  readonly name: string;
+}
+
+interface StoppedCloseRow {
+  readonly id: string;
+  readonly projectId: string;
+  readonly name: string;
+}
+
+/**
+ * The rules that owe a close and that no claim will ever reach: paused or parked. An
+ * ACTIVE rule is left out on purpose. Its close belongs to the tick that claims it,
+ * which is the only one that can tell whether a new page is about to follow and so
+ * has to carry the close ahead of it. Oldest first under the claim's cap.
+ */
+export async function readStoppedAlertCloses(): Promise<AlertCloseTarget[]> {
+  const rows = await prisma.$queryRaw<StoppedCloseRow[]>(Prisma.sql`
+    SELECT a.id, a.project_id AS "projectId", a.name
+    FROM alerts a
+    -- Deletion is soft, so no cascade fires: a deleted project has no channel to tell.
+    JOIN projects p ON p.id = a.project_id AND p.delete_time IS NULL
+    WHERE a.pending_close IS NOT NULL
+      AND a.status <> ${ACTIVE}
+    ORDER BY a.update_time ASC
+    LIMIT ${ALERT_CLAIM_LIMIT}
+  `);
+  return rows.map((row) => ({ alertId: row.id, projectId: row.projectId, name: row.name }));
+}
+
+/**
+ * Takes the close a rule owes, and is the only thing that may: reading the marker and
+ * clearing it are one statement under the row's lock, so of two ticks one gets it and
+ * the other gets nothing. What comes back is the marker as it stood at the take, never
+ * one read earlier, so a caller cannot send a close older than the one it cleared.
+ * Null means there was nothing to take. No status in the guard: a close is owed on a
+ * paused rule too.
+ */
+export async function takeAlertPendingClose(alertId: string): Promise<AlertPendingClose | null> {
+  const rows = await prisma.$queryRaw<{ pendingClose: unknown }[]>(Prisma.sql`
+    WITH taken AS (
+      SELECT id, pending_close FROM alerts
+      WHERE id = ${alertId} AND pending_close IS NOT NULL
+      FOR UPDATE
+    )
+    UPDATE alerts SET pending_close = NULL
+    FROM taken
+    WHERE alerts.id = taken.id
+    RETURNING taken.pending_close AS "pendingClose"
+  `);
+  const [row] = rows;
+  if (row === undefined) return null;
+
+  const pendingClose = parseAlertPendingClose(row.pendingClose);
+  // Cleared either way: a value this build cannot read would otherwise be found,
+  // and skipped, by every tick from here on.
+  if (pendingClose === null) logError(`unreadable close marker cleared alert=${alertId}`);
+  return pendingClose;
+}
+
+/**
+ * Puts a taken close back when it provably reached nobody, for a later tick to send.
+ * Only into an empty marker, the same rule the write services leave one under: a
+ * marker written since is for a page of its own.
+ */
+export async function restoreAlertPendingClose(
+  alertId: string,
+  pendingClose: AlertPendingClose,
+): Promise<boolean> {
+  const { count } = await prisma.alert.updateMany({
+    where: { id: alertId, pendingClose: { equals: Prisma.DbNull } },
+    data: { pendingClose: { ...pendingClose } },
+  });
+  return count === 1;
 }

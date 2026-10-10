@@ -1,7 +1,9 @@
 import { Queue, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
 import type {
+  AlertCloseReason,
   AlertFilter,
+  AlertPendingClose,
   AlertSeverity,
   AlertThresholdOperator,
   AlertWindow,
@@ -39,12 +41,42 @@ export interface AlertNotification {
   filters?: readonly AlertFilter[];
   // Optional: jobs enqueued before this field existed are delivered but never compensated.
   emission?: AlertEmissionClaim;
+  /**
+   * The close of the page this rule held before the state it is now paging from. Set
+   * when both came out of one tick, and posted by this same job ahead of the page: as
+   * two jobs they race on a concurrent consumer, and a page that lands first reads as
+   * the one the close then ends.
+   */
+  closeFirst?: AlertPendingClose;
 }
 
 /** The same notification as it survives Redis: JSON carries no Date. */
 export interface AlertNotificationJob extends Omit<AlertNotification, "windowStart" | "windowEnd"> {
   windowStart: number;
   windowEnd: number;
+}
+
+/**
+ * The close of a page an edit or a resume discarded. It reports on no evaluation, so
+ * it carries the marker it was taken from instead of a window and an emission claim:
+ * that is what a close that reached nobody is put back as.
+ */
+export interface AlertCloseJob {
+  kind: "close";
+  alertId: string;
+  projectId: string;
+  name: string;
+  reason: AlertCloseReason;
+  actorUserId: string;
+  /** ISO, as the marker stores it. */
+  at: string;
+}
+
+/** Everything the queue carries. A job enqueued before `kind` existed is a notification. */
+export type AlertQueueJob = AlertNotificationJob | AlertCloseJob;
+
+export function isAlertCloseJob(job: AlertQueueJob): job is AlertCloseJob {
+  return "kind" in job && job.kind === "close";
 }
 
 /**
@@ -68,8 +100,8 @@ export const ALERT_NOTIFICATION_JOB_OPTIONS: JobsOptions = {
   removeOnFail: 100,
 };
 
-export function createAlertNotificationQueue(connection: Redis): Queue<AlertNotificationJob> {
-  return new Queue<AlertNotificationJob>(ALERT_NOTIFICATION_QUEUE, {
+export function createAlertNotificationQueue(connection: Redis): Queue<AlertQueueJob> {
+  return new Queue<AlertQueueJob>(ALERT_NOTIFICATION_QUEUE, {
     connection,
     defaultJobOptions: ALERT_NOTIFICATION_JOB_OPTIONS,
   });
