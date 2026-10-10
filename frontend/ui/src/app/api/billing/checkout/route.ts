@@ -75,6 +75,38 @@ async function expireCheckoutSession(stripe: Stripe, sessionId: string) {
 }
 
 /**
+ * Whether the customer has a subscription that bills or can start billing. The
+ * list uses status "all", which includes ended subscriptions, so a live one can sit
+ * past the first page; iterating the list follows every page.
+ */
+async function hasLiveSubscription(stripe: Stripe, customerId: string) {
+  for await (const subscription of stripe.subscriptions.list({
+    customer: customerId,
+    status: "all",
+    limit: 100,
+  })) {
+    if (BILLING_STATUSES.has(subscription.status)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the subscription created by a completed checkout session has since ended.
+ * Until that is confirmed, the session is treated as a live subscription, including
+ * when Stripe has not attached the subscription to the session yet.
+ */
+async function completedSubscriptionEnded(
+  stripe: Stripe,
+  session: { subscription?: string | { id: string } | null },
+) {
+  const id =
+    typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+  if (!id) return false;
+  const subscription = await stripe.subscriptions.retrieve(id);
+  return !BILLING_STATUSES.has(subscription.status);
+}
+
+/**
  * The most recent checkout session for this workspace, which holds the newest key in
  * the chain. Stripe lists checkout sessions newest first.
  */
@@ -173,16 +205,8 @@ async function handlePOST(req: NextRequest) {
     // The stored subscription id can lag Stripe (a missed or delayed webhook), so
     // also ask Stripe before opening checkout for an existing customer.
     if (workspace.billingCustomerId) {
-      // status "all" includes ended subscriptions, so a live one can sit past the
-      // first page; iterating the list follows every page.
-      for await (const subscription of stripe.subscriptions.list({
-        customer: workspace.billingCustomerId,
-        status: "all",
-        limit: 100,
-      })) {
-        if (BILLING_STATUSES.has(subscription.status)) {
-          return alreadySubscribed();
-        }
+      if (await hasLiveSubscription(stripe, workspace.billingCustomerId)) {
+        return alreadySubscribed();
       }
 
       // Stripe creates the subscription only when a session completes, so two open
@@ -236,6 +260,11 @@ async function handlePOST(req: NextRequest) {
           throw new Error(`Workspace ${workspaceId} has no billing customer`);
         }
         customerId = stored.billingCustomerId;
+        // The winning request may already have completed its checkout, which this
+        // request's preflight could not see because it read no customer.
+        if (await hasLiveSubscription(stripe, customerId)) {
+          return alreadySubscribed();
+        }
       }
     }
 
@@ -318,6 +347,15 @@ async function handlePOST(req: NextRequest) {
       if (!candidate.status || candidate.status === "open") {
         checkoutSession = candidate;
         break;
+      }
+      // A replayed session that was paid created a subscription. Moving past it is
+      // only safe once that subscription has ended; otherwise the next session would
+      // become a second subscription billing alongside it.
+      if (
+        candidate.status === "complete" &&
+        !(await completedSubscriptionEnded(stripe, candidate))
+      ) {
+        throw new CheckoutCompletedError();
       }
       key = `${checkoutKey}-after-${candidate.id}`;
     }

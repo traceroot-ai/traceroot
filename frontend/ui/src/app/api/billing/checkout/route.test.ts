@@ -19,6 +19,7 @@ const workspaceFindFirstMock = vi.fn();
 const workspaceUpdateManyMock = vi.fn();
 const workspaceFindUniqueMock = vi.fn();
 const subscriptionsListMock = vi.fn();
+const subscriptionsRetrieveMock = vi.fn();
 const customersCreateMock = vi.fn();
 const customersDelMock = vi.fn();
 const checkoutCreateMock = vi.fn();
@@ -49,6 +50,7 @@ vi.mock("@traceroot/core", () => ({
   getStripeOrThrow: () => ({
     subscriptions: {
       list: (...args: unknown[]) => stripeList(subscriptionsListMock(...args)),
+      retrieve: (...args: unknown[]) => subscriptionsRetrieveMock(...args),
     },
     customers: {
       create: (...args: unknown[]) => customersCreateMock(...args),
@@ -87,6 +89,7 @@ beforeEach(() => {
   workspaceUpdateManyMock.mockReset();
   workspaceFindUniqueMock.mockReset();
   subscriptionsListMock.mockReset();
+  subscriptionsRetrieveMock.mockReset();
   customersCreateMock.mockReset();
   customersDelMock.mockReset();
   checkoutCreateMock.mockReset();
@@ -484,12 +487,20 @@ describe("POST /api/billing/checkout — existing subscription", () => {
   });
 
   it("walks the key chain past more than one closed session", async () => {
+    // The paid session's subscription has since been canceled.
+    subscriptionsRetrieveMock.mockResolvedValue({ id: "sub_older", status: "canceled" });
     // Each abandoned checkout advances the key by one step, and the step is derived
     // from the session Stripe replayed, so concurrent callers walk the same chain.
     workspaceFindFirstMock.mockResolvedValue(workspace());
     checkoutCreateMock
       .mockResolvedValueOnce({ id: "cs_old", created: 800, status: "expired", url: "dead" })
-      .mockResolvedValueOnce({ id: "cs_older", created: 900, status: "complete", url: "dead" })
+      .mockResolvedValueOnce({
+        id: "cs_older",
+        created: 900,
+        status: "complete",
+        subscription: "sub_older",
+        url: "dead",
+      })
       .mockResolvedValueOnce({
         id: "cs_fresh",
         created: 1_000,
@@ -508,6 +519,42 @@ describe("POST /api/billing/checkout — existing subscription", () => {
       "workspace-checkout-ws-1-after-cs_old",
       "workspace-checkout-ws-1-after-cs_older",
     ]);
+  });
+
+  it("refuses to move past a replayed paid checkout whose subscription is live", async () => {
+    // Two admins started checkout before the workspace had a customer. The first one
+    // paid; the second replays that completed session and must not open another.
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutCreateMock.mockResolvedValueOnce({
+      id: "cs_paid",
+      created: 900,
+      status: "complete",
+      subscription: "sub_paid",
+      url: "dead",
+    });
+    subscriptionsRetrieveMock.mockResolvedValue({ id: "sub_paid", status: "active" });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
+    expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a replayed paid checkout that has no subscription attached yet", async () => {
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutCreateMock.mockResolvedValueOnce({
+      id: "cs_paid",
+      created: 900,
+      status: "complete",
+      subscription: null,
+      url: "dead",
+    });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
+    expect(subscriptionsRetrieveMock).not.toHaveBeenCalled();
+    expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
   });
 
   it("opens checkout for a workspace that has never been a Stripe customer", async () => {
@@ -538,9 +585,27 @@ describe("POST /api/billing/checkout — existing subscription", () => {
 
     expect(res.status).toBe(200);
     expect(customersDelMock).toHaveBeenCalledWith("cus_late");
+    expect(subscriptionsListMock).toHaveBeenCalledWith(
+      expect.objectContaining({ customer: "cus_first" }),
+    );
     expect(checkoutCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({ customer: "cus_first" }),
       expect.anything(),
     );
+  });
+
+  it("refuses after adopting a stored customer that already has a live subscription", async () => {
+    // This request read no customer, so its preflight could not see the subscription
+    // the winning request's completed checkout created.
+    workspaceFindFirstMock.mockResolvedValue(workspace({ billingCustomerId: null }));
+    customersCreateMock.mockResolvedValue({ id: "cus_late" });
+    workspaceUpdateManyMock.mockResolvedValue({ count: 0 });
+    workspaceFindUniqueMock.mockResolvedValue({ billingCustomerId: "cus_first" });
+    subscriptionsListMock.mockReturnValue([{ id: "sub_first", status: "active" }]);
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
+    expect(checkoutCreateMock).not.toHaveBeenCalled();
   });
 });
