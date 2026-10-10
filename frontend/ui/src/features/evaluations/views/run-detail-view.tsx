@@ -14,6 +14,7 @@ import { useTrace } from "@/features/traces/hooks";
 import type { Span, TraceDetail } from "@/types/api";
 import type { SpanKind, SpanStatus } from "@traceroot/core";
 import { cn } from "@/lib/utils";
+import { useListReturnHref } from "@/lib/hooks/use-list-return";
 import { useEvaluationRun } from "../hooks";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
 import type { ResultRow, RunDetail, ScoreRow } from "../types";
@@ -172,6 +173,10 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
  */
 export function RunDetailView({ projectId, runId }: { projectId: string; runId: string }) {
   const { data, isLoading, error } = useEvaluationRun(projectId, runId);
+  const runsListHref = useListReturnHref(
+    `evaluations:${projectId}`,
+    `/projects/${projectId}/evaluations`,
+  );
   const [openResultId, setOpenResultId] = React.useState<string | null>(null);
   // "Save as test case" drawer (only for real ingested traces): which span it targets.
   const [saveTestCaseOpen, setSaveTestCaseOpen] = React.useState(false);
@@ -228,7 +233,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           Evaluations / <name>), like the dataset detail page. */}
       <ProjectBreadcrumb
         projectId={projectId}
-        trail={[{ label: "Evaluations", href: `/projects/${projectId}/evaluations` }]}
+        trail={[{ label: "Evaluations", href: runsListHref }]}
         current={data?.run.evaluationName}
       />
       <div className="flex flex-1 flex-col overflow-hidden text-[12px]">
@@ -239,10 +244,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         ) : error || !data ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2">
             <p className="text-[13px] text-destructive">Evaluation run not found</p>
-            <Link
-              href={`/projects/${projectId}/evaluations`}
-              className="text-[12px] text-muted-foreground underline"
-            >
+            <Link href={runsListHref} className="text-[12px] text-muted-foreground underline">
               Back to evaluations
             </Link>
           </div>
