@@ -27,14 +27,44 @@ export function isAlertSeverity(value: string): value is AlertSeverity {
  * A breach that has been announced and not yet recovered: in ALERT it is the
  * emission that put the rule there; in NO_DATA it is the one carried across
  * the gap. The worker's state machine reads it to tell a recovery from a
- * first reading, and the write services read it to say when an edit or a
- * delete discarded an open page.
+ * first reading, the write services read it to say when an edit or a
+ * delete discarded an open page, and the edit form to warn before one does.
  */
 export function hasOutstandingAlertPage(state: {
   severity: string;
-  alertedAt: Date | null;
+  /** A string where the row has crossed JSON, as it has for the edit form. */
+  alertedAt: Date | string | null;
 }): boolean {
   return (state.severity === "ALERT" || state.severity === "NO_DATA") && state.alertedAt !== null;
+}
+
+/** Why an open page was closed without a recovery: the write that voided its state. */
+export const ALERT_CLOSE_REASONS = ["edited", "resumed"] as const;
+export type AlertCloseReason = (typeof ALERT_CLOSE_REASONS)[number];
+
+export function isAlertCloseReason(value: string): value is AlertCloseReason {
+  return (ALERT_CLOSE_REASONS as readonly string[]).includes(value);
+}
+
+/**
+ * The marker a state reset leaves when it discards an open page. The write
+ * services cannot notify, so this carries the close to the worker, which posts
+ * it on the next tick. `at` is an ISO string: the marker is stored as JSON.
+ */
+export interface AlertPendingClose {
+  reason: AlertCloseReason;
+  actorUserId: string;
+  at: string;
+}
+
+/** Null for no marker, and for a stored value that is not one. */
+export function parseAlertPendingClose(value: unknown): AlertPendingClose | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const { reason, actorUserId, at } = value as Record<string, unknown>;
+  if (typeof reason !== "string" || !isAlertCloseReason(reason)) return null;
+  if (typeof actorUserId !== "string" || actorUserId === "") return null;
+  if (typeof at !== "string" || Number.isNaN(Date.parse(at))) return null;
+  return { reason, actorUserId, at };
 }
 
 /**

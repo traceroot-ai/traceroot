@@ -38,6 +38,9 @@ The links depend on the kind of message:
 | Breach (`ALERT`) | The rule enters **Alert**, and on each renotify interval while it stays there | **View alert**, **View traces** |
 | Recovery (`OK`) | A rule that had announced a breach returns within its threshold | **View alert** |
 | No data (`NO_DATA`) | Only under **Notify when data stops**, once the gap has lasted long enough | **View alert** |
+| Closed (`OK`) | A rule with an open alert is edited or resumed, which starts it fresh | **View alert** |
+
+A closed message is not a recovery. It carries no measured value: it names who edited or resumed the rule and says the previous alert is closed. If the metric still breaches, a new `[ALERT]` follows from the next evaluation. A rule edited while paused sends its closed message when it is resumed.
 
 **View alert** opens the rule. **View traces** opens the trace list over the evaluated time window.
 

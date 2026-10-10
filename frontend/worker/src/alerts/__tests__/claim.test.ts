@@ -21,12 +21,14 @@ const {
   parkAlertRule,
   recordAlertEvaluationFailure,
   recordAlertNotifyOutcome,
+  restoreAlertPendingClose,
   revertAlertEmissionState,
+  takeAlertPendingClose,
   ALERT_CLAIM_LIMIT,
 } = await import("../claim.js");
 // Imported after the mock factory rather than at the top: a value import from
 // `@traceroot/core` loads the module before the spies above are initialized.
-const { ALERT_WINDOWS } = await import("@traceroot/core");
+const { ALERT_WINDOWS, Prisma: PrismaRuntime } = await import("@traceroot/core");
 // Real, not faked: whether a page survives the race below is a question about
 // what the state machine does next with the row the writes leave behind.
 const { applyAlertStateMachine } = await import("../severity-state-machine.js");
@@ -67,6 +69,7 @@ function row(overrides: Partial<AlertRowLike> = {}): AlertRowLike {
     lastNotifyAt: null,
     lastNotifySeverity: null,
     slackUpdatedAt: null,
+    pendingClose: null,
     ...overrides,
   };
 }
@@ -206,6 +209,7 @@ describe("claimDueAlerts — taking ownership", () => {
     expect(sql).toContain('last_notify_at AS "lastNotifyAt"');
     // What the page said, which the rule's own severity may have moved on from.
     expect(sql).toContain('last_notify_severity AS "lastNotifySeverity"');
+    expect(sql).toContain('pending_close AS "pendingClose"');
     expect(sql).toContain("CASE WHEN last_notify_status = 'FAILED' THEN");
     expect(sql).toContain("JOIN slack_integrations s ON s.workspace_id = sp.workspace_id");
     expect(sql).toContain('END AS "slackUpdatedAt"');
@@ -715,5 +719,40 @@ describe("recordAlertNotifyOutcome", () => {
         at,
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("the close an edit or a resume left on the rule", () => {
+  const marker = {
+    reason: "edited" as const,
+    actorUserId: "user-1",
+    at: "2026-08-12T10:36:00.000Z",
+  };
+
+  it("is taken by clearing the marker under a guard that it is still there", async () => {
+    expect(await takeAlertPendingClose("alert-1")).toBe(true);
+
+    // The marker is the mutex: the claim token is not in the guard, because the
+    // edit that left the marker has just voided it.
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "alert-1", status: "ACTIVE", pendingClose: { not: PrismaRuntime.DbNull } },
+      data: { pendingClose: PrismaRuntime.DbNull },
+    });
+  });
+
+  it("is not this caller's to send once another tick has taken it", async () => {
+    updateMany.mockResolvedValue({ count: 0 });
+    expect(await takeAlertPendingClose("alert-1")).toBe(false);
+  });
+
+  it("goes back only into an empty marker, so a newer close is never overwritten", async () => {
+    expect(await restoreAlertPendingClose("alert-1", marker)).toBe(true);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "alert-1", pendingClose: { equals: PrismaRuntime.DbNull } },
+      data: { pendingClose: marker },
+    });
+
+    updateMany.mockResolvedValue({ count: 0 });
+    expect(await restoreAlertPendingClose("alert-1", marker)).toBe(false);
   });
 });

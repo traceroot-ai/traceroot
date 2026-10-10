@@ -80,9 +80,11 @@ Use the **Actions** menu on a row to pause or resume, edit, or delete a rule.
 - **Edit** opens the same form. Changing the filters, aggregation, measure, operator, threshold, window or no-data setting also starts the rule fresh. Renaming the rule or changing renotify does not.
 - **Delete** removes the rule permanently.
 
-<Warning>
-  Starting a rule fresh closes any open alert without a recovery message in Slack. If the metric still breaches after an edit or a resume, the next evaluation announces it as a new alert.
-</Warning>
+<Note>
+  Starting a rule fresh closes any open alert. Within about a minute Slack gets an `[OK]` message that says who edited or resumed the rule. If the metric still breaches, the next evaluation announces it as a new alert. The edit form shows a reminder when the rule you are editing has an alert open.
+</Note>
+
+Deleting a rule that has an alert open does not post a closing message.
 
 A project can hold up to **100 alerts**. Paused alerts count toward the limit.
 

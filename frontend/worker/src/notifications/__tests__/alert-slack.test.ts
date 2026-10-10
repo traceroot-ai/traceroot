@@ -7,6 +7,12 @@ const buildAlertBlocks = vi.fn((_params: unknown) => ({
   color: "#c0362c",
   text: "[ALERT] rule",
 }));
+const buildAlertClosedBlocks = vi.fn((_params: unknown) => ({
+  blocks: [{ type: "section", text: { type: "mrkdwn", text: "closed" } }],
+  color: "#1a7f4e",
+  text: "[OK] rule",
+}));
+const userFindUnique = vi.fn<(args: unknown) => Promise<Record<string, unknown> | null>>();
 const findUnique = vi.fn();
 const hasEntitlement = vi.fn();
 const decryptKey = vi.fn((s: string) => `decrypted(${s})`);
@@ -27,6 +33,7 @@ interface PrismaUpdateArgs {
 vi.mock("@traceroot/slack", () => ({
   createSlackClient: (token: string) => createSlackClient(token),
   buildAlertBlocks: (params: unknown) => buildAlertBlocks(params),
+  buildAlertClosedBlocks: (params: unknown) => buildAlertClosedBlocks(params),
 }));
 // Spread over the real module rather than replacing it: the state machine this
 // suite drives to prove the loop terminates reads its own constants from here.
@@ -40,6 +47,7 @@ vi.mock("@traceroot/core", async (importOriginal) => ({
       updateMany: (args: PrismaUpdateArgs) => alertUpdateMany(args),
       findUnique: (args: unknown) => alertFindUnique(args),
     },
+    user: { findUnique: (args: unknown) => userFindUnique(args) },
   },
 }));
 vi.mock("../../alerts/log.js", () => ({
@@ -53,6 +61,7 @@ vi.mock("../../queues/alert-notification-queue.js", () => ({
   createAlertNotificationQueue: () => ({ add: queueAdd }),
   createRedisConnection: (options?: unknown) => ({ connection: true, options }),
   alertNotificationBackoff: (attemptsMade: number) => attemptsMade * 1000,
+  isAlertCloseJob: (data: { kind?: string }) => data.kind === "close",
 }));
 
 const workerHandlers = new Map<string, (...a: unknown[]) => unknown>();
@@ -92,6 +101,22 @@ const emission = {
 };
 
 const compensableJob = { ...job, emission };
+
+const closeMarker = {
+  reason: "edited" as const,
+  actorUserId: "user_1",
+  at: "2026-06-23T12:31:00.000Z",
+};
+const closeJob = {
+  kind: "close" as const,
+  alertId: "al_1",
+  projectId: "proj_1",
+  name: "Checkout p95 latency",
+  ...closeMarker,
+};
+
+const closeRestores = () =>
+  alertUpdateMany.mock.calls.map(([args]) => args).filter((args) => "pendingClose" in args.data);
 
 const alertRow = (overrides: Record<string, unknown> = {}) => ({
   id: "al_1",
@@ -149,6 +174,8 @@ beforeEach(() => {
   postMessage.mockReset().mockResolvedValue({ ok: true, ts: "1.2" });
   createSlackClient.mockClear();
   buildAlertBlocks.mockClear();
+  buildAlertClosedBlocks.mockClear();
+  userFindUnique.mockReset().mockResolvedValue({ name: "Ada", email: "ada@example.com" });
   findUnique.mockReset().mockResolvedValue(projectRow());
   hasEntitlement.mockReset().mockReturnValue(true);
   decryptKey.mockClear();
@@ -670,9 +697,37 @@ describe("startAlertNotificationWorker", () => {
       lastNotifyAt: stored.lastNotifyAt as Date,
       lastNotifySeverity: stored.lastNotifySeverity as string,
       slackUpdatedAt: null,
+      pendingClose: null,
     });
     expect(rule).not.toBeNull();
     expect(isAwaitingRedelivery(rule!, "ALERT")).toBe(true);
+  });
+
+  it("hands a close job to the close sender, not to the page sender", async () => {
+    const { startAlertNotificationWorker } = await importModule();
+    startAlertNotificationWorker();
+
+    const [, processor] = workerConstructed.mock.calls[0];
+    await processor({ data: closeJob });
+
+    expect(buildAlertClosedBlocks).toHaveBeenCalledTimes(1);
+    expect(buildAlertBlocks).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts a close back on the rule once its attempts run out, touching no delivery record", async () => {
+    const { startAlertNotificationWorker } = await importModule();
+    startAlertNotificationWorker();
+
+    workerHandlers.get("failed")?.(
+      { id: "j1", attemptsMade: 12, opts: { attempts: 12 }, data: closeJob },
+      new Error("rate limited"),
+    );
+    await vi.waitFor(() => expect(closeRestores()).toHaveLength(1));
+
+    expect(closeRestores()[0].data.pendingClose).toEqual(closeMarker);
+    expect(notifyWrites()).toHaveLength(0);
+    expect(stateWrites()).toHaveLength(0);
   });
 
   it("leaves a job with attempts left alone, and logs the attempt as a retry", async () => {
@@ -689,5 +744,110 @@ describe("startAlertNotificationWorker", () => {
     expect(line).toContain("j1");
     expect(line).toContain("attempt 3");
     expect(line).toContain("rate limited");
+  });
+});
+
+describe("enqueueAlertClose", () => {
+  it("marks the job as a close and gives every call a job id of its own", async () => {
+    vi.useFakeTimers();
+    try {
+      const { enqueueAlertClose } = await importModule();
+      const { kind: _kind, ...close } = closeJob;
+
+      vi.setSystemTime(new Date("2026-06-23T12:32:00.000Z"));
+      await enqueueAlertClose(close);
+      vi.setSystemTime(new Date("2026-06-23T13:05:00.000Z"));
+      await enqueueAlertClose(close);
+
+      const [name, payload, options] = queueAdd.mock.calls[0];
+      expect(payload).toEqual(closeJob);
+      expect(options.jobId).toBe(name);
+      // BullMQ dedupes against finished jobs too, so a close put back after
+      // reaching nobody must not be swallowed by the id of its first attempt.
+      expect(queueAdd.mock.calls[1][2].jobId).not.toBe(options.jobId);
+      // Nor may it collide with the page the same tick enqueues for the rule.
+      expect(name).toMatch(/^alert-close-al_1-/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("sendAlertClose", () => {
+  it("posts the built close, naming who made the change, and records no delivery", async () => {
+    const { sendAlertClose } = await importModule();
+    await sendAlertClose(closeJob);
+
+    expect(buildAlertClosedBlocks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "proj_1",
+        alertId: "al_1",
+        name: "Checkout p95 latency",
+        reason: "edited",
+        actor: "Ada",
+      }),
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "C_WORKSPACE", text: "[OK] rule", unfurl_links: false }),
+    );
+    // `lastNotify*` reports on the page the rule stands on, which a redelivery
+    // reads; a close is about the page before it.
+    expect(alertUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the email, and to no name at all for an account that is gone", async () => {
+    const { sendAlertClose } = await importModule();
+
+    userFindUnique.mockResolvedValueOnce({ name: "", email: "ada@example.com" });
+    await sendAlertClose(closeJob);
+    userFindUnique.mockResolvedValueOnce(null);
+    await sendAlertClose(closeJob);
+
+    const actors = buildAlertClosedBlocks.mock.calls.map(
+      ([params]) => (params as { actor: unknown }).actor,
+    );
+    expect(actors).toEqual(["ada@example.com", null]);
+  });
+
+  it("keeps the close for the resume when the rule was paused before it went out", async () => {
+    alertFindUnique.mockResolvedValue(alertRow({ status: "PAUSED" }));
+    const { sendAlertClose } = await importModule();
+    await sendAlertClose(closeJob);
+
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(closeRestores()).toHaveLength(1);
+    expect(closeRestores()[0]).toMatchObject({
+      where: { id: "al_1" },
+      data: { pendingClose: closeMarker },
+    });
+  });
+
+  it("drops the close of a deleted rule, which has no page left to close", async () => {
+    alertFindUnique.mockResolvedValue(null);
+    const { sendAlertClose } = await importModule();
+    await sendAlertClose(closeJob);
+
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(alertUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("drops rather than loops on a channel no retry can reach", async () => {
+    const { sendAlertClose } = await importModule();
+
+    findUnique.mockResolvedValue(noChannelRow);
+    await sendAlertClose(closeJob);
+    findUnique.mockResolvedValue(projectRow());
+    slackRefuses();
+    await sendAlertClose(closeJob);
+
+    expect(alertUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a failure a retry may still deliver, leaving the marker to the retry budget", async () => {
+    postMessage.mockRejectedValue(slackHttpError(503));
+    const { sendAlertClose } = await importModule();
+
+    await expect(sendAlertClose(closeJob)).rejects.toMatchObject({ statusCode: 503 });
+    expect(alertUpdateMany).not.toHaveBeenCalled();
   });
 });

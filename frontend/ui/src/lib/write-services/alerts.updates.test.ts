@@ -5,6 +5,7 @@
  * it would in production.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Prisma } from "@prisma/client";
 import { DELETE_REASON_MESSAGE, NO_FIELDS_MESSAGE } from "./update-support";
 
 type Where = Record<string, unknown>;
@@ -60,6 +61,7 @@ const baseRow = {
   lastNotifyAt: null,
   nextRunAt: new Date("2026-08-12T10:31:00.000Z") as Date | null,
   lastClaimedAt: T0 as Date | null,
+  pendingClose: null as Record<string, unknown> | null,
   createTime: T0,
   updateTime: T0,
   createdBy: "u1",
@@ -73,10 +75,16 @@ function matches(candidate: Record<string, unknown>, where: Where): boolean {
   if (typeof where.status === "string" && candidate.status !== where.status) return false;
   const status = where.status as { in?: string[] } | undefined;
   if (Array.isArray(status?.in) && !status.in.includes(candidate.status as string)) return false;
+  // The only marker guard the services write: "still empty".
+  const marker = where.pendingClose as { equals?: unknown } | undefined;
+  if (marker?.equals === Prisma.DbNull && candidate.pendingClose !== null) return false;
   return true;
 }
 const rowsMatching = (where: Where) => [...store.values()].filter((r) => matches(r, where));
 const current = () => store.get("alert-1") as Row;
+/** Every write but the close marker, which rides behind a reset that cleared a page. */
+const ruleWrites = () =>
+  tx.alert.updateMany.mock.calls.filter(([args]) => !("pendingClose" in args.data));
 
 const provenance = { transport: "public-api" as const };
 
@@ -272,6 +280,58 @@ describe("updateAlert", () => {
     expect(stored.nextRunAt).toBeInstanceOf(Date);
   });
 
+  describe("the close it leaves for the page it cleared", () => {
+    it("names the edit and who made it, inside the transaction that voided the page", async () => {
+      mockAccess();
+      await update({ threshold: 999 }, { actorUserId: "u7" });
+
+      expect(current().pendingClose).toEqual({
+        reason: "edited",
+        actorUserId: "u7",
+        at: expect.any(String),
+      });
+      // The marker is the last write before the commit: neither lands without the other.
+      expect(order.slice(-3)).toEqual(["write", "commit", "audit"]);
+      expect(tx.alert.updateMany.mock.calls.at(-1)?.[0].where).toEqual({
+        id: "alert-1",
+        projectId: "p1",
+        pendingClose: { equals: Prisma.DbNull },
+      });
+    });
+
+    it("leaves none when the edit cleared no page, or changed nothing that is evaluated", async () => {
+      mockAccess();
+      await update({ name: "Renamed" });
+      expect(current().pendingClose).toBeNull();
+
+      store.set("alert-1", row({ severity: "OK", alertedAt: null }));
+      await update({ threshold: 999 });
+      expect(current().pendingClose).toBeNull();
+    });
+
+    it("keeps the first marker when the rule is edited again before the close goes out", async () => {
+      mockAccess();
+      await update({ threshold: 999 }, { actorUserId: "u7" });
+      const first = current().pendingClose;
+
+      // The second edit finds no page to clear, the first having reset the state.
+      expect(await update({ threshold: 1200 }, { actorUserId: "u8" })).toMatchObject({
+        stateReset: true,
+        pageCleared: false,
+      });
+      expect(current().pendingClose).toEqual(first);
+    });
+
+    it("does not overwrite a marker still standing beside a page raised since", async () => {
+      mockAccess();
+      const waiting = { reason: "resumed", actorUserId: "u3", at: "2026-08-12T09:00:00.000Z" };
+      store.set("alert-1", row({ pendingClose: waiting }));
+
+      expect(await update({ threshold: 999 })).toMatchObject({ pageCleared: true });
+      expect(current().pendingClose).toEqual(waiting);
+    });
+  });
+
   it("reports no cleared page when the state it voided held none", async () => {
     mockAccess();
     store.set("alert-1", row({ severity: "OK", alertedAt: null }));
@@ -357,7 +417,7 @@ describe("updateAlert", () => {
         projectId: "p1",
         status: "PARKED",
       });
-      expect(tx.alert.updateMany).toHaveBeenCalledTimes(1);
+      expect(ruleWrites()).toHaveLength(1);
     });
 
     it("counts a renotify edit, which the evaluated rule does not include, and reports the reset it applied", async () => {
@@ -424,7 +484,7 @@ describe("updateAlert", () => {
       expect(await update({ threshold: 999 })).toMatchObject({ ok: true });
       expect(current().status).toBe("ACTIVE");
       expect(current().threshold).toBe(999);
-      expect(tx.alert.updateMany).toHaveBeenCalledTimes(3);
+      expect(ruleWrites()).toHaveLength(3);
     });
   });
 
@@ -517,6 +577,18 @@ describe("setAlertStatus", () => {
       projectId: "p1",
       status: { in: ["PAUSED", "PARKED"] },
     });
+    // The page it cleared is closed by the worker, off this marker.
+    expect(stored.pendingClose).toMatchObject({ reason: "resumed", actorUserId: "u1" });
+  });
+
+  it("leaves no close when it pauses, or resumes a rule that held no page", async () => {
+    mockAccess();
+    await setStatus("PAUSED");
+    expect(current().pendingClose).toBeNull();
+
+    store.set("alert-1", row({ status: "PAUSED", severity: "OK", alertedAt: null }));
+    await setStatus("ACTIVE");
+    expect(current().pendingClose).toBeNull();
   });
 
   it("resumes a parked rule the same way, as the operator's retry of it", async () => {

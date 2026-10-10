@@ -1064,6 +1064,10 @@ model Alert {
   // without a page, so this is the only record of what the failed page said.
   // Null for an attempt recorded before the column existed.
   lastNotifySeverity String?   @map("last_notify_severity") @db.VarChar
+  // An open page that an edit or a resume discarded and nobody has been told
+  // about yet (`AlertPendingClose`). The write that voids the state sets it; the
+  // next tick posts the close and clears it. Null for every other rule.
+  pendingClose       Json?     @map("pending_close") @db.JsonB
   // Null `nextRunAt` means due immediately; `lastClaimedAt` is the CAS token a
   // completing tick writes back against.
   nextRunAt          DateTime? @map("next_run_at") @db.Timestamp(6)

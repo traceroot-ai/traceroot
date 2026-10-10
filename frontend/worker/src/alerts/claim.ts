@@ -2,6 +2,7 @@ import {
   ALERT_WINDOWS,
   Prisma,
   prisma,
+  type AlertPendingClose,
   type AlertSeverity,
   type AlertStatus,
 } from "@traceroot/core";
@@ -145,6 +146,7 @@ function claimStatement(tick: AlertTick): Prisma.Sql {
       last_notify_error AS "lastNotifyError",
       last_notify_at AS "lastNotifyAt",
       last_notify_severity AS "lastNotifySeverity",
+      pending_close AS "pendingClose",
       -- Only a failed page can be waiting on Slack, so every other row skips the lookup.
       CASE WHEN last_notify_status = ${FAILED} THEN (
         SELECT s.update_time
@@ -405,4 +407,34 @@ export async function recordAlertNotifyOutcome(outcome: AlertNotifyOutcome): Pro
       error,
     );
   }
+}
+
+/**
+ * Takes the close an edit or a resume left on the rule, and is the only thing that
+ * may: the marker is the mutex, so of two ticks that both read it one clears it and
+ * the other matches nothing. True means this caller owns the close and has to send
+ * it. Not under the claim token, which the edit that left the marker has just voided.
+ */
+export async function takeAlertPendingClose(alertId: string): Promise<boolean> {
+  const { count } = await prisma.alert.updateMany({
+    where: { id: alertId, status: ACTIVE, pendingClose: { not: Prisma.DbNull } },
+    data: { pendingClose: Prisma.DbNull },
+  });
+  return count === 1;
+}
+
+/**
+ * Puts a taken close back when it provably reached nobody, for the next tick to send.
+ * Only into an empty marker, the same rule the write services leave one under: a
+ * marker written since is for a page of its own.
+ */
+export async function restoreAlertPendingClose(
+  alertId: string,
+  pendingClose: AlertPendingClose,
+): Promise<boolean> {
+  const { count } = await prisma.alert.updateMany({
+    where: { id: alertId, pendingClose: { equals: Prisma.DbNull } },
+    data: { pendingClose: { ...pendingClose } },
+  });
+  return count === 1;
 }
