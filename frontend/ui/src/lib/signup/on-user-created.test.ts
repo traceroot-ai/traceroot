@@ -9,7 +9,11 @@ const inviteFindFirst = vi.hoisted(() => vi.fn());
 const userCount = vi.hoisted(() => vi.fn());
 const findPostHogPerson = vi.hoisted(() => vi.fn());
 const notifySignupSlack = vi.hoisted(() => vi.fn());
+const ensureContact = vi.hoisted(() => vi.fn());
+const sendWelcomeEmail = vi.hoisted(() => vi.fn());
 vi.mock("@/env", () => ({ env: envState }));
+vi.mock("@traceroot/core/email", () => ({ ensureContact }));
+vi.mock("@/lib/email/welcome/send-welcome-email", () => ({ sendWelcomeEmail }));
 vi.mock("@traceroot/core", () => ({
   prisma: { invite: { findFirst: inviteFindFirst }, user: { count: userCount } },
 }));
@@ -28,7 +32,9 @@ beforeEach(() => {
   findPostHogPerson.mockResolvedValue({ city: "SF", country: "US" });
   userCount.mockResolvedValue(154);
   notifySignupSlack.mockResolvedValue(true);
+  ensureContact.mockResolvedValue({ ok: true });
   vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
 it("reads the provider from the endpoint path and the gate from TRACEROOT_CLOUD", () => {
@@ -51,8 +57,17 @@ it.each([
   },
 );
 
-it("posts to Slack with the person's facts, the invite flag and the user count", async () => {
+it("records the contact, then sends the welcome and posts to Slack", async () => {
   await onUserCreated(user, { path: "/sign-up/email" });
+  expect(ensureContact).toHaveBeenCalledWith({ email: user.email, name: "New User" });
+  expect(sendWelcomeEmail).toHaveBeenCalledWith({
+    userId: "u1",
+    email: user.email,
+    name: "New User",
+  });
+  expect(ensureContact.mock.invocationCallOrder[0]).toBeLessThan(
+    sendWelcomeEmail.mock.invocationCallOrder[0],
+  );
   expect(notifySignupSlack).toHaveBeenCalledWith({
     name: "New User",
     email: user.email,
@@ -64,10 +79,19 @@ it("posts to Slack with the person's facts, the invite flag and the user count",
   });
 });
 
-it("never rejects: failed lookups, count and post are logged, and the count is omitted", async () => {
-  for (const m of [inviteFindFirst, userCount, notifySignupSlack]) m.mockRejectedValue(new Error());
+it("skips the welcome when the contact was not recorded; Slack still posts", async () => {
+  ensureContact.mockResolvedValue({ ok: false });
+  await onUserCreated(user, { path: "/sign-up/email" });
+  expect(sendWelcomeEmail).not.toHaveBeenCalled();
+  expect(notifySignupSlack).toHaveBeenCalled();
+});
+
+it("never rejects: failed arms are logged, the welcome is skipped and the count omitted", async () => {
+  const arms = [inviteFindFirst, ensureContact, userCount, notifySignupSlack];
+  for (const m of arms) m.mockRejectedValue(new Error());
   await expect(onUserCreated(user, null)).resolves.toBeUndefined();
   const posted = notifySignupSlack.mock.calls[0][0];
   expect(posted).toMatchObject({ provider: "unknown", viaInvite: false, totalUsers: undefined });
-  expect(console.error).toHaveBeenCalledTimes(3);
+  expect(sendWelcomeEmail).not.toHaveBeenCalled();
+  expect(console.error).toHaveBeenCalledTimes(4);
 });
