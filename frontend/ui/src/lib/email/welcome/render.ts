@@ -9,6 +9,7 @@ import {
   optOutLineHtml,
   welcomeBody,
   WELCOME_SIGNOFF,
+  LINK_STYLE,
 } from "./copy";
 
 const FIRST_NAME = /^[A-Za-z][A-Za-z'’-]{0,39}$/;
@@ -50,7 +51,7 @@ export function renderWelcome(input: RenderWelcomeInput): {
 
   const inline = (s: string) =>
     escapeHtml(s)
-      .replace(LINK, '<a href="$2">$1</a>')
+      .replace(LINK, `<a href="$2" ${LINK_STYLE}>$1</a>`)
       .replace(/`([^`]+)`/g, "<code>$1</code>");
   // Lines after the first that start with "- " become a list under the lead line.
   const toHtml = (paragraph: string) => {
