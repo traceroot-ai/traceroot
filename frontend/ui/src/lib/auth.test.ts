@@ -27,6 +27,8 @@ vi.mock("better-auth/plugins", () => ({
 vi.mock("@traceroot/core", () => ({ prisma: {} }));
 const captureServerEventMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventMock }));
+const onUserCreatedMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined));
+vi.mock("@/lib/signup/on-user-created", () => ({ onUserCreated: onUserCreatedMock }));
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "test-secret",
@@ -46,7 +48,13 @@ await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
-  databaseHooks: { user: { create: { after: (user: { id: string }) => Promise<void> } } };
+  databaseHooks: {
+    user: {
+      create: {
+        after: (user: Record<string, unknown>, context?: { path: string } | null) => Promise<void>;
+      };
+    };
+  };
 };
 
 describe("auth options", () => {
@@ -65,6 +73,25 @@ describe("auth options", () => {
   it("sends user_signed_up when a user is created", async () => {
     await options.databaseHooks.user.create.after({ id: "user-1" });
     expect(captureServerEventMock).toHaveBeenCalledWith("user-1", "user_signed_up");
+  });
+
+  it("hands every new user to the sign-up follow-up with the endpoint path", async () => {
+    const { after } = options.databaseHooks.user.create;
+    await after({ id: "u1", email: "a@example.com", name: undefined }, { path: "/sign-up/email" });
+    const user = { id: "u1", email: "a@example.com", name: null };
+    expect(onUserCreatedMock).toHaveBeenCalledWith(user, { path: "/sign-up/email" });
+  });
+
+  it("resolves before the follow-up settles and logs its later rejection", async () => {
+    let reject!: (error: Error) => void;
+    onUserCreatedMock.mockReturnValueOnce(new Promise<undefined>((_, r) => (reject = r)));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { after } = options.databaseHooks.user.create;
+    await expect(after({ id: "u2", email: "b@example.com" }, null)).resolves.toBeUndefined();
+    const error = new Error("slack down");
+    reject(error);
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledWith("[signup] follow-up failed:", error));
+    spy.mockRestore();
   });
 });
 
