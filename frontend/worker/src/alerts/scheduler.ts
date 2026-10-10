@@ -1,16 +1,16 @@
 import cron from "node-cron";
-import type { AlertWindow } from "@traceroot/core";
+import type { AlertPendingClose, AlertWindow } from "@traceroot/core";
 import { enqueueAlertClose, enqueueAlertNotification } from "../notifications/alert-slack.js";
 import {
   claimDueAlerts,
   completeAlertEvaluation,
   parkAlertRule,
-  readPendingAlertCloses,
+  readStoppedAlertCloses,
   recordAlertEvaluationFailure,
   restoreAlertPendingClose,
   takeAlertPendingClose,
+  type AlertCloseTarget,
   type ClaimedAlert,
-  type DiscardedAlertPage,
 } from "./claim.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import { isAwaitingRedelivery } from "./delivery.js";
@@ -152,66 +152,49 @@ async function parkRule(claim: ClaimedAlert, message: string): Promise<void> {
   }
 }
 
-/** This tick's closes still to be sent, by rule. A page that takes one removes it. */
-type PendingCloses = Map<string, DiscardedAlertPage>;
-
 /** Closes go out beside the evaluations, so they share a bound of the same order. */
 const ALERT_CLOSE_CONCURRENCY = ALERT_EVALUATION_CONCURRENCY;
 
-/** A failed read costs this tick its closes and nothing else: the markers stay put. */
-async function readPendingCloses(): Promise<PendingCloses> {
+const closeTargetOf = (claim: ClaimedAlert): AlertCloseTarget => ({
+  alertId: claim.rule.id,
+  projectId: claim.rule.projectId,
+  name: claim.rule.name,
+});
+
+async function restoreClose(target: AlertCloseTarget, close: AlertPendingClose): Promise<void> {
   try {
-    const pages = await readPendingAlertCloses();
-    return new Map(pages.map((page) => [page.alertId, page]));
+    await restoreAlertPendingClose(target.alertId, close);
   } catch (error) {
-    logError("close read failed, closes wait for the next tick", error);
-    return new Map();
+    logError(`close restore failed alert=${target.alertId} project=${target.projectId}`, error);
   }
 }
 
 /**
- * Taking the marker is the conditional write that decides who sends, so two ticks
- * cannot both close the same page. False covers a take that failed as well as one
- * that lost: either way this caller does not own the close.
+ * The close of a page whose rule announces nothing this tick: it recovered under the
+ * new rule, its run failed, or it is not running at all. Taking the marker is the
+ * write that decides who sends, so two ticks cannot both close the same page, and a
+ * rule whose page already carried its close has nothing left here to take. A close
+ * that could not be queued is put back, the same write-then-enqueue order an emission
+ * follows. Never throws.
  */
-async function takeClose(page: DiscardedAlertPage): Promise<boolean> {
+async function sendCloseAlone(target: AlertCloseTarget): Promise<void> {
+  let close: AlertPendingClose | null;
   try {
-    return await takeAlertPendingClose(page.alertId, page.pendingClose);
+    close = await takeAlertPendingClose(target.alertId);
   } catch (error) {
-    logError(`close take failed alert=${page.alertId} project=${page.projectId}`, error);
-    return false;
+    logError(`close take failed alert=${target.alertId} project=${target.projectId}`, error);
+    return;
   }
-}
+  if (close === null) return;
 
-async function restoreClose(page: DiscardedAlertPage): Promise<void> {
   try {
-    await restoreAlertPendingClose(page.alertId, page.pendingClose);
-  } catch (error) {
-    logError(`close restore failed alert=${page.alertId} project=${page.projectId}`, error);
-  }
-}
-
-/**
- * The close of a page whose rule announced nothing this tick: it recovered under the
- * new rule, was not evaluated, or is not running at all. A close that could not be
- * queued is put back for the next tick, the same write-then-enqueue order an
- * emission follows. Never throws.
- */
-async function sendCloseAlone(page: DiscardedAlertPage): Promise<void> {
-  if (!(await takeClose(page))) return;
-  try {
-    await enqueueAlertClose({
-      alertId: page.alertId,
-      projectId: page.projectId,
-      name: page.name,
-      ...page.pendingClose,
-    });
+    await enqueueAlertClose({ ...target, ...close });
   } catch (error) {
     logError(
-      `close enqueue failed, putting it back alert=${page.alertId} project=${page.projectId}`,
+      `close enqueue failed, putting it back alert=${target.alertId} project=${target.projectId}`,
       error,
     );
-    await restoreClose(page);
+    await restoreClose(target, close);
   }
 }
 
@@ -220,7 +203,6 @@ async function settleClaim(
   result: AlertEvaluationResult | undefined,
   tick: AlertTick,
   windowStart: Date,
-  closes: PendingCloses,
 ): Promise<void> {
   const { rule } = claim;
   if (result === undefined) {
@@ -259,6 +241,15 @@ async function settleClaim(
     ? { emit: true, nextState: { ...decided.nextState, alertedAt: tick.boundary } }
     : decided;
 
+  // A page raised over a close still owed carries that close with it, to be posted
+  // first by the one job. Sent apart they race on the consumer, and a page that wins
+  // reads in the channel as the alert the close then ends. Taken before the state is
+  // written and left to throw: a page must not go out while its close is known to be
+  // owed and could not be taken, so the run fails and the next tick decides again.
+  const target = closeTargetOf(claim);
+  const carried =
+    transition.emit && claim.hasPendingClose ? await takeAlertPendingClose(rule.id) : null;
+
   const written = await completeAlertEvaluation({
     alertId: rule.id,
     claimStamp: claim.claimStamp,
@@ -271,6 +262,8 @@ async function settleClaim(
   });
   if (!written) {
     logInfo(`stale claim discarded or state moved alert=${rule.id} project=${rule.projectId}`);
+    // No page follows, so the close goes back for whichever tick settles the rule next.
+    if (carried !== null) await restoreClose(target, carried);
     return;
   }
 
@@ -281,13 +274,6 @@ async function settleClaim(
         `reason=${rule.lastDelivery.error}`,
     );
   }
-
-  // A page raised over a close still waiting carries that close with it, to be
-  // posted first by the one job. Sent apart they race on the consumer, and a page
-  // that wins reads in the channel as the alert the close then ends.
-  const discarded = closes.get(rule.id);
-  closes.delete(rule.id);
-  const carried = discarded !== undefined && (await takeClose(discarded)) ? discarded : undefined;
 
   // Write-then-enqueue, deliberately: the reverse order pages first and records
   // second, so a crash between them repeats a page the operator already saw.
@@ -317,7 +303,7 @@ async function settleClaim(
         priorSeverityChangedAt: rule.state.severityChangedAt?.getTime() ?? null,
         priorAlertedAt: rule.state.alertedAt?.getTime() ?? null,
       },
-      closeFirst: carried?.pendingClose,
+      closeFirst: carried ?? undefined,
     });
   } catch (error) {
     logError(
@@ -335,7 +321,7 @@ async function settleClaim(
       "enqueue-failed",
     );
     // The close went down with the page it rode on, so it goes back with it.
-    if (carried !== undefined) await restoreClose(carried);
+    if (carried !== null) await restoreClose(target, carried);
   }
 }
 
@@ -344,7 +330,6 @@ async function evaluateBatch(
   claims: readonly ClaimedAlert[],
   tick: AlertTick,
   windowStart: Date,
-  closes: PendingCloses,
 ): Promise<void> {
   let results: AlertEvaluationResult[];
   try {
@@ -371,7 +356,7 @@ async function evaluateBatch(
   const byId = new Map(results.map((result) => [result.alert_id, result]));
   for (const claim of claims) {
     try {
-      await settleClaim(claim, byId.get(claim.rule.id), tick, windowStart, closes);
+      await settleClaim(claim, byId.get(claim.rule.id), tick, windowStart);
     } catch (error) {
       logError(`settle failed alert=${claim.rule.id} project=${claim.rule.projectId}`, error);
       await recordFailure(claim, `settling this run failed: ${describeError(error)}`);
@@ -410,7 +395,7 @@ function partitionSendable(claims: readonly ClaimedAlert[]): SpecPartition {
 
 type EvaluationTask = () => Promise<void>;
 
-function groupTasks(group: AlertGroup, tick: AlertTick, closes: PendingCloses): EvaluationTask[] {
+function groupTasks(group: AlertGroup, tick: AlertTick): EvaluationTask[] {
   const windowStart = alertWindowStart(tick, group.window);
 
   // A spec the backend would refuse is that rule's own failure; sending it
@@ -419,11 +404,11 @@ function groupTasks(group: AlertGroup, tick: AlertTick, closes: PendingCloses): 
 
   return [
     ...chunk(sendable, ALERT_EVALUATION_CHUNK_SIZE).map(
-      (claims) => () => evaluateBatch(group, claims, tick, windowStart, closes),
+      (claims) => () => evaluateBatch(group, claims, tick, windowStart),
     ),
     ...unsendable.map((claim) => async () => {
       try {
-        await settleClaim(claim, unsendableResult(claim), tick, windowStart, closes);
+        await settleClaim(claim, unsendableResult(claim), tick, windowStart);
       } catch (error) {
         logError(`settle failed alert=${claim.rule.id} project=${claim.rule.projectId}`, error);
         await recordFailure(claim, `settling this run failed: ${describeError(error)}`);
@@ -432,11 +417,7 @@ function groupTasks(group: AlertGroup, tick: AlertTick, closes: PendingCloses): 
   ];
 }
 
-async function evaluateClaims(
-  claims: readonly ClaimedAlert[],
-  tick: AlertTick,
-  closes: PendingCloses,
-): Promise<void> {
+async function evaluateClaims(claims: readonly ClaimedAlert[], tick: AlertTick): Promise<void> {
   const groups = groupClaims(claims);
   logInfo(
     `tick boundary=${tick.boundary.toISOString()} rules=${claims.length} groups=${groups.length}`,
@@ -445,16 +426,22 @@ async function evaluateClaims(
   // One bound over every group's batches rather than one per group: nested
   // bounds multiply, and it is the total width against the evaluator that
   // decides whether the tick completes or aborts wholesale.
-  const tasks = groups.flatMap((group) => groupTasks(group, tick, closes));
+  const tasks = groups.flatMap((group) => groupTasks(group, tick));
   await mapWithConcurrency(tasks, ALERT_EVALUATION_CONCURRENCY, (task) => task());
+}
+
+/** A failed read costs this tick these closes and nothing else: the markers stay put. */
+async function readStoppedCloses(): Promise<AlertCloseTarget[]> {
+  try {
+    return await readStoppedAlertCloses();
+  } catch (error) {
+    logError("close read failed, the closes of stopped rules wait for the next tick", error);
+    return [];
+  }
 }
 
 export async function runAlertTick(now: Date): Promise<void> {
   const tick = computeAlertTick(now);
-
-  // Started beside the claim rather than ahead of it: neither waits on the other,
-  // and the closes are only needed once a rule settles.
-  const closesRead = readPendingCloses();
 
   let claims: ClaimedAlert[] = [];
   try {
@@ -462,12 +449,17 @@ export async function runAlertTick(now: Date): Promise<void> {
   } catch (error) {
     logError("claim read failed, skipping this tick's evaluations", error);
   }
-  const closes = await closesRead;
-  if (claims.length > 0) await evaluateClaims(claims, tick, closes);
+  if (claims.length > 0) await evaluateClaims(claims, tick);
 
-  // Whatever no page carried goes out by itself, after the evaluations so that a
-  // rule that is about to page again is never closed by a job racing that page.
-  await mapWithConcurrency([...closes.values()], ALERT_CLOSE_CONCURRENCY, sendCloseAlone);
+  // Closes no page carried. For a rule this tick claimed that is only known once
+  // the rule has settled, so these go out after the evaluations; a rule that is
+  // stopped has no claim to wait for. An ACTIVE rule this tick did not claim keeps
+  // its close for the tick that does.
+  const owed = [
+    ...claims.filter((claim) => claim.hasPendingClose).map(closeTargetOf),
+    ...(await readStoppedCloses()),
+  ];
+  await mapWithConcurrency(owed, ALERT_CLOSE_CONCURRENCY, sendCloseAlone);
 }
 
 export interface AlertSchedulerHandle {

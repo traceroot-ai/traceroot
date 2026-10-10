@@ -68,7 +68,7 @@ Other failures need a change on your side. Click the rule's badge in the Alerts 
 
 A notification is never sent for a rule that was paused or deleted while the message was waiting to be delivered. A closed message is the exception for a paused rule: it is still sent.
 
-A closed message that Slack keeps refusing for about 30 minutes is queued again on the next evaluation. One that cannot be delivered because no channel is set, the Slack connection is incomplete, or Slack rejected it is not sent again.
+A closed message that Slack keeps refusing for about 30 minutes is queued again: within a minute for a paused rule, and at the rule's next evaluation otherwise. One that cannot be delivered because no channel is set, the Slack connection is incomplete, or Slack rejected it is not sent again.
 
 ## Next steps
 
