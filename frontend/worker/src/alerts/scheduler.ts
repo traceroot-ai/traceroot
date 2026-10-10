@@ -1,11 +1,13 @@
 import cron from "node-cron";
 import type { AlertWindow } from "@traceroot/core";
-import { enqueueAlertNotification } from "../notifications/alert-slack.js";
+import { enqueueAlertClose, enqueueAlertNotification } from "../notifications/alert-slack.js";
 import {
   claimDueAlerts,
   completeAlertEvaluation,
   parkAlertRule,
   recordAlertEvaluationFailure,
+  restoreAlertPendingClose,
+  takeAlertPendingClose,
   type ClaimedAlert,
 } from "./claim.js";
 import { mapWithConcurrency } from "./concurrency.js";
@@ -145,6 +147,46 @@ async function parkRule(claim: ClaimedAlert, message: string): Promise<void> {
   } catch (error) {
     logError(`park failed alert=${rule.id} project=${rule.projectId}`, error);
     await recordFailure(claim, message);
+  }
+}
+
+/**
+ * Posts the close an edit or a resume left behind when it discarded an open page.
+ * Taking the marker is the conditional write that decides who sends, so two ticks
+ * cannot both close the same page; a close that could not be queued is put back for
+ * the next tick, the same write-then-enqueue order an emission follows.
+ *
+ * Never throws: the rule's evaluation does not depend on the close going out.
+ */
+async function closeDiscardedPage(claim: ClaimedAlert): Promise<void> {
+  const { rule } = claim;
+  const { pendingClose } = rule;
+  if (pendingClose === null) return;
+
+  try {
+    if (!(await takeAlertPendingClose(rule.id))) return;
+  } catch (error) {
+    logError(`close take failed alert=${rule.id} project=${rule.projectId}`, error);
+    return;
+  }
+
+  try {
+    await enqueueAlertClose({
+      alertId: rule.id,
+      projectId: rule.projectId,
+      name: rule.name,
+      ...pendingClose,
+    });
+  } catch (error) {
+    logError(
+      `close enqueue failed, putting it back alert=${rule.id} project=${rule.projectId}`,
+      error,
+    );
+    try {
+      await restoreAlertPendingClose(rule.id, pendingClose);
+    } catch (restoreError) {
+      logError(`close restore failed alert=${rule.id} project=${rule.projectId}`, restoreError);
+    }
   }
 }
 
@@ -364,6 +406,12 @@ export async function runAlertTick(now: Date): Promise<void> {
     return;
   }
   if (claims.length === 0) return;
+
+  // Before any evaluation, so the close of the old page is queued ahead of whatever
+  // this tick goes on to announce for the same rule.
+  for (const claim of claims) {
+    await closeDiscardedPage(claim);
+  }
 
   const groups = groupClaims(claims);
   logInfo(
