@@ -1,4 +1,4 @@
-import { Queue, Worker } from "bullmq";
+import { Queue, Worker, type Job } from "bullmq";
 import {
   decryptKey,
   hasEntitlement,
@@ -427,9 +427,9 @@ export async function sendAlertNotification(payload: AlertNotificationJob): Prom
 }
 
 /**
- * A close that reached nobody goes back on the rule for the next tick to send. Guarded:
- * every caller is already on a path that failed, and the worst a lost restore costs is
- * the unclosed page this job existed to close.
+ * A close whose attempts ran out goes back on the rule for the next tick to send.
+ * Guarded: the caller is already on a path that failed, and the worst a lost restore
+ * costs is the unclosed page this job existed to close.
  */
 async function restoreClose(job: AlertCloseJob, reason: string): Promise<void> {
   const tag = `alert=${job.alertId} project=${job.projectId} reason=${reason}`;
@@ -464,31 +464,29 @@ async function resolveActor(userId: string): Promise<string | null> {
  * `lastNotify*` columns alone: they report on the page the rule stands on, which the
  * scheduler reads to decide a redelivery, and a close is about the page before it.
  *
- * A paused rule keeps its close for the resume, the same kill switch a page honours;
- * a deleted one has no page left to close. A misconfigured channel drops it, since the
- * page it would close cannot have been delivered through that channel either.
+ * The rule's status is not consulted. Pausing stops a rule from paging; it does not
+ * make the page it already sent any less discarded, and a close held for the resume
+ * leaves the channel reading an alert nobody is evaluating. Only a rule that is gone
+ * has nothing to close. A channel no retry can reach drops the close, since the page
+ * it would close cannot have been delivered through that channel either; a failure a
+ * retry may get past is rethrown, and the caller puts the close back once the job's
+ * attempts run out.
  */
 export async function sendAlertClose(job: AlertCloseJob): Promise<void> {
   const tag = `alert=${job.alertId} project=${job.projectId} close=${job.reason}`;
 
   const alert = await prisma.alert.findUnique({
     where: { id: job.alertId },
-    select: { status: true },
+    select: { id: true },
   });
   if (alert === null) {
     logInfo(`slack skip ${tag} reason=alert-deleted`);
-    return;
-  }
-  if (alert.status !== ACTIVE) {
-    logInfo(`slack skip ${tag} reason=alert-paused`);
-    await restoreClose(job, "alert-paused");
     return;
   }
 
   const resolution = await resolveAlertChannel(job.projectId);
   if (!resolution.ok) {
     logInfo(`slack skip ${tag} reason=${resolution.reason}`);
-    if (!isPermanentDeliveryFailure(resolution.reason)) await restoreClose(job, resolution.reason);
     return;
   }
 
@@ -528,11 +526,52 @@ export async function sendAlertClose(job: AlertCloseJob): Promise<void> {
   logInfo(`slack sent ${tag} channel=${resolution.target.channelId}`);
 }
 
+/** The close a page job carries, as the job it would have been if sent alone. */
+function carriedClose(page: AlertNotificationJob): AlertCloseJob | null {
+  const { closeFirst } = page;
+  if (closeFirst === undefined) return null;
+  return {
+    kind: "close",
+    alertId: page.alertId,
+    projectId: page.projectId,
+    name: page.name,
+    ...closeFirst,
+  };
+}
+
+/**
+ * One job, in order: the close of the old page, then the new page. A close that
+ * throws fails the job before the page is tried, so a retry keeps the order. Once
+ * posted the close is dropped from the job's data, or a retry of the page alone would
+ * post it a second time; a failure to drop it is logged and the page still goes out,
+ * because a repeated close is the lesser fault next to a page that never arrives.
+ */
+export async function processAlertJob(job: Pick<Job<AlertQueueJob>, "data" | "updateData">) {
+  if (isAlertCloseJob(job.data)) {
+    await sendAlertClose(job.data);
+    return;
+  }
+
+  const close = carriedClose(job.data);
+  if (close === null) {
+    await sendAlertNotification(job.data);
+    return;
+  }
+
+  await sendAlertClose(close);
+  const { closeFirst: _closeFirst, ...page } = job.data;
+  try {
+    await job.updateData(page);
+  } catch (error) {
+    logError(`close posted but not cleared from its job alert=${page.alertId}`, error);
+  }
+  await sendAlertNotification(page);
+}
+
 export function startAlertNotificationWorker(): Worker<AlertQueueJob> {
   const worker = new Worker<AlertQueueJob>(
     ALERT_NOTIFICATION_QUEUE,
-    async (job) =>
-      isAlertCloseJob(job.data) ? sendAlertClose(job.data) : sendAlertNotification(job.data),
+    async (job) => processAlertJob(job),
     {
       connection: createRedisConnection(),
       concurrency: 5,
@@ -551,6 +590,10 @@ export function startAlertNotificationWorker(): Worker<AlertQueueJob> {
       void restoreClose(job.data, RETRIES_EXHAUSTED);
       return;
     }
+    // Still carried means the close never posted: it goes back with the page's own
+    // rollback, so the next tick sends the pair again, in order.
+    const close = carriedClose(job.data);
+    if (close !== null) void restoreClose(close, RETRIES_EXHAUSTED);
     void recordNonDelivery(job.data, RETRIES_EXHAUSTED);
   });
 

@@ -12,6 +12,7 @@ type Where = Record<string, unknown>;
 
 const { tx, root, order, store } = vi.hoisted(() => ({
   tx: {
+    $queryRaw: vi.fn(),
     project: { findUnique: vi.fn() },
     workspaceMember: { findUnique: vi.fn() },
     alert: { findFirst: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
@@ -124,6 +125,11 @@ beforeEach(() => {
   for (const model of [tx.project, tx.workspaceMember, tx.alert, tx.user, tx.auditLog]) {
     for (const fn of Object.values(model)) fn.mockReset();
   }
+  tx.$queryRaw.mockReset();
+  tx.$queryRaw.mockImplementation(async () => {
+    order.push("lock");
+    return [];
+  });
   tx.alert.findFirst.mockImplementation(async ({ where }: { where: Where }) => {
     const [found] = rowsMatching(where);
     return found === undefined ? null : { ...found };
@@ -244,7 +250,7 @@ describe("updateAlert", () => {
       where: { id: "alert-1", projectId: "p1" },
       data: { name: "Renamed" },
     });
-    expect(order).toEqual(["write", "commit", "audit"]);
+    expect(order).toEqual(["lock", "write", "commit", "audit"]);
     expect(root.auditLog.create).toHaveBeenCalledWith({
       data: {
         actorUserId: "u1",
@@ -292,6 +298,15 @@ describe("updateAlert", () => {
       });
       // The marker is the last write before the commit: neither lands without the other.
       expect(order.slice(-3)).toEqual(["write", "commit", "audit"]);
+      // And the row was locked before anything read or wrote it. Whether a page
+      // is being discarded is decided from that read, so a tick must not be able
+      // to raise one between the read and the reset.
+      expect(order[0]).toBe("lock");
+      const [strings, ...values] = tx.$queryRaw.mock.calls[0] as [string[], ...unknown[]];
+      expect(strings.join("?")).toBe(
+        "SELECT id FROM alerts WHERE id = ? AND project_id = ? FOR UPDATE",
+      );
+      expect(values).toEqual(["alert-1", "p1"]);
       expect(tx.alert.updateMany.mock.calls.at(-1)?.[0].where).toEqual({
         id: "alert-1",
         projectId: "p1",
@@ -579,6 +594,8 @@ describe("setAlertStatus", () => {
     });
     // The page it cleared is closed by the worker, off this marker.
     expect(stored.pendingClose).toMatchObject({ reason: "resumed", actorUserId: "u1" });
+    // Read under the same row lock an edit takes, for the same reason.
+    expect(order[0]).toBe("lock");
   });
 
   it("leaves no close when it pauses, or resumes a rule that held no page", async () => {
