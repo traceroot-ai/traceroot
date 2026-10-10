@@ -1,0 +1,108 @@
+---
+title: Azure OpenAI
+description: Trace Azure OpenAI calls through the OpenAI-compatible SDK
+---
+
+Azure OpenAI is accessed through the same `openai` SDK as OpenAI itself, via the dedicated `AzureOpenAI` client. TraceRoot captures these calls through the existing OpenAI instrumentation — no new Azure-specific instrumentor or enum is required.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    from openai import AzureOpenAI
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = AzureOpenAI(
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        api_version="2024-10-21",
+    )
+    ```
+
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { AzureOpenAI } from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: AzureOpenAI },
+    });
+
+    const client = new AzureOpenAI({
+      apiKey: process.env.AZURE_OPENAI_API_KEY,
+      endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+      apiVersion: '2024-10-21',
+    });
+    ```
+
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    from openai import AzureOpenAI
+
+    client = AzureOpenAI(
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        api_version="2024-10-21",
+    )
+
+    # This Azure OpenAI call is traced by TraceRoot's OpenAI integration
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",  # Your Azure deployment name
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { AzureOpenAI } from 'openai';
+
+    const client = new AzureOpenAI({
+      apiKey: process.env.AZURE_OPENAI_API_KEY,
+      endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+      apiVersion: '2024-10-21',
+    });
+
+    // This Azure OpenAI call is traced by TraceRoot's OpenAI integration
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini', // Your Azure deployment name
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'What is the capital of France?' },
+      ],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute  | Description                                                                       |
+| ---------- | ---------------------------------------------------------------------------------- |
+| Model      | Your Azure deployment name                                                        |
+| Messages   | Input messages array                                                              |
+| Response   | Completion content                                                                |
+| Tool calls | Function/tool call inputs and outputs when using the OpenAI SDK tool-calling API   |
+| Tokens     | Prompt, completion, and total tokens when returned by the provider                |
+| Latency    | Request duration                                                                  |
