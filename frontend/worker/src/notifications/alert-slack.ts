@@ -449,14 +449,19 @@ async function restoreClose(job: AlertCloseJob, reason: string): Promise<void> {
   }
 }
 
-/** Display name of whoever edited or resumed the rule. Null for a deleted account. */
+/**
+ * Display name of whoever edited or resumed the rule. Null for a deleted account and
+ * for one with no name set: the app falls back to the email there, but a Slack
+ * channel is read by people with no access to the project, so the message goes out
+ * unattributed rather than carry an address.
+ */
 async function resolveActor(userId: string): Promise<string | null> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { name: true, email: true },
+    select: { name: true },
   });
-  // || not ??: an empty-string name must fall through to the email too.
-  return user ? user.name || user.email : null;
+  // || not ??: an empty-string name is no name.
+  return user?.name || null;
 }
 
 /**

@@ -21,7 +21,7 @@ const {
   completeAlertEvaluation,
   parkAlertRule,
   recordAlertEvaluationFailure,
-  readPendingAlertCloses,
+  readStoppedAlertCloses,
   recordAlertNotifyOutcome,
   restoreAlertPendingClose,
   revertAlertEmissionState,
@@ -728,54 +728,67 @@ describe("the close an edit or a resume left on the rule", () => {
     actorUserId: "user-1",
     at: "2026-08-12T10:36:00.000Z",
   };
-  const closeRow = (overrides: Record<string, unknown> = {}) => ({
-    id: "alert-1",
-    projectId: "proj-1",
-    name: "P95 latency",
-    pendingClose: marker,
-    ...overrides,
-  });
 
-  it("is read for every rule that carries one, whatever the rule's status", async () => {
-    queryRaw.mockResolvedValue([closeRow(), closeRow({ id: "alert-2", name: "Paused rule" })]);
-
-    expect(await readPendingAlertCloses()).toEqual([
-      { alertId: "alert-1", projectId: "proj-1", name: "P95 latency", pendingClose: marker },
-      { alertId: "alert-2", projectId: "proj-1", name: "Paused rule", pendingClose: marker },
+  it("is flagged by the claim itself, from the row the tick evaluates", async () => {
+    queryRaw.mockResolvedValue([
+      { ...row(), hasPendingClose: true },
+      { ...row({ id: "alert-2" }), hasPendingClose: false },
+      row({ id: "alert-3" }),
     ]);
 
-    const sql = queryRaw.mock.calls[0][0].sql;
+    const claims = await claimDueAlerts(TICK);
+
+    // One snapshot for both: read apart, an edit landing between the two reads
+    // would have its new page sent ahead of the close it owes.
+    expect(queryRaw.mock.calls[0][0].sql).toContain(
+      'pending_close IS NOT NULL AS "hasPendingClose"',
+    );
+    expect(claims.map((claim) => claim.hasPendingClose)).toEqual([true, false, false]);
+  });
+
+  it("is read apart only for the rules no claim will reach: paused and parked", async () => {
+    queryRaw.mockResolvedValue([{ id: "alert-9", projectId: "proj-1", name: "Paused rule" }]);
+
+    expect(await readStoppedAlertCloses()).toEqual([
+      { alertId: "alert-9", projectId: "proj-1", name: "Paused rule" },
+    ]);
+
+    const { sql, values } = queryRaw.mock.calls[0][0];
     expect(sql).toContain("a.pending_close IS NOT NULL");
-    // A paused, parked or not-yet-due rule still owes its close, so neither the
-    // status nor the schedule narrows the read. A deleted project does.
-    expect(sql).not.toContain("status");
-    expect(sql).not.toContain("next_run_at");
+    // An ACTIVE rule's close belongs to the tick that claims it, which alone
+    // knows whether a new page is about to follow.
+    expect(sql).toContain("a.status <>");
+    expect(values).toContain("ACTIVE");
     expect(sql).toContain("p.delete_time IS NULL");
-    expect(queryRaw.mock.calls[0][0].values).toContain(ALERT_CLAIM_LIMIT);
+    expect(values).toContain(ALERT_CLAIM_LIMIT);
   });
 
-  it("leaves a stored value that is not a marker alone, and says so", async () => {
-    queryRaw.mockResolvedValue([closeRow({ pendingClose: { reason: "deleted" } }), closeRow()]);
+  it("is taken by reading and clearing the marker in one statement", async () => {
+    queryRaw.mockResolvedValue([{ pendingClose: marker }]);
 
-    expect(await readPendingAlertCloses()).toHaveLength(1);
-    expect(console.error).toHaveBeenCalledTimes(1);
-  });
+    expect(await takeAlertPendingClose("alert-1")).toEqual(marker);
 
-  it("is taken by clearing exactly the marker that was read", async () => {
-    expect(await takeAlertPendingClose("alert-1", marker)).toBe(true);
-
-    // Matching on the marker's own value is what leaves a newer one, written by
-    // an edit since the read, for the tick that reads it. No status either: a
-    // paused rule's close is still owed.
-    expect(updateMany).toHaveBeenCalledWith({
-      where: { id: "alert-1", pendingClose: { equals: marker } },
-      data: { pendingClose: PrismaRuntime.DbNull },
-    });
+    const { sql, values } = queryRaw.mock.calls[0][0];
+    // The lock is what makes the marker a mutex, and returning the value that was
+    // cleared is what stops a caller sending a close older than the one it took.
+    expect(sql).toContain("FOR UPDATE");
+    expect(sql).toContain("UPDATE alerts SET pending_close = NULL");
+    expect(sql).toContain('RETURNING taken.pending_close AS "pendingClose"');
+    expect(values).toEqual(["alert-1"]);
+    // A paused rule's close is still owed.
+    expect(sql).not.toContain("status");
   });
 
   it("is not this caller's to send once another tick has taken it", async () => {
-    updateMany.mockResolvedValue({ count: 0 });
-    expect(await takeAlertPendingClose("alert-1", marker)).toBe(false);
+    queryRaw.mockResolvedValue([]);
+    expect(await takeAlertPendingClose("alert-1")).toBeNull();
+  });
+
+  it("clears a stored value that is not a marker rather than finding it every tick", async () => {
+    queryRaw.mockResolvedValue([{ pendingClose: { reason: "deleted" } }]);
+
+    expect(await takeAlertPendingClose("alert-1")).toBeNull();
+    expect(console.error).toHaveBeenCalledTimes(1);
   });
 
   it("goes back only into an empty marker, so a newer close is never overwritten", async () => {
