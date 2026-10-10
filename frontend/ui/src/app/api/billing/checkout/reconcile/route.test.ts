@@ -5,8 +5,9 @@ vi.mock("next/server", () => ({
   NextResponse: { json: (body: unknown, init?: { status?: number }) => Response.json(body, init) },
 }));
 
-vi.mock("next/headers", () => ({
-  headers: async () => new Map(),
+// Business-handler unit tests isolate the shared policy (covered in support/route-guard.test.ts and E2E).
+vi.mock("@/lib/support/route-guard", () => ({
+  withImpersonationPolicy: (handler: unknown) => handler,
 }));
 
 // The plan item is looked up by the real helper, so the price env vars it reads
@@ -19,8 +20,8 @@ vi.hoisted(() => {
 });
 
 const getSessionMock = vi.fn();
-vi.mock("@/lib/auth", () => ({
-  auth: { api: { getSession: (...args: unknown[]) => getSessionMock(...args) } },
+vi.mock("@/lib/request-session", () => ({
+  getRequestSession: (...args: unknown[]) => getSessionMock(...args),
 }));
 
 const workspaceFindFirstMock = vi.fn();

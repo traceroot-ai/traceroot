@@ -1,6 +1,6 @@
+import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
-import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { getRequestSession } from "@/lib/request-session";
 import { prisma, getStripeOrThrow } from "@traceroot/core";
 import { workspaceBillingFromSubscription } from "../../workspace-billing";
 
@@ -18,9 +18,9 @@ const LIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
  * The webhook stays the eventual backstop; both derive the same columns from the
  * same Stripe subscription.
  */
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await getRequestSession();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -100,3 +100,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to reconcile checkout" }, { status: 500 });
   }
 }
+
+export const POST = withImpersonationPolicy(handlePOST);
