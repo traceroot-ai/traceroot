@@ -82,7 +82,8 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
   updateCurrentSpan({
     input: { query: userInput },
     output: { response: agentOutput },
-    metadata: { model: 'gpt-4o' },
+    model: 'gpt-4o',
+    usage: { input: 100, output: 50 },
   });
 
   updateCurrentTrace({
@@ -98,9 +99,15 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `name` | `string` | Rename the span after creation |
 | `input` | `unknown` | Input data |
 | `output` | `unknown` | Output data |
 | `metadata` | `Record<string, unknown>` | Custom metadata |
+| `model` | `string` | LLM model name |
+| `modelParameters` | `Record<string, unknown>` | LLM model parameters |
+| `usage` | `TokenUsage` | Token usage (`{ input, output, cacheRead, cacheWrite, total }`) |
+| `prompt` | `unknown` | Prompt or messages sent to the LLM |
+| `attributes` | `Record<string, string \| number \| boolean>` | Arbitrary span attributes |
 
 ### `updateCurrentTrace` Parameters
 
