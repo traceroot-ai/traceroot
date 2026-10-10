@@ -256,6 +256,28 @@ describe("updateDetector", () => {
     );
   });
 
+  it("turning signals on groups hits from now on, not the ones detected while it was off", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue({ ...storedDetector, enableSignals: false });
+    const before = Date.now();
+    expect(await runUpdate({ enableSignals: true })).toMatchObject({
+      ok: true,
+      changed: ["enable_signals"],
+    });
+    const { data } = tx.detector.update.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(data.enableSignals).toBe(true);
+    expect((data.signalsEnabledAt as Date).getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it("turning signals off leaves the enable time alone", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue({ ...storedDetector, enableSignals: true });
+    expect(await runUpdate({ enableSignals: false })).toMatchObject({ ok: true });
+    const { data } = tx.detector.update.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(data).not.toHaveProperty("signalsEnabledAt");
+    expect(await runUpdate({ enableSignals: "yes" })).toMatchObject({ ok: false, status: 400 });
+  });
+
   it("switches the detection source to byok", async () => {
     mockAccess();
     expect(await runUpdate({ detectionSource: "byok" })).toMatchObject({

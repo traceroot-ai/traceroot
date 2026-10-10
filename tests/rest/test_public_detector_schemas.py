@@ -64,6 +64,10 @@ def test_detector_result_item_fields_are_snake_case():
         "summary": "unsupported claims",
         "identified": True,
         "data": {"k": "v"},
+        # Signal fields are additive and null while the hit is not grouped.
+        "signal_id": None,
+        "signal_title": None,
+        "signal_status": None,
     }
 
 

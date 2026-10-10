@@ -9,6 +9,7 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { generateApiKey, getKeyPrefix, hashApiKey } from "@/lib/api-keys";
+import { captureServerEvent } from "@/lib/posthog-server";
 
 const createAccessKeySchema = z.object({
   name: z.string().max(100, "Name too long").nullable().optional(),
@@ -94,6 +95,11 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       name: name ?? null,
       expireTime: expire_time ? new Date(expire_time) : null,
     },
+  });
+
+  captureServerEvent(user.id, "api_key_created", {
+    workspace_id: accessResult.project.workspaceId,
+    project_id: projectId,
   });
 
   // Return the full access key only once - user must copy it now

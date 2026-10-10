@@ -12,6 +12,7 @@ import { alertNextRunAt, type AlertTick } from "./tick.js";
 
 const ACTIVE: AlertStatus = "ACTIVE";
 const PARKED: AlertStatus = "PARKED";
+const FAILED: AlertNotifyStatus = "FAILED";
 
 /**
  * Per tick. The claim deals its cap across projects depth-first, so a project's
@@ -139,7 +140,18 @@ function claimStatement(tick: AlertTick): Prisma.Sql {
       no_data_mode AS "noDataMode",
       severity,
       severity_changed_at AS "severityChangedAt",
-      alerted_at AS "alertedAt"
+      alerted_at AS "alertedAt",
+      last_notify_status AS "lastNotifyStatus",
+      last_notify_error AS "lastNotifyError",
+      last_notify_at AS "lastNotifyAt",
+      last_notify_severity AS "lastNotifySeverity",
+      -- Only a failed page can be waiting on Slack, so every other row skips the lookup.
+      CASE WHEN last_notify_status = ${FAILED} THEN (
+        SELECT s.update_time
+        FROM projects sp
+        JOIN slack_integrations s ON s.workspace_id = sp.workspace_id
+        WHERE sp.id = alerts.project_id
+      ) END AS "slackUpdatedAt"
   `;
 }
 
@@ -244,6 +256,8 @@ export type AlertNotifyStatus = (typeof ALERT_NOTIFY_STATUSES)[number];
 export interface AlertNotifyOutcome {
   readonly alertId: string;
   readonly status: AlertNotifyStatus;
+  /** What the attempt announced, which the rule's own severity may since have left. */
+  readonly severity: AlertSeverity;
   readonly error: string | null;
   readonly at: Date;
   /**
@@ -377,6 +391,7 @@ export async function recordAlertNotifyOutcome(outcome: AlertNotifyOutcome): Pro
         lastNotifyStatus: outcome.status,
         lastNotifyError: outcome.error === null ? null : truncate(outcome.error),
         lastNotifyAt: outcome.at,
+        lastNotifySeverity: outcome.severity,
       },
     });
     // Either the rule is gone, or a newer notification already reported: do not

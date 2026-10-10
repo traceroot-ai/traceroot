@@ -25,6 +25,8 @@ vi.mock("better-auth/plugins", () => ({
   jwt: () => ({ id: "jwt" }),
 }));
 vi.mock("@traceroot/core", () => ({ prisma: {} }));
+const captureServerEventMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/posthog-server", () => ({ captureServerEvent: captureServerEventMock }));
 vi.mock("@/env", () => ({
   env: {
     BETTER_AUTH_SECRET: "test-secret",
@@ -44,6 +46,7 @@ await import("./auth");
 const options = betterAuthMock.mock.calls[0]?.[0] as {
   advanced: { ipAddress: { trustedProxies: string[]; disableIpTracking?: boolean } };
   rateLimit: { customRules: Record<string, { window: number; max: number }> };
+  databaseHooks: { user: { create: { after: (user: { id: string }) => Promise<void> } } };
 };
 
 describe("auth options", () => {
@@ -57,6 +60,11 @@ describe("auth options", () => {
 
   it("keeps the device-code creation cap", () => {
     expect(options.rateLimit.customRules["/device/code"]).toEqual({ window: 60, max: 10 });
+  });
+
+  it("sends user_signed_up when a user is created", async () => {
+    await options.databaseHooks.user.create.after({ id: "user-1" });
+    expect(captureServerEventMock).toHaveBeenCalledWith("user-1", "user_signed_up");
   });
 });
 

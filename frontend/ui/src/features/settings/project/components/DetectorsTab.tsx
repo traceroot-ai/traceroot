@@ -153,7 +153,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             <AlertChannelsEditor emailAddresses={emailAddresses} onChange={setEmailAddresses} />
           </div>
           <p className="mt-2 text-[12px] text-muted-foreground">
-            Findings are batched into one email digest per alert window.
+            New and reopened signals are batched into one email per alert window.
           </p>
           <Button
             size="sm"
@@ -213,7 +213,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             </Select>
           </div>
           <p className="mt-2 text-[12px] text-muted-foreground">
-            Detector findings in each window are batched into one digest.
+            New and reopened signals in each window are sent as one notification.
           </p>
           <Button
             size="sm"
