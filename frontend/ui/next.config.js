@@ -27,6 +27,13 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
 ];
 
+// API responses carry account and trace data, so neither the browser nor a
+// proxy may keep a copy. This is the value Next.js sends on dynamically rendered
+// pages.
+const apiCacheHeaders = [
+  { key: "Cache-Control", value: "private, no-cache, no-store, max-age=0, must-revalidate" },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
@@ -34,7 +41,10 @@ const nextConfig = {
   // Don't advertise the framework in an X-Powered-By header.
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/api/:path*", headers: apiCacheHeaders },
+    ];
   },
   env: {
     NEXT_PUBLIC_APP_VERSION: resolveAppVersion(),
