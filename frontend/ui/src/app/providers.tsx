@@ -7,9 +7,11 @@ import { CrossTabQuerySync } from "@/components/cross-tab-query-sync";
 
 interface ProvidersProps {
   children: ReactNode;
+  // The page's Content-Security-Policy nonce (see proxy.ts).
+  nonce?: string;
 }
 
-export function Providers({ children }: ProvidersProps) {
+export function Providers({ children, nonce }: ProvidersProps) {
   //useState + lazy init, ensure only one QueryClient is created under HMR
   const [queryClient] = useState(
     () =>
@@ -26,7 +28,15 @@ export function Providers({ children }: ProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
       <CrossTabQuerySync />
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      {/* next-themes sets the theme with an inline script before first paint;
+          the nonce lets the page's Content-Security-Policy run it. */}
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="system"
+        enableSystem
+        disableTransitionOnChange
+        nonce={nonce}
+      >
         {children}
       </ThemeProvider>
     </QueryClientProvider>
