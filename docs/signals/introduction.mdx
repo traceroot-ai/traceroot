@@ -1,0 +1,57 @@
+---
+title: Introduction
+description: Recurring problems grouped from detector findings
+---
+
+A **signal** is one recurring problem: the findings of one detector that describe the same failure. Instead of reviewing every flagged trace, you review, analyze and close each problem once, and see how often it keeps happening.
+
+## How findings become signals
+
+When a detector flags a trace, the finding is grouped shortly afterwards, usually within a minute:
+
+- The finding is compared with the detector's existing signals. If it matches one, it joins that signal.
+- If it matches none, it starts a new signal. TraceRoot writes the signal's title and its criteria: a summary of what the signal covers, which later findings are judged against.
+
+A detector whose detection model is a [TypeSafe AI](/ai-agent/byok) model is grouped differently: its findings are grouped by the category the model assigned, one signal per category, with a fixed title and criteria named after the category.
+
+Signals never span detectors: each signal belongs to the detector whose findings it groups. When several detectors flag the same trace, each finding joins a signal of its own detector.
+
+Only detectors with **Generate signals** turned on group their findings, and only findings detected after it was turned on; earlier findings are not grouped. With Generate signals off, a detector's new findings are recorded only: they join no signal, start no automatic root cause analysis and send no notifications. Signals it already has stay, and you can still run their analysis by hand. On a self-hosted deployment, grouping needs `OPENAI_API_KEY`; without it, every detector records findings only.
+
+A trace's **Detectors** tab shows, for each finding, the signal it joined. A finding waiting to be grouped shows **Pending**. A finding that has not been grouped shows **Disabled** if it is from before **Generate signals** was last turned on, or its detector has it off now, or the self-hosted deployment has no `OPENAI_API_KEY`; a finding already grouped keeps its signal link. A finding that could not be grouped after repeated attempts shows **Not grouped** on its detector's runs table, but stays **Pending** on the trace's Detectors tab.
+
+## Status
+
+A signal is **Open**, **Resolved** or **Dismissed**. Change it from the status control on the signal's panel.
+
+- **Resolve** when the problem is fixed. Pick a reason: Fixed outside TraceRoot, PR was merged, Already fixed before this signal, or Other.
+- **Dismiss** when the signal is not worth tracking. Pick a reason: Signal is unclear, Analysis is incorrect, Traces grouped incorrectly, Expected behavior, Duplicate signal, Already fixed, Low impact, or Other.
+- **Reopen** a resolved or dismissed signal by setting it back to Open; this applies at once. Unlike a reopen by a new finding, it sends no notification and starts no root cause analysis.
+
+A reason of **Other** needs a note. If someone else changed the status while you were deciding, your change is refused and the panel shows the current status.
+
+New findings keep counting on a signal whatever its status, but only a resolved signal can reopen by itself:
+
+- A finding on a trace that **started after the signal was resolved** reopens it, and it is announced again as **Reopened**. Traces that were already running when you resolved it do not undo the resolve.
+- A **dismissed** signal never reopens; its findings count silently.
+
+## Root cause analysis
+
+Root cause analysis runs per signal, not per finding. With the detector's **Root cause analysis** set to **Automatic**, the AI agent runs when a signal is created and when a new finding reopens it. A reopening runs no new analysis while an analysis of the signal that succeeded, or is still waiting or running, was started within the last 24 hours; an analysis you ran by hand counts too. Failed attempts do not count, so they never extend the wait. With **Manual**, the agent runs only when you ask.
+
+When a signal has no analysis for its current opening, because its detector is Manual, the 24-hour window applied, or an attempt failed, its panel offers **Run root cause analysis**. The run starts within about two minutes, and the panel follows it until it finishes. If the analysis shown is from before the signal reopened, the panel says so and gives its date.
+
+**Open in agent** opens the analysis in the AI agent, to ask follow-up questions about it. See [Introduction](/detectors/introduction#root-cause-analysis) for how the setting works.
+
+## The Signals page
+
+Open **Signals** from the project sidebar. The list shows the project's signals, newest first, filtered to Open by default. Filter by status, signal name or ID, and detector name or ID; a detector's **Signals** count on the Detectors page opens this list narrowed to that detector. The date range, seven days by default, sets the period that affected traces are counted over; signals without findings in it stay listed.
+
+Select a signal to open its panel. A signal merged into another one says so, with the ID of the signal it was merged into.
+
+- **Summary**: what the signal covers. If its criteria did not pass a check when the signal was created, the panel says so: they may not match the signal's first finding, or may also match another signal's findings. The signal is created either way.
+- **Root Cause Analysis**: the latest analysis, or **Run root cause analysis**.
+- **Count over time**: the share of the traces its detector checked that the signal affected, as "X% · a of b traces affected", and a chart of **Affected** and **Unaffected** traces stacked over time. The date picker in its header sets the same range as the list.
+- **Affected traces**: the most recent traces in the signal. Select one, or **View all**, to open them on the Tracing page, filtered by the signal's ID. On the Tracing page, the **Signal ID** filter matches complete signal IDs only, and the optional **Signal IDs** column lists each trace's signals.
+
+Notification links open the Signals page with the signal's panel already open. See [Notifications](/detectors/notifications) for what is announced and when.
