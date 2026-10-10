@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, cleanup, screen, fireEvent, within, waitFor } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -161,17 +161,22 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
 
 import DetectorDetailPage from "./page";
 
+// Every test starts from the default runs, so each one also passes on its own.
+beforeEach(() => {
+  mocks.useRuns.mockImplementation(defaultUseRuns);
+});
+
 afterEach(() => {
   cleanup();
   mocks.push.mockClear();
   mocks.useRuns.mockReset();
-  mocks.useRuns.mockImplementation(defaultUseRuns);
   mocks.searchParam.mockReset();
   mocks.searchParam.mockReturnValue(null);
   mocks.searchEntries.mockReset();
   mocks.searchEntries.mockReturnValue([]);
   mocks.filters = [];
   mocks.updateFilters.mockClear();
+  sessionStorage.clear();
 });
 
 describe("DetectorDetailPage", () => {
@@ -182,6 +187,39 @@ describe("DetectorDetailPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Detectors" }));
 
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors?date_filter=7d");
+  });
+
+  it("returns to the list page, page size and query it was opened from", async () => {
+    // Params this page does not set itself (here, search text) come back as recorded.
+    sessionStorage.setItem(
+      "list-return:detectors:proj-1",
+      "page_index=2&page_limit=100&search=latency&date_filter=7d",
+    );
+    render(<DetectorDetailPage />);
+
+    // The recorded query is read after mount.
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Detectors" }));
+      expect(mocks.push).toHaveBeenLastCalledWith(
+        "/projects/proj-1/detectors?page_index=2&page_limit=100&search=latency&date_filter=7d",
+      );
+    });
+  });
+
+  it("carries a range changed here back to the list, dropping the list's page", async () => {
+    // The list was on page 3 of the last 30 days; this page now shows the last 7.
+    sessionStorage.setItem(
+      "list-return:detectors:proj-1",
+      "page_index=2&page_limit=100&date_filter=30d",
+    );
+    render(<DetectorDetailPage />);
+
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Detectors" }));
+      expect(mocks.push).toHaveBeenLastCalledWith(
+        "/projects/proj-1/detectors?page_limit=100&date_filter=7d",
+      );
+    });
   });
 
   it("shows every run in one table by default, with no tabs", () => {
