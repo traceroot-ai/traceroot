@@ -3,6 +3,162 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRequestSession } from "@/lib/request-session";
 import { prisma, getStripeOrThrow, getPlanConfig, PlanType } from "@traceroot/core";
 
+// Subscription statuses that bill now or can start billing. `incomplete` is a
+// first payment still settling (for example a pending 3DS step), which becomes
+// active on success, so a second checkout opened meanwhile would also bill.
+// `paused` bills nothing today but is not terminal either: resuming it alongside a
+// second subscription would bill the workspace twice. Only `canceled` and
+// `incomplete_expired` are ends of the line, and those are absent here deliberately.
+const BILLING_STATUSES = new Set([
+  "active",
+  "trialing",
+  "past_due",
+  "unpaid",
+  "incomplete",
+  "paused",
+]);
+
+// How far the key chain may advance past closed sessions before the route gives up.
+// Each step is one abandoned checkout for the same workspace inside Stripe's 24 hour
+// idempotency retention.
+const MAX_CHECKOUT_KEY_STEPS = 8;
+
+function checkoutInProgress() {
+  return NextResponse.json(
+    {
+      error:
+        "Another checkout for this workspace was started first. Reload the billing page and try again.",
+    },
+    { status: 409 },
+  );
+}
+
+function alreadySubscribed() {
+  return NextResponse.json(
+    {
+      error: "Workspace already has a subscription. Change the plan instead of starting checkout.",
+    },
+    { status: 409 },
+  );
+}
+
+type Stripe = ReturnType<typeof getStripeOrThrow>;
+
+// Raised when a session completed while this request was working, which means the
+// workspace has a subscription the preflight could not have seen.
+class CheckoutCompletedError extends Error {}
+
+/**
+ * Whether Stripe refused this request because the idempotency key is already held
+ * by a request with different parameters — which is how a competing checkout for
+ * another plan is detected.
+ */
+function isIdempotencyConflict(error: unknown) {
+  return (error as { type?: string } | null)?.type === "idempotency_error";
+}
+
+// A simultaneous request may have expired the same session first, which is the only
+// benign reason for `expire` to fail.
+async function expireCheckoutSession(stripe: Stripe, sessionId: string) {
+  try {
+    await stripe.checkout.sessions.expire(sessionId);
+  } catch (error) {
+    const current = await stripe.checkout.sessions.retrieve(sessionId);
+    if (current.status === "complete") {
+      // Stripe refuses to expire a completed session. The customer paid between the
+      // subscription preflight and this call, so opening another checkout now would
+      // bill them twice.
+      throw new CheckoutCompletedError();
+    }
+    if (current.status !== "expired") throw error;
+  }
+}
+
+/**
+ * Whether the customer has a subscription that bills or can start billing. The
+ * list uses status "all", which includes ended subscriptions, so a live one can sit
+ * past the first page; iterating the list follows every page.
+ */
+async function hasLiveSubscription(stripe: Stripe, customerId: string) {
+  for await (const subscription of stripe.subscriptions.list({
+    customer: customerId,
+    status: "all",
+    limit: 100,
+  })) {
+    if (BILLING_STATUSES.has(subscription.status)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the subscription created by a completed checkout session has since ended.
+ * Until that is confirmed, the session is treated as a live subscription, including
+ * when Stripe has not attached the subscription to the session yet.
+ */
+async function completedSubscriptionEnded(
+  stripe: Stripe,
+  session: { subscription?: string | { id: string } | null },
+) {
+  const id =
+    typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+  if (!id) return false;
+  const subscription = await stripe.subscriptions.retrieve(id);
+  return !BILLING_STATUSES.has(subscription.status);
+}
+
+/**
+ * The most recent checkout session for this workspace, which holds the newest key in
+ * the chain. Stripe lists checkout sessions newest first.
+ */
+async function newestWorkspaceSession(stripe: Stripe, customerId: string, workspaceId: string) {
+  for await (const session of stripe.checkout.sessions.list({ customer: customerId, limit: 100 })) {
+    if (session.metadata?.workspaceId === workspaceId) return session;
+  }
+  return null;
+}
+
+/**
+ * Reduce this workspace to one open checkout session, and report which one survived.
+ *
+ * Idempotency keys deduplicate identical requests, but two requests asking for
+ * different plans are not identical, so the preflight cannot stop both from reaching
+ * create(). The tie is settled afterwards instead: the oldest session wins, because
+ * every caller sees the same ordering and so agrees on the same winner without having
+ * to coordinate. The session id breaks a tie on identical timestamps.
+ */
+async function settleToOneOpenSession(
+  stripe: Stripe,
+  customerId: string,
+  workspaceId: string,
+  justCreated: { id: string; created?: number },
+  alreadyExpired: ReadonlySet<string>,
+) {
+  const open: Array<{ id: string; created: number }> = [];
+  for await (const session of stripe.checkout.sessions.list({
+    customer: customerId,
+    status: "open",
+    limit: 100,
+  })) {
+    if (session.metadata?.workspaceId !== workspaceId) continue;
+    // Stripe's list is eventually consistent, so a session this request expired a
+    // moment ago can still be listed as open. Standing down in its favour would
+    // leave the workspace with no usable checkout at all.
+    if (alreadyExpired.has(session.id)) continue;
+    open.push({ id: session.id, created: session.created ?? 0 });
+  }
+  // The session this request just created may not be listed yet.
+  if (!open.some((session) => session.id === justCreated.id)) {
+    open.push({ id: justCreated.id, created: justCreated.created ?? 0 });
+  }
+
+  open.sort((a, b) => a.created - b.created || a.id.localeCompare(b.id));
+  const [winner, ...losers] = open;
+  for (const loser of losers) {
+    await expireCheckoutSession(stripe, loser.id);
+  }
+  return winner.id;
+}
+
 async function handlePOST(req: NextRequest) {
   try {
     const session = await getRequestSession();
@@ -34,7 +190,47 @@ async function handlePOST(req: NextRequest) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     }
 
+    // A subscribed workspace changes plans through change-plan. A checkout session
+    // here would add a second active subscription to the same customer, and both
+    // would bill every period. With a customer on file, Stripe is asked below
+    // instead, so a stored id whose cancellation webhook was missed does not block
+    // a new subscription.
+    if (workspace.billingSubscriptionId && !workspace.billingCustomerId) {
+      return alreadySubscribed();
+    }
+
     const stripe = getStripeOrThrow();
+    const expiredSessionIds: string[] = [];
+
+    // The stored subscription id can lag Stripe (a missed or delayed webhook), so
+    // also ask Stripe before opening checkout for an existing customer.
+    if (workspace.billingCustomerId) {
+      if (await hasLiveSubscription(stripe, workspace.billingCustomerId)) {
+        return alreadySubscribed();
+      }
+
+      // Stripe creates the subscription only when a session completes, so two open
+      // sessions for one workspace could each become a subscription. Keep one open
+      // session for the same plan (a double submit or a retry) and expire every other
+      // one, including extra same-plan sessions, before returning or opening a new one.
+      let reusableUrl: string | null = null;
+      for await (const openSession of stripe.checkout.sessions.list({
+        customer: workspace.billingCustomerId,
+        status: "open",
+        limit: 100,
+      })) {
+        if (openSession.metadata?.workspaceId !== workspaceId) continue;
+        if (!reusableUrl && openSession.metadata?.plan === plan && openSession.url) {
+          reusableUrl = openSession.url;
+          continue;
+        }
+        await expireCheckoutSession(stripe, openSession.id);
+        expiredSessionIds.push(openSession.id);
+      }
+      if (reusableUrl) {
+        return NextResponse.json({ url: reusableUrl });
+      }
+    }
 
     // Create or get Stripe customer
     let customerId = workspace.billingCustomerId;
@@ -43,11 +239,33 @@ async function handlePOST(req: NextRequest) {
         email: session.user.email ?? undefined,
         metadata: { workspaceId },
       });
-      customerId = customer.id;
-      await prisma.workspace.update({
-        where: { id: workspaceId },
-        data: { billingCustomerId: customerId },
+      // Two admins can start checkout for a new workspace at the same time. Only the
+      // first customer is stored; a request that loses the race deletes its own and
+      // continues with the stored one, so both reach the same checkout below.
+      const claimed = await prisma.workspace.updateMany({
+        where: { id: workspaceId, billingCustomerId: null },
+        data: { billingCustomerId: customer.id },
       });
+      if (claimed.count === 1) {
+        customerId = customer.id;
+      } else {
+        await stripe.customers.del(customer.id).catch((error: unknown) => {
+          console.warn(`[Billing] Failed to delete unused customer ${customer.id}:`, error);
+        });
+        const stored = await prisma.workspace.findUnique({
+          where: { id: workspaceId },
+          select: { billingCustomerId: true },
+        });
+        if (!stored?.billingCustomerId) {
+          throw new Error(`Workspace ${workspaceId} has no billing customer`);
+        }
+        customerId = stored.billingCustomerId;
+        // The winning request may already have completed its checkout, which this
+        // request's preflight could not see because it read no customer.
+        if (await hasLiveSubscription(stripe, customerId)) {
+          return alreadySubscribed();
+        }
+      }
     }
 
     // Create checkout session with plan price + all three metered products.
@@ -77,20 +295,97 @@ async function handlePOST(req: NextRequest) {
       }
     }
 
-    const checkoutSession = await stripe.checkout.sessions.create({
+    // One checkout per workspace, enforced by Stripe rather than by reading a list
+    // back. The key excludes the plan, so two admins choosing different plans at the
+    // same moment collide on one key and Stripe rejects the second rather than
+    // opening a session that could become a second subscription. It excludes the
+    // clock too: a time bucket hands requests either side of a boundary different
+    // keys, which is the race all over again.
+    const checkoutKey = `workspace-checkout-${workspaceId}`;
+    const checkoutParams = {
       customer: customerId,
-      mode: "subscription",
+      mode: "subscription" as const,
       line_items: lineItems,
       success_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?success=true`,
       cancel_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing?canceled=true`,
-      metadata: { workspaceId },
+      metadata: { workspaceId, plan },
       subscription_data: {
         metadata: { workspaceId },
       },
-    });
+    };
+
+    // A key that never varies would replay the first session forever, so the key
+    // advances past each closed session instead: `...-after-<id>`. The step is
+    // derived from what Stripe returned, so concurrent callers walk the identical
+    // chain and still meet on one key at every position.
+    let checkoutSession: Awaited<ReturnType<typeof stripe.checkout.sessions.create>> | null = null;
+    let key = checkoutKey;
+    for (let step = 0; step < MAX_CHECKOUT_KEY_STEPS; step++) {
+      let candidate;
+      try {
+        candidate = await stripe.checkout.sessions.create(checkoutParams, { idempotencyKey: key });
+      } catch (error) {
+        if (!isIdempotencyConflict(error)) throw error;
+        // The key was first used for another plan. If that checkout is still open,
+        // another admin is in the middle of it, so this request stands down. If it has
+        // closed (this request may have just expired it), the key is only stale, and
+        // Stripe would refuse every other plan on it until it forgets the key 24 hours
+        // later. Advance past that session instead, as the chain does for a closed
+        // session it replays.
+        const holder = await newestWorkspaceSession(stripe, customerId, workspaceId);
+        if (holder?.status === "complete") throw new CheckoutCompletedError();
+        const holderOpen = holder?.status === "open" && !expiredSessionIds.includes(holder.id);
+        const next = holder ? `${checkoutKey}-after-${holder.id}` : key;
+        if (holderOpen || next === key) {
+          // Either the rival is open, or the session holding this key is not listed
+          // yet because it was created a moment ago.
+          return checkoutInProgress();
+        }
+        key = next;
+        continue;
+      }
+      if (!candidate.status || candidate.status === "open") {
+        checkoutSession = candidate;
+        break;
+      }
+      // A replayed session that was paid created a subscription. Moving past it is
+      // only safe once that subscription has ended; otherwise the next session would
+      // become a second subscription billing alongside it.
+      if (
+        candidate.status === "complete" &&
+        !(await completedSubscriptionEnded(stripe, candidate))
+      ) {
+        throw new CheckoutCompletedError();
+      }
+      key = `${checkoutKey}-after-${candidate.id}`;
+    }
+
+    if (!checkoutSession) {
+      // Only reachable if a workspace burned through the whole chain inside Stripe's
+      // 24 hour key retention, which means something is opening checkouts in a loop.
+      console.error(`[Billing] Checkout key chain exhausted for workspace ${workspaceId}`);
+      return checkoutInProgress();
+    }
+
+    // A concurrent request for a different plan can still have created its own session
+    // under another key in the chain, for example from a listing that had not caught
+    // up yet. Settle on one.
+    const survivor = await settleToOneOpenSession(
+      stripe,
+      customerId,
+      workspaceId,
+      checkoutSession,
+      new Set(expiredSessionIds),
+    );
+    if (survivor !== checkoutSession.id) {
+      return checkoutInProgress();
+    }
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (error) {
+    if (error instanceof CheckoutCompletedError) {
+      return alreadySubscribed();
+    }
     console.error("Checkout error:", error);
     return NextResponse.json({ error: "Failed to create checkout" }, { status: 500 });
   }
