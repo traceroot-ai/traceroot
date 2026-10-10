@@ -1,6 +1,7 @@
 import { Queue, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
 import type {
+  AlertCloseReason,
   AlertFilter,
   AlertSeverity,
   AlertThresholdOperator,
@@ -48,6 +49,29 @@ export interface AlertNotificationJob extends Omit<AlertNotification, "windowSta
 }
 
 /**
+ * The close of a page an edit or a resume discarded. It reports on no evaluation, so
+ * it carries the marker it was taken from instead of a window and an emission claim:
+ * that is what a close that reached nobody is put back as.
+ */
+export interface AlertCloseJob {
+  kind: "close";
+  alertId: string;
+  projectId: string;
+  name: string;
+  reason: AlertCloseReason;
+  actorUserId: string;
+  /** ISO, as the marker stores it. */
+  at: string;
+}
+
+/** Everything the queue carries. A job enqueued before `kind` existed is a notification. */
+export type AlertQueueJob = AlertNotificationJob | AlertCloseJob;
+
+export function isAlertCloseJob(job: AlertQueueJob): job is AlertCloseJob {
+  return "kind" in job && job.kind === "close";
+}
+
+/**
  * Twelve attempts on a capped exponential is about 30 minutes: long enough to ride out an
  * outage, capped per gap so a recovered Slack is not waited on. Exhausting it reverts the rule.
  */
@@ -68,8 +92,8 @@ export const ALERT_NOTIFICATION_JOB_OPTIONS: JobsOptions = {
   removeOnFail: 100,
 };
 
-export function createAlertNotificationQueue(connection: Redis): Queue<AlertNotificationJob> {
-  return new Queue<AlertNotificationJob>(ALERT_NOTIFICATION_QUEUE, {
+export function createAlertNotificationQueue(connection: Redis): Queue<AlertQueueJob> {
+  return new Queue<AlertQueueJob>(ALERT_NOTIFICATION_QUEUE, {
     connection,
     defaultJobOptions: ALERT_NOTIFICATION_JOB_OPTIONS,
   });

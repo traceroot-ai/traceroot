@@ -121,7 +121,9 @@ Only TraceRoot sets `PARKED`, and the badge states the reason. To start a parked
 
 ## Starting fresh
 
-Some actions start a rule fresh: its severity returns to **No Data** until the next evaluation, and an open alert closes without a recovery message. If the metric still breaches, the next evaluation announces a new alert.
+Some actions start a rule fresh: its severity returns to **No Data** until the next evaluation, and an open alert closes. If the metric still breaches, the next evaluation announces a new alert.
+
+Closing an open alert queues an `[OK]` message for Slack, normally within about a minute. It is not a recovery: it carries no measured value, and names who edited or resumed the rule. When the metric still breaches, the new `[ALERT]` follows the `[OK]`. A rule edited while paused still sends it, because the alert it closes was already announced. If Slack keeps refusing the message for about 30 minutes it is queued again; if no channel is set, the Slack connection is incomplete, or Slack rejected it, it is not sent again.
 
 | Action | Starts fresh |
 | --- | --- |

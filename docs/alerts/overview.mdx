@@ -71,7 +71,7 @@ Use the **Actions** menu on a row:
 - **Edit** opens the same form. Saving a change to the rule starts it fresh; a rename or a renotify change does not.
 - **Delete** removes the rule permanently. Type the alert's name to confirm.
 
-Starting fresh closes an open alert without a recovery message; see [Starting fresh](/alerts/rule-reference#starting-fresh).
+Starting fresh closes an open alert and posts an `[OK]` to Slack that says who edited or resumed the rule; see [Starting fresh](/alerts/rule-reference#starting-fresh). The edit form shows a reminder when the rule has an alert open. Deleting a rule with an alert open posts no closing message.
 
 ## Slack notifications
 
@@ -81,7 +81,7 @@ Slack is connected once per TraceRoot workspace, and every project in it posts a
 2. Click **Connect** and complete the authorization in Slack.
 3. Pick the channel TraceRoot should post to.
 
-Each message names the state and the rule, such as `[ALERT] p95 latency`, then states the value, threshold, window and filters in one sentence. **View alert** opens the rule, and a breach also links **View traces** for the evaluated window.
+Each message names the state and the rule, such as `[ALERT] p95 latency`, then states the value, threshold, window and filters in one sentence. **View alert** opens the rule, and a breach also links **View traces** for the evaluated window. The `[OK]` that closes an alert after an edit or a resume is not a recovery, so it states who made the change in place of a value.
 
 <Frame caption="Slack message: a breach with its value, threshold, window and links">
   <img src="/images/alerts_slack_v2.png" alt="Slack message for a p95 latency breach with View alert and View traces links" />
