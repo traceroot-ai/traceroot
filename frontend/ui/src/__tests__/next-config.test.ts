@@ -51,7 +51,7 @@ describe("next.config.js security headers", () => {
     expect(config.default.poweredByHeader).toBe(false);
   });
 
-  it("sends HSTS, nosniff, frame denial and a referrer policy on every path", async () => {
+  it("sends HSTS, nosniff, frame denial and a referrer policy on every path, and no-store on the API", async () => {
     const config = await import("../../next.config.js");
     expect(await config.default.headers?.()).toEqual([
       {
@@ -61,6 +61,15 @@ describe("next.config.js security headers", () => {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+      {
+        source: "/api/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "private, no-cache, no-store, max-age=0, must-revalidate",
+          },
         ],
       },
     ]);
