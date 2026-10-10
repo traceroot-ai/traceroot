@@ -1,5 +1,6 @@
 """Endpoint tests for the widget query router."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -162,6 +163,22 @@ def test_query_endpoint_pydantic_error_is_422(client):
     bad = {**VALID_BODY, "spec": {**VALID_BODY["spec"], "display": {"type": "gauge"}}}
     resp = client.post("/api/v1/projects/proj-1/widgets/query", json=bad)
     assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("token", ["1e999", "-1e999", "NaN", "Infinity"])
+def test_query_endpoint_non_finite_filter_value_is_422(client, token):
+    # json.loads turns these tokens into non-finite floats. The 422 echoes the
+    # rejected input back, and encoding it used to raise, which surfaced as a 500.
+    filters = [{"field": "model_name", "op": "=", "value": 0}]
+    body = {**VALID_BODY, "spec": {**VALID_BODY["spec"], "filters": filters}}
+    raw = json.dumps(body).replace('"value": 0', f'"value": {token}')
+    resp = client.post(
+        "/api/v1/projects/proj-1/widgets/query",
+        content=raw,
+        headers={"content-type": "application/json"},
+    )
+    assert resp.status_code == 422
+    assert {error["input"] for error in resp.json()["detail"]} <= {"inf", "-inf", "nan"}
 
 
 def test_query_endpoint_no_auth_is_not_200():

@@ -37,6 +37,26 @@ export async function getTraces(
   return fetchTraceApi<TraceListResponse>(endpoint, {}, user);
 }
 
+/**
+ * Summaries (name, errors, cost, latency) of a known set of traces, at most 100,
+ * whatever their age: no default time window applies to an id list.
+ */
+export async function getTracesByIds(
+  projectId: string,
+  traceIds: string[],
+  user?: TraceApiUser,
+): Promise<TraceListResponse> {
+  // No ids means no request: `limit=0` would violate the backend's `ge=1` bound.
+  if (traceIds.length === 0) {
+    return { data: [], meta: { page: 0, limit: 0, total: 0 } };
+  }
+  // Backend cap for ?trace_ids= (see backend/rest/routers/traces.py MAX_TRACE_IDS).
+  const ids = traceIds.slice(0, 100);
+  const params = new URLSearchParams({ limit: String(ids.length) });
+  for (const id of ids) params.append("trace_ids", id);
+  return fetchTraceApi<TraceListResponse>(`/projects/${projectId}/traces?${params}`, {}, user);
+}
+
 export async function tracesExist(
   projectId: string,
   user?: TraceApiUser,

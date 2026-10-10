@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   Layers,
+  Lightbulb,
   FlaskConical,
   Play,
   Ruler,
@@ -69,6 +70,8 @@ export const DOMAIN_ICONS = {
   project: FolderKanban,
   workspace: LayoutGrid,
   detector: Eye,
+  // A recurring problem: detector hits grouped by what one fix would remove.
+  signal: Lightbulb,
   environment: Globe,
   // Free-form key/value data the user attached to a trace, not a traceroot field.
   metadata: Braces,

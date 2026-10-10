@@ -26,12 +26,12 @@ function useApiUser() {
  * The filterable-field registry. Falls back to the static list (so the builder paints
  * immediately) until the live `/filter-fields` payload resolves, then uses that.
  */
-export function useFilterFields(projectId: string): FilterFieldDef[] {
+export function useFilterFields(projectId: string, enabled = true): FilterFieldDef[] {
   const { user, sessionReady } = useApiUser();
   const { data } = useQuery({
     queryKey: ["filter-fields", projectId],
     queryFn: () => getFilterFields(projectId, user),
-    enabled: sessionReady && !!projectId,
+    enabled: enabled && sessionReady && !!projectId,
     staleTime: Infinity,
   });
   return data?.fields ?? STATIC_FILTER_FIELDS;

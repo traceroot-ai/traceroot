@@ -330,6 +330,106 @@ def test_count_query_runs_under_the_shared_read_bounds():
     assert count_settings is READ_QUERY_SETTINGS
 
 
+def test_trace_ids_condition_lands_in_both_page_and_count_queries():
+    """A ``trace_ids`` lookup joins the SAME shared condition list as every other
+    filter, so the page and its total can never disagree."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1", trace_ids=["t-a", "t-b"])
+
+    assert svc._client.query.call_count == 2
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    count_sql = svc._client.query.call_args_list[1].args[0]
+    assert "t.trace_id IN {trace_ids:Array(String)}" in page_sql
+    assert "t.trace_id IN {trace_ids:Array(String)}" in count_sql
+    page_params = svc._client.query.call_args_list[0].kwargs["parameters"]
+    count_params = svc._client.query.call_args_list[1].kwargs["parameters"]
+    assert page_params["trace_ids"] == ["t-a", "t-b"]
+    assert count_params["trace_ids"] == ["t-a", "t-b"]
+
+
+def test_no_trace_ids_adds_no_condition():
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1")
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    params = svc._client.query.call_args_list[0].kwargs["parameters"]
+    assert "t.trace_id IN {trace_ids:Array(String)}" not in page_sql
+    assert "trace_ids" not in params
+
+
+def test_empty_trace_ids_list_is_treated_like_absent():
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1", trace_ids=[])
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    assert "t.trace_id IN {trace_ids:Array(String)}" not in page_sql
+
+
+def test_trace_ids_without_a_window_stays_unbounded():
+    """trace_ids is a lookup by known id, not a scan: unlike the ``filters`` path it
+    must NOT get the default lookback window — a signal's traces can be weeks old."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1", trace_ids=["t-a"])
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    params = svc._client.query.call_args_list[0].kwargs["parameters"]
+    assert "t.trace_start_time >=" not in page_sql
+    assert "start_after" not in params
+
+
+def test_trace_ids_with_filters_keeps_the_default_lookback():
+    """Filters scan spans, and that scan is bounded only by start_after: a trace_ids
+    lookup that also carries filters keeps the default lookback, in the span scan and
+    in both the page and the count query."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1", trace_ids=["t-a"], filters=_MODEL_FILTER)
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    count_sql = svc._client.query.call_args_list[1].args[0]
+    params = svc._client.query.call_args_list[0].kwargs["parameters"]
+    assert "t.trace_start_time >= {start_after:DateTime64(3)}" in page_sql
+    assert "t.trace_start_time >= {start_after:DateTime64(3)}" in count_sql
+    assert "span_start_time >=" in page_sql
+    assert "start_after" in params
+
+
+def test_trace_ids_still_honors_an_explicit_window():
+    """An explicit start_after/end_before still narrows a trace_ids lookup; only the
+    IMPLICIT default lookback is skipped."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+    start, end = datetime(2026, 1, 1), datetime(2026, 1, 2)
+
+    svc.list_traces(project_id="p1", trace_ids=["t-a"], start_after=start, end_before=end)
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    params = svc._client.query.call_args_list[0].kwargs["parameters"]
+    assert "t.trace_start_time >= {start_after:DateTime64(3)}" in page_sql
+    assert "t.trace_start_time < {end_before:DateTime64(3)}" in page_sql
+    assert params["start_after"] == start
+    assert params["end_before"] == end
+
+
+def test_trace_ids_still_scopes_to_the_project():
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1", trace_ids=["t-a"])
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    assert "t.project_id = {project_id:String}" in page_sql
+
+
 def test_both_queries_carry_an_execution_ceiling_and_the_readonly_flag():
     """The properties the bounds exist for, asserted on what the queries actually got.
 
