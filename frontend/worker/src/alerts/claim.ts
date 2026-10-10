@@ -1,6 +1,7 @@
 import {
   ALERT_WINDOWS,
   Prisma,
+  parseAlertPendingClose,
   prisma,
   type AlertPendingClose,
   type AlertSeverity,
@@ -146,7 +147,6 @@ function claimStatement(tick: AlertTick): Prisma.Sql {
       last_notify_error AS "lastNotifyError",
       last_notify_at AS "lastNotifyAt",
       last_notify_severity AS "lastNotifySeverity",
-      pending_close AS "pendingClose",
       -- Only a failed page can be waiting on Slack, so every other row skips the lookup.
       CASE WHEN last_notify_status = ${FAILED} THEN (
         SELECT s.update_time
@@ -409,15 +409,63 @@ export async function recordAlertNotifyOutcome(outcome: AlertNotifyOutcome): Pro
   }
 }
 
+/** An open page an edit or a resume discarded, whose close has not been posted yet. */
+export interface DiscardedAlertPage {
+  readonly alertId: string;
+  readonly projectId: string;
+  readonly name: string;
+  readonly pendingClose: AlertPendingClose;
+}
+
+interface PendingCloseRow {
+  readonly id: string;
+  readonly projectId: string;
+  readonly name: string;
+  readonly pendingClose: unknown;
+}
+
 /**
- * Takes the close an edit or a resume left on the rule, and is the only thing that
- * may: the marker is the mutex, so of two ticks that both read it one clears it and
- * the other matches nothing. True means this caller owns the close and has to send
- * it. Not under the claim token, which the edit that left the marker has just voided.
+ * Every rule with a close waiting, read apart from the claim on purpose. The close
+ * is about a page the channel already saw, not about the rule as it stands, so it is
+ * owed whether or not the rule is due, paused, parked, or even readable by this
+ * build: none of those may leave the page open. Oldest first under the claim's cap.
  */
-export async function takeAlertPendingClose(alertId: string): Promise<boolean> {
+export async function readPendingAlertCloses(): Promise<DiscardedAlertPage[]> {
+  const rows = await prisma.$queryRaw<PendingCloseRow[]>(Prisma.sql`
+    SELECT a.id, a.project_id AS "projectId", a.name, a.pending_close AS "pendingClose"
+    FROM alerts a
+    -- Deletion is soft, so no cascade fires: a deleted project has no channel to tell.
+    JOIN projects p ON p.id = a.project_id AND p.delete_time IS NULL
+    WHERE a.pending_close IS NOT NULL
+    ORDER BY a.update_time ASC
+    LIMIT ${ALERT_CLAIM_LIMIT}
+  `);
+
+  const pages: DiscardedAlertPage[] = [];
+  for (const row of rows) {
+    const pendingClose = parseAlertPendingClose(row.pendingClose);
+    if (pendingClose === null) {
+      logError(`unreadable close marker left alone alert=${row.id} project=${row.projectId}`);
+      continue;
+    }
+    pages.push({ alertId: row.id, projectId: row.projectId, name: row.name, pendingClose });
+  }
+  return pages;
+}
+
+/**
+ * Takes a close, and is the only thing that may: the marker is the mutex, so of two
+ * ticks that both read it one clears it and the other matches nothing. The guard is
+ * the marker that was read, not merely that one is there, so a newer close written
+ * since is left for the tick that reads it. True means this caller owns the close and
+ * has to send it. No status in the guard: a close is owed on a paused rule too.
+ */
+export async function takeAlertPendingClose(
+  alertId: string,
+  pendingClose: AlertPendingClose,
+): Promise<boolean> {
   const { count } = await prisma.alert.updateMany({
-    where: { id: alertId, status: ACTIVE, pendingClose: { not: Prisma.DbNull } },
+    where: { id: alertId, pendingClose: { equals: { ...pendingClose } } },
     data: { pendingClose: Prisma.DbNull },
   });
   return count === 1;

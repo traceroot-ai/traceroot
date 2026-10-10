@@ -26,7 +26,6 @@ const VALID_ROW: AlertRowLike = {
   lastNotifyAt: ALERTED_AT,
   lastNotifySeverity: "ALERT",
   slackUpdatedAt: null,
-  pendingClose: null,
 };
 
 const rowWith = (overrides: Partial<AlertRowLike>): AlertRowLike => ({
@@ -234,21 +233,5 @@ describe("parseAlertRule — severity degrades instead of discarding", () => {
       severityChangedAt: null,
       alertedAt: null,
     });
-  });
-});
-
-describe("parseAlertRule — the close an edit or a resume left behind", () => {
-  const marker = { reason: "edited", actorUserId: "user-1", at: "2026-08-12T10:06:00.000Z" };
-
-  it("carries a stored marker through for the tick to post", () => {
-    expect(parseAlertRule(rowWith({ pendingClose: marker }))?.pendingClose).toEqual(marker);
-  });
-
-  it("reads a value that is not a marker as nothing to close, leaving the rule evaluable", () => {
-    for (const pendingClose of [null, "edited", [], {}, { ...marker, reason: "deleted" }]) {
-      const rule = parseAlertRule(rowWith({ pendingClose }));
-      expect(rule).not.toBeNull();
-      expect(rule?.pendingClose).toBeNull();
-    }
   });
 });

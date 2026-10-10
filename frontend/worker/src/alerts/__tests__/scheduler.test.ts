@@ -5,6 +5,7 @@ import type {
   AlertEmissionRevert,
   AlertFailureRecord,
   ClaimedAlert,
+  DiscardedAlertPage,
 } from "../claim.js";
 import type { AlertLastDelivery, AlertRule } from "../rule.js";
 import type { AlertEvaluationRequest, AlertEvaluationResult } from "../evaluator-client.js";
@@ -19,7 +20,9 @@ const parkAlertRule = vi.fn<(failure: AlertFailureRecord) => Promise<boolean>>()
 const revertAlertEmissionState = vi.fn<(revert: AlertEmissionRevert) => Promise<boolean>>();
 const enqueueAlertNotification = vi.fn<(payload: AlertNotification) => Promise<void>>();
 const enqueueAlertClose = vi.fn<(close: Omit<AlertCloseJob, "kind">) => Promise<void>>();
-const takeAlertPendingClose = vi.fn<(alertId: string) => Promise<boolean>>();
+const readPendingAlertCloses = vi.fn<() => Promise<DiscardedAlertPage[]>>();
+const takeAlertPendingClose =
+  vi.fn<(alertId: string, pendingClose: AlertPendingClose) => Promise<boolean>>();
 const restoreAlertPendingClose =
   vi.fn<(alertId: string, pendingClose: AlertPendingClose) => Promise<boolean>>();
 
@@ -35,6 +38,7 @@ vi.mock("../claim.js", () => ({
   claimDueAlerts,
   completeAlertEvaluation,
   parkAlertRule,
+  readPendingAlertCloses,
   recordAlertEvaluationFailure,
   restoreAlertPendingClose,
   revertAlertEmissionState,
@@ -84,7 +88,6 @@ const claimWith = (id: string, overrides: Partial<AlertRule> = {}): ClaimedAlert
     noDataMode: "HOLD",
     state: { severity: "OK", severityChangedAt: null, alertedAt: null },
     lastDelivery: { status: null, error: null, at: null, severity: null, slackUpdatedAt: null },
-    pendingClose: null,
     ...overrides,
   },
   claimStamp: NOW,
@@ -126,6 +129,7 @@ beforeEach(() => {
   revertAlertEmissionState.mockReset().mockResolvedValue(true);
   enqueueAlertNotification.mockReset().mockResolvedValue(undefined);
   enqueueAlertClose.mockReset().mockResolvedValue(undefined);
+  readPendingAlertCloses.mockReset().mockResolvedValue([]);
   takeAlertPendingClose.mockReset().mockResolvedValue(true);
   restoreAlertPendingClose.mockReset().mockResolvedValue(true);
 });
@@ -820,83 +824,142 @@ describe("runAlertTick — a page an edit or a resume discarded", () => {
     actorUserId: "user-1",
     at: "2026-08-12T10:36:10.000Z",
   };
-  // What the reset leaves: nothing outstanding, so the state machine alone says nothing.
-  const editedClaim = () => claimWith("a", { pendingClose: marker });
+  const discarded = (alertId: string): DiscardedAlertPage => ({
+    alertId,
+    projectId: "proj-1",
+    name: `Alert ${alertId}`,
+    pendingClose: marker,
+  });
 
-  it("posts the close, then the fresh page when the edited rule still breaches", async () => {
-    const sent: string[] = [];
-    enqueueAlertClose.mockImplementation(async () => void sent.push("close"));
-    enqueueAlertNotification.mockImplementation(async () => void sent.push("page"));
-    claimDueAlerts.mockResolvedValue([editedClaim()]);
+  it("rides on the fresh page when the edited rule still breaches, as one job", async () => {
+    readPendingAlertCloses.mockResolvedValue([discarded("a")]);
+    claimDueAlerts.mockResolvedValue([claimWith("a")]);
     evaluateAlerts.mockResolvedValue([breachResult("a")]);
 
     await runAlertTick(NOW);
 
-    expect(takeAlertPendingClose).toHaveBeenCalledWith("a");
+    expect(takeAlertPendingClose).toHaveBeenCalledWith("a", marker);
+    // Two jobs would race on the consumer, and a page that won would read as the
+    // alert the close then ends. One job posts them in order.
+    expect(enqueueAlertNotification).toHaveBeenCalledTimes(1);
+    expect(enqueueAlertNotification.mock.calls[0][0]).toMatchObject({
+      alertId: "a",
+      severity: "ALERT",
+      closeFirst: marker,
+    });
+    expect(enqueueAlertClose).not.toHaveBeenCalled();
+  });
+
+  it("goes out alone when the edited rule no longer breaches", async () => {
+    readPendingAlertCloses.mockResolvedValue([discarded("a")]);
+    claimDueAlerts.mockResolvedValue([claimWith("a")]);
+    evaluateAlerts.mockResolvedValue([okResult("a")]);
+
+    await runAlertTick(NOW);
+
+    expect(enqueueAlertNotification).not.toHaveBeenCalled();
     expect(enqueueAlertClose).toHaveBeenCalledWith({
       alertId: "a",
       projectId: "proj-1",
       name: "Alert a",
       ...marker,
     });
-    // Each start keeps its end: the old page closes before the new one opens.
-    expect(sent).toEqual(["close", "page"]);
-    expect(enqueueAlertNotification.mock.calls[0][0]).toMatchObject({
-      severity: "ALERT",
-      previousSeverity: "OK",
-    });
   });
 
-  it("posts the close alone when the edited rule no longer breaches", async () => {
-    claimDueAlerts.mockResolvedValue([editedClaim()]);
-    evaluateAlerts.mockResolvedValue([okResult("a")]);
+  it("goes out for a rule this tick did not evaluate: paused, parked, or not due", async () => {
+    readPendingAlertCloses.mockResolvedValue([discarded("paused")]);
 
     await runAlertTick(NOW);
 
+    expect(takeAlertPendingClose).toHaveBeenCalledWith("paused", marker);
     expect(enqueueAlertClose).toHaveBeenCalledTimes(1);
-    expect(enqueueAlertNotification).not.toHaveBeenCalled();
   });
 
-  it("sends nothing when another tick already took the marker", async () => {
+  it("still goes out when the claim fails or the rule's evaluation does", async () => {
+    readPendingAlertCloses.mockResolvedValue([discarded("a")]);
+    claimDueAlerts.mockRejectedValue(new Error("pool exhausted"));
+    await runAlertTick(NOW);
+    expect(enqueueAlertClose).toHaveBeenCalledTimes(1);
+
+    claimDueAlerts.mockReset().mockResolvedValue([claimWith("a")]);
+    evaluateAlerts.mockRejectedValue(new Error("clickhouse down"));
+    await runAlertTick(NOW);
+    expect(enqueueAlertClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends nothing when another tick already took the marker, and pages without it", async () => {
     takeAlertPendingClose.mockResolvedValue(false);
-    claimDueAlerts.mockResolvedValue([editedClaim()]);
-    evaluateAlerts.mockResolvedValue([okResult("a")]);
+    readPendingAlertCloses.mockResolvedValue([discarded("a"), discarded("b")]);
+    claimDueAlerts.mockResolvedValue([claimWith("a")]);
+    evaluateAlerts.mockResolvedValue([breachResult("a")]);
 
     await runAlertTick(NOW);
 
     expect(enqueueAlertClose).not.toHaveBeenCalled();
     expect(restoreAlertPendingClose).not.toHaveBeenCalled();
+    expect(enqueueAlertNotification.mock.calls[0][0].closeFirst).toBeUndefined();
   });
 
-  it("puts the marker back when the close cannot be queued, and still evaluates the rule", async () => {
+  it("puts the marker back when the close cannot be queued alone", async () => {
     enqueueAlertClose.mockRejectedValue(new Error("redis down"));
-    claimDueAlerts.mockResolvedValue([editedClaim()]);
-    evaluateAlerts.mockResolvedValue([okResult("a")]);
+    readPendingAlertCloses.mockResolvedValue([discarded("a")]);
 
     await runAlertTick(NOW);
 
     expect(restoreAlertPendingClose).toHaveBeenCalledWith("a", marker);
-    expect(completeAlertEvaluation).toHaveBeenCalledTimes(1);
   });
 
-  it("does not let a failed take stop the tick", async () => {
-    takeAlertPendingClose.mockRejectedValue(new Error("pool exhausted"));
-    claimDueAlerts.mockResolvedValue([editedClaim(), claimWith("b")]);
-    evaluateAlerts.mockResolvedValue([okResult("a"), okResult("b")]);
-
-    await runAlertTick(NOW);
-
-    expect(enqueueAlertClose).not.toHaveBeenCalled();
-    expect(completeAlertEvaluation).toHaveBeenCalledTimes(2);
-  });
-
-  it("touches no marker on a rule that has none", async () => {
+  it("puts the marker back with the page it rode on when that page cannot be queued", async () => {
+    enqueueAlertNotification.mockRejectedValue(new Error("redis down"));
+    readPendingAlertCloses.mockResolvedValue([discarded("a")]);
     claimDueAlerts.mockResolvedValue([claimWith("a")]);
-    evaluateAlerts.mockResolvedValue([okResult("a")]);
+    evaluateAlerts.mockResolvedValue([breachResult("a")]);
 
     await runAlertTick(NOW);
 
-    expect(takeAlertPendingClose).not.toHaveBeenCalled();
+    expect(revertAlertEmissionState).toHaveBeenCalledTimes(1);
+    expect(restoreAlertPendingClose).toHaveBeenCalledWith("a", marker);
+    // Carried once and put back once: it is not also sent alone behind the failure.
+    expect(enqueueAlertClose).not.toHaveBeenCalled();
+  });
+
+  it("evaluates as usual when the closes cannot be read or taken", async () => {
+    readPendingAlertCloses.mockRejectedValue(new Error("pool exhausted"));
+    claimDueAlerts.mockResolvedValue([claimWith("a")]);
+    evaluateAlerts.mockResolvedValue([breachResult("a")]);
+    await runAlertTick(NOW);
+    expect(enqueueAlertNotification).toHaveBeenCalledTimes(1);
+
+    readPendingAlertCloses.mockReset().mockResolvedValue([discarded("a")]);
+    takeAlertPendingClose.mockRejectedValue(new Error("pool exhausted"));
+    await runAlertTick(NOW);
+    expect(enqueueAlertNotification).toHaveBeenCalledTimes(2);
+    expect(enqueueAlertNotification.mock.calls[1][0].closeFirst).toBeUndefined();
+    expect(enqueueAlertClose).not.toHaveBeenCalled();
+  });
+
+  it("does not let one stuck close hold the others behind it", async () => {
+    let release: () => void = () => {};
+    const stuck = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    enqueueAlertClose.mockImplementation(async (close) => {
+      if (close.alertId === "c0") await stuck;
+    });
+    readPendingAlertCloses.mockResolvedValue(["c0", "c1", "c2"].map(discarded));
+
+    const tick = runAlertTick(NOW);
+    await yieldToLoop();
+    await yieldToLoop();
+
+    // A serial loop would still be waiting on the first.
+    expect(enqueueAlertClose.mock.calls.map(([close]) => close.alertId)).toEqual([
+      "c0",
+      "c1",
+      "c2",
+    ]);
+    release();
+    await tick;
   });
 });
 
