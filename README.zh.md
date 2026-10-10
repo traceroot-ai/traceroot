@@ -84,11 +84,16 @@ https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
-cp .env.example .env
+test -f .env || cp .env.example .env
+# 启动前，在 .env 中设置 INTERNAL_API_SECRET 和 BETTER_AUTH_SECRET。
+# 同时取消 SQL_GATEWAY_BOOTSTRAP_PASSWORD 的注释并设置其值。
+# 每项使用不同的密钥：分别运行三次 openssl rand -hex 32。
 make prod-lite
 ```
 
 打开 [localhost:3000](http://localhost:3000)。配置与部署详情请参阅[自托管指南](https://traceroot.ai/docs/developer/self-hosting)。
+
+生产部署可使用 [Helm chart](https://github.com/traceroot-ai/traceroot-k8s) 或 [AWS Terraform 模块](https://github.com/traceroot-ai/traceroot-terraform-aws)。
 
 ## 配置 TraceRoot
 

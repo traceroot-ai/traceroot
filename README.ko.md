@@ -84,11 +84,16 @@ Git, Docker Compose, Make를 설치한 뒤 로컬에서 실행하세요:
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
-cp .env.example .env
+test -f .env || cp .env.example .env
+# 시작 전에 .env에서 INTERNAL_API_SECRET과 BETTER_AUTH_SECRET을 설정하세요.
+# SQL_GATEWAY_BOOTSTRAP_PASSWORD의 주석도 해제하고 값을 설정하세요.
+# 각 항목에 다른 비밀 값을 사용하세요: openssl rand -hex 32를 세 번 실행하세요.
 make prod-lite
 ```
 
 [localhost:3000](http://localhost:3000)을 여세요. 설정과 배포에 관한 자세한 내용은 [셀프 호스팅 가이드](https://traceroot.ai/docs/developer/self-hosting)를 참고하세요.
+
+프로덕션 배포에는 [Helm 차트](https://github.com/traceroot-ai/traceroot-k8s) 또는 [AWS Terraform 모듈](https://github.com/traceroot-ai/traceroot-terraform-aws)을 사용하세요.
 
 ## TraceRoot 설정하기
 
