@@ -816,10 +816,10 @@ describe("sendAlertClose", () => {
     expect(alertUpdateMany).not.toHaveBeenCalled();
   });
 
-  it("falls back to the email, and to no name at all for an account that is gone", async () => {
+  it("names nobody for an account with no name, or one that is gone, and never reads an email", async () => {
     const { sendAlertClose } = await importModule();
 
-    userFindUnique.mockResolvedValueOnce({ name: "", email: "ada@example.com" });
+    userFindUnique.mockResolvedValueOnce({ name: "" });
     await sendAlertClose(closeJob);
     userFindUnique.mockResolvedValueOnce(null);
     await sendAlertClose(closeJob);
@@ -827,7 +827,13 @@ describe("sendAlertClose", () => {
     const actors = buildAlertClosedBlocks.mock.calls.map(
       ([params]) => (params as { actor: unknown }).actor,
     );
-    expect(actors).toEqual(["ada@example.com", null]);
+    expect(actors).toEqual([null, null]);
+    // The channel's readers need not have access to the project, so the address
+    // the app would fall back to is not even selected.
+    expect(userFindUnique).toHaveBeenCalledWith({
+      where: { id: "user_1" },
+      select: { name: true },
+    });
   });
 
   it("posts the close of a paused rule: pausing does not undo the discard", async () => {
