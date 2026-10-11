@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addViewedTrace,
   MAX_VIEWED_TRACES,
+  mergeViewedTrace,
   normalizeViewedTraces,
   toStoredViewedTraces,
   viewedTracesKey,
@@ -64,5 +65,50 @@ describe("toStoredViewedTraces", () => {
     const stored = toStoredViewedTraces(ids);
     expect(stored).toEqual({ version: 1, ids: ["t-1", "t-2"] });
     expect(stored.ids).not.toBe(ids);
+  });
+});
+
+describe("mergeViewedTrace", () => {
+  function fakeStorage(initial: string[]) {
+    let value = [...initial];
+    return {
+      read: () => [...value],
+      write: (ids: string[]) => {
+        value = [...ids];
+      },
+      snapshot: () => [...value],
+    };
+  }
+
+  it("adds the trace and writes it", () => {
+    const storage = fakeStorage([]);
+    expect(mergeViewedTrace(storage, "t-1")).toEqual(["t-1"]);
+    expect(storage.snapshot()).toEqual(["t-1"]);
+  });
+
+  it("returns the current list without writing when the trace is already newest", () => {
+    const storage = fakeStorage(["t-1"]);
+    expect(mergeViewedTrace(storage, "t-1")).toEqual(["t-1"]);
+    expect(storage.snapshot()).toEqual(["t-1"]);
+  });
+
+  it("merges back a trace another tab wrote between the write and the re-read", () => {
+    // The competitor overwrites storage once, right after our first write, standing in for a tab
+    // that raced us. The bounded re-read has to union both traces rather than let one drop.
+    let value = ["t-other"];
+    let competitor: string[] | null = ["t-other", "t-other-2"];
+    const storage = {
+      read: () => [...value],
+      write: (ids: string[]) => {
+        value = [...ids];
+        if (competitor) {
+          value = competitor;
+          competitor = null;
+        }
+      },
+    };
+
+    expect(mergeViewedTrace(storage, "t-mine")).toEqual(["t-other", "t-other-2", "t-mine"]);
+    expect(value).toEqual(["t-other", "t-other-2", "t-mine"]);
   });
 });

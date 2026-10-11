@@ -164,4 +164,20 @@ describe("TracesPage marks opened traces viewed", () => {
 
     expect(markViewedUnderNextProject).not.toHaveBeenCalled();
   });
+
+  it("marks the row again when it is opened after a project switch", () => {
+    const { rerender } = render(<TracesPage />, { wrapper: Wrapper });
+    fireEvent.click(screen.getByText("t1"));
+    expect(markViewed).toHaveBeenCalledWith("t1");
+
+    project = "p2";
+    rerender(<TracesPage />);
+    markViewedUnderNextProject.mockClear();
+
+    // The switch re-scopes the selection to null, so opening the same row is a new selection and
+    // marks it under the new project rather than staying unread.
+    fireEvent.click(screen.getByText("t1"));
+
+    expect(markViewedUnderNextProject).toHaveBeenCalledWith("t1");
+  });
 });

@@ -68,3 +68,35 @@ export function addViewedTrace(current: readonly string[], traceId: string): str
   if (current[0] === traceId) return [...current];
   return [traceId, ...current.filter((id) => id !== traceId)].slice(0, MAX_VIEWED_TRACES);
 }
+
+/** How many extra read-merge passes run when a concurrent tab's write is detected. */
+const MAX_MERGE_ATTEMPTS = 2;
+
+/** The storage the merge reads and writes, so it can be exercised without a browser. */
+export interface ViewedTraceStorage {
+  read: () => string[];
+  write: (ids: string[]) => void;
+}
+
+/**
+ * Merge one trace into the viewed set on storage and return the merged list.
+ *
+ * localStorage has no compare-and-set, so two tabs can interleave a read-modify-write and the
+ * later write drops the earlier tab's trace (its dot comes back). The read and the write here are
+ * kept synchronous and adjacent, so the window is a single tick rather than a whole React commit,
+ * and a bounded re-read then merges back whatever a racing tab landed on disk. This is best-effort
+ * by nature: it closes the common race, not a write that lands after the final re-read.
+ */
+export function mergeViewedTrace(storage: ViewedTraceStorage, traceId: string): string[] {
+  const current = storage.read();
+  if (current[0] === traceId) return current;
+  let merged = addViewedTrace(current, traceId);
+  storage.write(merged);
+  for (let attempt = 0; attempt < MAX_MERGE_ATTEMPTS; attempt++) {
+    const onDisk = storage.read();
+    if (merged.every((id) => onDisk.includes(id))) break;
+    merged = Array.from(new Set([...onDisk, ...merged])).slice(0, MAX_VIEWED_TRACES);
+    storage.write(merged);
+  }
+  return merged;
+}

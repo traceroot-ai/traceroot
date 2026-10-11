@@ -5,16 +5,14 @@
  * localStorage (see `viewed-storage`). The list paints an unviewed trace with a leading dot, and
  * opening a trace marks it viewed, so the dot clears the moment the user looks at the row.
  *
- * The mutator reads the live localStorage entry, not this tab's React state, before adding: the
- * entry is live in every tab on the project, and a `storage` event reaches the other tabs only
- * after the write, so in that window this tab's state is a version behind. Adding to the stale
- * state would write back a list missing the other tab's trace and turn its dot on again. This is
- * the same reason `useTraceColumns` reads before it writes.
+ * The mutator writes through storage synchronously (`mergeViewedTrace`) instead of the state
+ * setter's write, which React defers to a later commit: the entry is live in every tab on the
+ * project, so a deferred write would widen the window in which another tab's mark can be dropped.
  */
 import { useCallback, useMemo } from "react";
-import { readStored, useLocalStorage } from "@/lib/hooks/use-local-storage";
+import { readStored, useLocalStorage, writeStored } from "@/lib/hooks/use-local-storage";
 import {
-  addViewedTrace,
+  mergeViewedTrace,
   NO_VIEWED_TRACES,
   normalizeViewedTraces,
   toStoredViewedTraces,
@@ -39,14 +37,20 @@ export function useViewedTraces(projectId: string): UseViewedTracesReturn {
   const markViewed = useCallback(
     (traceId: string) => {
       if (traceId === "") return;
-      // Read on disk, falling back to this tab's state when storage is unavailable. The read is
-      // here rather than inside the setter's updater because the setter persists on every call,
-      // so a read inside it would see its own first write on a StrictMode double-invoke.
-      const current = normalizeViewedTraces(readStored(viewedTracesKey(projectId), stored));
-      // Already the most recent viewing: nothing to write, so the open trace does not rewrite
-      // storage or re-render the list on every selection.
-      if (current[0] === traceId) return;
-      setStored(toStoredViewedTraces(addViewedTrace(current, traceId)));
+      const key = viewedTracesKey(projectId);
+      // Read and write the live entry directly, so the read-modify-write is synchronous and the
+      // merge can re-read if another tab raced us. `stored` is the fallback when storage is
+      // unavailable (private mode), where the merge still returns a usable list.
+      const merged = mergeViewedTrace(
+        {
+          read: () => normalizeViewedTraces(readStored(key, stored)),
+          write: (ids) => writeStored(key, toStoredViewedTraces(ids)),
+        },
+        traceId,
+      );
+      // Mirror the merged list into React state so the list re-renders. The setter rewrites the
+      // same bytes; harmless, and it keeps the in-session value correct if storage is unavailable.
+      setStored(toStoredViewedTraces(merged));
     },
     [projectId, setStored, stored],
   );
