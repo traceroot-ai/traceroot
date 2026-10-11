@@ -95,7 +95,10 @@ export function mergeViewedTrace(storage: ViewedTraceStorage, traceId: string): 
   for (let attempt = 0; attempt < MAX_MERGE_ATTEMPTS; attempt++) {
     const onDisk = storage.read();
     if (merged.every((id) => onDisk.includes(id))) break;
-    merged = Array.from(new Set([...onDisk, ...merged])).slice(0, MAX_VIEWED_TRACES);
+    // Re-front `traceId`: a racing tab already at the cap would fill the first slots of the union,
+    // and the cap would then drop the very trace being marked. Keeping it first drops the oldest
+    // id instead, which is what the cap is for.
+    merged = Array.from(new Set([traceId, ...onDisk, ...merged])).slice(0, MAX_VIEWED_TRACES);
     storage.write(merged);
   }
   return merged;

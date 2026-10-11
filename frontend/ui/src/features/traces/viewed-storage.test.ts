@@ -71,12 +71,15 @@ describe("toStoredViewedTraces", () => {
 describe("mergeViewedTrace", () => {
   function fakeStorage(initial: string[]) {
     let value = [...initial];
+    let writeCount = 0;
     return {
       read: () => [...value],
       write: (ids: string[]) => {
         value = [...ids];
+        writeCount += 1;
       },
       snapshot: () => [...value],
+      writeCount: () => writeCount,
     };
   }
 
@@ -89,7 +92,7 @@ describe("mergeViewedTrace", () => {
   it("returns the current list without writing when the trace is already newest", () => {
     const storage = fakeStorage(["t-1"]);
     expect(mergeViewedTrace(storage, "t-1")).toEqual(["t-1"]);
-    expect(storage.snapshot()).toEqual(["t-1"]);
+    expect(storage.writeCount()).toBe(0);
   });
 
   it("merges back a trace another tab wrote between the write and the re-read", () => {
@@ -108,7 +111,31 @@ describe("mergeViewedTrace", () => {
       },
     };
 
-    expect(mergeViewedTrace(storage, "t-mine")).toEqual(["t-other", "t-other-2", "t-mine"]);
-    expect(value).toEqual(["t-other", "t-other-2", "t-mine"]);
+    expect(mergeViewedTrace(storage, "t-mine")).toEqual(["t-mine", "t-other", "t-other-2"]);
+    expect(value).toEqual(["t-mine", "t-other", "t-other-2"]);
+  });
+
+  it("keeps the marked trace when a racing tab's list is already at the cap", () => {
+    // A full list from the other tab would fill the union's first slots and the cap would drop the
+    // trace we are marking. The mark has to survive and displace an older id instead.
+    const full = Array.from({ length: MAX_VIEWED_TRACES }, (_, i) => `old-${i}`);
+    let value = [...full];
+    let competitor: string[] | null = [...full];
+    const storage = {
+      read: () => [...value],
+      write: (ids: string[]) => {
+        value = [...ids];
+        if (competitor) {
+          value = competitor;
+          competitor = null;
+        }
+      },
+    };
+
+    const merged = mergeViewedTrace(storage, "t-mine");
+
+    expect(merged).toHaveLength(MAX_VIEWED_TRACES);
+    expect(merged[0]).toBe("t-mine");
+    expect(value).toContain("t-mine");
   });
 });
