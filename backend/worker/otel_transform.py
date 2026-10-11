@@ -154,6 +154,9 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
         # name is present (the token block is model-gated), so usage reported
         # without traceroot.llm.model is dropped entirely rather than priced.
         "traceroot.llm.usage",
+        # -> token/cost pipeline (parse_input_is_net). The reporter's explicit
+        # statement of the input convention; see worker.tokens.buckets.
+        "traceroot.llm.usage.input_is_net",
     }
 )
 
@@ -352,6 +355,58 @@ _MANUAL_USAGE_KEYS = (
 )
 
 
+# Non-count fields of the manual usage dict. They are read by their own parser
+# (parse_manual_usage_input_is_net), so parse_manual_usage must not report them
+# as unrecognized.
+_MANUAL_USAGE_FLAG_KEYS = ("input_is_net",)
+
+
+def parse_input_is_net(value: Any) -> bool | None:
+    """Parse an explicit "the input is net of cache" flag.
+
+    Untrusted wire input. Accepts a bool, or the strings ``"true"``/``"false"``
+    in any case (some SDKs stringify attribute values). Anything else is ignored
+    with a warning, so the convention falls back to the emitter table.
+
+    Args:
+        value (Any): The raw flag, or None when it was not reported.
+
+    Returns:
+        bool | None: The flag, or None when it is missing or unusable.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+        return value.strip().lower() == "true"
+    logger.warning("input_is_net is not a boolean (%r); ignoring it", value)
+    return None
+
+
+def parse_manual_usage_input_is_net(raw: Any) -> bool | None:
+    """Read ``input_is_net`` from the manual usage dict.
+
+    Same untrusted-input rules as ``parse_manual_usage``: a payload that is not
+    valid JSON or not an object yields None. It does not warn about the payload
+    itself, because ``parse_manual_usage`` already does.
+
+    Args:
+        raw (Any): The raw ``traceroot.llm.usage`` attribute value.
+
+    Returns:
+        bool | None: The flag, or None when it is missing or unusable.
+    """
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError, RecursionError):
+            return None
+    if not isinstance(raw, dict):
+        return None
+    return parse_input_is_net(raw.get("input_is_net"))
+
+
 def parse_manual_usage(raw: Any) -> dict[str, int]:
     """Parse the manual usage dict reported via the SDKs' update-span API.
 
@@ -388,7 +443,9 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
     # they vanish without any signal at all — a provider token type we don't model
     # yet (audio, image, a new cache variant) reads as if it was never reported.
     # Bounded because the payload is client-controlled.
-    unrecognized = sorted(k for k in raw if k not in _MANUAL_USAGE_KEYS)
+    unrecognized = sorted(
+        k for k in raw if k not in _MANUAL_USAGE_KEYS and k not in _MANUAL_USAGE_FLAG_KEYS
+    )
     if unrecognized:
         logger.warning(
             "Manual usage fields %s are not recognized and were ignored; recognized fields are %s",
@@ -683,6 +740,7 @@ def transform_otel_to_clickhouse(
         for scope_span in scope_spans:
             otel_spans = scope_span.get("spans", [])
             scope_name = (scope_span.get("scope") or {}).get("name")
+            scope_version = (scope_span.get("scope") or {}).get("version")
 
             for otel_span in otel_spans:
                 # Decode IDs (camelCase: traceId, spanId, parentSpanId)
@@ -968,13 +1026,24 @@ def transform_otel_to_clickhouse(
                     # it states the invariant where the dict is read — manual usage
                     # must never resurrect counts on a span we suppressed — and skips
                     # a needless parse.
+                    # The reporter's explicit input convention. The span attribute
+                    # applies to whichever counts are adopted; the flag inside the
+                    # manual dict applies only when that dict is adopted below, so
+                    # it can never relabel an instrumentor's counts.
+                    input_is_net = parse_input_is_net(
+                        span_attrs.get("traceroot.llm.usage.input_is_net")
+                    )
+
                     if (
                         not aggregate_wrapper
                         and api_input_tokens is None
                         and api_output_tokens is None
                     ):
-                        manual_usage = parse_manual_usage(span_attrs.get("traceroot.llm.usage"))
+                        raw_manual_usage = span_attrs.get("traceroot.llm.usage")
+                        manual_usage = parse_manual_usage(raw_manual_usage)
                         if "input_tokens" in manual_usage or "output_tokens" in manual_usage:
+                            if input_is_net is None:
+                                input_is_net = parse_manual_usage_input_is_net(raw_manual_usage)
                             api_input_tokens = manual_usage.get("input_tokens")
                             api_output_tokens = manual_usage.get("output_tokens")
                             api_cache_read_tokens = manual_usage.get("cache_read_tokens")
@@ -1017,15 +1086,17 @@ def transform_otel_to_clickhouse(
                             cache_read_tokens=int_or_zero(api_cache_read_tokens),
                             cache_write_tokens=int_or_zero(api_cache_write_tokens),
                             cache_write_1h_tokens=int_or_zero(api_cache_write_1h_tokens),
+                            scope_version=scope_version,
+                            input_is_net=input_is_net,
                         )
                         # Store a GROSS (cache-inclusive) input reconstructed from the
                         # disjoint buckets, so the input column always reconciles with
                         # its cache breakdown. Net/exclusive emitters report only the
-                        # non-cached tokens in llm.token_count.prompt with cache as
-                        # separate additive buckets, so the reported input alone
-                        # (e.g. 2) understates the true total; summing the buckets
-                        # recovers it. Gross emitters are unchanged (cache is already
-                        # a subset of the input).
+                        # non-cached tokens with cache as separate additive buckets,
+                        # so the reported input alone (e.g. 2) understates the true
+                        # total; summing the buckets recovers it (2 + cache). Gross
+                        # emitters are unchanged (cache is already a subset of the
+                        # input).
                         gross_input = (
                             buckets.input_uncached + buckets.cache_read + buckets.cache_write
                         )

@@ -285,7 +285,8 @@ def test_net_emitter_input_stored_as_reconstructed_gross():
     assert s["usage_details"]["cache_read_tokens"] == 29956
     assert s["usage_details"]["cache_write_tokens"] == 2560
     # input is the reconstructed gross (was understated at 2), reconciling with cache.
-    assert s["input_tokens"] == 29956 + 2560
+    # The 2 reported tokens are the uncached bucket and are part of the total.
+    assert s["input_tokens"] == 2 + 29956 + 2560
     assert s["total_tokens"] == s["input_tokens"] + 2342
 
 

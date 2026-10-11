@@ -63,14 +63,19 @@ def make_exception_event(
 
 
 def make_otel_payload(
-    spans: list[dict], scope_name: str = "openinference.instrumentation.test"
+    spans: list[dict],
+    scope_name: str = "openinference.instrumentation.test",
+    scope_version: str | None = None,
 ) -> dict:
     """Wrap span dicts into a full OTEL resourceSpans payload."""
+    scope: dict = {"name": scope_name}
+    if scope_version is not None:
+        scope["version"] = scope_version
     return {
         "resourceSpans": [
             {
                 "resource": {"attributes": []},
-                "scopeSpans": [{"scope": {"name": scope_name}, "spans": spans}],
+                "scopeSpans": [{"scope": scope, "spans": spans}],
             }
         ]
     }
