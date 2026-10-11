@@ -48,10 +48,7 @@ ALLOW_UNFILTERED_METHODS = {
         "source = 'user' itself (012_create_public_sql_views.sql); it can only "
         "remove rows from that guarded scan"
     ),
-    ("rest/services/trace_reader.py", "_evaluation_exclusion"): (
-        "NOT IN subquery: it can only remove rows from the guarded scan it is ANDed into"
-    ),
-    ("rest/services/trace_reader.py", "windowed_evaluation_exclusion"): (
+    ("rest/services/trace_reader.py", "_evaluation_trace_ids"): (
         "NOT IN subquery: it can only remove rows from the guarded scan it is ANDed into"
     ),
     ("rest/services/trace_reader.py", "get_trace_start_time"): (
@@ -253,6 +250,16 @@ def test_method_exemptions_name_real_functions():
         is_function = re.search(rf"^[ \t]*(?:async\s+)?def {name}\(", text, re.MULTILINE)
         is_constant = re.search(rf"^{name}\s*(?::[^=\n]+)?=", text, re.MULTILINE)
         assert is_function or is_constant, f"{rel} has no {name}"
+
+
+def test_method_exemptions_exempt_a_real_scan():
+    """A scope whose scans the audit cannot see (a table name built from a template, or a
+    scan inside a nested helper) leaves its entry exempting nothing while those scans go
+    unjudged. Every entry must cover at least one scan the audit actually finds."""
+    for rel, name in ALLOW_UNFILTERED_METHODS:
+        text = prose_blanked((BACKEND / rel).read_text())
+        scopes = {(_enclosing_function(text, m.start()) or ("",))[0] for m in SCAN.finditer(text)}
+        assert name in scopes, f"{rel}:{name} is allowlisted but no scan is attributed to it"
 
 
 def test_prose_is_skipped_but_a_real_query_beside_it_is_not():
