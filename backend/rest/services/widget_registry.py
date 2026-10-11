@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Literal
 
-from rest.services.trace_reader import customer_traffic_only
+from rest.services.trace_reader import customer_traffic_only, windowed_evaluation_exclusion
 
 FILTER_OPS_STRING = ("=", "contains")
 FILTER_OPS_NUMBER = (">", ">=", "<", "<=", "=")
@@ -80,6 +80,14 @@ KEYED_COLUMN_SLOT = "--keyed-columns"
 METADATA_MAP_COLUMN = "metadata_map"
 
 
+# Offline-evaluation traces are not production traffic: the Tracing page and the
+# dashboard's trace-feed tiles already hide them, so a metric tile counting them would
+# disagree with the list beside it, and a metric alert would fire on a CI eval run.
+# Applied at every scan site next to the source guard, bounded by the same window
+# parameters every base relation binds.
+_NOT_EVALUATION = windowed_evaluation_exclusion("start_time", "end_time")
+
+
 _SPANS_BASE = f"""
     SELECT
         name, span_kind, status, error_type, model_name, environment, trace_id,
@@ -100,6 +108,7 @@ _SPANS_BASE = f"""
         FROM spans
         WHERE project_id = {{project_id:String}}
           AND {customer_traffic_only()}
+          AND {_NOT_EVALUATION}
           AND span_start_time >= {{start_time:DateTime64(3)}}
           AND span_start_time < {{end_time:DateTime64(3)}}
         ORDER BY ch_update_time DESC
@@ -136,6 +145,7 @@ _TRACES_BASE = f"""
         FROM traces
         WHERE project_id = {{project_id:String}}
           AND {customer_traffic_only()}
+          AND {_NOT_EVALUATION}
           AND trace_start_time >= {{start_time:DateTime64(3)}}
           AND trace_start_time < {{end_time:DateTime64(3)}}
         ORDER BY ch_update_time DESC
@@ -165,6 +175,7 @@ _TRACES_BASE = f"""
             FROM spans
             WHERE project_id = {{project_id:String}}
               AND {customer_traffic_only()}
+              AND {_NOT_EVALUATION}
               AND span_start_time >= {{start_time:DateTime64(3)}}
               AND span_start_time < {{end_time:DateTime64(3)}}
             ORDER BY ch_update_time DESC

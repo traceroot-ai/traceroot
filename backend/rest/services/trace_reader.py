@@ -7,6 +7,7 @@ from db.clickhouse import get_clickhouse_client
 from db.clickhouse.query_settings import READ_QUERY_SETTINGS
 from rest.services.filters.translate import Predicate, build_conditions
 from rest.sql_utils import escape_ilike, to_utc_naive
+from shared.enums import EVALUATION_SPAN_KINDS
 from shared.span_attributes import (
     SPAN_IDS_PATH,
     SPAN_PATH,
@@ -30,6 +31,12 @@ TRACE_SPAN_LOOKBACK_HOURS = 1
 # always sends at least its default window, so this only bounds direct API callers and
 # open-ended custom ranges. Matches the UI's own default preset ("Last 24 hours").
 DEFAULT_SPAN_SCAN_LOOKBACK_HOURS = 24
+
+# How far before a window's start the window-bounded evaluation exclusion looks for
+# flagged rows (see windowed_evaluation_exclusion). Must exceed the longest evaluation
+# case: a case still running this long after its first flagged row can leak its
+# in-window spans at the window's leading edge.
+EVALUATION_EXCLUSION_PADDING_HOURS = 24
 
 # Markers stored in spans.source / traces.source. Customer traffic carries 'user' (the
 # column's DEFAULT); internal telemetry carries a marker of its own.
@@ -118,6 +125,61 @@ def _evaluation_exclusion(params: dict) -> str:
     if "end_before" in params:
         bounds.append("trace_start_time <= {end_before:DateTime64(3)}")
     return "t.trace_id NOT IN (SELECT trace_id FROM traces WHERE " + " AND ".join(bounds) + ")"
+
+
+def windowed_evaluation_exclusion(start_param: str, end_param: str) -> str:
+    """SQL condition removing offline-evaluation traces from a window-bounded scan.
+
+    For static SQL whose window arrives as named ``DateTime64(3)`` parameters (the
+    widget base relations, which back dashboard tiles and metric alerts). Same
+    ``trace_id`` set-membership as ``_evaluation_exclusion``, for the same
+    monotonic-across-batches reason, but the set is built from BOTH tables like the SQL
+    gateway's ``VIEW_EVALUATION_EXCLUSION`` (see ``rest.services.sql.schema`` for the
+    full argument): an evaluation-kind span can land with no flagged ``traces`` row,
+    and a merge can physically delete the flagged ``traces`` row, while the flagged
+    span row survives both.
+
+    Each half is bounded to the caller's window, its start moved back by
+    ``EVALUATION_EXCLUSION_PADDING_HOURS``, so it prunes to the window's partitions
+    instead of probing the project all-time on every tile and alert tick. The leading
+    padding keeps the set complete at the window's start: an in-window row of an
+    evaluation trace can belong to a case whose flagged rows started before the window.
+    No trailing padding is needed: every row of an evaluation trace sits under an
+    EVALUATION or TASK span that starts no later than it does, and a ``traces`` row
+    starts at its batch's earliest span, so the flagged row of any trace with an
+    in-window row starts at or before that row. The end bound is inclusive so the set
+    covers the outer window whatever its own end operator. An evaluation case running
+    longer than the padding is the accepted miss.
+
+    The spans half matches on ``span_kind`` rather than ``is_evaluation``: ingest sets
+    the span flag from exactly these kinds, but only ``span_kind`` is carried by the
+    ``spans_no_io_by_start_time`` projection, so this half prunes to the padded window
+    through the projection instead of reading every granule of the project's month
+    from the trace_id-ordered base table.
+
+    Unqualified ``trace_id``: callers place this in a scan whose only ``trace_id`` is
+    the scanned table's own.
+
+    Args:
+        start_param (str): Name of the window-start parameter (inclusive).
+        end_param (str): Name of the window-end parameter (exclusive).
+
+    Returns:
+        str: A WHERE-clause condition.
+    """
+    pad = f"INTERVAL {EVALUATION_EXCLUSION_PADDING_HOURS} HOUR"
+    start = f"{{{start_param}:DateTime64(3)}} - {pad}"
+    end = f"{{{end_param}:DateTime64(3)}}"
+    kinds = ", ".join(f"'{kind}'" for kind in sorted(EVALUATION_SPAN_KINDS))
+    return (
+        "trace_id NOT IN ("
+        "SELECT trace_id FROM traces WHERE project_id = {project_id:String}"
+        f" AND is_evaluation = 1 AND trace_start_time >= {start} AND trace_start_time <= {end}"
+        " UNION DISTINCT "
+        "SELECT trace_id FROM spans WHERE project_id = {project_id:String}"
+        f" AND span_kind IN ({kinds}) AND span_start_time >= {start} AND span_start_time <= {end}"
+        ")"
+    )
 
 
 def _floor_minute(dt: datetime | None) -> datetime | None:
