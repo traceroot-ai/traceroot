@@ -38,6 +38,9 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
 // hook, so the stub pins the toggle for the test and leaves the columns at their defaults.
 vi.mock("@/lib/hooks/use-local-storage", () => ({
   useLocalStorage: () => [false, vi.fn()],
+  // The viewed-traces hook reads storage through this helper; this test asserts nothing about
+  // read state, so falling back to the passed default keeps the read a no-op.
+  readStored: (_key: string, fallback: unknown) => fallback,
 }));
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: { id: "u1", email: "e" } }, isPending: false }),

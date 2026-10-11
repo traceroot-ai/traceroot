@@ -36,6 +36,9 @@ import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
 // Imported from the hook's own module, not the feature barrel: the page tests replace that
 // barrel wholesale with a factory mock, and a barrel import here would go missing under it.
 import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
+// Same reason as the columns hook above: imported from its own module so the page tests' barrel
+// mock does not have to name it.
+import { useViewedTraces } from "@/features/traces/hooks/use-viewed-traces";
 import { useTraceSignalIds } from "@/ee/features/signals/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
@@ -93,6 +96,16 @@ export default function TracesPage() {
     setSelectedTraceId(traceId);
     setSelectedSource(source);
   };
+  // Read/unread state for the list: opening a trace (a click, the up/down navigation, or the
+  // ?traceId= deep link seeded into `selectedTraceId`) marks it viewed, which clears its row dot.
+  const { viewedTraceIds, markViewed } = useViewedTraces(projectId);
+  useEffect(() => {
+    if (selectedTraceId) markViewed(selectedTraceId);
+    // Only a new selection marks a trace. `markViewed` is deliberately not a dependency: it is
+    // rebuilt when `projectId` changes, and re-running then would write the previously selected
+    // trace id under the NEW project's key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTraceId]);
   // Warm the span→dataset chip data as soon as a trace is selected, so the
   // "Dataset:" chip is ready before the user opens a span (no per-span latency).
   useTraceTestCases(projectId, selectedTraceId ?? "");
@@ -319,6 +332,7 @@ export default function TracesPage() {
                   visibleColumns={visibleColumns}
                   signalIdsByTrace={signalIds?.signalIds}
                   signalIdsFailed={signalIdsFailed}
+                  viewedTraceIds={viewedTraceIds}
                 />
               </div>
 
