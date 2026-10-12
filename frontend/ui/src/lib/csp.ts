@@ -53,6 +53,9 @@ export function buildContentSecurityPolicy({
     ],
     ["style-src", "'self'", "'unsafe-inline'"],
     ["img-src", "'self'", "data:", "blob:"],
+    // The trace viewer plays audio from span I/O as data: URIs
+    // (features/traces/components/inline-media.tsx).
+    ["media-src", "'self'", "data:", "blob:"],
     ["font-src", "'self'"],
     ["connect-src", ...connectSrc],
     ["worker-src", "'self'", "blob:"],

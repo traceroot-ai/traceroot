@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 // with this helper, so the test checks the policy the way Next.js reads it.
 import { getScriptNonceFromHeader } from "next/dist/server/app-render/get-script-nonce-from-header";
 
+import { mediaSrc } from "@/features/traces/components/inline-media";
+
 import { buildContentSecurityPolicy, cspHeaderName, CSP_REPORT_PATH } from "./csp";
 
 const NONCE = Buffer.from("8a5f1c2e-4b6d-4f80-9a1e-3c7d2b5e6f01").toString("base64");
@@ -41,6 +43,16 @@ describe("buildContentSecurityPolicy", () => {
     expect(parsed.get("form-action")).toEqual(["'self'"]);
     expect(parsed.get("frame-ancestors")).toEqual(["'none'"]);
     expect(parsed.get("report-uri")).toEqual([CSP_REPORT_PATH]);
+  });
+
+  it("plays the trace viewer's inline audio, which it loads from data: URIs", () => {
+    // 100 characters of base64 that start with an ID3 tag: the shortest value
+    // inline-media.tsx turns into an <audio> player.
+    const audio = mediaSrc(`SUQz${"A".repeat(96)}`);
+    expect(audio).toEqual({ kind: "audio", src: expect.stringMatching(/^data:audio\//) });
+
+    const policy = buildContentSecurityPolicy({ nonce: NONCE });
+    expect(directives(policy).get("media-src")).toEqual(["'self'", "data:", "blob:"]);
   });
 
   it("lets the page reach only itself and the GitHub API by default", () => {
