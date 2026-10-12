@@ -545,10 +545,9 @@ describe("POST /api/billing/checkout — existing subscription", () => {
 
     expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/fresh" });
     expect(checkoutRetrieveMock).toHaveBeenCalledWith("cs_abandoned");
-    expect(checkoutCreateMock).toHaveBeenLastCalledWith(
-      expect.anything(),
-      { idempotencyKey: "workspace-checkout-ws-1-after-cs_abandoned" },
-    );
+    expect(checkoutCreateMock).toHaveBeenLastCalledWith(expect.anything(), {
+      idempotencyKey: "workspace-checkout-ws-1-after-cs_abandoned",
+    });
   });
 
   it("withdraws its session when an older checkout is paid during the request", async () => {
