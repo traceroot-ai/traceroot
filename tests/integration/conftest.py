@@ -60,7 +60,10 @@ PROJECT_A = "proj_a"
 PROJECT_B = "proj_b"
 PROJECT_SEM = "proj_sem"
 PROJECT_CAP = "proj_cap"
-PROJECT_ERR = "proj_err"
+# Not "proj_err": test_widget_projection seeds its own tenant of that name with the same
+# span ids and timestamps, and two versions tied on ch_update_time make the view's dedup
+# pick either one.
+PROJECT_ERR = "proj_sql_gateway_err"
 # Neighbours in one large insert, so the middle project spans granules whose date ranges are
 # known on both sides. That is the layout primary-key pruning can act on, which a handful of
 # rows in one granule never is.
