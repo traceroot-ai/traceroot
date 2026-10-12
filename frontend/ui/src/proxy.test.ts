@@ -103,6 +103,21 @@ describe("proxy Content-Security-Policy", () => {
     expect(forwarded(res, "content-security-policy")).toBe(policy);
   });
 
+  it("names the endpoint the policy's report-to sends reports to when the app is on HTTPS", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com");
+    const res = proxy(request("/auth/sign-in"));
+    expect(res.headers.get("content-security-policy")).toContain("report-to csp-endpoint");
+    expect(res.headers.get("reporting-endpoints")).toBe('csp-endpoint="/api/csp-report"');
+  });
+
+  it("leaves report-to and its endpoint out when the app is served over plain HTTP", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
+    const res = proxy(request("/auth/sign-in"));
+    expect(res.headers.get("content-security-policy")).toContain("report-uri /api/csp-report");
+    expect(res.headers.get("content-security-policy")).not.toContain("report-to");
+    expect(res.headers.get("reporting-endpoints")).toBeNull();
+  });
+
   it("uses a new nonce for every request", () => {
     const first = forwarded(proxy(request("/auth/sign-in")), "x-nonce");
     const second = forwarded(proxy(request("/auth/sign-in")), "x-nonce");
@@ -122,6 +137,7 @@ describe("proxy Content-Security-Policy", () => {
     expect(proxy(request("/projects/p1/traces")).headers.get("content-security-policy")).toBeNull();
     const api = proxy(request("/api/projects/p1/datasets", { token: true }));
     expect(api.headers.get("content-security-policy")).toBeNull();
+    expect(api.headers.get("reporting-endpoints")).toBeNull();
     expect(forwarded(api, "x-nonce")).toBeNull();
   });
 

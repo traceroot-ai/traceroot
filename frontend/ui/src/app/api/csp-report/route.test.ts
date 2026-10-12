@@ -28,6 +28,27 @@ const VIOLATION = {
   },
 };
 
+// The same violation as report-to sends it: a batch of reports, each with its
+// fields in camelCase under body.
+const REPORT_TO_VIOLATION = {
+  type: "csp-violation",
+  age: 10,
+  url: "https://app.example.com/auth/github/callback?code=secret-oauth-code",
+  user_agent: "Mozilla/5.0",
+  body: {
+    documentURL: "https://app.example.com/auth/github/callback?code=secret-oauth-code",
+    effectiveDirective: "script-src-elem",
+    blockedURL: "https://cdn.example.net/widget.js?key=abc",
+    sourceFile: "https://app.example.com/_next/static/chunks/app.js",
+    lineNumber: 12,
+    columnNumber: 3,
+    disposition: "enforce",
+    sample: "user typed text",
+    statusCode: 200,
+  },
+};
+const REPORT_TO = { "content-type": "application/reports+json" };
+
 describe("POST /api/csp-report", () => {
   let warn: ReturnType<typeof vi.spyOn>;
 
@@ -59,6 +80,47 @@ describe("POST /api/csp-report", () => {
     expect(line).not.toContain("user typed text");
   });
 
+  it("logs each violation in a report-to batch the same way, skipping other report types", async () => {
+    const { POST } = await loadRoute();
+    const batch = [
+      REPORT_TO_VIOLATION,
+      { type: "deprecation", url: "https://app.example.com/", body: { id: "x" } },
+      {
+        ...REPORT_TO_VIOLATION,
+        body: { ...REPORT_TO_VIOLATION.body, sourceFile: "chrome-extension://abcdef/inject.js" },
+      },
+      {
+        ...REPORT_TO_VIOLATION,
+        body: { ...REPORT_TO_VIOLATION.body, effectiveDirective: "script-src", blockedURL: "eval" },
+      },
+    ];
+    const res = await POST(reportRequest(JSON.stringify(batch), REPORT_TO));
+
+    expect(res.status).toBe(204);
+    const logged = warn.mock.calls.map((call: unknown[]) => JSON.parse(String(call[1])));
+    expect(logged).toEqual([
+      {
+        directive: "script-src-elem",
+        blocked: "https://cdn.example.net/widget.js",
+        document: "https://app.example.com/auth/github/callback",
+        source: "https://app.example.com/_next/static/chunks/app.js",
+        line: 12,
+        disposition: "enforce",
+      },
+      expect.objectContaining({ directive: "script-src", blocked: "eval" }),
+    ]);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret-oauth-code");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("user typed text");
+  });
+
+  it("counts every report in a batch against the client's budget", async () => {
+    const { POST } = await loadRoute();
+    const batch = Array.from({ length: 25 }, () => REPORT_TO_VIOLATION);
+
+    expect((await POST(reportRequest(JSON.stringify(batch), REPORT_TO))).status).toBe(204);
+    expect(warn).toHaveBeenCalledTimes(20);
+  });
+
   it("ignores reports about scripts a browser extension injected", async () => {
     const { POST } = await loadRoute();
     const report = {
@@ -86,6 +148,7 @@ describe("POST /api/csp-report", () => {
     const { POST } = await loadRoute();
 
     expect((await POST(reportRequest("not json"))).status).toBe(400);
+    expect((await POST(reportRequest("null"))).status).toBe(400);
     expect((await POST(reportRequest(JSON.stringify({ other: 1 })))).status).toBe(400);
   });
 

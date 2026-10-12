@@ -5,7 +5,14 @@ import { getScriptNonceFromHeader } from "next/dist/server/app-render/get-script
 
 import { mediaSrc } from "@/features/traces/components/inline-media";
 
-import { buildContentSecurityPolicy, cspHeaderName, CSP_REPORT_PATH } from "./csp";
+import {
+  buildContentSecurityPolicy,
+  cspHeaderName,
+  CSP_REPORT_ENDPOINT,
+  CSP_REPORT_PATH,
+  REPORTING_ENDPOINTS,
+  reportsThroughReportTo,
+} from "./csp";
 
 const NONCE = Buffer.from("8a5f1c2e-4b6d-4f80-9a1e-3c7d2b5e6f01").toString("base64");
 
@@ -53,6 +60,24 @@ describe("buildContentSecurityPolicy", () => {
 
     const policy = buildContentSecurityPolicy({ nonce: NONCE });
     expect(directives(policy).get("media-src")).toEqual(["'self'", "data:", "blob:"]);
+  });
+
+  it("reports through report-to as well as report-uri when the app is served over HTTPS", () => {
+    const appUrl = "https://app.example.com";
+    const parsed = directives(buildContentSecurityPolicy({ nonce: NONCE, appUrl }));
+    expect(reportsThroughReportTo(appUrl)).toBe(true);
+    expect(parsed.get("report-uri")).toEqual([CSP_REPORT_PATH]);
+    expect(parsed.get("report-to")).toEqual([CSP_REPORT_ENDPOINT]);
+    expect(REPORTING_ENDPOINTS).toBe('csp-endpoint="/api/csp-report"');
+  });
+
+  it("reports only through report-uri over plain HTTP, where report-to would send nothing", () => {
+    for (const appUrl of ["http://localhost:3000", "http://traceroot.internal:3000", undefined]) {
+      const parsed = directives(buildContentSecurityPolicy({ nonce: NONCE, appUrl }));
+      expect(reportsThroughReportTo(appUrl)).toBe(false);
+      expect(parsed.get("report-uri")).toEqual([CSP_REPORT_PATH]);
+      expect(parsed.has("report-to")).toBe(false);
+    }
   });
 
   it("lets the page reach only itself and the GitHub API by default", () => {
