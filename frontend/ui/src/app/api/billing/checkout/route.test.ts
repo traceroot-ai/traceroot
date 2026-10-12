@@ -521,6 +521,22 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     ]);
   });
 
+  it("withdraws its session when an older checkout is paid during the request", async () => {
+    // The preflight finds nothing live; an older session is paid before the
+    // open-session listing, so it is neither listed nor expired. The check after
+    // creating the session sees the new subscription.
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    subscriptionsListMock
+      .mockReturnValueOnce([])
+      .mockReturnValue([{ id: "sub_old", status: "active" }]);
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
+    expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
+    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_new");
+  });
+
   it("refuses to move past a replayed paid checkout whose subscription is live", async () => {
     // Two admins started checkout before the workspace had a customer. The first one
     // paid; the second replays that completed session and must not open another.
@@ -564,7 +580,8 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     const res = await POST(makeRequest());
 
     expect(res.status).toBe(200);
-    expect(subscriptionsListMock).not.toHaveBeenCalled();
+    // No preflight for a new customer; only the check after the session exists.
+    expect(subscriptionsListMock).toHaveBeenCalledTimes(1);
     expect(checkoutCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({ customer: "cus_new" }),
       expect.objectContaining({ idempotencyKey: expect.any(String) }),

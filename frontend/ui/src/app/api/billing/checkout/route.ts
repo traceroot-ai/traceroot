@@ -381,6 +381,15 @@ async function handlePOST(req: NextRequest) {
       return checkoutInProgress();
     }
 
+    // A session opened before this request, for example one created before this
+    // guard existed, can be paid after the preflight and before the open-session
+    // listing, so it was neither seen as live nor expired. Check Stripe once more
+    // now that this session exists, and withdraw it if a subscription appeared.
+    if (await hasLiveSubscription(stripe, customerId)) {
+      await expireCheckoutSession(stripe, checkoutSession.id);
+      return alreadySubscribed();
+    }
+
     return NextResponse.json({ url: checkoutSession.url });
   } catch (error) {
     if (error instanceof CheckoutCompletedError) {
