@@ -134,7 +134,7 @@ def _view_select(text: str, view: str) -> exp.Select:
     """
     up = re.sub(r"--[^\n]*", "", text.split("-- +goose Down")[0])
     match = re.search(
-        rf"CREATE OR REPLACE VIEW {view}\s+DEFINER\s*=\s*\w+\s+SQL SECURITY DEFINER\s+AS\b"
+        rf"CREATE OR REPLACE VIEW {view}\s+DEFINER\s*=\s*sql_gateway_writer\s+SQL SECURITY DEFINER\s+AS\b"
         r"(?P<body>.*?);",
         up,
         re.DOTALL,
@@ -432,7 +432,13 @@ def test_error_type_migration_replaces_the_spans_view_and_down_restores_it():
     assert replaced, "015 Up must replace the spans view"
     assert restored, "015 Down must restore the spans view, not drop it"
 
-    # _view_select requires the explicit writer definer, so parsing asserts it too.
+    # Named writer, not just any definer: the parser below accepts any account, and a
+    # rollback that hands the view to another one breaks the scoped-writer contract.
+    for statement in (replaced, restored):
+        assert re.search(r"DEFINER\s*=\s*sql_gateway_writer\s+SQL SECURITY DEFINER", statement), (
+            "015 must keep sql_gateway_writer as the spans view definer, in Up and in Down"
+        )
+
     original = _view_select(_create_statement(created, view), view)
     assert _view_select(restored, view) == original, "015 Down is not the 012 spans view"
 
