@@ -1,9 +1,9 @@
 // Resend client: sending email, plus the contact and topic calls that make opt-out work.
 // `sendEmail` throws on a provider error because the caller owns the retry decision. The
 // contact calls never throw: they log one `[resend]` line (never the key) and return {ok:false}.
-// Product mail needs a topic (opt-out) and always carries the postal footer (legal).
+// Product mail needs a topic (opt-out) and a reply-to, and always carries the postal footer (legal).
 
-import { normalizeEmail } from "./unsubscribe.ts";
+import { normalizeEmail, unsubscribeSecrets } from "./unsubscribe.ts";
 
 const RESEND_API_URL = "https://api.resend.com";
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -14,13 +14,6 @@ function nonBlank(value: string | undefined): string | undefined {
   return value && value.trim() ? value.trim() : undefined;
 }
 
-/** The address inside `Name <addr>`, or the whole string when it is bare. */
-function bareAddress(from: string): string {
-  const open = from.lastIndexOf("<");
-  const close = from.indexOf(">", open);
-  return open !== -1 && close !== -1 ? from.slice(open + 1, close).trim() : from.trim();
-}
-
 export interface ResendConfig {
   apiKey?: string;
   from?: string;
@@ -29,14 +22,20 @@ export interface ResendConfig {
 }
 
 export function resendConfig(env: NodeJS.ProcessEnv = process.env): ResendConfig {
-  const from = nonBlank(env.TRACEROOT_EMAIL_FROM) ?? nonBlank(env.TRACEROOT_SMTP_MAIL_FROM);
-  const fromAddress = from && bareAddress(from);
   return {
     apiKey: nonBlank(env.RESEND_API_KEY),
-    from,
-    replyTo: nonBlank(env.TRACEROOT_EMAIL_REPLY_TO) ?? fromAddress,
+    from: nonBlank(env.TRACEROOT_UPDATES_EMAIL_FROM) ?? nonBlank(env.TRACEROOT_SMTP_MAIL_FROM),
+    replyTo: nonBlank(env.TRACEROOT_UPDATES_EMAIL_REPLY_TO),
     productTopicId: nonBlank(env.RESEND_PRODUCT_TOPIC_ID),
   };
+}
+
+/** Everything product mail needs; callers skip the whole welcome path when this is false. */
+export function isProductMailConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  const c = resendConfig(env);
+  return Boolean(
+    c.apiKey && c.from && c.replyTo && c.productTopicId && unsubscribeSecrets(env).length > 0,
+  );
 }
 
 export interface ResendOptions {
@@ -119,7 +118,11 @@ function withProductFooter(email: Pick<OutboundEmail, "text" | "html">): {
   return { text, html };
 }
 
-export type SendSkipReason = "no-api-key" | "no-sender" | "product-requires-topic";
+export type SendSkipReason =
+  | "no-api-key"
+  | "no-sender"
+  | "product-requires-topic"
+  | "product-requires-reply-to";
 
 export type SendResult = { sent: true; id: string } | { sent: false; reason: SendSkipReason };
 
@@ -129,11 +132,13 @@ export async function sendEmail(
   options: ResendOptions = {},
 ): Promise<SendResult> {
   const config = resendConfig(options.env);
+  const replyTo = nonBlank(email.replyTo) ?? config.replyTo;
   if (!config.apiKey) return { sent: false, reason: "no-api-key" };
   if (!config.from) return { sent: false, reason: "no-sender" };
-  // Product mail needs the topic: the topic is what enforces the recipient's opt-out.
-  if (email.kind === "product" && !config.productTopicId) {
-    return { sent: false, reason: "product-requires-topic" };
+  // The topic enforces the recipient's opt-out; the sender domain is send-only, so replies need a home.
+  if (email.kind === "product") {
+    if (!config.productTopicId) return { sent: false, reason: "product-requires-topic" };
+    if (!replyTo) return { sent: false, reason: "product-requires-reply-to" };
   }
 
   const headers: Record<string, string> = {};
@@ -147,7 +152,6 @@ export async function sendEmail(
     text,
   };
   if (html) body.html = html;
-  const replyTo = email.replyTo ?? config.replyTo;
   if (replyTo) body.reply_to = replyTo;
   if (email.headers && Object.keys(email.headers).length > 0) body.headers = email.headers;
   if (email.tags && Object.keys(email.tags).length > 0) {
@@ -190,10 +194,7 @@ export async function ensureContact(
   options: ResendOptions = {},
 ): Promise<{ ok: boolean }> {
   const config = resendConfig(options.env);
-  if (!config.apiKey) {
-    console.warn("[resend] contact create skipped: RESEND_API_KEY is not set");
-    return { ok: false };
-  }
+  if (!config.apiKey) return { ok: false };
   const opts = { apiKey: config.apiKey, fetchImpl: options.fetchImpl ?? fetch };
   const email = normalizeEmail(input.email);
 

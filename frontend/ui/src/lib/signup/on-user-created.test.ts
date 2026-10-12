@@ -1,7 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
 const envState = vi.hoisted(() => ({
-  TRACEROOT_CLOUD: "true",
   NEXT_PUBLIC_APP_URL: "https://app.example.com",
   TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL: undefined as string | undefined,
 }));
@@ -9,50 +8,88 @@ const inviteFindFirst = vi.hoisted(() => vi.fn());
 const userCount = vi.hoisted(() => vi.fn());
 const findPostHogPerson = vi.hoisted(() => vi.fn());
 const notifySignupSlack = vi.hoisted(() => vi.fn());
+const ensureContact = vi.hoisted(() => vi.fn());
+const isProductMailConfigured = vi.hoisted(() => vi.fn());
+const sendWelcomeEmail = vi.hoisted(() => vi.fn());
 vi.mock("@/env", () => ({ env: envState }));
+vi.mock("@traceroot/core/email", () => ({ ensureContact, isProductMailConfigured }));
+vi.mock("@/lib/email/welcome/send-welcome-email", () => ({ sendWelcomeEmail }));
 vi.mock("@traceroot/core", () => ({
   prisma: { invite: { findFirst: inviteFindFirst }, user: { count: userCount } },
 }));
 vi.mock("./posthog-person", () => ({ findPostHogPerson }));
 vi.mock("./notify-slack", () => ({ notifySignupSlack }));
 
-import { isSignupHookEnabled, onUserCreated, signupProvider } from "./on-user-created";
+import { onUserCreated, signupProvider } from "./on-user-created";
 
 const user = { id: "u1", email: "New@Example.com", name: "New User" };
+const everything = [
+  inviteFindFirst,
+  findPostHogPerson,
+  userCount,
+  notifySignupSlack,
+  ensureContact,
+  sendWelcomeEmail,
+];
 
 beforeEach(() => {
   vi.clearAllMocks();
-  envState.TRACEROOT_CLOUD = "true";
   envState.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/T/B/x";
+  isProductMailConfigured.mockReturnValue(true);
   inviteFindFirst.mockResolvedValue({ id: "inv1" });
   findPostHogPerson.mockResolvedValue({ city: "SF", country: "US" });
   userCount.mockResolvedValue(154);
   notifySignupSlack.mockResolvedValue(true);
+  ensureContact.mockResolvedValue({ ok: true });
   vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
-it("reads the provider from the endpoint path and the gate from TRACEROOT_CLOUD", () => {
+it("reads the provider from the endpoint path", () => {
   const paths = ["/sign-up/email", "/callback/Oidc", "/x", undefined];
   expect(paths.map((p) => signupProvider(p))).toEqual(["email", "oidc", "unknown", "unknown"]);
-  expect(isSignupHookEnabled({ TRACEROOT_CLOUD: " TRUE " })).toBe(true);
-  expect(isSignupHookEnabled({ TRACEROOT_CLOUD: "" })).toBe(false);
 });
 
-it.each([
-  [{ TRACEROOT_CLOUD: "false" }, "/sign-up/email", inviteFindFirst],
-  [{ TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL: undefined }, "/sign-up/email", findPostHogPerson],
-  [{}, "/admin/create-user", inviteFindFirst],
-])(
-  "runs no lookups and no post when the env is %o and the path %s",
-  async (patch, path, lookup) => {
-    Object.assign(envState, patch);
-    await onUserCreated(user, { path });
-    for (const fn of [lookup, userCount, notifySignupSlack]) expect(fn).not.toHaveBeenCalled();
-  },
-);
-
-it("posts to Slack with the person's facts, the invite flag and the user count", async () => {
+it("does nothing, and logs nothing, when nothing is configured", async () => {
+  isProductMailConfigured.mockReturnValue(false);
+  envState.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL = undefined;
   await onUserCreated(user, { path: "/sign-up/email" });
+  for (const fn of everything) expect(fn).not.toHaveBeenCalled();
+  expect(console.warn).not.toHaveBeenCalled();
+});
+
+it("does nothing for a user created through the admin plugin", async () => {
+  await onUserCreated(user, { path: "/admin/create-user" });
+  for (const fn of everything) expect(fn).not.toHaveBeenCalled();
+});
+
+it("runs only the welcome when Slack is unset, and only Slack when mail is unconfigured", async () => {
+  envState.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL = undefined;
+  await onUserCreated(user, { path: "/sign-up/email" });
+  expect(sendWelcomeEmail).toHaveBeenCalled();
+  for (const fn of [inviteFindFirst, findPostHogPerson, notifySignupSlack]) {
+    expect(fn).not.toHaveBeenCalled();
+  }
+
+  vi.clearAllMocks();
+  envState.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/T/B/x";
+  isProductMailConfigured.mockReturnValue(false);
+  await onUserCreated(user, { path: "/sign-up/email" });
+  expect(notifySignupSlack).toHaveBeenCalled();
+  for (const fn of [ensureContact, sendWelcomeEmail]) expect(fn).not.toHaveBeenCalled();
+});
+
+it("records the contact, then sends the welcome and posts to Slack", async () => {
+  await onUserCreated(user, { path: "/sign-up/email" });
+  expect(ensureContact).toHaveBeenCalledWith({ email: user.email, name: "New User" });
+  expect(sendWelcomeEmail).toHaveBeenCalledWith({
+    userId: "u1",
+    email: user.email,
+    name: "New User",
+  });
+  expect(ensureContact.mock.invocationCallOrder[0]).toBeLessThan(
+    sendWelcomeEmail.mock.invocationCallOrder[0],
+  );
   expect(notifySignupSlack).toHaveBeenCalledWith({
     name: "New User",
     email: user.email,
@@ -64,10 +101,19 @@ it("posts to Slack with the person's facts, the invite flag and the user count",
   });
 });
 
-it("never rejects: failed lookups, count and post are logged, and the count is omitted", async () => {
-  for (const m of [inviteFindFirst, userCount, notifySignupSlack]) m.mockRejectedValue(new Error());
+it("skips the welcome when the contact was not recorded; Slack still posts", async () => {
+  ensureContact.mockResolvedValue({ ok: false });
+  await onUserCreated(user, { path: "/sign-up/email" });
+  expect(sendWelcomeEmail).not.toHaveBeenCalled();
+  expect(notifySignupSlack).toHaveBeenCalled();
+});
+
+it("never rejects: failed arms are logged, the welcome is skipped and the count omitted", async () => {
+  const arms = [inviteFindFirst, ensureContact, userCount, notifySignupSlack];
+  for (const m of arms) m.mockRejectedValue(new Error());
   await expect(onUserCreated(user, null)).resolves.toBeUndefined();
   const posted = notifySignupSlack.mock.calls[0][0];
   expect(posted).toMatchObject({ provider: "unknown", viaInvite: false, totalUsers: undefined });
-  expect(console.error).toHaveBeenCalledTimes(3);
+  expect(sendWelcomeEmail).not.toHaveBeenCalled();
+  expect(console.error).toHaveBeenCalledTimes(4);
 });

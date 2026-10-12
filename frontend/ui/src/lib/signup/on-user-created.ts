@@ -1,7 +1,12 @@
-// What follows a new account, run from better-auth's user.create.after hook:
-// today an internal Slack notice. Never rejects; each arm fails on its own.
+// Everything that follows a new account (Resend contact, welcome email, Slack
+// notice), run from better-auth's user.create.after hook. Each arm is on only
+// when its own config is set and never rejects. The contact is created before
+// the welcome because Resend delivers topic mail to non-contacts, and the
+// opt-out needs a record.
 import { prisma } from "@traceroot/core";
+import { ensureContact, isProductMailConfigured } from "@traceroot/core/email";
 import { env } from "@/env";
+import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
 
@@ -9,10 +14,6 @@ export interface CreatedUser {
   id: string;
   email: string;
   name: string | null;
-}
-
-export function isSignupHookEnabled(e: { TRACEROOT_CLOUD: string } = env): boolean {
-  return e.TRACEROOT_CLOUD.trim().toLowerCase() === "true";
 }
 
 export function signupProvider(path: string | undefined): string {
@@ -40,31 +41,44 @@ export async function onUserCreated(
   context: { path?: string } | null,
 ): Promise<void> {
   // A user provisioned by staff through the admin plugin is not a sign-up.
-  if (!isSignupHookEnabled() || context?.path === "/admin/create-user") return;
+  if (context?.path === "/admin/create-user") return;
 
-  const provider = signupProvider(context?.path);
-  const viaInvite =
-    (await arm("invite lookup", user.id, () =>
-      prisma.invite.findFirst({
-        where: { email: { equals: user.email, mode: "insensitive" } },
-        select: { id: true },
-      }),
-    )) != null;
+  const welcome = isProductMailConfigured()
+    ? arm("welcome email", user.id, async () => {
+        const contact = await arm("resend contact", user.id, () =>
+          ensureContact({ email: user.email, name: user.name }),
+        );
+        if (!contact?.ok) {
+          console.warn(`[signup] welcome email skipped for user ${user.id}: contact not recorded`);
+          return;
+        }
+        return sendWelcomeEmail({ userId: user.id, email: user.email, name: user.name });
+      })
+    : undefined;
 
-  await arm("slack", user.id, async () => {
-    if (!env.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL?.trim()) return false;
-    const [facts, totalUsers] = await Promise.all([
-      findPostHogPerson(user.id),
-      arm("user count", user.id, () => prisma.user.count()),
-    ]);
-    return notifySignupSlack({
-      name: user.name,
-      email: user.email,
-      provider,
-      viaInvite,
-      facts,
-      supportConsoleUrl: `${env.NEXT_PUBLIC_APP_URL}/admin`,
-      totalUsers,
-    });
-  });
+  const slack = env.TRACEROOT_SIGNUP_SLACK_WEBHOOK_URL?.trim()
+    ? arm("slack", user.id, async () => {
+        const [invite, facts, totalUsers] = await Promise.all([
+          arm("invite lookup", user.id, () =>
+            prisma.invite.findFirst({
+              where: { email: { equals: user.email, mode: "insensitive" } },
+              select: { id: true },
+            }),
+          ),
+          findPostHogPerson(user.id),
+          arm("user count", user.id, () => prisma.user.count()),
+        ]);
+        return notifySignupSlack({
+          name: user.name,
+          email: user.email,
+          provider: signupProvider(context?.path),
+          viaInvite: invite != null,
+          facts,
+          supportConsoleUrl: `${env.NEXT_PUBLIC_APP_URL}/admin`,
+          totalUsers,
+        });
+      })
+    : undefined;
+
+  await Promise.all([welcome, slack]);
 }
