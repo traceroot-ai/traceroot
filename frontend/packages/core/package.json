@@ -33,6 +33,10 @@
     "./model-resolver": {
       "types": "./src/model-resolver.ts",
       "default": "./src/model-resolver.ts"
+    },
+    "./signals": {
+      "types": "./src/ee/signals/index.ts",
+      "default": "./src/ee/signals/index.ts"
     }
   },
   "scripts": {

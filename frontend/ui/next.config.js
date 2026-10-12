@@ -15,10 +15,27 @@ function resolveAppVersion() {
   }
 }
 
+// Sent on every response, static assets included. Browsers ignore HSTS on
+// plain-HTTP responses, so local and HTTP-only self-hosted setups are unaffected,
+// and it leaves out includeSubDomains so a self-hosted deployment never pins the
+// operator's other subdomains to HTTPS. Nothing embeds the app, so no page may
+// be framed.
+const securityHeaders = [
+  { key: "Strict-Transport-Security", value: "max-age=63072000" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
+  // Don't advertise the framework in an X-Powered-By header.
+  poweredByHeader: false,
+  async headers() {
+    return [{ source: "/:path*", headers: securityHeaders }];
+  },
   env: {
     NEXT_PUBLIC_APP_VERSION: resolveAppVersion(),
   },
