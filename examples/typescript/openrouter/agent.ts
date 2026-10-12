@@ -138,7 +138,10 @@ class ReActAgent {
   private model: string;
   private messages: OpenAI.Chat.ChatCompletionMessageParam[];
 
-  constructor(model = 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free') {
+  // To use a free (unpriced) model instead, pass e.g.:
+  //   "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+  // Note: free / unpriced models will show $0 cost in TraceRoot.
+  constructor(model = 'openai/gpt-4o-mini') {
     this.client = new OpenAI({
       apiKey: process.env.OPENROUTER_API_KEY,
       baseURL: OPENROUTER_BASE_URL,
@@ -171,6 +174,7 @@ class ReActAgent {
         if (msg.tool_calls && msg.tool_calls.length > 0) {
           this.messages.push(msg);
           for (const tc of msg.tool_calls) {
+            if (tc.type !== 'function') continue;
             const fnArgs = JSON.parse(tc.function.arguments) as Record<string, unknown>;
             console.log(`\n  [Tool: ${tc.function.name}(${JSON.stringify(fnArgs)})]`);
             const result = await this.executeTool(tc.function.name, fnArgs);
