@@ -29,12 +29,12 @@ export interface ResendConfig {
 }
 
 export function resendConfig(env: NodeJS.ProcessEnv = process.env): ResendConfig {
-  const from = nonBlank(env.TRACEROOT_EMAIL_FROM) ?? nonBlank(env.TRACEROOT_SMTP_MAIL_FROM);
+  const from = nonBlank(env.TRACEROOT_UPDATES_EMAIL_FROM) ?? nonBlank(env.TRACEROOT_SMTP_MAIL_FROM);
   const fromAddress = from && bareAddress(from);
   return {
     apiKey: nonBlank(env.RESEND_API_KEY),
     from,
-    replyTo: nonBlank(env.TRACEROOT_EMAIL_REPLY_TO) ?? fromAddress,
+    replyTo: nonBlank(env.TRACEROOT_UPDATES_EMAIL_REPLY_TO) ?? fromAddress,
     productTopicId: nonBlank(env.RESEND_PRODUCT_TOPIC_ID),
   };
 }

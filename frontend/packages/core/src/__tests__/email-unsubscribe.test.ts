@@ -7,7 +7,7 @@ const tampered = signed.slice(0, -1) + (signed.endsWith("A") ? "B" : "A");
 
 describe("unsubscribe token", () => {
   it("round-trips the lowercase address, verifying through a previous (comma-separated) secret", () => {
-    const env = { TRACEROOT_EMAIL_TOKEN_SECRET: " new , old ," } as NodeJS.ProcessEnv;
+    const env = { TRACEROOT_UNSUBSCRIBE_TOKEN_SECRET: " new , old ," } as NodeJS.ProcessEnv;
     expect(unsub.unsubscribeSecrets(env)).toEqual(["new", "old"]);
     const token = unsub.signUnsubscribeToken("A@X.io", secrets);
     expect(unsub.verifyUnsubscribeToken(token, secrets)).toEqual({ valid: true, email: "a@x.io" });

@@ -4,7 +4,7 @@ import { ensureContact, sendEmail, setTopicSubscription } from "../lib/email/res
 const env = {
   RESEND_API_KEY: "re_test_key_000",
   RESEND_PRODUCT_TOPIC_ID: "topic-123",
-  TRACEROOT_EMAIL_FROM: "lucas@traceroot.ai",
+  TRACEROOT_UPDATES_EMAIL_FROM: "lucas@traceroot.ai",
 } as NodeJS.ProcessEnv;
 const email = { to: "a@x.io", subject: "Hi", text: "hello", kind: "product" as const };
 
@@ -59,12 +59,12 @@ describe("sendEmail", () => {
     ["Lucas <lucas@traceroot.ai>", undefined, "lucas@traceroot.ai"],
     ["lucas@traceroot.ai", "hi@traceroot.ai", "hi@traceroot.ai"],
   ])(
-    "sends from %s as-is and replies to TRACEROOT_EMAIL_REPLY_TO or the bare address",
+    "sends from %s as-is and replies to TRACEROOT_UPDATES_EMAIL_REPLY_TO or the bare address",
     async (from, replyTo, expected) => {
       const api = mockResend(
         200,
         { id: "x" },
-        { TRACEROOT_EMAIL_FROM: from, TRACEROOT_EMAIL_REPLY_TO: replyTo },
+        { TRACEROOT_UPDATES_EMAIL_FROM: from, TRACEROOT_UPDATES_EMAIL_REPLY_TO: replyTo },
       );
       await sendEmail(email, api);
       expect(api.sent().body).toMatchObject({ from, reply_to: expected });

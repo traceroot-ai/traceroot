@@ -1,6 +1,6 @@
 // Unsubscribe links and headers for product email. The token is an HMAC over the address,
 // so it can do exactly one thing (opt out that address) and nobody can forge one for
-// someone else. The key derives from TRACEROOT_EMAIL_TOKEN_SECRET (comma-separated for
+// someone else. The key derives from TRACEROOT_UNSUBSCRIBE_TOKEN_SECRET (comma-separated for
 // rotation: the first signs, all verify), falling back to BETTER_AUTH_SECRET.
 import { createHash, createHmac, hkdfSync, timingSafeEqual } from "node:crypto";
 
@@ -12,7 +12,8 @@ export const ONE_CLICK_UNSUBSCRIBE_BODY = "List-Unsubscribe=One-Click";
 export const UNSUBSCRIBE_PATH = "/api/email/unsubscribe";
 
 export function unsubscribeSecrets(env: NodeJS.ProcessEnv = process.env): string[] {
-  const raw = env.TRACEROOT_EMAIL_TOKEN_SECRET?.trim() || env.BETTER_AUTH_SECRET?.trim() || "";
+  const raw =
+    env.TRACEROOT_UNSUBSCRIBE_TOKEN_SECRET?.trim() || env.BETTER_AUTH_SECRET?.trim() || "";
   return raw
     .split(",")
     .map((s) => s.trim())
@@ -43,7 +44,7 @@ export function signUnsubscribeToken(
   const signing = secrets[0];
   if (!signing) {
     throw new Error(
-      "No unsubscribe signing secret: set TRACEROOT_EMAIL_TOKEN_SECRET or BETTER_AUTH_SECRET",
+      "No unsubscribe signing secret: set TRACEROOT_UNSUBSCRIBE_TOKEN_SECRET or BETTER_AUTH_SECRET",
     );
   }
   const normalized = normalizeEmail(email);
