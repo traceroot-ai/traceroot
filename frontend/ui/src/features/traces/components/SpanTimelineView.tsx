@@ -274,7 +274,9 @@ export function SpanTimelineView({
 
             const isRootSpan = span.parent_span_id === null;
             const showDuration =
-              span.span_kind === SpanKind.LLM || span.span_kind === SpanKind.TOOL || isRootSpan;
+              MODEL_SPAN_KINDS.has(span.span_kind) ||
+              span.span_kind === SpanKind.TOOL ||
+              isRootSpan;
 
             const showRightMetrics = MODEL_SPAN_KINDS.has(span.span_kind) || isRootSpan;
             const showTokens =
