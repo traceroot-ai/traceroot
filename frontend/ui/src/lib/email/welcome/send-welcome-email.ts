@@ -1,5 +1,5 @@
 // Sends the welcome once per user through sendOnce, which owns the claim, the
-// config refusals (sender, topic) and the stamp. Never throws.
+// config refusals (sender, reply-to, topic) and the stamp. Never throws.
 import { prisma } from "@traceroot/core";
 import {
   resendConfig,

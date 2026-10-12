@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { ensureContact, sendEmail, setTopicSubscription } from "../lib/email/resend.ts";
+import {
+  ensureContact,
+  isProductMailConfigured,
+  sendEmail,
+  setTopicSubscription,
+} from "../lib/email/resend.ts";
 
 const env = {
   RESEND_API_KEY: "re_test_key_000",
   RESEND_PRODUCT_TOPIC_ID: "topic-123",
-  TRACEROOT_UPDATES_EMAIL_FROM: "lucas@traceroot.ai",
+  TRACEROOT_UPDATES_EMAIL_FROM: "Lucas <lucas@traceroot.ai>",
+  TRACEROOT_UPDATES_EMAIL_REPLY_TO: "lucas@traceroot.ai",
 } as NodeJS.ProcessEnv;
 const email = { to: "a@x.io", subject: "Hi", text: "hello", kind: "product" as const };
 
@@ -24,10 +30,19 @@ describe("sendEmail", () => {
   it.each([
     ["no-api-key", { RESEND_API_KEY: "" }],
     ["product-requires-topic", { RESEND_PRODUCT_TOPIC_ID: undefined }],
+    ["product-requires-reply-to", { TRACEROOT_UPDATES_EMAIL_REPLY_TO: " " }],
   ])("skips with %s and calls nothing", async (reason, override) => {
     const api = mockResend(200, { id: "x" }, override);
     expect(await sendEmail(email, api)).toEqual({ sent: false, reason });
     expect(api.fetchImpl).not.toHaveBeenCalled();
+    expect(isProductMailConfigured(api.env)).toBe(false);
+  });
+
+  it("is configured only with key, sender, reply-to and topic all set", () => {
+    expect(isProductMailConfigured(env)).toBe(true);
+    expect(isProductMailConfigured({ ...env, TRACEROOT_UPDATES_EMAIL_FROM: undefined })).toBe(
+      false,
+    );
   });
 
   it("sends product mail with topic, idempotency key, headers, sanitized tags and footer", async () => {
@@ -43,7 +58,7 @@ describe("sendEmail", () => {
       "w/u1",
     ]);
     expect(body).toEqual({
-      from: "lucas@traceroot.ai",
+      from: "Lucas <lucas@traceroot.ai>",
       reply_to: "lucas@traceroot.ai",
       to: ["a@x.io"],
       subject: "Hi",
@@ -55,28 +70,13 @@ describe("sendEmail", () => {
     });
   });
 
-  it.each([
-    ["Lucas <lucas@traceroot.ai>", undefined, "lucas@traceroot.ai"],
-    ["lucas@traceroot.ai", "hi@traceroot.ai", "hi@traceroot.ai"],
-  ])(
-    "sends from %s as-is and replies to TRACEROOT_UPDATES_EMAIL_REPLY_TO or the bare address",
-    async (from, replyTo, expected) => {
-      const api = mockResend(
-        200,
-        { id: "x" },
-        { TRACEROOT_UPDATES_EMAIL_FROM: from, TRACEROOT_UPDATES_EMAIL_REPLY_TO: replyTo },
-      );
-      await sendEmail(email, api);
-      expect(api.sent().body).toMatchObject({ from, reply_to: expected });
-    },
-  );
-
-  it("sends transactional mail with no topic and the text unchanged", async () => {
-    const api = mockResend(200, { id: "email-2" });
+  it("sends transactional mail with no topic, no reply-to and the text unchanged", async () => {
+    const api = mockResend(200, { id: "email-2" }, { TRACEROOT_UPDATES_EMAIL_REPLY_TO: undefined });
     await sendEmail({ ...email, kind: "transactional" }, api);
     const { body } = api.sent();
     expect(body.text).toBe("hello");
     expect(body).not.toHaveProperty("topic_id");
+    expect(body).not.toHaveProperty("reply_to");
   });
 
   it("throws on a non-2xx with the status and never the key", async () => {
@@ -137,6 +137,17 @@ describe("ensureContact", () => {
     expect(
       await ensureContact({ email: "a@x.io" }, { fetchImpl: replies(...statuses), env }),
     ).toEqual({ ok: false });
+  });
+
+  it("is ok:false, silently, without an API key", async () => {
+    vi.mocked(console.warn).mockClear();
+    const fetchImpl = replies();
+    const noKey = { ...env, RESEND_API_KEY: undefined };
+    expect(await ensureContact({ email: "a@x.io" }, { fetchImpl, env: noKey })).toEqual({
+      ok: false,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(console.warn).not.toHaveBeenCalled();
   });
 });
 

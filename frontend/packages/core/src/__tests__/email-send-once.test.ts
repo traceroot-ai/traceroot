@@ -12,6 +12,7 @@ const env = {
   RESEND_API_KEY: "re_test_key_000",
   RESEND_PRODUCT_TOPIC_ID: "topic-123",
   TRACEROOT_UPDATES_EMAIL_FROM: "a@x.io",
+  TRACEROOT_UPDATES_EMAIL_REPLY_TO: "a@x.io",
 } as NodeJS.ProcessEnv;
 const email = { to: "a@x.io", subject: "Hi", text: "hi", kind: "product" as const };
 const build = () => ({ ...email, idempotencyKey: "k1" });

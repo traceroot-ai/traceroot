@@ -3,6 +3,7 @@
 export {
   sendEmail,
   resendConfig,
+  isProductMailConfigured,
   ensureContact,
   setTopicSubscription,
   type EmailKind,
