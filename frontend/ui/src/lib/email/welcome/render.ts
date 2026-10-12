@@ -12,7 +12,7 @@ import {
   LINK_STYLE,
 } from "./copy";
 
-const FIRST_NAME = /^[A-Za-z][A-Za-z'’-]{0,39}$/;
+const FIRST_NAME = /^\p{Script=Latin}[\p{Script=Latin}'’-]{0,39}$/u;
 const LINK = /\[([^\]]+)\]\(([^\s]+)\)/g;
 const toText = (paragraph: string) => paragraph.replace(LINK, "$1 ($2)");
 
