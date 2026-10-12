@@ -209,6 +209,7 @@
               "integrations/gemini",
               "integrations/mistral",
               "integrations/openai",
+              "integrations/openai-compatible",
               "integrations/openrouter"
             ]
           },
