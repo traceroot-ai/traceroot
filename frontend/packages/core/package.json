@@ -37,6 +37,10 @@
     "./signals": {
       "types": "./src/ee/signals/index.ts",
       "default": "./src/ee/signals/index.ts"
+    },
+    "./email": {
+      "types": "./src/lib/email/index.ts",
+      "default": "./src/lib/email/index.ts"
     }
   },
   "scripts": {
