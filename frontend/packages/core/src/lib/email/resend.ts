@@ -3,7 +3,7 @@
 // contact calls never throw: they log one `[resend]` line (never the key) and return {ok:false}.
 // Product mail needs a topic (opt-out) and a reply-to, and always carries the postal footer (legal).
 
-import { normalizeEmail } from "./unsubscribe.ts";
+import { normalizeEmail, unsubscribeSecrets } from "./unsubscribe.ts";
 
 const RESEND_API_URL = "https://api.resend.com";
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -33,7 +33,9 @@ export function resendConfig(env: NodeJS.ProcessEnv = process.env): ResendConfig
 /** Everything product mail needs; callers skip the whole welcome path when this is false. */
 export function isProductMailConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
   const c = resendConfig(env);
-  return Boolean(c.apiKey && c.from && c.replyTo && c.productTopicId);
+  return Boolean(
+    c.apiKey && c.from && c.replyTo && c.productTopicId && unsubscribeSecrets(env).length > 0,
+  );
 }
 
 export interface ResendOptions {

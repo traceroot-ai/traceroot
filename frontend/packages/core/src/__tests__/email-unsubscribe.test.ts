@@ -9,6 +9,9 @@ describe("unsubscribe token", () => {
   it("round-trips the lowercase address, verifying through a previous (comma-separated) secret", () => {
     const env = { TRACEROOT_UNSUBSCRIBE_TOKEN_SECRET: " new , old ," } as NodeJS.ProcessEnv;
     expect(unsub.unsubscribeSecrets(env)).toEqual(["new", "old"]);
+    expect(unsub.unsubscribeSecrets({ BETTER_AUTH_SECRET: "auth" } as NodeJS.ProcessEnv)).toEqual(
+      [],
+    );
     const token = unsub.signUnsubscribeToken("A@X.io", secrets);
     expect(unsub.verifyUnsubscribeToken(token, secrets)).toEqual({ valid: true, email: "a@x.io" });
     const old = unsub.signUnsubscribeToken("a@x.io", [secrets[1]]);

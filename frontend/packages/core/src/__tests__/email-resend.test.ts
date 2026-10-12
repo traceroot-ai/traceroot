@@ -9,6 +9,7 @@ import {
 const env = {
   RESEND_API_KEY: "re_test_key_000",
   RESEND_PRODUCT_TOPIC_ID: "topic-123",
+  TRACEROOT_UNSUBSCRIBE_TOKEN_SECRET: "unsub-secret-0123456789",
   TRACEROOT_UPDATES_EMAIL_FROM: "Lucas <lucas@traceroot.ai>",
   TRACEROOT_UPDATES_EMAIL_REPLY_TO: "lucas@traceroot.ai",
 } as NodeJS.ProcessEnv;
@@ -44,8 +45,11 @@ describe("sendEmail", () => {
     expect(api.sent().body.reply_to).toBe("hi@traceroot.ai");
   });
 
-  it("is configured only with key, sender, reply-to and topic all set", () => {
+  it("is configured only with key, sender, reply-to, topic and unsubscribe secret all set", () => {
     expect(isProductMailConfigured(env)).toBe(true);
+    expect(isProductMailConfigured({ ...env, TRACEROOT_UNSUBSCRIBE_TOKEN_SECRET: " " })).toBe(
+      false,
+    );
     expect(isProductMailConfigured({ ...env, TRACEROOT_UPDATES_EMAIL_FROM: undefined })).toBe(
       false,
     );

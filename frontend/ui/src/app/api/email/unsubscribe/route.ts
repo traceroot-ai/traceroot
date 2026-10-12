@@ -1,7 +1,8 @@
 // Product-email opt-out. No session: the signed token in `t` is the credential.
 // GET only verifies the token and renders the form; it never writes (link scanners fetch it).
 // POST takes the page form or an RFC 8058 one-click body. An invalid token on POST
-// answers 200 with an empty body so a stale one-click never errors in a mail client.
+// answers 200 with an empty body so a stale one-click never errors in a mail client; it is
+// logged, since a burst of them means the signing secret was rotated out.
 import { escapeHtml } from "@traceroot/core";
 import {
   setTopicSubscription,
@@ -79,7 +80,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const check = token ? verifyUnsubscribeToken(token) : { valid: false as const };
-  if (!check.valid) return new Response(null, { status: 200, headers: HTML_HEADERS });
+  if (!check.valid) {
+    console.warn("[unsubscribe] invalid token on POST, nothing recorded");
+    return new Response(null, { status: 200, headers: HTML_HEADERS });
+  }
 
   // The topic choice lives on a contact record, so make sure one exists first.
   const contact = await ensureContact({ email: check.email });
