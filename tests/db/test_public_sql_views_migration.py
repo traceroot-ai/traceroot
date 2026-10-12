@@ -1,10 +1,15 @@
 """Static contract tests for the public SQL gateway views migration.
 
-These assert the *text* of migration 012 — they do not run against a live
+These assert the *text* of the EFFECTIVE views — they do not run against a live
 ClickHouse (the full live security matrix lives in a separate integration suite).
 They guard the curated
 projection, the parameterized + DEFINER + dedup shape, and that no forbidden
 column is projected.
+
+Migration 012 created both views, and a later migration may replace one of them
+(015 replaces the spans view to add ``error_type``). What is deployed is the last
+``CREATE OR REPLACE VIEW`` for each view, so that is what is read here: a check
+pinned to 012 would keep passing on a definition no server runs any more.
 
 The projection and the row scope are also compared against the public schema
 contract in ``rest.services.sql.schema``, which the validator and rewriter are built
@@ -28,10 +33,13 @@ from rest.services.sql.schema import (
     VIEW_ROW_FILTERS,
 )
 
-MIGRATION = (
-    Path(__file__).resolve().parents[2]
-    / "backend/db/clickhouse/migrations/012_create_public_sql_views.sql"
-)
+MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "backend/db/clickhouse/migrations"
+
+# The migration that created both views. Later migrations replace a view in place.
+MIGRATION = MIGRATIONS_DIR / "012_create_public_sql_views.sql"
+
+# The migration that replaced the spans view to add `error_type`.
+ERROR_TYPE_MIGRATION = MIGRATIONS_DIR / "015_add_error_type_to_public_spans_view.sql"
 
 # Every contract table paired with the view it rewrites to, for per-view parametrizing.
 VIEWS = sorted(TABLE_VIEW_MAP.items())
@@ -49,17 +57,54 @@ FORBIDDEN_PROJECTED = [
 ]
 
 
+def _sections(path: Path) -> tuple[str, str]:
+    """A goose file's Up and Down sections, with ``--`` comment lines stripped (the
+    headers quote statements to explain them, and assertions run on real SQL)."""
+    up, _, down = path.read_text(encoding="utf-8").partition("-- +goose Down")
+
+    def strip(section: str) -> str:
+        return "\n".join(
+            line for line in section.splitlines() if not line.lstrip().startswith("--")
+        )
+
+    return strip(up), strip(down)
+
+
+def _create_statement(section: str, view: str) -> str | None:
+    """The ``CREATE OR REPLACE VIEW`` statement for ``view`` in one goose section, or
+    None. No view body puts a semicolon inside a string literal, which this relies on."""
+    match = re.search(rf"CREATE OR REPLACE VIEW {view}\b.*?;", section, re.DOTALL)
+    return match.group(0) if match else None
+
+
+def _effective_views() -> str:
+    """Each view's definition as the last migration to create it leaves it.
+
+    Migrations apply in filename order and every one uses CREATE OR REPLACE, so the
+    highest-numbered Up section naming a view is the definition a migrated server holds.
+    """
+    statements = []
+    for view in TABLE_VIEW_MAP.values():
+        defined = [
+            statement
+            for path in sorted(MIGRATIONS_DIR.glob("[0-9]*.sql"))
+            if (statement := _create_statement(_sections(path)[0], view))
+        ]
+        assert defined, f"no migration creates {view}"
+        statements.append(defined[-1])
+    return "\n\n".join(statements)
+
+
 @pytest.fixture(scope="module")
 def text() -> str:
-    return MIGRATION.read_text(encoding="utf-8")
+    return _effective_views()
 
 
 @pytest.fixture(scope="module")
 def sql() -> str:
-    """Migration text with ``--`` comment lines stripped (count assertions run on
-    real SQL, not the explanatory header comment)."""
-    lines = MIGRATION.read_text(encoding="utf-8").splitlines()
-    return "\n".join(line for line in lines if not line.lstrip().startswith("--"))
+    """The effective views, which carry no comments (count assertions run on real
+    SQL, not the explanatory header comment)."""
+    return _effective_views()
 
 
 def _outer_projection(text: str, view: str) -> str:
@@ -94,7 +139,7 @@ def _view_select(text: str, view: str) -> exp.Select:
         up,
         re.DOTALL,
     )
-    assert match, f"migration 012 does not create {view}"
+    assert match, f"no migration creates {view} with the writer as its definer"
     tree = sqlglot.parse_one(match.group("body"), read="clickhouse")
     assert isinstance(tree, exp.Select), f"{view} body is not a single SELECT"
     return tree
@@ -112,7 +157,7 @@ def _predicate(text: str) -> exp.Expression:
 
 
 def test_migration_exists(text):
-    assert text.strip(), "migration 012 is empty or missing"
+    assert text.strip(), "no migration defines the public views"
 
 
 def test_both_views_created(text):
@@ -363,11 +408,45 @@ def test_duration_ms_is_computed(text):
     assert "dateDiff('millisecond', span_start_time, span_end_time) AS duration_ms" in text
 
 
-def test_goose_up_and_down(text):
-    assert "-- +goose Up" in text
-    assert "-- +goose Down" in text
-    assert "DROP VIEW IF EXISTS spans_public_v1" in text
-    assert "DROP VIEW IF EXISTS traces_public_v1" in text
+def test_goose_up_and_down():
+    """Of the migration that creates the views; a replacement's Down restores the
+    previous body instead of dropping, which the test below covers."""
+    created = MIGRATION.read_text(encoding="utf-8")
+    assert "-- +goose Up" in created
+    assert "-- +goose Down" in created
+    assert "DROP VIEW IF EXISTS spans_public_v1" in created
+    assert "DROP VIEW IF EXISTS traces_public_v1" in created
+
+
+def test_error_type_migration_replaces_the_spans_view_and_down_restores_it():
+    """015 restates the spans view to add one column. Its Down has to put back exactly
+    what 012 created, definer clause included: a rollback that leaves the view without
+    its DEFINER makes it invoker-security, and the read-only account holds no grant on
+    the physical tables, so every gateway query would then fail."""
+    up, down = _sections(ERROR_TYPE_MIGRATION)
+    created, _ = _sections(MIGRATION)
+    view = TABLE_VIEW_MAP["spans"]
+
+    replaced = _create_statement(up, view)
+    restored = _create_statement(down, view)
+    assert replaced, "015 Up must replace the spans view"
+    assert restored, "015 Down must restore the spans view, not drop it"
+
+    # _view_select requires the explicit writer definer, so parsing asserts it too.
+    original = _view_select(_create_statement(created, view), view)
+    assert _view_select(restored, view) == original, "015 Down is not the 012 spans view"
+
+    # Up differs from 012 by the one column and nothing else.
+    added = _view_select(replaced, view)
+    assert [e.alias_or_name for e in added.expressions] == [
+        *[e.alias_or_name for e in original.expressions],
+        "error_type",
+    ]
+    assert added.args["where"] == original.args["where"]
+
+    # The traces view is not this migration's to change, in either direction.
+    for section in (up, down):
+        assert TABLE_VIEW_MAP["traces"] not in section
 
 
 @pytest.mark.parametrize("table,view", VIEWS)
