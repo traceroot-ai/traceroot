@@ -130,12 +130,13 @@ export async function sendEmail(
   options: ResendOptions = {},
 ): Promise<SendResult> {
   const config = resendConfig(options.env);
+  const replyTo = nonBlank(email.replyTo) ?? config.replyTo;
   if (!config.apiKey) return { sent: false, reason: "no-api-key" };
   if (!config.from) return { sent: false, reason: "no-sender" };
   // The topic enforces the recipient's opt-out; the sender domain is send-only, so replies need a home.
   if (email.kind === "product") {
     if (!config.productTopicId) return { sent: false, reason: "product-requires-topic" };
-    if (!config.replyTo) return { sent: false, reason: "product-requires-reply-to" };
+    if (!replyTo) return { sent: false, reason: "product-requires-reply-to" };
   }
 
   const headers: Record<string, string> = {};
@@ -149,7 +150,6 @@ export async function sendEmail(
     text,
   };
   if (html) body.html = html;
-  const replyTo = email.replyTo ?? config.replyTo;
   if (replyTo) body.reply_to = replyTo;
   if (email.headers && Object.keys(email.headers).length > 0) body.headers = email.headers;
   if (email.tags && Object.keys(email.tags).length > 0) {

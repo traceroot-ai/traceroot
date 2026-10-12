@@ -38,6 +38,12 @@ describe("sendEmail", () => {
     expect(isProductMailConfigured(api.env)).toBe(false);
   });
 
+  it("takes a per-message reply-to over the configured one", async () => {
+    const api = mockResend(200, { id: "x" }, { TRACEROOT_UPDATES_EMAIL_REPLY_TO: undefined });
+    await sendEmail({ ...email, replyTo: "hi@traceroot.ai" }, api);
+    expect(api.sent().body.reply_to).toBe("hi@traceroot.ai");
+  });
+
   it("is configured only with key, sender, reply-to and topic all set", () => {
     expect(isProductMailConfigured(env)).toBe(true);
     expect(isProductMailConfigured({ ...env, TRACEROOT_UPDATES_EMAIL_FROM: undefined })).toBe(
