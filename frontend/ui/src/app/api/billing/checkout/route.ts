@@ -344,20 +344,24 @@ async function handlePOST(req: NextRequest) {
         key = next;
         continue;
       }
-      if (!candidate.status || candidate.status === "open") {
-        checkoutSession = candidate;
+      // A replay carries the status the session had when the key was first used, so a
+      // session abandoned since then would still read as open. Ask Stripe for its
+      // current state before deciding whether to hand it out or move past it.
+      const current =
+        candidate.lastResponse?.headers?.["idempotent-replayed"] === "true"
+          ? await stripe.checkout.sessions.retrieve(candidate.id)
+          : candidate;
+      if (!current.status || current.status === "open") {
+        checkoutSession = current;
         break;
       }
       // A replayed session that was paid created a subscription. Moving past it is
       // only safe once that subscription has ended; otherwise the next session would
       // become a second subscription billing alongside it.
-      if (
-        candidate.status === "complete" &&
-        !(await completedSubscriptionEnded(stripe, candidate))
-      ) {
+      if (current.status === "complete" && !(await completedSubscriptionEnded(stripe, current))) {
         throw new CheckoutCompletedError();
       }
-      key = `${checkoutKey}-after-${candidate.id}`;
+      key = `${checkoutKey}-after-${current.id}`;
     }
 
     if (!checkoutSession) {

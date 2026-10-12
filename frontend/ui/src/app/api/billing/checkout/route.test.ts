@@ -521,6 +521,36 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     ]);
   });
 
+  it("checks the current status of a replayed session before reusing it", async () => {
+    // The pro checkout was abandoned and then expired, but Stripe still replays the
+    // original create response for its key, which says the session is open.
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    checkoutCreateMock
+      .mockResolvedValueOnce({
+        id: "cs_abandoned",
+        created: 800,
+        status: "open",
+        url: "https://checkout.stripe.test/abandoned",
+        lastResponse: { headers: { "idempotent-replayed": "true" } },
+      })
+      .mockResolvedValueOnce({
+        id: "cs_fresh",
+        created: 1_000,
+        status: "open",
+        url: "https://checkout.stripe.test/fresh",
+      });
+    checkoutRetrieveMock.mockResolvedValue({ id: "cs_abandoned", status: "expired", url: null });
+
+    const res = await POST(makeRequest());
+
+    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/fresh" });
+    expect(checkoutRetrieveMock).toHaveBeenCalledWith("cs_abandoned");
+    expect(checkoutCreateMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      { idempotencyKey: "workspace-checkout-ws-1-after-cs_abandoned" },
+    );
+  });
+
   it("withdraws its session when an older checkout is paid during the request", async () => {
     // The preflight finds nothing live; an older session is paid before the
     // open-session listing, so it is neither listed nor expired. The check after
