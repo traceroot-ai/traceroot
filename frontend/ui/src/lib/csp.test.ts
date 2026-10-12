@@ -11,7 +11,6 @@ import {
   CSP_REPORT_ENDPOINT,
   CSP_REPORT_PATH,
   REPORTING_ENDPOINTS,
-  reportsThroughReportTo,
 } from "./csp";
 
 const NONCE = Buffer.from("8a5f1c2e-4b6d-4f80-9a1e-3c7d2b5e6f01").toString("base64");
@@ -62,19 +61,22 @@ describe("buildContentSecurityPolicy", () => {
     expect(directives(policy).get("media-src")).toEqual(["'self'", "data:", "blob:"]);
   });
 
-  it("reports through report-to as well as report-uri when the app is served over HTTPS", () => {
-    const appUrl = "https://app.example.com";
-    const parsed = directives(buildContentSecurityPolicy({ nonce: NONCE, appUrl }));
-    expect(reportsThroughReportTo(appUrl)).toBe(true);
+  it("reports through report-to as well as report-uri on a page served over HTTPS", () => {
+    const parsed = directives(buildContentSecurityPolicy({ nonce: NONCE, https: true }));
     expect(parsed.get("report-uri")).toEqual([CSP_REPORT_PATH]);
     expect(parsed.get("report-to")).toEqual([CSP_REPORT_ENDPOINT]);
     expect(REPORTING_ENDPOINTS).toBe('csp-endpoint="/api/csp-report"');
   });
 
   it("reports only through report-uri over plain HTTP, where report-to would send nothing", () => {
-    for (const appUrl of ["http://localhost:3000", "http://traceroot.internal:3000", undefined]) {
-      const parsed = directives(buildContentSecurityPolicy({ nonce: NONCE, appUrl }));
-      expect(reportsThroughReportTo(appUrl)).toBe(false);
+    // The app URL plays no part: an app configured with an HTTPS URL can still be
+    // reached over plain HTTP.
+    for (const options of [
+      {},
+      { https: false },
+      { https: false, appUrl: "https://app.example.com" },
+    ]) {
+      const parsed = directives(buildContentSecurityPolicy({ nonce: NONCE, ...options }));
       expect(parsed.get("report-uri")).toEqual([CSP_REPORT_PATH]);
       expect(parsed.has("report-to")).toBe(false);
     }

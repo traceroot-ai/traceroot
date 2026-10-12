@@ -47,12 +47,13 @@ describe("middleware matcher exemptions", () => {
   });
 });
 
-function request(path: string, opts?: { token?: boolean }): NextRequest {
+function request(path: string, opts?: { token?: boolean; https?: boolean }): NextRequest {
   const headers = new Headers();
   if (opts?.token) {
     headers.set("cookie", "better-auth.session_token=a-token");
   }
-  return new NextRequest(new URL(`http://localhost:3000${path}`), { headers });
+  const scheme = opts?.https ? "https" : "http";
+  return new NextRequest(new URL(`${scheme}://localhost:3000${path}`), { headers });
 }
 
 describe("proxy middleware", () => {
@@ -103,15 +104,14 @@ describe("proxy Content-Security-Policy", () => {
     expect(forwarded(res, "content-security-policy")).toBe(policy);
   });
 
-  it("names the endpoint the policy's report-to sends reports to when the app is on HTTPS", () => {
-    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com");
-    const res = proxy(request("/auth/sign-in"));
+  it("names the endpoint the policy's report-to sends reports to on a page served over HTTPS", () => {
+    const res = proxy(request("/auth/sign-in", { https: true }));
     expect(res.headers.get("content-security-policy")).toContain("report-to csp-endpoint");
     expect(res.headers.get("reporting-endpoints")).toBe('csp-endpoint="/api/csp-report"');
   });
 
-  it("leaves report-to and its endpoint out when the app is served over plain HTTP", () => {
-    vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
+  it("leaves report-to and its endpoint out of a page served over plain HTTP, whatever the app URL", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com");
     const res = proxy(request("/auth/sign-in"));
     expect(res.headers.get("content-security-policy")).toContain("report-uri /api/csp-report");
     expect(res.headers.get("content-security-policy")).not.toContain("report-to");

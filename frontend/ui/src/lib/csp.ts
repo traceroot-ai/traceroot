@@ -24,9 +24,11 @@ export interface CspOptions {
   // Absolute when the REST API is on another origin, as in local development.
   apiUrl?: string;
   // NEXT_PUBLIC_APP_URL, which the auth client calls (lib/auth-client.ts). It
-  // matches the page's own origin unless the app is reached by another name. An
-  // HTTPS one also turns on report-to (reportsThroughReportTo).
+  // matches the page's own origin unless the app is reached by another name.
   appUrl?: string;
+  // Whether the page is served over HTTPS, the only case in which the policy
+  // also reports through report-to (see REPORTING_ENDPOINTS).
+  https?: boolean;
 }
 
 export function buildContentSecurityPolicy({
@@ -36,6 +38,7 @@ export function buildContentSecurityPolicy({
   posthogHost,
   apiUrl,
   appUrl,
+  https = false,
 }: CspOptions): string {
   const connectSrc = new Set([
     "'self'",
@@ -68,7 +71,7 @@ export function buildContentSecurityPolicy({
     ["form-action", "'self'"],
     ["frame-ancestors", "'none'"],
     ["report-uri", CSP_REPORT_PATH],
-    ...(reportsThroughReportTo(appUrl) ? [["report-to", CSP_REPORT_ENDPOINT]] : []),
+    ...(https ? [["report-to", CSP_REPORT_ENDPOINT]] : []),
   ];
   return directives.map((directive) => directive.join(" ")).join("; ");
 }
@@ -82,23 +85,15 @@ export function cspHeaderName(mode: string | undefined): string {
 }
 
 /**
- * The Reporting-Endpoints header for report-to, sent with the policy when
- * reportsThroughReportTo() holds. A browser that supports report-to then sends
- * its reports there and ignores report-uri; the others, such as Firefox before
- * 149, keep using report-uri.
+ * The Reporting-Endpoints header for report-to, sent with the policy on a page
+ * served over HTTPS. A browser that supports report-to then sends its reports
+ * there and ignores report-uri; the others, such as Firefox before 149, keep
+ * using report-uri. A page served over plain HTTP gets neither report-to nor this
+ * header: a browser registers the endpoint only on an HTTPS page (not even on
+ * http://localhost), and with report-to it ignores report-uri, so it would send
+ * no reports at all.
  */
 export const REPORTING_ENDPOINTS = `${CSP_REPORT_ENDPOINT}="${CSP_REPORT_PATH}"`;
-
-/**
- * Whether the policy also reports through report-to. A browser that supports it
- * ignores report-uri but registers the endpoint only on a page served over HTTPS
- * (not even on http://localhost), so on local development or a self-hosted
- * install served over plain HTTP it would send no reports at all. report-to is
- * therefore added only when the app URL is HTTPS.
- */
-export function reportsThroughReportTo(appUrl: string | undefined): boolean {
-  return absoluteOrigin(appUrl).some((origin) => origin.startsWith("https://"));
-}
 
 // posthog-js fetches its remote config and lazy scripts (session recording, web
 // vitals) from an assets host: us-assets or eu-assets for PostHog Cloud, the

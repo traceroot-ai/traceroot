@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  buildContentSecurityPolicy,
-  cspHeaderName,
-  REPORTING_ENDPOINTS,
-  reportsThroughReportTo,
-} from "@/lib/csp";
+import { buildContentSecurityPolicy, cspHeaderName, REPORTING_ENDPOINTS } from "@/lib/csp";
 
 // Every page carries a Content-Security-Policy with a fresh nonce (lib/csp.ts).
 // Next.js reads the nonce from the policy on the request and adds it to its own
@@ -15,14 +10,17 @@ function nextWithCsp(req: NextRequest): NextResponse {
     return NextResponse.next();
   }
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  // Next.js takes the scheme from the TLS connection, or from X-Forwarded-Proto
+  // behind a proxy that terminates TLS.
+  const https = req.nextUrl.protocol === "https:";
   const policy = buildContentSecurityPolicy({
     nonce,
     isDev: process.env.NODE_ENV === "development",
     posthogKey: process.env.NEXT_PUBLIC_POSTHOG_KEY,
     posthogHost: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     apiUrl: process.env.NEXT_PUBLIC_API_URL,
-    appUrl,
+    appUrl: process.env.NEXT_PUBLIC_APP_URL,
+    https,
   });
   const header = cspHeaderName(process.env.CSP_MODE);
 
@@ -31,7 +29,7 @@ function nextWithCsp(req: NextRequest): NextResponse {
   requestHeaders.set(header, policy);
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set(header, policy);
-  if (reportsThroughReportTo(appUrl)) {
+  if (https) {
     response.headers.set("Reporting-Endpoints", REPORTING_ENDPOINTS);
   }
   return response;
