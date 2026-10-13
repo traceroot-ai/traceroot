@@ -986,6 +986,21 @@ describe("runAlertTick — a page an edit or a resume discarded", () => {
     expect(restoreAlertPendingClose).toHaveBeenCalledWith("a", marker);
   });
 
+  it("puts the marker back when writing the page's state throws", async () => {
+    markersOn("a");
+    completeAlertEvaluation.mockRejectedValue(new Error("connection reset"));
+    claimDueAlerts.mockResolvedValue([owing("a")]);
+    evaluateAlerts.mockResolvedValue([breachResult("a")]);
+
+    await runAlertTick(NOW);
+
+    // The run fails like any other, and the close it had taken is not lost with it.
+    expect(recordAlertEvaluationFailure).toHaveBeenCalledTimes(1);
+    expect(enqueueAlertNotification).not.toHaveBeenCalled();
+    expect(restoreAlertPendingClose).toHaveBeenCalledTimes(1);
+    expect(restoreAlertPendingClose).toHaveBeenCalledWith("a", marker);
+  });
+
   it("evaluates as usual when the stopped rules' closes cannot be read", async () => {
     readStoppedAlertCloses.mockRejectedValue(new Error("pool exhausted"));
     claimDueAlerts.mockResolvedValue([claimWith("a")]);

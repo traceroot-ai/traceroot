@@ -70,6 +70,8 @@ export interface AlertCloseJob {
   actorUserId: string;
   /** ISO, as the marker stores it. */
   at: string;
+  /** Delivery cycles already spent on this close, as the marker counts them. */
+  resends?: number;
 }
 
 /** Everything the queue carries. A job enqueued before `kind` existed is a notification. */

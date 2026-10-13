@@ -250,16 +250,25 @@ async function settleClaim(
   const carried =
     transition.emit && claim.hasPendingClose ? await takeAlertPendingClose(rule.id) : null;
 
-  const written = await completeAlertEvaluation({
-    alertId: rule.id,
-    claimStamp: claim.claimStamp,
-    // What this transition was decided from. A delivery that gave up while the
-    // evaluator was answering has already put the rule back to where it was
-    // before the emission, and that rollback outranks this result.
-    previousAlertedAt: rule.state.alertedAt,
-    state: transition.nextState,
-    evaluatedAt: tick.boundary,
-  });
+  let written: boolean;
+  try {
+    written = await completeAlertEvaluation({
+      alertId: rule.id,
+      claimStamp: claim.claimStamp,
+      // What this transition was decided from. A delivery that gave up while the
+      // evaluator was answering has already put the rule back to where it was
+      // before the emission, and that rollback outranks this result.
+      previousAlertedAt: rule.state.alertedAt,
+      state: transition.nextState,
+      evaluatedAt: tick.boundary,
+    });
+  } catch (error) {
+    // The marker is already cleared, and a write that throws is a run that fails
+    // with no page behind it: without this the close is gone, and the pass that
+    // sends closes alone finds nothing left to take.
+    if (carried !== null) await restoreClose(target, carried);
+    throw error;
+  }
   if (!written) {
     logInfo(`stale claim discarded or state moved alert=${rule.id} project=${rule.projectId}`);
     // No page follows, so the close goes back for whichever tick settles the rule next.
