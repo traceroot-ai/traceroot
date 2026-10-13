@@ -21,8 +21,16 @@
 -- The inner SELECT reads `metadata_map`, which the no-I/O projection does not
 -- carry, so a gateway query grouping by error_type reads the base table. That is
 -- the existing behaviour of this view for every column, not something added here.
+--
+-- DROP + CREATE, not CREATE OR REPLACE: replacing an existing view swaps its
+-- metadata file with renameat2(RENAME_EXCHANGE), which EFS/NFS does not support
+-- ("System call renameat2() is not supported"), and the deployed ClickHouse keeps
+-- its data on EFS. The view is absent between the two statements; both are safe
+-- to re-run, so a failed CREATE is recovered by running the migration again.
 
-CREATE OR REPLACE VIEW spans_public_v1
+DROP VIEW IF EXISTS spans_public_v1;
+
+CREATE VIEW spans_public_v1
     DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS
 SELECT
     span_id,
@@ -69,8 +77,11 @@ WHERE source = 'user'
 
 -- +goose Down
 
--- Restore the 012 spans view (no error_type), definer clause included.
-CREATE OR REPLACE VIEW spans_public_v1
+-- Restore the 012 spans view (no error_type), definer clause included. DROP +
+-- CREATE for the same EFS reason as Up.
+DROP VIEW IF EXISTS spans_public_v1;
+
+CREATE VIEW spans_public_v1
     DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS
 SELECT
     span_id,
