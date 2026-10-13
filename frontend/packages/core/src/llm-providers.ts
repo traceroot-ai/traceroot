@@ -160,11 +160,14 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
 // Adapters NOT listed here (azure, amazon-bedrock, openrouter) use free-text input.
 export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   openai: [
+    { id: "gpt-6.1-sol", label: "gpt-6.1-sol" },
+    { id: "gpt-6-astra", label: "gpt-6-astra" },
+    { id: "gpt-6-sol", label: "gpt-6-sol" },
+    { id: "gpt-6-luna", label: "gpt-6-luna" },
     { id: "gpt-5.6-sol", label: "gpt-5.6-sol" },
     { id: "gpt-5.6-terra", label: "gpt-5.6-terra" },
     { id: "gpt-5.6-luna", label: "gpt-5.6-luna" },
     { id: "gpt-5.6-cyber", label: "gpt-5.6-cyber" },
-    { id: "gpt-6-astra", label: "gpt-6-astra" },
     { id: "gpt-5.5", label: "gpt-5.5" },
     { id: "gpt-5.5-pro", label: "gpt-5.5-pro" },
     { id: "gpt-5.4", label: "gpt-5.4" },
@@ -180,11 +183,13 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "o4-mini", label: "o4-mini", apiProtocol: "openai-completions" },
   ],
   anthropic: [
+    { id: "claude-opus-5-5", label: "claude-opus-5-5" },
     { id: "claude-opus-5", label: "claude-opus-5" },
     { id: "claude-opus-4-8", label: "claude-opus-4-8" },
     { id: "claude-opus-4-7", label: "claude-opus-4-7" },
     { id: "claude-opus-4-6", label: "claude-opus-4-6" },
     { id: "claude-opus-4-5", label: "claude-opus-4-5" },
+    { id: "claude-sonnet-5-5", label: "claude-sonnet-5-5" },
     { id: "claude-sonnet-5", label: "claude-sonnet-5" },
     { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
     { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
@@ -205,6 +210,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "deepseek-chat", label: "deepseek-chat" },
   ],
   xai: [
+    { id: "grok-4.7", label: "grok-4.7" },
     { id: "grok-4.6", label: "grok-4.6" },
     { id: "grok-4.5", label: "grok-4.5" },
     { id: "grok-4.20", label: "grok-4.20" },
