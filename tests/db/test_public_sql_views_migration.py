@@ -35,7 +35,8 @@ from rest.services.sql.schema import (
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "backend/db/clickhouse/migrations"
 
-# The migration that created both views. Later migrations replace a view in place.
+# The migration that created both views. Later migrations redefine a view by DROP +
+# CREATE, never in place (see test_existing_views_are_not_replaced_in_place).
 MIGRATION = MIGRATIONS_DIR / "012_create_public_sql_views.sql"
 
 # The migration that replaced the spans view to add `error_type`.
@@ -417,7 +418,8 @@ def test_duration_ms_is_computed(text):
 
 def test_goose_up_and_down():
     """Of the migration that creates the views; a replacement's Down restores the
-    previous body instead of dropping, which the test below covers."""
+    previous body instead of dropping, which
+    test_error_type_migration_replaces_the_spans_view_and_down_restores_it covers."""
     created = MIGRATION.read_text(encoding="utf-8")
     assert "-- +goose Up" in created
     assert "-- +goose Down" in created
@@ -429,7 +431,9 @@ def test_existing_views_are_not_replaced_in_place():
     """CREATE OR REPLACE on a view that already exists swaps its metadata file with
     renameat2(RENAME_EXCHANGE), which EFS does not support, so the migration fails on
     the deployed ClickHouse while passing on local disk. A migration that redefines a
-    view an earlier one created must DROP VIEW IF EXISTS and then CREATE VIEW."""
+    view an earlier one created must DROP VIEW IF EXISTS and then CREATE VIEW, and the
+    DROP is required too: a plain CREATE VIEW on an existing view fails everywhere with
+    TABLE_ALREADY_EXISTS."""
     created: set[str] = set()
     for path in sorted(MIGRATIONS_DIR.glob("[0-9]*.sql")):
         up, down = _sections(path)
@@ -439,6 +443,13 @@ def test_existing_views_are_not_replaced_in_place():
                     assert not re.search(rf"CREATE OR REPLACE VIEW {view}\b", section), (
                         f"{path.name} replaces {view} in place; use DROP VIEW IF EXISTS + CREATE VIEW"
                     )
+                    create = re.search(rf"CREATE VIEW {view}\b", section)
+                    if create:
+                        drop = re.search(rf"DROP VIEW IF EXISTS {view}\s*;", section)
+                        assert drop and drop.start() < create.start(), (
+                            f"{path.name} creates {view} without dropping it first; "
+                            "CREATE VIEW on an existing view fails with TABLE_ALREADY_EXISTS"
+                        )
             if _create_statement(up, view):
                 created.add(view)
 
