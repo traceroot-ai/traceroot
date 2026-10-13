@@ -132,6 +132,21 @@ model WorkspaceUsageNotification {
   @@map("workspace_usage_notifications")
 }
 
+// One row per (user, campaign) for app email that must not repeat; see src/lib/email/send-record.ts.
+model EmailSend {
+  id         String    @id @default(cuid()) @db.VarChar
+  userId     String    @map("user_id") @db.VarChar
+  campaign   String    @db.VarChar // "welcome"
+  kind       String    @db.VarChar // "transactional" | "product"
+  claimedAt  DateTime  @default(now()) @map("claimed_at") @db.Timestamp(6)
+  sentAt     DateTime? @map("sent_at") @db.Timestamp(6)
+  providerId String?   @map("provider_id") @db.VarChar
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([userId, campaign], map: "uq_email_send_user_campaign")
+  @@map("email_sends")
+}
+
 // Model Providers - Per-workspace BYOK LLM API keys
 model ModelProvider {
   id                String    @id @default(cuid()) @db.VarChar
@@ -207,6 +222,7 @@ model User {
   memberships   WorkspaceMember[]
   accounts      Account[]
   sessions      Session[]
+  emailSends    EmailSend[]
 
   @@map("users")
 }

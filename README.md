@@ -7,7 +7,7 @@
     </picture>
   </a>
 
-Open Source Self-improving Layer for AI Agents
+Open Source AI Agent Improvement Platform
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -29,7 +29,7 @@ Open Source Self-improving Layer for AI Agents
 
 ## TraceRoot
 
-TraceRoot turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
+TraceRoot turns production traces into actionable feedback and evals, closing the improvement loop with your coding agent.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 

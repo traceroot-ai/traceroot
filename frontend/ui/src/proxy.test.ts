@@ -26,6 +26,7 @@ describe("middleware matcher exemptions", () => {
     expect(isProtected("/api/auth/callback")).toBe(false);
     expect(isProtected("/api/internal/validate-api-key")).toBe(false);
     expect(isProtected("/api/billing/webhook")).toBe(false);
+    expect(isProtected("/api/email/unsubscribe")).toBe(false);
     expect(isProtected("/api/health")).toBe(false);
     // Browsers post Content-Security-Policy violation reports without the session.
     expect(isProtected("/api/csp-report")).toBe(false);
