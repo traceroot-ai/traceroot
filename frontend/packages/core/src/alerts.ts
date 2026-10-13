@@ -55,7 +55,20 @@ export interface AlertPendingClose {
   reason: AlertCloseReason;
   actorUserId: string;
   at: string;
+  /**
+   * How many delivery cycles this close has already run out of. Absent until the
+   * first one does. The worker stops putting the close back at
+   * `ALERT_CLOSE_MAX_RESENDS`, so a channel that never accepts it is not retried
+   * for as long as the rule exists.
+   */
+  resends?: number;
 }
+
+/**
+ * Delivery cycles a close gets after its first. Each is about half an hour of
+ * retries, so a close is given up on after roughly two hours of Slack refusing it.
+ */
+export const ALERT_CLOSE_MAX_RESENDS = 3;
 
 /** Null for no marker, and for a stored value that is not one. */
 export function parseAlertPendingClose(value: unknown): AlertPendingClose | null {
@@ -64,7 +77,11 @@ export function parseAlertPendingClose(value: unknown): AlertPendingClose | null
   if (typeof reason !== "string" || !isAlertCloseReason(reason)) return null;
   if (typeof actorUserId !== "string" || actorUserId === "") return null;
   if (typeof at !== "string" || Number.isNaN(Date.parse(at))) return null;
-  return { reason, actorUserId, at };
+  // A count this build cannot read is no count: the close is still owed.
+  const { resends } = value as Record<string, unknown>;
+  return typeof resends === "number" && Number.isInteger(resends) && resends > 0
+    ? { reason, actorUserId, at, resends }
+    : { reason, actorUserId, at };
 }
 
 /**

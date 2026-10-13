@@ -1,5 +1,6 @@
 import { Queue, Worker, type Job } from "bullmq";
 import {
+  ALERT_CLOSE_MAX_RESENDS,
   decryptKey,
   hasEntitlement,
   prisma,
@@ -427,17 +428,26 @@ export async function sendAlertNotification(payload: AlertNotificationJob): Prom
 }
 
 /**
- * A close whose attempts ran out goes back on the rule for the next tick to send.
+ * A close whose attempts ran out goes back on the rule for a later tick to send, with
+ * one more cycle counted against it. Past `ALERT_CLOSE_MAX_RESENDS` it is dropped: a
+ * channel that has refused it this long is not one another half hour will open, and
+ * without the cap the close is re-queued for as long as the outage and the rule last.
  * Guarded: the caller is already on a path that failed, and the worst a lost restore
  * costs is the unclosed page this job existed to close.
  */
 async function restoreClose(job: AlertCloseJob, reason: string): Promise<void> {
   const tag = `alert=${job.alertId} project=${job.projectId} reason=${reason}`;
+  const resends = (job.resends ?? 0) + 1;
+  if (resends > ALERT_CLOSE_MAX_RESENDS) {
+    logError(`close given up on after ${ALERT_CLOSE_MAX_RESENDS} resends ${tag}`);
+    return;
+  }
   try {
     const restored = await restoreAlertPendingClose(job.alertId, {
       reason: job.reason,
       actorUserId: job.actorUserId,
       at: job.at,
+      resends,
     });
     logInfo(
       restored
@@ -545,32 +555,44 @@ function carriedClose(page: AlertNotificationJob): AlertCloseJob | null {
 }
 
 /**
+ * Jobs whose carried close has posted but could not be dropped from the job's data.
+ * The data is what a retry and the exhaustion handler both read, so without this
+ * either would send the close again: the retry by posting it, the handler by putting
+ * it back on the rule. Held in memory, which a restart loses; what is left then is
+ * one repeated close, the lesser fault next to a page that never arrives.
+ */
+const closePostedJobs = new Set<string>();
+
+type AlertJob = Pick<Job<AlertQueueJob>, "data" | "updateData" | "id">;
+
+/**
  * One job, in order: the close of the old page, then the new page. A close that
  * throws fails the job before the page is tried, so a retry keeps the order. Once
  * posted the close is dropped from the job's data, or a retry of the page alone would
- * post it a second time; a failure to drop it is logged and the page still goes out,
- * because a repeated close is the lesser fault next to a page that never arrives.
+ * post it a second time; when that write fails the job is remembered here instead,
+ * and the page still goes out.
  */
-export async function processAlertJob(job: Pick<Job<AlertQueueJob>, "data" | "updateData">) {
+export async function processAlertJob(job: AlertJob) {
   if (isAlertCloseJob(job.data)) {
     await sendAlertClose(job.data);
     return;
   }
 
-  const close = carriedClose(job.data);
-  if (close === null) {
-    await sendAlertNotification(job.data);
-    return;
+  const hasPosted = job.id !== undefined && closePostedJobs.has(job.id);
+  const close = hasPosted ? null : carriedClose(job.data);
+  const { closeFirst: _closeFirst, ...page } = job.data;
+  if (close !== null) {
+    await sendAlertClose(close);
+    try {
+      await job.updateData(page);
+    } catch (error) {
+      logError(`close posted but not cleared from its job alert=${page.alertId}`, error);
+      if (job.id !== undefined) closePostedJobs.add(job.id);
+    }
   }
 
-  await sendAlertClose(close);
-  const { closeFirst: _closeFirst, ...page } = job.data;
-  try {
-    await job.updateData(page);
-  } catch (error) {
-    logError(`close posted but not cleared from its job alert=${page.alertId}`, error);
-  }
   await sendAlertNotification(page);
+  if (job.id !== undefined) closePostedJobs.delete(job.id);
 }
 
 export function startAlertNotificationWorker(): Worker<AlertQueueJob> {
@@ -595,9 +617,11 @@ export function startAlertNotificationWorker(): Worker<AlertQueueJob> {
       void restoreClose(job.data, RETRIES_EXHAUSTED);
       return;
     }
-    // Still carried means the close never posted: it goes back with the page's own
-    // rollback, so the next tick sends the pair again, in order.
-    const close = carriedClose(job.data);
+    // Still carried means the close never posted, unless it posted and could not
+    // be dropped from the job: it goes back with the page's own rollback, so the
+    // next tick sends the pair again, in order.
+    const hasPosted = job.id !== undefined && closePostedJobs.delete(job.id);
+    const close = hasPosted ? null : carriedClose(job.data);
     if (close !== null) void restoreClose(close, RETRIES_EXHAUSTED);
     void recordNonDelivery(job.data, RETRIES_EXHAUSTED);
   });

@@ -724,9 +724,35 @@ describe("startAlertNotificationWorker", () => {
     );
     await vi.waitFor(() => expect(closeRestores()).toHaveLength(1));
 
-    expect(closeRestores()[0].data.pendingClose).toEqual(closeMarker);
+    // One delivery cycle is now counted against it.
+    expect(closeRestores()[0].data.pendingClose).toEqual({ ...closeMarker, resends: 1 });
     expect(notifyWrites()).toHaveLength(0);
     expect(stateWrites()).toHaveLength(0);
+  });
+
+  it("counts each cycle a close runs out of, and gives up on it past the cap", async () => {
+    const { ALERT_CLOSE_MAX_RESENDS } = await import("@traceroot/core");
+    const { startAlertNotificationWorker } = await importModule();
+    startAlertNotificationWorker();
+    const exhaust = (resends: number) =>
+      workerHandlers.get("failed")?.(
+        { id: "j1", attemptsMade: 12, opts: { attempts: 12 }, data: { ...closeJob, resends } },
+        new Error("rate limited"),
+      );
+
+    exhaust(ALERT_CLOSE_MAX_RESENDS - 1);
+    await vi.waitFor(() => expect(closeRestores()).toHaveLength(1));
+    expect(closeRestores()[0].data.pendingClose).toMatchObject({
+      resends: ALERT_CLOSE_MAX_RESENDS,
+    });
+
+    // Without the cap a channel that never accepts the close is retried every
+    // half hour for as long as the rule exists.
+    exhaust(ALERT_CLOSE_MAX_RESENDS);
+    await vi.waitFor(() =>
+      expect(logError.mock.calls.some(([line]) => String(line).includes("given up"))).toBe(true),
+    );
+    expect(closeRestores()).toHaveLength(1);
   });
 
   it("puts a carried close back too when the page it rode on runs out of attempts", async () => {
@@ -748,7 +774,7 @@ describe("startAlertNotificationWorker", () => {
     // goes back with it so that tick sends the pair in order once more.
     expect(notifyWrites()[0].data.lastNotifyStatus).toBe("COMPENSATED");
     expect(closeRestores()).toHaveLength(1);
-    expect(closeRestores()[0].data.pendingClose).toEqual(closeMarker);
+    expect(closeRestores()[0].data.pendingClose).toEqual({ ...closeMarker, resends: 1 });
   });
 
   it("leaves a job with attempts left alone, and logs the attempt as a retry", async () => {
@@ -921,6 +947,53 @@ describe("processAlertJob", () => {
     await processAlertJob({ data: pageWithClose, updateData });
 
     expect(posted()).toEqual(["[OK] rule", "[ALERT] rule"]);
+  });
+
+  describe("a close that posted but could not be cleared from its job", () => {
+    const stuckJob = (id: string) => ({
+      id,
+      data: pageWithClose,
+      updateData: vi.fn().mockRejectedValue(new Error("redis down")),
+    });
+
+    it("is not posted again when the page behind it is retried", async () => {
+      // The close goes out, clearing it fails, and the page then fails too: the
+      // retry reads job data that still carries the close.
+      postMessage.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(slackHttpError(503));
+      const { processAlertJob } = await importModule();
+      const job = stuckJob("stuck-retry");
+
+      await expect(processAlertJob(job)).rejects.toMatchObject({ statusCode: 503 });
+      await processAlertJob(job);
+
+      expect(posted()).toEqual(["[OK] rule", "[ALERT] rule", "[ALERT] rule"]);
+    });
+
+    it("is not put back on the rule when that page runs out of attempts", async () => {
+      postMessage.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(slackHttpError(503));
+      const { processAlertJob, startAlertNotificationWorker } = await importModule();
+      startAlertNotificationWorker();
+      const job = stuckJob("stuck-exhausted");
+      await expect(processAlertJob(job)).rejects.toMatchObject({ statusCode: 503 });
+
+      workerHandlers.get("failed")?.(
+        { ...job, attemptsMade: 12, opts: { attempts: 12 } },
+        new Error("unavailable"),
+      );
+      await vi.waitFor(() => expect(notifyWrites()).toHaveLength(1));
+
+      // The page is rolled back to be raised again; the close already reached
+      // the channel, so restoring it would post it a second time.
+      expect(closeRestores()).toHaveLength(0);
+    });
+
+    it("is forgotten once the job is done, so a later job with the same id starts clean", async () => {
+      const { processAlertJob } = await importModule();
+      await processAlertJob(stuckJob("stuck-reused"));
+      await processAlertJob(stuckJob("stuck-reused"));
+
+      expect(posted()).toEqual(["[OK] rule", "[ALERT] rule", "[OK] rule", "[ALERT] rule"]);
+    });
   });
 
   it("sends a page that carries no close, and a close sent alone, as before", async () => {

@@ -153,6 +153,13 @@ describe("parseAlertPendingClose", () => {
     expect(parseAlertPendingClose({ ...marker, extra: true })).toEqual(marker);
   });
 
+  it("keeps a resend count it can read, and drops one it cannot without losing the close", () => {
+    expect(parseAlertPendingClose({ ...marker, resends: 2 })).toEqual({ ...marker, resends: 2 });
+    for (const resends of [0, -1, 1.5, "2", null]) {
+      expect(parseAlertPendingClose({ ...marker, resends })).toEqual(marker);
+    }
+  });
+
   it("reads no marker, and anything that is not one, as nothing to close", () => {
     const notMarkers = [
       null,
