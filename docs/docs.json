@@ -2,6 +2,10 @@
   "$schema": "https://mintlify.com/docs.json",
   "name": "TraceRoot",
   "theme": "mint",
+  "thumbnails": {
+    "appearance": "light",
+    "background": "/images/og-background.png"
+  },
   "colors": {
     "primary": "#0f172a",
     "light": "#FFFFFF",
@@ -21,8 +25,8 @@
   },
   "favicon": "/logo/favicon.png",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg",
+    "light": "/logo/light.png",
+    "dark": "/logo/dark.png",
     "href": "https://traceroot.ai",
     "size": 36
   },
@@ -33,6 +37,18 @@
     {
       "source": "/detectors/alerts",
       "destination": "/detectors/notifications"
+    },
+    {
+      "source": "/alerts/introduction",
+      "destination": "/alerts/overview"
+    },
+    {
+      "source": "/alerts/get-started",
+      "destination": "/alerts/overview#how-to-create-an-alert"
+    },
+    {
+      "source": "/alerts/slack",
+      "destination": "/alerts/overview#slack-notifications"
     }
   ],
   "search": {
@@ -94,6 +110,7 @@
                   "tracing/sessions",
                   "tracing/tags",
                   "tracing/metadata",
+                  "tracing/data-capture",
                   "tracing/cost-tracking",
                   "tracing/git-context",
                   "tracing/timeline",
@@ -132,6 +149,13 @@
             ]
           },
           {
+            "group": "Alerts",
+            "pages": [
+              "alerts/overview",
+              "alerts/rule-reference"
+            ]
+          },
+          {
             "group": "Evaluations",
             "pages": [
               "evals/introduction",
@@ -146,7 +170,8 @@
           {
             "group": "CLI",
             "pages": [
-              "cli/get-started"
+              "cli/get-started",
+              "cli/sql"
             ]
           }
         ]
@@ -200,6 +225,7 @@
               "integrations/groq",
               "integrations/mistral",
               "integrations/openai",
+              "integrations/openai-compatible",
               "integrations/openrouter"
             ]
           },
@@ -227,6 +253,12 @@
       "x": "https://x.com/TraceRootAI",
       "linkedin": "https://www.linkedin.com/company/traceroot-ai",
       "discord": "https://discord.gg/TM2m3CtKuC"
+    }
+  },
+  "integrations": {
+    "posthog": {
+      "apiKey": "phc_X8eeQUsyMb7bk5sw0msmN8ARBxurlVyQxC0uvHVul7C",
+      "apiHost": "https://us.i.posthog.com"
     }
   }
 }
