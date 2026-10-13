@@ -69,6 +69,14 @@ def _run(
 # ships them empty because a value committed here is a value every install shares.
 GENERATED_KEYS = ("INTERNAL_API_SECRET", "BETTER_AUTH_SECRET")
 
+# Required by docker-compose.prod.yml, which refuses to start without it, but
+# defaulted to a published value by docker-compose.yml. A dev checkout whose
+# ClickHouse volume was initialised with that default keeps working only while
+# .env stays silent, so this is filled on the prod paths alone.
+PROD_GENERATED_KEYS = ("SQL_GATEWAY_BOOTSTRAP_PASSWORD",)
+
+ALL_GENERATED_KEYS = GENERATED_KEYS + PROD_GENERATED_KEYS
+
 # Values this repository published at some point in .env.example or
 # docker-compose.prod.yml. Nobody chose them, so replacing them is safe; a value
 # that is not on this list is left alone, however weak it looks.
@@ -79,6 +87,7 @@ PUBLISHED_PLACEHOLDERS = frozenset(
         "your-better-auth-secret",
         "local-dev-secret-change-in-production",
         "changeme",
+        "dev-sql-gateway-bootstrap",
     }
 )
 
@@ -95,14 +104,14 @@ def is_placeholder(assigned: str) -> bool:
     return not cleaned or cleaned.lower() in PUBLISHED_PLACEHOLDERS
 
 
-def fill_secrets(text: str) -> str:
-    """Give every key in GENERATED_KEYS a generated value unless one is set.
+def fill_secrets(text: str, keys: tuple[str, ...] = GENERATED_KEYS) -> str:
+    """Give every key in ``keys`` a generated value unless one is set.
 
     Matches the optional ``export`` prefix so a key written that way is repaired
     in place rather than appended a second time, where it would take precedence
     over the operator's own value.
     """
-    for key in GENERATED_KEYS:
+    for key in keys:
         # Matches to end of line, so substituting drops any trailing comment
         # along with the placeholder -- "# CHANGEME" stops being true here.
         pattern = re.compile(rf"^(\s*(?:export\s+)?{key}\s*=)(.*)$", re.MULTILINE)
@@ -114,7 +123,11 @@ def fill_secrets(text: str) -> str:
     return text
 
 
-def ensure_env_file(env_path: Path = ENV_PATH, example_path: Path = ENV_EXAMPLE_PATH) -> None:
+def ensure_env_file(
+    env_path: Path = ENV_PATH,
+    example_path: Path = ENV_EXAMPLE_PATH,
+    keys: tuple[str, ...] = GENERATED_KEYS,
+) -> None:
     """Create .env if absent, then give every placeholder secret a real value."""
     if not env_path.exists():
         print("Creating .env from .env.example...")
@@ -125,7 +138,7 @@ def ensure_env_file(env_path: Path = ENV_PATH, example_path: Path = ENV_EXAMPLE_
     os.chmod(env_path, 0o600)  # it holds generated secrets, not just defaults
 
     text = env_path.read_text()
-    filled = fill_secrets(text)
+    filled = fill_secrets(text, keys)
     if filled != text:
         print("  Generated a unique value for the local auth secrets.")
         env_path.write_text(filled)
@@ -200,7 +213,7 @@ def run_setup():
 
 def run_prod_setup():
     """Build Docker images and start all services. Idempotent."""
-    ensure_env_file()
+    ensure_env_file(keys=ALL_GENERATED_KEYS)
 
     print("Building Docker images (cached if unchanged)...")
     _run(f"{PROD_COMPOSE} build")
@@ -270,7 +283,7 @@ def _teardown_env() -> dict[str, str]:
     here reaches a container -- the containers are on their way out.
     """
     env = dict(os.environ)
-    for key in GENERATED_KEYS:
+    for key in ALL_GENERATED_KEYS:
         env.setdefault(key, "unused-for-teardown")
     return env
 

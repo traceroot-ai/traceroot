@@ -3,10 +3,13 @@
 # =============================================================================
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
+# Secrets docker-compose.prod.yml marks required with ${VAR:?...}. Kept in sync
+# by tests/test_published_secrets.py, which reads both this list and the compose file.
+REQUIRED_SECRETS := INTERNAL_API_SECRET BETTER_AUTH_SECRET SQL_GATEWAY_BOOTSTRAP_PASSWORD
 # Only vX.Y.Z tags are platform versions; other tags must not become the label.
 APP_VERSION ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo dev)
 
-.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
+.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset env-secrets
 
 ## Install repository git hooks for contributors.
 install-hooks:
@@ -38,9 +41,27 @@ dev-reset:
 prod:
 	uv run python tmux_tools/launcher.py --prod
 
-## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
-prod-lite:
+## Give every required secret a value in .env. Needs only openssl, so the
+## self-hosting path stays free of the uv/python toolchain.
+env-secrets:
 	@test -f .env || cp .env.example .env
+	@for key in $(REQUIRED_SECRETS); do \
+		if [ -n "$$(awk -F= -v k="$$key" '$$1 == k && $$2 != "" { print $$2 }' .env)" ]; then \
+			continue; \
+		fi; \
+		value=$$(openssl rand -hex 32) || exit 1; \
+		if awk -F= -v k="$$key" '$$1 == k { found = 1 } END { exit !found }' .env; then \
+			awk -F= -v k="$$key" -v v="$$value" 'BEGIN { OFS = "=" } $$1 == k { print k, v; next } { print }' .env > .env.tmp; \
+		else \
+			cp .env .env.tmp; \
+			printf '%s=%s\n' "$$key" "$$value" >> .env.tmp; \
+		fi; \
+		mv .env.tmp .env; \
+		echo "Generated $$key in .env"; \
+	done
+
+## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
+prod-lite: env-secrets
 	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
 	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
 

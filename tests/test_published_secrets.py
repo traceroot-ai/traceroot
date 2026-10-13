@@ -24,6 +24,7 @@ import pytest
 
 from shared.config import Settings
 from tmux_tools.launcher import (
+    ALL_GENERATED_KEYS,
     GENERATED_KEYS,
     _teardown_env,
     ensure_env_file,
@@ -33,6 +34,7 @@ from tmux_tools.launcher import (
 
 _ROOT = Path(__file__).resolve().parent.parent
 _COMPOSE = _ROOT / "docker-compose.prod.yml"
+_MAKEFILE = _ROOT / "Makefile"
 _EXAMPLE = "FOO=bar\nINTERNAL_API_SECRET=\nBETTER_AUTH_SECRET=\n"
 
 
@@ -57,12 +59,38 @@ def env(tmp_path: Path) -> tuple[Path, Path]:
 # --- deploy artifact ---------------------------------------------------------
 
 
-@pytest.mark.parametrize("key", GENERATED_KEYS)
+@pytest.mark.parametrize("key", ALL_GENERATED_KEYS)
 def test_prod_compose_requires_the_secret_rather_than_defaulting_it(key):
     """``${VAR:-something}`` would hand every install the same secret."""
     text = _COMPOSE.read_text()
     assert not re.findall(rf"\$\{{{key}:-[^}}]*\}}", text), f"{key} still has a fallback default"
     assert re.search(rf"\$\{{{key}:\?", text), f"{key} is not marked required"
+
+
+def _compose_required_secrets() -> set[str]:
+    """Every key prod compose refuses to start without."""
+    return set(re.findall(r"\$\{([A-Z_]+):\?", _COMPOSE.read_text()))
+
+
+def _makefile_required_secrets() -> set[str]:
+    match = re.search(r"^REQUIRED_SECRETS\s*:=\s*(.*)$", _MAKEFILE.read_text(), re.MULTILINE)
+    assert match, "Makefile no longer declares REQUIRED_SECRETS"
+    return set(match.group(1).split())
+
+
+def test_every_required_secret_is_generated_for_the_operator():
+    """A key compose demands but nothing generates makes the quickstart abort.
+
+    SQL_GATEWAY_BOOTSTRAP_PASSWORD was exactly that: marked required in three
+    places, shipped commented out, and absent from GENERATED_KEYS, so
+    ``cp .env.example .env && make prod-lite`` died on the first gate.
+    """
+    assert _compose_required_secrets() <= set(ALL_GENERATED_KEYS)
+
+
+def test_prod_lite_generates_the_same_set_without_the_python_toolchain():
+    """prod-lite cannot call the launcher, so its own list must not drift."""
+    assert _makefile_required_secrets() == _compose_required_secrets()
 
 
 # --- launcher ----------------------------------------------------------------
@@ -171,7 +199,7 @@ def test_trailing_comment_still_marks_a_placeholder():
 def test_teardown_does_not_need_real_secrets():
     """Compose interpolates required vars even for ``down``; a reset must not fail."""
     env = _teardown_env()
-    assert all(env[key] for key in GENERATED_KEYS)
+    assert all(env[key] for key in ALL_GENERATED_KEYS)
 
 
 def test_teardown_prefers_a_value_the_operator_already_set(monkeypatch):
@@ -180,8 +208,27 @@ def test_teardown_prefers_a_value_the_operator_already_set(monkeypatch):
 
 
 def test_fill_secrets_leaves_a_configured_file_alone():
-    text = "INTERNAL_API_SECRET=" + "a" * 64 + "c" * 64 + "\nBETTER_AUTH_SECRET=" + "b" * 64 + "\n"
+    """Derived from GENERATED_KEYS so adding a key cannot silently skip it here."""
+    text = "".join(
+        f"{key}=" + chr(ord("a") + i) * 64 + "\n" for i, key in enumerate(GENERATED_KEYS)
+    )
     assert fill_secrets(text) == text
+
+
+def test_dev_path_leaves_the_prod_only_secret_alone(env):
+    """docker-compose.yml defaults it, so writing a value breaks an existing
+    dev volume that ClickHouse initialised with that default."""
+    env_path, example = env
+    ensure_env_file(env_path, example)
+
+    assert "SQL_GATEWAY_BOOTSTRAP_PASSWORD" not in _values(env_path)
+
+
+def test_prod_path_fills_the_prod_only_secret(env):
+    env_path, example = env
+    ensure_env_file(env_path, example, keys=ALL_GENERATED_KEYS)
+
+    assert len(_values(env_path)["SQL_GATEWAY_BOOTSTRAP_PASSWORD"]) == 64
 
 
 # --- backend settings --------------------------------------------------------
