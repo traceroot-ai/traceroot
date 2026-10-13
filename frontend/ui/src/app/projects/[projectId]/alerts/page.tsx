@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -22,6 +22,7 @@ import {
 } from "@/features/alerts/hooks/use-alerts";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useRememberListQuery } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 
 export default function AlertsPage() {
   const params = useParams();
@@ -41,6 +42,13 @@ export default function AlertsPage() {
     limit: queryOptions.limit,
     search_query: queryOptions.search_query,
   });
+
+  // Every new page of rows, or a new search, starts at the top of the list.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(
+    listRef,
+    JSON.stringify([queryOptions.page, queryOptions.limit, queryOptions.search_query]),
+  );
 
   const { data: capacity } = useAlertCapacity(projectId);
   const { data: project } = useProject(projectId);
@@ -110,7 +118,7 @@ export default function AlertsPage() {
           />
         )}
 
-        <div className="flex-1 overflow-auto bg-background">
+        <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading alerts..." />

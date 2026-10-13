@@ -24,16 +24,23 @@ vi.mock("next/navigation", () => ({
 }));
 
 // Controlled list state so the empty-project and empty-search branches are
-// separable: only a keyword tells them apart.
-vi.mock("@/lib/hooks/use-list-page-state", () => ({
-  useListPageState: () => ({
-    state: { keyword: mocks.keyword },
-    queryOptions: { page: 0, limit: 50, search_query: mocks.keyword || undefined },
-    updateKeyword: vi.fn(),
-    updateLimit: vi.fn(),
-    goToPage: vi.fn(),
-  }),
-}));
+// separable: only a keyword tells them apart. The page is real state, so a page
+// change re-renders the list as it would in the app.
+vi.mock("@/lib/hooks/use-list-page-state", async () => {
+  const { useState } = await import("react");
+  return {
+    useListPageState: () => {
+      const [page, setPage] = useState(0);
+      return {
+        state: { keyword: mocks.keyword },
+        queryOptions: { page, limit: 50, search_query: mocks.keyword || undefined },
+        updateKeyword: vi.fn(),
+        updateLimit: vi.fn(),
+        goToPage: setPage,
+      };
+    },
+  };
+});
 
 const alertRow = {
   id: "alert-1",
@@ -81,7 +88,11 @@ vi.mock("@/features/alerts/hooks/use-alerts", () => ({
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 // The page resolves the workspace per row badge. Unresolved here: reason shows, link does not.
 vi.mock("@/features/projects/hooks", () => ({ useProject: () => ({ data: undefined }) }));
-vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
+vi.mock("@/components/list-pagination", () => ({
+  ListPagination: ({ page, onPageChange }: { page: number; onPageChange: (p: number) => void }) => (
+    <button onClick={() => onPageChange(page + 1)}>Next page</button>
+  ),
+}));
 vi.mock("@/features/alerts/components/delete-alert-dialog", () => ({
   // The stub surfaces whatever failure it is handed, wherever the page reports it.
   DeleteAlertDialog: ({
@@ -359,5 +370,19 @@ describe("AlertsPage", () => {
 
       expect(screen.queryByText(/alerts used/)).toBeNull();
     });
+  });
+
+  it("opens the next page at the top of the list, not at the old scroll offset", () => {
+    render(<AlertsPage />);
+    const scroller = screen.getByRole("table").closest(".overflow-auto") as HTMLElement;
+    scroller.scrollTop = 600;
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+
+    expect(mocks.useAlertList).toHaveBeenLastCalledWith(
+      "proj-1",
+      expect.objectContaining({ page: 1 }),
+    );
+    expect(scroller.scrollTop).toBe(0);
   });
 });

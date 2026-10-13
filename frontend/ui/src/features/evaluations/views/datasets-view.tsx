@@ -8,6 +8,7 @@ import { ListPagination } from "@/components/list-pagination";
 import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
 import { useUrlKeywordSearch } from "@/lib/hooks/use-url-keyword-search";
 import { useRememberListQuery } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
@@ -47,6 +48,10 @@ export function DatasetsView({ projectId }: { projectId: string }) {
     limit,
   });
   const datasets = React.useMemo(() => data?.data ?? [], [data]);
+
+  // Every new page of rows, or a new search, starts at the top of the list.
+  const listRef = React.useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(listRef, JSON.stringify([page, limit, searchQuery]));
   const meta = data?.meta;
   const del = useDeleteDataset(projectId);
 
@@ -96,7 +101,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
         <span className="flex-1" aria-hidden />
       </SearchFilterBar>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-auto">
         <Table>
           <THead>
             <TRHead>

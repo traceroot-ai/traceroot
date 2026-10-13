@@ -20,6 +20,7 @@ import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@
 import { useUrlKeywordSearch } from "@/lib/hooks/use-url-keyword-search";
 import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
 import { useRememberListQuery } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -240,6 +241,10 @@ function RunsTab({ projectId }: { projectId: string }) {
     limit: RUNS_PAGE_LIMIT,
   });
   const runs = React.useMemo(() => data?.data ?? [], [data]);
+
+  // Every new page of runs, or a new search/time range, starts at the top of the list.
+  const listRef = React.useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(listRef, JSON.stringify([page, searchQuery, startAfter, endBefore]));
   // Keyed off the immediate `keyword`, not the debounced `searchQuery`, so the
   // empty-state copy doesn't flicker for the 300ms before the debounce catches up.
   const filtered = !!keyword;
@@ -373,7 +378,7 @@ function RunsTab({ projectId }: { projectId: string }) {
         </div>
       </SearchFilterBar>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-auto">
         <Table>
           <THead>
             <TRHead>
