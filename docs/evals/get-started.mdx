@@ -126,14 +126,14 @@ A scorer receives the case's `input`, `output`, `expected`, and `metadata`, and 
 
 Drop `local` and the run reports to TraceRoot, using the same credentials as the tracing SDK:
 
-Both SDKs read configuration exclusively from the process environment; they do not automatically load `.env` files. Export the variables in your shell:
+Neither SDK loads `.env` files automatically; both read the process environment. Export the variables in your shell:
 
 ```bash
 export TRACEROOT_API_KEY="your-api-key"
 export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
 ```
 
-*(If you prefer to use a `.env` file, ensure you load it explicitly in your code using `load_dotenv()` or `dotenv/config`, just like the tracing SDK.)*
+*(Prefer a `.env` file? Load it yourself — `load_dotenv()` in Python, `import 'dotenv/config'` in TypeScript — as the [tracing quickstart](/tracing/get-started) shows. Frameworks such as Next.js load `.env` into `process.env` on their own, which is why it can appear to work without that step.)*
 
 `candidate_version` labels what you're testing in each run: a model id, a prompt version, or a git sha. Runs are grouped into one history by `evaluation_key`, which defaults to `name`.
 
