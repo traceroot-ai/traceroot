@@ -8,7 +8,7 @@ column is projected.
 
 Migration 012 created both views, and a later migration may replace one of them
 (015 replaces the spans view to add ``error_type``). What is deployed is the last
-``CREATE OR REPLACE VIEW`` for each view, so that is what is read here: a check
+``CREATE VIEW`` for each view, so that is what is read here: a check
 pinned to 012 would keep passing on a definition no server runs any more.
 
 The projection and the row scope are also compared against the public schema
@@ -70,17 +70,22 @@ def _sections(path: Path) -> tuple[str, str]:
     return strip(up), strip(down)
 
 
+# 012 creates the views with CREATE OR REPLACE; later replacements DROP then CREATE
+# (see test_existing_views_are_not_replaced_in_place), so both spellings are read.
+CREATE_VIEW = r"CREATE (?:OR REPLACE )?VIEW"
+
+
 def _create_statement(section: str, view: str) -> str | None:
-    """The ``CREATE OR REPLACE VIEW`` statement for ``view`` in one goose section, or
+    """The ``CREATE [OR REPLACE] VIEW`` statement for ``view`` in one goose section, or
     None. No view body puts a semicolon inside a string literal, which this relies on."""
-    match = re.search(rf"CREATE OR REPLACE VIEW {view}\b.*?;", section, re.DOTALL)
+    match = re.search(rf"{CREATE_VIEW} {view}\b.*?;", section, re.DOTALL)
     return match.group(0) if match else None
 
 
 def _effective_views() -> str:
     """Each view's definition as the last migration to create it leaves it.
 
-    Migrations apply in filename order and every one uses CREATE OR REPLACE, so the
+    Migrations apply in filename order and each one ends with the view created, so the
     highest-numbered Up section naming a view is the definition a migrated server holds.
     """
     statements = []
@@ -110,7 +115,7 @@ def sql() -> str:
 def _outer_projection(text: str, view: str) -> str:
     """Return the outer SELECT projection (between `AS SELECT` and the `FROM (` wrapper)."""
     block = re.search(
-        rf"CREATE (?:OR REPLACE )?VIEW[^\n]*\b{view}\b.*?\bAS\s+SELECT(?P<proj>.*?)\bFROM\s*\(",
+        rf"{CREATE_VIEW}[^\n]*\b{view}\b.*?\bAS\s+SELECT(?P<proj>.*?)\bFROM\s*\(",
         text,
         re.DOTALL | re.IGNORECASE,
     )
@@ -121,9 +126,11 @@ def _outer_projection(text: str, view: str) -> str:
 def _view_block(text: str, view: str) -> str:
     """The whole CREATE ... statement for one view, so assertions are per-view.
     File-wide counts cannot tell "both views have it" from "one view has it twice"."""
-    start = text.index(f"CREATE OR REPLACE VIEW {view}")
-    end = text.find("CREATE OR REPLACE VIEW", start + 1)
-    return text[start:] if end == -1 else text[start:end]
+    match = re.search(rf"{CREATE_VIEW} {view}\b", text)
+    assert match, f"no CREATE VIEW for {view}"
+    start = match.start()
+    following = re.compile(CREATE_VIEW).search(text, start + 1)
+    return text[start:] if following is None else text[start : following.start()]
 
 
 def _view_select(text: str, view: str) -> exp.Select:
@@ -134,7 +141,7 @@ def _view_select(text: str, view: str) -> exp.Select:
     """
     up = re.sub(r"--[^\n]*", "", text.split("-- +goose Down")[0])
     match = re.search(
-        rf"CREATE OR REPLACE VIEW {view}\s+DEFINER\s*=\s*sql_gateway_writer\s+SQL SECURITY DEFINER\s+AS\b"
+        rf"{CREATE_VIEW} {view}\s+DEFINER\s*=\s*sql_gateway_writer\s+SQL SECURITY DEFINER\s+AS\b"
         r"(?P<body>.*?);",
         up,
         re.DOTALL,
@@ -416,6 +423,24 @@ def test_goose_up_and_down():
     assert "-- +goose Down" in created
     assert "DROP VIEW IF EXISTS spans_public_v1" in created
     assert "DROP VIEW IF EXISTS traces_public_v1" in created
+
+
+def test_existing_views_are_not_replaced_in_place():
+    """CREATE OR REPLACE on a view that already exists swaps its metadata file with
+    renameat2(RENAME_EXCHANGE), which EFS does not support, so the migration fails on
+    the deployed ClickHouse while passing on local disk. A migration that redefines a
+    view an earlier one created must DROP VIEW IF EXISTS and then CREATE VIEW."""
+    created: set[str] = set()
+    for path in sorted(MIGRATIONS_DIR.glob("[0-9]*.sql")):
+        up, down = _sections(path)
+        for view in TABLE_VIEW_MAP.values():
+            for section in (up, down):
+                if view in created:
+                    assert not re.search(rf"CREATE OR REPLACE VIEW {view}\b", section), (
+                        f"{path.name} replaces {view} in place; use DROP VIEW IF EXISTS + CREATE VIEW"
+                    )
+            if _create_statement(up, view):
+                created.add(view)
 
 
 def test_error_type_migration_replaces_the_spans_view_and_down_restores_it():
