@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { useQuery } from "@tanstack/react-query";
 import { getWorkspaces } from "@/lib/api";
+import { authPageHref } from "@/lib/marketing-attribution";
 
 export default function Home() {
   const router = useRouter();
@@ -18,7 +19,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!session && !isPending) {
-      router.push("/auth/sign-in");
+      router.push(authPageHref("/auth/sign-in", "/", new URLSearchParams(window.location.search)));
     }
   }, [session, isPending, router]);
 

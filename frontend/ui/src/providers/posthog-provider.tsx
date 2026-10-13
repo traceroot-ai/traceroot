@@ -2,6 +2,7 @@
 
 import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
+import { captureBrowserAttribution } from "@/lib/marketing-attribution-browser";
 
 if (
   typeof window !== "undefined" &&
@@ -18,6 +19,8 @@ if (
       if (process.env.NODE_ENV === "development") ph.debug();
     },
   });
+  // Read SDK consent first, but capture before client-side redirect effects.
+  captureBrowserAttribution();
 }
 
 export function PHProvider({ children }: { children: React.ReactNode }) {

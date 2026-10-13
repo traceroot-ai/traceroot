@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getUtmParams } from "@/lib/marketing-attribution";
 
 export function proxy(req: NextRequest) {
   // better-auth prefixes cookies with __Secure- in HTTPS environments
@@ -24,6 +25,9 @@ export function proxy(req: NextRequest) {
   if (!token) {
     const signInUrl = new URL("/auth/sign-in", req.url);
     signInUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
+    for (const [key, value] of Object.entries(getUtmParams(req.nextUrl.searchParams))) {
+      signInUrl.searchParams.set(key, value);
+    }
     return NextResponse.redirect(signInUrl);
   }
 

@@ -4,6 +4,8 @@ import { Suspense, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
+import { authPageHref } from "@/lib/marketing-attribution";
+import { captureBrowserAttribution } from "@/lib/marketing-attribution-browser";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
@@ -30,12 +32,8 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
   const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
-  // Preserve the callback when switching to sign-up so a new user finishes the
-  // same round-trip (e.g. a device login returns to /device to approve).
-  const signUpHref =
-    callbackUrl && callbackUrl !== "/"
-      ? `/auth/sign-up?callbackUrl=${encodeURIComponent(callbackUrl)}`
-      : "/auth/sign-up";
+  // Keep the pending destination and campaign when switching auth pages.
+  const signUpHref = authPageHref("/auth/sign-up", callbackUrl, searchParams);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -55,6 +53,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
     setError(null);
 
     try {
+      captureBrowserAttribution();
       const { error } = await authClient.signIn.email({
         email: data.email,
         password: data.password,
@@ -74,6 +73,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
 
   async function handleGoogleSignIn() {
     setIsGoogleLoading(true);
+    captureBrowserAttribution();
     await authClient.signIn.social({
       provider: "google",
       callbackURL: callbackUrl,

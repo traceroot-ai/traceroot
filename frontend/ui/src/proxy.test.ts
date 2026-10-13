@@ -69,6 +69,30 @@ describe("proxy middleware", () => {
     expect(location).toContain("callbackUrl=");
   });
 
+  it("keeps campaign parameters on the sign-in page without forwarding other query data", () => {
+    const params = new URLSearchParams({
+      utm_source: "github",
+      utm_medium: "referral",
+      utm_campaign: "github-navigation",
+      utm_content: "org-profile-cloud-en",
+      utm_term: "agent debugging",
+      token: "private-token",
+      callbackUrl: "https://evil.example.com",
+    });
+    const res = proxy(request(`/projects/p1/traces?${params}`));
+    const location = new URL(res.headers.get("location")!);
+
+    expect(location.pathname).toBe("/auth/sign-in");
+    expect(Object.fromEntries(location.searchParams)).toEqual({
+      callbackUrl: "/projects/p1/traces",
+      utm_source: "github",
+      utm_medium: "referral",
+      utm_campaign: "github-navigation",
+      utm_content: "org-profile-cloud-en",
+      utm_term: "agent debugging",
+    });
+  });
+
   it("allows a protected route when a session token is present", () => {
     const res = proxy(request("/projects/p1/traces", { token: true }));
     expect(res.headers.get("location")).toBeNull();
