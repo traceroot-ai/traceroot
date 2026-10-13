@@ -138,6 +138,7 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "output.value",
     "gen_ai.",
     "llm.token_count.",
+    "decision.token_count.",
     "llm.model_name",
     "llm.input_messages",
     "llm.output_messages",
@@ -150,6 +151,7 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
 _KNOWN_ATTRIBUTE_EXACT = frozenset(
     {
         "traceroot.llm.model",  # -> model_name column + LLM span-kind detection
+        "decision.model_name",  # -> model_name column (OpenInference DECISION spans)
         # -> token/cost pipeline (parse_manual_usage). Consumed only when a model
         # name is present (the token block is model-gated), so usage reported
         # without traceroot.llm.model is dropped entirely rather than priced.
@@ -533,7 +535,7 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         otel_kind: OTEL span kind (int or string like "SPAN_KIND_INTERNAL")
 
     Returns:
-        One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER"
+        One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER", "DECISION"
     """
     # Check explicit type attribute (handle None values). EVALUATION_SPAN_KINDS is
     # included so the SDK's offline-evaluation spans are preserved rather than silently
@@ -555,6 +557,8 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.AGENT
     elif openinference_type == SpanKind.TOOL:
         return SpanKind.TOOL
+    elif openinference_type == SpanKind.DECISION:
+        return SpanKind.DECISION
     elif openinference_type == "CHAIN":
         return SpanKind.SPAN
 
@@ -842,6 +846,7 @@ def transform_otel_to_clickhouse(
                     span_attrs.get("traceroot.llm.model")
                     or span_attrs.get("gen_ai.request.model")
                     or span_attrs.get("llm.model_name")
+                    or span_attrs.get("decision.model_name")
                 )
                 if model_name:
                     span_record["model_name"] = model_name
@@ -852,11 +857,13 @@ def transform_otel_to_clickhouse(
                         "llm.token_count.prompt",
                         "gen_ai.usage.input_tokens",
                         "gen_ai.usage.prompt_tokens",
+                        "decision.token_count.input",
                     ]
                     output_token_keys = [
                         "llm.token_count.completion",
                         "gen_ai.usage.output_tokens",
                         "gen_ai.usage.completion_tokens",
+                        "decision.token_count.output",
                     ]
                     if span_kind == SpanKind.LLM:
                         # Vercel AI SDK raw GROSS totals are the only token source it

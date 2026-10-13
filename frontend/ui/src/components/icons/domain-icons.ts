@@ -24,6 +24,7 @@ import {
   Ruler,
   Shapes,
   Sparkle,
+  Split,
   Users,
   Workflow,
   Wrench,
@@ -47,6 +48,7 @@ export const DOMAIN_ICONS = {
   agent: Bot,
   llm: Sparkle,
   tool: Wrench,
+  decision: Split,
   // Offline-eval span kinds, emitted by the SDK's eval engine.
   evaluation: FlaskConical,
   task: Play,
