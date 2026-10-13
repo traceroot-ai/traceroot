@@ -5,7 +5,7 @@ description: How the AI agent creates, updates, and deletes project resources wi
 
 The TraceRoot AI agent can actively configure monitoring in your project. Rather than just answering questions or diagnosing traces, the agent can create, reconfigure, or delete detectors, dashboards, widgets, and alerts through conversation.
 
-To ensure safety and security, the agent operates under strict human-in-the-loop controls: every write pauses for your explicit approval on an interactive card and is recorded in an immutable audit trail.
+To ensure safety and security, the agent operates under human-in-the-loop controls. In an interactive chat session every write pauses for your explicit approval on a card, and each write is recorded in an append-only audit trail. Both have limits worth knowing: background sessions are offered no write tools at all, and the audit writer is best-effort, so a lost audit row never fails the write it describes.
 
 ## The 13 Write Tools
 
@@ -48,13 +48,13 @@ Depending on the nature of the action, the card offers distinct decision choices
 
 2. **Deletes** (`approval` class):
    - **Approve or Skip Only**: Destructive actions can only be approved or skipped. A revision submitted on a delete proposal settles as a skip—a skipped delete is never re-proposed.
-   - **Mandatory Reason**: Every delete operation requires an audit justification reason of **3 to 500 characters** (`DELETE_REASON_MIN = 3`, `DELETE_REASON_MAX = 500`), which is stored permanently on the audit log record.
+   - **Mandatory Reason**: Every delete operation requires an audit justification reason of **3 to 500 characters**, recorded in the audit row's `summary` JSON alongside the resource name and anything the delete cascaded.
 
 ### Unattended Sessions
 
-In unattended or background sessions (where no human user is present to answer confirmation cards):
-- **Creates and Updates**: Execute immediately without parking for confirmation.
-- **Deletes**: **Fail closed**. Destructive delete operations are blocked immediately and can never run without an interactive human approval.
+Background and RCA sessions are offered **no write tools at all**. Write tools are bound only when the session has both an acting user to attribute the write to and a conversation id to record as provenance, so a session without a human behind it cannot propose a write in the first place.
+
+The write policy is the backstop should such a session ever reach a write tool: a create or update would run unconfirmed, while a delete **fails closed** and is blocked. A destructive action can never run without an interactive human approval.
 
 ### 10-Minute Timeout
 
@@ -80,11 +80,15 @@ How the agent handles creating a resource whose name already exists differs by r
 
 ## Audit Logging
 
-Every write action executed by the agent is permanently recorded in your workspace's append-only audit trail (`AuditLog`):
+Every write action executed by the agent is recorded in your workspace's append-only audit trail (`AuditLog`):
 
-- **Provenance**: Rows are stamped with `transport: "agent"` to distinguish them from direct Public API calls (`"public-api"`) or manual web UI operations.
+- **Provenance**: Rows are stamped with `transport: "agent"` to distinguish them from direct Public API calls (`"public-api"`) or manual web UI operations (`"ui"`).
 - **Session Tracking**: Each audit entry records the `agentSessionId`, linking the modification directly to the chat conversation where the user approved it.
 - **Survives Deletion**: Audit logs have no foreign key cascades—even if a detector or dashboard is later deleted, the audit history remains intact for security reviews and compliance reporting.
+
+<Note>
+The audit writer is best-effort by design. It runs after the resource transaction commits, and a failed audit insert is logged rather than raised, so losing an audit row is preferred to failing a write whose resource already exists. Treat the trail as near-complete rather than guaranteed.
+</Note>
 
 ---
 

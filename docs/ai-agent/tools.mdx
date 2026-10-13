@@ -3,18 +3,18 @@ title: Agent Tools
 description: Read and analysis tools bound to the TraceRoot AI agent
 ---
 
-The TraceRoot AI agent's tool library is generated directly from the shared tool registry (`@traceroot-ai/tools`), the exact same registry that defines the Public REST API.
+The TraceRoot AI agent's tool library is generated from the shared tool registry (`@traceroot-ai/tools`), which is itself generated from the public OpenAPI schema. The agent's tools and the Public REST API therefore come from the same curated schema rather than one defining the other.
 
 Because the tools derive from a single unified schema, the agent operates with the same underlying parameters and validation rules as the public API, with specific guardrails applied for agent interactions:
-- **Dataset pagination pinned off**: For dataset listings (`list_datasets`, `list_dataset_versions`), pagination cursors are pinned off and hidden from the model to prevent unconstrained paging loops, returning the first page.
-- **Dataset version case limits**: `get_dataset_version` is pinned to return at most **20 cases** (`DATASET_CASE_ROW_CAP = 20`) to keep model context windows focused; the response indicates when more cases exist.
+- **Pagination pinned off**: On `list_datasets`, `list_dataset_versions` and `get_dataset_version`, both the cursor and the limit are pinned, and neither is offered to the model. The agent always reads one fixed first page and cannot page further.
+- **Fixed page sizes**: The dataset listings are pinned to the largest page the API serves, so "more exist" is true of everything left out. `get_dataset_version` is pinned to **20 cases**, and its response says when the version holds more.
 
 ## Tenancy & Scope Boundaries
 
 The agent operates under clear tenancy boundaries derived from the active session:
 
 - **Project-Scoped Registry Tools**: Telemetry, dashboard, alert, detector, and evaluation tools automatically target your active project.
-- **Workspace-Scoped Tools**: Certain operational checks—specifically GitHub repository access (`check_github_access`) and detector/BYOK model discovery—operate across the enclosing workspace.
+- **Workspace-Scoped Tools**: GitHub repository access (`check_github_access`), repository cloning (`git_clone`) and detector/BYOK model discovery (`list_detector_models`) operate across the enclosing workspace, because a GitHub installation and a model catalogue live at workspace level.
 - **No Workspace or Project Writes**: The agent **cannot create, modify, or delete workspaces or projects**. Administrative lifecycle operations are deliberately restricted to the CLI, Public REST API, and web workspace settings.
 
 ---
@@ -44,6 +44,7 @@ Tools for evaluating LLM-as-a-judge monitoring rules and reviewing flagged issue
 | `list_findings` | List detected issues flagged across sampled production traces. |
 | `get_finding` | Inspect a specific detector finding, including its analysis results. |
 | `get_finding_by_trace` | Retrieve all detector findings associated with a given trace ID. |
+| `list_detector_models` | List the models a detector may name, across system and BYOK providers, so a proposal names a real id. Bound to every session, workspace-scoped. |
 
 ### 3. Dashboards and Widgets
 
@@ -92,6 +93,7 @@ In addition to API registry tools, the agent possesses dedicated investigation t
 - `download_traces`: Downloads full trace metadata, span hierarchy trees (`tree.json`), and individual span JSON lines into the agent's sandbox.
 - `download_session`: Downloads all traces belonging to a multi-turn user session in parallel for chronological session debugging.
 - `check_github_access`: Verifies repository access permissions and GitHub App connection before attempting source-level code investigation or opening fix pull requests.
+- `git_clone`: Clones a repository the workspace's GitHub installation can reach into the agent's sandbox, so the agent can read the exact failing file and line.
 
 ---
 

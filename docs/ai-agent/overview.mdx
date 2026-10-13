@@ -20,7 +20,7 @@ The first item in the TraceRoot project sidebar is [Home](/ai-agent/home) (`/pro
 
 ### Conversation Persistence
 
-Chat state is managed at the project layout level:
+Chat state is managed by an application-wide provider (`AiChatProvider`), mounted in the root layout:
 - **Navigates with you**: A conversation started on the Home page survives navigating across different pages (such as Traces, Dashboards, or Detectors) and remains accessible in the right-hand assistant drawer.
 - **Stored sessions**: Conversations are saved as project sessions, allowing you to review past debugging trajectories and findings at any time.
 - **Turn-level trace links**: Assistant responses include a **View trace** button when their trace is available or still uploading; failed trace exports are marked unavailable.
@@ -71,11 +71,9 @@ Whenever the agent decides to invoke a write tool during an attended session, ex
 
 If you skip or decline an action, the agent acknowledges the skip and continues the conversation without retrying the tool call.
 
-### Unattended Sessions Fail Closed on Deletes
+### Background Sessions Get No Write Tools
 
-In unattended or background sessions (where no human user is present to answer confirmation cards):
-- Create and update operations execute without an approval card.
-- Destructive delete operations **fail closed** and are blocked immediately—the agent can never delete resources in an unattended session.
+Background and RCA sessions have no human to answer a card, so they are offered no write tools at all — write tools are bound only to a session that carries both an acting user and a conversation id. Should such a session ever reach a write tool, the write policy is the backstop: a delete **fails closed** and is blocked, so the agent can never delete a resource unattended.
 
 ### 10-Minute Timeout
 
@@ -86,23 +84,11 @@ In attended sessions, approval cards will not wait indefinitely:
 
 ---
 
-## Audit Logging
+## Audit Logging and Agent Traces
 
-Every write executed by the agent is permanently recorded in your workspace's append-only audit trail:
+Every write the agent executes is recorded in your workspace's append-only audit trail, stamped with `transport: "agent"` and the conversation that authorized it. Internal agent and detector self-traces are tagged `source = "agent"` and `source = "detector"` and are excluded from your Traces and Dashboards pages.
 
-- **Transport distinction**: Audit rows created by the agent are marked with `transport: "agent"` (differentiating them from `"public-api"` or manual UI writes).
-- **Session correlation**: Each entry stores the `agentSessionId`, linking the modified resource to the agent conversation that authorized the change.
-- **Persistence**: Audit rows survive resource deletion so administrators retain a complete historical record of who approved what change, when, and through which conversation.
-
----
-
-## Observability & Agent Traces
-
-TraceRoot applies unified tracing across both user applications and internal agent operations:
-
-- **Finding Traces**: When a detector flags an issue, the resulting finding links directly to the root cause analysis (RCA) agent's execution trace.
-- **Chat Turn Traces**: Each assistant reply includes a link to its own turn trace when available.
-- **Filtered by Default**: Internal agent and detector self-traces are tagged with `source = "agent"` and `source = "detector"` and automatically excluded from user traffic on Traces and Dashboards pages.
+See [Write Actions & Approvals](/ai-agent/write-actions) for what the audit row records, how long it survives, and how agent traces are filtered.
 
 ---
 
