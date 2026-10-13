@@ -17,7 +17,7 @@ export function ExternalIntegrations({ workspaceId }: ExternalIntegrationsProps)
     <div className="divide-y divide-border rounded-md border border-border">
       <div className="space-y-2 px-4 py-3">
         <GitHubConnectButton workspaceId={workspaceId} />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[12px] text-muted-foreground">
           Install the GitHub App for repository linking and code-level tracing during root cause
           analysis.
         </p>
@@ -25,7 +25,7 @@ export function ExternalIntegrations({ workspaceId }: ExternalIntegrationsProps)
 
       <div className="space-y-2 px-4 py-3">
         <SlackConnectButton workspaceId={workspaceId} />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[12px] text-muted-foreground">
           Connect Slack to get detector alerts posted to a channel so your team is notified about
           issues.
         </p>
