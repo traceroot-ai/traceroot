@@ -544,7 +544,8 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     # of the candidate's cost.
     explicit_type = str_attr(attrs.get("traceroot.span.type")).upper()
     if (
-        explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL)
+        explicit_type
+        in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL, SpanKind.DECISION)
         or explicit_type in EVALUATION_SPAN_KINDS
     ):
         return explicit_type
