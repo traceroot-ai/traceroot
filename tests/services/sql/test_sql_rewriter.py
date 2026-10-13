@@ -553,6 +553,16 @@ UNSCOPEABLE_SHAPES = [
     ("inside a NOT", "WHERE NOT (span_start_time >= '2026-09-01')"),
     ("compared to itself", "WHERE span_start_time >= span_start_time"),
     ("a negated BETWEEN", "WHERE span_start_time NOT BETWEEN '2026-09-01' AND '2026-09-02'"),
+    ("a negated equality", "WHERE NOT (span_start_time = '2026-09-01')"),
+    # The sharp one. Both halves mention the column, the first is scopeable and
+    # does fill a lower bound, so the query cannot be refused for having produced
+    # no bounds at all. Only insisting that every mention became a bound stops the
+    # view being scoped to a window the negated half does not describe.
+    (
+        "a negated BETWEEN beside a scopeable window",
+        "WHERE span_start_time >= '2026-01-01'"
+        " AND span_start_time NOT BETWEEN '2026-09-01' AND '2026-09-02'",
+    ),
     (
         "a BETWEEN under an OR",
         "WHERE span_start_time BETWEEN '2026-09-01' AND '2026-09-02' OR name = 'x'",
