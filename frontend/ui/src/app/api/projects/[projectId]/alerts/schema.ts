@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SpanKind, SpanStatus } from "@traceroot/core";
 import {
   ALERT_FILTER_OPERATORS,
   ALERT_FILTER_OPERATORS_BY_FIELD,
@@ -41,6 +42,14 @@ const filterValueSchema = z.union([
   z.number().refine(Number.isFinite, "filter value must be a finite number"),
 ]);
 
+// The fields whose `=` value is drawn from a closed, uppercase vocabulary:
+// the same constants the ingest parity drift test pins to backend/shared/enums.py.
+// Sorted so the rejection names them in a stable order.
+const CLOSED_FILTER_VALUES: Partial<Record<string, readonly string[]>> = {
+  span_kind: [...Object.values(SpanKind)].sort(),
+  status: [...Object.values(SpanStatus)].sort(),
+};
+
 // Strict: a misspelled `key` would otherwise silently store an unkeyed filter.
 // A field, operator or key the engine does not declare is not a filter that
 // matches nothing, it is a rule that raises on every tick while it is stored.
@@ -76,6 +85,20 @@ const filterSchema = z
         path: ["op"],
         message: `Operator "${filter.op}" is not valid for "${filter.field}"`,
       });
+    }
+    // `=` on a closed vocabulary is only a predicate if the value is in it:
+    // ingest writes a fixed, uppercase set, so any other value stores a rule
+    // that matches nothing. `contains` is a substring match and stays unchecked.
+    if (filter.op === "=") {
+      const allowed = CLOSED_FILTER_VALUES[filter.field];
+      const value = String(filter.value);
+      if (allowed !== undefined && !allowed.includes(value)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["value"],
+          message: `"${value}" is not a valid ${filter.field}; expected one of: ${allowed.join(", ")}`,
+        });
+      }
     }
   });
 
