@@ -238,6 +238,18 @@ def _desugar_equivalents(
 
     ``!=`` is deliberately absent. It excludes an instant rather than bounding
     one, so there is no window to hand the view and it stays refused.
+
+    Negation is absent too, and is not tested for here. On sqlglot 26.33.0
+    ``NOT BETWEEN`` parses as ``Not(this=Between(...))`` and ``exp.Between`` has
+    no ``negated`` argument to inspect (``arg_types`` is ``this``/``low``/``high``),
+    so this transform does fire on the inner node and the copy it returns carries
+    the interval the caller excludes. Nothing reads that interval: the extraction
+    below descends only through ``AND`` and parentheses, so no comparison under a
+    ``Not`` is ever consumed, and the re-walk that requires every mention of the
+    column to have become a bound then refuses the query. ``NOT (col = x)`` is
+    refused by the same two steps. Teaching that walk to descend into ``Not``
+    without first suppressing this expansion would scope the view to exactly the
+    window the caller asked to exclude.
     """
 
     def expand(node: exp.Expression) -> exp.Expression:
