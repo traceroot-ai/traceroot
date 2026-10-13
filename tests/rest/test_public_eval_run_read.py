@@ -45,6 +45,8 @@ SUMMARY = {
     "dataset_version_id": "dv1",
     "run_path": "/projects/proj-A/evaluations/run1",
     "run_url": "http://localhost:3000/projects/proj-A/evaluations/run1",
+    "dataset_case_count": 500,
+    "run_selection": {"mode": "first", "selected_case_count": 2, "sample_seed": None},
     "result_count": 2,
     "scored_count": 2,
     "task_error_count": 0,
@@ -116,6 +118,42 @@ def test_read_run_passes_counts_not_yet_reported_through_as_null():
     resp = _client().get("/api/v1/public/evaluation-runs/run1", headers=KEY_HEADER)
     assert resp.status_code == 200
     assert {k: resp.json()[k] for k in unreported} == unreported
+
+
+@respx.mock
+def test_read_run_passes_a_seeded_samples_coverage_through():
+    _mock_key_auth()
+    selection = {"mode": "sample", "selected_case_count": 20, "sample_seed": 1726000000000}
+    _mock_internal({**SUMMARY, "run_selection": selection})
+    resp = _client().get("/api/v1/public/evaluation-runs/run1", headers=KEY_HEADER)
+    assert resp.status_code == 200
+    assert resp.json()["dataset_case_count"] == 500
+    assert resp.json()["run_selection"] == selection
+
+
+@respx.mock
+def test_read_run_passes_a_full_runs_coverage_through():
+    _mock_key_auth()
+    selection = {"mode": "full", "selected_case_count": 500, "sample_seed": None}
+    _mock_internal({**SUMMARY, "run_selection": selection})
+    resp = _client().get("/api/v1/public/evaluation-runs/run1", headers=KEY_HEADER)
+    assert resp.status_code == 200
+    assert resp.json()["dataset_case_count"] == 500
+    assert resp.json()["run_selection"] == selection
+
+
+@respx.mock
+def test_read_run_reports_undeclared_coverage_as_null_for_both():
+    """A run registered without coverage, or a UI that predates the fields: unknown, not full."""
+    _mock_key_auth()
+    client = _client()
+    unknown = {"dataset_case_count": None, "run_selection": None}
+    older = {k: v for k, v in SUMMARY.items() if k not in unknown}
+    for body in ({**SUMMARY, **unknown}, older):
+        _mock_internal(body)
+        resp = client.get("/api/v1/public/evaluation-runs/run1", headers=KEY_HEADER)
+        assert resp.status_code == 200
+        assert {k: resp.json()[k] for k in unknown} == unknown
 
 
 @respx.mock
@@ -235,6 +273,8 @@ def test_read_run_is_503_on_a_body_outside_the_contract():
         {**SUMMARY, "run_number": "14"},
         {**SUMMARY, "run_number": True},
         {**SUMMARY, "scores": [{"name": "acc", "direction": "sideways"}]},
+        {**SUMMARY, "run_selection": {"mode": "stratified", "selected_case_count": 2}},
+        {**SUMMARY, "dataset_case_count": -1},
     ):
         _mock_internal(body)
         resp = client.get("/api/v1/public/evaluation-runs/run1", headers=KEY_HEADER)
