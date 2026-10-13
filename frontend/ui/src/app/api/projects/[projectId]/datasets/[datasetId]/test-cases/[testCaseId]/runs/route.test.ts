@@ -75,7 +75,7 @@ it("flattens each result into a run row with the run's identity, version, score 
   prismaMock.evaluationResult.findMany.mockResolvedValue([resultRow()]);
   // Run-level totals summed over all of run_2's cases (not just this one).
   prismaMock.evaluationResult.groupBy.mockResolvedValue([
-    { runId: "run_2", _sum: { cost: 0.03, durationMs: 1500 } },
+    { runId: "run_2", _sum: { cost: 0.03, durationMs: 1500 }, _count: { cost: 3, durationMs: 3 } },
   ]);
 
   const res = await GET({} as never, params);
@@ -94,7 +94,36 @@ it("flattens each result into a run row with the run's identity, version, score 
     coverage: { mode: "first", datasetCaseCount: 10, selectedCaseCount: 3, sampleSeed: null },
     cost: 0.03,
     elapsedMs: 1500,
+    avgCost: 0.01,
+    avgDurationMs: 500,
+    costObservedCount: 3,
+    durationObservedCount: 3,
   });
+});
+
+it("averages over the run's results that reported each value, not its declared case count", async () => {
+  // Declared 500 (a `--first 3` that sent no case_count), three results, one with no cost.
+  prismaMock.evaluationResult.findMany.mockResolvedValue([
+    resultRow({ run: { ...resultRow().run, caseCount: 500 } }),
+  ]);
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    { runId: "run_2", _sum: { cost: 0.04, durationMs: 1500 }, _count: { cost: 2, durationMs: 3 } },
+  ]);
+
+  const row = (await rows(await GET({} as never, params)))[0];
+  expect(row.avgCost).toBeCloseTo(0.02);
+  expect(row.avgDurationMs).toBe(500);
+  expect(row.costObservedCount).toBe(2);
+  expect(row.durationObservedCount).toBe(3);
+});
+
+it("serves null averages when the run has no aggregate yet", async () => {
+  prismaMock.evaluationResult.findMany.mockResolvedValue([resultRow()]);
+  const row = (await rows(await GET({} as never, params)))[0];
+  expect(row.avgCost).toBeNull();
+  expect(row.avgDurationMs).toBeNull();
+  expect(row.costObservedCount).toBe(0);
+  expect(row.durationObservedCount).toBe(0);
 });
 
 it("reads a run that reported no selection as coverage unknown, never as full", async () => {

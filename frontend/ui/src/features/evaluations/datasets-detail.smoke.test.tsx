@@ -165,6 +165,8 @@ const CASE_RUNS = [
     coverage: { mode: "full", datasetCaseCount: 3, selectedCaseCount: 3, sampleSeed: null },
     cost: 0.42,
     elapsedMs: 360000,
+    avgCost: 0.14,
+    avgDurationMs: 120000,
   },
 ];
 

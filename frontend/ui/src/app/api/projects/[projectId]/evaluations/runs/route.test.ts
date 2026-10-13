@@ -57,11 +57,18 @@ function group(
   status: string,
   count: number,
   sums: { cost?: number; durationMs?: number } = {},
+  // How many of the group's rows reported each column. SUM skips a NULL, so by default a
+  // reported sum covers every row and an absent one covers none.
+  reported: { cost?: number; durationMs?: number } = {},
 ) {
   return {
     runId,
     status,
-    _count: { _all: count },
+    _count: {
+      _all: count,
+      cost: reported.cost ?? (sums.cost != null ? count : 0),
+      durationMs: reported.durationMs ?? (sums.durationMs != null ? count : 0),
+    },
     _sum: { cost: sums.cost ?? null, durationMs: sums.durationMs ?? null },
   };
 }
@@ -428,6 +435,95 @@ it("reports a running duration for a mid-flight run with no completedAt", async 
   expect(row.elapsedMs).toBe(108000);
   // Cost stays coherent beside it.
   expect(row.cost).toBeCloseTo(0.6);
+  // Every result reported both, so each mean is over all 120 results so far — not the
+  // run's declared size.
+  expect(row.avgCost).toBeCloseTo(0.005);
+  expect(row.avgDurationMs).toBe(900);
+  expect(row.costObservedCount).toBe(120);
+  expect(row.durationObservedCount).toBe(120);
+});
+
+it("averages cost and duration over the results that reported each, not the declared case count", async () => {
+  prismaMock.evaluationRun.findMany.mockResolvedValueOnce([
+    {
+      id: "run_first",
+      projectId: "p1",
+      evaluationId: "e1",
+      datasetId: "ds1",
+      datasetVersionId: "dv1",
+      runNumber: 5,
+      candidateVersion: "sonnet",
+      status: "completed",
+      baselineRunId: null,
+      // A `--first 20` run that sent no case_count stores the version's 500.
+      caseCount: 500,
+      taskErrorCount: 0,
+      scorerErrorCount: 0,
+      scorers: [],
+      startedAt: new Date("2026-07-21T00:00:00Z"),
+      completedAt: new Date("2026-07-21T00:00:05Z"),
+      evaluation: { name: "ticket-routing" },
+      datasetVersion: {
+        label: "v1",
+        createTime: new Date("2026-07-16T00:00:00Z"),
+        versionNumber: 1,
+      },
+    },
+  ]);
+  prismaMock.evaluationRun.count.mockResolvedValue(1);
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    // 20 results: every one reported a duration, but only 8 have a derived cost yet.
+    group("run_first", "passed", 18, { cost: 0.4, durationMs: 18000 }, { cost: 8 }),
+    group("run_first", "errored", 2, { durationMs: 2000 }),
+  ]);
+
+  const body = (await (await GET(nextUrl() as never, params)).json()) as {
+    data: Record<string, unknown>[];
+  };
+  const row = body.data[0];
+  expect(row.avgCost).toBeCloseTo(0.05); // 0.4 / 8, not / 20 and not / 500
+  expect(row.avgDurationMs).toBe(1000); // 20000 / 20
+  expect(row.costObservedCount).toBe(8);
+  expect(row.durationObservedCount).toBe(20);
+});
+
+it("serves null averages for a run where nothing reported a cost or a duration", async () => {
+  prismaMock.evaluationRun.findMany.mockResolvedValueOnce([
+    {
+      id: "run_bare",
+      projectId: "p1",
+      evaluationId: "e1",
+      datasetId: "ds1",
+      datasetVersionId: "dv1",
+      runNumber: 6,
+      candidateVersion: "sonnet",
+      status: "completed",
+      baselineRunId: null,
+      caseCount: 3,
+      taskErrorCount: 0,
+      scorerErrorCount: 0,
+      scorers: [],
+      startedAt: new Date("2026-07-21T00:00:00Z"),
+      completedAt: new Date("2026-07-21T00:00:05Z"),
+      evaluation: { name: "ticket-routing" },
+      datasetVersion: {
+        label: "v1",
+        createTime: new Date("2026-07-16T00:00:00Z"),
+        versionNumber: 1,
+      },
+    },
+  ]);
+  prismaMock.evaluationRun.count.mockResolvedValue(1);
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([group("run_bare", "passed", 3)]);
+
+  const body = (await (await GET(nextUrl() as never, params)).json()) as {
+    data: Record<string, unknown>[];
+  };
+  // "No data" is not "measured zero".
+  expect(body.data[0].avgCost).toBeNull();
+  expect(body.data[0].avgDurationMs).toBeNull();
+  expect(body.data[0].costObservedCount).toBe(0);
+  expect(body.data[0].durationObservedCount).toBe(0);
 });
 
 it("reports zero counts for a run with no results, without extra queries", async () => {
@@ -514,12 +610,12 @@ it("sorts by cost across the FULL filtered set (not just the fetched page), null
   // in-memory sort window — so pages past the window aren't hidden. Here the window
   // holds 3 runs but the project has 512 matching runs.
   prismaMock.evaluationRun.count.mockResolvedValueOnce(512);
-  // The route asks for `_count: { _all: true }` alongside `_sum`, and reads
-  // `g._count._all` to derive the per-status counts — so the group rows must
-  // carry it or the handler throws before the sort is ever exercised.
+  // The route asks for `_count` alongside `_sum`, and reads `g._count._all` to derive
+  // the per-status counts — so the group rows must carry it or the handler throws
+  // before the sort is ever exercised.
   prismaMock.evaluationResult.groupBy.mockResolvedValue([
-    { runId: "run_cheap", status: "passed", _count: { _all: 1 }, _sum: { cost: 1.5 } },
-    { runId: "run_pricey", status: "passed", _count: { _all: 1 }, _sum: { cost: 42 } },
+    group("run_cheap", "passed", 1, { cost: 1.5 }),
+    group("run_pricey", "passed", 1, { cost: 42 }),
     // run_no_cost has no group row at all (no results with a non-null cost).
   ]);
   prismaMock.evaluationResult.findMany.mockResolvedValue([]);

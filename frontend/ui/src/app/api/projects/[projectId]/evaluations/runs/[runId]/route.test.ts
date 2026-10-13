@@ -161,6 +161,7 @@ beforeEach(() => {
   // Run duration AND cost are the sum of every case's over all results (not the page).
   prismaMock.evaluationResult.aggregate.mockResolvedValue({
     _sum: { durationMs: 1900, cost: 0.0345 },
+    _count: { durationMs: 2, cost: 1 },
   });
 });
 
@@ -186,6 +187,11 @@ it("derives change/baselineOutput + a comparison block from raw scores; ignores 
   // stored run-level column.
   expect(body.run.elapsedMs).toBe(1900);
   expect(body.run.cost).toBe(0.0345);
+  // Per-case means over the results that reported each value: two durations, one cost.
+  expect(body.run.avgDurationMs).toBe(950);
+  expect(body.run.durationObservedCount).toBe(2);
+  expect(body.run.avgCost).toBe(0.0345);
+  expect(body.run.costObservedCount).toBe(1);
 
   const t0 = body.results.find((r) => r.testCaseId === "t0")!;
   expect(t0.change).toBeNull(); // metric-first: no per-case verdict

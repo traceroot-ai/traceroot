@@ -6,6 +6,7 @@ import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
 import { countResultStatuses, excludedSummary } from "@/lib/eval/result-status-counts";
 import { toRunCoverage } from "@/lib/eval/coverage";
+import { runAverages } from "@/lib/eval/run-summary";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -222,7 +223,9 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
       ? await prisma.evaluationResult.groupBy({
           by: ["runId", "status"],
           where: { runId: { in: pageRunIds }, projectId },
-          _count: { _all: true },
+          // Per column as well as per row: SUM skips a NULL, so each average needs the
+          // count of results that actually reported that column.
+          _count: { _all: true, cost: true, durationMs: true },
           _sum: { cost: true, durationMs: true },
         })
       : [];
@@ -323,6 +326,17 @@ async function handleGET(req: NextRequest, { params }: RouteParams) {
       baselineComparable: comparison.trustworthy,
       errorCount: r.taskErrorCount + r.scorerErrorCount,
       elapsedMs: caseDurationMs,
+      // Per-case means over the results that reported each value, derived by the same
+      // helper as the public run read so the two cannot disagree. Neither the declared
+      // caseCount (a `--first 20` run that omitted it stores the version's 500) nor every
+      // result row (one with no cost yet is not in the sum) is an honest denominator.
+      ...runAverages(
+        { cost, durationMs: caseDurationMs },
+        {
+          cost: groups.reduce((n, g) => n + g._count.cost, 0),
+          durationMs: groups.reduce((n, g) => n + g._count.durationMs, 0),
+        },
+      ),
       // Which slice of the dataset this run measured — derived once here rather than
       // by each client, so the list, the detail page and the comparison cannot end up
       // describing the same run differently.

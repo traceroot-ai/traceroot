@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import type { ComparisonScore, ComparisonScorerMeta } from "./comparison";
-import { ScoreSummarizer, summarizeRun, type SummaryItem, type SummaryResult } from "./run-summary";
+import {
+  ScoreSummarizer,
+  metricFromTotals,
+  runAverages,
+  summarizeRun,
+  type SummaryItem,
+  type SummaryResult,
+} from "./run-summary";
 
 // ── builders ─────────────────────────────────────────────────────────────
 
@@ -303,5 +310,47 @@ describe("summarizeRun — derived metrics", () => {
     const { scores, metrics } = summarizeRun([meta("acc")], []);
     expect(scores[0]).toMatchObject({ value: null, observedCount: 0 });
     for (const m of metrics) expect(m).toMatchObject({ value: null, observedCount: 0 });
+  });
+});
+
+describe("metricFromTotals — a grouped aggregate's sum and count", () => {
+  it("divides the sum by the results that reported the value", () => {
+    expect(metricFromTotals("cost", 0.4, 8)).toMatchObject({
+      name: "cost",
+      unit: "$",
+      value: 0.05,
+      observedCount: 8,
+    });
+  });
+
+  it("gives a null mean when nothing reported the value, never 0 or NaN", () => {
+    expect(metricFromTotals("duration", null, 0)).toMatchObject({ value: null, observedCount: 0 });
+    expect(metricFromTotals("duration", 0, 0)).toMatchObject({ value: null, observedCount: 0 });
+  });
+
+  it("agrees with summarizeRun over the same results", () => {
+    const results = [result({ cost: 0.02 }), result({ cost: null }), result({ cost: 0.04 })];
+    const fromRows = byName(summarizeRun([], results).metrics).cost;
+    expect(metricFromTotals("cost", 0.06, 2)).toEqual(fromRows);
+  });
+});
+
+describe("runAverages — the internal run routes' flattened means", () => {
+  it("averages each column over its own count and reports that count", () => {
+    expect(runAverages({ cost: 0.1, durationMs: 10000 }, { cost: 5, durationMs: 10 })).toEqual({
+      avgCost: 0.02,
+      costObservedCount: 5,
+      avgDurationMs: 1000,
+      durationObservedCount: 10,
+    });
+  });
+
+  it("leaves a column nothing reported null, never 0", () => {
+    expect(runAverages({ cost: null, durationMs: 3000 }, { cost: 0, durationMs: 3 })).toEqual({
+      avgCost: null,
+      costObservedCount: 0,
+      avgDurationMs: 1000,
+      durationObservedCount: 3,
+    });
   });
 });
