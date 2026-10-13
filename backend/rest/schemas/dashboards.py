@@ -22,6 +22,9 @@ from pydantic import (
 DisplayType = Literal["line", "area", "bar", "pie", "number", "table", "histogram"]
 AggName = Literal["count", "sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99", "uniq"]
 
+# Most values one `in` filter may list; the whole list binds as one query parameter.
+MAX_IN_VALUES = 100
+
 
 class _StrictModel(BaseModel):
     """Base for request-side models: reject unknown fields."""
@@ -50,7 +53,10 @@ class WidgetFilter(_StrictModel):
     value: Annotated[
         Annotated[str, StringConstraints(min_length=1)]
         | Annotated[float, Field(allow_inf_nan=False)]
-        | Annotated[list[Annotated[str, StringConstraints(min_length=1)]], Field(min_length=1)],
+        | Annotated[
+            list[Annotated[str, StringConstraints(min_length=1)]],
+            Field(min_length=1, max_length=MAX_IN_VALUES),
+        ],
         WithJsonSchema(
             {
                 "type": ["string", "number", "array"],
@@ -61,6 +67,7 @@ class WidgetFilter(_StrictModel):
                         "type": "array",
                         "items": {"type": "string", "minLength": 1},
                         "minItems": 1,
+                        "maxItems": MAX_IN_VALUES,
                     },
                 ],
             }

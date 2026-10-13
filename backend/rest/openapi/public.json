@@ -1244,6 +1244,7 @@
                                 "minLength": 1,
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "minItems": 1,
                               "type": "array"
                             }
@@ -1422,6 +1423,7 @@
                                 "minLength": 1,
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "minItems": 1,
                               "type": "array"
                             }
@@ -6088,6 +6090,7 @@
                                 "minLength": 1,
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "minItems": 1,
                               "type": "array"
                             }
@@ -6266,6 +6269,7 @@
                                 "minLength": 1,
                                 "type": "string"
                               },
+                              "maxItems": 100,
                               "minItems": 1,
                               "type": "array"
                             }
@@ -6903,6 +6907,7 @@
                   "minLength": 1,
                   "type": "string"
                 },
+                "maxItems": 100,
                 "minItems": 1,
                 "type": "array"
               }

@@ -50,6 +50,9 @@ export const AGGS = [
   "uniq",
 ] as const;
 
+// Mirrors MAX_IN_VALUES in backend/rest/schemas/dashboards.py.
+export const MAX_IN_VALUES = 100;
+
 export const WidgetFilterSchema = z
   .object({
     field: z.string().min(1),
@@ -57,7 +60,11 @@ export const WidgetFilterSchema = z
     // min(1): a filter whose value was never picked (the builder's rows start
     // at "", an `in` row at []) must keep the spec incomplete, not save a
     // widget that silently matches only empty-valued rows.
-    value: z.union([z.string().min(1), z.number(), z.array(z.string().min(1)).min(1)]),
+    value: z.union([
+      z.string().min(1),
+      z.number(),
+      z.array(z.string().min(1)).min(1).max(MAX_IN_VALUES),
+    ]),
     // Declared because the schema strips what it does not declare — without it a
     // metadata filter reaches the engine keyless. Which fields require a key, and
     // whether one belongs, is the engine's call.

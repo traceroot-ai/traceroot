@@ -63,6 +63,7 @@ describe("WidgetFilterSchema `in`", () => {
     expect(ok({ field: "span_kind", op: "in", value: ["LLM", "DECISION"] })).toBe(true);
     expect(ok({ field: "span_kind", op: "in", value: [] })).toBe(false);
     expect(ok({ field: "span_kind", op: "in", value: ["LLM", ""] })).toBe(false);
+    expect(ok({ field: "span_kind", op: "in", value: Array(101).fill("x") })).toBe(false);
   });
   it("pairs a list with `in` and only with `in`", () => {
     expect(ok({ field: "span_kind", op: "in", value: "LLM" })).toBe(false);

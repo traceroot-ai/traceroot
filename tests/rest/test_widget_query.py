@@ -15,6 +15,7 @@ from db.clickhouse.query_settings import (
     READ_QUERY_SETTINGS,
 )
 from rest.schemas.dashboards import (
+    MAX_IN_VALUES,
     AggName,
     QueryWindow,
     WidgetFilter,
@@ -452,6 +453,14 @@ def test_in_filter_value_shape_is_enforced_by_schema(flt):
     """A list goes with `in` and only `in`, non-empty and of non-empty strings."""
     with pytest.raises(ValidationError):
         WidgetSpec.model_validate(make_spec(filters=[flt]))
+
+
+def test_in_filter_value_list_is_capped():
+    too_many = [f"v{i}" for i in range(MAX_IN_VALUES + 1)]
+    with pytest.raises(ValidationError):
+        WidgetSpec.model_validate(
+            make_spec(filters=[{"field": "span_kind", "op": "in", "value": too_many}])
+        )
 
 
 def test_in_filter_is_rejected_on_numeric_and_keyed_fields():
