@@ -1,11 +1,11 @@
 ---
-title: Overview
+title: Introduction
 description: Investigate traces, automate fixes, and manage project resources with the TraceRoot AI agent
 ---
 
 TraceRoot includes a built-in AI agent that serves as both an **investigative trace debugger** and an **interactive project assistant**.
 
-The agent can analyze execution traces, clone production code into sandboxes to locate root causes, and open fix pull requests on GitHub. Beyond investigation, the agent can also modify your project by creating, updating, and deleting monitoring resources—always requiring your explicit approval before running any change.
+The agent can analyze execution traces, clone production code into sandboxes to locate root causes, and open fix pull requests on GitHub. Beyond investigation, the agent can also modify your project by creating, updating, and deleting monitoring resources—in an attended chat session every change is proposed for your approval before it runs, and a delete never runs without one.
 
 <Frame>
   <img src="/images/rca_v1.png" alt="TraceRoot AI agent performing root cause analysis" />
@@ -20,7 +20,7 @@ The first item in the TraceRoot project sidebar is **Home** (`/projects/{project
 
 ### Conversation Persistence
 
-Chat state is managed at the project layout level:
+Chat state lives in the app-wide assistant provider, scoped to the project you are in:
 - **Navigates with you**: A conversation started on the Home page survives navigating across different pages (such as Traces, Dashboards, or Detectors) and remains accessible in the right-hand assistant drawer.
 - **Stored sessions**: Conversations are saved as project sessions, allowing you to review past debugging trajectories and findings at any time.
 - **Turn-level trace links**: Assistant responses include a **View trace** button when their trace is available or still uploading; failed trace exports are marked unavailable.
@@ -29,7 +29,7 @@ Chat state is managed at the project layout level:
 
 ## Investigative Capabilities
 
-When debugging issues in your AI applications, the agent provides four core investigation tools:
+When debugging issues in your AI applications, the agent provides four core investigation capabilities:
 
 - **Trace analysis** — Ask natural language questions about your traces, error trends, latencies, and token costs without writing manual ClickHouse queries.
 - **Root cause analysis (RCA)** — The agent clones your production repository into an isolated sandbox, reads the exact source file and line where an error occurred, and correlates git commit history with trace failures.
@@ -61,7 +61,7 @@ Administrative changes to workspaces and projects are intentionally restricted t
 
 ## Safety: Interactive Approvals and Timeouts
 
-The agent cannot autonomously apply changes to your project. Every write action is guarded by human confirmation:
+In an attended chat session, every write the agent proposes pauses for your decision before it runs:
 
 ### Confirmation Cards
 
@@ -71,6 +71,10 @@ Whenever the agent decides to invoke a write tool, execution pauses and presents
 
 If you skip or decline an action, the agent acknowledges the skip and continues the conversation without retrying the tool call.
 
+<Note>
+  For creates and updates, the confirmation card is a review gate rather than a security control: a session with no user attached to it, such as a system-initiated run, executes them without showing a card. Deletes fail closed instead — with nobody there to approve one, the call is blocked rather than executed.
+</Note>
+
 ### 10-Minute Timeout
 
 Approval cards will not wait indefinitely. If an approval proposal is left unanswered for **10 minutes**, TraceRoot automatically skips that pending action. No change from the unanswered proposal is applied; earlier approved actions in the same turn remain in effect.
@@ -79,11 +83,13 @@ Approval cards will not wait indefinitely. If an approval proposal is left unans
 
 ## Audit Logging
 
-Every write executed by the agent is permanently recorded in your workspace's append-only audit trail:
+Writes executed by the agent are recorded on your workspace's append-only audit trail:
 
 - **Transport distinction**: Audit rows created by the agent are marked with `transport: "agent"` (differentiating them from `"public-api"` or manual UI writes).
 - **Session correlation**: Each entry stores the `agentSessionId`, linking the modified resource to the agent conversation that authorized the change.
-- **Persistence**: Audit rows survive resource deletion so administrators retain a complete historical record of who approved what change, when, and through which conversation.
+- **Persistence**: Audit rows survive resource deletion, so administrators keep a historical record of who approved what change, when, and through which conversation.
+
+The audit row is written after the resource change itself commits, and a failed audit write is logged rather than rolled back — so the trail is append-only but not a guarantee that every write has a row.
 
 ---
 
