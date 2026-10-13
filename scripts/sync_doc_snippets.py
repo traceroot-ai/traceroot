@@ -23,8 +23,8 @@ END_MARKER_RE = re.compile(r"(?:#|//|\{/\*)\s*\[end:([\w-]+)\]\s*(?:\*/)?")
 
 # Target doc files that embed snippets between markers
 DOC_EMBED_MARKER_RE = re.compile(
-    r"((?:<!--|\{/\*)\s*\[start:snippet:([\w-]+)\]\s*(?:-->|\*/)\n)(.*?)"
-    r"((?:<!--|\{/\*)\s*\[end:snippet:\2\]\s*(?:-->|\*/))",
+    r"((?:<!--|\{/\*)\s*\[start:snippet:([\w-]+)\]\s*(?:-->|\*/\})\n)(.*?)"
+    r"((?:<!--|\{/\*)\s*\[end:snippet:\2\]\s*(?:-->|\*/\}))",
     re.DOTALL,
 )
 

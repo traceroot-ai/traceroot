@@ -18,8 +18,8 @@ OPENAPI_PATH = ROOT / "backend" / "rest" / "openapi" / "public.json"
 PLACEMENTS_PATH = ROOT / "tests" / "docs" / "fixtures" / "cli-placements.json"
 CLI_DOC_PATH = ROOT / "docs" / "cli" / "get-started.mdx"
 
-START_MARKER = "<!-- [start:cli-commands] -->"
-END_MARKER = "<!-- [end:cli-commands] -->"
+START_MARKER = "{/* [start:cli-commands] */}"
+END_MARKER = "{/* [end:cli-commands] */}"
 
 
 def _clean_description(desc: str) -> str:
@@ -104,31 +104,10 @@ def build_command_reference() -> list[tuple[str, str]]:
                     placeholders.append(f"<{p.replace('_', '-')}>")
             args_str = " " + " ".join(placeholders)
 
-        # Key query flags
-        flags: list[str] = []
-        for param in op.get("parameters", []):
-            if param.get("in") == "query":
-                p_name = param.get("name")
-                if p_name in (
-                    "limit",
-                    "page",
-                    "search",
-                    "since",
-                    "status",
-                    "range",
-                    "evaluation_id",
-                    "name",
-                    "reason",
-                ):
-                    flags.append(f"`--{p_name.replace('_', '-')}`")
-
-        flag_suffix = ""
-        if flags:
-            flag_suffix = f" (Flags: {', '.join(flags)})"
-
-        cmd_syntax = f"`{cmd_path}{args_str}`"
-        full_desc = f"{desc}{flag_suffix}" if flag_suffix else desc
-        commands.append((cmd_syntax, full_desc))
+        # Deliberately no flag column: the CLI's flags come from its own
+        # registry enhancers, not the spec's query parameters, so deriving them
+        # here invents flags the CLI does not accept.
+        commands.append((f"`{cmd_path}{args_str}`", desc))
 
     return commands
 

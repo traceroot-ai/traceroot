@@ -3,10 +3,9 @@
 Guards against documentation drift for:
 1. docs/docs.json navigation tree vs .mdx files on disk.
 2. docs/integrations/overview.mdx vs the in-app picker (integrations.tsx) and fixtures.
-3. docs/ai-agent/byok.mdx vs ADAPTER_MODELS in frontend/packages/core/src/llm-providers.ts.
+3. docs/ai-agent/byok.mdx BYOK model catalog vs ADAPTER_MODELS in llm-providers.ts.
 4. CLI command reference in docs/cli/get-started.mdx vs public.json + placements.
 5. docs/snippets/ and embedded doc code blocks vs runnable examples.
-6. API reference configured with public.json in docs/docs.json.
 """
 
 from __future__ import annotations
@@ -82,8 +81,11 @@ def test_integrations_overview_parity() -> None:
     overview_content = overview_path.read_text(encoding="utf-8")
     # Match href="/integrations/<id>"
     docs_integrations = set(re.findall(r'href="/integrations/([a-zA-Z0-9-]+)"', overview_content))
-    # Exclude internal-models link which is a general page, not a provider card
+    # Exclude pages that are not provider cards: internal-models is a general
+    # page, and openai-compatible documents a configuration pattern shared by
+    # several providers rather than an SDK integration of its own.
     docs_integrations.discard("internal-models")
+    docs_integrations.discard("openai-compatible")
 
     # In-app picker source
     picker_path = (
@@ -150,7 +152,7 @@ def test_integrations_overview_parity() -> None:
 
 
 def test_byok_models_parity() -> None:
-    """The models listed in docs/ai-agent/byok.mdx match ADAPTER_MODELS in llm-providers.ts."""
+    """The BYOK model catalog in docs/ai-agent/byok.mdx matches ADAPTER_MODELS in llm-providers.ts."""
     llm_providers_path = FRONTEND_DIR / "packages" / "core" / "src" / "llm-providers.ts"
     assert llm_providers_path.exists(), f"Missing {llm_providers_path.relative_to(REPO_ROOT)}"
 
@@ -167,10 +169,11 @@ def test_byok_models_parity() -> None:
     assert byok_path.exists(), f"Missing {byok_path.relative_to(REPO_ROOT)}"
 
     byok_content = byok_path.read_text(encoding="utf-8")
-    # Models table is under ## Default Models
-    models_table_match = re.search(r"## Default Models.*?(?=##|\Z)", byok_content, re.DOTALL)
+    # ADAPTER_MODELS is mirrored by the BYOK model catalog table; the Default
+    # Models table above it mirrors SYSTEM_MODELS instead.
+    models_table_match = re.search(r"## BYOK model catalog.*?(?=##|\Z)", byok_content, re.DOTALL)
     assert models_table_match, (
-        "Could not find '## Default Models' section in docs/ai-agent/byok.mdx"
+        "Could not find '## BYOK model catalog' section in docs/ai-agent/byok.mdx"
     )
 
     models_section = models_table_match.group(0)
@@ -180,10 +183,12 @@ def test_byok_models_parity() -> None:
     extra_models = docs_model_ids - code_model_ids
 
     assert not missing_models, (
-        f"Missing models in docs/ai-agent/byok.mdx from ADAPTER_MODELS: {sorted(missing_models)}"
+        f"Missing models in the docs/ai-agent/byok.mdx BYOK model catalog "
+        f"from ADAPTER_MODELS: {sorted(missing_models)}"
     )
     assert not extra_models, (
-        f"Extra models in docs/ai-agent/byok.mdx not in ADAPTER_MODELS: {sorted(extra_models)}"
+        f"Extra models in the docs/ai-agent/byok.mdx BYOK model catalog "
+        f"not in ADAPTER_MODELS: {sorted(extra_models)}"
     )
 
 
@@ -216,34 +221,4 @@ def test_snippets_drift_parity() -> None:
     )
     assert result.returncode == 0, (
         f"Doc snippets are out of sync with examples/:\nstdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-
-
-def test_public_openapi_reference() -> None:
-    """docs/docs.json references backend/rest/openapi/public.json for API reference."""
-    docs_json_path = DOCS_DIR / "docs.json"
-    docs_json = json.loads(docs_json_path.read_text(encoding="utf-8"))
-
-    expected_rel_path = "../backend/rest/openapi/public.json"
-
-    # 1. Top-level api config
-    api_config = docs_json.get("api")
-    assert api_config is not None, "Missing 'api' key in docs/docs.json"
-    assert "openapi" in api_config, "Missing 'openapi' path in docs/docs.json 'api' config"
-    assert api_config["openapi"] == expected_rel_path, (
-        f"api.openapi expected '{expected_rel_path}', got '{api_config['openapi']}'"
-    )
-
-    # 2. Navigation tab config
-    tabs = docs_json.get("navigation", {}).get("tabs", [])
-    api_tab = next((t for t in tabs if t.get("tab") == "API Reference"), None)
-    assert api_tab is not None, "Missing 'API Reference' tab in docs.json navigation.tabs"
-    assert api_tab.get("openapi") == expected_rel_path, (
-        f"API Reference tab expected openapi='{expected_rel_path}', got '{api_tab.get('openapi')}'"
-    )
-
-    # 3. Target file exists
-    target_openapi = (DOCS_DIR / expected_rel_path).resolve()
-    assert target_openapi.exists(), (
-        f"Referenced OpenAPI spec does not exist: {target_openapi.relative_to(REPO_ROOT)}"
     )

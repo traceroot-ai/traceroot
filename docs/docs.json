@@ -2,9 +2,6 @@
   "$schema": "https://mintlify.com/docs.json",
   "name": "TraceRoot",
   "theme": "mint",
-  "api": {
-    "openapi": "../backend/rest/openapi/public.json"
-  },
   "thumbnails": {
     "appearance": "light",
     "background": "/images/og-background.png"
@@ -234,11 +231,6 @@
             ]
           }
         ]
-      },
-      {
-        "tab": "API Reference",
-        "icon": "square-code",
-        "openapi": "../backend/rest/openapi/public.json"
       }
     ]
   },

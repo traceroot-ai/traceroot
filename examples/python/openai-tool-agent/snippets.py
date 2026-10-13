@@ -28,7 +28,7 @@ client = OpenAI()
 # OpenAI calls are tracked automatically; cost requires a priced model ID
 client.chat.completions.create(
     model="gpt-4o",
-    messages=[{"role": "user", "content": "Hello"}]
+    messages=[{"role": "user", "content": "Hello"}],
 )
 # [end:tracing-cost-tracking-python]
 
