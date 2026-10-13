@@ -142,6 +142,7 @@ describe("the scenario suite", () => {
       "idempotency",
       "tenancy",
       "latency-alert",
+      "llm-latency-alert",
       "pause-alert",
       "detector-sample-rate",
       "rename-dashboard",
@@ -328,6 +329,90 @@ describe("latency-alert", () => {
   });
 });
 
+describe("llm-latency-alert", () => {
+  const llmOnly = [{ field: "span_kind", op: "=", value: "LLM" }];
+  const proposal = {
+    name: "p99 LLM latency",
+    view: "SPANS",
+    measure: "latency",
+    aggregation: "p99",
+    window: "10m",
+    threshold_operator: ">",
+    threshold: 2000,
+    filters: llmOnly,
+    renotify: { mode: "OFF" },
+  };
+  const passing = () =>
+    makeCtx({
+      turns: [
+        turn({
+          toolCalls: [toolCall("create_alert", { ...proposal, filters: [...llmOnly] })],
+          assistantText: "Created it: p99 latency of LLM spans over 10 minutes above 2,000 ms.",
+        }),
+      ],
+      created: {
+        detectors: [],
+        dashboards: [],
+        widgets: [],
+        alerts: [alert({ aggregation: "p99", filters: [...llmOnly] })],
+      },
+    });
+
+  it("passes when the proposal and the stored rule filter span_kind on LLM", async () => {
+    await expect(run("llm-latency-alert", passing())).resolves.toBeUndefined();
+  });
+
+  it("fails on an operator alert filters do not take, such as a one-value in-list", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.toolCalls[0]!.args.filters = [{ field: "span_kind", op: "in", value: ["LLM"] }];
+    await expect(run("llm-latency-alert", ctx)).rejects.toThrow(
+      /create_alert filters span_kind in \["LLM"\]/,
+    );
+  });
+
+  it("fails on contains, which names no kind exactly", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.toolCalls[0]!.args.filters = [
+      { field: "span_kind", op: "contains", value: "LL" },
+    ];
+    await expect(run("llm-latency-alert", ctx)).rejects.toThrow(/span_kind contains "LL"/);
+  });
+
+  it("fails on a span kind ingest never writes, such as GENERATION", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.toolCalls[0]!.args.filters = [
+      { field: "span_kind", op: "=", value: "GENERATION" },
+    ];
+    await expect(run("llm-latency-alert", ctx)).rejects.toThrow(
+      /create_alert filters span_kind = "GENERATION"/,
+    );
+  });
+
+  it("fails when the proposal has no span_kind filter at all", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.toolCalls[0]!.args.filters = [];
+    await expect(run("llm-latency-alert", ctx)).rejects.toThrow(/has no span_kind filter/);
+  });
+
+  it("fails when the stored rule lost the filter or added another kind", async () => {
+    const lost = passing();
+    lost.created.alerts = [alert({ aggregation: "p99", filters: [] })];
+    await expect(run("llm-latency-alert", lost)).rejects.toThrow(
+      /the stored rule has no span_kind filter/,
+    );
+
+    const other = passing();
+    other.created.alerts = [
+      alert({
+        aggregation: "p99",
+        filters: [...llmOnly, { field: "span_kind", op: "=", value: "TOOL" }],
+      }),
+    ];
+    await expect(run("llm-latency-alert", other)).rejects.toThrow(
+      /the stored rule filters span_kind = "TOOL"/,
+    );
+  });
+});
 describe("alerts-summary", () => {
   const LIST =
     "Found 1 alerts:\n- al-7 | Cost watch | sum(cost) over 1h > 5 | ACTIVE/UNKNOWN | evaluated never | by eval@example.com\nCapacity: 1/100 alerts used";

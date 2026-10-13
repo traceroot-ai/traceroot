@@ -1,3 +1,4 @@
+import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { QueryWindow } from "../tools/query-window.js";
 
 export interface SystemPromptContext {
@@ -226,7 +227,7 @@ Use bash/read to explore the cloned code and correlate with trace errors.
 ### File Analysis: bash, read, write
 Standard tools for exploring downloaded trace data in /workspace/.
 Use grep/jq on spans.jsonl — each line is a complete span object.
-Examples: grep "ERROR" spans.jsonl, jq 'select(.span_kind == "GENERATION")' spans.jsonl
+Examples: grep "ERROR" spans.jsonl, jq 'select(.span_kind == "LLM")' spans.jsonl
 Read tree.json to see the full call hierarchy at a glance.
 
 ## Write Confirmations
@@ -281,17 +282,20 @@ Link only to a URL a tool result contained (a dashboard read carries its page UR
 run URL); never assemble
 one from an id, since a guessed path is a dead link the user will trust.
 
-## ClickHouse Schema Reference
+## Trace and Span Fields
 
-### traces table
-Key columns: id, project_id, name, user_id, session_id, timestamp, latency, input, output,
-metadata, tags, git_ref, git_repo
+The fields download_traces writes to trace.jsonl and spans.jsonl, and the values filters match on.
 
-### observations table (spans)
-Key columns: id, trace_id, project_id, parent_observation_id, name, type (GENERATION|SPAN|EVENT),
-start_time, end_time, latency, level (DEFAULT|DEBUG|WARNING|ERROR),
-status_message, model, input, output, usage_details (JSON), cost_details (JSON),
-metadata, git_source_file, git_source_line, git_source_function
+### trace.jsonl
+Key fields: trace_id, project_id, name, trace_start_time, user_id, session_id, input, output,
+metadata, git_ref, git_repo
+
+### spans.jsonl
+Key fields: span_id, trace_id, parent_span_id, name,
+span_kind (${Object.values(SpanKind).join("|")}), span_start_time, span_end_time,
+status (${Object.values(SpanStatus).join("|")}), status_message, error_type, model_name, cost,
+input_tokens, output_tokens, total_tokens, usage_details (JSON), cost_details (JSON), input,
+output, metadata, git_source_file, git_source_line, git_source_function
 
 ## How to Analyze
 
@@ -306,7 +310,7 @@ metadata, git_source_file, git_source_line, git_source_function
 5. Use download_traces to download specific traces for deep investigation
 6. Use download_session to download all traces in a session at once for cross-trace analysis
 7. Use bash/read/grep to explore downloaded trace data in /workspace/
-8. Look for: errors (level=ERROR), high latency, cost anomalies, pattern changes
+8. Look for: errors (status=ERROR), high latency, cost anomalies, pattern changes
 9. **ALWAYS check if the trace has git_repo and git_ref fields.** If it does, follow the GitHub Integration steps below to clone the code and correlate errors with source. Do NOT skip this — source code access is critical for root cause analysis.
 10. Explain findings clearly with specific span IDs and timestamps
 

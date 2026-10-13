@@ -37,6 +37,18 @@
     {
       "source": "/detectors/alerts",
       "destination": "/detectors/notifications"
+    },
+    {
+      "source": "/alerts/introduction",
+      "destination": "/alerts/overview"
+    },
+    {
+      "source": "/alerts/get-started",
+      "destination": "/alerts/overview#how-to-create-an-alert"
+    },
+    {
+      "source": "/alerts/slack",
+      "destination": "/alerts/overview#slack-notifications"
     }
   ],
   "search": {
@@ -98,6 +110,7 @@
                   "tracing/sessions",
                   "tracing/tags",
                   "tracing/metadata",
+                  "tracing/data-capture",
                   "tracing/cost-tracking",
                   "tracing/git-context",
                   "tracing/timeline",
@@ -144,10 +157,8 @@
           {
             "group": "Alerts",
             "pages": [
-              "alerts/introduction",
-              "alerts/get-started",
-              "alerts/rule-reference",
-              "alerts/slack"
+              "alerts/overview",
+              "alerts/rule-reference"
             ]
           },
           {
@@ -165,7 +176,8 @@
           {
             "group": "CLI",
             "pages": [
-              "cli/get-started"
+              "cli/get-started",
+              "cli/sql"
             ]
           }
         ]
@@ -214,6 +226,7 @@
               "integrations/gemini",
               "integrations/mistral",
               "integrations/openai",
+              "integrations/openai-compatible",
               "integrations/openrouter"
             ]
           },
