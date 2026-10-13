@@ -343,7 +343,7 @@ async function evaluateTrace(
   // Free-plan detector cap enforcement — read the cached `detectorBlocked`
   // flag set by the hourly billing job (same pattern as `aiBlocked` and
   // `ingestionBlocked`). Worst-case overshoot: ~1h of scans between cron
-  // runs, which costs us a few cents of haiku tokens — acceptable as
+  // runs, which costs us a few cents of judge tokens — acceptable as
   // customer-acquisition spend per the pricing rule "Free is truly free."
   const billingPlan = (project?.workspace?.billingPlan ?? "free") as PlanType;
   if (project?.workspace?.detectorBlocked && billingPlan === PlanType.FREE) {

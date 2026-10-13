@@ -43,7 +43,7 @@ export interface EvalResult {
   inferenceOutputTokens: number;
   /** Source attribution for billing — preserved on error paths so failures still attribute. */
   inferenceSource: "system" | "byok";
-  /** Model id reported by pi-ai (e.g. "claude-haiku-4-5"); null on early-exit error paths. */
+  /** Model id reported by pi-ai (e.g. "gpt-6-luna"); null on early-exit error paths. */
   inferenceModel: string | null;
   /** Provider key reported by pi-ai (e.g. "anthropic"); null on early-exit error paths. */
   inferenceProvider: string | null;
@@ -52,8 +52,8 @@ export interface EvalResult {
 const MAX_ATTEMPTS = 2;
 /**
  * Hard character cap on per-trace context sent to the judge.
- * Set at ~19% of claude-haiku-4-5's 200k-token window (~37k tokens at 4 chars/token),
- * leaving generous headroom for the system prompt + tool definitions + response budget.
+ * ~37k tokens at 4 chars/token: under 20% of a 200k-token window, the smallest
+ * among the system models a detector can run on, leaving generous headroom for the system prompt + tool definitions + response budget.
  * Smart compression (type-aware truncation + path-based dedup + base64
  * stripping) is a future improvement when we see real customer complaints
  * about traces being truncated. For now, rely on this hard cap.

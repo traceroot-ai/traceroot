@@ -88,8 +88,12 @@ export interface LLMModelDef {
  * This is intentionally not `resolvePiModel(undefined, null)`: detector evals
  * use a stable cheap-and-fast model instead of the general provider-priority
  * fallback used by other model resolution paths.
+ *
+ * gpt-6-luna was chosen in #2485: on a labeled synthetic judge comparison it matched
+ * the frontier models' verdicts at ~1/13 of claude-haiku-4-5's cost and half
+ * its latency, where claude-haiku-4-5 raised false positives on long traces.
  */
-export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "claude-haiku-4-5";
+export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "gpt-6-luna";
 
 export const SYSTEM_MODELS: {
   provider: string;
@@ -125,6 +129,7 @@ export const SYSTEM_MODELS: {
     apiProtocol: "openai-responses",
     models: [
       { id: "gpt-5.5", label: "gpt-5.5" },
+      { id: "gpt-6-luna", label: "gpt-6-luna" },
       { id: "gpt-5.4", label: "gpt-5.4" },
       { id: "gpt-5.4-mini", label: "gpt-5.4-mini" },
       { id: "gpt-5.4-nano", label: "gpt-5.4-nano" },
