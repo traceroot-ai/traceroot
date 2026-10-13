@@ -2,6 +2,7 @@ import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
+import { toRunCoverage } from "@/lib/eval/coverage";
 
 type RouteParams = {
   params: Promise<{ projectId: string; datasetId: string; testCaseId: string }>;
@@ -39,6 +40,12 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
           // Declared case count — the SAME denominator the Experiments list uses for
           // Avg Cost / Avg Duration, so the two surfaces agree even on partial runs.
           caseCount: true,
+          // The run's dataset coverage, read through the same helper as every other
+          // surface so this panel cannot describe a run differently from the runs list.
+          datasetCaseCount: true,
+          selectionMode: true,
+          selectedCaseCount: true,
+          sampleSeed: true,
           evaluation: { select: { name: true } },
         },
       },
@@ -71,6 +78,7 @@ async function handleGET(_req: NextRequest, { params }: RouteParams) {
       status: r.status,
       change: r.change,
       caseCount: r.run.caseCount,
+      coverage: toRunCoverage(r.run),
       cost: agg?._sum.cost ?? null,
       elapsedMs: agg?._sum.durationMs ?? null,
     };

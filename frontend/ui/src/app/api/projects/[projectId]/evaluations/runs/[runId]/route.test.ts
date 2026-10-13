@@ -254,3 +254,86 @@ it("derives per-status counts from the run's own results", async () => {
   expect(body.run.erroredCount).toBe(1);
   expect(body.run.notScoredCount).toBe(0);
 });
+
+/** Read the run block out of a GET, with only the fields these assertions need. */
+async function runBlock(over: Record<string, unknown>, groups: Array<Record<string, unknown>>) {
+  prismaMock.evaluationRun.findFirst.mockResolvedValueOnce(
+    candidate({ baselineRunId: null, ...over }),
+  );
+  prismaMock.evaluationResult.groupBy.mockResolvedValueOnce(groups);
+  const body = (await (await GET({} as never, params)).json()) as {
+    run: { resultsTruncated: boolean; resultCount: number; coverage: { mode: string } };
+  };
+  return body.run;
+}
+
+/** A page that filled the route's 1000-row cap, so truncation is possible at all. */
+const fullPage = () =>
+  Array.from({ length: 1000 }, (_, i) => ({
+    id: `r_${i}`,
+    testCaseId: `t_${i}`,
+    traceId: null,
+    input: `case ${i}`,
+    expectedOutput: null,
+    candidateOutput: null,
+    status: "passed",
+    change: null,
+    baselineOutput: null,
+    taskError: null,
+    durationMs: null,
+    cost: null,
+    scores: [],
+  }));
+
+it("reports truncation only when the response was actually capped", async () => {
+  // The fixture returns 2 result rows. When the run really has 2, nothing was cut.
+  const complete = await runBlock({}, [{ status: "passed", _count: { _all: 2 } }]);
+  expect(complete.resultsTruncated).toBe(false);
+  expect(complete.resultCount).toBe(2);
+
+  // When the page hit the cap and the run has more rows than came back, it was, and
+  // that is the API's doing.
+  const capped = await runBlock({ results: fullPage() }, [
+    { status: "passed", _count: { _all: 1200 } },
+  ]);
+  expect(capped.resultsTruncated).toBe(true);
+  expect(capped.resultCount).toBe(1200);
+});
+
+it("does not report truncation when an in-progress run gained rows after its page was read", async () => {
+  // The page and the count are separate reads: a running run returned 2 rows, then 3
+  // more landed before the count. A page under the cap cannot have been truncated.
+  const run = await runBlock({ status: "running" }, [{ status: "passed", _count: { _all: 5 } }]);
+  expect(run.resultCount).toBe(5);
+  expect(run.resultsTruncated).toBe(false);
+});
+
+it("does not blame the API cap for a deliberately-subsetted run", async () => {
+  // The exact misattribution this fixes: a `--first 20` run stores caseCount = 500 and
+  // returns all 20 of its complete results. `caseCount > results.length` called that
+  // truncation, and the compare banner told the user the API had returned "only the
+  // first 20 of their cases". Nothing was truncated — the user chose 20.
+  const run = await runBlock(
+    {
+      caseCount: 500,
+      datasetCaseCount: 500,
+      selectionMode: "first",
+      selectedCaseCount: 20,
+      sampleSeed: null,
+    },
+    [{ status: "passed", _count: { _all: 2 } }],
+  );
+  expect(run.resultsTruncated).toBe(false);
+  // The slice is described by coverage instead, which is the honest place for it.
+  expect(run.coverage.mode).toBe("first");
+});
+
+it("still reports truncation when the SDK declared a case_count no larger than the page", async () => {
+  // The mirror-image bug: an SDK that sent a case_count no larger than the returned page
+  // made `caseCount > results.length` false, so a genuinely capped response reported no
+  // truncation. caseCount equals the page size here, so only the real count can tell.
+  const run = await runBlock({ caseCount: 1000, results: fullPage() }, [
+    { status: "passed", _count: { _all: 1200 } },
+  ]);
+  expect(run.resultsTruncated).toBe(true);
+});
