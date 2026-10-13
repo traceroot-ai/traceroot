@@ -58,9 +58,11 @@ export function useListPageState(
     defaultLimit?: number;
     defaultDateFilterId?: string;
     retentionDays?: number | null;
+    // Must be a stable reference (a module-level constant) -- see useUrlFilters.
+    defaultFilters?: Predicate[];
   } = {},
 ): UseListPageStateReturn {
-  const { defaultLimit = 50, defaultDateFilterId, retentionDays } = options;
+  const { defaultLimit = 50, defaultDateFilterId, retentionDays, defaultFilters } = options;
 
   // URL-synced pagination hook - persists page/limit in URL
   const pagination = useUrlPagination(defaultLimit);
@@ -75,7 +77,7 @@ export function useListPageState(
   // Structured filters (URL-synced). setFilters resets page_index inside its own URL
   // write, so it takes the state-only page reset (a second URL write would clobber the
   // just-set filter from stale params).
-  const { filters, setFilters } = useUrlFilters(pagination.resetPageState);
+  const { filters, setFilters } = useUrlFilters(pagination.resetPageState, defaultFilters);
 
   // Build query options for API call
   const queryOptions = useMemo<QueryOptions>(

@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_ALERT_WINDOW, type AlertWindow } from "@traceroot/core";
 import {
+  DEFAULT_ALERT_NO_DATA_MODE,
   DEFAULT_ALERT_RENOTIFY,
   DEFAULT_ALERT_VIEW,
   getMeasure,
   isCompleteAlertFilter,
   type AlertAggregation,
   type AlertFilter,
+  type AlertNoDataMode,
   type AlertOperator,
   type AlertRenotify,
   type AlertView,
@@ -21,8 +23,8 @@ import { useAlertCapacity, useCreateAlert, useUpdateAlert } from "../hooks/use-a
 import { AlertPreview } from "./alert-preview";
 import { AlertsCapacityNotice } from "./alerts-capacity-notice";
 import { ConditionSection } from "./condition-section";
-import { MetricSection } from "./metric-section";
 import { NotificationsSection } from "./notifications-section";
+import { ScopeSection } from "./scope-section";
 
 interface AlertFormProps {
   projectId: string;
@@ -41,6 +43,7 @@ export interface AlertDraft {
   operator: AlertOperator;
   threshold: string;
   window: AlertWindow;
+  noDataMode: AlertNoDataMode;
   renotify: AlertRenotify;
   name: string;
 }
@@ -53,6 +56,7 @@ const INITIAL_DRAFT: AlertDraft = {
   operator: ">",
   threshold: "",
   window: DEFAULT_ALERT_WINDOW,
+  noDataMode: DEFAULT_ALERT_NO_DATA_MODE,
   renotify: DEFAULT_ALERT_RENOTIFY,
   name: "",
 };
@@ -120,6 +124,7 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
       thresholdOperator: draft.operator,
       threshold,
       renotify: draft.renotify,
+      noDataMode: draft.noDataMode,
     };
     const options = { onSuccess: () => router.push(`/projects/${projectId}/alerts`) };
     // The whole rule goes on every edit, not a diff: the route's change
@@ -138,31 +143,35 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
             action bar stays in reach. `min-h-0` is what lets a flex child
             shrink to scroll. */}
         <div className="flex flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-          <MetricSection
+          {/* In the order the rule reads: which spans, what is computed and
+              compared over them, then when and whom it tells. */}
+          <ScopeSection
             projectId={projectId}
-            view={draft.view}
-            measureId={draft.measureId}
-            aggregation={draft.aggregation}
             filters={draft.filters}
-            onMeasureChange={handleMeasureChange}
-            onAggregationChange={(aggregation) => setDraft((d) => ({ ...d, aggregation }))}
             onFiltersChange={(filters) => setDraft((d) => ({ ...d, filters }))}
           />
 
           <ConditionSection
+            view={draft.view}
+            measureId={draft.measureId}
+            aggregation={draft.aggregation}
             operator={draft.operator}
             threshold={draft.threshold}
             window={draft.window}
-            renotify={draft.renotify}
+            onMeasureChange={handleMeasureChange}
+            onAggregationChange={(aggregation) => setDraft((d) => ({ ...d, aggregation }))}
             onOperatorChange={(operator) => setDraft((d) => ({ ...d, operator }))}
             onThresholdChange={(threshold) => setDraft((d) => ({ ...d, threshold }))}
             onWindowChange={(window) => setDraft((d) => ({ ...d, window }))}
-            onRenotifyChange={(renotify) => setDraft((d) => ({ ...d, renotify }))}
           />
 
           <NotificationsSection
             projectId={projectId}
+            noDataMode={draft.noDataMode}
+            renotify={draft.renotify}
             name={draft.name}
+            onNoDataModeChange={(noDataMode) => setDraft((d) => ({ ...d, noDataMode }))}
+            onRenotifyChange={(renotify) => setDraft((d) => ({ ...d, renotify }))}
             onNameChange={(name) => setDraft((d) => ({ ...d, name }))}
           />
         </div>

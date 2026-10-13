@@ -451,6 +451,7 @@ class TraceReaderService:
         limit: int = 50,
         name: str | None = None,
         user_id: str | None = None,
+        trace_ids: list[str] | None = None,
         start_after: datetime | None = None,
         end_before: datetime | None = None,
         search_query: str | None = None,
@@ -464,6 +465,11 @@ class TraceReaderService:
         them. The exclusion goes into the SHARED ``conditions`` list, so it reaches the
         page query and the count query identically and ``meta.total`` always matches the
         rows the caller can page through. See :func:`_evaluation_exclusion`.
+
+        ``trace_ids`` looks up a known set of traces (e.g. a signal's member traces).
+        On its own it applies no time window, since those traces can be weeks old.
+        An explicit ``start_after``/``end_before`` still applies, and ``filters`` keep
+        their default lookback because their span scans need a lower bound.
         """
         offset = page * limit
 
@@ -481,6 +487,10 @@ class TraceReaderService:
         if user_id:
             conditions.append("t.user_id = {user_id:String}")
             params["user_id"] = user_id
+
+        if trace_ids:
+            conditions.append("t.trace_id IN {trace_ids:Array(String)}")
+            params["trace_ids"] = list(trace_ids)
 
         # Date range filtering (convert to UTC naive datetime for ClickHouse)
         if start_after is not None:
@@ -506,6 +516,8 @@ class TraceReaderService:
         # would be an unbounded full-project span scan in both the page and count queries.
         # Default a lookback window so those sub-queries prune monthly partitions, and bound
         # the trace query to the same window so the page, count, and span scans stay consistent.
+        # A trace_ids lookup without filters scans no spans, so no window applies to it and
+        # old named traces are still found; with filters the window applies as usual.
         if filters and start_after is None:
             params["start_after"] = default_lookback_start(normalized_end)
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
@@ -797,7 +809,7 @@ class TraceReaderService:
                         '{SPAN_PATH}', tree_name_path
                     ))
                 ) AS metadata,
-                git_source_file, git_source_line, git_source_function
+                git_source_file, git_source_line, git_source_function, error_type
             FROM (
                 SELECT
                     span_id, trace_id, parent_span_id, name, span_kind,
@@ -806,7 +818,7 @@ class TraceReaderService:
                     usage_details,
                     {_extract_span_path_attr(SPAN_IDS_PATH)} AS tree_ids_path,
                     {_extract_span_path_attr(SPAN_PATH)} AS tree_name_path,
-                    git_source_file, git_source_line, git_source_function
+                    git_source_file, git_source_line, git_source_function, error_type
                 FROM spans
                 WHERE {spans_where_clause}
                 ORDER BY ch_update_time DESC
@@ -849,6 +861,7 @@ class TraceReaderService:
                     "git_source_file": row[16],
                     "git_source_line": int(row[17]) if row[17] is not None else None,
                     "git_source_function": row[18],
+                    "error_type": row[19],
                 }
             )
 

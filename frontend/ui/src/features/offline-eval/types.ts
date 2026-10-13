@@ -64,6 +64,7 @@ export const SPAN_KIND_LABEL: Record<SpanKind, string> = {
   AGENT: "Agent step",
   TOOL: "Tool call",
   SPAN: "Step",
+  DECISION: "Decision",
   EVALUATION: "Evaluation",
   TASK: "Task",
   SCORER: "Scorer",

@@ -1,6 +1,6 @@
 """Shared proxy for reads delegated to the Next.js internal routes.
 
-Catalog data (dashboards, alerts) lives in Postgres/Prisma, so the public and
+Catalog data (dashboards, alerts, evaluations) lives in Postgres/Prisma, so the public and
 internal read routers delegate to secret-authed Next.js routes keyed by the
 resolved project id. This module owns the one HTTP call and its error
 mapping so every read common uses the same rules: client errors the internal
@@ -48,7 +48,9 @@ def service_error(service: str) -> HTTPException:
     )
 
 
-async def post_internal_read(path: str, payload: dict, *, service: str) -> dict:
+async def post_internal_read(
+    path: str, payload: dict, *, service: str, timeout: float = 10.0
+) -> dict:
     """POST a read to an internal route and return its success body.
 
     Args:
@@ -57,6 +59,9 @@ async def post_internal_read(path: str, payload: dict, *, service: str) -> dict:
         payload (dict): The camelCase JSON body to POST (resolved project /
             resource ids; never logged).
         service (str): The catalog's display name for logs and 503 details.
+        timeout (float): Seconds to wait for the internal route. The catalog
+            reads answer from a handful of rows; a read that aggregates more
+            (an evaluation run's summary) passes a longer bound.
 
     Returns:
         dict: The parsed 200 response body.
@@ -68,7 +73,7 @@ async def post_internal_read(path: str, payload: dict, *, service: str) -> dict:
             malformed body.
     """
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 # rstrip: a trailing slash on the setting must not double up.
                 f"{settings.traceroot_ui_url.rstrip('/')}{path}",

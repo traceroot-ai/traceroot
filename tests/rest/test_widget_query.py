@@ -127,6 +127,22 @@ def test_compile_breakdown_bar():
     assert "LIMIT 50" in sql
 
 
+def test_compile_error_type_breakdown_folds_top_n():
+    """Errors by type: count of ERROR spans grouped by error_type, top-N + 'other'."""
+    spec = make_spec(
+        filters=[{"field": "status", "op": "=", "value": "ERROR"}],
+        metric={"measure": "count", "agg": "count"},
+        breakdown="error_type",
+        display={"type": "bar"},
+    )
+    sql, params = compile_(spec)
+    assert "GROUP BY error_type" in sql
+    assert "status = {f0:String}" in sql
+    assert params["f0"] == "ERROR"
+    assert "'other'" in sql
+    assert "LIMIT 50" in sql
+
+
 def test_compile_timeseries_adds_bucket():
     sql, params = compile_(make_spec(display={"type": "line"}))
     # 7-day range → day buckets in UTC

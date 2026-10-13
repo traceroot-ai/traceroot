@@ -20,6 +20,7 @@ function toDraft(alert: AlertRecord): AlertDraft {
     operator: alert.thresholdOperator,
     threshold: String(alert.threshold),
     window: alert.window,
+    noDataMode: alert.noDataMode,
     renotify: alert.renotify,
     name: alert.name,
   };

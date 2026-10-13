@@ -5,7 +5,9 @@ This server handles:
 - Trace reading from ClickHouse
 """
 
+import math
 import os
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -14,7 +16,7 @@ load_dotenv()
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -30,6 +32,7 @@ from rest.routers.internal import router as internal_router
 from rest.routers.live import router as live_router
 from rest.routers.project_alerts import router as project_alerts_router
 from rest.routers.project_dashboards import router as project_dashboards_router
+from rest.routers.project_evaluations import router as project_evaluations_router
 from rest.routers.project_widgets import router as project_widgets_router
 from rest.routers.public.account_read import router as public_account_read_router
 from rest.routers.public.account_write import router as public_account_write_router
@@ -55,7 +58,7 @@ from shared.config import settings
 
 app = FastAPI(
     title="TraceRoot API",
-    description="Observability and self-improving layer for AI agents",
+    description="Open source AI agent improvement platform. Observability, production monitoring, and evals for AI agents.",
     version="0.1.0",
 )
 
@@ -89,6 +92,22 @@ def _validation_message(exc: RequestValidationError) -> str:
     return f"{detail} (and {remaining} more error(s))" if remaining else detail
 
 
+def _json_safe(value: Any) -> Any:
+    """Replace non-finite floats with their string form so an error body can be encoded.
+
+    ``json.loads`` accepts bare ``NaN``/``Infinity`` tokens, and ``1e999`` overflows
+    to ``inf``. A 422 echoes the rejected input back, and ``JSONResponse`` refuses
+    non-finite floats, so such a body used to turn the 422 into a 500.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> Response:
     """Give the public API a single error envelope for request-validation failures.
@@ -98,10 +117,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     that formats `resp.json()["detail"]` as a message renders a repr'd list. Public
     routes therefore get the same string envelope their upstream/handler errors use.
     Non-public (dashboard/internal) routes keep FastAPI's default body, which the
-    Next.js app already parses.
+    Next.js app already parses, with non-finite input values rendered as strings.
     """
     if not request.url.path.startswith(PUBLIC_PREFIX):
-        return await request_validation_exception_handler(request, exc)
+        return JSONResponse(
+            status_code=422,
+            content={"detail": _json_safe(jsonable_encoder(exc.errors()))},
+        )
     return JSONResponse(status_code=422, content={"detail": _validation_message(exc)})
 
 
@@ -153,13 +175,14 @@ app.include_router(public_project_write_router, prefix="/api/v1")
 app.include_router(public_alerts_write_router, prefix="/api/v1")
 
 # Internal API for worker/service communication (protected by secret).
-# project_dashboards, project_widgets and project_alerts are the agent's read
-# mirrors — they live on the /api/v1/internal prefix the ingress fixed-404s,
-# never the ALB-routed /api/v1/projects surface.
+# project_dashboards, project_widgets, project_alerts and project_evaluations are the
+# agent's read mirrors — they live on the /api/v1/internal prefix the ingress
+# fixed-404s, never the ALB-routed /api/v1/projects surface.
 app.include_router(internal_router, prefix="/api/v1")
 app.include_router(project_dashboards_router, prefix="/api/v1")
 app.include_router(project_widgets_router, prefix="/api/v1")
 app.include_router(project_alerts_router, prefix="/api/v1")
+app.include_router(project_evaluations_router, prefix="/api/v1")
 
 
 @app.get("/health", response_model=HealthResponse)

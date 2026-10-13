@@ -12,9 +12,15 @@ it already uses for trace ingestion — no separate eval URL. This is the
 "two-hop" production path the SDK contract anticipated: SDK → this gateway →
 Next.js control plane.
 
-Auth is enforced here (``KeyStampedAuth``, same as every public route) and the
-Bearer key is forwarded so the Next.js handler re-validates authoritatively
+Writes are authenticated here with ``KeyStampedAuth`` (the SDK's ingest credential)
+and the Bearer key is forwarded so the Next.js handler re-validates authoritatively
 against Postgres.
+
+The reads are the exception: the run summary and the four dataset reads are not
+forwarded. They take ``DualStampedAuth`` like every other project-scoped public
+read, so an API key or a signed-in user with ``project_id`` can call them, and each
+calls the shared evaluation read common with the project this router resolved, the
+same body any internal project-scoped mirror calls, so the surfaces cannot drift.
 
 Proxy safety
 ------------
@@ -23,7 +29,7 @@ an open reverse proxy, so nothing here is built by concatenation alone:
 
 * every path segment must match ``_SEGMENT_RE`` (no ``/``, ``%``, ``\\``, ``:``
   or dot-segments survive it), and
-* the resulting ``(shape, method)`` must be one of the nine real upstream routes
+* the resulting ``(shape, method)`` must be one of the eight real upstream routes
   in ``_UPSTREAM_ROUTES`` — an explicit allowlist mirroring
   ``frontend/ui/src/app/api/public/**/route.ts``.
 
@@ -39,7 +45,7 @@ import re
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from rest.rate_limit import (
@@ -51,11 +57,28 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.routers.public.deps import KeyStampedAuth
+from rest.routers.evaluation_read_common import (
+    get_dataset_detail,
+    get_dataset_version_page,
+    list_dataset_versions_page,
+    list_datasets_page,
+    list_evaluation_runs_page,
+    list_evaluations_page,
+    read_run_summary,
+)
+from rest.routers.public.deps import DualStampedAuth, KeyStampedAuth
 from rest.schemas.eval import (
     CompleteRunRequest,
     CompleteRunResponse,
     ErrorResponse,
+    EvalRunStatus,
+    GetDatasetVersionResponse,
+    ListDatasetsResponse,
+    ListDatasetVersionsResponse,
+    ListEvaluationRunsResponse,
+    ListEvaluationsResponse,
+    PublicDataset,
+    ReadRunResponse,
     RegisterRunRequest,
     RegisterRunResponse,
     UpsertResultRequest,
@@ -82,10 +105,11 @@ _DOT_SEGMENTS = frozenset({".", ".."})
 # `frontend/ui/src/app/api/public/**/route.ts` one-for-one; adding a route there
 # without adding it here means the gateway 404s it (fail closed, by design).
 _UPSTREAM_ROUTES: tuple[tuple[tuple[str, ...], frozenset[str]], ...] = (
-    (("datasets",), frozenset({"GET", "POST"})),
-    (("datasets", "*"), frozenset({"GET", "PATCH"})),
-    (("datasets", "*", "versions"), frozenset({"GET", "POST"})),
-    (("dataset-versions", "*"), frozenset({"GET"})),
+    # Dataset writes only: the dataset reads are typed below and served by the read common,
+    # so no GET is ever forwarded and a GET that reaches a catch-all is refused here.
+    (("datasets",), frozenset({"POST"})),
+    (("datasets", "*"), frozenset({"PATCH"})),
+    (("datasets", "*", "versions"), frozenset({"POST"})),
     (("evaluation-runs",), frozenset({"POST"})),
     (("evaluation-runs", "*", "complete"), frozenset({"POST"})),
     (("evaluation-runs", "*", "results"), frozenset({"POST"})),
@@ -257,6 +281,144 @@ async def _forward(request: Request, subpath: str) -> Response:
     )
 
 
+# Shared by every typed public route below — the dataset reads and the run
+# reporting endpoints answer the same error envelope.
+_EVAL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": ErrorResponse, "description": "Invalid request"},
+    404: {"model": ErrorResponse, "description": "Not found"},
+    413: {"model": ErrorResponse, "description": "Request body too large"},
+    # FastAPI raises RequestValidationError (422) for a malformed body; `main.py`
+    # normalizes it into this same {"detail": "<string>"} envelope, so declaring it
+    # here keeps the published contract and the runtime response in agreement.
+    422: {"model": ErrorResponse, "description": "Validation error"},
+}
+
+# The reads take no body, so they can never be too large. What they can do is refuse a
+# signed-in user who isn't a member of the project (403) and hit the rate limit (429).
+# 401 and 503 are added to every public operation by the schema builder.
+_EVAL_READ_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": ErrorResponse, "description": "Invalid request"},
+    403: {"model": ErrorResponse, "description": "No access to this project"},
+    404: {"model": ErrorResponse, "description": "Not found"},
+    422: {"model": ErrorResponse, "description": "Validation error"},
+    429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
+}
+
+
+# --- Dataset reads (typed + published; the writes stay on the catch-alls) ---
+#
+# The GETs are declared explicitly so they appear in the published OpenAPI and a
+# client — including the tool registry — can be generated from them. None of them
+# forwards: each calls the evaluation read common with the resolved project, the body any
+# internal project-scoped mirror calls too. The POST/PATCH write
+# shapes deliberately stay on the catch-alls below: no policy decision has been made for
+# dataset writes, and publishing one here would be the first step toward handing it to an
+# agent. Registered BEFORE the catch-alls so they are matched first.
+@router.get(
+    "/datasets",
+    operation_id="list_datasets",
+    response_model=ListDatasetsResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="List the project's evaluation datasets",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_datasets(
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int = Query(50, ge=1, le=200, description="Datasets per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+    name: str | None = Query(
+        None, min_length=1, max_length=200, description="Case-insensitive substring of the name"
+    ),
+) -> ListDatasetsResponse:
+    """List datasets, newest first. `next_cursor` is null on the last page."""
+    return await list_datasets_page(auth.project_id, limit, cursor, name)
+
+
+@router.get(
+    "/datasets/{dataset_id}",
+    operation_id="get_dataset",
+    response_model=PublicDataset,
+    responses=_EVAL_READ_RESPONSES,
+    summary="Read one evaluation dataset",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_dataset(
+    dataset_id: str, request: Request, response: Response, auth: DualStampedAuth
+) -> PublicDataset:
+    """Read one dataset. `current_dataset_version_id` is null until a version is published."""
+    return await get_dataset_detail(auth.project_id, dataset_id)
+
+
+@router.get(
+    "/datasets/{dataset_id}/versions",
+    operation_id="list_dataset_versions",
+    response_model=ListDatasetVersionsResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="List a dataset's published versions",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_dataset_versions(
+    dataset_id: str,
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int = Query(50, ge=1, le=200, description="Versions per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+) -> ListDatasetVersionsResponse:
+    """List versions newest-first, each with its case count and whether it is current."""
+    return await list_dataset_versions_page(auth.project_id, dataset_id, limit, cursor)
+
+
+@router.get(
+    "/dataset-versions/{version_id}",
+    operation_id="get_dataset_version",
+    response_model=GetDatasetVersionResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="Read one dataset version and a page of its test cases",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_dataset_version(
+    version_id: str,
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int | None = Query(
+        None,
+        ge=1,
+        le=1000,
+        description=(
+            "Test cases per page. Omit it, with no cursor, to receive the whole version in "
+            "one response, as an SDK pulling the snapshot it will run does; pass it to page."
+        ),
+    ),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+) -> GetDatasetVersionResponse:
+    """Read an immutable snapshot: the version plus its cases, whole or a page at a time.
+
+    Paging is opt-in through `limit`, because the released SDKs pull a version with one
+    request and never follow `next_cursor`; a default page would silently truncate them.
+    A version's case set is unbounded in practice, so any other caller should page.
+    `input`/`expected` come back as native JSON values.
+    """
+    return await get_dataset_version_page(auth.project_id, version_id, limit, cursor)
+
+
 # --- Datasets (A1/A2 list+upsert, A3 patch, A4/A5 versions) -----------------
 # Dataset traffic is authoring/read traffic, so it shares the READ bucket; the run
 # reporting writes below use INGEST. Every route takes KeyStampedAuth, which is what
@@ -279,7 +441,10 @@ async def datasets_sub(subpath: str, request: Request, auth: KeyStampedAuth) -> 
     return await _forward(request, _upstream_path(request.method, "datasets", subpath))
 
 
-# --- Dataset versions (pull an immutable snapshot) --------------------------
+# --- Dataset versions -------------------------------------------------------
+# The one real shape, the snapshot read, is typed above and not forwarded. This catch-all
+# stays so any other GET under the prefix is refused by the allowlist (404) rather than
+# reaching routing's default.
 @router.api_route("/dataset-versions/{subpath:path}", methods=["GET"], include_in_schema=False)
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
@@ -295,16 +460,6 @@ async def dataset_versions(subpath: str, request: Request, auth: KeyStampedAuth)
 # The response_model documents the success shape; the actual body is the upstream
 # response passed through by ``_forward``. These are registered before the catch-all
 # below so they win for their exact paths.
-
-_EVAL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
-    400: {"model": ErrorResponse, "description": "Invalid request"},
-    404: {"model": ErrorResponse, "description": "Not found"},
-    413: {"model": ErrorResponse, "description": "Request body too large"},
-    # FastAPI raises RequestValidationError (422) for a malformed body; `main.py`
-    # normalizes it into this same {"detail": "<string>"} envelope, so declaring it
-    # here keeps the published contract and the runtime response in agreement.
-    422: {"model": ErrorResponse, "description": "Validation error"},
-}
 
 
 @router.post(
@@ -326,6 +481,125 @@ async def register_run(
 ) -> Response:
     """Register/start a run. Idempotent on ``client_run_id`` within an evaluation."""
     return await _forward(request, _upstream_path(request.method, "evaluation-runs"))
+
+
+# --- Evaluation listing reads (typed + published) ----------------------------
+#
+# `read_run` answers for ONE run, and nothing else public hands a caller a run id. These two
+# are what make it reachable from a terminal or a chat: the evaluations a project has, and
+# the runs of one of them. Identity and status only — a run's numbers are aggregates over
+# its results, which `read_run` answers one run at a time, so a page of runs stays one
+# query. Registered before the catch-all so they win for their exact paths.
+@router.get(
+    "/evaluations",
+    operation_id="list_evaluations",
+    response_model=ListEvaluationsResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="List the project's evaluations",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_evaluations(
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int = Query(50, ge=1, le=200, description="Evaluations per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+    name: str | None = Query(
+        None, min_length=1, max_length=200, description="Case-insensitive substring of the name"
+    ),
+) -> ListEvaluationsResponse:
+    """List evaluations, newest first, each with its run count and latest run.
+
+    `next_cursor` is null on the last page.
+    """
+    return await list_evaluations_page(auth.project_id, limit, cursor, name)
+
+
+@router.get(
+    "/evaluation-runs",
+    operation_id="list_evaluation_runs",
+    response_model=ListEvaluationRunsResponse,
+    responses=_EVAL_READ_RESPONSES,
+    summary="List the project's evaluation runs",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_evaluation_runs(
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+    limit: int = Query(50, ge=1, le=200, description="Runs per page"),
+    cursor: str | None = Query(
+        None, min_length=1, max_length=64, description="Opaque cursor from a previous page"
+    ),
+    evaluation_id: str | None = Query(
+        None, min_length=1, max_length=64, description="Only this evaluation's runs"
+    ),
+    run_status: EvalRunStatus | None = Query(
+        None, alias="status", description="Only runs in this status"
+    ),
+) -> ListEvaluationRunsResponse:
+    """List evaluation runs, newest first, optionally one evaluation's or one status's.
+
+    Identity and status only: a run's counts and per-scorer means come from `read_run`, so
+    listing stays one query however many runs a page holds. `next_cursor` is null on the
+    last page.
+    """
+    return await list_evaluation_runs_page(
+        auth.project_id, limit, cursor, evaluation_id, run_status
+    )
+
+
+@router.get(
+    "/evaluation-runs/{run_id}",
+    operation_id="read_run",
+    response_model=ReadRunResponse,
+    responses={
+        **_EVAL_READ_RESPONSES,
+        403: {
+            "model": ErrorResponse,
+            "description": "No access to this project, or the run is outside the plan's "
+            "retention window",
+        },
+    },
+    summary="Read an evaluation run's summary",
+)
+# READ, not INGEST. It is a read, and the INGEST bucket is 16x looser — sized for an SDK
+# streaming per-case results, not for a summary an agent can call in a loop. Sharing the
+# read bucket with every other public read is what keeps one caller's polling from
+# competing with another's ingestion.
+@limiter.shared_limit(
+    resolve_limit,
+    scope=BUCKET_READ,
+    key_func=key_read,
+    exempt_when=is_request_rate_limit_exempt,
+)
+async def read_run(
+    run_id: str,
+    request: Request,
+    response: Response,
+    auth: DualStampedAuth,
+) -> ReadRunResponse:
+    """Read a run's own summary: status, result counts, and per-score and per-metric
+    means over the run's results.
+
+    Typed rather than left to the catch-all so it appears in the published OpenAPI: an
+    endpoint a CLI is expected to call must be in the contract the CLI generates from.
+    Summary only, so the response is bounded by scorer count rather than case count.
+
+    Comparing two runs is not part of this read. It is a different question with its own
+    trust rules, and an optional parameter here would be too easily confused with the
+    baseline a run stores at registration.
+    """
+    # Not forwarded. The read is served by the shared evaluation read common, keyed by the
+    # project this route resolved, which is the same body any internal project-scoped
+    # mirror calls. A run outside the project's retention window is a 403.
+    return await read_run_summary(auth.project_id, run_id)
 
 
 @router.post(
@@ -372,7 +646,8 @@ async def complete_run(
 
 # Remaining untyped run subpaths (additive per-scorer scores, human review) stay a
 # hidden catch-all until they're typed in a later phase. Registered last so it does
-# not shadow the explicit routes above.
+# not shadow the explicit routes above. POST only: the one run read is typed above and
+# is not forwarded.
 @router.api_route("/evaluation-runs/{subpath:path}", methods=["POST"], include_in_schema=False)
 @limiter.shared_limit(
     resolve_limit,
