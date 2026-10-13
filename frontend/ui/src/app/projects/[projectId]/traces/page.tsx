@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
@@ -36,6 +36,7 @@ import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
 // Imported from the hook's own module, not the feature barrel: the page tests replace that
 // barrel wholesale with a factory mock, and a barrel import here would go missing under it.
 import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
+import { useTraceSignalIds } from "@/ee/features/signals/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
 // Tab definitions
@@ -155,6 +156,13 @@ export default function TracesPage() {
 
   const traces = data?.data || [];
   const total = data?.meta?.total ?? 0;
+  // Read only while the Signal IDs column is shown.
+  const traceIds = useMemo(() => (data?.data ?? []).map((t) => t.trace_id), [data]);
+  const { data: signalIds, isError: signalIdsFailed } = useTraceSignalIds(
+    projectId,
+    traceIds,
+    visibleColumns.includes("signal_ids"),
+  );
   const showGettingStarted = !checking && !hasEverTraced && !existsError;
 
   // Hide AI button during loading AND when GettingStarted is shown
@@ -304,10 +312,13 @@ export default function TracesPage() {
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
                 <TraceListTable
+                  projectId={projectId}
                   traces={traces}
                   selectedTraceId={selectedTraceId}
                   onSelectTrace={selectTrace}
                   visibleColumns={visibleColumns}
+                  signalIdsByTrace={signalIds?.signalIds}
+                  signalIdsFailed={signalIdsFailed}
                 />
               </div>
 

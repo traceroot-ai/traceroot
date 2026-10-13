@@ -23,13 +23,12 @@ from traceroot import Integration
 from openai import OpenAI
 
 traceroot.initialize(integrations=[Integration.OPENAI])
-
 client = OpenAI()
 
-# All OpenAI calls are now automatically tracked — tokens, cost, model
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": "Hello!"}],
+# OpenAI calls are tracked automatically; cost requires a priced model ID
+client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello"}]
 )
 # [end:tracing-cost-tracking-python]
 

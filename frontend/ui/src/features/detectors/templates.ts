@@ -128,6 +128,7 @@ export function buildTemplateDetectorInput(template: DetectorTemplate): CreateDe
     outputSchema: template.outputSchema,
     triggerConditions: template.defaultConditions,
     sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
+    // Automatic, the default for every way of creating a detector.
     enableRca: true,
     detectionSource: "system",
   };

@@ -21,13 +21,12 @@ import OpenAI from 'openai';
 import { TraceRoot } from '@traceroot-ai/traceroot';
 
 TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
-
 const client = new OpenAI();
 
-// All OpenAI calls are now automatically tracked — tokens, cost, model
+// OpenAI calls are tracked automatically; cost requires a priced model ID
 await client.chat.completions.create({
-  model: 'gpt-4o-mini',
-  messages: [{ role: 'user', content: 'Hello!' }],
+  model: 'gpt-4o',
+  messages: [{ role: 'user', content: 'Hello' }],
 });
 // [end:tracing-cost-tracking-typescript]
 

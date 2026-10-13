@@ -3,7 +3,7 @@ title: Cost Tracking
 description: Automatic token counting and cost calculation for LLM calls
 ---
 
-When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChain, token usage and cost are tracked automatically — no extra code needed.
+TraceRoot captures token usage from instrumented LLM calls. It calculates cost only when the reported model ID matches an entry in TraceRoot's pricing table, regardless of which integration emitted the span.
 
 <Tabs>
   <Tab title="Python">
@@ -14,13 +14,12 @@ When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChai
     from openai import OpenAI
 
     traceroot.initialize(integrations=[Integration.OPENAI])
-
     client = OpenAI()
 
-    # All OpenAI calls are now automatically tracked — tokens, cost, model
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": "Hello!"}],
+    # OpenAI calls are tracked automatically; cost requires a priced model ID
+    client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": "Hello"}]
     )
     ```
 <!-- [end:snippet:tracing-cost-tracking-python] -->
@@ -32,13 +31,12 @@ When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChai
     import { TraceRoot } from '@traceroot-ai/traceroot';
 
     TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
-
     const client = new OpenAI();
 
-    // All OpenAI calls are now automatically tracked — tokens, cost, model
+    // OpenAI calls are tracked automatically; cost requires a priced model ID
     await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: 'Hello!' }],
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: 'Hello' }],
     });
     ```
 <!-- [end:snippet:tracing-cost-tracking-typescript] -->
@@ -47,9 +45,25 @@ When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChai
 
 ## How It Works
 
-1. **Auto-instrumentation** — TraceRoot intercepts LLM calls from OpenAI, Anthropic, and LangChain and captures token usage from the API response automatically.
+1. **Auto-instrumentation** — TraceRoot integrations capture token usage from the provider response automatically.
 2. **Fallback estimation** — When token counts aren't in the response, TraceRoot estimates using tiktoken.
-3. **Cost calculation** — Token counts are multiplied by the model's pricing from TraceRoot's pricing table.
+3. **Model matching** — The reported model ID is matched against TraceRoot's pricing table, including supported provider-prefixed and hosted aliases.
+4. **Cost calculation** — When a match exists, token counts are multiplied by that entry's prices. An unmatched model still records tokens but has no calculated cost.
+
+## Pricing coverage
+
+Pricing entries currently cover these model families:
+
+- OpenAI
+- Anthropic, including supported model IDs routed through Amazon Bedrock and Claude 3.x model IDs on Google Vertex AI
+- Google Gemini
+- xAI
+- DeepSeek
+- Moonshot (Kimi)
+- Z.AI (GLM)
+- TypeSafe AI (JEV)
+
+Coverage is based on model-ID patterns, not merely the provider or integration name. Notable model families without pricing entries include Mistral, Groq-hosted models, Amazon Nova and Titan, and Meta Llama. Routed models, such as models called through OpenRouter or Bedrock, are priced only when the routed model ID matches a pricing entry.
 
 ## What Gets Tracked
 
@@ -60,7 +74,7 @@ Each LLM span captures:
 | Input tokens | Tokens in the prompt/messages |
 | Output tokens | Tokens in the completion/response |
 | Total tokens | Sum of input and output |
-| Cost (USD) | Calculated from token usage and model pricing |
+| Cost (USD) | Calculated only when the model ID matches the pricing table |
 
 ## Viewing Costs
 
@@ -77,12 +91,22 @@ For custom or unsupported providers, report token usage manually:
     ```python
     from traceroot import observe, update_current_span
 
+    class MockLLM:
+        def generate(self, prompt):
+            class Response:
+                text = "mock response"
+                input_token_count = 10
+                output_token_count = 20
+            return Response()
+
+    my_llm = MockLLM()
+
     @observe(name="custom_llm", type="llm")
     def call_custom_llm(prompt: str):
         response = my_llm.generate(prompt)
 
         update_current_span(
-            model="my-custom-model",
+            model="claude-opus-5",
             usage={
                 "input_tokens": response.input_token_count,
                 "output_tokens": response.output_token_count,
@@ -96,16 +120,23 @@ For custom or unsupported providers, report token usage manually:
     ```typescript
     import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
 
+    const myLlm = {
+      generate: async (prompt: string) => ({
+        text: 'mock response',
+        inputTokenCount: 10,
+        outputTokenCount: 20,
+      }),
+    };
+
     const result = await observe({ name: 'custom_llm', type: 'llm' }, async () => {
+      const prompt = "hello";
       const response = await myLlm.generate(prompt);
 
       updateCurrentSpan({
-        metadata: {
-          model: 'my-custom-model',
-          usage: {
-            input_tokens: response.inputTokenCount,
-            output_tokens: response.outputTokenCount,
-          },
+        model: 'claude-opus-5',
+        usage: {
+          input: response.inputTokenCount,
+          output: response.outputTokenCount,
         },
       });
 
@@ -114,3 +145,9 @@ For custom or unsupported providers, report token usage manually:
     ```
   </Tab>
 </Tabs>
+
+<Note>
+  **Usage keys differ by language:**
+  In Python, use `input_tokens` and `output_tokens` (and `reasoning_tokens`, `cache_read_tokens`, `cache_write_tokens`).
+  In TypeScript, use `input`, `output`, `cacheRead`, `cacheWrite`, and `total`.
+</Note>
