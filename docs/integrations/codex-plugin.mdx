@@ -57,6 +57,7 @@ Settings can be specified in project-local `.codex/traceroot.json`, global `~/.c
 | `host_url` | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | Ingest endpoint URL. Set if self-hosting. |
 | `max_chars` | `TRACEROOT_CODEX_MAX_CHARS` | `20000` | Truncate long span attributes to limit size. |
 | `debug` | `TRACEROOT_CODEX_DEBUG` | `false` | Enable verbose diagnostic logging to stderr. |
+| `fail_on_error` | `TRACEROOT_CODEX_FAIL_ON_ERROR` | `false` | Surface tracing errors instead of swallowing them. Off by default, so tracing never blocks a Codex turn. |
 
 ## What Gets Captured
 

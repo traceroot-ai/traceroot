@@ -9,9 +9,7 @@ Each conversation turn becomes a live trace in TraceRoot showing LLM calls, tool
 
 ## Installation
 
-### Marketplace (Recommended)
-
-Add the repository to your Claude Code plugin marketplace and install:
+Add the repository to your Claude Code plugin marketplace and install — this is what registers the plugin's hooks with Claude Code:
 
 ```bash
 claude plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
@@ -23,14 +21,6 @@ Or run directly from within the Claude Code prompt:
 ```text
 /plugin marketplace add traceroot-ai/traceroot-claude-code-plugin
 /plugin install traceroot-observability@traceroot-claude-code-plugin
-```
-
-### Manual Installation
-
-Clone the repository into your Claude Code plugins directory:
-
-```bash
-git clone https://github.com/traceroot-ai/traceroot-claude-code-plugin.git ~/.claude/plugins/traceroot
 ```
 
 ## Configuration
@@ -48,6 +38,8 @@ export TRACEROOT_API_KEY="your-api-key-from-app.traceroot.ai"
 | -------- | -------- | ----------- |
 | `TRACEROOT_API_KEY` | Yes | Your TraceRoot API key from [app.traceroot.ai](https://app.traceroot.ai). |
 | `TRACEROOT_HOST_URL` | No | TraceRoot ingest endpoint. Defaults to `https://app.traceroot.ai`. |
+| `TRACEROOT_PLUGIN_MAX_CHARS` | No | Truncate captured inputs and outputs to this many characters. Defaults to `20000`. |
+| `TRACEROOT_PLUGIN_DEBUG` | No | Append hook diagnostics to `~/.claude/state/traceroot/debug.log`. Defaults to `false`. |
 
 Restart Claude Code or launch a new terminal session. All turns and tool actions will stream to TraceRoot.
 
