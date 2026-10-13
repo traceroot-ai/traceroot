@@ -1,0 +1,50 @@
+{
+ "anthropic/claude-haiku-4.5": {
+  "in": 1.0,
+  "out": 5.0
+ },
+ "anthropic/claude-haiku-5.5": {
+  "in": 0.09999999999999999,
+  "out": 0.5
+ },
+ "openai/gpt-6-luna": {
+  "in": 0.09999999999999999,
+  "out": 0.5
+ },
+ "openai/gpt-5.6-luna": {
+  "in": 0.19999999999999998,
+  "out": 1.2
+ },
+ "openai/gpt-5.4-mini": {
+  "in": 0.75,
+  "out": 4.5
+ },
+ "google/gemini-3.8-flash": {
+  "in": 0.75,
+  "out": 3.75
+ },
+ "google/gemini-3.5-flash-lite": {
+  "in": 0.3,
+  "out": 2.5
+ },
+ "deepseek/deepseek-v4.1-flash": {
+  "in": 0.0441,
+  "out": 0.63
+ },
+ "anthropic/claude-sonnet-5.5": {
+  "in": 2.0,
+  "out": 10.0
+ },
+ "anthropic/claude-opus-5.5": {
+  "in": 4.0,
+  "out": 20.0
+ },
+ "anthropic/claude-opus-4.8": {
+  "in": 5.0,
+  "out": 25.0
+ },
+ "openai/gpt-6.1-sol": {
+  "in": 2.0,
+  "out": 10.0
+ }
+}
