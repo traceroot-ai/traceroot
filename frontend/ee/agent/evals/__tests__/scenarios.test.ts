@@ -362,10 +362,20 @@ describe("llm-latency-alert", () => {
     await expect(run("llm-latency-alert", passing())).resolves.toBeUndefined();
   });
 
-  it("accepts LLM as a one-value in-list", async () => {
+  it("fails on an operator alert filters do not take, such as a one-value in-list", async () => {
     const ctx = passing();
     ctx.turns[0]!.toolCalls[0]!.args.filters = [{ field: "span_kind", op: "in", value: ["LLM"] }];
-    await expect(run("llm-latency-alert", ctx)).resolves.toBeUndefined();
+    await expect(run("llm-latency-alert", ctx)).rejects.toThrow(
+      /create_alert filters span_kind in \["LLM"\]/,
+    );
+  });
+
+  it("fails on contains, which names no kind exactly", async () => {
+    const ctx = passing();
+    ctx.turns[0]!.toolCalls[0]!.args.filters = [
+      { field: "span_kind", op: "contains", value: "LL" },
+    ];
+    await expect(run("llm-latency-alert", ctx)).rejects.toThrow(/span_kind contains "LL"/);
   });
 
   it("fails on a span kind ingest never writes, such as GENERATION", async () => {
@@ -374,7 +384,7 @@ describe("llm-latency-alert", () => {
       { field: "span_kind", op: "=", value: "GENERATION" },
     ];
     await expect(run("llm-latency-alert", ctx)).rejects.toThrow(
-      /create_alert filters span_kind on \["GENERATION"\]/,
+      /create_alert filters span_kind = "GENERATION"/,
     );
   });
 
@@ -384,21 +394,23 @@ describe("llm-latency-alert", () => {
     await expect(run("llm-latency-alert", ctx)).rejects.toThrow(/has no span_kind filter/);
   });
 
-  it("fails when the stored rule lost the filter or widened it", async () => {
+  it("fails when the stored rule lost the filter or added another kind", async () => {
     const lost = passing();
     lost.created.alerts = [alert({ aggregation: "p99", filters: [] })];
     await expect(run("llm-latency-alert", lost)).rejects.toThrow(
       /the stored rule has no span_kind filter/,
     );
 
-    const widened = passing();
-    widened.created.alerts = [
+    const other = passing();
+    other.created.alerts = [
       alert({
         aggregation: "p99",
-        filters: [{ field: "span_kind", op: "in", value: ["LLM", "TOOL"] }],
+        filters: [...llmOnly, { field: "span_kind", op: "=", value: "TOOL" }],
       }),
     ];
-    await expect(run("llm-latency-alert", widened)).rejects.toThrow(/\["LLM","TOOL"\]/);
+    await expect(run("llm-latency-alert", other)).rejects.toThrow(
+      /the stored rule filters span_kind = "TOOL"/,
+    );
   });
 });
 describe("alerts-summary", () => {

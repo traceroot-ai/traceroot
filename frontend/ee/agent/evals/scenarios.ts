@@ -239,27 +239,29 @@ function expectAlertRule(
   );
 }
 
-/**
- * The span_kind values a filter list pins, from a create_alert call's args or a
- * stored rule. `=` carries one value; `in` carries a list.
- */
-function spanKindValues(filters: unknown): string[] {
+/** The span_kind filters in a create_alert call's args or a stored rule. */
+function spanKindFilters(filters: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(filters)) return [];
-  return filters
-    .filter((f): f is Record<string, unknown> => typeof f === "object" && f !== null)
-    .filter((f) => f.field === "span_kind")
-    .flatMap((f) => (Array.isArray(f.value) ? f.value : [f.value]))
-    .map(String);
+  return filters.filter(
+    (f): f is Record<string, unknown> =>
+      typeof f === "object" && f !== null && (f as Record<string, unknown>).field === "span_kind",
+  );
 }
 
-/** The filter list scopes the rule to LLM spans, and to nothing else. */
+/**
+ * The filter list scopes the rule to LLM spans, and to nothing else. Alert
+ * filters take `=` or `contains` with a scalar value (ALERT_FILTER_OPERATORS);
+ * only an exact `= LLM` names the kind, so anything else fails.
+ */
 function expectLlmSpansOnly(filters: unknown, where: string): void {
-  const kinds = spanKindValues(filters);
+  const kinds = spanKindFilters(filters);
   expectThat(kinds.length > 0, `${where} has no span_kind filter; "LLM spans" asks for one`);
-  expectThat(
-    kinds.every((kind) => kind === SpanKind.LLM),
-    `${where} filters span_kind on ${JSON.stringify(kinds)}; LLM calls are span_kind ${SpanKind.LLM}`,
-  );
+  for (const f of kinds) {
+    expectThat(
+      f.op === "=" && f.value === SpanKind.LLM,
+      `${where} filters span_kind ${String(f.op)} ${JSON.stringify(f.value)}; LLM calls are span_kind = ${SpanKind.LLM}`,
+    );
+  }
 }
 
 export const SCENARIOS: Scenario[] = [
