@@ -14,6 +14,7 @@ import pytest
 from clickhouse_connect.datatypes.registry import get_from_name
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
+from rest.services.sql import service as service_mod
 from rest.services.sql.errors import SqlExecutionError, SqlValidationError
 from rest.services.sql.schema import PUBLIC_TABLES
 from rest.services.sql.service import (
@@ -554,6 +555,67 @@ class TestEmptyResultColumns:
         client = FakeClient(rows=[["s1"]], columns=["renamed_by_the_server"])
         result = _service(client).run("SELECT span_id FROM spans", PID)
         assert [(c.name, c.type) for c in result.columns] == [("renamed_by_the_server", "String")]
+
+
+# ---------------------------------------------------------------------------
+# A table name is matched the way every other layer matches it
+# ---------------------------------------------------------------------------
+class TestEmptyResultColumnsIgnoreTableCase:
+    """Layer 1 matches a table name case-insensitively, so ``FROM SPANS`` is a
+    query the gateway accepts, scopes and answers: the rewriter emits the curated
+    view under its own name and aliases it canonically, so ClickHouse never sees
+    the caller's spelling. The curated schema these columns resolve against is
+    spelled in that one canonical case too, and ClickHouse identifiers are
+    case-sensitive, so the name has to be folded before a projection can be
+    described (verified against 25.2.2: ``SELECT span_id FROM SPANS`` answers,
+    while ``SELECT SPANS.span_id FROM SPANS`` is code 47 and so never reaches
+    here).
+    """
+
+    @staticmethod
+    def _empty() -> FakeClient:
+        return FakeClient(rows=[], columns=[])
+
+    def test_a_curated_column_keeps_its_type(self) -> None:
+        result = _service(self._empty()).run("SELECT span_id, duration_ms FROM SPANS", PID)
+        assert [(c.name, c.type) for c in result.columns] == [
+            ("span_id", "String"),
+            ("duration_ms", "Nullable(Int64)"),
+        ]
+
+    def test_a_star_expands_to_the_curated_columns(self) -> None:
+        result = _service(self._empty()).run("SELECT * FROM Traces", PID)
+        assert [(c.name, c.type) for c in result.columns] == [
+            (c.name, c.type) for c in PUBLIC_TABLES["traces"].columns
+        ]
+
+    def test_a_quoted_table_name_is_folded_too(self) -> None:
+        # Quoting changes nothing: the validator and the rewriter both read the
+        # identifier's text, so this query runs like the bare one.
+        result = _service(self._empty()).run('SELECT span_id FROM "SPANS"', PID)
+        assert [(c.name, c.type) for c in result.columns] == [("span_id", "String")]
+
+    def test_a_column_written_against_an_alias_keeps_its_type(self) -> None:
+        result = _service(self._empty()).run("SELECT s.duration_ms FROM SPANS AS s", PID)
+        assert [(c.name, c.type) for c in result.columns] == [("duration_ms", "Nullable(Int64)")]
+
+    def test_an_alias_borrowing_another_table_name_types_the_real_table(self) -> None:
+        # The caller's aliases are deliberately left alone, because the executed
+        # SQL matches them case-sensitively. Folding them here as well would
+        # resolve this projection against the wrong table's columns.
+        result = _service(self._empty()).run("SELECT Spans.trace_id FROM traces AS Spans", PID)
+        assert [(c.name, c.type) for c in result.columns] == [("trace_id", "String")]
+
+    def test_the_type_lookup_does_not_rely_on_the_folded_name(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Defence in depth: the comparison against the curated schema lowercases
+        # both sides itself, so a projection that resolves without the fold (this
+        # column names its own alias, which the qualifier needs no schema for) is
+        # still typed.
+        monkeypatch.setattr(service_mod, "_canonical_tables", lambda node: node)
+        result = _service(self._empty()).run("SELECT s.duration_ms FROM SPANS AS s", PID)
+        assert [(c.name, c.type) for c in result.columns] == [("duration_ms", "Nullable(Int64)")]
 
 
 # ---------------------------------------------------------------------------

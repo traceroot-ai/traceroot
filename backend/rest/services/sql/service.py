@@ -298,6 +298,34 @@ def _name_projections(node: exp.Expression) -> exp.Expression:
     return node
 
 
+def _canonical_tables(node: exp.Expression) -> exp.Expression:
+    """Spell every public table reference the way the curated schema spells it.
+
+    Layer 1 matches a table name case-insensitively and the rewriter emits the
+    curated view under its own lowercase name, so ``FROM SPANS`` is a query the
+    gateway accepts, scopes and answers. The qualifier below resolves columns
+    against ``_CURATED_SCHEMA``, whose keys are those canonical names, and
+    sqlglot does not fold the two together because ClickHouse identifiers are
+    case-sensitive. Left as written, a mixed-case table name resolved nothing: an
+    unqualified column and a ``*`` both failed outright, and a column written
+    against an alias came back with no type.
+
+    Only the table's own name is rewritten. A table alias and a column's
+    qualifier stay as the caller wrote them, because the executed SQL matches
+    those two case-sensitively (ClickHouse answers ``SPANS.span_id`` with code
+    47, whatever the table behind it is called), so folding either one here
+    would describe a projection the server never returned.
+    """
+    if isinstance(node, exp.Table):
+        identifier = node.args.get("this")
+        if isinstance(identifier, exp.Identifier) and identifier.name.lower() in PUBLIC_TABLES:
+            node.set(
+                "this",
+                exp.to_identifier(identifier.name.lower(), quoted=identifier.quoted),
+            )
+    return node
+
+
 def _widened_by_array_join(tree: exp.Expression) -> bool:
     """True if a ``*`` in *tree* stands for more columns than the schema names.
 
@@ -345,7 +373,7 @@ def _resolve_projection(query: str) -> list[SqlColumn]:
     if _widened_by_array_join(tree):
         return []
     qualified = qualify(
-        tree.transform(_name_projections),
+        tree.transform(_name_projections).transform(_canonical_tables),
         schema=_CURATED_SCHEMA,
         dialect="clickhouse",
         quote_identifiers=False,
@@ -364,10 +392,13 @@ def _resolve_projection(query: str) -> list[SqlColumn]:
     if root is qualified:
         scope = build_scope(qualified)
         if scope is not None:
+            # Lowercased on both sides, as every other table-name comparison in
+            # this layer is, rather than trusting the canonicalisation above to
+            # have reached this particular node.
             sources = {
-                alias: source.name
+                alias: source.name.lower()
                 for alias, source in scope.sources.items()
-                if isinstance(source, exp.Table) and source.name in PUBLIC_TABLES
+                if isinstance(source, exp.Table) and source.name.lower() in PUBLIC_TABLES
             }
 
     columns: list[SqlColumn] = []
