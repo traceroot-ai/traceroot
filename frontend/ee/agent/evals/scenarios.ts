@@ -1,3 +1,4 @@
+import { SpanKind } from "@traceroot/core";
 import {
   WINDOWED_READ_TOOLS,
   alertThreshold,
@@ -236,6 +237,31 @@ function expectAlertRule(
     call.args.threshold === expected.threshold,
     `create_alert proposed threshold ${JSON.stringify(call.args.threshold)}; expected ${expected.threshold} in the measure's own unit`,
   );
+}
+
+/** The span_kind filters in a create_alert call's args or a stored rule. */
+function spanKindFilters(filters: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(filters)) return [];
+  return filters.filter(
+    (f): f is Record<string, unknown> =>
+      typeof f === "object" && f !== null && (f as Record<string, unknown>).field === "span_kind",
+  );
+}
+
+/**
+ * The filter list scopes the rule to LLM spans, and to nothing else. Alert
+ * filters take `=` or `contains` with a scalar value (ALERT_FILTER_OPERATORS);
+ * only an exact `= LLM` names the kind, so anything else fails.
+ */
+function expectLlmSpansOnly(filters: unknown, where: string): void {
+  const kinds = spanKindFilters(filters);
+  expectThat(kinds.length > 0, `${where} has no span_kind filter; "LLM spans" asks for one`);
+  for (const f of kinds) {
+    expectThat(
+      f.op === "=" && f.value === SpanKind.LLM,
+      `${where} filters span_kind ${String(f.op)} ${JSON.stringify(f.value)}; LLM calls are span_kind = ${SpanKind.LLM}`,
+    );
+  }
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -495,6 +521,27 @@ export const SCENARIOS: Scenario[] = [
         statesThresholdWithUnit(text, 2000),
         "the reply never states the threshold with its unit (2000 ms, or 2 seconds)",
       );
+    },
+  },
+  {
+    // The vocabulary is the trap: "LLM spans" is span_kind = LLM, the only value
+    // ingest writes for model calls. A kind the prompt invented (GENERATION, say)
+    // saves fine and then matches nothing, so the rule sits on No Data forever.
+    name: "llm-latency-alert",
+    messages: ["Create an alert when p99 latency of LLM spans over 10 minutes exceeds 2 seconds."],
+    assert: (ctx) => {
+      const call = onlyToolCall(ctx.turns, "create_alert");
+      expectAlertRule(call, {
+        measure: "latency",
+        aggregation: "p99",
+        window: "10m",
+        operator: ">",
+        threshold: 2000,
+      });
+      expectLlmSpansOnly(call.args.filters, "create_alert");
+
+      const alert = onlyCreated(ctx.created.alerts, "alert");
+      expectLlmSpansOnly(alert.filters, "the stored rule");
     },
   },
   {

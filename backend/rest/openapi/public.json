@@ -267,6 +267,44 @@
         "title": "AlertFilterItem",
         "type": "object"
       },
+      "AlertFilterItemRequest": {
+        "additionalProperties": false,
+        "description": "A row predicate an alert's measure is evaluated over.",
+        "properties": {
+          "field": {
+            "description": "A span field, e.g. model_name or metadata",
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "description": "The map entry to compare; required for the metadata field",
+            "title": "Key",
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "=",
+              "contains"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": [
+              "string",
+              "number"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "AlertFilterItemRequest",
+        "type": "object"
+      },
       "AlertListMeta": {
         "description": "Pagination plus the project's alert capacity.",
         "properties": {
@@ -296,7 +334,7 @@
         "type": "object"
       },
       "AlertRenotify": {
-        "description": "How often an alert re-notifies while it stays in the alerting state.\n\nKept a single-level object rather than a discriminated union: the tool\nregistry generator refuses nested schema references. The cross-field\nrule is enforced by a validator instead, so a contradictory stored rule\nfails the detail read closed rather than passing through half-typed.",
+        "description": "How often an alert re-notifies while it stays in the alerting state.\n\nKept a single-level object rather than a discriminated union, matching\nthe request-side shape. The cross-field rule is enforced by a validator\ninstead, so a contradictory stored rule fails the detail read closed\nrather than passing through half-typed.",
         "properties": {
           "interval_minutes": {
             "anyOf": [
@@ -693,36 +731,7 @@
           "filters": {
             "description": "Row predicates the measure is evaluated over",
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "field": {
-                  "description": "A span field, e.g. model_name or metadata",
-                  "type": "string"
-                },
-                "key": {
-                  "description": "The map entry to compare; required for the metadata field",
-                  "type": "string"
-                },
-                "op": {
-                  "enum": [
-                    "=",
-                    "contains"
-                  ],
-                  "type": "string"
-                },
-                "value": {
-                  "type": [
-                    "string",
-                    "number"
-                  ]
-                }
-              },
-              "required": [
-                "field",
-                "op",
-                "value"
-              ],
-              "type": "object"
+              "$ref": "#/components/schemas/AlertFilterItemRequest"
             },
             "title": "Filters",
             "type": "array"
@@ -2320,6 +2329,39 @@
             "title": "Identified",
             "type": "boolean"
           },
+          "signal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Id"
+          },
+          "signal_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Status"
+          },
+          "signal_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Title"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -2607,6 +2649,14 @@
             "title": "Run Ids",
             "type": "array"
           },
+          "signals": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FindingSignal"
+            },
+            "title": "Signals",
+            "type": "array"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -2634,6 +2684,35 @@
         "title": "FindingDetail",
         "type": "object"
       },
+      "FindingSignal": {
+        "description": "The signal one detector's hit in a finding belongs to.",
+        "properties": {
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "signal_status": {
+            "title": "Signal Status",
+            "type": "string"
+          },
+          "signal_title": {
+            "title": "Signal Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detector_id",
+          "signal_id",
+          "signal_title",
+          "signal_status"
+        ],
+        "title": "FindingSignal",
+        "type": "object"
+      },
       "FindingSummary": {
         "description": "A detector finding row for the list view; ``detectors`` are display labels.",
         "properties": {
@@ -2658,6 +2737,14 @@
               "type": "string"
             },
             "title": "Run Ids",
+            "type": "array"
+          },
+          "signals": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FindingSignal"
+            },
+            "title": "Signals",
             "type": "array"
           },
           "summary": {
@@ -3856,6 +3943,11 @@
       "RCAResult": {
         "description": "Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).\n\nThe agent trace behind an RCA (``detector_rca_executions``) is internal and\ndeliberately not part of this contract: its trace id is not readable through\nthe public trace endpoints, so advertising it here would be misleading.",
         "properties": {
+          "inherited": {
+            "default": false,
+            "title": "Inherited",
+            "type": "boolean"
+          },
           "result": {
             "anyOf": [
               {
@@ -5524,36 +5616,7 @@
           "filters": {
             "description": "Row predicates the measure is evaluated over",
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "field": {
-                  "description": "A span field, e.g. model_name or metadata",
-                  "type": "string"
-                },
-                "key": {
-                  "description": "The map entry to compare; required for the metadata field",
-                  "type": "string"
-                },
-                "op": {
-                  "enum": [
-                    "=",
-                    "contains"
-                  ],
-                  "type": "string"
-                },
-                "value": {
-                  "type": [
-                    "string",
-                    "number"
-                  ]
-                }
-              },
-              "required": [
-                "field",
-                "op",
-                "value"
-              ],
-              "type": "object"
+              "$ref": "#/components/schemas/AlertFilterItemRequest"
             },
             "title": "Filters",
             "type": "array"
@@ -12197,6 +12260,33 @@
                             "enum": [
                               "eq",
                               "contains"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "signal_id",
+                            "title": "Signal ID",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq"
                             ],
                             "type": "string"
                           },

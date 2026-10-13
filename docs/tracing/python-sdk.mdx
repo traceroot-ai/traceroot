@@ -50,6 +50,8 @@ async def async_agent(query: str) -> str:
 | `session_id` | `str` | `None` | Session identifier to attach to the trace |
 | `user_id` | `str` | `None` | User identifier to attach to the trace |
 
+See [Data Capture and Privacy](/tracing/data-capture) for examples that keep sensitive function inputs and outputs off spans.
+
 ## Setting Trace Context
 
 Use `using_attributes` to set user and session context for all spans created within a block:
