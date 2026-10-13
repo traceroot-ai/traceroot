@@ -26,6 +26,7 @@ from rest.services import widget_query as wq
 from rest.services.widget_query import WidgetSpecError, compile_widget_query
 from rest.services.widget_registry import (
     AGGS_NUMBER,
+    FILTER_OPS_KEYED,
     FILTER_OPS_NUMBER,
     FILTER_OPS_STRING,
     REGISTRY,
@@ -426,6 +427,46 @@ def test_count_measure_with_breakdown():
     assert "GROUP BY model_name" in sql
 
 
+# --- `in` membership filters ---
+
+
+def test_in_filter_binds_the_list_as_a_string_array():
+    """One `in` filter selects several stored values of a dimension (issue #2540)."""
+    filters = [{"field": "span_kind", "op": "in", "value": ["LLM", "DECISION"]}]
+    sql, params = compile_(make_spec(filters=filters))
+    assert "span_kind IN {f0:Array(String)}" in sql
+    assert params["f0"] == ["LLM", "DECISION"]
+
+
+@pytest.mark.parametrize(
+    "flt",
+    [
+        {"field": "span_kind", "op": "in", "value": "LLM"},
+        {"field": "span_kind", "op": "=", "value": ["LLM"]},
+        {"field": "span_kind", "op": "in", "value": []},
+        {"field": "span_kind", "op": "in", "value": ["LLM", ""]},
+        {"field": "span_kind", "op": "in", "value": [1]},
+    ],
+)
+def test_in_filter_value_shape_is_enforced_by_schema(flt):
+    """A list goes with `in` and only `in`, non-empty and of non-empty strings."""
+    with pytest.raises(ValidationError):
+        WidgetSpec.model_validate(make_spec(filters=[flt]))
+
+
+def test_in_filter_is_rejected_on_numeric_and_keyed_fields():
+    """Membership is a string-dimension op: numbers compare, map entries match one value."""
+    with pytest.raises(WidgetSpecError, match="not allowed"):
+        compile_(make_spec(filters=[{"field": "duration_ms", "op": "in", "value": ["5"]}]))
+    with pytest.raises(WidgetSpecError, match="not allowed"):
+        compile_(
+            make_spec(
+                filters=[{"field": "metadata", "key": "k", "op": "in", "value": ["a"]}],
+                breakdown=None,
+            )
+        )
+
+
 # --- filter escaping and serialization guards ---
 
 
@@ -778,7 +819,7 @@ def test_metadata_is_filterable_but_never_a_dimension_or_a_measure():
     """A Map has no single value to aggregate, and one dimension per key cannot be static."""
     fdef = REGISTRY["spans"].fields["metadata"]
     assert fdef.requires_key is True
-    assert fdef.filter_ops == FILTER_OPS_STRING
+    assert fdef.filter_ops == FILTER_OPS_KEYED
     assert fdef.groupable is False
     assert fdef.aggs == ()
     with pytest.raises(WidgetSpecError, match="not groupable"):

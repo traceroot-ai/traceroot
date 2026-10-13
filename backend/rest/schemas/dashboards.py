@@ -10,7 +10,14 @@ is the single source of truth for which views and fields exist.
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, WithJsonSchema
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    WithJsonSchema,
+    model_validator,
+)
 
 DisplayType = Literal["line", "area", "bar", "pie", "number", "table", "histogram"]
 AggName = Literal["count", "sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99", "uniq"]
@@ -26,7 +33,8 @@ class WidgetFilter(_StrictModel):
     """A single filter predicate applied to a widget query."""
 
     field: str
-    op: Literal["=", "contains", ">", ">=", "<", "<="]
+    # `in` takes a list of strings; every other op takes one value.
+    op: Literal["=", "contains", "in", ">", ">=", "<", "<="]
     # min_length mirrors the frontend schema: an empty value means the filter
     # was never completed and would silently match only empty-valued rows.
     # allow_inf_nan=False: json.loads accepts bare NaN/Infinity tokens, but a
@@ -41,11 +49,20 @@ class WidgetFilter(_StrictModel):
     # with no usable error.
     value: Annotated[
         Annotated[str, StringConstraints(min_length=1)]
-        | Annotated[float, Field(allow_inf_nan=False)],
+        | Annotated[float, Field(allow_inf_nan=False)]
+        | Annotated[list[Annotated[str, StringConstraints(min_length=1)]], Field(min_length=1)],
         WithJsonSchema(
             {
-                "type": ["string", "number"],
-                "anyOf": [{"type": "string", "minLength": 1}, {"type": "number"}],
+                "type": ["string", "number", "array"],
+                "anyOf": [
+                    {"type": "string", "minLength": 1},
+                    {"type": "number"},
+                    {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        "minItems": 1,
+                    },
+                ],
             }
         ),
     ]
@@ -54,6 +71,15 @@ class WidgetFilter(_StrictModel):
     # Typed as an array for the same reason as value: an anyOf-only property
     # is rejected by some model providers' tool schemas.
     key: Annotated[str | None, WithJsonSchema({"type": "string"})] = None
+
+    @model_validator(mode="after")
+    def _value_matches_op(self) -> "WidgetFilter":
+        """A list value belongs to `in` and only to `in`."""
+        if self.op == "in" and not isinstance(self.value, list):
+            raise ValueError("Op 'in' takes a list of values")
+        if self.op != "in" and isinstance(self.value, list):
+            raise ValueError(f"Op '{self.op}' takes a single value, not a list")
+        return self
 
 
 class WidgetMetric(_StrictModel):

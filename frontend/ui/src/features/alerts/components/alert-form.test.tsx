@@ -64,7 +64,7 @@ vi.mock("@/lib/auth-client", () => ({
 const stringField = (label: string, extra: Record<string, unknown> = {}) => ({
   type: "string",
   label,
-  filterOps: ["=", "contains"],
+  filterOps: ["=", "contains", "in"],
   groupable: true,
   ...extra,
 });
@@ -77,7 +77,7 @@ const SPANS_SCHEMA_FIELDS = {
   span_kind: stringField("Span kind"),
   name: stringField("Span name"),
   is_root: stringField("Root span"),
-  metadata: stringField("Metadata", { requiresKey: true }),
+  metadata: stringField("Metadata", { requiresKey: true, filterOps: ["=", "contains"] }),
 };
 
 // The engine's numeric set. `count` is absent: the engine reserves it for the count(*) sentinel.
@@ -317,6 +317,16 @@ describe("AlertForm", () => {
     // The draft is still on screen to edit, not thrown away by a navigation.
     expect(mocks.push).not.toHaveBeenCalled();
     expect((screen.getByLabelText("name") as HTMLInputElement).value).toBe("p95 latency");
+  });
+
+  it("offers only the operators an alert stores, not the engine's `in`", async () => {
+    renderForm();
+    fireEvent.click(screen.getByRole("button", { name: /Add filter/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Field/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "Span kind" }));
+    fireEvent.click(screen.getByRole("button", { name: "is" }));
+    expect(screen.getByRole("option", { name: "contains" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "is any of" })).toBeNull();
   });
 
   it("drops a filter row with no value from the saved rule", async () => {

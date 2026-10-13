@@ -50,18 +50,26 @@ export const AGGS = [
   "uniq",
 ] as const;
 
-export const WidgetFilterSchema = z.object({
-  field: z.string().min(1),
-  op: z.enum(["=", "contains", ">", ">=", "<", "<="]),
-  // min(1): a filter whose value was never picked (the builder's rows start
-  // at "") must keep the spec incomplete, not save a widget that silently
-  // matches only empty-valued rows.
-  value: z.union([z.string().min(1), z.number()]),
-  // Declared because the schema strips what it does not declare — without it a
-  // metadata filter reaches the engine keyless. Which fields require a key, and
-  // whether one belongs, is the engine's call.
-  key: z.string().min(1).optional(),
-});
+export const WidgetFilterSchema = z
+  .object({
+    field: z.string().min(1),
+    op: z.enum(["=", "contains", "in", ">", ">=", "<", "<="]),
+    // min(1): a filter whose value was never picked (the builder's rows start
+    // at "", an `in` row at []) must keep the spec incomplete, not save a
+    // widget that silently matches only empty-valued rows.
+    value: z.union([z.string().min(1), z.number(), z.array(z.string().min(1)).min(1)]),
+    // Declared because the schema strips what it does not declare — without it a
+    // metadata filter reaches the engine keyless. Which fields require a key, and
+    // whether one belongs, is the engine's call.
+    key: z.string().min(1).optional(),
+  })
+  .superRefine((filter, ctx) => {
+    // A list belongs to `in` and only to `in`, as WidgetFilter enforces.
+    if ((filter.op === "in") !== Array.isArray(filter.value)) {
+      ctx.addIssue({ code: "custom", path: ["value"], message: 'only "in" takes a list' });
+    }
+  });
+export type WidgetFilterValue = z.infer<typeof WidgetFilterSchema>["value"];
 
 // Pie and bar plot one mark per category — without a breakdown dimension the
 // query collapses to a single unlabeled datum and there is nothing to chart.
@@ -196,7 +204,7 @@ export interface WidgetFieldValuesResponse {
  * A keyed field is never enumerable; see `requires_key` in widget_registry.py.
  */
 export function isEnumerableFilter(field: WidgetSchemaField | undefined, op: string): boolean {
-  return !!field && field.type === "string" && !field.requiresKey && op === "=";
+  return !!field && field.type === "string" && !field.requiresKey && (op === "=" || op === "in");
 }
 
 // Numeric comparison symbols shared with the trace-list filter chips.
@@ -210,6 +218,7 @@ const NUMERIC_OP_SYMBOL: Record<string, string> = { ">=": "≥", "<=": "≤" };
 export function filterOpLabel(field: WidgetSchemaField | undefined, op: string): string {
   if (field?.type === "string") {
     if (op === "=") return "is";
+    if (op === "in") return "is any of";
     return op;
   }
   return NUMERIC_OP_SYMBOL[op] ?? op;

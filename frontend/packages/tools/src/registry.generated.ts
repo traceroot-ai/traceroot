@@ -328,11 +328,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         type: "string",
                       },
                       op: {
-                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        enum: ["=", "contains", "in", ">", ">=", "<", "<="],
                         type: "string",
                       },
                       value: {
-                        type: ["string", "number"],
+                        type: ["string", "number", "array"],
                         anyOf: [
                           {
                             minLength: 1,
@@ -340,6 +340,14 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           },
                           {
                             type: "number",
+                          },
+                          {
+                            items: {
+                              minLength: 1,
+                              type: "string",
+                            },
+                            minItems: 1,
+                            type: "array",
                           },
                         ],
                       },
@@ -444,11 +452,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         type: "string",
                       },
                       op: {
-                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        enum: ["=", "contains", "in", ">", ">=", "<", "<="],
                         type: "string",
                       },
                       value: {
-                        type: ["string", "number"],
+                        type: ["string", "number", "array"],
                         anyOf: [
                           {
                             minLength: 1,
@@ -456,6 +464,14 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           },
                           {
                             type: "number",
+                          },
+                          {
+                            items: {
+                              minLength: 1,
+                              type: "string",
+                            },
+                            minItems: 1,
+                            type: "array",
                           },
                         ],
                       },
@@ -2090,11 +2106,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                     type: "string",
                   },
                   op: {
-                    enum: ["=", "contains", ">", ">=", "<", "<="],
+                    enum: ["=", "contains", "in", ">", ">=", "<", "<="],
                     type: "string",
                   },
                   value: {
-                    type: ["string", "number"],
+                    type: ["string", "number", "array"],
                     anyOf: [
                       {
                         minLength: 1,
@@ -2102,6 +2118,14 @@ export const REGISTRY: readonly RegistryEntry[] = [
                       },
                       {
                         type: "number",
+                      },
+                      {
+                        items: {
+                          minLength: 1,
+                          type: "string",
+                        },
+                        minItems: 1,
+                        type: "array",
                       },
                     ],
                   },
@@ -2518,11 +2542,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         type: "string",
                       },
                       op: {
-                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        enum: ["=", "contains", "in", ">", ">=", "<", "<="],
                         type: "string",
                       },
                       value: {
-                        type: ["string", "number"],
+                        type: ["string", "number", "array"],
                         anyOf: [
                           {
                             minLength: 1,
@@ -2530,6 +2554,14 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           },
                           {
                             type: "number",
+                          },
+                          {
+                            items: {
+                              minLength: 1,
+                              type: "string",
+                            },
+                            minItems: 1,
+                            type: "array",
                           },
                         ],
                       },
@@ -2634,11 +2666,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         type: "string",
                       },
                       op: {
-                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        enum: ["=", "contains", "in", ">", ">=", "<", "<="],
                         type: "string",
                       },
                       value: {
-                        type: ["string", "number"],
+                        type: ["string", "number", "array"],
                         anyOf: [
                           {
                             minLength: 1,
@@ -2646,6 +2678,14 @@ export const REGISTRY: readonly RegistryEntry[] = [
                           },
                           {
                             type: "number",
+                          },
+                          {
+                            items: {
+                              minLength: 1,
+                              type: "string",
+                            },
+                            minItems: 1,
+                            type: "array",
                           },
                         ],
                       },

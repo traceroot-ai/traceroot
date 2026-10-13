@@ -15,7 +15,9 @@ from typing import Literal
 
 from rest.services.trace_reader import customer_traffic_only
 
-FILTER_OPS_STRING = ("=", "contains")
+FILTER_OPS_STRING = ("=", "contains", "in")
+# Keyed (Map) fields compare one entry's value, so they take no `in`.
+FILTER_OPS_KEYED = ("=", "contains")
 FILTER_OPS_NUMBER = (">", ">=", "<", "<=", "=")
 AGGS_NUMBER = ("sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99", "uniq")
 
@@ -261,7 +263,7 @@ REGISTRY: dict[str, ViewDef] = {
                 expr=METADATA_MAP_COLUMN,
                 type="string",
                 label="Metadata",
-                filter_ops=FILTER_OPS_STRING,
+                filter_ops=FILTER_OPS_KEYED,
                 requires_key=True,
                 in_builder=False,
             ),

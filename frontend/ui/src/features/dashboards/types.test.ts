@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   WidgetSchemaField,
   WidgetSpecSchema,
+  WidgetFilterSchema,
   filterOpLabel,
   generateWidgetTitle,
   isEnumerableFilter,
@@ -55,6 +56,20 @@ describe("WidgetSpecSchema", () => {
   });
 });
 
+describe("WidgetFilterSchema `in`", () => {
+  const ok = (filter: unknown) => WidgetFilterSchema.safeParse(filter).success;
+
+  it("takes a non-empty list of non-empty strings", () => {
+    expect(ok({ field: "span_kind", op: "in", value: ["LLM", "DECISION"] })).toBe(true);
+    expect(ok({ field: "span_kind", op: "in", value: [] })).toBe(false);
+    expect(ok({ field: "span_kind", op: "in", value: ["LLM", ""] })).toBe(false);
+  });
+  it("pairs a list with `in` and only with `in`", () => {
+    expect(ok({ field: "span_kind", op: "in", value: "LLM" })).toBe(false);
+    expect(ok({ field: "span_kind", op: "=", value: ["LLM"] })).toBe(false);
+  });
+});
+
 describe("isSpecComplete", () => {
   it("false while view or metric missing", () => {
     expect(isSpecComplete({ view: "spans" })).toBe(false);
@@ -90,6 +105,9 @@ describe("isEnumerableFilter", () => {
     // trace-list filter, which has no not-equals
     expect(isEnumerableFilter(stringField, "!=")).toBe(false);
   });
+  it("true for string membership (multi-select of stored values)", () => {
+    expect(isEnumerableFilter(stringField, "in")).toBe(true);
+  });
   it("false for contains (free text) and numeric fields", () => {
     expect(isEnumerableFilter(stringField, "contains")).toBe(false);
     expect(isEnumerableFilter(numberField, "=")).toBe(false);
@@ -113,6 +131,7 @@ describe("filterOpLabel", () => {
   it("words string equality like the trace-list filter builder", () => {
     expect(filterOpLabel(stringField, "=")).toBe("is");
     expect(filterOpLabel(stringField, "contains")).toBe("contains");
+    expect(filterOpLabel(stringField, "in")).toBe("is any of");
   });
   it("uses the trace-list comparison symbols for numeric ops", () => {
     expect(filterOpLabel(numberField, ">=")).toBe("≥");
