@@ -187,6 +187,7 @@ describe("support policy", () => {
           if (
             /^(auth|internal|public|cli|support)\//.test(relative) ||
             relative === "billing/webhook/route.ts" ||
+            relative === "email/unsubscribe/route.ts" || // token-authenticated, reached from email links
             relative === "health/route.ts"
           )
             continue;

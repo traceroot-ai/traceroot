@@ -37,6 +37,7 @@ from .conftest import (
     PROJECT_A,
     PROJECT_B,
     PROJECT_CAP,
+    PROJECT_ERR,
     Gateway,
     Seeded,
 )
@@ -131,6 +132,51 @@ def test_the_service_reports_columns_as_the_view_defines_them(gateway, service):
     ).result_rows
     assert [(c.name, c.type) for c in result.columns] == [(n, t) for n, t, *_ in described]
     assert [c.name for c in result.columns] == [c.name for c in PUBLIC_TABLES["spans"].columns]
+
+
+def test_error_type_groups_errors_and_reports_the_contract_type(service):
+    """The breakdown the column was exposed for, run as the read-only account. The type
+    is asserted as well as the rows: the contract declares what the view surfaces, and a
+    CAST added to either side alone would leave the query working and the two disagreeing."""
+    result = service.run(
+        "SELECT error_type, count() FROM spans WHERE status = 'ERROR' "
+        "GROUP BY error_type ORDER BY error_type",
+        PROJECT_ERR,
+    )
+    assert result.rows == [["KeyError", 1], ["TimeoutError", 2]]
+    declared = {c.name: c.type for c in PUBLIC_TABLES["spans"].columns}["error_type"]
+    assert result.columns[0].name == "error_type"
+    assert result.columns[0].type == declared == "LowCardinality(String)"
+
+
+def test_select_star_returns_error_type_in_its_contract_position(service):
+    """Last, after every column that existed before it. `SELECT *` expands in contract
+    order, so a caller reading by position sees nothing it already read move."""
+    result = service.run("SELECT * FROM spans ORDER BY span_start_time", PROJECT_ERR)
+    names = [c.name for c in result.columns]
+    position = [c.name for c in PUBLIC_TABLES["spans"].columns].index("error_type")
+    assert position == len(names) - 1
+    assert names[position] == "error_type"
+    assert [row[position] for row in result.rows] == [
+        "",
+        "TimeoutError",
+        "TimeoutError",
+        "KeyError",
+    ]
+
+
+def test_the_route_answers_error_type_for_the_credential_s_project(http):
+    resp = http(PROJECT_ERR).post(
+        SQL_URL,
+        json={
+            "query": "SELECT error_type, count() FROM spans WHERE status = 'ERROR' "
+            "GROUP BY error_type ORDER BY error_type"
+        },
+        headers=AUTH_HEADER,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["rows"] == [["KeyError", 1], ["TimeoutError", 2]]
+    _assert_no_leak(resp.text)
 
 
 @pytest.mark.parametrize("project", [PROJECT_A, PROJECT_B])

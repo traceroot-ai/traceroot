@@ -7,12 +7,16 @@ export const SpanKind = {
   AGENT: "AGENT",
   TOOL: "TOOL",
   SPAN: "SPAN",
+  DECISION: "DECISION",
   // Offline-evaluation span kinds (evaluation-item root, candidate task, scorer).
   EVALUATION: "EVALUATION",
   TASK: "TASK",
   SCORER: "SCORER",
 } as const;
 export type SpanKind = (typeof SpanKind)[keyof typeof SpanKind];
+
+// Span kinds that carry model/token/cost data
+export const MODEL_SPAN_KINDS: ReadonlySet<string> = new Set([SpanKind.LLM, SpanKind.DECISION]);
 
 // SpanStatus — ClickHouse values
 export const SpanStatus = { OK: "OK", ERROR: "ERROR" } as const;

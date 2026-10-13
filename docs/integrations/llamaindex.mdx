@@ -33,7 +33,7 @@ Settings.llm = OpenAI(model="gpt-4o-mini")
 Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
 
 documents = [
-    Document(text="TraceRoot is an open-source observability and self-improving layer for AI agents."),
+    Document(text="TraceRoot is an open-source AI agent improvement platform."),
     Document(text="TraceRoot supports OpenTelemetry-compatible tracing via a Python SDK."),
 ]
 
@@ -54,7 +54,7 @@ print(response)
 | Embedding calls | Each batch embedding with text inputs and vector outputs |
 | Retrieval | Top-k retrieval with query and retrieved documents |
 | LLM synthesis | Response generation with context and final answer |
-| Tokens & Cost | Input/output tokens and calculated cost per LLM call |
+| Tokens & Cost | Input/output tokens; cost when the model ID matches TraceRoot's pricing table |
 | Latency | Duration of each pipeline stage |
 
 

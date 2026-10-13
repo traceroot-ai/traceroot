@@ -1,5 +1,22 @@
 import { createHash } from "node:crypto";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
+
+/** Caller holds the finding row lock shared with signal opening creation. */
+export async function removeOrphanSignalRcas(
+  tx: Pick<Prisma.TransactionClient, "$executeRaw">,
+  findingId: string,
+): Promise<void> {
+  // Match by detector, not signal: moving a hit preserves its RCA evidence.
+  // Remove only links with no evidence left, so they cannot inherit another
+  // detector's section when this shared finding completes.
+  await tx.$executeRaw`
+    DELETE FROM signal_rcas r USING signals s
+    WHERE r.signal_id = s.id AND r.finding_id = ${findingId}
+      AND NOT EXISTS (
+        SELECT 1 FROM signal_hits h WHERE h.finding_id = r.finding_id
+          AND h.project_id = s.project_id AND h.detector_id = s.detector_id
+      )`;
+}
 
 /** First attempt's trace id IS the finding id (dashless); later attempts hash (finding, attempt). */
 export function executionTraceId(findingId: string, attempt: number): string {
@@ -62,20 +79,59 @@ export async function finishFindingIfLatest(
     status: "done" | "failed";
     result?: string | null;
     completedAt?: Date;
+    /** Signal openings actually analysed; omitted for legacy per-finding jobs. */
+    coveredOpenings?: readonly string[];
+    /**
+     * For a successful signal RCA: each analysed opening ("signalId:reopenSeq")
+     * with the root cause given for its hit. The answer is kept on each opening.
+     */
+    openingResults?: readonly { opening: string; rootCause: string | null }[];
+    /** The agent session that produced a successful answer, kept with it. */
+    sessionId?: string | null;
   },
 ): Promise<boolean> {
   return db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM detector_rcas WHERE finding_id = ${params.findingId} FOR UPDATE`;
+    // Serialize status writes without blocking FK checks when a merge
+    // carries an RCA link; a stronger lock would invert finding/link locks.
+    await tx.$queryRaw`SELECT id FROM detector_rcas WHERE finding_id = ${params.findingId} FOR NO KEY UPDATE`;
+    // Opening creation updates this same finding row before inserting its
+    // signal_rcas row. Holding the row lock makes coverage and completion one
+    // atomic decision, including when this was the final failed attempt.
+    let uncovered = false;
+    if (params.coveredOpenings) {
+      await removeOrphanSignalRcas(tx, params.findingId);
+      const openings = await tx.$queryRaw<{ signalId: string; reopenSeq: number }[]>`
+        SELECT signal_id AS "signalId", reopen_seq AS "reopenSeq"
+        FROM signal_rcas WHERE finding_id = ${params.findingId}`;
+      const covered = new Set(params.coveredOpenings);
+      uncovered = openings.some((o) => !covered.has(`${o.signalId}:${o.reopenSeq}`));
+    }
     const count = await tx.$executeRaw`
       UPDATE detector_rcas
-      SET status = ${params.status},
-          result = ${params.result ?? null},
-          completed_at = ${params.completedAt ?? new Date()}
+      SET status = ${uncovered ? "pending" : params.status},
+          result = ${uncovered ? null : (params.result ?? null)},
+          completed_at = ${uncovered ? null : (params.completedAt ?? new Date())}
       WHERE finding_id = ${params.findingId}
         AND NOT EXISTS (
           SELECT 1 FROM detector_rca_executions
           WHERE finding_id = ${params.findingId} AND attempt > ${params.attempt}
         )`;
+    // The finding row only holds the latest attempt, which a later signal on
+    // the same trace resets and may fail. Each opening the successful run
+    // analysed keeps its own copy of the answer, so no later attempt takes it
+    // away, and an opening this run did not cover never borrows it.
+    if (count === 1 && params.status === "done" && params.openingResults) {
+      for (const { opening, rootCause } of params.openingResults) {
+        const at = opening.indexOf(":");
+        await tx.$executeRaw`
+          UPDATE signal_rcas
+          SET result = ${params.result ?? null}, root_cause = ${rootCause},
+              session_id = ${params.sessionId ?? null}
+          WHERE finding_id = ${params.findingId}
+            AND signal_id = ${opening.slice(0, at)}
+            AND reopen_seq = ${Number(opening.slice(at + 1))}`;
+      }
+    }
     return count === 1;
   });
 }

@@ -96,6 +96,7 @@ const DEFAULT_POSTED_RULE = {
   thresholdOperator: ">",
   threshold: 500,
   renotify: { mode: "OFF" },
+  noDataMode: "HOLD",
 };
 
 import { AlertForm, type AlertDraft } from "./alert-form";
@@ -108,6 +109,7 @@ const SAVED_DRAFT: AlertDraft = {
   operator: ">",
   threshold: "250",
   window: "1h",
+  noDataMode: "NOTIFY",
   renotify: { mode: "OFF" },
   name: "Checkout latency",
 };
@@ -227,18 +229,30 @@ describe("AlertForm", () => {
 
   const previewBucketSeconds = () => mocks.useWidgetPreview.mock.calls.at(-1)?.[3];
 
-  it("saves the window the Conditions section shows, not the one the form opened on", async () => {
+  it("saves the window the Condition section shows, not the one the form opened on", async () => {
     const fetchMock = stubCreateSuccess();
     renderForm();
     openSelect("window");
-    fireEvent.click(await screen.findByRole("option", { name: "Last 1h" }));
+    fireEvent.click(await screen.findByRole("option", { name: "1h" }));
     fillRequiredFields();
     fireEvent.click(saveButton());
 
     // The default is 10m, so a window that never reached the draft would post by accident.
-    expect(screen.getByLabelText("window").textContent).toContain("Last 1h");
+    expect(screen.getByLabelText("window").textContent).toContain("1h");
     await waitFor(() => expect(writeCalls(fetchMock)).toHaveLength(1));
     expect(postedRule(fetchMock).window).toBe("1h");
+  });
+
+  it("saves the no-data mode the Notify section shows", async () => {
+    const fetchMock = stubCreateSuccess();
+    renderForm();
+    openSelect("no data mode");
+    fireEvent.click(await screen.findByRole("option", { name: "Notify when data stops" }));
+    fillRequiredFields();
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(writeCalls(fetchMock)).toHaveLength(1));
+    expect(postedRule(fetchMock).noDataMode).toBe("NOTIFY");
   });
 
   it("offers a numeric measure the engine-runnable aggregations, count excluded", async () => {
@@ -281,12 +295,12 @@ describe("AlertForm", () => {
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/alerts"));
   });
 
-  it("charts the preview on the window the Conditions section shows", async () => {
+  it("charts the preview on the window the Condition section shows", async () => {
     renderForm();
     expect(previewBucketSeconds()).toBe(DEFAULT_BUCKET_SECONDS);
 
     openSelect("window");
-    fireEvent.click(await screen.findByRole("option", { name: "Last 1h" }));
+    fireEvent.click(await screen.findByRole("option", { name: "1h" }));
 
     // A chart bucketed on anything else describes a rule the user is not writing.
     expect(previewBucketSeconds()).toBe(3600);
@@ -418,6 +432,8 @@ describe("AlertForm", () => {
         thresholdOperator: ">",
         threshold: 250,
         renotify: { mode: "OFF" },
+        // A stored non-default mode survives an edit that never touched it.
+        noDataMode: "NOTIFY",
       });
     });
 
@@ -456,6 +472,7 @@ describe("AlertForm", () => {
         operator: ">",
         threshold: "1",
         window: "1m",
+        noDataMode: "HOLD",
         renotify: { mode: "OFF" },
         name: "filtered",
       },
@@ -478,6 +495,7 @@ describe("AlertForm", () => {
         operator: ">",
         threshold: "1",
         window: "1m",
+        noDataMode: "HOLD",
         renotify: { mode: "OFF" },
         name: "filtered",
       },
@@ -500,6 +518,7 @@ describe("AlertForm", () => {
         operator: ">",
         threshold: "1",
         window: "1m",
+        noDataMode: "HOLD",
         renotify: { mode: "OFF" },
         name: "filtered",
       },
