@@ -22,7 +22,7 @@ Each evaluation reads **OK**, **Alert** or **No Data**, and only a change notifi
 - Entering **Alert** sends a message, and recovering to **OK** sends another.
 - A rule that stays in **Alert** is quiet unless **Renotify** is on.
 - To be told when traffic stops, alert on **Count** `<` `1`. Count rules read `0` on an empty window, never **No Data**.
-- Other rules read **No Data** on an empty window and stay quiet unless set to **Notify when data stops**.
+- Other rules read **No Data** on an empty window and stay quiet, by default. **Treat as zero** compares `0` to the threshold instead, and **Notify when data stops** sends a message for the gap.
 
 ## How to create an alert
 
