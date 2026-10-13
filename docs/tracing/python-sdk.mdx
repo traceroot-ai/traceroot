@@ -50,7 +50,7 @@ traceroot.initialize(
 </Note>
 
 <Warning>
-**Repeat calls are ignored**: Calling `traceroot.initialize()` more than once logs a warning and returns the existing client instance without applying new parameters or integrations. If you need to reinitialize with different settings, call `traceroot.shutdown()` first before calling `initialize()` again.
+**Repeat calls are ignored**: Calling `traceroot.initialize()` more than once logs a warning and returns the existing client instance without applying new parameters or integrations. Pass every setting you need on the first call; the SDK cannot be reconfigured once initialized.
 </Warning>
 
 ### `initialize()` Parameters
@@ -237,8 +237,8 @@ traceroot.shutdown()
 | Symbol | Type | Description |
 |--------|------|-------------|
 | `flush()` | Function | Flushes all pending spans and traces immediately to the backend. Crucial in serverless environments (AWS Lambda, Google Cloud Functions) and Jupyter notebooks before process termination. |
-| `shutdown()` | Function | Flushes pending spans and stops background exporter worker threads gracefully. Resets the global client so that a subsequent `initialize()` call can reconfigure the SDK. |
-| `get_client()` | Function | Returns the singleton `TracerootClient` instance. If no client exists and `TRACEROOT_API_KEY` is present, it auto-initializes one from environment variables. |
+| `shutdown()` | Function | Flushes pending spans and stops background exporter worker threads gracefully. Call it once, on application exit. |
+| `get_client()` | Function | Returns the singleton `TracerootClient` instance, auto-initializing one from environment variables if none exists. |
 | `TracerootClient` | Class | The client class instantiated by `initialize()` and `get_client()`. Manages batching, background workers, and OpenTelemetry trace exporting. |
 | `get_current_trace_id()` | Function | Returns the active 32-character hexadecimal trace ID string (e.g. `"4bf92f3577b34da6a3ce929d0e0e4736"`), or `None` if there is no active recording span. |
 | `get_current_span_id()` | Function | Returns the active 16-character hexadecimal span ID string (e.g. `"00f067aa0ba902b7"`), or `None` if there is no active recording span. |
@@ -265,14 +265,13 @@ Evaluation symbols are loaded lazily on demand to keep imports lightweight.
 
 ## Environment Variables
 
-All parameters can be configured via environment variables:
+All parameters except `integrations` can be configured via environment variables:
 
 | Variable | Default | Matches Parameter | Description |
 |----------|---------|-------------------|-------------|
 | `TRACEROOT_API_KEY` | (required) | `api_key` | TraceRoot API key for authentication. |
 | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | `host_url` | API endpoint URL. |
 | `TRACEROOT_ENABLED` | `true` | `enabled` | Enable/disable tracing. |
-| `TRACEROOT_ENVIRONMENT` | — | — | Deployment environment tag (e.g. `production`, `staging`). |
 | `TRACEROOT_FLUSH_INTERVAL` | `5.0` | `flush_interval` | Interval in seconds between automatic flushes. |
 | `TRACEROOT_FLUSH_AT` | `100` | `batch_size` | Batch size before flush (note: maps to `batch_size` in `initialize()`). |
 | `TRACEROOT_TIMEOUT` | `30.0` | `timeout` | HTTP request timeout in seconds. |
