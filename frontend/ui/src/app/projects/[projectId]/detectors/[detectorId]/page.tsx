@@ -12,6 +12,7 @@ import { useDetector } from "@/features/detectors/hooks/use-detectors";
 import { useRuns, selfTraceId, type BackendRun } from "@/features/detectors/hooks/use-findings";
 import { DetectorRunsTable } from "@/features/detectors/components/detector-runs-table";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { listReturnHrefWithDateWindow, useListReturnHref } from "@/lib/hooks/use-list-return";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -95,6 +96,12 @@ export default function DetectorDetailPage() {
       customStartDate: state.customStartDate,
       customEndDate: state.customEndDate,
     });
+
+  // Back to the list on the page, page size and filters it was left on, with this
+  // page's current range (see listReturnHrefWithDateWindow).
+  const listPath = `/projects/${projectId}/detectors`;
+  const rememberedListHref = useListReturnHref(`detectors:${projectId}`, listPath);
+  const listHref = listReturnHrefWithDateWindow(rememberedListHref, buildUrl(listPath));
 
   const { data: detector } = useDetector(projectId, detectorId);
 
@@ -193,7 +200,7 @@ export default function DetectorDetailPage() {
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <button
             type="button"
-            onClick={() => router.push(buildUrl(`/projects/${projectId}/detectors`))}
+            onClick={() => router.push(listHref)}
             className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
           >
             Detectors
