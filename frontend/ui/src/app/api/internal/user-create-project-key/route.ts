@@ -9,9 +9,16 @@ const createKeySchema = z.object({
   projectId: z.string().min(1, "projectId is required"),
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
   /**
-   * Defaults to `ingest`, matching `/api/public/api-keys`. The wizard asks for
-   * `admin` explicitly, because it reads traces back to verify the first one
-   * arrived — that should be a deliberate request, not a quiet default.
+   * What the new key may do. Defaults to `ingest`, matching
+   * `/api/public/api-keys`: the credential a deployed application carries
+   * should be able to send telemetry and nothing else, so the safe scope is
+   * the one you get by not thinking about it. Reading the first trace back is
+   * not a reason to widen it — an `ingest` key reads traces, which is why the
+   * wizard's other mint path has always verified with one.
+   *
+   * `admin` stays accepted because a key-management credential is the one key
+   * no project key can mint, so a project with none yet has no other way to
+   * obtain one. It is not what belongs in an application's environment.
    */
   scope: z.enum(["ingest", "admin"]).optional(),
   expiresInDays: z.number().int().positive().max(3650).nullable().optional(),
@@ -47,6 +54,9 @@ export async function POST(request: NextRequest) {
   }
 
   const { userId, projectId, name, expiresInDays } = parsed.data;
+  // Resolved here and always written explicitly below: the column's own default
+  // is `admin`, so that keys predating it keep working, which means an omitted
+  // `scope` on the create would mint the opposite of the default above.
   const scope = parsed.data.scope ?? "ingest";
 
   const project = await prisma.project.findUnique({
