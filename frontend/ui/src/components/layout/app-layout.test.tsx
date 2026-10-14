@@ -5,10 +5,14 @@ import { useEffect, useLayoutEffect } from "react";
 
 // AppLayout renders the navbar button itself; everything heavy around it is
 // irrelevant to the visibility logic under test.
+const mocks = vi.hoisted(() => ({ pathname: "/projects/p1/traces" }));
+
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/projects/p1/traces",
+  usePathname: () => mocks.pathname,
 }));
-vi.mock("./sidebar", () => ({ Sidebar: () => null }));
+// A stand-in rather than `null`: whether the rail is rendered at all is the
+// thing the chrome-less tests below assert on.
+vi.mock("./sidebar", () => ({ Sidebar: () => <div data-testid="sidebar" /> }));
 vi.mock("@/features/ai-assistant/components/ai-assistant-panel", () => ({
   AiAssistantPanel: () => null,
 }));
@@ -51,7 +55,38 @@ function renderLayout(withHost: boolean) {
   );
 }
 
-afterEach(cleanup);
+function renderAt(pathname: string) {
+  mocks.pathname = pathname;
+  return render(
+    <AppLayout>
+      <div data-testid="page">page</div>
+    </AppLayout>,
+  );
+}
+
+afterEach(() => {
+  cleanup();
+  mocks.pathname = "/projects/p1/traces";
+});
+
+describe("AppLayout chrome-less surfaces", () => {
+  it("wraps an ordinary in-app page in the shell", () => {
+    const { container } = renderAt("/projects/p1/traces");
+    expect(container.querySelector("header")).not.toBeNull();
+    expect(screen.queryByTestId("sidebar")).not.toBeNull();
+    expect(screen.getByTestId("page")).toBeDefined();
+  });
+
+  it("renders a chrome-less surface with nothing around it", () => {
+    // Everything the shell offers is a way off the page, and these surfaces
+    // have one thing to do — so the page is handed through untouched. The
+    // reason differs per route; see lib/chromeless-routes.
+    const { container } = renderAt("/device");
+    expect(container.querySelector("header")).toBeNull();
+    expect(screen.queryByTestId("sidebar")).toBeNull();
+    expect(screen.getByTestId("page")).toBeDefined();
+  });
+});
 
 describe("AppLayout navbar AI button", () => {
   it("shows the AI button on an observability page with no viewer open", () => {
