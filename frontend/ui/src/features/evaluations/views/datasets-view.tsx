@@ -27,7 +27,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
 
-  const { page, limit, goToPage, setLimit, resetPageState } = useUrlPagination(50);
+  const { page, limit, goToPage, setLimit, resetPageState, clampToTotal } = useUrlPagination(50);
   // The page and the search text (`?search=`) live in the URL; record them so the
   // dataset detail's breadcrumb and "Back to datasets" link return to this page rather
   // than the first one.
@@ -42,7 +42,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
   const [editing, setEditing] = React.useState<DatasetRow | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<DatasetRow | null>(null);
 
-  const { data, isLoading, error, refetch } = useDatasets(projectId, {
+  const { data, isLoading, error, refetch, isPlaceholderData } = useDatasets(projectId, {
     search_query: searchQuery,
     page,
     limit,
@@ -53,6 +53,18 @@ export function DatasetsView({ projectId }: { projectId: string }) {
   const listRef = React.useRef<HTMLDivElement>(null);
   useScrollToTopOnChange(listRef, JSON.stringify([page, limit, searchQuery]));
   const meta = data?.meta;
+  const total = meta?.total ?? datasets.length;
+
+  // A delete (or a deep link) can leave the page past the end of the list; pull it back
+  // to the last page with rows. Skipped while the previous query's rows are shown as
+  // placeholder: their total belongs to a different query and would clamp a valid page.
+  // Deleting a row deliberately doesn't reset the page — this clamp covers the one case
+  // that needs moving (the last row on the last page).
+  React.useEffect(() => {
+    if (isLoading || isPlaceholderData) return;
+    clampToTotal(total);
+  }, [clampToTotal, total, isLoading, isPlaceholderData]);
+
   const del = useDeleteDataset(projectId);
 
   // Evaluations-per-dataset comes from the lineage list (one row per evaluation
@@ -178,8 +190,8 @@ export function DatasetsView({ projectId }: { projectId: string }) {
 
       {meta && meta.total > 0 && (
         <ListPagination
-          page={meta.page}
-          limit={meta.limit}
+          page={page}
+          limit={limit}
           total={meta.total}
           onPageChange={goToPage}
           onLimitChange={setLimit}

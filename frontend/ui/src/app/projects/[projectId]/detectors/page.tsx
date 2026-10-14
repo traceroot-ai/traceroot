@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
@@ -90,6 +90,7 @@ export default function DetectorsPage() {
     updateKeyword,
     updateLimit,
     goToPage,
+    clampToTotal,
   } = useListPageState({
     defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
     retentionDays: retention.retentionDays,
@@ -115,7 +116,7 @@ export default function DetectorsPage() {
     withDateWindow(searchParams.toString(), buildUrl("")),
   );
 
-  const { data, isLoading, error } = useDetectorList(projectId, {
+  const { data, isLoading, error, isPlaceholderData } = useDetectorList(projectId, {
     page: queryOptions.page,
     limit: queryOptions.limit,
     search_query: queryOptions.search_query,
@@ -142,6 +143,14 @@ export default function DetectorsPage() {
   const deleteMutation = useDeleteDetector(projectId);
   const detectors = data?.data ?? [];
   const meta = data?.meta;
+
+  // A delete (or a deep link) can leave the page past the end of the list; pull it back
+  // to the last page with rows. Skipped while the previous query's rows are shown as
+  // placeholder: their total belongs to a different query and would clamp a valid page.
+  useEffect(() => {
+    if (isLoading || isPlaceholderData) return;
+    clampToTotal(meta?.total ?? 0);
+  }, [clampToTotal, meta?.total, isLoading, isPlaceholderData]);
 
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return;
@@ -400,8 +409,8 @@ export default function DetectorsPage() {
 
         {meta && (
           <ListPagination
-            page={meta.page}
-            limit={meta.limit}
+            page={state.page}
+            limit={state.limit}
             total={meta.total}
             onPageChange={goToPage}
             onLimitChange={updateLimit}
