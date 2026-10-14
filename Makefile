@@ -55,6 +55,12 @@ prod:
 ## agree on where the key name ends. A CRLF .env otherwise compares a value as
 ## "published-default\r", which matches no placeholder and reads as configured,
 ## leaving the published secret in place for Compose to use.
+##
+## The rewrite goes through a per-process temp name that is removed first, not
+## a fixed .env.tmp. Shell redirection follows a symlink and umask does not
+## protect a target that already exists, so anyone able to write the checkout
+## could pre-plant .env.tmp pointing at a file they own and read every secret
+## out of it.
 env-secrets:
 	@umask 077; test -f .env || cp .env.example .env; chmod 600 .env
 	@umask 077; for key in $(REQUIRED_SECRETS); do \
@@ -62,8 +68,9 @@ env-secrets:
 			continue; \
 		fi; \
 		value=$$(openssl rand -hex 32) || exit 1; \
-		TRACEROOT_GENERATED_SECRET="$$value" awk -F= -v k="$$key" 'BEGIN { OFS = "=" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { print name, ENVIRON["TRACEROOT_GENERATED_SECRET"]; found = 1; next } { print } END { if (!found) print k, ENVIRON["TRACEROOT_GENERATED_SECRET"] }' .env > .env.tmp || exit 1; \
-		mv .env.tmp .env; \
+		tmp=".env.tmp.$$$$"; rm -f "$$tmp"; \
+		TRACEROOT_GENERATED_SECRET="$$value" awk -F= -v k="$$key" 'BEGIN { OFS = "=" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { print name, ENVIRON["TRACEROOT_GENERATED_SECRET"]; found = 1; next } { print } END { if (!found) print k, ENVIRON["TRACEROOT_GENERATED_SECRET"] }' .env > "$$tmp" || { rm -f "$$tmp"; exit 1; }; \
+		mv "$$tmp" .env; \
 		echo "Generated $$key in .env"; \
 	done
 

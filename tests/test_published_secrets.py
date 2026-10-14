@@ -265,6 +265,31 @@ def test_env_stays_private_when_secret_generation_fails(tmp_path):
     assert not mode & (stat.S_IRGRP | stat.S_IROTH), f"mode is {mode:o}"
 
 
+def test_a_planted_temp_symlink_cannot_capture_the_secrets(tmp_path):
+    """Shell redirection follows a symlink, and umask does not protect a target
+    that already exists.
+
+    Anyone able to write the checkout could pre-create the rewrite's temp file
+    as a symlink to a file they own, and every generated secret would be written
+    through it -- .env ending up mode 0600 says nothing, because the bytes went
+    somewhere else first.
+    """
+    (tmp_path / ".env.example").write_text("INTERNAL_API_SECRET=\n")
+    (tmp_path / ".env").write_text("INTERNAL_API_SECRET=\n")
+    captured = tmp_path / "captured"
+    captured.write_text("")
+    (tmp_path / ".env.tmp").symlink_to(captured)
+
+    _run_env_secrets(tmp_path)
+
+    assert captured.read_text() == "", f"secrets reached the planted file: {captured.read_text()}"
+    env_path = tmp_path / ".env"
+    assert not env_path.is_symlink(), ".env must not be left as a symlink"
+    assert len(_values(env_path)["INTERNAL_API_SECRET"]) == 64
+    mode = stat.S_IMODE(os.stat(env_path).st_mode)
+    assert not mode & (stat.S_IRGRP | stat.S_IROTH), f"mode is {mode:o}"
+
+
 def _openssl_emitting(tmp_path: Path, value: str) -> Path:
     """A PATH stub whose ``openssl rand -hex 32`` prints exactly ``value``."""
     stub = tmp_path / "bin"
@@ -301,7 +326,7 @@ def test_generated_secret_never_becomes_a_command_line_argument(tmp_path):
             f'#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a" >> "{log}"; done\n'
             f'exec "{real}" "$@"\n'
         )
-        os.chmod(stub / tool, 0o755)
+        os.chmod(stub / tool, 0o700)
 
     _run_env_secrets(tmp_path, extra_path=stub)
 
