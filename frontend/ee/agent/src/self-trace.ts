@@ -158,6 +158,9 @@ function initOnce(): boolean {
   try {
     TraceRoot.initialize({
       baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
+      // SDK defaults can capture raw provider I/O outside our capture policy.
+      // Disable them; agent.ts explicitly instruments pi with capture callbacks.
+      instrumentModules: {},
       // The agent's own ingest path: the source a trace is stored under is the
       // route's, not the credential's — one internal secret, two paths, and
       // nothing the exporter sends can relabel what it wrote (design: decision 2).
