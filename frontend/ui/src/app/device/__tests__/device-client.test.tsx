@@ -85,19 +85,21 @@ describe("DeviceClient", () => {
     );
   });
 
-  it("carries the onboarding `next` through the signed-out redirect (new-user device signup)", async () => {
-    setParams({ user_code: "abcd1234", client_id: "traceroot-cli", next: "/onboarding" });
+  it("carries the code and client through the signed-out redirect", async () => {
+    // Both must survive the sign-in round trip, or the return lands on the code
+    // entry form instead of consent. A new account reaches onboarding on the way
+    // back — sign-up routes itself through it and hands this URL on — so there
+    // is nothing else for this redirect to carry.
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
     signedOut();
 
     render(<DeviceClient />);
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
     const target = mocks.push.mock.calls[0][0] as string;
-    // next must survive the sign-in round trip or a new account signing up
-    // through the device flow never continues to onboarding.
     expect(target).toBe(
       `/auth/sign-in?callbackUrl=${encodeURIComponent(
-        "/device?user_code=ABCD1234&client_id=traceroot-cli&next=%2Fonboarding",
+        "/device?user_code=ABCD1234&client_id=traceroot-cli",
       )}`,
     );
   });
@@ -174,7 +176,10 @@ describe("DeviceClient", () => {
     expect(mocks.device.approve).toHaveBeenCalledWith({ userCode: "ABCD1234" });
   });
 
-  it("hands off to ?next after approve instead of the terminal screen (signup path)", async () => {
+  it("ends on the terminal screen after approve, navigating nowhere", async () => {
+    // Approval is the last thing the browser does. A stale `next` on the URL —
+    // a link opened from before this ordering changed — must not send the user
+    // onward and create a second workspace behind the one that already exists.
     setParams({ user_code: "abcd1234", next: "/onboarding" });
     signedIn();
     mocks.device.mockResolvedValue({
@@ -187,8 +192,9 @@ describe("DeviceClient", () => {
     await waitFor(() => screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
-    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/onboarding"));
-    expect(screen.queryByText("Approved")).toBeNull();
+    await waitFor(() => expect(screen.getByText("Approved")).toBeDefined());
+    expect(screen.getByText("Return to your terminal to finish setting up.")).toBeDefined();
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("denies and shows the denied state", async () => {

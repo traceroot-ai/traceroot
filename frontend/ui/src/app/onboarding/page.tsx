@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
 import { createWorkspace, createProject } from "@/lib/api";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { Check } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { AddDetectorsStep } from "@/features/detectors/components/add-detectors-step";
@@ -67,6 +68,13 @@ function OnboardingContent() {
   const existingWorkspaceName = searchParams.get("workspaceName");
   const isProjectOnlyMode = !!existingWorkspaceId;
 
+  // Where to go once the project exists. A caller that handed us somewhere to
+  // return to is mid-flow somewhere else — today only `traceroot setup`, which
+  // is holding a terminal open waiting on the device approval this page now
+  // runs ahead of. Attacker-suppliable, so same-origin only.
+  const callbackUrl = searchParams.get("callbackUrl");
+  const returnTo = callbackUrl === null ? null : safeCallbackUrl(callbackUrl);
+
   const defaultWorkspace = getDefaultWorkspaceName(session?.user?.email);
 
   const {
@@ -121,6 +129,15 @@ function OnboardingContent() {
       const project = await createProject(workspaceId, projectName);
 
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+
+      // Detectors only ever run on trace ingest, so choosing them now produces
+      // nothing either way. When something is waiting on us, that question is
+      // worse than useless: it holds a terminal open behind a judgement call the
+      // user cannot yet make. Hand back immediately instead.
+      if (returnTo !== null) {
+        router.push(returnTo);
+        return;
+      }
 
       setCreatedProject({ id: project.id, name: project.name });
       setIsLoading(false);

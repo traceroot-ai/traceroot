@@ -50,20 +50,18 @@ type Phase =
   | { kind: "error"; message: string; recoverable: boolean };
 
 // Build the sign-in URL that returns to the device consent screen. Carries the
-// user_code so the return lands on consent, client_id so it still names the
-// client, and any onboarding `next` so a brand-new account continues to
-// onboarding after approving (better-auth stores the full callbackUrl — query
-// included — in the OAuth state and redirects to it verbatim, so all three
-// survive the Google hop). Same-origin-guarded, since user_code comes from the
-// entry field. Shared by the effect's signed-out redirect and "Not you? Sign
-// out" so the two can't drift.
-function deviceSignInUrl(userCode: string, clientId: string | null, next: string | null): string {
+// user_code so the return lands on consent and client_id so it still names the
+// client (better-auth stores the full callbackUrl — query included — in the
+// OAuth state and redirects to it verbatim, so both survive the Google hop).
+// A brand-new account reaches onboarding on the way back rather than from here:
+// sign-up routes itself through /onboarding and hands this URL on as its own
+// callback, so the workspace exists before anything is approved.
+// Same-origin-guarded, since user_code comes from the entry field. Shared by the
+// effect's signed-out redirect and "Not you? Sign out" so the two can't drift.
+function deviceSignInUrl(userCode: string, clientId: string | null): string {
   const params = new URLSearchParams({ user_code: userCode });
   if (clientId) {
     params.set("client_id", clientId);
-  }
-  if (next) {
-    params.set("next", next);
   }
   const target = safeCallbackUrl(`/device?${params.toString()}`, "/device");
   return `/auth/sign-in?callbackUrl=${encodeURIComponent(target)}`;
@@ -127,10 +125,9 @@ function DeviceContent() {
     }
 
     if (!sessionData?.user) {
-      // Not signed in yet: go to sign-in, carrying the code (+ client_id + any
-      // onboarding `next`) back so the return lands on consent and a new account
-      // still continues to onboarding.
-      router.push(deviceSignInUrl(activeCode, clientId, searchParams.get("next")));
+      // Not signed in yet: go to sign-in, carrying the code (+ client_id) back
+      // so the return lands on consent rather than the entry form.
+      router.push(deviceSignInUrl(activeCode, clientId));
       return;
     }
 
@@ -171,14 +168,10 @@ function DeviceContent() {
       setPhase(errorPhase(error));
       return;
     }
-    // A signup routes the user here to approve before continuing to onboarding
-    // (?next), so hand off there now that the device is authorized. A plain
-    // sign-in carries no ?next — the user just returns to their terminal.
-    const next = searchParams.get("next");
-    if (next) {
-      router.push(safeCallbackUrl(next, "/"));
-      return;
-    }
+    // Approval is the last thing the browser does. Whatever the account still
+    // needed — creating a workspace and a project on a brand-new one — happened
+    // before this point, because releasing the terminal first would hand the CLI
+    // an account that owns nothing to send traces to.
     setActionPending(false);
     setPhase({ kind: "approved" });
   }
@@ -225,7 +218,7 @@ function DeviceContent() {
       router.push("/auth/sign-in");
       return;
     }
-    router.push(deviceSignInUrl(code, clientId, searchParams.get("next")));
+    router.push(deviceSignInUrl(code, clientId));
   }
 
   return (
@@ -406,7 +399,9 @@ function Approved() {
   return (
     <div className="py-4 text-center">
       <p className="text-[14px] font-medium">Approved</p>
-      <p className="mt-1 text-[13px] text-muted-foreground">You can return to your terminal.</p>
+      <p className="mt-1 text-[13px] text-muted-foreground">
+        Return to your terminal to finish setting up.
+      </p>
     </div>
   );
 }

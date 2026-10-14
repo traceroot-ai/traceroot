@@ -7,11 +7,16 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   createWorkspace: vi.fn(),
   createProject: vi.fn(),
+  params: new URLSearchParams(),
 }));
+
+function setParams(init: Record<string, string>) {
+  mocks.params = new URLSearchParams(init);
+}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mocks.params,
 }));
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
@@ -68,6 +73,7 @@ afterEach(() => {
   mocks.push.mockReset();
   mocks.createWorkspace.mockReset();
   mocks.createProject.mockReset();
+  mocks.params = new URLSearchParams();
 });
 
 describe("OnboardingPage", () => {
@@ -91,6 +97,38 @@ describe("OnboardingPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "mock-done" }));
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces");
+  });
+
+  it("hands straight back to a waiting caller instead of asking about detectors", async () => {
+    // `traceroot setup` is holding a terminal open on the device approval this
+    // page runs ahead of. Detectors only ever run on trace ingest, so asking now
+    // produces nothing and delays the handoff behind a judgement call the user
+    // has no basis to make yet.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234"));
+    expect(screen.queryByTestId("add-detectors-step")).toBeNull();
+  });
+
+  it("refuses an off-origin callback and falls back to the normal flow", async () => {
+    // The value arrives in a query string anyone can craft a link with, so an
+    // unvalidated redirect here would bounce a freshly-created account to a
+    // foreign site at the exact moment it trusts the page.
+    setParams({ callbackUrl: "https://evil.example/steal" });
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    expect(mocks.push).toHaveBeenCalledWith("/");
+    expect(mocks.push).not.toHaveBeenCalledWith("https://evil.example/steal");
   });
 
   it("still surfaces creation errors on step one", async () => {
