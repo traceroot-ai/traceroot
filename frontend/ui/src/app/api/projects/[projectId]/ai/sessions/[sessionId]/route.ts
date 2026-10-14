@@ -17,8 +17,13 @@ async function handleDELETE(_request: NextRequest, { params }: RouteParams) {
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
 
+  // URL parsers normalize standalone dot segments even after percent-encoding.
+  if (sessionId === "." || sessionId === "..") {
+    return Response.json({ error: "Invalid session ID" }, { status: 400 });
+  }
+
   const res = await fetch(
-    `${AGENT_SERVICE_URL}/api/v1/projects/${projectId}/sessions/${sessionId}`,
+    `${AGENT_SERVICE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}`,
     {
       method: "DELETE",
       headers: { "x-user-id": user.id },
