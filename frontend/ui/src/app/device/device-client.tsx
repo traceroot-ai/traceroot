@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { getWorkspaces } from "@/lib/api/workspaces";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { formatUserCode } from "@/lib/device-user-code";
 import { DEVICE_CLIENT_IDS, DEVICE_CLIENT_NAMES } from "@/lib/auth-clients";
@@ -49,22 +50,39 @@ type Phase =
   // (get a fresh code from the CLI) with no looping retry button.
   | { kind: "error"; message: string; recoverable: boolean };
 
-// Build the sign-in URL that returns to the device consent screen. Carries the
-// user_code so the return lands on consent and client_id so it still names the
-// client (better-auth stores the full callbackUrl — query included — in the
-// OAuth state and redirects to it verbatim, so both survive the Google hop).
-// A brand-new account reaches onboarding on the way back rather than from here:
-// sign-up routes itself through /onboarding and hands this URL on as its own
-// callback, so the workspace exists before anything is approved.
-// Same-origin-guarded, since user_code comes from the entry field. Shared by the
-// effect's signed-out redirect and "Not you? Sign out" so the two can't drift.
-function deviceSignInUrl(userCode: string, clientId: string | null): string {
+// This page's own URL, carrying the user_code so a return lands on consent
+// rather than the entry form, and client_id so it still names the client.
+// Same-origin-guarded, since user_code comes from the entry field.
+function deviceReturnUrl(userCode: string, clientId: string | null): string {
   const params = new URLSearchParams({ user_code: userCode });
   if (clientId) {
     params.set("client_id", clientId);
   }
-  const target = safeCallbackUrl(`/device?${params.toString()}`, "/device");
-  return `/auth/sign-in?callbackUrl=${encodeURIComponent(target)}`;
+  return safeCallbackUrl(`/device?${params.toString()}`, "/device");
+}
+
+// Sign-in, returning here afterwards. better-auth stores the whole callbackUrl
+// — query included — in the OAuth state and redirects to it verbatim, so the
+// code survives the Google hop. Shared by the effect's signed-out redirect and
+// "Not you? Sign out" so the two cannot drift.
+function deviceSignInUrl(userCode: string, clientId: string | null): string {
+  return `/auth/sign-in?callbackUrl=${encodeURIComponent(deviceReturnUrl(userCode, clientId))}`;
+}
+
+// Onboarding, returning here afterwards.
+//
+// This is the only place the workspace requirement can be enforced for every
+// way in. Routing sign-*up* through onboarding is not enough: this page sends a
+// signed-out visitor to sign-*in*, and better-auth has no separate social
+// sign-up — `signIn.social` creates the account on first use, which
+// `signupProvider()` in lib/signup/on-user-created.ts classifies as a signup by
+// looking for `/callback/<provider>`. So clicking Google on the page this one
+// hands people to *is* the default new-account path, and it used to arrive back
+// here owning nothing. Checking the account instead of trusting the route it
+// took covers sign-up, sign-in, social and an already-authenticated session
+// alike.
+function deviceOnboardingUrl(userCode: string, clientId: string | null): string {
+  return `/onboarding?callbackUrl=${encodeURIComponent(deviceReturnUrl(userCode, clientId))}`;
 }
 
 function errorPhase(err: Parameters<typeof mapDeviceErrorMessage>[0]): Phase {
@@ -131,12 +149,50 @@ function DeviceContent() {
       return;
     }
 
-    // Signed in: show consent WITHOUT verifying yet. Verifying would claim the
-    // code for this session (see claimActiveCode), binding it to whoever is
-    // already logged in and defeating "Not you? Sign out". The claim happens when
-    // the user approves or denies. A stale/expired/already-used code is therefore
-    // surfaced at that point instead of on load.
-    setPhase({ kind: "consent" });
+    // Signed in, but the terminal must not be released to an account that owns
+    // nothing: the CLI's next move is to resolve a workspace and a project, and
+    // it has neither a way nor a remit to create them. Onboarding comes first
+    // and hands the browser back here.
+    //
+    // Listing workspaces does not claim the code, so this is safe to do before
+    // consent — unlike verifying, below.
+    let cancelled = false;
+    void (async () => {
+      let workspaces: Awaited<ReturnType<typeof getWorkspaces>>;
+      try {
+        workspaces = await getWorkspaces();
+      } catch {
+        // Its own message rather than the device-error mapper: nothing is wrong
+        // with the code, and naming it would send the user back to the CLI for
+        // a fresh one that would fail here in exactly the same way.
+        if (!cancelled) {
+          setPhase({
+            kind: "error",
+            message:
+              "Could not load this account's workspaces, so nothing was approved. Check your connection and reload this page.",
+            recoverable: true,
+          });
+        }
+        return;
+      }
+      if (cancelled) {
+        return;
+      }
+      if (workspaces.length === 0) {
+        router.push(deviceOnboardingUrl(activeCode, clientId));
+        return;
+      }
+      // Consent WITHOUT verifying yet. Verifying would claim the code for this
+      // session (see claimActiveCode), binding it to whoever is already logged
+      // in and defeating "Not you? Sign out". The claim happens when the user
+      // approves or denies, so a stale/expired/already-used code surfaces then
+      // rather than on load.
+      setPhase({ kind: "consent" });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCode, sessionPending, sessionData?.user?.id]);
 

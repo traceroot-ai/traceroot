@@ -115,6 +115,37 @@ describe("OnboardingPage", () => {
     expect(screen.queryByTestId("add-detectors-step")).toBeNull();
   });
 
+  it("hands back only after both the workspace and the project exist", async () => {
+    // The whole point of the change: the terminal is released last. Asserting
+    // that `push` was called with the device URL does not say this — hoisting
+    // the push above both awaits satisfies that and reintroduces the bug.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234"));
+    const pushedAt = mocks.push.mock.invocationCallOrder[0] as number;
+    expect(mocks.createWorkspace.mock.invocationCallOrder[0]).toBeLessThan(pushedAt);
+    expect(mocks.createProject.mock.invocationCallOrder[0]).toBeLessThan(pushedAt);
+  });
+
+  it("does not hand back when the project could not be created", async () => {
+    // A terminal released against a workspace with no project is the same dead
+    // end from the other direction.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockRejectedValue(new Error("project creation failed"));
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(screen.getByText(/project creation failed/)).toBeDefined());
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
   it("refuses an off-origin callback and falls back to the normal flow", async () => {
     // The value arrives in a query string anyone can craft a link with, so an
     // unvalidated redirect here would bounce a freshly-created account to a
@@ -126,9 +157,13 @@ describe("OnboardingPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
-    expect(mocks.push).toHaveBeenCalledWith("/");
-    expect(mocks.push).not.toHaveBeenCalledWith("https://evil.example/steal");
+    // A rejected value means there is nowhere to hand back to, which is the
+    // same position as a user who arrived on their own — so the normal flow
+    // continues and nothing is pushed. Asserting `push("/")` here used to pass
+    // only because the validator answered a rejected value with its fallback,
+    // which sent a new account to the root instead of its traces.
+    await waitFor(() => expect(screen.getByTestId("add-detectors-step")).toBeDefined());
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("still surfaces creation errors on step one", async () => {

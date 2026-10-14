@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
   useSession: vi.fn(),
   signOut: vi.fn(),
   device: Object.assign(vi.fn(), { approve: vi.fn(), deny: vi.fn() }),
+  // One workspace by default: these tests are about the consent screen, and
+  // consent is only reached by an account that owns one. The empty case has
+  // tests of its own below.
+  getWorkspaces: vi.fn(async () => [{ id: "ws-1", name: "Acme" }]),
 }));
 
 let searchParams = new URLSearchParams();
@@ -18,6 +22,10 @@ let searchParams = new URLSearchParams();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
   useSearchParams: () => searchParams,
+}));
+
+vi.mock("@/lib/api/workspaces", () => ({
+  getWorkspaces: () => mocks.getWorkspaces(),
 }));
 
 vi.mock("@/lib/auth-client", () => ({
@@ -51,6 +59,8 @@ afterEach(() => {
   mocks.useSession.mockReset();
   mocks.device.mockReset();
   mocks.device.approve.mockReset();
+  mocks.getWorkspaces.mockReset();
+  mocks.getWorkspaces.mockResolvedValue([{ id: "ws-1", name: "Acme" }]);
   mocks.device.deny.mockReset();
   mocks.signOut.mockReset();
   searchParams = new URLSearchParams();
@@ -118,6 +128,54 @@ describe("DeviceClient", () => {
     expect(screen.getByText("as kai@example.com")).toBeDefined();
     expect(screen.getByText("ABCD-1234")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  });
+
+  it("sends an account with no workspace to onboarding instead of consent", async () => {
+    // The terminal must not be released to an account that owns nothing: the
+    // CLI's next move is to resolve a workspace and a project, and it can do
+    // neither. Checked here rather than on the route in, because this page
+    // hands a signed-out visitor to sign-IN and `signIn.social` creates the
+    // account on first use — clicking Google there is the default new-account
+    // path and it used to arrive back here owning nothing.
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn("new@example.com");
+    mocks.getWorkspaces.mockResolvedValue([]);
+
+    render(<DeviceClient />);
+
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith(
+        // The code is normalised on the way in, so the round trip carries the
+        // canonical form rather than whatever case the URL arrived in.
+        `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234&client_id=traceroot-cli")}`,
+      ),
+    );
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  });
+
+  it("reaches consent when the account already owns a workspace", async () => {
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn("kai@example.com");
+    mocks.getWorkspaces.mockResolvedValue([{ id: "ws-1", name: "Acme" }]);
+
+    render(<DeviceClient />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeDefined());
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("does not approve, or blame the code, when the workspace check fails", async () => {
+    // Nothing is wrong with the code, so naming it would send the user back to
+    // the CLI for a fresh one that fails here in exactly the same way.
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn();
+    mocks.getWorkspaces.mockRejectedValue(new Error("network"));
+
+    render(<DeviceClient />);
+
+    await waitFor(() => expect(screen.getByText(/Could not load/)).toBeDefined());
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(mocks.device.approve).not.toHaveBeenCalled();
   });
 
   it("shows the entry form for a bare visit with no code in the URL", () => {

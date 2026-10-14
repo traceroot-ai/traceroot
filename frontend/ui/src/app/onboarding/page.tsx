@@ -73,7 +73,10 @@ function OnboardingContent() {
   // is holding a terminal open waiting on the device approval this page now
   // runs ahead of. Attacker-suppliable, so same-origin only.
   const callbackUrl = searchParams.get("callbackUrl");
-  const returnTo = callbackUrl === null ? null : safeCallbackUrl(callbackUrl);
+  // `safeCallbackUrl` answers a rejected value with its fallback, so an empty
+  // fallback plus `|| null` is how "there is nowhere to go back to" is said —
+  // otherwise a crafted link sends a new user to `/` instead of their traces.
+  const returnTo = callbackUrl === null ? null : safeCallbackUrl(callbackUrl, "") || null;
 
   const defaultWorkspace = getDefaultWorkspaceName(session?.user?.email);
 
@@ -156,7 +159,14 @@ function OnboardingContent() {
   }
 
   if (!session && !isPending) {
-    router.push("/auth/sign-in");
+    // Carry the hand-back on through sign-in. A null session here is not only
+    // "never signed in" — it is also a cookie not yet visible after a social
+    // hop, or an expiry mid-form — and dropping `callbackUrl` at this point
+    // strands a terminal that is still polling, for the full device-code
+    // lifetime, with no way for the user to get back to it.
+    const returnHere =
+      returnTo === null ? "/onboarding" : `/onboarding?callbackUrl=${encodeURIComponent(returnTo)}`;
+    router.push(`/auth/sign-in?callbackUrl=${encodeURIComponent(returnHere)}`);
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[13px] text-muted-foreground">Redirecting to sign in...</p>
