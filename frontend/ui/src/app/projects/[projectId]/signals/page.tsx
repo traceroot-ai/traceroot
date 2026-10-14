@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { PlanType } from "@traceroot/core";
@@ -16,6 +16,7 @@ import type { FilterFieldDef } from "@/features/filters/registry";
 import type { Predicate } from "@/types/api";
 import { useAllDetectorNames } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { SIGNAL_ID_PARAM, SIGNAL_STATUSES } from "@traceroot/core/signals";
 import { useSignalSetup, useSignals } from "@/ee/features/signals/hooks";
@@ -157,6 +158,13 @@ export default function SignalsPage() {
     filters: queryOptions.filters,
     ...range,
   });
+
+  // Every new page of rows, or a new filter/time range, starts at the top of the list.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(
+    listRef,
+    JSON.stringify([queryOptions.page, queryOptions.limit, queryOptions.filters, range]),
+  );
   const signals = data?.data ?? [];
   const meta = data?.meta;
   const selectedIndex = signals.findIndex((s) => s.id === selectedSignalId);
@@ -203,7 +211,7 @@ export default function SignalsPage() {
           beforeDateFilter={rangePicker}
         />
 
-        <div className="flex-1 overflow-auto bg-background">
+        <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading signals..." />

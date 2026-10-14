@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
@@ -20,6 +20,7 @@ import {
 } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useRememberListQuery, withDateWindow } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -120,6 +121,14 @@ export default function DetectorsPage() {
     search_query: queryOptions.search_query,
   });
 
+  // Every new page of rows, or a new search, starts at the top of the list. The time
+  // range only changes the count columns, not which detectors are listed.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(
+    listRef,
+    JSON.stringify([queryOptions.page, queryOptions.limit, queryOptions.search_query]),
+  );
+
   // A count shows only once it has loaded: a dash while loading or when its
   // query failed, never a clickable 0 that is not a real count.
   const { data: counts } = useDetectorCounts(projectId, {
@@ -190,7 +199,7 @@ export default function DetectorsPage() {
         />
 
         {/* Table */}
-        <div className="flex-1 overflow-auto bg-background">
+        <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading detectors..." />

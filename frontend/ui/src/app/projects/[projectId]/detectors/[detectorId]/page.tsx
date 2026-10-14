@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, X } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -13,6 +13,7 @@ import { useRuns, selfTraceId, type BackendRun } from "@/features/detectors/hook
 import { DetectorRunsTable } from "@/features/detectors/components/detector-runs-table";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { listReturnHrefWithDateWindow, useListReturnHref } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -114,6 +115,10 @@ export default function DetectorDetailPage() {
     error,
   } = useRuns(projectId, detectorId, { ...queryOptions, identified: identifiedOnly });
   const runs = useMemo(() => runsData?.data ?? [], [runsData]);
+
+  // Every new page of runs, or a new search/filter/time range, starts at the top of the list.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(listRef, JSON.stringify(queryOptions));
 
   // Clicking a row's trace_id cell opens that run's original trace, with its RCA
   // auto-opening if one exists (the panel gates auto-open on a real RCA session,
@@ -235,7 +240,7 @@ export default function DetectorDetailPage() {
           )}
         </SearchFilterBar>
 
-        <div className="flex-1 overflow-auto bg-background">
+        <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {(() => {
             const noun = identifiedOnly ? "findings" : "runs";
 
