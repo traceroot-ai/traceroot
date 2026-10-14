@@ -1313,3 +1313,16 @@ def test_each_resource_has_one_tag():
             tags_by_resource.setdefault(resource, set()).add(op["tags"][0])
     split = {r: tags for r, tags in tags_by_resource.items() if len(tags) > 1}
     assert not split, split
+    # And the groups themselves: unrelated resources must not collapse into one tag.
+    assert {next(iter(tags)) for tags in tags_by_resource.values()} == {
+        "Account",
+        "Alerts",
+        "Dashboards",
+        "Detectors",
+        "Offline Eval",
+        "Sessions",
+        "SQL",
+        "Traces",
+        "Whoami",
+        "Widgets",
+    }

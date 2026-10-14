@@ -51,13 +51,14 @@ The response holds `accessToken`, valid for 10 minutes. Mint a new one when it e
 | --- | --- | --- |
 | Reads: traces, sessions, detectors and findings, dashboards, widgets (including `POST /widgets/query`), alerts, SQL (including `POST /sql`), datasets, evaluations and evaluation runs | Yes | Yes, with `project_id` |
 | Trace ingest (`POST /traces`) and evaluation-run writes (`POST /evaluation-runs`, `.../results`, `.../complete`) | Yes | No |
+| Dataset authoring (`POST /datasets`, `PATCH /datasets/{dataset_id}`, `POST /datasets/{dataset_id}/versions`), used by the SDKs and not listed in this reference | Yes | No |
 | `GET /whoami` | Yes | No |
 | Account reads: `GET /projects`, `GET /workspaces` | No (`403`) | Yes |
 | Creating, editing and deleting projects, workspaces, alerts, dashboards, detectors and widgets, and pausing or resuming alerts | No (`403`) | Yes |
 
 ### Reads with a user credential need `project_id`
 
-A session token or access token is not tied to a project, so a read made with one must name the project as a query parameter:
+Except for the account reads above, a session token or access token is not tied to a project, so a project-scoped read made with one must name the project as a query parameter:
 
 ```bash
 curl "https://app.traceroot.ai/api/v1/public/traces?project_id=$PROJECT_ID&limit=10" \
@@ -70,7 +71,7 @@ Without it, the request fails with `400` and `project_id query parameter is requ
 
 Creating, editing and deleting resources acts on your account, so these routes reject API keys with `403` and `this operation requires a user login; API keys are project-scoped`. Send a session token or access token instead.
 
-The project goes in the request body on create and edit, and in the `project_id` query parameter on delete. A write made with an access token is also refused with `401` once you run `traceroot logout`, even before the token expires.
+For detector, dashboard, widget and alert writes, send `project_id` in the create or edit body, or in the query on delete. Project updates and deletes take the project from the `{project_id}` path parameter. A write made with an access token is also refused with `401` once you run `traceroot logout`, even before the token expires.
 
 ### Ingest is API-key only
 
