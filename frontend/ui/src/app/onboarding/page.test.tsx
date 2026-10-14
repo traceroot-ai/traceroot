@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   createWorkspace: vi.fn(),
+  updateWorkspace: vi.fn(),
   createProject: vi.fn(),
   getWorkspaces: vi.fn(),
   params: new URLSearchParams(),
@@ -47,6 +48,7 @@ vi.mock("@/components/layout/app-layout", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   createWorkspace: mocks.createWorkspace,
+  updateWorkspace: mocks.updateWorkspace,
   createProject: mocks.createProject,
   getWorkspaces: mocks.getWorkspaces,
 }));
@@ -107,6 +109,7 @@ afterEach(() => {
   cleanup();
   mocks.push.mockReset();
   mocks.createWorkspace.mockReset();
+  mocks.updateWorkspace.mockReset();
   mocks.createProject.mockReset();
   mocks.getWorkspaces.mockReset();
   mocks.params = new URLSearchParams();
@@ -435,6 +438,42 @@ describe("OnboardingPage", () => {
     expect(mocks.createWorkspace).toHaveBeenCalledTimes(1);
     expect(mocks.createProject).toHaveBeenCalledTimes(2);
     expect(mocks.createProject).toHaveBeenNthCalledWith(2, "ws-1", "my-llm-project");
+  });
+
+  it("renames the workspace it already made when the name is edited before a retry", async () => {
+    // Reusing the workspace must not mean ignoring the field. The alternatives
+    // are both wrong: a second workspace under the new name, or a workspace the
+    // user has just told us they want called something else.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockRejectedValueOnce(new Error("project boom"));
+    mocks.updateWorkspace.mockResolvedValue({ id: "ws-1", name: "Acme" });
+    renderPage();
+    await clickCreate();
+    await waitFor(() => expect(screen.getByText("project boom")).toBeDefined());
+
+    fireEvent.change(screen.getByPlaceholderText("Acme Inc"), { target: { value: "Acme" } });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    await clickCreate();
+
+    await waitFor(() => expect(mocks.updateWorkspace).toHaveBeenCalledWith("ws-1", "Acme"));
+    expect(mocks.createWorkspace).toHaveBeenCalledTimes(1);
+    expect(mocks.createProject).toHaveBeenNthCalledWith(2, "ws-1", "my-llm-project");
+  });
+
+  it("does not rename the workspace when the name is unchanged on a retry", async () => {
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockRejectedValueOnce(new Error("project boom"));
+    renderPage();
+    await clickCreate();
+    await waitFor(() => expect(screen.getByText("project boom")).toBeDefined());
+
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    await clickCreate();
+    await waitFor(() =>
+      expect(screen.getByText("Finish setting up in your terminal")).toBeDefined(),
+    );
+
+    expect(mocks.updateWorkspace).not.toHaveBeenCalled();
   });
 
   it("still surfaces creation errors on step one", async () => {

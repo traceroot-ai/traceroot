@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
-import { createWorkspace, createProject, getWorkspaces } from "@/lib/api";
+import { createWorkspace, updateWorkspace, createProject, getWorkspaces } from "@/lib/api";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
 import { Check } from "lucide-react";
@@ -63,7 +63,13 @@ function OnboardingContent() {
   // identically-named workspace the user has no way to notice: it is not on
   // this page, and the workspace list they land on afterwards shows two rows
   // they cannot tell apart.
-  const createdWorkspaceId = useRef<string | null>(null);
+  //
+  // The name travels with the id, because reusing the workspace must not mean
+  // ignoring the field: a user who renames it before retrying has said what
+  // they want it called, and the other two readings — create a second one under
+  // the new name, or keep the old name silently — are both wrong. Recording the
+  // new name here is also what stops a third attempt renaming it again.
+  const createdWorkspace = useRef<{ id: string; name: string } | null>(null);
 
   // Set header content
   useEffect(() => {
@@ -194,17 +200,22 @@ function OnboardingContent() {
 
       // Create workspace if not in project-only mode
       if (!isProjectOnlyMode) {
-        if (createdWorkspaceId.current) {
-          workspaceId = createdWorkspaceId.current;
-        } else {
-          const workspaceName = getValues("workspaceName");
-          if (!workspaceName) {
-            setError("Workspace name is required");
-            setIsLoading(false);
-            return;
+        const workspaceName = getValues("workspaceName");
+        if (!workspaceName) {
+          setError("Workspace name is required");
+          setIsLoading(false);
+          return;
+        }
+        const existing = createdWorkspace.current;
+        if (existing) {
+          if (existing.name !== workspaceName) {
+            await updateWorkspace(existing.id, workspaceName);
           }
+          createdWorkspace.current = { id: existing.id, name: workspaceName };
+          workspaceId = existing.id;
+        } else {
           const workspace = await createWorkspace(workspaceName);
-          createdWorkspaceId.current = workspace.id;
+          createdWorkspace.current = { id: workspace.id, name: workspaceName };
           workspaceId = workspace.id;
         }
       }
