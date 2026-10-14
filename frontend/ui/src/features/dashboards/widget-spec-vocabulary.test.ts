@@ -8,7 +8,7 @@ const SPANS_MEASURES =
   "cache_read_tokens, cache_write_tokens, cost, count, duration_ms, input_tokens, output_tokens, tokens_per_second, total_tokens, trace_id";
 const TRACES_MEASURES =
   "cache_read_tokens, cache_write_tokens, cost, count, duration_ms, error_count, input_tokens, output_tokens, total_tokens";
-const SPANS_BREAKDOWNS = "environment, model_name, name, span_kind";
+const SPANS_BREAKDOWNS = "environment, error_type, model_name, name, span_kind";
 const TRACES_FILTER_FIELDS =
   "cache_read_tokens, cache_write_tokens, cost, duration_ms, environment, error_count, input_tokens, name, output_tokens, session_id, total_tokens, user_id";
 const SPANS_HISTOGRAMMABLES =

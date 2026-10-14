@@ -138,6 +138,7 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "output.value",
     "gen_ai.",
     "llm.token_count.",
+    "decision.token_count.",
     "llm.model_name",
     "llm.input_messages",
     "llm.output_messages",
@@ -150,6 +151,7 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
 _KNOWN_ATTRIBUTE_EXACT = frozenset(
     {
         "traceroot.llm.model",  # -> model_name column + LLM span-kind detection
+        "decision.model_name",  # -> model_name column (OpenInference DECISION spans)
         # -> token/cost pipeline (parse_manual_usage). Consumed only when a model
         # name is present (the token block is model-gated), so usage reported
         # without traceroot.llm.model is dropped entirely rather than priced.
@@ -190,6 +192,9 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
 # of the fields stays far inside the Int64 token columns. 10^9 tokens is orders of
 # magnitude beyond any shipped context window, so nothing legitimate is near it.
 _MAX_PLAUSIBLE_TOKENS = 10**9
+
+# Matches the filter's MAX_VALUE_LENGTH: a longer value could never be filtered on.
+_MAX_ERROR_TYPE_LENGTH = 1024
 
 
 def _usable_token_value(value: Any) -> bool:
@@ -530,7 +535,7 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         otel_kind: OTEL span kind (int or string like "SPAN_KIND_INTERNAL")
 
     Returns:
-        One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER"
+        One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER", "DECISION"
     """
     # Check explicit type attribute (handle None values). EVALUATION_SPAN_KINDS is
     # included so the SDK's offline-evaluation spans are preserved rather than silently
@@ -539,7 +544,8 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     # of the candidate's cost.
     explicit_type = str_attr(attrs.get("traceroot.span.type")).upper()
     if (
-        explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL)
+        explicit_type
+        in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL, SpanKind.DECISION)
         or explicit_type in EVALUATION_SPAN_KINDS
     ):
         return explicit_type
@@ -552,6 +558,8 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.AGENT
     elif openinference_type == SpanKind.TOOL:
         return SpanKind.TOOL
+    elif openinference_type == SpanKind.DECISION:
+        return SpanKind.DECISION
     elif openinference_type == "CHAIN":
         return SpanKind.SPAN
 
@@ -595,6 +603,24 @@ def _extract_user_id(attrs: dict[str, Any]) -> str | None:
 def _extract_session_id(attrs: dict[str, Any]) -> str | None:
     """Extract session_id from span attributes, checking multiple keys."""
     return str_or_none(attrs.get("traceroot.trace.session_id") or attrs.get("session.id"))
+
+
+def _extract_error_type(otel_span: dict, span_is_error: bool) -> str:
+    """Return the bounded error group key for a span.
+
+    ERROR spans take `exception.type` from their last recorded exception event,
+    truncated to _MAX_ERROR_TYPE_LENGTH, or "unknown" when there is none or it
+    carries no type. OK spans store "" so the error-rate and error-type totals agree.
+    """
+    if not span_is_error:
+        return ""
+    exceptions = [e for e in otel_span.get("events") or [] if e.get("name") == "exception"]
+    if not exceptions:
+        return "unknown"
+    error_type = attributes_to_dict(exceptions[-1].get("attributes") or []).get("exception.type")
+    if not isinstance(error_type, str) or not error_type:
+        return "unknown"
+    return error_type[:_MAX_ERROR_TYPE_LENGTH]
 
 
 def transform_otel_to_clickhouse(
@@ -747,6 +773,7 @@ def transform_otel_to_clickhouse(
                 if span_is_error:
                     span_record["status"] = SpanStatus.ERROR
                     span_record["status_message"] = status.get("message")
+                span_record["error_type"] = _extract_error_type(otel_span, span_is_error)
 
                 # Extract git source fields for span
                 git_source_file = str_or_none(span_attrs.get("traceroot.git.source_file"))
@@ -820,6 +847,7 @@ def transform_otel_to_clickhouse(
                     span_attrs.get("traceroot.llm.model")
                     or span_attrs.get("gen_ai.request.model")
                     or span_attrs.get("llm.model_name")
+                    or span_attrs.get("decision.model_name")
                 )
                 if model_name:
                     span_record["model_name"] = model_name
@@ -830,11 +858,13 @@ def transform_otel_to_clickhouse(
                         "llm.token_count.prompt",
                         "gen_ai.usage.input_tokens",
                         "gen_ai.usage.prompt_tokens",
+                        "decision.token_count.input",
                     ]
                     output_token_keys = [
                         "llm.token_count.completion",
                         "gen_ai.usage.output_tokens",
                         "gen_ai.usage.completion_tokens",
+                        "decision.token_count.output",
                     ]
                     if span_kind == SpanKind.LLM:
                         # Vercel AI SDK raw GROSS totals are the only token source it
@@ -880,6 +910,12 @@ def transform_otel_to_clickhouse(
                             "llm.token_count.prompt_details.cache_creation",
                             "gen_ai.usage.cache_creation.input_tokens",
                             "gen_ai.usage.cache_creation_input_tokens",
+                            # traceroot-pi-extension (src/handlers/llm.ts) spells the
+                            # write side with "cache_write" while its read side uses
+                            # cache_read_input_tokens above. Without this entry every
+                            # Pi span stored cache_write_tokens=0 while reads landed,
+                            # under-pricing every call by the write premium.
+                            "gen_ai.usage.cache_write_input_tokens",
                             "gen_ai.usage.details.cache_write_tokens",
                             # pydantic-ai version variant:
                             "gen_ai.usage.details.cache_creation_input_tokens",

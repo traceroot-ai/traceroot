@@ -122,6 +122,19 @@
         "requiresKey": false,
         "type": "string"
       },
+      "error_type": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "inBuilder": true,
+        "label": "Error type",
+        "requiresKey": false,
+        "type": "string"
+      },
       "input_tokens": {
         "aggs": [
           "sum",

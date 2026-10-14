@@ -19,13 +19,6 @@ Both SDKs read `TRACEROOT_API_KEY` from the process environment. They do not loa
     TraceRoot: no API key provided — tracing is disabled. Set the TRACEROOT_API_KEY environment variable or pass api_key= to traceroot.initialize().
     ```
 
-    Confirm the variable is visible to the same process that initializes TraceRoot:
-
-    ```python
-    import os
-
-    assert os.environ.get("TRACEROOT_API_KEY"), "TRACEROOT_API_KEY is not loaded"
-    ```
   </Tab>
   <Tab title="TypeScript">
     A missing key logs this warning. Spans may still be created locally, but export authentication fails:
@@ -34,13 +27,6 @@ Both SDKs read `TRACEROOT_API_KEY` from the process environment. They do not loa
     [TraceRoot] No API key provided. Set TRACEROOT_API_KEY env var or pass apiKey to initialize(). Spans will be emitted but export will fail.
     ```
 
-    Confirm the variable is visible before initialization:
-
-    ```typescript
-    if (!process.env.TRACEROOT_API_KEY) {
-      throw new Error('TRACEROOT_API_KEY is not loaded');
-    }
-    ```
   </Tab>
 </Tabs>
 
@@ -71,25 +57,7 @@ For TypeScript, values such as `0`, `False`, and `off` do not disable tracing.
 
 ### Flush short-lived TypeScript processes
 
-The TypeScript SDK batches spans by default and registers a `beforeExit` flush. Calls to `process.exit()`, signals, and uncaught exceptions can bypass that hook. Shut down explicitly after the final traced operation:
-
-```typescript
-import { TraceRoot } from '@traceroot-ai/traceroot';
-
-try {
-  await runAgent();
-} finally {
-  await TraceRoot.shutdown();
-}
-```
-
-For a very short-lived script, you can instead export each span immediately:
-
-```typescript
-TraceRoot.initialize({ disableBatch: true });
-```
-
-Immediate export adds request overhead, so explicit `shutdown()` is preferable for most applications.
+Follow the TypeScript SDK's [Flushing and Shutdown](/tracing/typescript-sdk#flushing-and-shutdown) guidance to finish pending exports before your process exits.
 
 ### Check for a cloud plan limit
 

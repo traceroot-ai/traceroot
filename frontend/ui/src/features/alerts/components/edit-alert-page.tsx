@@ -1,5 +1,6 @@
 "use client";
 
+import { hasOutstandingAlertPage } from "@traceroot/core";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
@@ -20,6 +21,7 @@ function toDraft(alert: AlertRecord): AlertDraft {
     operator: alert.thresholdOperator,
     threshold: String(alert.threshold),
     window: alert.window,
+    noDataMode: alert.noDataMode,
     renotify: alert.renotify,
     name: alert.name,
   };
@@ -67,6 +69,7 @@ export function EditAlertPage({ projectId, alertId }: EditAlertPageProps) {
               projectId={projectId}
               alertId={alertId}
               initialDraft={toDraft(alert)}
+              hasOpenPage={hasOutstandingAlertPage(alert)}
             />
           )}
         </div>

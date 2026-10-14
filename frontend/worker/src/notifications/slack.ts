@@ -17,7 +17,17 @@ export interface SendDigestAlertSlackParams {
   summary?: string;
 }
 
-export async function sendDigestAlertSlack(params: SendDigestAlertSlackParams): Promise<void> {
+/**
+ * Post a message with the workspace's bot, if its plan includes the Slack
+ * integration. Returns false when the plan does not.
+ */
+export async function postSlackMessage(params: {
+  workspaceId: string;
+  encryptedBotToken: string;
+  channelId: string;
+  blocks: unknown[];
+  text: string;
+}): Promise<boolean> {
   const workspace = await prisma.workspace.findUnique({
     where: { id: params.workspaceId },
     select: { billingPlan: true },
@@ -27,10 +37,20 @@ export async function sendDigestAlertSlack(params: SendDigestAlertSlackParams): 
     console.log(
       `[slack] Skipping digest for workspace ${params.workspaceId}: plan "${plan}" lacks slack-integration entitlement`,
     );
-    return;
+    return false;
   }
-
   const client = createSlackClient(decryptKey(params.encryptedBotToken));
+  await client.chat.postMessage({
+    channel: params.channelId,
+    blocks: params.blocks as any,
+    text: params.text,
+    unfurl_links: false,
+    unfurl_media: false,
+  });
+  return true;
+}
+
+export async function sendDigestAlertSlack(params: SendDigestAlertSlackParams): Promise<void> {
   const blocks = buildDigestAlertBlocks({
     projectId: params.projectId,
     projectName: params.projectName,
@@ -41,11 +61,11 @@ export async function sendDigestAlertSlack(params: SendDigestAlertSlackParams): 
     entries: params.entries,
     summary: params.summary,
   });
-  await client.chat.postMessage({
-    channel: params.channelId,
-    blocks: blocks as any,
+  await postSlackMessage({
+    workspaceId: params.workspaceId,
+    encryptedBotToken: params.encryptedBotToken,
+    channelId: params.channelId,
+    blocks,
     text: `Alert digest: ${params.total} findings on ${params.projectName}`,
-    unfurl_links: false,
-    unfurl_media: false,
   });
 }
