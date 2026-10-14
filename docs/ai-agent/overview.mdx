@@ -1,5 +1,5 @@
 ---
-title: Overview
+title: Introduction
 description: Investigate traces, automate fixes, and manage project resources with the TraceRoot AI agent
 ---
 
@@ -71,9 +71,13 @@ Whenever the agent decides to invoke a write tool during an attended session, ex
 
 If you skip or decline an action, the agent acknowledges the skip and continues the conversation without retrying the tool call.
 
+<Note>
+  For creates and updates, the confirmation card is a review gate rather than a security control: a request that carries no acting user, such as a system-initiated run, executes them without showing a card. Deletes fail closed instead — with nobody there to approve one, the call is blocked rather than executed.
+</Note>
+
 ### Background Sessions Get No Write Tools
 
-Background and RCA sessions have no human to answer a card, so they are offered no write tools at all — write tools are bound only to a session that carries both an acting user and a conversation id. Should such a session ever reach a write tool, the write policy is the backstop: a delete **fails closed** and is blocked, so the agent can never delete a resource unattended.
+Unattended background and RCA executions have no human to answer a card, so they are offered no write tools at all — write tools are bound only when the request carries both an acting user and a conversation id. A human follow-up inside an RCA session does carry an acting user, so it is offered them. Should such a session ever reach a write tool, the write policy is the backstop: a delete **fails closed** and is blocked, so the agent can never delete a resource unattended.
 
 ### 10-Minute Timeout
 

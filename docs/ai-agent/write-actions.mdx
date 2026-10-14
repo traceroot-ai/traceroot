@@ -52,7 +52,7 @@ Depending on the nature of the action, the card offers distinct decision choices
 
 ### Unattended Sessions
 
-Background and RCA sessions are offered **no write tools at all**. Write tools are bound only when the session has both an acting user to attribute the write to and a conversation id to record as provenance, so a session without a human behind it cannot propose a write in the first place.
+Unattended background and RCA executions are offered **no write tools at all**. Write tools are bound only when the request carries both an acting user to attribute the write to and a conversation id to record as provenance, so an execution with no human behind it cannot propose a write in the first place. A human follow-up inside an RCA session supplies that acting user, so it is offered write tools as normal.
 
 The write policy is the backstop should such a session ever reach a write tool: a create or update would run unconfirmed, while a delete **fails closed** and is blocked. A destructive action can never run without an interactive human approval.
 
