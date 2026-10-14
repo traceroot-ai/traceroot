@@ -34,20 +34,22 @@ type SignUpClientProps = {
 
 // A brand-new account always finishes at onboarding. The one thing that can
 // need to happen first is a pending device authorization — the CLI login flow
-// sends the user through /device before they sign up — so route through it,
-// telling it (via ?next) to continue to onboarding once approved. Anything else
-// goes straight to onboarding; a new user shouldn't be dropped deep in the app.
+// sends the user through /device before they sign up. Onboarding runs *before*
+// that approval, not after: approving releases the waiting terminal, and the
+// CLI's very next call asks which project to use. Approve first and it reads an
+// account that owns nothing, because the workspace does not exist until a human
+// submits the form on the page it was about to be sent to. So onboarding comes
+// first and carries the device URL as its callback. Anything else goes straight
+// to onboarding; a new user shouldn't be dropped deep in the app.
 function postSignUpDestination(callbackUrl: string): string {
   // Match the /device path exactly, not by prefix: a startsWith check would also
   // catch an unrelated future route like /device-settings and wrongly funnel a
   // new account into the device-authorization flow.
-  const [path, query] = callbackUrl.split("?");
+  const [path] = callbackUrl.split("?");
   if (path !== "/device") {
     return "/onboarding";
   }
-  const params = new URLSearchParams(query ?? "");
-  params.set("next", "/onboarding");
-  return `/device?${params.toString()}`;
+  return `/onboarding?callbackUrl=${encodeURIComponent(callbackUrl)}`;
 }
 
 function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
