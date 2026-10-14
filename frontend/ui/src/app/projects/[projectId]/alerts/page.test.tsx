@@ -32,7 +32,7 @@ vi.mock("@/lib/hooks/use-list-page-state", async () => {
     useListPageState: () => {
       const [page, setPage] = useState(0);
       return {
-        state: { keyword: mocks.keyword },
+        state: { keyword: mocks.keyword, page, limit: 50 },
         queryOptions: { page, limit: 50, search_query: mocks.keyword || undefined },
         updateKeyword: vi.fn(),
         updateLimit: vi.fn(),
@@ -387,5 +387,23 @@ describe("AlertsPage", () => {
       expect.objectContaining({ page: 1 }),
     );
     expect(scroller.scrollTop).toBe(0);
+  });
+
+  it("pages from the page it is on, not the page the server echoed", () => {
+    // Two pages of alerts (the project cap is 100). The server echo stays at page 0
+    // here, as a placeholder echo does mid-flight. After Next the pager must show the
+    // last page, with Next disabled, rather than offering page 1 again off the echo.
+    mocks.useAlertList.mockReturnValue({
+      data: { data: [alertRow], meta: { page: 0, limit: 50, total: 100 } },
+      isLoading: false,
+      error: null,
+    });
+    render(<AlertsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(mocks.useAlertList).toHaveBeenLastCalledWith(
+      "proj-1",
+      expect.objectContaining({ page: 1 }),
+    );
+    expect(screen.getByRole("button", { name: "Next page" })).toHaveProperty("disabled", true);
   });
 });
