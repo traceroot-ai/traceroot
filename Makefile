@@ -47,20 +47,17 @@ prod:
 	uv run python tmux_tools/launcher.py --prod
 
 ## Give every required secret a value in .env. Needs only openssl, so the
-## self-hosting path stays free of the uv/python toolchain.
+## self-hosting path stays free of the uv/python toolchain. The generated
+## value reaches awk through its environment, never argv: a process argument
+## list is readable by every local user, a process environment is not.
 env-secrets:
 	@umask 077; test -f .env || cp .env.example .env; chmod 600 .env
 	@umask 077; for key in $(REQUIRED_SECRETS); do \
-		if [ -n "$$(awk -F= -v k="$$key" -v published="$(PUBLISHED_PLACEHOLDERS)" 'BEGIN { split(published, list, " "); for (i in list) known[list[i]] = 1; quotes = "[\"" sprintf("%c", 39) "]+" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t]+$$/, "", name) } name == k { value = substr($$0, index($$0, "=") + 1); sub(/[ \t]+#.*/, "", value); gsub(/^[ \t]+|[ \t]+$$/, "", value); sub("^" quotes, "", value); sub(quotes "$$", "", value); if (value != "" && !(tolower(value) in known)) print value }' .env)" ]; then \
+		if awk -F= -v k="$$key" -v published="$(PUBLISHED_PLACEHOLDERS)" 'BEGIN { split(published, list, " "); for (i in list) known[list[i]] = 1; quotes = "[\"" sprintf("%c", 39) "]+" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t]+$$/, "", name) } name == k { value = substr($$0, index($$0, "=") + 1); sub(/[ \t]+#.*/, "", value); gsub(/^[ \t]+|[ \t]+$$/, "", value); sub("^" quotes, "", value); sub(quotes "$$", "", value); if (value != "" && !(tolower(value) in known)) configured = 1 } END { exit !configured }' .env; then \
 			continue; \
 		fi; \
 		value=$$(openssl rand -hex 32) || exit 1; \
-		if awk -F= -v k="$$key" '{ name = $$1; sub(/^[ \t]*export[ \t]+/, "", name) } name == k { found = 1 } END { exit !found }' .env; then \
-			awk -F= -v k="$$key" -v v="$$value" 'BEGIN { OFS = "=" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name) } name == k { print $$1, v; next } { print }' .env > .env.tmp; \
-		else \
-			cp .env .env.tmp; \
-			printf '%s=%s\n' "$$key" "$$value" >> .env.tmp; \
-		fi; \
+		TRACEROOT_GENERATED_SECRET="$$value" awk -F= -v k="$$key" 'BEGIN { OFS = "=" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name) } name == k { print $$1, ENVIRON["TRACEROOT_GENERATED_SECRET"]; found = 1; next } { print } END { if (!found) print k, ENVIRON["TRACEROOT_GENERATED_SECRET"] }' .env > .env.tmp || exit 1; \
 		mv .env.tmp .env; \
 		echo "Generated $$key in .env"; \
 	done

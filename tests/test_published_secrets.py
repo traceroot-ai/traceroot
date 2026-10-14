@@ -17,6 +17,7 @@ The equivalent check for the TypeScript side lives in frontend/ui/src/env.ts.
 
 import os
 import re
+import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -212,6 +213,102 @@ def test_env_stays_private_when_secret_generation_fails(tmp_path):
     assert done.returncode != 0, "a failed generation must not look like success"
     mode = stat.S_IMODE(os.stat(env_path).st_mode)
     assert not mode & (stat.S_IRGRP | stat.S_IROTH), f"mode is {mode:o}"
+
+
+def _openssl_emitting(tmp_path: Path, value: str) -> Path:
+    """A PATH stub whose ``openssl rand -hex 32`` prints exactly ``value``."""
+    stub = tmp_path / "bin"
+    stub.mkdir(exist_ok=True)
+    payload = tmp_path / "payload"
+    payload.write_text(value)
+    (stub / "openssl").write_text(f'#!/bin/sh\ncat "{payload}"\nprintf "\\n"\n')
+    os.chmod(stub / "openssl", 0o755)
+    return stub
+
+
+def test_generated_secret_never_becomes_a_command_line_argument(tmp_path):
+    """A process argument list is readable by every local user; .env 0600 is not enough.
+
+    ``ps -ef`` and a world-readable /proc/<pid>/cmdline hand any unprivileged
+    account on the host every argument of every running process, so a secret
+    passed as ``awk -v v=$value`` was readable for the lifetime of that awk.
+    A process *environment* carries no such exposure -- /proc/<pid>/environ is
+    gated by a ptrace credentials check -- so the value goes through ENVIRON.
+
+    Each tool the recipe shells out to is shadowed by a wrapper that logs its own
+    argv and then execs the real one, so the recipe still does its real work.
+    """
+    (tmp_path / ".env.example").write_text("INTERNAL_API_SECRET=\n")
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    log = tmp_path / "argv.log"
+    for tool in ("awk", "printf", "cp", "mv", "sed"):
+        real = shutil.which(tool)
+        if real is None:
+            continue
+        (stub / tool).write_text(
+            f'#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a" >> "{log}"; done\n'
+            f'exec "{real}" "$@"\n'
+        )
+        os.chmod(stub / tool, 0o755)
+
+    _run_env_secrets(tmp_path, extra_path=stub)
+
+    generated = _values(tmp_path / ".env")["INTERNAL_API_SECRET"]
+    assert len(generated) == 64, generated
+    recorded = log.read_text()
+    assert generated not in recorded, f"secret reached a child argv:\n{recorded}"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "amper&sand",
+        "back\\slash",
+        "back\\&both",
+        "escape\\tsequence",
+        "group\\1backref",
+        "for/ward/slashes",
+        'double"quote',
+        "single'quote",
+        "percent%sformat",
+        "dollar$and`backtick`",
+    ],
+)
+def test_a_generated_value_with_metacharacters_is_written_verbatim(tmp_path, value):
+    """Keeping the secret out of argv must not hand it to something that rewrites it.
+
+    The substitution tool decides this: sed would read ``&`` as the whole match
+    and ``\1`` as a group, printf would read ``%s`` as a conversion, and awk's
+    own ``-v`` assignment expanded escape sequences, so ``a\tb`` arrived as a
+    tab. awk's ``print`` of an ENVIRON value interprets none of them.
+    """
+    (tmp_path / ".env.example").write_text("INTERNAL_API_SECRET=\n")
+    (tmp_path / ".env").write_text("INTERNAL_API_SECRET=changeme\n")
+
+    _run_env_secrets(tmp_path, extra_path=_openssl_emitting(tmp_path, value))
+
+    body = (tmp_path / ".env").read_text()
+    assert f"INTERNAL_API_SECRET={value}\n" in body, body
+    assert body.count("INTERNAL_API_SECRET=") == 1, body
+
+
+def test_recipe_appends_to_an_env_without_a_trailing_newline(tmp_path):
+    """An .env predating a key, with no final newline, must not come out joined.
+
+    ``printf >> .env.tmp`` wrote straight onto the last line, so ``FOO=bar`` and
+    the appended key became ``FOO=barBETTER_AUTH_SECRET=...`` -- one unreadable
+    line that loses both. awk ends every record it prints, so the seam is gone.
+    """
+    (tmp_path / ".env.example").write_text(_EXAMPLE)
+    (tmp_path / ".env").write_text("FOO=bar")
+
+    _run_env_secrets(tmp_path)
+
+    values = _values(tmp_path / ".env")
+    assert values["FOO"] == "bar", (tmp_path / ".env").read_text()
+    for key in _makefile_required_secrets():
+        assert len(values[key]) == 64, (tmp_path / ".env").read_text()
 
 
 def test_an_exported_secret_is_left_alone(tmp_path):
