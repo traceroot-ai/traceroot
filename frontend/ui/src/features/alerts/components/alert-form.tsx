@@ -31,6 +31,8 @@ interface AlertFormProps {
   /** Present in edit mode; the rule the submit PATCHes. */
   alertId?: string;
   initialDraft?: AlertDraft;
+  /** Edit mode only: the stored rule has an alert open that a rule change would close. */
+  hasOpenPage?: boolean;
 }
 
 // The draft rule the form edits. `view` is carried but never rendered: only
@@ -67,7 +69,7 @@ const INITIAL_DRAFT: AlertDraft = {
  * route seeds `initialDraft` from the loaded rule, so the first render already
  * previews the right metric.
  */
-export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) {
+export function AlertForm({ projectId, alertId, initialDraft, hasOpenPage }: AlertFormProps) {
   const router = useRouter();
   const [draft, setDraft] = useState<AlertDraft>(initialDraft ?? INITIAL_DRAFT);
   const createAlert = useCreateAlert(projectId);
@@ -183,6 +185,13 @@ export function AlertForm({ projectId, alertId, initialDraft }: AlertFormProps) 
             )}
             {submitError && (
               <p className="mr-auto text-[12px] text-destructive">{submitError.message}</p>
+            )}
+            {/* A hint, not a gate: the save stays one click, and a rename closes nothing. */}
+            {isEdit && hasOpenPage && !submitError && (
+              <p className="mr-auto text-[12px] text-muted-foreground">
+                This alert is open. Saving a change to its conditions will close it and post an [OK]
+                to Slack.
+              </p>
             )}
             <Button
               type="button"

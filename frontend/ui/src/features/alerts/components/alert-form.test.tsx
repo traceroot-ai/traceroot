@@ -64,7 +64,7 @@ vi.mock("@/lib/auth-client", () => ({
 const stringField = (label: string, extra: Record<string, unknown> = {}) => ({
   type: "string",
   label,
-  filterOps: ["=", "contains"],
+  filterOps: ["=", "contains", "in"],
   groupable: true,
   ...extra,
 });
@@ -77,7 +77,7 @@ const SPANS_SCHEMA_FIELDS = {
   span_kind: stringField("Span kind"),
   name: stringField("Span name"),
   is_root: stringField("Root span"),
-  metadata: stringField("Metadata", { requiresKey: true }),
+  metadata: stringField("Metadata", { requiresKey: true, filterOps: ["=", "contains"] }),
 };
 
 // The engine's numeric set. `count` is absent: the engine reserves it for the count(*) sentinel.
@@ -128,6 +128,7 @@ describe("AlertForm", () => {
     props: {
       alertId?: string;
       initialDraft?: AlertDraft;
+      hasOpenPage?: boolean;
       schemaPending?: boolean;
       schemaError?: boolean;
       /** A background refetch failed but the cached schema is still there. */
@@ -319,6 +320,16 @@ describe("AlertForm", () => {
     expect((screen.getByLabelText("name") as HTMLInputElement).value).toBe("p95 latency");
   });
 
+  it("offers only the operators an alert stores, not the engine's `in`", async () => {
+    renderForm();
+    fireEvent.click(screen.getByRole("button", { name: /Add filter/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Field/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "Span kind" }));
+    fireEvent.click(screen.getByRole("button", { name: "is" }));
+    expect(screen.getByRole("option", { name: "contains" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "is any of" })).toBeNull();
+  });
+
   it("drops a filter row with no value from the saved rule", async () => {
     const fetchMock = stubCreateSuccess();
     renderForm();
@@ -407,6 +418,19 @@ describe("AlertForm", () => {
       // The first call, not the last: a frame on the defaults would bill a query.
       expect(previewMetrics()[0]).toEqual({ measure: "duration_ms", agg: "p95" });
       expect(previewMetrics()).not.toContainEqual({ measure: "count", agg: "count" });
+    });
+
+    it("warns, without blocking the save, when the rule has an alert open", () => {
+      const hint = /Saving a change to its conditions will close it and post an \[OK\]\s+to Slack/;
+
+      renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT, hasOpenPage: true });
+      expect(screen.getByText(hint)).toBeTruthy();
+      const save = screen.getByRole("button", { name: "Save Alert" }) as HTMLButtonElement;
+      expect(save.disabled).toBe(false);
+      cleanup();
+
+      renderForm({ alertId: "alert-9", initialDraft: SAVED_DRAFT });
+      expect(screen.queryByText(hint)).toBeNull();
     });
 
     it("saves by PATCHing the whole rule to the alert's own url", async () => {
