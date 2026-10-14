@@ -1221,6 +1221,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -1237,12 +1238,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -1389,6 +1400,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -1405,12 +1417,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -6045,6 +6067,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -6061,12 +6084,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -6213,6 +6246,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -6229,12 +6263,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -6840,6 +6884,7 @@
             "enum": [
               "=",
               "contains",
+              "in",
               ">",
               ">=",
               "<",
@@ -6856,12 +6901,22 @@
               },
               {
                 "type": "number"
+              },
+              {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
               }
             ],
             "title": "Value",
             "type": [
               "string",
-              "number"
+              "number",
+              "array"
             ]
           }
         },

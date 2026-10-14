@@ -230,7 +230,10 @@ export function isAlertFilterField(value: string): value is AlertFilterField {
   return (ALERT_FILTER_FIELDS as readonly string[]).includes(value);
 }
 
-/** Mirrors `filter_ops` in backend/rest/services/widget_registry.py. */
+/**
+ * The alert subset of `filter_ops` in backend/rest/services/widget_registry.py:
+ * the engine also offers `in` on string dimensions, which alerts do not store.
+ */
 export const ALERT_FILTER_OPERATORS_BY_FIELD: Record<
   AlertFilterField,
   readonly AlertFilterOperator[]
