@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
 import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
+import { useRememberListQuery } from "@/lib/hooks/use-list-return";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
@@ -26,6 +27,10 @@ export function DatasetsView({ projectId }: { projectId: string }) {
   const { toast } = useToast();
 
   const { page, limit, goToPage, setLimit, resetPage } = useUrlPagination(50);
+  // The page lives in the URL; record it so the dataset detail's breadcrumb and
+  // "Back to datasets" link return to this page rather than the first one.
+  const searchParams = useSearchParams();
+  useRememberListQuery(`datasets:${projectId}`, searchParams.toString());
   // Reset to page 0 whenever the (debounced) search changes, so a match on page 0 isn't
   // hidden behind a stale page carried over from before the search — matching the
   // traces list. `searchQuery` is the debounced value the API should use.
