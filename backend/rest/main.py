@@ -54,6 +54,7 @@ from rest.routers.sessions import router as sessions_router
 from rest.routers.traces import router as traces_router
 from rest.routers.users import router as users_router
 from rest.schemas.common import HealthResponse
+from rest.security_headers import SecurityHeadersMiddleware
 from shared.config import settings
 
 app = FastAPI(
@@ -63,8 +64,8 @@ app = FastAPI(
 )
 
 # Compress responses (e.g. large trace payloads). Added before CORS so that
-# CORS remains the outermost middleware and its headers apply to every
-# response, including gzipped ones.
+# CORS wraps it and its headers apply to every response, including gzipped
+# ones.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 # One route reads a caller-authored query, and its field limits only apply once
 # the body has been read and parsed. This bounds the body itself.
@@ -135,6 +136,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Added last so it wraps everything, including the responses CORS and the SQL
+# body limit answer on their own.
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Trace reading from ClickHouse (user auth via headers from Next.js)
 app.include_router(traces_router, prefix="/api/v1")
