@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "proj-1" }),
   useRouter: () => ({ push: mocks.push }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 // Controlled list state so the empty-project and empty-search branches are
