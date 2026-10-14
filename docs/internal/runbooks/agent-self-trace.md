@@ -23,8 +23,8 @@ on by default and controlled per kind.
    finish before starting the worker rollout. The worker records each execution's
    `trace_status` from the agent's final `trace` SSE frame; an older agent that does not
    send it makes the new worker record `failed`, even when the RCA completed. The
-   reverse order is safe: an older worker ignores the new frame. Keep this order even
-   with `AGENT_SELF_TRACE=0`: the updated agent still sends `status: "disabled"`.
+   agent-first rollout is safe: an older worker ignores the new frame. Keep this
+   order even with `AGENT_SELF_TRACE=0`: the updated agent still sends `status: "disabled"`.
 4. Agent service env: nothing to set — `AGENT_SELF_TRACE` unset means on (any value
    other than `1` or `true` turns it off). To stage a rollout, narrow
    `AGENT_SELF_TRACE_KINDS` and widen it over a few days: `rca` → `rca,followup` →
