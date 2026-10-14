@@ -342,6 +342,29 @@ def test_no_generated_secret_is_left_anywhere_but_env(tmp_path):
     assert not strays, f"temp files left behind: {strays}"
 
 
+def test_a_symlink_planted_at_env_itself_is_replaced_not_followed(tmp_path):
+    """The last step renames over .env, so a symlink there must not be a channel.
+
+    Nothing in the review raised this, but it is the same class as the temp-file
+    finding and the rewrite would be pointless if the final step leaked. `mv` is
+    a rename: it replaces the name, so the planted link is discarded and the file
+    it pointed at is untouched.
+    """
+    (tmp_path / ".env.example").write_text("INTERNAL_API_SECRET=\n")
+    victim = tmp_path / "victim"
+    victim.write_text("untouched\n")
+    (tmp_path / ".env").symlink_to(victim)
+
+    _run_env_secrets(tmp_path)
+
+    env_path = tmp_path / ".env"
+    assert not env_path.is_symlink(), ".env must be a real file afterwards"
+    assert victim.read_text() == "untouched\n", f"wrote through the link: {victim.read_text()}"
+    assert len(_values(env_path)["INTERNAL_API_SECRET"]) == 64
+    mode = stat.S_IMODE(os.stat(env_path).st_mode)
+    assert not mode & (stat.S_IRGRP | stat.S_IROTH), f"mode is {mode:o}"
+
+
 def _openssl_emitting(tmp_path: Path, value: str) -> Path:
     """A PATH stub whose ``openssl rand -hex 32`` prints exactly ``value``."""
     stub = tmp_path / "bin"

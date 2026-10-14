@@ -56,15 +56,17 @@ prod:
 ## "published-default\r", which matches no placeholder and reads as configured,
 ## leaving the published secret in place for Compose to use.
 ##
-## The rewrite goes through a temp file mktemp creates, not a name this recipe
-## chooses. Shell redirection follows a symlink and umask does not protect a
-## target that already exists, so anyone able to write the checkout could
-## pre-plant the temp path pointing at a file they own and read every secret
-## out of it. A predictable name does not fix that even when it is removed
-## first -- the path can be recreated between the removal and the redirect --
-## so the name has to be both unpredictable and created atomically, which is
-## what mktemp is for. It also creates the file 0600, and because the template
-## is in this directory the final mv is a rename that keeps that mode.
+## The rewrite happens inside a private directory from `mktemp -d`, not at a
+## path in the checkout. Shell redirection follows a symlink and umask does not
+## protect a target that already exists, so anyone able to write this directory
+## could point the rewrite's target at a file they own and read every secret
+## out of it. Neither removing a predictable name first nor asking mktemp for an
+## unpredictable one closes that: the name can be recreated between the removal
+## and the redirect, and an unpredictable name is still visible to anyone
+## watching the directory once it exists. A 0700 directory removes the
+## opportunity instead of narrowing it -- nobody else can traverse it, so the
+## file inside cannot be swapped. The final `mv` renames over `.env`, which
+## replaces a symlink planted there rather than writing through it.
 env-secrets:
 	@umask 077; test -f .env || cp .env.example .env; chmod 600 .env
 	@umask 077; for key in $(REQUIRED_SECRETS); do \
@@ -72,9 +74,10 @@ env-secrets:
 			continue; \
 		fi; \
 		value=$$(openssl rand -hex 32) || exit 1; \
-		tmp=$$(mktemp "./.env.tmp.XXXXXX") || exit 1; \
-		TRACEROOT_GENERATED_SECRET="$$value" awk -F= -v k="$$key" 'BEGIN { OFS = "=" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { print name, ENVIRON["TRACEROOT_GENERATED_SECRET"]; found = 1; next } { print } END { if (!found) print k, ENVIRON["TRACEROOT_GENERATED_SECRET"] }' .env > "$$tmp" || { rm -f "$$tmp"; exit 1; }; \
-		mv "$$tmp" .env; \
+		tmpdir=$$(mktemp -d "./.env.tmp.XXXXXX") || exit 1; \
+		TRACEROOT_GENERATED_SECRET="$$value" awk -F= -v k="$$key" 'BEGIN { OFS = "=" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { print name, ENVIRON["TRACEROOT_GENERATED_SECRET"]; found = 1; next } { print } END { if (!found) print k, ENVIRON["TRACEROOT_GENERATED_SECRET"] }' .env > "$$tmpdir/env" || { rm -rf "$$tmpdir"; exit 1; }; \
+		mv "$$tmpdir/env" .env; \
+		rmdir "$$tmpdir"; \
 		echo "Generated $$key in .env"; \
 	done
 
