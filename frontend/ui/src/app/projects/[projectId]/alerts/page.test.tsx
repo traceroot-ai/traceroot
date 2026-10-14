@@ -88,11 +88,6 @@ vi.mock("@/features/alerts/hooks/use-alerts", () => ({
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 // The page resolves the workspace per row badge. Unresolved here: reason shows, link does not.
 vi.mock("@/features/projects/hooks", () => ({ useProject: () => ({ data: undefined }) }));
-vi.mock("@/components/list-pagination", () => ({
-  ListPagination: ({ page, onPageChange }: { page: number; onPageChange: (p: number) => void }) => (
-    <button onClick={() => onPageChange(page + 1)}>Next page</button>
-  ),
-}));
 vi.mock("@/features/alerts/components/delete-alert-dialog", () => ({
   // The stub surfaces whatever failure it is handed, wherever the page reports it.
   DeleteAlertDialog: ({
@@ -373,11 +368,19 @@ describe("AlertsPage", () => {
   });
 
   it("opens the next page at the top of the list, not at the old scroll offset", () => {
+    // More alerts than one page holds, so the real control offers a next page.
+    mocks.useAlertList.mockReturnValue({
+      data: { data: [alertRow], meta: { page: 0, limit: 50, total: 51 } },
+      isLoading: false,
+      error: null,
+    });
     render(<AlertsPage />);
     const scroller = screen.getByRole("table").closest(".overflow-auto") as HTMLElement;
     scroller.scrollTop = 600;
 
-    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    const next = screen.getByRole("button", { name: "Next page" });
+    expect(next.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(next);
 
     expect(mocks.useAlertList).toHaveBeenLastCalledWith(
       "proj-1",
