@@ -12,6 +12,7 @@ import {
 } from "@traceroot/core/model-resolver";
 import {
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  DETECTOR_SYSTEM_FALLBACK_MODEL_ID,
   isDecisionAdapter,
   LLMAdapter,
 } from "@traceroot/core/llm-providers";
@@ -149,9 +150,8 @@ export async function runDetectionForTrace(params: {
   const { traceId, spansJsonl, detector, workspaceId } = params;
   // A null source means "never set" — legacy rows, and API clients that
   // omitted the field. Every UI path writes "system" and reads null back as
-  // "system", so treat it as system here too. Unpinned detectors therefore
-  // screen on the fixed default, not an availability-aware pick: a deployment
-  // with no key for that provider fails them rather than substituting.
+  // "system", so treat it as system here too. Unpinned detectors screen on the
+  // fixed default, or on the fixed fallback when no OpenAI key resolves.
   const source = detector.detectionSource ?? "system";
 
   // 1. BYOK config
@@ -205,10 +205,16 @@ export async function runDetectionForTrace(params: {
     return errorResult(`Detection model "${modelId}" is not a known system model`, source);
   }
 
-  const model = resolvePiModel(modelId, providerConfig);
+  let model = resolvePiModel(modelId, providerConfig);
 
   // 3. Resolve API key (BYOK row → env var → workspace BYOK scan)
-  const apiKey = await resolveDetectorApiKey(workspaceId, providerConfig, model.provider);
+  let apiKey = await resolveDetectorApiKey(workspaceId, providerConfig, model.provider);
+  // Only an unpinned detector falls back; a pinned one fails visibly instead
+  // of screening on a model nobody chose.
+  if (!apiKey && source === "system" && !detector.detectionModel) {
+    model = resolvePiModel(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
+    apiKey = await resolveDetectorApiKey(workspaceId, null, model.provider);
+  }
   if (!apiKey) {
     return errorResult(`No API key configured for provider "${model.provider}"`, source);
   }

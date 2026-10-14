@@ -96,6 +96,13 @@ export interface LLMModelDef {
 export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "gpt-6-luna";
 
 /**
+ * What an unpinned detector screens on when no OpenAI key resolves (neither
+ * OPENAI_API_KEY nor a workspace OpenAI key), so Anthropic-only deployments
+ * keep screening instead of failing every run.
+ */
+export const DETECTOR_SYSTEM_FALLBACK_MODEL_ID = "claude-haiku-5-5";
+
+/**
  * Hosted model for the finding-digest summary paragraph. Kept apart from the
  * detector default: that digest is the path deployments without OPENAI_API_KEY
  * use (with a key, signals send their own digest), so it stays on Anthropic.
@@ -126,6 +133,7 @@ export const SYSTEM_MODELS: {
       { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
       { id: "claude-opus-4-5", label: "claude-opus-4-5" },
       { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
+      { id: "claude-haiku-5-5", label: "claude-haiku-5-5" },
       { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
     ],
   },
@@ -205,6 +213,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "claude-sonnet-5", label: "claude-sonnet-5" },
     { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
     { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
+    { id: "claude-haiku-5-5", label: "claude-haiku-5-5" },
     { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
     { id: "claude-fable-5", label: "claude-fable-5" },
   ],

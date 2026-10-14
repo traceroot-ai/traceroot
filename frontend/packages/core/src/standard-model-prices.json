@@ -195,6 +195,19 @@
     }
   },
   {
+    "id": "tr-claude-haiku-5-5",
+    "modelName": "claude-haiku-5-5",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-5[.-]5(-[\\d-]+)?)$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.0000001,
+      "output": 0.0000005,
+      "cacheRead": 0.00000001,
+      "cacheWrite": 0.000000125,
+      "cacheWrite1h": 0.0000002
+    }
+  },
+  {
     "id": "tr-claude-haiku-4-5",
     "modelName": "claude-haiku-4-5",
     "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-4[.-]5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-haiku-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-haiku(@[\\d-]+)?)$",
