@@ -559,7 +559,10 @@ class TraceReaderService:
                     ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 )
-                ORDER BY trace_start_time DESC
+                -- trace_id breaks start-time ties (millisecond precision), so OFFSET
+                -- pages are disjoint and repeatable: no tied trace is skipped or
+                -- repeated across pages (#1747).
+                ORDER BY trace_start_time DESC, trace_id DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             ),
             span_agg AS (
@@ -604,7 +607,7 @@ class TraceReaderService:
                 p.metadata_map
             FROM page AS p
             LEFT JOIN span_agg AS sa ON p.trace_id = sa.trace_id
-            ORDER BY p.trace_start_time DESC
+            ORDER BY p.trace_start_time DESC, p.trace_id DESC
         """
 
         # Bounded by the shared read settings, page and count alike. Most span-level
