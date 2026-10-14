@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
-import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
+import { useUrlKeywordSearch } from "@/lib/hooks/use-url-keyword-search";
 import { useRememberListQuery } from "@/lib/hooks/use-list-return";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -26,15 +26,17 @@ export function DatasetsView({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
 
-  const { page, limit, goToPage, setLimit, resetPage } = useUrlPagination(50);
-  // The page lives in the URL; record it so the dataset detail's breadcrumb and
-  // "Back to datasets" link return to this page rather than the first one.
+  const { page, limit, goToPage, setLimit, resetPageState } = useUrlPagination(50);
+  // The page and the search text (`?search=`) live in the URL; record them so the
+  // dataset detail's breadcrumb and "Back to datasets" link return to this page rather
+  // than the first one.
   const searchParams = useSearchParams();
   useRememberListQuery(`datasets:${projectId}`, searchParams.toString());
-  // Reset to page 0 whenever the (debounced) search changes, so a match on page 0 isn't
-  // hidden behind a stale page carried over from before the search — matching the
-  // traces list. `searchQuery` is the debounced value the API should use.
-  const { keyword, setKeyword, searchQuery } = useKeywordSearch(resetPage);
+  // A (debounced) search change resets to page 0 — in its own URL write, hence the
+  // state-only reset — so a match on page 0 isn't hidden behind a stale page carried
+  // over from before the search, matching the traces list. `searchQuery` is the
+  // debounced value the API should use.
+  const { keyword, setKeyword, searchQuery } = useUrlKeywordSearch(resetPageState);
   const [newOpen, setNewOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DatasetRow | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<DatasetRow | null>(null);

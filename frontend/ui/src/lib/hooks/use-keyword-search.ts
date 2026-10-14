@@ -1,12 +1,15 @@
 /**
  * Hook for managing keyword search state with debouncing.
  * Provides immediate input feedback while debouncing API queries.
+ *
+ * Local state only — for a list page whose search should survive refresh and
+ * back/forward like its page and filters, use useUrlKeywordSearch instead.
  */
 import { useState, useCallback, useEffect, useRef } from "react";
 
-const DEBOUNCE_DELAY_MS = 300;
+export const DEBOUNCE_DELAY_MS = 300;
 
-interface UseKeywordSearchReturn {
+export interface UseKeywordSearchReturn {
   keyword: string;
   setKeyword: (value: string) => void;
   searchQuery: string | undefined; // Ready for API (undefined if empty), debounced

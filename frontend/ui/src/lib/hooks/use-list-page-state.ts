@@ -2,13 +2,13 @@
  * Composed hook for list page state with URL-synced date filter and pagination.
  * Combines pagination, URL-based date filtering, and search with coordinated page resets.
  *
- * URL params: page_index, page_limit, date_filter, start, end
+ * URL params: page_index, page_limit, date_filter, start, end, filters, search
  * Use this for pages that need shared filter state (traces, users, sessions, detector page).
  */
 import { useMemo } from "react";
 import { useUrlPagination } from "./use-url-pagination";
 import { useUrlDateFilter } from "./use-url-date-filter";
-import { useKeywordSearch } from "./use-keyword-search";
+import { useUrlKeywordSearch } from "./use-url-keyword-search";
 import { useUrlFilters } from "./use-url-filters";
 import type { Predicate } from "@/types/api";
 
@@ -35,7 +35,7 @@ interface UseListPageStateReturn {
   updateCustomRange: ReturnType<typeof useUrlDateFilter>["setCustomRange"];
   // Search
   keyword: string;
-  updateKeyword: ReturnType<typeof useKeywordSearch>["setKeyword"];
+  updateKeyword: ReturnType<typeof useUrlKeywordSearch>["setKeyword"];
   // Structured attribute filters (URL-synced)
   filters: Predicate[];
   updateFilters: ReturnType<typeof useUrlFilters>["setFilters"];
@@ -71,8 +71,9 @@ export function useListPageState(
   const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
     useUrlDateFilter(pagination.resetPage, defaultDateFilterId, retentionDays);
 
-  // Search hook - resets page on change
-  const { keyword, setKeyword, searchQuery } = useKeywordSearch(pagination.resetPage);
+  // Search (URL-synced). Like setFilters, the debounced write drops page_index inside
+  // its own URL mutation, so it takes the state-only page reset too.
+  const { keyword, setKeyword, searchQuery } = useUrlKeywordSearch(pagination.resetPageState);
 
   // Structured filters (URL-synced). setFilters resets page_index inside its own URL
   // write, so it takes the state-only page reset (a second URL write would clobber the

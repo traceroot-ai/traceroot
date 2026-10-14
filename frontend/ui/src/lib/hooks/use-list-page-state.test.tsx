@@ -52,3 +52,32 @@ describe("useListPageState filters integration", () => {
     expect(url.searchParams.get("filters")).toBe("[]");
   });
 });
+
+describe("useListPageState search integration", () => {
+  it("restores the search and page from the URL without resetting either", () => {
+    currentParams = new URLSearchParams({ search: "foo", page_index: "1" });
+    const { result } = renderHook(() => useListPageState());
+    expect(result.current.keyword).toBe("foo");
+    expect(result.current.queryOptions.search_query).toBe("foo");
+    expect(result.current.page).toBe(1);
+  });
+
+  it("a debounced search writes the param and returns to the first page in one write", () => {
+    vi.useFakeTimers();
+    try {
+      currentParams = new URLSearchParams({ page_index: "2" });
+      const { result } = renderHook(() => useListPageState());
+      act(() => result.current.updateKeyword("foo"));
+      act(() => vi.advanceTimersByTime(300));
+
+      expect(result.current.page).toBe(0);
+      expect(result.current.queryOptions.search_query).toBe("foo");
+      expect(replace).toHaveBeenCalledTimes(1);
+      const url = new URL(replace.mock.calls[0][0] as string, "http://x");
+      expect(url.searchParams.get("search")).toBe("foo");
+      expect(url.searchParams.has("page_index")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
