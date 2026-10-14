@@ -415,6 +415,28 @@ describe("OnboardingPage", () => {
     expect(mocks.createProject).toHaveBeenCalledWith("ws-existing", "my-llm-project");
   });
 
+  it("reuses the workspace it already made when a failed attempt is retried", async () => {
+    // POST /api/workspaces has no name-uniqueness check, so the retry under the
+    // error re-created the workspace and left a second, identically-named
+    // orphan behind — invisible to the user who caused it, and
+    // indistinguishable from the real one on the workspace list.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockRejectedValueOnce(new Error("project boom"));
+    renderPage();
+    await clickCreate();
+    await waitFor(() => expect(screen.getByText("project boom")).toBeDefined());
+
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    await clickCreate();
+    await waitFor(() =>
+      expect(screen.getByText("Finish setting up in your terminal")).toBeDefined(),
+    );
+
+    expect(mocks.createWorkspace).toHaveBeenCalledTimes(1);
+    expect(mocks.createProject).toHaveBeenCalledTimes(2);
+    expect(mocks.createProject).toHaveBeenNthCalledWith(2, "ws-1", "my-llm-project");
+  });
+
   it("still surfaces creation errors on step one", async () => {
     mocks.createWorkspace.mockRejectedValue(new Error("workspace boom"));
     renderPage();

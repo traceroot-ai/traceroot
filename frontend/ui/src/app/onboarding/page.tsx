@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { useForm } from "react-hook-form";
@@ -57,6 +57,13 @@ function OnboardingContent() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [createdProject, setCreatedProject] = useState<{ id: string; name: string } | null>(null);
+  // The workspace outlives a failed project step, and the retry is the same
+  // button right under the error. Creating it again would succeed — POST
+  // /api/workspaces has no name-uniqueness check — and leave a second,
+  // identically-named workspace the user has no way to notice: it is not on
+  // this page, and the workspace list they land on afterwards shows two rows
+  // they cannot tell apart.
+  const createdWorkspaceId = useRef<string | null>(null);
 
   // Set header content
   useEffect(() => {
@@ -187,14 +194,19 @@ function OnboardingContent() {
 
       // Create workspace if not in project-only mode
       if (!isProjectOnlyMode) {
-        const workspaceName = getValues("workspaceName");
-        if (!workspaceName) {
-          setError("Workspace name is required");
-          setIsLoading(false);
-          return;
+        if (createdWorkspaceId.current) {
+          workspaceId = createdWorkspaceId.current;
+        } else {
+          const workspaceName = getValues("workspaceName");
+          if (!workspaceName) {
+            setError("Workspace name is required");
+            setIsLoading(false);
+            return;
+          }
+          const workspace = await createWorkspace(workspaceName);
+          createdWorkspaceId.current = workspace.id;
+          workspaceId = workspace.id;
         }
-        const workspace = await createWorkspace(workspaceName);
-        workspaceId = workspace.id;
       }
 
       if (!workspaceId) {
