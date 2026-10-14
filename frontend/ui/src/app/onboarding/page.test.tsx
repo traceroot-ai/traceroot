@@ -1,7 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { useSyncExternalStore } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+// Real usage of better-auth's `useSession` is a subscription: it starts pending
+// and resolves later, in its own render, independent of every query on the
+// page. A static value cannot express that transition — and the transition is
+// where the workspace name is decided — so the mocked hook reads a store the
+// tests move, rather than a constant.
+type SessionState = {
+  data: { user: { id: string; email: string } } | undefined;
+  isPending: boolean;
+};
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -15,8 +26,11 @@ const mocks = vi.hoisted(() => ({
   // session without one would key every account's list together, which is the
   // bug these tests would then be blind to.
   session: {
-    data: { user: { id: "user-1", email: "kai@example.com" } },
-    isPending: false,
+    state: {
+      data: { user: { id: "user-1", email: "kai@example.com" } },
+      isPending: false,
+    } as SessionState,
+    listeners: new Set<() => void>(),
   },
   layoutAccess: vi.fn(),
 }));
@@ -40,8 +54,20 @@ function setParams(init: Record<string, string>) {
   mocks.params = new URLSearchParams(init);
 }
 
+function subscribeSession(listener: () => void) {
+  mocks.session.listeners.add(listener);
+  return () => mocks.session.listeners.delete(listener);
+}
+function sessionSnapshot() {
+  return mocks.session.state;
+}
+function setSession(next: SessionState) {
+  mocks.session.state = next;
+  mocks.session.listeners.forEach((listener) => listener());
+}
+
 function signedInAs(id: string, email: string) {
-  mocks.session = { data: { user: { id, email } }, isPending: false };
+  setSession({ data: { user: { id, email } }, isPending: false });
 }
 
 vi.mock("next/navigation", () => ({
@@ -50,7 +76,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
-    useSession: () => mocks.session,
+    useSession: () => useSyncExternalStore(subscribeSession, sessionSnapshot),
     signOut: mocks.signOut,
   },
 }));
@@ -139,6 +165,10 @@ async function clickSignOut() {
 }
 
 beforeEach(() => {
+  // Reset explicitly: `signedInAs` mutates a store that outlives the test that
+  // called it, so a later test would otherwise inherit whichever account the
+  // previous one switched to.
+  signedInAs("user-1", "kai@example.com");
   // The page refuses to onboard an account that already owns a workspace, so
   // every test that exercises the form is a first-run account unless it says
   // otherwise.
@@ -533,6 +563,29 @@ describe("OnboardingPage", () => {
     );
 
     expect(mocks.updateWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("shows the derived workspace name once a pending session resolves", async () => {
+    // `authClient.useSession()` starts pending on mount, and the hooks above
+    // the loading gate run on that first render — so `useForm` captures its
+    // defaults while the email is still unknown, i.e. "My Workspace" rather
+    // than the company the address names. Something has to carry the real value
+    // in afterwards, and the `values` prop is what does. Removing it without
+    // putting a dirty-guarded `setValue` effect in its place silently sends
+    // every company-domain account through setup under the wrong workspace
+    // name, and no other test on this page would notice.
+    setSession({ data: undefined, isPending: true });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+
+    expect(screen.getByText("Loading...")).toBeDefined();
+
+    act(() => {
+      signedInAs("user-1", "kai@example.com");
+    });
+
+    const workspaceInput = await screen.findByPlaceholderText<HTMLInputElement>("Acme Inc");
+    await waitFor(() => expect(workspaceInput.value).toBe("Example"));
   });
 
   it("still surfaces creation errors on step one", async () => {
