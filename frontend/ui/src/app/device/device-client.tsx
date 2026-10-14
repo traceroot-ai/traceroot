@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { getWorkspaces } from "@/lib/api/workspaces";
-import type { Workspace } from "@/types/api";
+import { resolveSetupNeed, onboardingUrlForSetup, type SetupNeed } from "@/lib/account-setup";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { formatUserCode } from "@/lib/device-user-code";
 import { DEVICE_CLIENT_IDS, DEVICE_CLIENT_NAMES } from "@/lib/auth-clients";
@@ -38,39 +38,6 @@ function resolveClientDisplayName(clientId: string | null): string {
 // form, or a mix of cases).
 function normalizeCodeInput(raw: string): string {
   return raw.replace(/-/g, "").trim().toUpperCase();
-}
-
-// What this account still has to set up before the terminal can be released.
-// `null` from `resolveSetupNeed` means nothing does.
-type SetupNeed =
-  | { kind: "workspace" }
-  | { kind: "project"; workspaceId: string; workspaceName: string };
-
-// Creating a project needs MEMBER or higher — see the POST handler in
-// app/api/workspaces/[workspaceId]/projects/route.ts — so a VIEWER's empty
-// workspace is not somewhere this flow can put one.
-const PROJECT_CREATE_ROLES: ReadonlySet<Workspace["role"]> = new Set(["ADMIN", "MEMBER"]);
-
-// What the terminal needs on the other side of approval is a *project*: the CLI
-// resolves a workspace and then a project, and traces are written to the latter.
-// A workspace on its own is not enough, and an empty one is not hypothetical —
-// it is the state of an account whose last project was deleted, and of one whose
-// workspace was created without finishing onboarding.
-//
-// Returns what onboarding still has to do, or null when consent can go ahead.
-function resolveSetupNeed(workspaces: Workspace[]): SetupNeed | null {
-  // `project_count` is optional on the type, so a payload without it reads as
-  // empty. That is the deliberate direction: a needless trip through onboarding
-  // costs a click, whereas releasing the terminal to an account with no project
-  // is the dead end this check exists to prevent.
-  if (workspaces.some((workspace) => (workspace.project_count ?? 0) > 0)) {
-    return null;
-  }
-  const addable = workspaces.find((workspace) => PROJECT_CREATE_ROLES.has(workspace.role));
-  if (!addable) {
-    return { kind: "workspace" };
-  }
-  return { kind: "project", workspaceId: addable.id, workspaceName: addable.name };
 }
 
 type Phase =
@@ -122,16 +89,11 @@ function deviceSignInUrl(userCode: string, clientId: string | null): string {
 //
 // An account that already has the workspace goes to onboarding's project-only
 // mode (`?workspaceId=`), which asks for the one thing that is missing instead
-// of offering a second workspace nobody asked for.
+// of offering a second workspace nobody asked for. Both the need and the
+// destination come from lib/account-setup, which onboarding reads too — the two
+// pages disagreeing about what "set up" means is a loop, not a redirect.
 function deviceOnboardingUrl(need: SetupNeed, userCode: string, clientId: string | null): string {
-  const handBack = `callbackUrl=${encodeURIComponent(deviceReturnUrl(userCode, clientId))}`;
-  if (need.kind === "workspace") {
-    return `/onboarding?${handBack}`;
-  }
-  return (
-    `/onboarding?workspaceId=${encodeURIComponent(need.workspaceId)}` +
-    `&workspaceName=${encodeURIComponent(need.workspaceName)}&${handBack}`
-  );
+  return onboardingUrlForSetup(need, deviceReturnUrl(userCode, clientId));
 }
 
 function errorPhase(err: Parameters<typeof mapDeviceErrorMessage>[0]): Phase {

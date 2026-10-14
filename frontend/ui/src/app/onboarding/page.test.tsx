@@ -18,6 +18,13 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
+// Shaped like GET /api/workspaces answers it (see app/api/workspaces/route.ts).
+// `role` and `project_count` are what the handoff decision reads, so a stub
+// without them would prove nothing about the real payload.
+const READY_WORKSPACE = { id: "ws-existing", name: "Example", role: "ADMIN", project_count: 1 };
+const EMPTY_WORKSPACE = { id: "ws-empty", name: "Example", role: "ADMIN", project_count: 0 };
+const VIEWER_EMPTY_WORKSPACE = { ...EMPTY_WORKSPACE, role: "VIEWER" };
+
 function setParams(init: Record<string, string>) {
   mocks.params = new URLSearchParams(init);
 }
@@ -222,20 +229,77 @@ describe("OnboardingPage", () => {
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
-  it("hands an account that already owns a workspace straight back to the caller", async () => {
+  it("hands an account that already has a project straight back to the caller", async () => {
     // The Google button on /auth/sign-up routes through here, and better-auth
     // has no social sign-up to distinguish from social sign-in — so an existing
     // account, or an email account linked to the same Google identity, arrives
-    // on this page without being new. It owns the workspace the terminal was
-    // waiting for, so there is nothing to do but hand back.
+    // on this page without being new. It owns what the terminal was waiting
+    // for, so there is nothing to do but hand back.
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
-    mocks.getWorkspaces.mockResolvedValue([{ id: "ws-existing", name: "Example" }]);
+    mocks.getWorkspaces.mockResolvedValue([READY_WORKSPACE]);
     renderPage();
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234"));
     expect(screen.queryByRole("button", { name: "Create" })).toBeNull();
     expect(mocks.createWorkspace).not.toHaveBeenCalled();
     expect(mocks.createProject).not.toHaveBeenCalled();
+  });
+
+  it("shows the form to a viewer whose only workspace is empty, instead of bouncing back", async () => {
+    // The seam between this page and /device. /device sends this account here
+    // rather than to project-only mode because creating a project needs MEMBER
+    // or higher, so the workspace it already belongs to is no help. If this page
+    // then counts that same workspace as done, the two disagree and every
+    // "Continue setup" click lands the user straight back on /device: a loop
+    // with no form in it.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.getWorkspaces.mockResolvedValue([VIEWER_EMPTY_WORKSPACE]);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create" })).toBeDefined());
+    expect(mocks.push).not.toHaveBeenCalled();
+    // The workspace field is theirs to fill: the way out is a workspace of
+    // their own, not the read-only one they cannot add to.
+    expect(screen.getByPlaceholderText("Acme Inc")).toBeDefined();
+  });
+
+  it("asks a member with an empty workspace for the project alone, not a second workspace", async () => {
+    // Same missing project, different answer: this account can add one to the
+    // workspace it already has, so the page redirects itself into project-only
+    // mode — the destination /device uses for this case — and carries the
+    // waiting terminal along.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.getWorkspaces.mockResolvedValue([{ ...EMPTY_WORKSPACE, role: "MEMBER" }]);
+    renderPage();
+
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith(
+        `/onboarding?workspaceId=ws-empty&workspaceName=Example&callbackUrl=${encodeURIComponent(
+          "/device?user_code=ABCD1234",
+        )}`,
+      ),
+    );
+    // Nothing offers a duplicate workspace in the meantime.
+    expect(screen.queryByRole("button", { name: "Create" })).toBeNull();
+    expect(mocks.createWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("redirects to project-only mode with no callbackUrl when nobody is waiting", async () => {
+    // Same case arrived at directly rather than from a terminal: there is
+    // nothing to hand back to, so the URL says so instead of carrying an empty
+    // `callbackUrl=`. This page would survive one (`safeCallbackUrl` answers a
+    // blank value with its fallback, and `|| null` turns that back into "nobody
+    // waiting"), but the shared builder is also used by /device, and a caller
+    // that tests for the parameter's presence would read an empty one as a
+    // caller to return to.
+    mocks.getWorkspaces.mockResolvedValue([{ ...EMPTY_WORKSPACE, role: "MEMBER" }]);
+    renderPage();
+
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith(
+        "/onboarding?workspaceId=ws-empty&workspaceName=Example",
+      ),
+    );
   });
 
   it("does not let the previous account's cached list mark a new account onboarded", async () => {
@@ -247,10 +311,10 @@ describe("OnboardingPage", () => {
     const queryClient = makeQueryClient();
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
 
-    // Account A is onboarded, so its visit hands back and leaves its list in
-    // the cache.
+    // Account A is set up, so its visit hands back and leaves its list in the
+    // cache.
     signedInAs("user-a", "kai@example.com");
-    mocks.getWorkspaces.mockResolvedValue([{ id: "ws-a", name: "Example" }]);
+    mocks.getWorkspaces.mockResolvedValue([{ ...READY_WORKSPACE, id: "ws-a" }]);
     const first = renderPage(queryClient);
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234"));
     first.unmount();
@@ -265,15 +329,17 @@ describe("OnboardingPage", () => {
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
-  it("stays on the detectors step after the refetch reports the new workspace", async () => {
-    // Creating the workspace invalidates the very list this page gates itself
-    // on, so the refetch comes back non-empty — the account it just created is
-    // onboarded. Unless what this page created is excluded, the handoff effect
+  it("stays on the detectors step after the refetch reports the new project", async () => {
+    // Creating the workspace and project invalidates the very list this page
+    // gates itself on, so the refetch comes back describing an account that is
+    // now set up. Unless what this page created is excluded, the handoff effect
     // fires the moment that refetch lands and replaces the detectors step with
-    // a redirect to /workspaces.
+    // a redirect to /workspaces. The second value carries `project_count`, or
+    // the refetched account would read as unfinished and the test would pass
+    // without exercising anything.
     mocks.getWorkspaces
       .mockResolvedValueOnce([])
-      .mockResolvedValue([{ id: "ws-1", name: "Example" }]);
+      .mockResolvedValue([{ ...READY_WORKSPACE, id: "ws-1" }]);
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
     renderPage();
@@ -289,7 +355,7 @@ describe("OnboardingPage", () => {
   });
 
   it("sends an already-onboarded account with nobody waiting to its workspaces", async () => {
-    mocks.getWorkspaces.mockResolvedValue([{ id: "ws-existing", name: "Example" }]);
+    mocks.getWorkspaces.mockResolvedValue([READY_WORKSPACE]);
     renderPage();
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/workspaces"));

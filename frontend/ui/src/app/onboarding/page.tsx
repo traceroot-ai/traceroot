@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
 import { createWorkspace, createProject, getWorkspaces } from "@/lib/api";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
+import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
 import { Check } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { AddDetectorsStep } from "@/features/detectors/components/add-detectors-step";
@@ -78,10 +79,10 @@ function OnboardingContent() {
   // otherwise a crafted link sends a new user to `/` instead of their traces.
   const returnTo = callbackUrl === null ? null : safeCallbackUrl(callbackUrl, "") || null;
 
-  // An account that already owns a workspace has nothing to do on this page, and
-  // arriving here with one is not hypothetical. No caller can tell a brand-new
-  // account from an existing one at the point it decides where to send someone:
-  // better-auth has no separate social sign-up, so the Google button on
+  // An account that already has somewhere for traces to go has nothing to do on
+  // this page, and arriving here anyway is not hypothetical. No caller can tell a
+  // brand-new account from an existing one at the point it decides where to send
+  // someone: better-auth has no separate social sign-up, so the Google button on
   // /auth/sign-up is `signIn.social` either way, and with account linking
   // enabled for Google (see lib/auth.ts) it also answers for an existing *email*
   // account at the same address. Predicting newness there has been wrong twice.
@@ -89,7 +90,9 @@ function OnboardingContent() {
   //
   // Without this, an existing account that lands here is parked: the form's only
   // exit is creating a second workspace and project, and when a terminal is
-  // waiting on `returnTo` that duplicate is the only way back to it.
+  // waiting on `returnTo` that duplicate is the only way back to it. An account
+  // that is *part* way there — a workspace with no project in it — is why the
+  // check resolves three answers rather than a boolean.
   //
   // Project-only mode is the exception. `?workspaceId=` means "add a project to
   // this workspace I already own", so owning one is the precondition rather than
@@ -111,27 +114,51 @@ function OnboardingContent() {
     queryFn: getWorkspaces,
     enabled: !!userId && !isProjectOnlyMode,
   });
-  // `userId` is part of the condition and not just the query's gate: a
-  // signed-out visitor belongs in the sign-in branch below, which is the one
-  // that keeps a waiting terminal's `callbackUrl` alive across the round trip.
+  // What this account still needs, by the one predicate /device gates the
+  // terminal on (lib/account-setup). Asking the same question both places is the
+  // point: a *workspace* is not the bar, a project is, and when the two pages
+  // disagreed about that a read-only account bounced between them forever —
+  // /device sent it here because it cannot add a project to the workspace it
+  // belongs to, and here counted that same workspace as finished.
   //
-  // `createdProject` is in it because this page creates the very workspace the
-  // check looks for: the invalidation in `handleSubmit` refetches the list,
-  // which now has one, and without this a first-run account would be bounced
-  // off the detectors step it was just shown.
-  const alreadyOnboarded =
-    !!userId && !isProjectOnlyMode && !createdProject && (workspaces?.length ?? 0) > 0;
+  // `undefined` means there is no answer to act on yet: the list is still in
+  // flight, the lookup failed, this is project-only mode, or the form on this
+  // page has already done the work.
+  //
+  // `userId` is part of that guard and not just the query's gate: a signed-out
+  // visitor belongs in the sign-in branch below, which is the one that keeps a
+  // waiting terminal's `callbackUrl` alive across the round trip. And
+  // `createdProject` is in it because this page creates the very project the
+  // check looks for — the invalidation in `handleSubmit` refetches the list,
+  // which now has one, and without this a first-run account would be bounced off
+  // the detectors step it was just shown.
+  const setupNeed =
+    !!userId && !isProjectOnlyMode && !createdProject && workspaces
+      ? resolveSetupNeed(workspaces)
+      : undefined;
+  const setupComplete = setupNeed === null;
+  // An empty workspace this account may add to. The project form is the honest
+  // answer — the workspace exists, so offering a second one is not — and
+  // `?workspaceId=` is exactly where /device sends this case, so an account that
+  // walks in here directly ends up on the same screen. A URL rather than the
+  // need itself, because `resolveSetupNeed` returns a fresh object every render
+  // and an unstable dependency would re-push on each one.
+  const addProjectUrl =
+    setupNeed?.kind === "project" ? onboardingUrlForSetup(setupNeed, returnTo) : null;
 
   useEffect(() => {
-    if (!alreadyOnboarded) {
+    if (setupComplete) {
+      // Hand back to whatever is waiting, exactly as a completed form would — a
+      // terminal blocked on the device approval cannot tell the two apart, and
+      // it only ever needed a project to exist. With nobody waiting, the
+      // workspace list is where a set-up account belongs.
+      router.push(returnTo ?? "/workspaces");
       return;
     }
-    // Hand back to whatever is waiting, exactly as a completed form would — a
-    // terminal blocked on the device approval cannot tell the two apart, and it
-    // only ever needed the workspace to exist. With nobody waiting, the
-    // workspace list is where an onboarded account belongs.
-    router.push(returnTo ?? "/workspaces");
-  }, [alreadyOnboarded, returnTo, router]);
+    if (addProjectUrl) {
+      router.push(addProjectUrl);
+    }
+  }, [setupComplete, addProjectUrl, returnTo, router]);
 
   const defaultWorkspace = getDefaultWorkspaceName(session?.user?.email);
 
@@ -205,13 +232,14 @@ function OnboardingContent() {
     }
   }
 
-  // The form is withheld until the workspace question is settled, not just
-  // until the session is: rendering it early lets a fast submit create the
-  // duplicate workspace the check above exists to prevent. A failed check
-  // leaves `workspaces` undefined and falls through to the form on purpose — a
-  // duplicate workspace is recoverable, whereas a brand-new account that cannot
-  // reach this form at all has no way to finish signing up.
-  if (isPending || workspacesLoading || alreadyOnboarded) {
+  // The form is withheld until the setup question is settled, not just until the
+  // session is: rendering it early lets a fast submit create the duplicate
+  // workspace the check above exists to prevent — which is also why a pending
+  // redirect into project-only mode withholds it. A failed check leaves
+  // `workspaces` undefined and falls through to the form on purpose: a duplicate
+  // workspace is recoverable, whereas a brand-new account that cannot reach this
+  // form at all has no way to finish signing up.
+  if (isPending || workspacesLoading || setupComplete || addProjectUrl) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[13px] text-muted-foreground">Loading...</p>
