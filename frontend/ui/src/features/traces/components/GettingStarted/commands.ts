@@ -120,9 +120,14 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
     // parsed alone — which also makes that case answerable instead of unknown.
     api = new URL(input.apiUrl, app).origin;
   } catch {
-    // An API URL that will not parse even against an absolute base says nothing
-    // about where the API is. The app's own origin is the only claim left.
-    api = app;
+    // Not reached by a relative or empty value — those resolve against the base
+    // — so this is a value that is malformed outright: `http://`, `http://[`,
+    // `//`, `http://:8000`. That says nothing about where the API is, and the
+    // app's origin is not a stand-in for it: on a split deployment it would
+    // point the CLI's API traffic at the UI host. Saying nothing is the only
+    // honest answer, and it leaves the operator a `.env` to fix rather than a
+    // command that half works.
+    return { host: null, authHost: null };
   }
 
   // Either both flags are renderable or neither is. A `--auth-host` beside a

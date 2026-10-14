@@ -76,6 +76,19 @@ describe("cliHostFlags", () => {
     }
   });
 
+  it.each(["http://", "http://[", "//", "http://:8000", "http://%zz.com"])(
+    "says nothing when the API URL is malformed outright (%s)",
+    (apiUrl) => {
+      // A relative or empty value resolves against the base, so reaching here
+      // means the value is broken. Substituting the app origin would point API
+      // traffic at the UI host on a split deployment.
+      expect(cliHostFlags({ apiUrl, appUrl: "http://localhost:3000" })).toEqual({
+        host: null,
+        authHost: null,
+      });
+    },
+  );
+
   it("drops both flags rather than render an origin a shell would mangle", () => {
     // A hostname can carry a quote (`http://%27.com` parses to `http://'.com`),
     // which would escape the quoting around it. Half a deployment is worse than
