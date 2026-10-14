@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { getWorkspaces } from "@/lib/api/workspaces";
+import type { Workspace } from "@/types/api";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { formatUserCode } from "@/lib/device-user-code";
 import { DEVICE_CLIENT_IDS, DEVICE_CLIENT_NAMES } from "@/lib/auth-clients";
@@ -39,9 +40,45 @@ function normalizeCodeInput(raw: string): string {
   return raw.replace(/-/g, "").trim().toUpperCase();
 }
 
+// What this account still has to set up before the terminal can be released.
+// `null` from `resolveSetupNeed` means nothing does.
+type SetupNeed =
+  | { kind: "workspace" }
+  | { kind: "project"; workspaceId: string; workspaceName: string };
+
+// Creating a project needs MEMBER or higher — see the POST handler in
+// app/api/workspaces/[workspaceId]/projects/route.ts — so a VIEWER's empty
+// workspace is not somewhere this flow can put one.
+const PROJECT_CREATE_ROLES: ReadonlySet<Workspace["role"]> = new Set(["ADMIN", "MEMBER"]);
+
+// What the terminal needs on the other side of approval is a *project*: the CLI
+// resolves a workspace and then a project, and traces are written to the latter.
+// A workspace on its own is not enough, and an empty one is not hypothetical —
+// it is the state of an account whose last project was deleted, and of one whose
+// workspace was created without finishing onboarding.
+//
+// Returns what onboarding still has to do, or null when consent can go ahead.
+function resolveSetupNeed(workspaces: Workspace[]): SetupNeed | null {
+  // `project_count` is optional on the type, so a payload without it reads as
+  // empty. That is the deliberate direction: a needless trip through onboarding
+  // costs a click, whereas releasing the terminal to an account with no project
+  // is the dead end this check exists to prevent.
+  if (workspaces.some((workspace) => (workspace.project_count ?? 0) > 0)) {
+    return null;
+  }
+  const addable = workspaces.find((workspace) => PROJECT_CREATE_ROLES.has(workspace.role));
+  if (!addable) {
+    return { kind: "workspace" };
+  }
+  return { kind: "project", workspaceId: addable.id, workspaceName: addable.name };
+}
+
 type Phase =
   | { kind: "entry" }
   | { kind: "verifying" }
+  // Signed in, but the account cannot serve the CLI yet. Approval is withheld;
+  // denial is not (see SetupRequired).
+  | { kind: "setup"; need: SetupNeed }
   | { kind: "consent" }
   | { kind: "approved" }
   | { kind: "denied" }
@@ -71,8 +108,8 @@ function deviceSignInUrl(userCode: string, clientId: string | null): string {
 
 // Onboarding, returning here afterwards.
 //
-// This is the only place the workspace requirement can be enforced for every
-// way in. Routing sign-*up* through onboarding is not enough: this page sends a
+// This is the only place the project requirement can be enforced for every way
+// in. Routing sign-*up* through onboarding is not enough: this page sends a
 // signed-out visitor to sign-*in*, and better-auth has no separate social
 // sign-up — `signIn.social` creates the account on first use, which
 // `signupProvider()` in lib/signup/on-user-created.ts classifies as a signup by
@@ -80,9 +117,21 @@ function deviceSignInUrl(userCode: string, clientId: string | null): string {
 // hands people to *is* the default new-account path, and it used to arrive back
 // here owning nothing. Checking the account instead of trusting the route it
 // took covers sign-up, sign-in, social and an already-authenticated session
-// alike.
-function deviceOnboardingUrl(userCode: string, clientId: string | null): string {
-  return `/onboarding?callbackUrl=${encodeURIComponent(deviceReturnUrl(userCode, clientId))}`;
+// alike — and it is also the only way to catch an *existing* account that owns
+// a workspace with no project in it.
+//
+// An account that already has the workspace goes to onboarding's project-only
+// mode (`?workspaceId=`), which asks for the one thing that is missing instead
+// of offering a second workspace nobody asked for.
+function deviceOnboardingUrl(need: SetupNeed, userCode: string, clientId: string | null): string {
+  const handBack = `callbackUrl=${encodeURIComponent(deviceReturnUrl(userCode, clientId))}`;
+  if (need.kind === "workspace") {
+    return `/onboarding?${handBack}`;
+  }
+  return (
+    `/onboarding?workspaceId=${encodeURIComponent(need.workspaceId)}` +
+    `&workspaceName=${encodeURIComponent(need.workspaceName)}&${handBack}`
+  );
 }
 
 function errorPhase(err: Parameters<typeof mapDeviceErrorMessage>[0]): Phase {
@@ -149,10 +198,10 @@ function DeviceContent() {
       return;
     }
 
-    // Signed in, but the terminal must not be released to an account that owns
-    // nothing: the CLI's next move is to resolve a workspace and a project, and
-    // it has neither a way nor a remit to create them. Onboarding comes first
-    // and hands the browser back here.
+    // Signed in, but the terminal must not be released to an account the CLI
+    // cannot use: its next move is to resolve a workspace and a project, and it
+    // has neither a way nor a remit to create them. Onboarding comes first and
+    // hands the browser back here.
     //
     // Listing workspaces does not claim the code, so this is safe to do before
     // consent — unlike verifying, below.
@@ -178,8 +227,13 @@ function DeviceContent() {
       if (cancelled) {
         return;
       }
-      if (workspaces.length === 0) {
-        router.push(deviceOnboardingUrl(activeCode, clientId));
+      const need = resolveSetupNeed(workspaces);
+      if (need) {
+        // Shown rather than redirected to: a device request nobody started must
+        // stay refusable, and an auto-redirect takes Deny away from the one
+        // person who should be able to use it. The screen gates approval and
+        // keeps denial — and switching account — in reach.
+        setPhase({ kind: "setup", need });
         return;
       }
       // Consent WITHOUT verifying yet. Verifying would claim the code for this
@@ -303,6 +357,19 @@ function DeviceContent() {
             </div>
           )}
 
+          {phase.kind === "setup" && activeCode && (
+            <SetupRequired
+              clientName={resolveClientDisplayName(clientId)}
+              email={sessionData?.user?.email ?? null}
+              code={activeCode}
+              needsWorkspace={phase.need.kind === "workspace"}
+              pending={actionPending}
+              onContinue={() => router.push(deviceOnboardingUrl(phase.need, activeCode, clientId))}
+              onDeny={handleDeny}
+              onSwitchAccount={handleSwitchAccount}
+            />
+          )}
+
           {phase.kind === "consent" && activeCode && (
             <Consent
               clientName={resolveClientDisplayName(clientId)}
@@ -374,6 +441,43 @@ function CodeEntry({ value, onChange, onSubmit, error }: CodeEntryProps) {
   );
 }
 
+type AccountLineProps = {
+  email: string | null;
+  pending: boolean;
+  onSwitchAccount: () => void;
+};
+
+// Which account this is about, and the way out of it. Shared by consent and the
+// setup screen so the two cannot drift: being signed in as the wrong account is
+// the likeliest reason an account the CLI cannot use is looking at either one.
+function AccountLine({ email, pending, onSwitchAccount }: AccountLineProps) {
+  if (!email) {
+    return null;
+  }
+  return (
+    <div className="space-y-0.5 text-[12px] text-muted-foreground">
+      <p>as {email}</p>
+      <button
+        type="button"
+        onClick={onSwitchAccount}
+        disabled={pending}
+        className="underline hover:text-foreground disabled:opacity-50"
+      >
+        Not you? Sign out
+      </button>
+    </div>
+  );
+}
+
+function CodeConfirm({ code }: { code: string }) {
+  return (
+    <div className="border bg-muted/50 px-3 py-2 text-center">
+      <p className="text-[11px] uppercase text-muted-foreground">Confirm this code</p>
+      <p className="text-[18px] font-semibold tracking-widest">{formatUserCode(code)}</p>
+    </div>
+  );
+}
+
 type ConsentProps = {
   clientName: string;
   email: string | null;
@@ -399,25 +503,10 @@ function Consent({
         <p className="text-[13px]">
           <span className="font-medium">{clientName}</span> wants to sign in
         </p>
-        {email && (
-          <div className="space-y-0.5 text-[12px] text-muted-foreground">
-            <p>as {email}</p>
-            <button
-              type="button"
-              onClick={onSwitchAccount}
-              disabled={pending}
-              className="underline hover:text-foreground disabled:opacity-50"
-            >
-              Not you? Sign out
-            </button>
-          </div>
-        )}
+        <AccountLine email={email} pending={pending} onSwitchAccount={onSwitchAccount} />
       </div>
 
-      <div className="border bg-muted/50 px-3 py-2 text-center">
-        <p className="text-[11px] uppercase text-muted-foreground">Confirm this code</p>
-        <p className="text-[18px] font-semibold tracking-widest">{formatUserCode(code)}</p>
-      </div>
+      <CodeConfirm code={code} />
 
       <p className="text-[12px] text-muted-foreground">
         Approving signs {clientName} in to your TraceRoot account. It stays signed in until you
@@ -445,6 +534,79 @@ function Consent({
         </Button>
         <Button size="sm" className="h-8 flex-1 text-[13px]" onClick={onApprove} disabled={pending}>
           {pending ? "Working..." : "Approve"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+type SetupRequiredProps = {
+  clientName: string;
+  email: string | null;
+  code: string;
+  needsWorkspace: boolean;
+  pending: boolean;
+  onContinue: () => void;
+  onDeny: () => void;
+  onSwitchAccount: () => void;
+};
+
+// Signed in, with nowhere for the CLI to send traces. Approval is the one thing
+// this screen withholds: the request is still refusable, and the account is
+// still switchable, because an unsolicited device request that can only be
+// waited out is worse for the person looking at it than one extra click is for
+// the person who really is setting up a terminal.
+function SetupRequired({
+  clientName,
+  email,
+  code,
+  needsWorkspace,
+  pending,
+  onContinue,
+  onDeny,
+  onSwitchAccount,
+}: SetupRequiredProps) {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1 text-center">
+        <p className="text-[13px]">
+          <span className="font-medium">{clientName}</span> wants to sign in
+        </p>
+        <AccountLine email={email} pending={pending} onSwitchAccount={onSwitchAccount} />
+      </div>
+
+      <CodeConfirm code={code} />
+
+      <p className="text-[12px] text-muted-foreground">
+        {needsWorkspace
+          ? "This account has no workspace yet, so there is nowhere for traces to go."
+          : "This account has no project yet, so there is nowhere for traces to go."}{" "}
+        Finish setting up first — {clientName} asks for a project the moment it is signed in, and
+        the terminal is waiting on this page.
+      </p>
+
+      <p className="border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+        Only continue for a code you generated yourself just now. If you didn&apos;t start a
+        traceroot login, deny this.
+      </p>
+
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 flex-1 text-[13px]"
+          onClick={onDeny}
+          disabled={pending}
+        >
+          Deny
+        </Button>
+        <Button
+          size="sm"
+          className="h-8 flex-1 text-[13px]"
+          onClick={onContinue}
+          disabled={pending}
+        >
+          Continue setup
         </Button>
       </div>
     </div>

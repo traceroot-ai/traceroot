@@ -11,11 +11,17 @@ const mocks = vi.hoisted(() => ({
   useSession: vi.fn(),
   signOut: vi.fn(),
   device: Object.assign(vi.fn(), { approve: vi.fn(), deny: vi.fn() }),
-  // One workspace by default: these tests are about the consent screen, and
-  // consent is only reached by an account that owns one. The empty case has
-  // tests of its own below.
-  getWorkspaces: vi.fn(async () => [{ id: "ws-1", name: "Acme" }]),
+  // One workspace with a project in it by default: these tests are about the
+  // consent screen, and consent is only reached by an account that has
+  // somewhere for traces to go. The empty cases have tests of their own below.
+  getWorkspaces: vi.fn(async () => [READY_WORKSPACE]),
 }));
+
+// Shaped like GET /api/workspaces answers it (see app/api/workspaces/route.ts):
+// `role` and `project_count` are what the gate reads, so a stub without them
+// would prove nothing about the real payload.
+const READY_WORKSPACE = { id: "ws-1", name: "Acme", role: "ADMIN", project_count: 1 };
+const EMPTY_WORKSPACE = { id: "ws-empty", name: "Acme", role: "ADMIN", project_count: 0 };
 
 let searchParams = new URLSearchParams();
 
@@ -60,7 +66,7 @@ afterEach(() => {
   mocks.device.mockReset();
   mocks.device.approve.mockReset();
   mocks.getWorkspaces.mockReset();
-  mocks.getWorkspaces.mockResolvedValue([{ id: "ws-1", name: "Acme" }]);
+  mocks.getWorkspaces.mockResolvedValue([READY_WORKSPACE]);
   mocks.device.deny.mockReset();
   mocks.signOut.mockReset();
   searchParams = new URLSearchParams();
@@ -130,7 +136,7 @@ describe("DeviceClient", () => {
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
 
-  it("sends an account with no workspace to onboarding instead of consent", async () => {
+  it("withholds approval from an account with no workspace and offers onboarding", async () => {
     // The terminal must not be released to an account that owns nothing: the
     // CLI's next move is to resolve a workspace and a project, and it can do
     // neither. Checked here rather than on the route in, because this page
@@ -144,19 +150,93 @@ describe("DeviceClient", () => {
     render(<DeviceClient />);
 
     await waitFor(() =>
-      expect(mocks.push).toHaveBeenCalledWith(
-        // The code is normalised on the way in, so the round trip carries the
-        // canonical form rather than whatever case the URL arrived in.
-        `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234&client_id=traceroot-cli")}`,
-      ),
+      expect(screen.getByRole("button", { name: "Continue setup" })).toBeDefined(),
     );
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    // Nothing is navigated for them: the screen is reached without a redirect,
+    // which is what leaves Deny reachable (see the denial test below).
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
+
+    // The code is normalised on the way in, so the round trip carries the
+    // canonical form rather than whatever case the URL arrived in.
+    expect(mocks.push).toHaveBeenCalledWith(
+      `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234&client_id=traceroot-cli")}`,
+    );
   });
 
-  it("reaches consent when the account already owns a workspace", async () => {
+  it("can still deny from the setup screen, so an unsolicited request is refusable", async () => {
+    // The person who did not start this flow is exactly the person who owns
+    // nothing yet. Gating approval on setup must not take their refusal away
+    // and leave the request pending until it expires.
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn("new@example.com");
+    mocks.getWorkspaces.mockResolvedValue([]);
+    mocks.device.mockResolvedValue({
+      data: { user_code: "ABCD1234", status: "pending" },
+      error: null,
+    });
+    mocks.device.deny.mockResolvedValue({ data: { success: true }, error: null });
+
+    render(<DeviceClient />);
+    await waitFor(() => screen.getByRole("button", { name: "Deny" }));
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+
+    await waitFor(() => expect(screen.getByText("Denied")).toBeDefined());
+    expect(mocks.device.deny).toHaveBeenCalledWith({ userCode: "ABCD1234" });
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("sends an account whose workspace has no project to project-only onboarding", async () => {
+    // A workspace is not what the CLI needs — a project is. An account that
+    // deleted its last project owns a workspace and still has nowhere for
+    // traces to go, so approving would hand the terminal the same dead end the
+    // workspace check was added to prevent. `?workspaceId=` asks for the one
+    // thing that is missing instead of a second workspace.
     setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
     signedIn("kai@example.com");
-    mocks.getWorkspaces.mockResolvedValue([{ id: "ws-1", name: "Acme" }]);
+    mocks.getWorkspaces.mockResolvedValue([EMPTY_WORKSPACE]);
+
+    render(<DeviceClient />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Continue setup" })).toBeDefined(),
+    );
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
+
+    expect(mocks.push).toHaveBeenCalledWith(
+      `/onboarding?workspaceId=ws-empty&workspaceName=Acme&callbackUrl=${encodeURIComponent(
+        "/device?user_code=ABCD1234&client_id=traceroot-cli",
+      )}`,
+    );
+  });
+
+  it("offers a workspace instead when the only empty one is read-only to this account", async () => {
+    // Creating a project needs MEMBER or higher, so routing a VIEWER into
+    // project-only onboarding would hand them a form whose submit is a 403.
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn("viewer@example.com");
+    mocks.getWorkspaces.mockResolvedValue([{ ...EMPTY_WORKSPACE, role: "VIEWER" }]);
+
+    render(<DeviceClient />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Continue setup" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
+
+    expect(mocks.push).toHaveBeenCalledWith(
+      `/onboarding?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234&client_id=traceroot-cli")}`,
+    );
+  });
+
+  it("reaches consent when any workspace the account belongs to has a project", async () => {
+    // One usable project is the whole requirement; an empty workspace sitting
+    // next to it is not a reason to stop.
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedIn("kai@example.com");
+    mocks.getWorkspaces.mockResolvedValue([EMPTY_WORKSPACE, READY_WORKSPACE]);
 
     render(<DeviceClient />);
 

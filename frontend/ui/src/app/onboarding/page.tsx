@@ -95,16 +95,32 @@ function OnboardingContent() {
   // this workspace I already own", so owning one is the precondition rather than
   // a reason to leave — and the query stays off, because react-query would still
   // hand back a cached list for this key with it disabled.
+  //
+  // The key carries the account id, because the decision below is only sound if
+  // the list belongs to the account making it. One QueryClient lives as long as
+  // the tab (see app/providers.tsx) and survives a sign-out that stays inside
+  // the app — /device's "Not you? Sign out" is exactly that — so a bare
+  // "workspaces" entry would let the previous account's list answer here and
+  // mark a brand-new account onboarded before its own request even finished.
+  // Writers elsewhere still reach this entry: react-query matches query keys by
+  // prefix, so `invalidateQueries({ queryKey: ["workspaces"] })` covers every
+  // per-account key under it.
+  const userId = session?.user?.id;
   const { data: workspaces, isLoading: workspacesLoading } = useQuery({
-    queryKey: ["workspaces"],
+    queryKey: ["workspaces", userId],
     queryFn: getWorkspaces,
-    enabled: !!session && !isProjectOnlyMode,
+    enabled: !!userId && !isProjectOnlyMode,
   });
-  // `session` is part of the condition and not just the query's gate: a cached
-  // list outlives the session it was fetched for, and a signed-out visitor
-  // belongs in the sign-in branch below — which is the one that keeps a waiting
-  // terminal's `callbackUrl` alive across the round trip.
-  const alreadyOnboarded = !!session && !isProjectOnlyMode && (workspaces?.length ?? 0) > 0;
+  // `userId` is part of the condition and not just the query's gate: a
+  // signed-out visitor belongs in the sign-in branch below, which is the one
+  // that keeps a waiting terminal's `callbackUrl` alive across the round trip.
+  //
+  // `createdProject` is in it because this page creates the very workspace the
+  // check looks for: the invalidation in `handleSubmit` refetches the list,
+  // which now has one, and without this a first-run account would be bounced
+  // off the detectors step it was just shown.
+  const alreadyOnboarded =
+    !!userId && !isProjectOnlyMode && !createdProject && (workspaces?.length ?? 0) > 0;
 
   useEffect(() => {
     if (!alreadyOnboarded) {

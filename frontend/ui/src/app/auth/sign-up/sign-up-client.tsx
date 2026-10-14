@@ -48,10 +48,13 @@ type SignUpClientProps = {
 // an existing account straight in, and account linking makes it answer for an
 // existing email account at the same address too. Those land on onboarding
 // without being new. /onboarding and /device each check the account rather than
-// the route, so a wrong guess here costs a redirect and never a second
-// workspace. What it buys is two fewer navigations on the common path: a genuine
-// new account goes straight to the form instead of touching /device first only
-// to be sent back.
+// the route, so a wrong guess here normally costs a redirect rather than a
+// second workspace — normally, because /onboarding deliberately falls through to
+// its form when that lookup *fails* (a new account that cannot reach the form
+// could never finish signing up), and a wrong guess plus a failed lookup is the
+// one case where an existing account is offered the duplicate. What the guess
+// buys is two fewer navigations on the common path: a genuine new account goes
+// straight to the form instead of touching /device first only to be sent back.
 function postSignUpDestination(callbackUrl: string): string {
   // Match the /device path exactly, not by prefix: a startsWith check would also
   // catch an unrelated future route like /device-settings and wrongly funnel a

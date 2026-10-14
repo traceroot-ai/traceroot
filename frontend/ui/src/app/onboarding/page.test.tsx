@@ -9,10 +9,21 @@ const mocks = vi.hoisted(() => ({
   createProject: vi.fn(),
   getWorkspaces: vi.fn(),
   params: new URLSearchParams(),
+  // Carries an id, because the page caches the workspace list per account: a
+  // session without one would key every account's list together, which is the
+  // bug these tests would then be blind to.
+  session: {
+    data: { user: { id: "user-1", email: "kai@example.com" } },
+    isPending: false,
+  },
 }));
 
 function setParams(init: Record<string, string>) {
   mocks.params = new URLSearchParams(init);
+}
+
+function signedInAs(id: string, email: string) {
+  mocks.session = { data: { user: { id, email } }, isPending: false };
 }
 
 vi.mock("next/navigation", () => ({
@@ -21,10 +32,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
-    useSession: () => ({
-      data: { user: { email: "kai@example.com" } },
-      isPending: false,
-    }),
+    useSession: () => mocks.session,
   },
 }));
 vi.mock("@/components/layout/app-layout", () => ({
@@ -54,10 +62,15 @@ vi.mock("@/features/detectors/components/add-detectors-step", () => ({
 
 import OnboardingPage from "./page";
 
-function renderPage() {
-  const queryClient = new QueryClient({
+function makeQueryClient() {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+}
+
+// `queryClient` is a parameter so one test can mount the page twice against the
+// same cache, which is what an account switch inside the app looks like.
+function renderPage(queryClient: QueryClient = makeQueryClient()) {
   return render(
     <QueryClientProvider client={queryClient}>
       <OnboardingPage />
@@ -101,6 +114,7 @@ afterEach(() => {
   mocks.createProject.mockReset();
   mocks.getWorkspaces.mockReset();
   mocks.params = new URLSearchParams();
+  signedInAs("user-1", "kai@example.com");
 });
 
 describe("OnboardingPage", () => {
@@ -222,6 +236,56 @@ describe("OnboardingPage", () => {
     expect(screen.queryByRole("button", { name: "Create" })).toBeNull();
     expect(mocks.createWorkspace).not.toHaveBeenCalled();
     expect(mocks.createProject).not.toHaveBeenCalled();
+  });
+
+  it("does not let the previous account's cached list mark a new account onboarded", async () => {
+    // Signing out from /device's "Not you? Sign out" stays inside the app, so
+    // the QueryClient — and everything in it — survives the account switch. A
+    // list cached under a bare "workspaces" key would then answer for the next
+    // account: a brand-new one gets handed straight back to the terminal that
+    // is waiting for the workspace it still does not have.
+    const queryClient = makeQueryClient();
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+
+    // Account A is onboarded, so its visit hands back and leaves its list in
+    // the cache.
+    signedInAs("user-a", "kai@example.com");
+    mocks.getWorkspaces.mockResolvedValue([{ id: "ws-a", name: "Example" }]);
+    const first = renderPage(queryClient);
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234"));
+    first.unmount();
+
+    // Account B in the same tab owns nothing.
+    mocks.push.mockReset();
+    signedInAs("user-b", "new@example.com");
+    mocks.getWorkspaces.mockResolvedValue([]);
+    renderPage(queryClient);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create" })).toBeDefined());
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("stays on the detectors step after the refetch reports the new workspace", async () => {
+    // Creating the workspace invalidates the very list this page gates itself
+    // on, so the refetch comes back non-empty — the account it just created is
+    // onboarded. Unless what this page created is excluded, the handoff effect
+    // fires the moment that refetch lands and replaces the detectors step with
+    // a redirect to /workspaces.
+    mocks.getWorkspaces
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ id: "ws-1", name: "Example" }]);
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+
+    await completeStepOne();
+
+    // Two fetches is also the proof that invalidating the shared "workspaces"
+    // key still reaches the per-account entry this page reads: if the two
+    // stopped matching, the refetch would never happen and this stays at one.
+    await waitFor(() => expect(mocks.getWorkspaces).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("add-detectors-step")).toBeDefined();
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("sends an already-onboarded account with nobody waiting to its workspaces", async () => {
