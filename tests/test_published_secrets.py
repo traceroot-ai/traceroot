@@ -265,14 +265,16 @@ def test_env_stays_private_when_secret_generation_fails(tmp_path):
     assert not mode & (stat.S_IRGRP | stat.S_IROTH), f"mode is {mode:o}"
 
 
-def test_a_planted_temp_symlink_cannot_capture_the_secrets(tmp_path):
-    """Shell redirection follows a symlink, and umask does not protect a target
-    that already exists.
+def test_a_symlink_at_the_old_fixed_temp_name_is_never_written_through(tmp_path):
+    """A regression guard for the fixed `.env.tmp` this recipe used to write.
 
-    Anyone able to write the checkout could pre-create the rewrite's temp file
-    as a symlink to a file they own, and every generated secret would be written
-    through it -- .env ending up mode 0600 says nothing, because the bytes went
-    somewhere else first.
+    Shell redirection follows a symlink and umask does not protect a target that
+    already exists, so anyone able to write the checkout could pre-create that
+    path as a symlink to a file they own and every generated secret went through
+    it -- .env ending up mode 0600 says nothing, because the bytes went
+    somewhere else first. The recipe now asks mktemp for the name, so this
+    guards only against going back to a name an outsider can predict; the test
+    below is the one that holds whatever name is used.
     """
     (tmp_path / ".env.example").write_text("INTERNAL_API_SECRET=\n")
     (tmp_path / ".env").write_text("INTERNAL_API_SECRET=\n")
@@ -288,6 +290,56 @@ def test_a_planted_temp_symlink_cannot_capture_the_secrets(tmp_path):
     assert len(_values(env_path)["INTERNAL_API_SECRET"]) == 64
     mode = stat.S_IMODE(os.stat(env_path).st_mode)
     assert not mode & (stat.S_IRGRP | stat.S_IROTH), f"mode is {mode:o}"
+
+
+def test_no_generated_secret_is_left_anywhere_but_env(tmp_path):
+    """The property that holds whatever the temp file is called.
+
+    A name-specific test cannot cover this: the rewrite target is now whatever
+    mktemp returns, which is the point -- an outsider cannot pre-plant it. So
+    assert the invariant instead. Every generated secret must end up in .env and
+    nowhere else under the checkout, which fails for any implementation that
+    writes through a planted symlink, leaves its temp file behind, or picks a
+    predictable name an attacker captured.
+    """
+    (tmp_path / ".env.example").write_text(
+        "INTERNAL_API_SECRET=\nBETTER_AUTH_SECRET=\nSQL_GATEWAY_BOOTSTRAP_PASSWORD=\n"
+    )
+    (tmp_path / ".env").write_text(
+        "INTERNAL_API_SECRET=\nBETTER_AUTH_SECRET=\nSQL_GATEWAY_BOOTSTRAP_PASSWORD=\n"
+    )
+    # Plant the predictable candidates an earlier implementation would have used.
+    for name in [".env.tmp", f".env.tmp.{os.getpid()}"]:
+        (tmp_path / f"capture-{name}").write_text("")
+        (tmp_path / name).symlink_to(tmp_path / f"capture-{name}")
+
+    _run_env_secrets(tmp_path)
+
+    env_path = tmp_path / ".env"
+    secrets = set(_values(env_path).values())
+    assert len(secrets) == 3, f"expected three generated secrets, got {secrets}"
+    assert all(len(v) == 64 for v in secrets), secrets
+
+    leaked = []
+    for path in tmp_path.rglob("*"):
+        if path == env_path or path.is_symlink() or not path.is_file():
+            continue
+        try:
+            body = path.read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for secret in secrets:
+            if secret in body:
+                leaked.append(str(path.relative_to(tmp_path)))
+    assert not leaked, f"a generated secret reached {leaked}"
+
+    assert not env_path.is_symlink(), ".env must not be left as a symlink"
+    mode = stat.S_IMODE(os.stat(env_path).st_mode)
+    assert not mode & (stat.S_IRGRP | stat.S_IROTH), f"mode is {mode:o}"
+    strays = [
+        p.name for p in tmp_path.iterdir() if p.name.startswith(".env.tmp") and not p.is_symlink()
+    ]
+    assert not strays, f"temp files left behind: {strays}"
 
 
 def _openssl_emitting(tmp_path: Path, value: str) -> Path:
