@@ -122,6 +122,28 @@ describe("PostHogIdentifier", () => {
     expect(document.cookie).not.toContain(ATTRIBUTION_COOKIE);
   });
 
+  it.each(["anonymous", "identified"])(
+    "clears opted-out campaign data without a session and preserves reset behavior (%s)",
+    (state) => {
+      document.cookie = `${ATTRIBUTION_COOKIE}=${encodeURIComponent(
+        JSON.stringify({ v: 1, capturedAt: Date.now(), utm: { utm_source: "github" } }),
+      )}; Path=/`;
+      posthog.has_opted_out_capturing.mockReturnValue(true);
+      posthog.get_property.mockReturnValue(state);
+      useSession.mockReturnValue({ data: null, isPending: false });
+      const { rerender } = render(<PostHogIdentifier />);
+
+      expect(document.cookie).not.toContain(ATTRIBUTION_COOKIE);
+      expect(posthog.identify).not.toHaveBeenCalled();
+      expect(posthog.reset).toHaveBeenCalledTimes(state === "identified" ? 1 : 0);
+
+      posthog.has_opted_out_capturing.mockReturnValue(false);
+      useSession.mockReturnValue({ data: { user, session: {} }, isPending: false });
+      rerender(<PostHogIdentifier />);
+      expect(posthog.identify).toHaveBeenCalledWith("u1", { email: user.email, name: user.name });
+    },
+  );
+
   it("keeps identification working when cookie access is blocked", () => {
     vi.spyOn(document, "cookie", "get").mockImplementation(() => {
       throw new Error("blocked");

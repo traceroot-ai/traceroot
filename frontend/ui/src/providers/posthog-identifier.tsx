@@ -15,6 +15,8 @@ export function PostHogIdentifier() {
 
   useEffect(() => {
     if (!posthog || isPending) return;
+    const optedOut = posthog.has_opted_out_capturing();
+    if (optedOut) clearBrowserAttribution();
     if (!session?.user) {
       if (posthog.get_property("$user_state") === "identified") {
         posthog.reset();
@@ -22,10 +24,7 @@ export function PostHogIdentifier() {
       return;
     }
     if (session.session?.impersonatedBy) return;
-    if (posthog.has_opted_out_capturing()) {
-      clearBrowserAttribution();
-      return;
-    }
+    if (optedOut) return;
     posthog.identify(session.user.id, {
       email: session.user.email,
       name: session.user.name,
