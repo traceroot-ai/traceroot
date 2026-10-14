@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   search: "",
   useDetectorList: vi.fn(),
+  clampToTotal: vi.fn(),
   signalCounts: {
     data: { counts: { "det-1": 2 } } as { counts: Record<string, number> } | undefined,
   },
@@ -21,13 +22,21 @@ vi.mock("next/navigation", () => ({
 // Controlled list state so the test asserts the exact range carried into the URL.
 vi.mock("@/lib/hooks/use-list-page-state", () => ({
   useListPageState: () => ({
-    state: { dateFilter: { id: "7d" }, customStartDate: null, customEndDate: null, keyword: "" },
+    state: {
+      page: 1,
+      limit: 50,
+      dateFilter: { id: "7d" },
+      customStartDate: null,
+      customEndDate: null,
+      keyword: "",
+    },
     queryOptions: { page: 1, limit: 50 },
     updateDateFilter: vi.fn(),
     updateCustomRange: vi.fn(),
     updateKeyword: vi.fn(),
     updateLimit: vi.fn(),
     goToPage: vi.fn(),
+    clampToTotal: mocks.clampToTotal,
   }),
 }));
 
@@ -123,7 +132,11 @@ vi.mock("@/lib/hooks/use-retention", () => ({
 vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/components/search-filter-bar", () => ({ SearchFilterBar: () => null }));
-vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
+vi.mock("@/components/list-pagination", () => ({
+  ListPagination: ({ page, limit, total }: { page: number; limit: number; total: number }) => (
+    <div data-testid="pager">{`page ${page} limit ${limit} total ${total}`}</div>
+  ),
+}));
 vi.mock("@/features/detectors/components/delete-detector-dialog", () => ({
   DeleteDetectorDialog: () => null,
 }));
@@ -141,6 +154,7 @@ afterEach(() => {
   mocks.useDetectorList.mockReset();
   mocks.useDetectorList.mockReturnValue(defaultDetectorList);
   mocks.signalCounts = { data: { counts: { "det-1": 2 } } };
+  mocks.clampToTotal.mockClear();
 });
 
 describe("DetectorsPage", () => {
@@ -275,5 +289,35 @@ describe("DetectorsPage", () => {
 
     const heading = screen.getByText("No detectors yet");
     expect(heading.parentElement?.querySelector("svg")).toBeTruthy();
+  });
+
+  it("drives the pager from the client page state, not the server's echo", () => {
+    // meta.page/limit are the previous query's echo while placeholder data is shown.
+    mocks.useDetectorList.mockReturnValue({
+      ...defaultDetectorList,
+      data: { ...defaultDetectorList.data, meta: { page: 0, limit: 100, total: 120 } },
+    });
+    render(<DetectorsPage />);
+    expect(screen.getByTestId("pager").textContent).toBe("page 1 limit 50 total 120");
+  });
+
+  it("clamps the page against the settled total", () => {
+    mocks.useDetectorList.mockReturnValue({
+      ...defaultDetectorList,
+      data: { ...defaultDetectorList.data, meta: { total: 30 } },
+      isPlaceholderData: false,
+    });
+    render(<DetectorsPage />);
+    expect(mocks.clampToTotal).toHaveBeenCalledWith(30);
+  });
+
+  it("does not clamp against a placeholder total from the previous query", () => {
+    mocks.useDetectorList.mockReturnValue({
+      ...defaultDetectorList,
+      data: { ...defaultDetectorList.data, meta: { total: 30 } },
+      isPlaceholderData: true,
+    });
+    render(<DetectorsPage />);
+    expect(mocks.clampToTotal).not.toHaveBeenCalled();
   });
 });
