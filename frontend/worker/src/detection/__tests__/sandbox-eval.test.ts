@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const {
   mockComplete,
@@ -44,7 +44,10 @@ import {
   DEFAULT_DETECTOR_EVAL_TIMEOUT_MS,
   MAX_DETECTOR_EVAL_TIMEOUT_MS,
 } from "../sandbox-eval.js";
-import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
+import {
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  DETECTOR_SYSTEM_FALLBACK_MODEL_ID,
+} from "@traceroot/core/llm-providers";
 
 const DETECTOR = {
   id: "det-1",
@@ -174,6 +177,86 @@ describe("runDetectionForTrace", () => {
     });
 
     expect(mockResolvePiModel).toHaveBeenCalledWith(DETECTOR_SYSTEM_DEFAULT_MODEL_ID, null);
+  });
+
+  describe("without an OpenAI key", () => {
+    const OPENAI_MODEL = {
+      ...ANTHROPIC_MODEL,
+      id: "gpt-6-luna",
+      api: "openai-responses",
+      provider: "openai",
+    };
+    const CLEAN = {
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean trace", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    };
+
+    beforeEach(() => {
+      vi.stubEnv("OPENAI_API_KEY", "");
+      vi.stubEnv("ANTHROPIC_API_KEY", "");
+      mockResolvePiModel.mockImplementation((id: string) =>
+        id === DETECTOR_SYSTEM_DEFAULT_MODEL_ID ? OPENAI_MODEL : ANTHROPIC_MODEL,
+      );
+      // Only an Anthropic key exists, as on an Anthropic-only deployment.
+      mockFindByokKey.mockImplementation(async (_ws: string, provider: string) =>
+        provider === "anthropic" ? "anthropic-key" : null,
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("screens an unpinned detector on the Anthropic fallback", async () => {
+      mockComplete.mockResolvedValueOnce(CLEAN);
+
+      const result = await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(mockResolvePiModel).toHaveBeenLastCalledWith(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
+      expect(mockComplete.mock.calls[0][0]).toBe(ANTHROPIC_MODEL);
+      expect(mockComplete.mock.calls[0][2].apiKey).toBe("anthropic-key");
+    });
+
+    it("keeps the OpenAI default when an OpenAI key resolves", async () => {
+      vi.stubEnv("OPENAI_API_KEY", "openai-key");
+      mockComplete.mockResolvedValueOnce(CLEAN);
+
+      await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+        workspaceId: "ws-1",
+      });
+
+      expect(mockResolvePiModel).not.toHaveBeenCalledWith(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
+      expect(mockComplete.mock.calls[0][0]).toBe(OPENAI_MODEL);
+    });
+
+    it("fails a pinned OpenAI detector instead of substituting the fallback", async () => {
+      const result = await runDetectionForTrace({
+        traceId: "trace-abc",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system", detectionModel: "gpt-6-luna" },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.error).toContain('No API key configured for provider "openai"');
+      expect(mockResolvePiModel).not.toHaveBeenCalledWith(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
+      expect(mockComplete).not.toHaveBeenCalled();
+    });
   });
 
   // A retired model id, or one an API client invented, would otherwise resolve
