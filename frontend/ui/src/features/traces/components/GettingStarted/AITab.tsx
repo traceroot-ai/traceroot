@@ -4,7 +4,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { useProject } from "@/features/projects/hooks";
 import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
-import { SETUP_COMMAND } from "./commands";
+import { setupCommand } from "./commands";
 
 interface AITabProps {
   projectId: string;
@@ -30,6 +30,10 @@ interface AITabProps {
  * The second sentence survives the trim because it is consent rather than
  * description. The command edits a repository and launches an agent; a person
  * is entitled to know that before pasting, not after.
+ *
+ * The command itself is rendered rather than constant, because this page knows
+ * the project the reader is looking at and the deployment that served them, and
+ * the bare command would make them answer both again — see `./commands`.
  */
 export function AITab({ projectId }: AITabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
@@ -39,7 +43,7 @@ export function AITab({ projectId }: AITabProps) {
     <div className="space-y-6">
       <div className="space-y-2">
         <p className="text-[13px] font-medium text-foreground">Run this in your project</p>
-        <CodeBlock label="bash" value={SETUP_COMMAND} />
+        <CodeBlock label="bash" value={setupCommand({ projectId })} />
         <p className="text-[12px] text-muted-foreground">
           Instruments your repo with a coding agent and handles API key configuration. Asks before
           editing, and stops if you have uncommitted changes.

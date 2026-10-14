@@ -36,6 +36,13 @@ describe("AITab", () => {
     expect(container.textContent ?? "").toContain("npx -y traceroot-cli@latest setup");
   });
 
+  it("writes the project this panel is showing into the command", () => {
+    // The panel knows which project the reader is on; the bare command would
+    // ask them, and a multi-project user can answer it wrongly.
+    const { container } = render(<AITab projectId="proj_1" />);
+    expect(container.textContent ?? "").toContain("setup --project proj_1");
+  });
+
   it("does not ask for an API key the command creates itself", () => {
     // The old first step was "1. Create an API key", above a widget that did
     // not create one. `traceroot setup` mints it during the browser handoff, so
