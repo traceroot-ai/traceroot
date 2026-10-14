@@ -80,6 +80,14 @@ const serverSchema = z.object({
   POSTHOG_PERSONAL_API_KEY: z.string().optional(),
   POSTHOG_PROJECT_ID: z.string().optional(),
   POSTHOG_API_HOST: z.string().default("https://us.posthog.com"),
+  // The read-only demo workspace that every user can open. Unset means no demo
+  // workspace, so none of the demo rules below apply.
+  DEMO_WORKSPACE_ID: z.string().optional(),
+  // AI chat in the demo workspace for members below MEMBER (visitors): the
+  // number of messages each user may send per UTC day, and the one system
+  // model their chats use.
+  DEMO_AI_DAILY_MESSAGE_LIMIT: z.coerce.number().int().min(0).default(5),
+  DEMO_AI_MODEL: z.string().default("claude-haiku-4-5"),
 });
 
 export const env = serverSchema.parse(process.env);
