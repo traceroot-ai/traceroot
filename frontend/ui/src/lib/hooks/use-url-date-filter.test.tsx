@@ -329,6 +329,13 @@ describe("useUrlDateFilter with an invalid custom range in the URL", () => {
     expect(result.current.timestamps.endBefore).toBeUndefined();
   });
 
+  it("falls back to the default window when a bound is not a real calendar day", () => {
+    search = `date_filter=custom&start=2026-02-30T00:00:00.000Z&end=${END}`;
+    const { result } = renderHook(() => useUrlDateFilter(undefined, "14d"));
+    expect(result.current.dateFilter.id).toBe("14d");
+    expect(result.current.customStartDate).toBeNull();
+  });
+
   it("falls back to the default window when the bounds are missing", () => {
     search = "date_filter=custom";
     const { result } = renderHook(() => useUrlDateFilter(undefined, "7d"));

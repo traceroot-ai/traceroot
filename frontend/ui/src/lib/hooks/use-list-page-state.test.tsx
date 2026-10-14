@@ -20,6 +20,9 @@ import { useListPageState } from "./use-list-page-state";
 beforeEach(() => {
   currentParams = new URLSearchParams();
   replace.mockClear();
+  // A picked date filter is persisted per project; clear it so one test's pick
+  // isn't restored (resetting the page) when the next test mounts.
+  localStorage.clear();
 });
 
 describe("useListPageState filters integration", () => {

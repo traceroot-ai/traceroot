@@ -32,11 +32,18 @@ interface UseUrlDateFilterReturn {
   };
 }
 
-/** Parses an ISO `?start=` / `?end=` param; null when absent or not a date. */
+/**
+ * Parses an ISO `?start=` / `?end=` param; null when absent, not a date, or not a
+ * real calendar day. `new Date` rolls an impossible day forward (2025-02-30 becomes
+ * March 2), which would quietly query a window the link never named.
+ */
 function parseUrlDate(raw: string | null): Date | null {
   if (!raw) return null;
   const date = new Date(raw);
-  return isNaN(date.getTime()) ? null : date;
+  if (isNaN(date.getTime())) return null;
+  const day = /^\d{4}-\d{2}-\d{2}/.exec(raw)?.[0];
+  if (day && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) !== day) return null;
+  return date;
 }
 
 /**
