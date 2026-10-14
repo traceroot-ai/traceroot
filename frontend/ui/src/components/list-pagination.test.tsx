@@ -116,4 +116,53 @@ describe("ListPagination", () => {
     fireEvent.mouseEnter(screen.getByRole("button", { name: /next page/i }));
     expect(onPrefetchPage).not.toHaveBeenCalled();
   });
+
+  it("renders the Showing X–Y of N readout", () => {
+    render(
+      <ListPagination
+        page={2}
+        limit={50}
+        total={124}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Showing 101–124 of 124")).toBeDefined();
+  });
+
+  it("allows selecting a limit from the items-per-page popover", () => {
+    const onLimitChange = vi.fn();
+    render(
+      <ListPagination
+        page={0}
+        limit={50}
+        total={500}
+        onPageChange={vi.fn()}
+        onLimitChange={onLimitChange}
+      />,
+    );
+
+    // Click limit button to open popover
+    fireEvent.click(screen.getByRole("button", { name: "50" }));
+    // Click option "100"
+    fireEvent.click(screen.getByRole("button", { name: "100" }));
+    expect(onLimitChange).toHaveBeenCalledWith(100);
+  });
+
+  it("blurs input on Enter key", () => {
+    render(
+      <ListPagination
+        page={0}
+        limit={50}
+        total={500}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    const blurSpy = vi.spyOn(input, "blur");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(blurSpy).toHaveBeenCalled();
+  });
 });
