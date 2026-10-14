@@ -10,6 +10,7 @@ import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements, adminAc } from "better-auth/plugins/admin/access";
 import { supportPlugin } from "@/lib/support/auth-plugin";
 import { captureServerEvent } from "@/lib/posthog-server";
+import { onUserCreated } from "@/lib/signup/on-user-created";
 import {
   SESSION_EXPIRES_IN_SECONDS,
   SESSION_FRESH_AGE_SECONDS,
@@ -33,8 +34,14 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
-        after: async (user) => {
+        // better-auth awaits after-hooks and a throw propagates into the sign-up
+        // response, so this calls without awaiting and the callee never rejects.
+        after: async (user, context) => {
           captureServerEvent(user.id, "user_signed_up");
+          onUserCreated(
+            { id: user.id, email: user.email, name: user.name ?? null },
+            context ? { path: context.path } : null,
+          ).catch((error) => console.error("[signup] follow-up failed:", error));
         },
       },
     },

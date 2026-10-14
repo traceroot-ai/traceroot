@@ -12,7 +12,8 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "TraceRoot",
-  description: "Observability and self-improving layer for AI agents",
+  description:
+    "Open source AI agent improvement platform. Observability, production monitoring, and evals for AI agents.",
   icons: {
     icon: "/images/favicon.ico",
   },

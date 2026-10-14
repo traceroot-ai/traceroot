@@ -549,6 +549,37 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["total_tokens"] == 150
         assert spans[0]["cost"] is not None
 
+    def test_decision_span_tokens_and_cost(self):
+        """OpenInference DECISION spans report model and usage under decision.*."""
+        from unittest.mock import patch
+
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("openinference.span.kind", "DECISION"),
+                        make_attr("decision.model_name", "jev-1.13.0"),
+                        make_attr("decision.token_count.input", 100),
+                        make_attr("decision.token_count.output", 50),
+                    ],
+                )
+            ]
+        )
+        mock_prices = {"input": 0.0000025, "output": 0.00001}
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0]["span_kind"] == "DECISION"
+        assert spans[0]["model_name"] == "jev-1.13.0"
+        assert spans[0]["input_tokens"] == 100
+        assert spans[0]["output_tokens"] == 50
+        assert spans[0]["total_tokens"] == 150
+        assert spans[0]["cost"] == pytest.approx(100 * 0.0000025 + 50 * 0.00001)
+
     @pytest.mark.parametrize(
         ("scope_name", "input_attr", "cache_read_attr", "cache_write_attr"),
         [

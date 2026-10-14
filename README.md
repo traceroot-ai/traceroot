@@ -7,7 +7,7 @@
     </picture>
   </a>
 
-Open Source Self-improving Layer for AI Agents
+Open Source AI Agent Improvement Platform
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -29,7 +29,7 @@ Open Source Self-improving Layer for AI Agents
 
 ## TraceRoot
 
-TraceRoot turns production traces into actionable feedback and evals, closing the self-improving loop with your coding agent.
+TraceRoot turns production traces into actionable feedback and evals, closing the improvement loop with your coding agent.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
@@ -85,13 +85,10 @@ With Git, Docker Compose, and Make installed, run locally:
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
 test -f .env || cp .env.example .env
-# Before starting, set INTERNAL_API_SECRET and BETTER_AUTH_SECRET in .env.
-# Also uncomment SQL_GATEWAY_BOOTSTRAP_PASSWORD and set its value.
-# Use a different secret for each: run openssl rand -hex 32 three times.
 make prod-lite
 ```
 
-Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/developer/self-hosting) for configuration and deployment details.
+Open [localhost:3000](http://localhost:3000). See the [self-hosting guide](https://traceroot.ai/docs/self-hosting/overview) for configuration and deployment details.
 
 For production, use the [Helm chart](https://github.com/traceroot-ai/traceroot-k8s) or [AWS Terraform module](https://github.com/traceroot-ai/traceroot-terraform-aws).
 

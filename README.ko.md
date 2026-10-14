@@ -7,7 +7,7 @@
     </picture>
   </a>
 
-AI 에이전트를 위한 오픈 소스 자기 개선 레이어
+오픈 소스 AI 에이전트 개선 플랫폼
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -29,7 +29,7 @@ AI 에이전트를 위한 오픈 소스 자기 개선 레이어
 
 ## TraceRoot
 
-TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 자기 개선 루프를 완성합니다.
+TraceRoot는 프로덕션 트레이스를 실행 가능한 피드백과 평가로 전환하고, 코딩 에이전트와 함께 개선 루프를 완성합니다.
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
@@ -85,13 +85,10 @@ Git, Docker Compose, Make를 설치한 뒤 로컬에서 실행하세요:
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
 test -f .env || cp .env.example .env
-# 시작 전에 .env에서 INTERNAL_API_SECRET과 BETTER_AUTH_SECRET을 설정하세요.
-# SQL_GATEWAY_BOOTSTRAP_PASSWORD의 주석도 해제하고 값을 설정하세요.
-# 각 항목에 다른 비밀 값을 사용하세요: openssl rand -hex 32를 세 번 실행하세요.
 make prod-lite
 ```
 
-[localhost:3000](http://localhost:3000)을 여세요. 설정과 배포에 관한 자세한 내용은 [셀프 호스팅 가이드](https://traceroot.ai/docs/developer/self-hosting)를 참고하세요.
+[localhost:3000](http://localhost:3000)을 여세요. 설정과 배포에 관한 자세한 내용은 [셀프 호스팅 가이드](https://traceroot.ai/docs/self-hosting/overview)를 참고하세요.
 
 프로덕션 배포에는 [Helm 차트](https://github.com/traceroot-ai/traceroot-k8s) 또는 [AWS Terraform 모듈](https://github.com/traceroot-ai/traceroot-terraform-aws)을 사용하세요.
 

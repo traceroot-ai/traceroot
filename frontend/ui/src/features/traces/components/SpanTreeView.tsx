@@ -9,7 +9,7 @@ import { getSpanIO } from "@/lib/api";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
-import { SpanKind, SpanStatus } from "@traceroot/core";
+import { MODEL_SPAN_KINDS, SpanStatus } from "@traceroot/core";
 import type { TraceDetail, Span } from "@/types/api";
 import type { TraceSelection, SpanTreeRow } from "../types";
 import {
@@ -385,7 +385,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                         </span>
                       )}
 
-                      {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
+                      {MODEL_SPAN_KINDS.has(span.span_kind) && span.total_tokens != null && (
                         <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-muted-foreground @[130px]:inline-flex">
                           <DOMAIN_ICONS.tokens className="h-2.5 w-2.5" />
                           {formatTokenFlow(
@@ -396,7 +396,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                         </span>
                       )}
 
-                      {span.span_kind === SpanKind.LLM &&
+                      {MODEL_SPAN_KINDS.has(span.span_kind) &&
                         span.cost != null &&
                         Number.isFinite(span.cost) && (
                           <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
