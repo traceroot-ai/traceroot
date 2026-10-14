@@ -7,6 +7,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isDemoWorkspace } from "@/lib/demo-workspace";
 import { isPlainObject } from "@/lib/is-plain-object";
 import { UI_DELETE_REASON, readJsonObject } from "@/lib/route-helpers";
 import { deleteWorkspace, updateWorkspace } from "@/lib/write-services/workspaces";
@@ -45,11 +46,14 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
     return errorResponse("Workspace not found", 404);
   }
 
+  const isDemo = isDemoWorkspace(workspace.id);
   return successResponse({
     id: workspace.id,
     name: workspace.name,
     role: membership.role,
-    member_count: workspace._count.members,
+    is_demo: isDemo,
+    // The demo workspace has every user as a member; that count is not shown.
+    member_count: isDemo ? undefined : workspace._count.members,
     projects: workspace.projects.map((p) => ({
       id: p.id,
       name: p.name,

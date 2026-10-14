@@ -9,7 +9,7 @@ import { projectSwitchHref } from "../utils";
 import { CreateProjectDialog } from "./CreateProjectDialog";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components";
 import { useWorkspace, useWorkspaces } from "@/features/workspaces/hooks";
-import { workspaceSwitchHref } from "@/features/workspaces/utils";
+import { DEMO_WORKSPACE_LABEL, workspaceSwitchHref } from "@/features/workspaces/utils";
 
 interface ProjectBreadcrumbProps {
   projectId: string;
@@ -58,7 +58,7 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
         href: project?.workspace_id ? `/workspaces/${project.workspace_id}/projects` : undefined,
         options: workspaces?.map((ws) => ({
           id: ws.id,
-          label: ws.name,
+          label: ws.is_demo ? `${ws.name} (${DEMO_WORKSPACE_LABEL})` : ws.name,
           href: workspaceSwitchHref(pathname, ws.id),
           isCurrent: ws.id === project?.workspace_id,
           settingsHref: `/workspaces/${ws.id}/settings`,

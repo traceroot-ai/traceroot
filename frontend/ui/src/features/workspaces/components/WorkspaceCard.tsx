@@ -3,8 +3,10 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Settings } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Workspace } from "@/types/api";
+import { DEMO_WORKSPACE_LABEL } from "../utils";
 
 interface WorkspaceCardProps {
   workspace: Workspace;
@@ -23,7 +25,10 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
     >
       <CardContent className="p-4">
         <div className="mb-3 flex items-start justify-between">
-          <h3 className="text-[13px] font-medium">{workspace.name}</h3>
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className="truncate text-[13px] font-medium">{workspace.name}</h3>
+            {workspace.is_demo && <Badge variant="outline">{DEMO_WORKSPACE_LABEL}</Badge>}
+          </div>
           <Link
             href={`/workspaces/${workspace.id}/settings`}
             onClick={(e) => e.stopPropagation()}

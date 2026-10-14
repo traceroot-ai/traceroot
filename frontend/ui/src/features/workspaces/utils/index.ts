@@ -42,3 +42,16 @@ export function workspaceSwitchHref(pathname: string, targetWorkspaceId: string)
   if (!match) return `/workspaces/${targetWorkspaceId}/projects`;
   return `/workspaces/${targetWorkspaceId}/${match[1]}`;
 }
+
+/** The label shown next to the public demo workspace. */
+export const DEMO_WORKSPACE_LABEL = "Demo · view only";
+
+/**
+ * Where the home page sends a signed-in user. The demo workspace is not one of
+ * the user's own, so a user who has only the demo still goes to onboarding.
+ */
+export function homeDestination(
+  workspaces: { is_demo?: boolean }[],
+): "/workspaces" | "/onboarding" {
+  return workspaces.some((ws) => !ws.is_demo) ? "/workspaces" : "/onboarding";
+}
