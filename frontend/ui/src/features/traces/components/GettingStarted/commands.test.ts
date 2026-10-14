@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { cliHostFlag } from "./commands";
+import { cliHostFlags } from "./commands";
 
 /**
  * Imports `setupCommand` against a stated environment.
@@ -22,43 +22,73 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe("cliHostFlag", () => {
+describe("cliHostFlags", () => {
   it("returns nothing for the host the CLI already defaults to", () => {
     // Restating the default only adds a flag a reader has to evaluate.
-    expect(cliHostFlag({ apiUrl: "/api/v1", appUrl: "https://app.traceroot.ai" })).toBeNull();
+    expect(cliHostFlags({ apiUrl: "/api/v1", appUrl: "https://app.traceroot.ai" })).toEqual({
+      host: null,
+      authHost: null,
+    });
     expect(
-      cliHostFlag({ apiUrl: "https://app.traceroot.ai/api/v1", appUrl: undefined }),
-    ).toBeNull();
+      cliHostFlags({
+        apiUrl: "https://app.traceroot.ai/api/v1",
+        appUrl: "https://app.traceroot.ai",
+      }),
+    ).toEqual({ host: null, authHost: null });
   });
 
   it("reduces an absolute API URL to its origin", () => {
     // The CLI appends `/api/v1/...` to whatever `--host` is given, so passing
     // the browser's own API path through would request it twice.
-    expect(cliHostFlag({ apiUrl: "http://localhost:8000/api/v1", appUrl: undefined })).toBe(
-      "http://localhost:8000",
-    );
+    expect(
+      cliHostFlags({ apiUrl: "http://localhost:8000/api/v1", appUrl: "http://localhost:3000" })
+        .host,
+    ).toBe("http://localhost:8000");
   });
 
   it("resolves a same-origin API path against the app's own URL", () => {
     // `/api/v1` is the default, and on a self-hosted deployment served behind
     // one origin it is that origin the CLI has to be pointed at.
-    expect(cliHostFlag({ apiUrl: "/api/v1", appUrl: "https://traceroot.internal" })).toBe(
-      "https://traceroot.internal",
-    );
+    expect(cliHostFlags({ apiUrl: "/api/v1", appUrl: "https://traceroot.internal" })).toEqual({
+      host: "https://traceroot.internal",
+      // One origin serves both, so sign-in needs no separate host.
+      authHost: null,
+    });
   });
 
-  it("says nothing rather than guessing when the app URL is unknown", () => {
-    // A relative API path with no base cannot be resolved. Naming a host here
-    // would be inventing one, and the CLI's own default is the better answer.
-    expect(cliHostFlag({ apiUrl: "/api/v1", appUrl: undefined })).toBeNull();
-    expect(cliHostFlag({ apiUrl: "/api/v1", appUrl: "" })).toBeNull();
-    expect(cliHostFlag({ apiUrl: "/api/v1", appUrl: "not-a-url" })).toBeNull();
+  it("names the app origin separately when the API is on another one", () => {
+    // The device flow and the token mint are web-app routes and do not exist on
+    // the API, so `--host` alone would stop setup at sign-in.
+    expect(
+      cliHostFlags({ apiUrl: "http://localhost:8000/api/v1", appUrl: "http://localhost:3000" }),
+    ).toEqual({ host: "http://localhost:8000", authHost: "http://localhost:3000" });
+  });
+
+  it("falls back to the origin the rest of the app assumes when none is set", () => {
+    // `lib/auth-client.ts` points better-auth at localhost:3000 when the app
+    // URL is unset, so that is the deployment this one is configured for —
+    // naming it beats omitting the flag and pointing the reader at Cloud.
+    for (const appUrl of [undefined, "", "   ", "not-a-url", "mailto:ops@example.com"]) {
+      expect(cliHostFlags({ apiUrl: "/api/v1", appUrl })).toEqual({
+        host: "http://localhost:3000",
+        authHost: null,
+      });
+    }
+  });
+
+  it("drops both flags rather than render an origin a shell would mangle", () => {
+    // A hostname can carry a quote (`http://%27.com` parses to `http://'.com`),
+    // which would escape the quoting around it. Half a deployment is worse than
+    // none: `--auth-host` beside an omitted `--host` leaves the API on Cloud.
+    for (const appUrl of ["http://%27.com", "http://a`b.com", "http://a;b.com", "http://a$b.com"]) {
+      expect(cliHostFlags({ apiUrl: "/api/v1", appUrl })).toEqual({ host: null, authHost: null });
+    }
   });
 });
 
 describe("setupCommand", () => {
   it("names the project the panel is already showing", async () => {
-    const setupCommand = await setupCommandWith({});
+    const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
       "npx -y traceroot-cli@latest setup --project proj_1",
@@ -68,7 +98,7 @@ describe("setupCommand", () => {
   it("omits the project flag when there is no usable id", async () => {
     // The id arrives from the URL and the output is pasted into a shell, so an
     // id no real project has is dropped rather than quoted into the line.
-    const setupCommand = await setupCommandWith({});
+    const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
     expect(setupCommand({ projectId: "" })).toBe("npx -y traceroot-cli@latest setup");
     expect(setupCommand({ projectId: "proj 1; rm -rf ~" })).toBe(
@@ -76,21 +106,53 @@ describe("setupCommand", () => {
     );
   });
 
-  it("points the CLI at this deployment when it is not the default host", async () => {
-    // Without this the command signs in against TraceRoot Cloud on a
-    // self-hosted install, which is a different deployment entirely.
-    const setupCommand = await setupCommandWith({ apiUrl: "http://localhost:8000/api/v1" });
-
-    expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@latest setup --project proj_1 --host http://localhost:8000",
-    );
-  });
-
-  it("leaves the host out on the deployment the CLI already defaults to", async () => {
+  it("leaves both hosts out on TraceRoot Cloud", async () => {
+    // Cloud serves the dashboard and the API behind one origin, and it is the
+    // origin the CLI defaults to, so the bare command is already right.
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
       "npx -y traceroot-cli@latest setup --project proj_1",
+    );
+  });
+
+  it("points setup at both halves of the documented self-hosted setup", async () => {
+    // `.env.example` and `docker-compose.prod.yml` put the API on :8000 and the
+    // app on :3000. Without `--auth-host` the device-code request goes to the
+    // API port, where that route does not exist, and setup stops at sign-in.
+    const setupCommand = await setupCommandWith({
+      apiUrl: "http://localhost:8000/api/v1",
+      appUrl: "http://localhost:3000",
+    });
+
+    expect(setupCommand({ projectId: "proj_1" })).toBe(
+      "npx -y traceroot-cli@latest setup --project proj_1 " +
+        "--host 'http://localhost:8000' --auth-host 'http://localhost:3000'",
+    );
+  });
+
+  it("names this deployment rather than Cloud when only the API default is set", async () => {
+    // The relative `/api/v1` default with no app URL: previously no flag at
+    // all, which silently ran setup against TraceRoot Cloud from a local
+    // deployment. One origin serves both, so `--auth-host` is not needed.
+    const setupCommand = await setupCommandWith({});
+
+    expect(setupCommand({ projectId: "proj_1" })).toBe(
+      "npx -y traceroot-cli@latest setup --project proj_1 --host 'http://localhost:3000'",
+    );
+  });
+
+  it("quotes an IPv6 origin so the line survives zsh", async () => {
+    // Unquoted, zsh reads `[::1]` as a glob and the paste dies with "no matches
+    // found" before setup runs.
+    const setupCommand = await setupCommandWith({
+      apiUrl: "http://[::1]:8000/api/v1",
+      appUrl: "http://[::1]:3000",
+    });
+
+    expect(setupCommand({ projectId: "proj_1" })).toBe(
+      "npx -y traceroot-cli@latest setup --project proj_1 " +
+        "--host 'http://[::1]:8000' --auth-host 'http://[::1]:3000'",
     );
   });
 });
