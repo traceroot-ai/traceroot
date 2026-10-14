@@ -78,6 +78,15 @@ describe("SignUpClient", () => {
   });
 
   it("passes the same onboarding destination to Google sign-up", async () => {
+    // `signIn.social` is better-auth's only social entry point, so this button
+    // signs an existing account in as readily as it creates one — and with
+    // Google a trusted linking provider, it also answers for an existing email
+    // account at the same address. Both land on onboarding without being new,
+    // which is why onboarding checks the account rather than trusting the route:
+    // see "hands an account that already owns a workspace straight back" in
+    // app/onboarding/page.test.tsx. Splitting the destination here instead (with
+    // better-auth's `newUserCallbackURL`) would put the rule back in the one
+    // place that cannot see a workspace.
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
     mocks.signInSocial.mockResolvedValue(undefined);
 

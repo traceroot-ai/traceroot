@@ -6,12 +6,12 @@ import { authClient } from "@/lib/auth-client";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v3";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
-import { createWorkspace, createProject } from "@/lib/api";
+import { createWorkspace, createProject, getWorkspaces } from "@/lib/api";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { Check } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -77,6 +77,45 @@ function OnboardingContent() {
   // fallback plus `|| null` is how "there is nowhere to go back to" is said —
   // otherwise a crafted link sends a new user to `/` instead of their traces.
   const returnTo = callbackUrl === null ? null : safeCallbackUrl(callbackUrl, "") || null;
+
+  // An account that already owns a workspace has nothing to do on this page, and
+  // arriving here with one is not hypothetical. No caller can tell a brand-new
+  // account from an existing one at the point it decides where to send someone:
+  // better-auth has no separate social sign-up, so the Google button on
+  // /auth/sign-up is `signIn.social` either way, and with account linking
+  // enabled for Google (see lib/auth.ts) it also answers for an existing *email*
+  // account at the same address. Predicting newness there has been wrong twice.
+  // So the page checks the account instead of trusting the route it took.
+  //
+  // Without this, an existing account that lands here is parked: the form's only
+  // exit is creating a second workspace and project, and when a terminal is
+  // waiting on `returnTo` that duplicate is the only way back to it.
+  //
+  // Project-only mode is the exception. `?workspaceId=` means "add a project to
+  // this workspace I already own", so owning one is the precondition rather than
+  // a reason to leave — and the query stays off, because react-query would still
+  // hand back a cached list for this key with it disabled.
+  const { data: workspaces, isLoading: workspacesLoading } = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: getWorkspaces,
+    enabled: !!session && !isProjectOnlyMode,
+  });
+  // `session` is part of the condition and not just the query's gate: a cached
+  // list outlives the session it was fetched for, and a signed-out visitor
+  // belongs in the sign-in branch below — which is the one that keeps a waiting
+  // terminal's `callbackUrl` alive across the round trip.
+  const alreadyOnboarded = !!session && !isProjectOnlyMode && (workspaces?.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (!alreadyOnboarded) {
+      return;
+    }
+    // Hand back to whatever is waiting, exactly as a completed form would — a
+    // terminal blocked on the device approval cannot tell the two apart, and it
+    // only ever needed the workspace to exist. With nobody waiting, the
+    // workspace list is where an onboarded account belongs.
+    router.push(returnTo ?? "/workspaces");
+  }, [alreadyOnboarded, returnTo, router]);
 
   const defaultWorkspace = getDefaultWorkspaceName(session?.user?.email);
 
@@ -150,7 +189,13 @@ function OnboardingContent() {
     }
   }
 
-  if (isPending) {
+  // The form is withheld until the workspace question is settled, not just
+  // until the session is: rendering it early lets a fast submit create the
+  // duplicate workspace the check above exists to prevent. A failed check
+  // leaves `workspaces` undefined and falls through to the form on purpose — a
+  // duplicate workspace is recoverable, whereas a brand-new account that cannot
+  // reach this form at all has no way to finish signing up.
+  if (isPending || workspacesLoading || alreadyOnboarded) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[13px] text-muted-foreground">Loading...</p>

@@ -41,6 +41,17 @@ type SignUpClientProps = {
 // submits the form on the page it was about to be sent to. So onboarding comes
 // first and carries the device URL as its callback. Anything else goes straight
 // to onboarding; a new user shouldn't be dropped deep in the app.
+//
+// This is a shortcut, not the enforcement, and the difference matters because
+// both buttons below share this destination while only one of them is a sign-up:
+// `signIn.social` is better-auth's only social entry point, so Google here signs
+// an existing account straight in, and account linking makes it answer for an
+// existing email account at the same address too. Those land on onboarding
+// without being new. /onboarding and /device each check the account rather than
+// the route, so a wrong guess here costs a redirect and never a second
+// workspace. What it buys is two fewer navigations on the common path: a genuine
+// new account goes straight to the form instead of touching /device first only
+// to be sent back.
 function postSignUpDestination(callbackUrl: string): string {
   // Match the /device path exactly, not by prefix: a startsWith check would also
   // catch an unrelated future route like /device-settings and wrongly funnel a
