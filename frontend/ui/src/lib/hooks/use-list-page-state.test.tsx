@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import type { Predicate } from "@/types/api";
+import { DATE_FILTER_OPTIONS } from "@/lib/date-filter";
 
 let currentParams = new URLSearchParams();
 const replace = vi.fn();
@@ -152,5 +153,34 @@ describe("useUrlPagination limit cap", () => {
     currentParams = new URLSearchParams({ page_limit: "100" });
     const { result } = renderHook(() => useListPageState());
     expect(result.current.limit).toBe(100);
+  });
+});
+
+describe("useListPageState date change on a later page", () => {
+  it("writes the new window and drops the page in one URL write", () => {
+    currentParams = new URLSearchParams({ page_index: "3" });
+    const { result } = renderHook(() => useListPageState());
+    const sevenDays = DATE_FILTER_OPTIONS.find((o) => o.id === "7d")!;
+    replace.mockClear();
+    act(() => result.current.updateDateFilter(sevenDays));
+    // A second, page-reset write would rebuild from the stale params and drop the window.
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenCalledWith("/traces?date_filter=7d", { scroll: false });
+    expect(result.current.page).toBe(0);
+  });
+
+  it("applies a custom range and drops the page in one URL write", () => {
+    currentParams = new URLSearchParams({ page_index: "3" });
+    const { result } = renderHook(() => useListPageState());
+    replace.mockClear();
+    const start = new Date("2026-07-01T00:00:00Z");
+    const end = new Date("2026-07-04T00:00:00Z");
+    act(() => result.current.updateCustomRange(start, end));
+    expect(replace).toHaveBeenCalledTimes(1);
+    const url = new URL(replace.mock.calls[0][0] as string, "http://x");
+    expect(url.searchParams.get("date_filter")).toBe("custom");
+    expect(url.searchParams.get("start")).toBe(start.toISOString());
+    expect(url.searchParams.has("page_index")).toBe(false);
+    expect(result.current.page).toBe(0);
   });
 });

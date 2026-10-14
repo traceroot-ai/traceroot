@@ -208,6 +208,9 @@ export function useUrlDateFilter(
         params.delete("end");
       }
 
+      // Reset to first page in the same mutation so date filter and page reset don't race
+      params.delete("page_index");
+
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     },
     [searchParams, router, pathname],
