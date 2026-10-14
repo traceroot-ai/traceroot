@@ -121,7 +121,8 @@ function errorResult(
  *   1. BYOK source → the explicit row's decrypted key (in `providerConfig`)
  *   2. System source → env var (pi-ai owns the provider→env-var mapping)
  *   3. System source fallback → any enabled BYOK row in the workspace whose
- *      adapter maps to the same pi-ai provider (matches agent behavior)
+ *      adapter is that provider itself. OpenAI-compatible adapters (DeepSeek,
+ *      xAI, …) don't count: a system model calls the provider's own endpoint.
  */
 export async function resolveDetectorApiKey(
   workspaceId: string,
@@ -133,7 +134,7 @@ export async function resolveDetectorApiKey(
   const envKey = getEnvApiKey(piProvider);
   if (envKey) return envKey;
 
-  return findByokKeyForPiProvider(workspaceId, piProvider);
+  return findByokKeyForPiProvider(workspaceId, piProvider, { nativeOnly: true });
 }
 
 /**
