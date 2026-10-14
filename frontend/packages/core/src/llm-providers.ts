@@ -95,6 +95,13 @@ export interface LLMModelDef {
  */
 export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "gpt-6-luna";
 
+/**
+ * Hosted model for the finding-digest summary paragraph. Kept apart from the
+ * detector default: that digest is the path deployments without OPENAI_API_KEY
+ * use (with a key, signals send their own digest), so it stays on Anthropic.
+ */
+export const DIGEST_SUMMARY_SYSTEM_MODEL_ID = "claude-haiku-4-5";
+
 export const SYSTEM_MODELS: {
   provider: string;
   envVar: string;
