@@ -228,6 +228,8 @@ describe("runDetectionForTrace", () => {
       expect(mockResolvePiModel).toHaveBeenLastCalledWith(DETECTOR_SYSTEM_FALLBACK_MODEL_ID, null);
       expect(mockComplete.mock.calls[0][0]).toBe(ANTHROPIC_MODEL);
       expect(mockComplete.mock.calls[0][2].apiKey).toBe("anthropic-key");
+      // A DeepSeek/xAI key maps to "openai" too, but is no good on OpenAI's endpoint.
+      expect(mockFindByokKey).toHaveBeenCalledWith("ws-1", "openai", { nativeOnly: true });
     });
 
     it("keeps the OpenAI default when an OpenAI key resolves", async () => {

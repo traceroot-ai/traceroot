@@ -197,7 +197,7 @@
   {
     "id": "tr-claude-haiku-5-5",
     "modelName": "claude-haiku-5-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-5[.-]5(-[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-5[.-]5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-haiku-5-5(-[\\d-]+)?(-v\\d+:\\d+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.0000001,
