@@ -19,13 +19,19 @@ on by default and controlled per kind.
    `20260901000001_ai_message_attribution` (in `frontend/packages/core`, with
    `DATABASE_URL` set: `pnpm exec prisma migrate deploy`). Both are additive; no backfill
    of executions is performed.
-3. Agent service env: nothing to set — `AGENT_SELF_TRACE` unset means on (any value
+3. Deploy the agent service before the RCA worker, and wait for the agent rollout to
+   finish before starting the worker rollout. The worker records each execution's
+   `trace_status` from the agent's final `trace` SSE frame; an older agent that does not
+   send it makes the new worker record `failed`, even when the RCA completed. The
+   reverse order is safe: an older worker ignores the new frame. Keep this order even
+   with `AGENT_SELF_TRACE=0`: the updated agent still sends `status: "disabled"`.
+4. Agent service env: nothing to set — `AGENT_SELF_TRACE` unset means on (any value
    other than `1` or `true` turns it off). To stage a rollout, narrow
    `AGENT_SELF_TRACE_KINDS` and widen it over a few days: `rca` → `rca,followup` →
    `rca,followup,chat`.
    Unset means all kinds; a token that is not one of those three is ignored and warned
    about once in the agent-service log (`[AgentTrace] AGENT_SELF_TRACE_KINDS token`).
-4. Confirm after the first RCA:
+5. Confirm after the first RCA:
    `select attempt, trace_status, count(*) from detector_rca_executions
     where started_at > now() - interval '1 hour' group by 1,2` shows `available` and no
    `failed`; the analysed run's Agent Run ID is clickable in the detector runs table.
@@ -46,6 +52,12 @@ on by default and controlled per kind.
   `SELECT source, count(), sum(length(output)) FROM spans
    WHERE ch_create_time > now() - INTERVAL 1 DAY GROUP BY source`.
 - Export failures: agent-service log lines `[AgentTrace] export failed`.
+- Worker deployed first: finish the agent rollout, then check the next RCA's
+  `trace_status` with the query above (`available` when its flush succeeds, `disabled`
+  when tracing is off). Executions run against the older agent retain `failed`; scope
+  them by the deployment window and check whether their traces actually landed before
+  treating them as export failures. The missing frame affects the recorded status,
+  not the trace data, and completing the rollout does not repair those existing rows.
 - Cut captures: a span whose recorded input/output was cut to its cap (the root's prompt,
   answer and system prompt; an LLM span's input/output; a tool span's args/result) carries
   `traceroot.truncated = true`; a tool span whose result was withheld because the run's
