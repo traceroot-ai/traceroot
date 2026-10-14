@@ -165,4 +165,45 @@ describe("ListPagination", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(blurSpy).toHaveBeenCalled();
   });
+
+  it("drops the range from the readout when the page is past the end of the list", () => {
+    // A deep link or a shrunken list can leave the page beyond the last row; the
+    // readout must not claim "Showing 4951–120 of 120".
+    render(
+      <ListPagination
+        page={99}
+        limit={50}
+        total={120}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/Showing/)).toBeNull();
+  });
+
+  it("shows the range on the last, partial page", () => {
+    render(
+      <ListPagination
+        page={2}
+        limit={50}
+        total={101}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Showing 101–101 of 101")).toBeDefined();
+  });
+
+  it("renders nothing for an empty list, so no 'Showing 0–0 of 0'", () => {
+    const { container } = render(
+      <ListPagination
+        page={0}
+        limit={50}
+        total={0}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    expect(container.innerHTML).toBe("");
+  });
 });

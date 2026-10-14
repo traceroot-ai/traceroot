@@ -71,13 +71,17 @@ export function ListPagination({
     onPrefetchPage(target);
   };
 
-  const from = total > 0 ? page * safeLimit + 1 : 0;
+  // `total` is > 0 here. A page past the end (a deep link, or a list that shrank
+  // before the page clamps back) has no rows to describe, so it shows no range
+  // rather than an inverted "Showing 4951–120 of 120".
+  const from = page * safeLimit + 1;
   const to = Math.min((page + 1) * safeLimit, total);
+  const hasRange = from <= total;
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-border bg-background px-4 py-2.5">
       <div className="text-[12px] text-muted-foreground">
-        Showing {from}–{to} of {total}
+        {hasRange && `Showing ${from}–${to} of ${total}`}
       </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <div className="flex items-center gap-2">
