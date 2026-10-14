@@ -10,7 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { useLayout } from "@/components/layout/app-layout";
+import { Logo } from "@/components/Logo";
 import { createWorkspace, createProject, getWorkspaces } from "@/lib/api";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
@@ -48,21 +48,29 @@ function getDefaultWorkspaceName(email: string | null | undefined): string {
   return company.charAt(0).toUpperCase() + company.slice(1);
 }
 
+// The frame the app shell used to provide. This page renders outside the shell
+// (see lib/chromeless-routes), so it is also outside the `<main>` that gave the
+// old `h-full` something to resolve against — nothing sets a height on html or
+// body, so a percentage height here collapses to the content. `min-h-screen` is
+// what makes the empty background actually fill the screen, and `min-h-` rather
+// than `h-` is what lets the box grow past the viewport once the detectors step
+// is taller than it, instead of clipping the top of the card.
+function StandaloneFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
+      {children}
+    </div>
+  );
+}
+
 function OnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const { data: session, isPending } = authClient.useSession();
-  const { setHeaderContent } = useLayout();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [createdProject, setCreatedProject] = useState<{ id: string; name: string } | null>(null);
-
-  // Set header content
-  useEffect(() => {
-    setHeaderContent(<span className="text-[13px] font-medium">Workspaces</span>);
-    return () => setHeaderContent(null);
-  }, [setHeaderContent]);
 
   // Determine mode from query params
   const existingWorkspaceId = searchParams.get("workspaceId");
@@ -241,9 +249,9 @@ function OnboardingContent() {
   // form at all has no way to finish signing up.
   if (isPending || workspacesLoading || setupComplete || addProjectUrl) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <StandaloneFrame>
         <p className="text-[13px] text-muted-foreground">Loading...</p>
-      </div>
+      </StandaloneFrame>
     );
   }
 
@@ -257,23 +265,29 @@ function OnboardingContent() {
       returnTo === null ? "/onboarding" : `/onboarding?callbackUrl=${encodeURIComponent(returnTo)}`;
     router.push(`/auth/sign-in?callbackUrl=${encodeURIComponent(returnHere)}`);
     return (
-      <div className="flex h-full items-center justify-center">
+      <StandaloneFrame>
         <p className="text-[13px] text-muted-foreground">Redirecting to sign in...</p>
-      </div>
+      </StandaloneFrame>
     );
   }
 
   return (
-    <div className="h-full overflow-auto bg-background">
-      <div className="mx-auto max-w-md px-4 py-8">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-lg font-semibold">Setup</h1>
-          <p className="text-[13px] text-muted-foreground">
-            {createdProject
-              ? `${isProjectOnlyMode ? "Project" : "Workspace and project"} created — one more thing`
-              : "Set up your workspace and first project"}
-          </p>
+    <StandaloneFrame>
+      <div className="w-full max-w-md">
+        {/* Header. The logo is here because the sidebar carried the only one on
+            this page, and the shell it belonged to is gone — /auth and /device
+            front their cards the same way, which is the run of screens this
+            page sits in the middle of. */}
+        <div className="mb-6 flex flex-col items-center gap-2 text-center">
+          <Logo size="lg" />
+          <div>
+            <h1 className="text-lg font-semibold">Setup</h1>
+            <p className="text-[13px] text-muted-foreground">
+              {createdProject
+                ? `${isProjectOnlyMode ? "Project" : "Workspace and project"} created — one more thing`
+                : "Set up your workspace and first project"}
+            </p>
+          </div>
         </div>
 
         {/* Error message */}
@@ -386,7 +400,7 @@ function OnboardingContent() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </StandaloneFrame>
   );
 }
 

@@ -86,6 +86,17 @@ describe("AppLayout chrome-less surfaces", () => {
     expect(screen.queryByTestId("sidebar")).toBeNull();
     expect(screen.getByTestId("page")).toBeDefined();
   });
+
+  it("renders onboarding with no shell, so it matches the surfaces around it", () => {
+    // The mismatch this fixes: onboarding is the one step in the terminal
+    // handoff that used to arrive wrapped in the rail, between a sign-in page
+    // and a device-consent page that both render bare. The rail was also a live
+    // exit from a flow holding a `?callbackUrl=` a terminal is polling on.
+    const { container } = renderAt("/onboarding");
+    expect(container.querySelector("header")).toBeNull();
+    expect(screen.queryByTestId("sidebar")).toBeNull();
+    expect(screen.getByTestId("page")).toBeDefined();
+  });
 });
 
 describe("AppLayout navbar AI button", () => {

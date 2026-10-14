@@ -9,6 +9,13 @@ describe("isChromelessRoute", () => {
     expect(isChromelessRoute("/device")).toBe(true);
   });
 
+  it("claims the onboarding flow and any step nested under it", () => {
+    // Not for being reachable signed out — it is not — but because the shell's
+    // navigation is the one thing a half-set-up account must not be offered.
+    expect(isChromelessRoute("/onboarding")).toBe(true);
+    expect(isChromelessRoute("/onboarding/project")).toBe(true);
+  });
+
   it("claims a listed route with no sub-path of its own", () => {
     // There is no page at `/auth`, so this is Next's built-in 404 — which still
     // renders through the root layout. A not-found under the sign-in prefix has
@@ -31,5 +38,6 @@ describe("isChromelessRoute", () => {
     expect(isChromelessRoute("/devices")).toBe(false);
     expect(isChromelessRoute("/device-settings")).toBe(false);
     expect(isChromelessRoute("/authorizations")).toBe(false);
+    expect(isChromelessRoute("/onboarding-v2")).toBe(false);
   });
 });

@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     data: { user: { id: "user-1", email: "kai@example.com" } },
     isPending: false,
   },
+  layoutAccess: vi.fn(),
 }));
 
 // Shaped like GET /api/workspaces answers it (see app/api/workspaces/route.ts).
@@ -42,8 +43,16 @@ vi.mock("@/lib/auth-client", () => ({
     useSession: () => mocks.session,
   },
 }));
+// Left in place, but only to catch the page reaching for it. This page renders
+// outside the app shell (see lib/chromeless-routes), where `useLayout` hands
+// back the context's inert defaults — so a `setHeaderContent` call here writes
+// a title into a header that is never rendered, and reads as working in a test
+// while showing nothing in a browser.
 vi.mock("@/components/layout/app-layout", () => ({
-  useLayout: () => ({ setHeaderContent: vi.fn() }),
+  useLayout: () => {
+    mocks.layoutAccess();
+    return { setHeaderContent: vi.fn() };
+  },
 }));
 vi.mock("@/lib/api", () => ({
   createWorkspace: mocks.createWorkspace,
@@ -120,11 +129,25 @@ afterEach(() => {
   mocks.createWorkspace.mockReset();
   mocks.createProject.mockReset();
   mocks.getWorkspaces.mockReset();
+  mocks.layoutAccess.mockReset();
   mocks.params = new URLSearchParams();
   signedInAs("user-1", "kai@example.com");
 });
 
 describe("OnboardingPage", () => {
+  it("does not reach for the app shell's layout context", async () => {
+    // This page renders with no shell around it, so there is no header to put a
+    // title in and no rail to collapse. Depending on the shell's context is how
+    // the two drift back apart: the call succeeds against the context defaults
+    // and nothing shows, which is invisible until someone opens the page.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+    await completeStepOne();
+
+    expect(mocks.layoutAccess).not.toHaveBeenCalled();
+  });
+
   it("shows the detectors step after workspace + project creation instead of redirecting", async () => {
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
