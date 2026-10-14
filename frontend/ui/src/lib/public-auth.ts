@@ -91,16 +91,25 @@ function bearerToken(request: Request): string | null {
  * The one place that decides whether an API-key-authenticated request is
  * acceptable, and which project it may act on.
  *
- * Every API-key surface resolves its caller through this function. It answers
- * with a reason rather than a response because the surfaces do not agree on the
- * wire: the Bearer public API answers `{detail}` and tells an unauthenticated
- * caller nothing about *why*, while the SDK reporting routes under
- * `/api/public` answer `{error}` with their own longer-standing wording. Those
- * are both contracts with shipped clients, so they stay — but the rules behind
- * them must not be able to drift apart, which is what sharing this does.
+ * Both *public* API-key surfaces resolve their caller through this function:
+ * the Bearer public API (`requireApiKeyProject`, below) and the SDK reporting
+ * routes under `/api/public` (`requireEvalApiKeyProject` in `lib/eval/auth.ts`).
+ * `internal/validate-api-key` is deliberately not one of them: it is
+ * secret-authenticated for server-to-server use, answers `{valid}` with HTTP
+ * 200, and still runs its own lookup — reporting the raw stored `scope` for the
+ * Python service to enforce on its own routes rather than deciding anything
+ * here.
  *
- * `lastUseTime` is advisory bookkeeping, so a failed write must never fail an
- * otherwise valid request.
+ * It answers with a reason rather than a response because the surfaces do not
+ * agree on the wire: the Bearer public API answers `{detail}` and tells an
+ * unauthenticated caller nothing about *why*, while the SDK reporting routes
+ * under `/api/public` answer `{error}` with their own longer-standing wording.
+ * Those are both contracts with shipped clients, so they stay — but the rules
+ * behind them must not be able to drift apart, which is what sharing this does.
+ *
+ * `lastUseTime` is advisory bookkeeping: a failed write must never fail an
+ * otherwise valid request, and it is stamped off the critical path so it never
+ * delays one either.
  */
 export async function resolveApiKeyProject(
   request: Request,
@@ -137,13 +146,27 @@ export async function resolveApiKeyProject(
 
   // Stamped before the scope check, not after: the key is genuine and was in
   // fact used, and only the authorization decision below goes against it.
+  //
+  // Deliberately not awaited. This function runs on every API-key request,
+  // including every SDK telemetry report, and the stamp is advisory display
+  // data — it has no business adding a write round-trip to the caller's
+  // latency. The SDK reporting surface already behaved this way before both
+  // surfaces shared one resolver; awaiting it here regressed that path.
+  //
+  // `.catch` is attached synchronously so a failed write can never surface as
+  // an unhandled rejection, `Promise.resolve` tolerates a client that answers
+  // with a non-promise, and the `try` covers one that throws outright.
   try {
-    await prisma.accessKey.update({
-      where: { id: accessKey.id },
-      data: { lastUseTime: new Date() },
+    void Promise.resolve(
+      prisma.accessKey.update({
+        where: { id: accessKey.id },
+        data: { lastUseTime: new Date() },
+      }),
+    ).catch(() => {
+      // A lost stamp is not worth reporting, let alone failing a request over.
     });
   } catch {
-    // ignore
+    // As above.
   }
 
   const scope = parseScope(accessKey.scope);
@@ -169,10 +192,15 @@ export async function resolveApiKeyProject(
  * on.
  *
  * Returns a discriminated result rather than throwing so each route decides how
- * to respond, and so the failure path is impossible to forget. Every rejection
- * is a flat 401 with no detail about *why* — telling an unauthenticated caller
- * whether a key exists, is expired, or belongs to a deleted project is free
- * reconnaissance.
+ * to respond, and so the failure path is impossible to forget.
+ *
+ * Every *credential* rejection — the key does not exist, has expired, or
+ * belongs to a deleted project — is the same flat 401 that says nothing about
+ * which of the three it was: telling an unauthenticated caller that much is
+ * free reconnaissance. The two refusals that are not about the credential say
+ * more, deliberately: a missing Authorization header names itself, because a
+ * caller who presented nothing has nothing to learn, and a key that is genuine
+ * but under-scoped gets a 403 rather than a 401.
  */
 export async function requireApiKeyProject(
   request: Request,

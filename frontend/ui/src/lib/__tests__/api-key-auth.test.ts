@@ -158,7 +158,15 @@ describe("resolveApiKeyProject", () => {
 describe("requireApiKeyProject (Bearer public API)", () => {
   it("answers a flat 401 {detail} that does not distinguish the reason", async () => {
     const bodies: unknown[] = [];
-    for (const row of [null, keyRow({ expireTime: new Date("2020-01-01") })]) {
+    for (const row of [
+      null,
+      keyRow({ expireTime: new Date("2020-01-01") }),
+      // The deleted project belongs in this loop, not in a test of its own: it
+      // is the reason the surface has a `default:` branch rather than a case
+      // per reason, and "Project has been deleted" is exactly the kind of body
+      // that reads as helpful and leaks whose project a key belongs to.
+      keyRow({ project: { ...keyRow().project, deleteTime: new Date("2020-01-01") } }),
+    ]) {
       prismaMock.accessKey.findUnique.mockResolvedValue(row);
       const result = await requireApiKeyProject(req(`Bearer ${KEY}`));
       if (result.ok) throw new Error("expected a refusal");
@@ -166,7 +174,9 @@ describe("requireApiKeyProject (Bearer public API)", () => {
       bodies.push(await result.response.json());
     }
     expect(bodies[0]).toEqual({ detail: "Invalid API key" });
-    expect(bodies[1]).toEqual(bodies[0]);
+    for (const body of bodies.slice(1)) {
+      expect(body).toEqual(bodies[0]);
+    }
   });
 
   it("answers 401 {detail} for a missing Authorization header", async () => {

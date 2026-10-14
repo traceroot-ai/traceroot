@@ -17,12 +17,27 @@ import { resolveApiKeyProject, type ApiKeyScope } from "@/lib/public-auth";
  *
  * `require` is accepted but no route passes it, so **both `ingest` and `admin`
  * keys may currently perform the dataset and evaluation-run writes behind these
- * routes**. That is the present state, not a conclusion: the key an SDK carries
- * is the one minted for ingestion, and it is what reports eval results today,
- * so demanding `admin` here would break every existing caller. Narrowing it —
- * most plausibly for dataset publishing, which is project authoring rather than
- * telemetry — is a deliberate change that needs its own answer for keys already
- * issued. The hook is here so that change is one argument at one route.
+ * routes**. That is deliberate, and the reason is not the obvious one.
+ *
+ * Keys issued before scoping were backfilled to `admin`, so narrowing a route
+ * would not disturb them. It is *new* keys that would break: every key minted
+ * today is `ingest` (see the mint in `api/projects/[projectId]/api-keys`). And
+ * the eval SDK authors datasets with that same credential by design — a
+ * non-local `evaluate()` publishes its local dataset as part of running the
+ * eval, which is a `POST /datasets` and a `POST /datasets/[datasetId]/versions`
+ * carrying the tracing SDK's `TRACEROOT_API_KEY` (docs `evals/running-evals`,
+ * `evals/get-started`). Requiring `admin` for dataset authoring would therefore
+ * harden no existing deployment while making `evaluate()` fail for every
+ * project created from here on; this surface's own exercisers, which drive
+ * A1–A5 with an `ingest` key, are the statement of that intent.
+ *
+ * So the split this surface wants is not a `require` argument away. It needs
+ * either a credential the eval SDK can carry for authoring — which first needs
+ * any way at all to mint an `admin` key, i.e. the key-management surface rather
+ * than this change — or a rule narrower than two scopes, along the lines of an
+ * `ingest` key being allowed to version the dataset it is reporting a run
+ * against and nothing else. Until one of those exists, the hook is here so that
+ * change is one argument at one route.
  */
 export async function requireEvalApiKeyProject(
   request: Request,
