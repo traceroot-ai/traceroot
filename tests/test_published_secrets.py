@@ -192,6 +192,55 @@ def test_prod_lite_replaces_a_published_bootstrap_password(tmp_path, line):
     assert len(_values(tmp_path / ".env")["SQL_GATEWAY_BOOTSTRAP_PASSWORD"]) == 64
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        "SQL_GATEWAY_BOOTSTRAP_PASSWORD=dev-sql-gateway-bootstrap",
+        'SQL_GATEWAY_BOOTSTRAP_PASSWORD="dev-sql-gateway-bootstrap"',
+        "SQL_GATEWAY_BOOTSTRAP_PASSWORD=dev-sql-gateway-bootstrap  # CHANGEME",
+    ],
+)
+def test_a_crlf_env_cannot_hide_a_published_password(tmp_path, line):
+    """An operator who edited .env on Windows must not keep the published value.
+
+    The parser trimmed spaces and tabs but not the carriage return, so the value
+    compared as "dev-sql-gateway-bootstrap\\r" -- which matches no placeholder, so
+    the recipe read it as configured and left it alone. Compose strips the
+    carriage return as a line ending, so ClickHouse then ran with the password
+    this repository publishes.
+    """
+    (tmp_path / ".env.example").write_text("SQL_GATEWAY_BOOTSTRAP_PASSWORD=\n")
+    (tmp_path / ".env").write_bytes(f"{line}\r\nOTHER=keep\r\n".encode())
+
+    _run_env_secrets(tmp_path)
+
+    body = (tmp_path / ".env").read_text()
+    assert "dev-sql-gateway-bootstrap" not in body.lower(), body
+    assert body.count("SQL_GATEWAY_BOOTSTRAP_PASSWORD=") == 1, body
+    assert len(_values(tmp_path / ".env")["SQL_GATEWAY_BOOTSTRAP_PASSWORD"]) == 64
+    assert "OTHER=keep" in body
+
+
+def test_whitespace_before_the_equals_is_repaired_in_place(tmp_path):
+    """The two passes have to agree on where the name ends.
+
+    The detect pass trimmed trailing whitespace from the name and the write pass
+    did not, so "KEY =published" was recognised as needing replacement and then
+    matched nothing to replace: the new value was appended and the published one
+    stayed in the file.
+    """
+    (tmp_path / ".env.example").write_text("SQL_GATEWAY_BOOTSTRAP_PASSWORD=\n")
+    (tmp_path / ".env").write_text("SQL_GATEWAY_BOOTSTRAP_PASSWORD =changeme\nOTHER=keep\n")
+
+    _run_env_secrets(tmp_path)
+
+    body = (tmp_path / ".env").read_text()
+    assert "changeme" not in body, body
+    assert body.count("SQL_GATEWAY_BOOTSTRAP_PASSWORD") == 1, body
+    assert len(_values(tmp_path / ".env")["SQL_GATEWAY_BOOTSTRAP_PASSWORD"]) == 64
+    assert "OTHER=keep" in body
+
+
 def test_env_stays_private_when_secret_generation_fails(tmp_path):
     """The recipe can abort between reading .env and writing it back.
 
@@ -206,7 +255,8 @@ def test_env_stays_private_when_secret_generation_fails(tmp_path):
     stub = tmp_path / "bin"
     stub.mkdir()
     (stub / "openssl").write_text("#!/bin/sh\nexit 1\n")
-    os.chmod(stub / "openssl", 0o755)
+    # 0o700: the stub only ever has to be executable by the test's own user.
+    os.chmod(stub / "openssl", 0o700)
 
     done = _run_env_secrets(tmp_path, extra_path=stub, check=False)
 
@@ -222,7 +272,8 @@ def _openssl_emitting(tmp_path: Path, value: str) -> Path:
     payload = tmp_path / "payload"
     payload.write_text(value)
     (stub / "openssl").write_text(f'#!/bin/sh\ncat "{payload}"\nprintf "\\n"\n')
-    os.chmod(stub / "openssl", 0o755)
+    # 0o700: the stub only ever has to be executable by the test's own user.
+    os.chmod(stub / "openssl", 0o700)
     return stub
 
 
