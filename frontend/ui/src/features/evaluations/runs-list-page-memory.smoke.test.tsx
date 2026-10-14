@@ -295,3 +295,52 @@ describe("runs list page memory", () => {
     expect(back.getAttribute("href")).toBe("/projects/p1/evaluations");
   });
 });
+
+describe("runs list shared pagination", () => {
+  it("requests the page size held in the URL and sizes the total by it", async () => {
+    nav.search = "page_limit=100&page_index=1";
+    mount(<EvaluationsView projectId="p1" />);
+    expect(await screen.findByText(/Showing 101–120 of 120/)).toBeDefined();
+    expect(lastRunsRequest().get("limit")).toBe("100");
+    expect(lastRunsRequest().get("page")).toBe("1");
+  });
+
+  it("changing the page size writes it to the URL and returns to the first page", async () => {
+    nav.search = "page_index=1";
+    mount(<EvaluationsView projectId="p1" />);
+    await screen.findByText(/Showing 51–100 of 120/);
+    fireEvent.click(screen.getByRole("button", { name: "50" }));
+    fireEvent.click(screen.getByRole("button", { name: "100" }));
+    expect(nav.replace).toHaveBeenLastCalledWith("/projects/p1/evaluations?page_limit=100", {
+      scroll: false,
+    });
+    await waitFor(() => expect(lastRunsRequest().get("limit")).toBe("100"));
+    expect(lastRunsRequest().get("page")).toBe("0");
+  });
+
+  it("jumps to the last page with the labelled last-page button", async () => {
+    mount(<EvaluationsView projectId="p1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Last page" }));
+    expect(nav.replace).toHaveBeenCalledWith("/projects/p1/evaluations?page_index=2", {
+      scroll: false,
+    });
+  });
+
+  it("asks the API for at most its maximum page size and keeps a page valid under it", async () => {
+    // The runs route caps `limit` at 200, so ?page_limit=500 is served as 200: 1000 runs
+    // is pages 0-4 and page 3 has rows. Sizing by the requested 500 would make page 1 the
+    // last page and bounce a valid deep link.
+    nav.search = "page_limit=500&page_index=3";
+    fetchMock.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [run(1)], meta: { page: 3, limit: 200, total: 1000 } }),
+    }));
+    mount(<EvaluationsView projectId="p1" />);
+    expect(await screen.findByText(/Showing 601–800 of 1000/)).toBeDefined();
+    expect(new Set(runsRequests().map((u) => u.searchParams.get("limit")))).toEqual(
+      new Set(["200"]),
+    );
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+});

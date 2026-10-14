@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
 import { SearchFilterBar } from "@/components/search-filter-bar";
+import { ListPagination } from "@/components/list-pagination";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
 import { useUrlKeywordSearch } from "@/lib/hooks/use-url-keyword-search";
@@ -47,8 +48,9 @@ export function RunStatusBadge({ status }: { status: EvalRunStatus }) {
 }
 
 const RUNS_COLUMN_COUNT = 10;
-// Matches the route's default `limit` (runs/route.ts) so the page-count math lines
-// up with what the server actually returns per page.
+// The default page size, matching the route's default `limit` (runs/route.ts). A
+// picked size rides in `?page_limit=`; useUrlPagination caps it at the route's
+// maximum so the page-count math lines up with what the server returns per page.
 const RUNS_PAGE_LIMIT = 50;
 const DEFAULT_RUNS_DATE_FILTER =
   DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0];
@@ -170,10 +172,12 @@ function RunsTab({ projectId }: { projectId: string }) {
   // Row selection for bulk actions (compare / delete).
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false);
-  // The page, the search text and the date window live in the URL (`?page_index=`,
-  // `?search=`, `?date_filter=`, `?start=`/`?end=`) so opening a run and coming back lands on the same page of
-  // the same result set instead of the first page of the default window.
-  const { page, goToPage, resetPageState } = useUrlPagination(RUNS_PAGE_LIMIT);
+  // The page, the page size, the search text and the date window live in the URL
+  // (`?page_index=`, `?page_limit=`, `?search=`, `?date_filter=`, `?start=`/`?end=`) so
+  // opening a run and coming back lands on the same page of the same result set instead
+  // of the first page of the default window.
+  const { page, limit, goToPage, setLimit, resetPageState, clampToTotal } =
+    useUrlPagination(RUNS_PAGE_LIMIT);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const listQuery = searchParams.toString();
@@ -238,27 +242,29 @@ function RunsTab({ projectId }: { projectId: string }) {
     started_after: startAfter,
     started_before: endBefore,
     page,
-    limit: RUNS_PAGE_LIMIT,
+    limit,
   });
   const runs = React.useMemo(() => data?.data ?? [], [data]);
 
   // Every new page of runs, or a new search/time range, starts at the top of the list.
   const listRef = React.useRef<HTMLDivElement>(null);
-  useScrollToTopOnChange(listRef, JSON.stringify([page, searchQuery, startAfter, endBefore]));
+  useScrollToTopOnChange(
+    listRef,
+    JSON.stringify([page, limit, searchQuery, startAfter, endBefore]),
+  );
   // Keyed off the immediate `keyword`, not the debounced `searchQuery`, so the
   // empty-state copy doesn't flicker for the 300ms before the debounce catches up.
   const filtered = !!keyword;
   const total = data?.meta?.total ?? runs.length;
 
   // After a delete shrinks the result set, the current page can point past the new
-  // end (empty table + invalid "showing X–Y of N" range). Clamp back to the last
-  // page that still has rows. Skipped while placeholder rows from the previous query
-  // are shown: their total belongs to a different query and would clamp a valid page.
+  // end (an empty table). Clamp back to the last page that still has rows. Skipped
+  // while placeholder rows from the previous query are shown: their total belongs to a
+  // different query and would clamp a valid page.
   React.useEffect(() => {
-    if (isLoading || isPlaceholderData || total === 0) return;
-    const lastPage = Math.max(0, Math.ceil(total / RUNS_PAGE_LIMIT) - 1);
-    if (page > lastPage) goToPage(lastPage);
-  }, [total, page, isLoading, isPlaceholderData, goToPage]);
+    if (isLoading || isPlaceholderData) return;
+    clampToTotal(total);
+  }, [total, isLoading, isPlaceholderData, clampToTotal]);
 
   const confirmDelete = () => {
     if (!deleteRun) return;
@@ -277,7 +283,7 @@ function RunsTab({ projectId }: { projectId: string }) {
   // ride along into a bulk delete of a different result set.
   React.useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, searchQuery, dateFilter.id, customStart, customEnd]);
+  }, [page, limit, searchQuery, dateFilter.id, customStart, customEnd]);
 
   const allSelected = runs.length > 0 && runs.every((r) => selectedIds.has(r.id));
   const toggleSelect = (id: string) =>
@@ -435,32 +441,13 @@ function RunsTab({ projectId }: { projectId: string }) {
       </div>
 
       {!isLoading && !error && total > 0 && (
-        <div className="flex shrink-0 items-center justify-between border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
-          <span>
-            Showing {page * RUNS_PAGE_LIMIT + 1}–{Math.min((page + 1) * RUNS_PAGE_LIMIT, total)} of{" "}
-            {total}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => goToPage(Math.max(0, page - 1))}
-              disabled={page === 0}
-              aria-label="Previous page"
-              className="rounded p-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => goToPage(page + 1)}
-              disabled={(page + 1) * RUNS_PAGE_LIMIT >= total}
-              aria-label="Next page"
-              className="rounded p-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-            >
-              <ChevronRight className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
+        <ListPagination
+          page={page}
+          limit={limit}
+          total={total}
+          onPageChange={goToPage}
+          onLimitChange={setLimit}
+        />
       )}
 
       {deleteRun && (
