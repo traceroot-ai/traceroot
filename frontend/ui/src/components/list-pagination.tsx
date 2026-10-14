@@ -138,6 +138,7 @@ export function ListPagination({
           <Button
             variant="outline"
             size="sm"
+            aria-label="First page"
             onClick={() => onPageChange(0)}
             disabled={page === 0}
             className="h-7 w-7 p-0"
@@ -172,6 +173,7 @@ export function ListPagination({
           <Button
             variant="outline"
             size="sm"
+            aria-label="Last page"
             onClick={() => onPageChange(totalPages - 1)}
             disabled={page >= totalPages - 1}
             className="h-7 w-7 p-0"

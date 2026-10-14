@@ -206,4 +206,57 @@ describe("ListPagination", () => {
     );
     expect(container.innerHTML).toBe("");
   });
+
+  it("navigates using the labelled first, previous, next and last page buttons", () => {
+    const onPageChange = vi.fn();
+    render(
+      <ListPagination
+        page={2}
+        limit={50}
+        total={500} // 10 pages: 0-9
+        onPageChange={onPageChange}
+        onLimitChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+    expect(onPageChange).toHaveBeenLastCalledWith(1);
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(onPageChange).toHaveBeenLastCalledWith(3);
+    fireEvent.click(screen.getByRole("button", { name: "First page" }));
+    expect(onPageChange).toHaveBeenLastCalledWith(0);
+    fireEvent.click(screen.getByRole("button", { name: "Last page" }));
+    expect(onPageChange).toHaveBeenLastCalledWith(9);
+  });
+
+  it("disables first/previous on the first page and next/last on the last page", () => {
+    const { rerender } = render(
+      <ListPagination
+        page={0}
+        limit={50}
+        total={120}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    const isDisabled = (name: string) =>
+      (screen.getByRole("button", { name }) as HTMLButtonElement).disabled;
+    expect(isDisabled("First page")).toBe(true);
+    expect(isDisabled("Previous page")).toBe(true);
+    expect(isDisabled("Next page")).toBe(false);
+    expect(isDisabled("Last page")).toBe(false);
+
+    rerender(
+      <ListPagination
+        page={2}
+        limit={50}
+        total={120}
+        onPageChange={vi.fn()}
+        onLimitChange={vi.fn()}
+      />,
+    );
+    expect(isDisabled("First page")).toBe(false);
+    expect(isDisabled("Next page")).toBe(true);
+    expect(isDisabled("Last page")).toBe(true);
+  });
 });
