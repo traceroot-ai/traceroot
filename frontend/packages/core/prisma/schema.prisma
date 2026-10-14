@@ -132,6 +132,21 @@ model WorkspaceUsageNotification {
   @@map("workspace_usage_notifications")
 }
 
+// One row per (user, campaign) for app email that must not repeat; see src/lib/email/send-record.ts.
+model EmailSend {
+  id         String    @id @default(cuid()) @db.VarChar
+  userId     String    @map("user_id") @db.VarChar
+  campaign   String    @db.VarChar // "welcome"
+  kind       String    @db.VarChar // "transactional" | "product"
+  claimedAt  DateTime  @default(now()) @map("claimed_at") @db.Timestamp(6)
+  sentAt     DateTime? @map("sent_at") @db.Timestamp(6)
+  providerId String?   @map("provider_id") @db.VarChar
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([userId, campaign], map: "uq_email_send_user_campaign")
+  @@map("email_sends")
+}
+
 // Model Providers - Per-workspace BYOK LLM API keys
 model ModelProvider {
   id                String    @id @default(cuid()) @db.VarChar
@@ -207,6 +222,7 @@ model User {
   memberships   WorkspaceMember[]
   accounts      Account[]
   sessions      Session[]
+  emailSends    EmailSend[]
 
   @@map("users")
 }
@@ -1064,6 +1080,10 @@ model Alert {
   // without a page, so this is the only record of what the failed page said.
   // Null for an attempt recorded before the column existed.
   lastNotifySeverity String?   @map("last_notify_severity") @db.VarChar
+  // An open page that an edit or a resume discarded and nobody has been told
+  // about yet (`AlertPendingClose`). The write that voids the state sets it; the
+  // next tick posts the close and clears it. Null for every other rule.
+  pendingClose       Json?     @map("pending_close") @db.JsonB
   // Null `nextRunAt` means due immediately; `lastClaimedAt` is the CAS token a
   // completing tick writes back against.
   nextRunAt          DateTime? @map("next_run_at") @db.Timestamp(6)
