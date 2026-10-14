@@ -65,10 +65,17 @@ prod:
 ## and the redirect, and an unpredictable name is still visible to anyone
 ## watching the directory once it exists. A 0700 directory removes the
 ## opportunity instead of narrowing it -- nobody else can traverse it, so the
-## file inside cannot be swapped. The final `mv` renames over `.env`, which
-## replaces a symlink planted there rather than writing through it.
+## file inside cannot be swapped.
+##
+## The recipe also refuses outright when `.env` is itself a symlink, checked
+## before it starts and again before each rename. `mv` replaces a symlink to a
+## regular file, but a symlink to a *directory* makes it move the file
+## **inside** that directory, so the secret lands somewhere the link's owner
+## chose. `mv -T` would say "never treat the target as a directory" but is GNU
+## only. Refusing is portable, and a `.env` that is a symlink is an ambiguity
+## this recipe has no business resolving silently.
 env-secrets:
-	@umask 077; test -f .env || cp .env.example .env; chmod 600 .env
+	@umask 077; if [ -L .env ]; then printf '%s\n' "env-secrets: .env is a symlink. Refusing to write secrets through it -- replace it with a regular file." >&2; exit 1; fi; test -f .env || cp .env.example .env; chmod 600 .env
 	@umask 077; for key in $(REQUIRED_SECRETS); do \
 		if awk -F= -v k="$$key" -v published="$(PUBLISHED_PLACEHOLDERS)" 'BEGIN { split(published, list, " "); for (i in list) known[list[i]] = 1; quotes = "[\"" sprintf("%c", 39) "]+" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { value = substr($$0, index($$0, "=") + 1); sub(/[ \t]+#.*/, "", value); gsub(/^[ \t\r]+|[ \t\r]+$$/, "", value); sub("^" quotes, "", value); sub(quotes "$$", "", value); if (value != "" && !(tolower(value) in known)) configured = 1 } END { exit !configured }' .env; then \
 			continue; \
@@ -76,6 +83,7 @@ env-secrets:
 		value=$$(openssl rand -hex 32) || exit 1; \
 		tmpdir=$$(mktemp -d "./.env.tmp.XXXXXX") || exit 1; \
 		TRACEROOT_GENERATED_SECRET="$$value" awk -F= -v k="$$key" 'BEGIN { OFS = "=" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t\r]+$$/, "", name) } name == k { print name, ENVIRON["TRACEROOT_GENERATED_SECRET"]; found = 1; next } { print } END { if (!found) print k, ENVIRON["TRACEROOT_GENERATED_SECRET"] }' .env > "$$tmpdir/env" || { rm -rf "$$tmpdir"; exit 1; }; \
+		if [ -L .env ]; then rm -rf "$$tmpdir"; printf '%s\n' "env-secrets: .env became a symlink while secrets were being generated. Refusing to write through it." >&2; exit 1; fi; \
 		mv "$$tmpdir/env" .env; \
 		rmdir "$$tmpdir"; \
 		echo "Generated $$key in .env"; \

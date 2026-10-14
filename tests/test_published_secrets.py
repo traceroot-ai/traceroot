@@ -342,27 +342,33 @@ def test_no_generated_secret_is_left_anywhere_but_env(tmp_path):
     assert not strays, f"temp files left behind: {strays}"
 
 
-def test_a_symlink_planted_at_env_itself_is_replaced_not_followed(tmp_path):
-    """The last step renames over .env, so a symlink there must not be a channel.
+@pytest.mark.parametrize("kind", ["file", "directory"])
+def test_a_symlinked_env_is_refused_rather_than_written_through(tmp_path, kind):
+    """`.env` being a symlink is an ambiguity this recipe must not resolve silently.
 
-    Nothing in the review raised this, but it is the same class as the temp-file
-    finding and the rewrite would be pointless if the final step leaked. `mv` is
-    a rename: it replaces the name, so the planted link is discarded and the file
-    it pointed at is untouched.
+    `mv` replaces a symlink to a regular file, but a symlink to a *directory*
+    makes it move the file **inside** that directory -- so the secret lands
+    wherever the link's owner chose, and `.env` is still a link. `mv -T` would
+    forbid that but is GNU only. Refusing is portable and leaves nothing to race.
     """
     (tmp_path / ".env.example").write_text("INTERNAL_API_SECRET=\n")
-    victim = tmp_path / "victim"
-    victim.write_text("untouched\n")
-    (tmp_path / ".env").symlink_to(victim)
+    if kind == "file":
+        target = tmp_path / "captured"
+        target.write_text("")
+    else:
+        target = tmp_path / "captured-dir"
+        target.mkdir()
+    (tmp_path / ".env").symlink_to(target)
 
-    _run_env_secrets(tmp_path)
+    done = _run_env_secrets(tmp_path, check=False)
 
-    env_path = tmp_path / ".env"
-    assert not env_path.is_symlink(), ".env must be a real file afterwards"
-    assert victim.read_text() == "untouched\n", f"wrote through the link: {victim.read_text()}"
-    assert len(_values(env_path)["INTERNAL_API_SECRET"]) == 64
-    mode = stat.S_IMODE(os.stat(env_path).st_mode)
-    assert not mode & (stat.S_IRGRP | stat.S_IROTH), f"mode is {mode:o}"
+    assert done.returncode != 0, "a symlinked .env must stop the recipe"
+    assert b"symlink" in done.stderr.lower(), done.stderr
+    if kind == "file":
+        assert target.read_text() == "", f"wrote through the link: {target.read_text()}"
+    else:
+        assert list(target.iterdir()) == [], f"wrote into the directory: {list(target.iterdir())}"
+    assert (tmp_path / ".env").is_symlink(), "the link is left alone, not replaced"
 
 
 def _openssl_emitting(tmp_path: Path, value: str) -> Path:
