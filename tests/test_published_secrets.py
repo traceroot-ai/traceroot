@@ -18,6 +18,7 @@ The equivalent check for the TypeScript side lives in frontend/ui/src/env.ts.
 import os
 import re
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -91,6 +92,58 @@ def test_every_required_secret_is_generated_for_the_operator():
 def test_prod_lite_generates_the_same_set_without_the_python_toolchain():
     """prod-lite cannot call the launcher, so its own list must not drift."""
     assert _makefile_required_secrets() == _compose_required_secrets()
+
+
+def _run_env_secrets(workdir: Path) -> None:
+    """Run the Makefile's own env-secrets recipe in an isolated directory.
+
+    Parsing the recipe instead of restating it means these two tests cannot
+    drift from what an operator actually runs.
+    """
+    text = _MAKEFILE.read_text()
+    start = text.index("env-secrets:\n") + len("env-secrets:\n")
+    body = []
+    for line in text[start:].splitlines(keepends=True):
+        if line.strip() and not line.startswith("\t"):
+            break
+        body.append(line)
+    script = "".join(body).replace("\t", "").replace("$$", "$")
+    script = script.replace("$(REQUIRED_SECRETS)", " ".join(sorted(_makefile_required_secrets())))
+    script = re.sub(r"^@", "", script, flags=re.MULTILINE)
+    subprocess.run(["sh", "-e", "-c", script], cwd=workdir, check=True, capture_output=True)
+
+
+def test_generated_env_is_not_readable_by_other_users(tmp_path):
+    """env-secrets writes real secrets, so 0644 from a plain copy is not enough.
+
+    The recipe builds a temp file and ``mv``s it over .env, which replaces the
+    inode and discards the mode, so the 0600 the launcher sets deliberately was
+    undone on the self-hosting path.
+    """
+    (tmp_path / ".env.example").write_text("INTERNAL_API_SECRET=\n")
+
+    _run_env_secrets(tmp_path)
+
+    mode = stat.S_IMODE(os.stat(tmp_path / ".env").st_mode)
+    assert not mode & (stat.S_IRGRP | stat.S_IROTH), f"mode is {mode:o}"
+
+
+def test_an_exported_secret_is_left_alone(tmp_path):
+    """``export KEY=value`` is a configured secret, not an absent one.
+
+    The detector splits on ``=``, so without stripping the prefix the name reads
+    as "export KEY", the value looks empty, and an appended generated line wins
+    under dotenv last-one-wins.
+    """
+    chosen = "an-operator-chosen-production-secret"
+    (tmp_path / ".env.example").write_text("INTERNAL_API_SECRET=\n")
+    (tmp_path / ".env").write_text(f"export INTERNAL_API_SECRET={chosen}\n")
+
+    _run_env_secrets(tmp_path)
+
+    body = (tmp_path / ".env").read_text()
+    assert body.count("INTERNAL_API_SECRET=") == 1, body
+    assert chosen in body
 
 
 # --- launcher ----------------------------------------------------------------

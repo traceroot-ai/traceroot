@@ -45,13 +45,13 @@ prod:
 ## self-hosting path stays free of the uv/python toolchain.
 env-secrets:
 	@test -f .env || cp .env.example .env
-	@for key in $(REQUIRED_SECRETS); do \
-		if [ -n "$$(awk -F= -v k="$$key" '$$1 == k && $$2 != "" { print $$2 }' .env)" ]; then \
+	@umask 077; for key in $(REQUIRED_SECRETS); do \
+		if [ -n "$$(awk -F= -v k="$$key" '{ name = $$1; sub(/^[ \t]*export[ \t]+/, "", name) } name == k && $$2 != "" { print $$2 }' .env)" ]; then \
 			continue; \
 		fi; \
 		value=$$(openssl rand -hex 32) || exit 1; \
-		if awk -F= -v k="$$key" '$$1 == k { found = 1 } END { exit !found }' .env; then \
-			awk -F= -v k="$$key" -v v="$$value" 'BEGIN { OFS = "=" } $$1 == k { print k, v; next } { print }' .env > .env.tmp; \
+		if awk -F= -v k="$$key" '{ name = $$1; sub(/^[ \t]*export[ \t]+/, "", name) } name == k { found = 1 } END { exit !found }' .env; then \
+			awk -F= -v k="$$key" -v v="$$value" 'BEGIN { OFS = "=" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name) } name == k { print $$1, v; next } { print }' .env > .env.tmp; \
 		else \
 			cp .env .env.tmp; \
 			printf '%s=%s\n' "$$key" "$$value" >> .env.tmp; \
@@ -59,7 +59,7 @@ env-secrets:
 		mv .env.tmp .env; \
 		echo "Generated $$key in .env"; \
 	done
-
+	@chmod 600 .env
 ## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
 prod-lite: env-secrets
 	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
