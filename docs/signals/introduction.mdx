@@ -39,7 +39,7 @@ New findings keep counting on a signal whatever its status, but only a resolved 
 
 Root cause analysis runs per signal, not per finding. With the detector's **Root cause analysis** set to **Automatic**, the AI agent runs when a signal is created and when a new finding reopens it. A reopening runs no new analysis while an analysis of the signal that succeeded, or is still waiting or running, was started within the last 24 hours; an analysis you ran by hand counts too. Failed attempts do not count, so they never extend the wait. With **Manual**, the agent runs only when you ask.
 
-When a signal has no analysis for its current opening, because its detector is Manual, the 24-hour window applied, or an attempt failed, its panel offers **Run root cause analysis**. The run starts within about two minutes, and the panel follows it until it finishes. If the analysis shown is from before the signal reopened, the panel says so and gives its date.
+When a signal has no analysis for its current opening, because its detector is Manual, the 24-hour window applied, or an attempt failed, its panel offers **Run root cause analysis**. The run starts within about two minutes, and the panel follows it until it finishes. On a self-hosted deployment without `OPENAI_API_KEY`, no analysis can run, and the panel says the deployment has no OpenAI API key instead of offering the button. If the analysis shown is from before the signal reopened, the panel says so and gives its date.
 
 **Open in agent** opens the analysis in the AI agent, to ask follow-up questions about it. See [Introduction](/detectors/introduction#root-cause-analysis) for how the setting works.
 
