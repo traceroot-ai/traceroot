@@ -9,6 +9,7 @@ import { env } from "@/env";
 import { sendWelcomeEmail } from "@/lib/email/welcome/send-welcome-email";
 import { findPostHogPerson } from "./posthog-person";
 import { notifySignupSlack } from "./notify-slack";
+import { isSelfSignup } from "./attribution";
 
 export interface CreatedUser {
   id: string;
@@ -41,7 +42,7 @@ export async function onUserCreated(
   context: { path?: string } | null,
 ): Promise<void> {
   // A user provisioned by staff through the admin plugin is not a sign-up.
-  if (context?.path === "/admin/create-user") return;
+  if (!isSelfSignup(context)) return;
 
   const welcome = isProductMailConfigured()
     ? arm("welcome email", user.id, async () => {

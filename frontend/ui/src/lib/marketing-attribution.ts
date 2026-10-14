@@ -1,45 +1,54 @@
+import { z } from "zod";
+
 // Campaign metadata is untrusted analytics input, never an authentication signal.
 // Keep it host-only: website-to-Cloud identity sharing is managed by PostHog.
 export const ATTRIBUTION_COOKIE = "traceroot_campaign_v1";
 export const ATTRIBUTION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
-const MAX_VALUE_LENGTH = 200;
 export const ATTRIBUTION_MAX_COOKIE_LENGTH = 3500;
 const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"] as const;
 
-type SearchParams = { get(name: string): string | null };
+const utmField = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  // eslint-disable-next-line no-control-regex -- reject control characters in untrusted metadata
+  .regex(/^[^\x00-\x1f\x7f]*$/)
+  .optional()
+  .catch(undefined);
+const utmSchema = z
+  .object({
+    utm_source: utmField,
+    utm_medium: utmField,
+    utm_campaign: utmField,
+    utm_content: utmField,
+    utm_term: utmField,
+  })
+  .transform((fields) =>
+    Object.fromEntries(
+      Object.entries(fields).filter((entry): entry is [string, string] => entry[1] !== undefined),
+    ),
+  );
+const cookieSchema = z.object({
+  v: z.literal(1),
+  capturedAt: z.number().int().positive().max(8_640_000_000_000_000),
+  utm: utmSchema.refine((utm) => Object.keys(utm).length > 0),
+});
 export type CampaignAttribution = { capturedAt: number; utm: Record<string, string> };
 
-export function getUtmParams(params: SearchParams): Record<string, string> {
-  const utm: Record<string, string> = {};
-  for (const key of UTM_KEYS) {
-    const value = params.get(key)?.trim();
-    if (
-      value &&
-      value.length <= MAX_VALUE_LENGTH &&
-      !Array.from(value).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
-    ) {
-      utm[key] = value;
-    }
-  }
-  return utm;
+export function getUtmParams(params: URLSearchParams): Record<string, string> {
+  return utmSchema.parse(Object.fromEntries(UTM_KEYS.map((key) => [key, params.get(key)])));
 }
 
-// The caller validates callbackUrl with safeCallbackUrl. UTM parameters live at
-// the top level so the analytics SDK can read them before the user signs in.
-export function authPageHref(
-  path: "/auth/sign-in" | "/auth/sign-up",
-  callbackUrl: string,
-  params: SearchParams,
-): string {
-  const query = new URLSearchParams();
-  if (callbackUrl && callbackUrl !== "/") query.set("callbackUrl", callbackUrl);
-  for (const [key, value] of Object.entries(getUtmParams(params))) query.set(key, value);
-  return query.size ? `${path}?${query.toString()}` : path;
+export function encodeAttributionCookie(attribution: CampaignAttribution): string | null {
+  // NextResponse.cookies.set handles URI encoding on the wire.
+  const value = JSON.stringify({ v: 1, ...attribution });
+  return encodeURIComponent(value).length <= ATTRIBUTION_MAX_COOKIE_LENGTH ? value : null;
 }
 
 export function readAttributionCookie(
   cookieHeader: string | null | undefined,
-  now = Date.now(),
+  now?: number,
 ): CampaignAttribution | null {
   try {
     const entry = cookieHeader
@@ -48,22 +57,17 @@ export function readAttributionCookie(
     if (!entry) return null;
     const encoded = entry.trim().slice(ATTRIBUTION_COOKIE.length + 1);
     if (encoded.length > ATTRIBUTION_MAX_COOKIE_LENGTH) return null;
-    const value = JSON.parse(decodeURIComponent(encoded));
+    const parsed = cookieSchema.safeParse(JSON.parse(decodeURIComponent(encoded)));
+    if (!parsed.success) return null;
+    const { capturedAt, utm } = parsed.data;
+    // Validate age using the server clock. Browsers rely on cookie Max-Age so
+    // a skewed device clock cannot discard a valid server timestamp.
     if (
-      value?.v !== 1 ||
-      !Number.isSafeInteger(value.capturedAt) ||
-      value.capturedAt <= 0 ||
-      value.capturedAt > now + 60_000 ||
-      now - value.capturedAt >= ATTRIBUTION_MAX_AGE_SECONDS * 1000 ||
-      !value.utm ||
-      typeof value.utm !== "object" ||
-      Array.isArray(value.utm)
+      now !== undefined &&
+      (capturedAt > now + 60_000 || now - capturedAt >= ATTRIBUTION_MAX_AGE_SECONDS * 1000)
     )
       return null;
-    const utm = getUtmParams({
-      get: (key) => (typeof value.utm[key] === "string" ? value.utm[key] : null),
-    });
-    return Object.keys(utm).length ? { capturedAt: value.capturedAt, utm } : null;
+    return { capturedAt, utm };
   } catch {
     return null;
   }

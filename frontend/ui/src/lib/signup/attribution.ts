@@ -1,19 +1,15 @@
 import type { GenericEndpointContext } from "@better-auth/core";
 import { attributionProperties, readAttributionCookie } from "@/lib/marketing-attribution";
 
-type SignupContext = Partial<Pick<GenericEndpointContext, "path" | "headers" | "request">>;
+export function isSelfSignup(context: { path?: string } | null): boolean {
+  return context?.path !== "/admin/create-user";
+}
 
 export function signupAttributionProperties(
-  context: SignupContext | null | undefined,
+  context: GenericEndpointContext | null,
 ): Record<string, string> {
-  // A support/admin user's campaign must not be assigned to a user they create.
-  if (context?.path === "/admin/create-user") return {};
-
-  try {
-    const cookie = context?.headers?.get("cookie") ?? context?.request?.headers.get("cookie");
-    return attributionProperties(readAttributionCookie(cookie));
-  } catch {
-    // Optional analytics must never turn a successful registration into an error.
-    return {};
-  }
+  if (!isSelfSignup(context)) return {};
+  // better-auth forwards the endpoint context (including request headers) to
+  // database hooks for both email signup and the OAuth callback.
+  return attributionProperties(readAttributionCookie(context?.headers?.get("cookie"), Date.now()));
 }

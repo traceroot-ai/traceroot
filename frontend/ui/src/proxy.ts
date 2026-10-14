@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUtmParams } from "@/lib/marketing-attribution";
+import {
+  ATTRIBUTION_COOKIE,
+  ATTRIBUTION_MAX_AGE_SECONDS,
+  encodeAttributionCookie,
+  getUtmParams,
+  readAttributionCookie,
+} from "@/lib/marketing-attribution";
 
 export function proxy(req: NextRequest) {
   // better-auth prefixes cookies with __Secure- in HTTPS environments
@@ -7,31 +13,38 @@ export function proxy(req: NextRequest) {
     req.cookies.get("better-auth.session_token") ??
     req.cookies.get("__Secure-better-auth.session_token");
 
-  // Allow auth pages without token
-  if (req.nextUrl.pathname.startsWith("/auth/")) {
-    return NextResponse.next();
-  }
-
-  // The device consent page owns its own sign-in round-trip: it must preserve
-  // the ?user_code query and stash it across the redirect (this middleware would
-  // otherwise redirect with a pathname-only callbackUrl, dropping the code). The
-  // sensitive action (approve) is enforced server-side to require the claiming
-  // session, so leaving the page reachable without a token is safe.
-  if (req.nextUrl.pathname === "/device") {
-    return NextResponse.next();
-  }
-
-  // No token → redirect to sign-in
-  if (!token) {
+  const utm = getUtmParams(req.nextUrl.searchParams);
+  let response = NextResponse.next();
+  // Auth pages remain public. /device owns its sign-in round-trip, preserving
+  // the user_code; approval still requires a session in its server handler.
+  if (!token && !req.nextUrl.pathname.startsWith("/auth/") && req.nextUrl.pathname !== "/device") {
     const signInUrl = new URL("/auth/sign-in", req.url);
     signInUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
-    for (const [key, value] of Object.entries(getUtmParams(req.nextUrl.searchParams))) {
-      signInUrl.searchParams.set(key, value);
-    }
-    return NextResponse.redirect(signInUrl);
+    for (const [key, value] of Object.entries(utm)) signInUrl.searchParams.set(key, value);
+    response = NextResponse.redirect(signInUrl);
   }
 
-  return NextResponse.next();
+  if (
+    !token &&
+    req.method === "GET" &&
+    process.env.NEXT_PUBLIC_POSTHOG_KEY &&
+    process.env.NEXT_PUBLIC_POSTHOG_HOST &&
+    Object.keys(utm).length
+  ) {
+    const previous = readAttributionCookie(req.headers.get("cookie"), Date.now());
+    // Forwarded UTMs and auth-page navigation must not restart the expiry window.
+    if (JSON.stringify(previous?.utm) !== JSON.stringify(utm)) {
+      const value = encodeAttributionCookie({ capturedAt: Date.now(), utm });
+      if (value)
+        response.cookies.set(ATTRIBUTION_COOKIE, value, {
+          path: "/",
+          maxAge: ATTRIBUTION_MAX_AGE_SECONDS,
+          sameSite: "lax",
+          secure: req.nextUrl.protocol === "https:",
+        });
+    }
+  }
+  return response;
 }
 
 export const config = {
@@ -44,9 +57,8 @@ export const config = {
     // - api/billing/webhook (Stripe webhook, uses signature verification)
     // - api/email/unsubscribe (signed-token authed; reached from email links and one-click POSTs, no cookie)
     // - api/health, exact (load balancer / kubelet liveness probe; a 307 here reads as unhealthy)
-    // - auth/* (sign-in, sign-up pages)
     // - _next (Next.js internals)
     // - static files
-    "/((?!api/auth|api/public|api/internal|api/cli|api/billing/webhook|api/email/unsubscribe|api/health$|api/github/token|api/github/callback|api/github/install-callback|auth/|_next/static|_next/image|images/|favicon.ico).*)",
+    "/((?!api/auth|api/public|api/internal|api/cli|api/billing/webhook|api/email/unsubscribe|api/health$|api/github/token|api/github/callback|api/github/install-callback|_next/static|_next/image|images/|favicon.ico).*)",
   ],
 };

@@ -5,8 +5,6 @@ import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
-import { authPageHref } from "@/lib/marketing-attribution";
-import { captureBrowserAttribution } from "@/lib/marketing-attribution-browser";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -58,7 +56,10 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
   // Attacker-suppliable query param; only same-origin destinations may pass.
   const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
   const destination = postSignUpDestination(callbackUrl);
-  const signInHref = authPageHref("/auth/sign-in", callbackUrl, searchParams);
+  const signInHref =
+    callbackUrl !== "/"
+      ? `/auth/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`
+      : "/auth/sign-in";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -79,7 +80,6 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
     setError(null);
 
     try {
-      captureBrowserAttribution();
       const { error } = await authClient.signUp.email({
         name: data.name,
         email: data.email,
@@ -100,7 +100,6 @@ function SignUpContent({ googleAuthConfigured }: SignUpClientProps) {
 
   async function handleGoogleSignUp() {
     setIsGoogleLoading(true);
-    captureBrowserAttribution();
     await authClient.signIn.social({
       provider: "google",
       callbackURL: destination,
