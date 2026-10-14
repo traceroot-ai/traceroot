@@ -221,7 +221,8 @@
               "integrations/mistral",
               "integrations/openai",
               "integrations/openai-compatible",
-              "integrations/openrouter"
+              "integrations/openrouter",
+              "integrations/typesafe"
             ]
           },
           {
