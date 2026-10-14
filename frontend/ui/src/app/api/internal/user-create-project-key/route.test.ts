@@ -83,6 +83,9 @@ describe("POST /api/internal/user-create-project-key", () => {
   });
 
   it("mints a key and returns the secret exactly once", async () => {
+    // An admin, because the scope asked for here is the one that requires it.
+    memberFindUniqueMock.mockResolvedValue({ role: "admin" });
+
     const res = await POST(makeRequest({ ...VALID, scope: "admin" }));
     const body = await res.json();
 
@@ -126,6 +129,35 @@ describe("POST /api/internal/user-create-project-key", () => {
 
     expect(res.status).toBe(403);
     expect(keyCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a member the admin scope", async () => {
+    // The default membership in beforeEach is a plain member. An admin-scoped
+    // key is the key-management credential, and the browser reserves revoking a
+    // key for ADMIN, so this path must not be a way around that role.
+    const res = await POST(makeRequest({ ...VALID, scope: "admin" }));
+
+    expect(res.status).toBe(403);
+    expect(keyCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("lets a workspace admin mint the admin scope", async () => {
+    memberFindUniqueMock.mockResolvedValue({ role: "admin" });
+
+    const res = await POST(makeRequest({ ...VALID, scope: "admin" }));
+
+    expect(res.status).toBe(201);
+    expect((await res.json()).scope).toBe("admin");
+    expect(keyCreateMock.mock.calls[0][0].data.scope).toBe("admin");
+  });
+
+  it("still lets a member mint an explicit ingest key", async () => {
+    // The gate keys off the scope asked for, not off `scope` being present: a
+    // member's own bootstrap key is what this route exists to mint.
+    const res = await POST(makeRequest({ ...VALID, scope: "ingest" }));
+
+    expect(res.status).toBe(201);
+    expect(keyCreateMock.mock.calls[0][0].data.scope).toBe("ingest");
   });
 
   it("refuses a duplicate key name in the same project", async () => {

@@ -18,7 +18,8 @@ const createKeySchema = z.object({
    *
    * `admin` stays accepted because a key-management credential is the one key
    * no project key can mint, so a project with none yet has no other way to
-   * obtain one. It is not what belongs in an application's environment.
+   * obtain one. It is not what belongs in an application's environment, and
+   * asking for it requires the workspace admin role (enforced below).
    */
   scope: z.enum(["ingest", "admin"]).optional(),
   expiresInDays: z.number().int().positive().max(3650).nullable().optional(),
@@ -74,6 +75,22 @@ export async function POST(request: NextRequest) {
   });
   if (!membership || membership.role === Role.VIEWER) {
     return NextResponse.json({ error: "Insufficient project permissions" }, { status: 403 });
+  }
+
+  // MEMBER is the threshold to mint a key; it is not the threshold to mint a
+  // key-management credential. An `admin`-scoped key lists, mints and revokes
+  // every key in its project through `/api/public/api-keys`, and the browser
+  // reserves exactly that last capability for ADMIN — deleting a key in
+  // `api/projects/[projectId]/api-keys/[keyId]` requires `Role.ADMIN`. Minting
+  // one on a member's login would hand them, over the API, the capability the
+  // dashboard refuses them. Reported distinctly from the check above: a member
+  // is authorized here, just not for this scope, and saying so is what lets a
+  // caller know to ask an admin rather than to retry.
+  if (scope === "admin" && membership.role !== Role.ADMIN) {
+    return NextResponse.json(
+      { error: "Minting an admin-scoped key requires the workspace admin role" },
+      { status: 403 },
+    );
   }
 
   const existing = await prisma.accessKey.findFirst({
