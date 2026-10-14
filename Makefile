@@ -6,6 +6,11 @@ PROD_COMPOSE := docker compose -f docker-compose.prod.yml
 # Secrets docker-compose.prod.yml marks required with ${VAR:?...}. Kept in sync
 # by tests/test_published_secrets.py, which reads both this list and the compose file.
 REQUIRED_SECRETS := INTERNAL_API_SECRET BETTER_AUTH_SECRET SQL_GATEWAY_BOOTSTRAP_PASSWORD
+# Values this repository published in .env.example or a compose file. Nobody chose
+# them, so an .env still carrying one is repaired rather than believed. Mirrors
+# PUBLISHED_PLACEHOLDERS in tmux_tools/launcher.py, which the same test pins to this.
+PUBLISHED_PLACEHOLDERS := dev-internal-secret internal-secret your-better-auth-secret \
+	local-dev-secret-change-in-production changeme dev-sql-gateway-bootstrap
 # Only vX.Y.Z tags are platform versions; other tags must not become the label.
 APP_VERSION ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo dev)
 
@@ -44,9 +49,9 @@ prod:
 ## Give every required secret a value in .env. Needs only openssl, so the
 ## self-hosting path stays free of the uv/python toolchain.
 env-secrets:
-	@test -f .env || cp .env.example .env
+	@umask 077; test -f .env || cp .env.example .env; chmod 600 .env
 	@umask 077; for key in $(REQUIRED_SECRETS); do \
-		if [ -n "$$(awk -F= -v k="$$key" '{ name = $$1; sub(/^[ \t]*export[ \t]+/, "", name) } name == k && $$2 != "" { print $$2 }' .env)" ]; then \
+		if [ -n "$$(awk -F= -v k="$$key" -v published="$(PUBLISHED_PLACEHOLDERS)" 'BEGIN { split(published, list, " "); for (i in list) known[list[i]] = 1; quotes = "[\"" sprintf("%c", 39) "]+" } { name = $$1; sub(/^[ \t]*export[ \t]+/, "", name); sub(/[ \t]+$$/, "", name) } name == k { value = substr($$0, index($$0, "=") + 1); sub(/[ \t]+#.*/, "", value); gsub(/^[ \t]+|[ \t]+$$/, "", value); sub("^" quotes, "", value); sub(quotes "$$", "", value); if (value != "" && !(tolower(value) in known)) print value }' .env)" ]; then \
 			continue; \
 		fi; \
 		value=$$(openssl rand -hex 32) || exit 1; \
@@ -59,7 +64,7 @@ env-secrets:
 		mv .env.tmp .env; \
 		echo "Generated $$key in .env"; \
 	done
-	@chmod 600 .env
+
 ## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
 prod-lite: env-secrets
 	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"

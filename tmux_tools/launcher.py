@@ -70,9 +70,9 @@ def _run(
 GENERATED_KEYS = ("INTERNAL_API_SECRET", "BETTER_AUTH_SECRET")
 
 # Required by docker-compose.prod.yml, which refuses to start without it, but
-# defaulted to a published value by docker-compose.yml. A dev checkout whose
-# ClickHouse volume was initialised with that default keeps working only while
-# .env stays silent, so this is filled on the prod paths alone.
+# supplied by docker-compose.yml as one of the dev stack's deliberately weak known
+# defaults. The dev path therefore has nothing to repair and leaves .env silent
+# about it; every path that brings up prod compose has to fill it.
 PROD_GENERATED_KEYS = ("SQL_GATEWAY_BOOTSTRAP_PASSWORD",)
 
 ALL_GENERATED_KEYS = GENERATED_KEYS + PROD_GENERATED_KEYS
@@ -209,6 +209,16 @@ def run_setup():
     ensure_frontend_deps()
     ensure_migrations()
     print("\nSetup complete. Launching development environment...\n")
+
+
+def run_env_only(env_path: Path = ENV_PATH, example_path: Path = ENV_EXAMPLE_PATH) -> None:
+    """Repair .env for the ``dev-lite`` make target, then let make take over.
+
+    ``dev-lite`` brings the stack up with docker-compose.prod.yml, so the set it
+    needs is prod compose's, not the dev one: repairing only the dev keys left
+    compose aborting on the ``:?`` gate of the prod-only secret.
+    """
+    ensure_env_file(env_path, example_path, keys=ALL_GENERATED_KEYS)
 
 
 def run_prod_setup():
@@ -580,7 +590,7 @@ def main() -> None:
     mode.add_argument(
         "--env-only",
         action="store_true",
-        help="Create or repair .env and exit (used by the -lite make targets)",
+        help="Create or repair .env and exit (used by the dev-lite make target)",
     )
     args = parser.parse_args()
 
@@ -591,7 +601,7 @@ def main() -> None:
     os.chdir(ROOT)
 
     if args.env_only:
-        ensure_env_file()
+        run_env_only()
         return
     if args.reset:
         reset_dev_environment()

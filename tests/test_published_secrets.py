@@ -27,10 +27,12 @@ from shared.config import Settings
 from tmux_tools.launcher import (
     ALL_GENERATED_KEYS,
     GENERATED_KEYS,
+    PUBLISHED_PLACEHOLDERS,
     _teardown_env,
     ensure_env_file,
     fill_secrets,
     is_placeholder,
+    run_env_only,
 )
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -73,10 +75,15 @@ def _compose_required_secrets() -> set[str]:
     return set(re.findall(r"\$\{([A-Z_]+):\?", _COMPOSE.read_text()))
 
 
+def _makefile_list(name: str) -> list[str]:
+    """One ``NAME := a b c`` Makefile variable, backslash continuations joined."""
+    match = re.search(rf"^{name}\s*:=\s*((?:[^\n\\]|\\\n)*)", _MAKEFILE.read_text(), re.MULTILINE)
+    assert match, f"Makefile no longer declares {name}"
+    return match.group(1).replace("\\\n", " ").split()
+
+
 def _makefile_required_secrets() -> set[str]:
-    match = re.search(r"^REQUIRED_SECRETS\s*:=\s*(.*)$", _MAKEFILE.read_text(), re.MULTILINE)
-    assert match, "Makefile no longer declares REQUIRED_SECRETS"
-    return set(match.group(1).split())
+    return set(_makefile_list("REQUIRED_SECRETS"))
 
 
 def test_every_required_secret_is_generated_for_the_operator():
@@ -94,23 +101,45 @@ def test_prod_lite_generates_the_same_set_without_the_python_toolchain():
     assert _makefile_required_secrets() == _compose_required_secrets()
 
 
-def _run_env_secrets(workdir: Path) -> None:
-    """Run the Makefile's own env-secrets recipe in an isolated directory.
-
-    Parsing the recipe instead of restating it means these two tests cannot
-    drift from what an operator actually runs.
-    """
+def _makefile_recipe(target: str) -> str:
+    """The recipe lines of one Makefile target, tabs and continuations intact."""
     text = _MAKEFILE.read_text()
-    start = text.index("env-secrets:\n") + len("env-secrets:\n")
+    match = re.search(rf"^{re.escape(target)}:.*$", text, re.MULTILINE)
+    assert match, f"Makefile no longer declares the {target} target"
     body = []
-    for line in text[start:].splitlines(keepends=True):
+    for line in text[match.end() + 1 :].splitlines(keepends=True):
         if line.strip() and not line.startswith("\t"):
             break
         body.append(line)
-    script = "".join(body).replace("\t", "").replace("$$", "$")
+    return "".join(body)
+
+
+def _run_env_secrets(
+    workdir: Path, extra_path: Path | None = None, check: bool = True
+) -> subprocess.CompletedProcess:
+    """Run the Makefile's own env-secrets recipe in an isolated directory.
+
+    Parsing the recipe instead of restating it means these tests cannot drift
+    from what an operator actually runs. ``extra_path`` goes in front of PATH, so
+    a test can make one of the tools the recipe shells out to fail.
+    """
+    script = _makefile_recipe("env-secrets")
     script = script.replace("$(REQUIRED_SECRETS)", " ".join(sorted(_makefile_required_secrets())))
+    script = script.replace(
+        "$(PUBLISHED_PLACEHOLDERS)", " ".join(sorted(_makefile_list("PUBLISHED_PLACEHOLDERS")))
+    )
+    # A make variable nobody expanded would reach sh as the empty string, which
+    # here would mean silently testing against an empty placeholder list.
+    leftover = re.search(r"(?<!\$)\$\([^)]*\)", script)
+    assert leftover is None, f"unexpanded make variable {leftover.group() if leftover else ''}"
+    script = script.replace("\t", "").replace("$$", "$")
     script = re.sub(r"^@", "", script, flags=re.MULTILINE)
-    subprocess.run(["sh", "-e", "-c", script], cwd=workdir, check=True, capture_output=True)
+    env = dict(os.environ)
+    if extra_path is not None:
+        env["PATH"] = f"{extra_path}:{env['PATH']}"
+    return subprocess.run(
+        ["sh", "-e", "-c", script], cwd=workdir, check=check, capture_output=True, env=env
+    )
 
 
 def test_generated_env_is_not_readable_by_other_users(tmp_path):
@@ -125,6 +154,63 @@ def test_generated_env_is_not_readable_by_other_users(tmp_path):
     _run_env_secrets(tmp_path)
 
     mode = stat.S_IMODE(os.stat(tmp_path / ".env").st_mode)
+    assert not mode & (stat.S_IRGRP | stat.S_IROTH), f"mode is {mode:o}"
+
+
+def test_prod_lite_and_the_launcher_agree_on_what_this_repo_published():
+    """Two paths repair the same .env, so one knowing fewer placeholders is a hole."""
+    assert set(_makefile_list("PUBLISHED_PLACEHOLDERS")) == set(PUBLISHED_PLACEHOLDERS)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "SQL_GATEWAY_BOOTSTRAP_PASSWORD=dev-sql-gateway-bootstrap  # CHANGEME",
+        "SQL_GATEWAY_BOOTSTRAP_PASSWORD=Dev-SQL-Gateway-Bootstrap",
+        'SQL_GATEWAY_BOOTSTRAP_PASSWORD="dev-sql-gateway-bootstrap"',
+        "export SQL_GATEWAY_BOOTSTRAP_PASSWORD=dev-sql-gateway-bootstrap",
+        "SQL_GATEWAY_BOOTSTRAP_PASSWORD=   # CHANGEME",
+    ],
+)
+def test_prod_lite_replaces_a_published_bootstrap_password(tmp_path, line):
+    """An upgraded checkout keeps its old .env, and this value was published here.
+
+    It is the only account holding ClickHouse access management, so treating the
+    published string as configured would leave that account openable by anyone
+    who read this repository. Testing only nonemptiness did exactly that.
+    """
+    (tmp_path / ".env.example").write_text("SQL_GATEWAY_BOOTSTRAP_PASSWORD=\n")
+    (tmp_path / ".env").write_text(f"{line}\n")
+
+    _run_env_secrets(tmp_path)
+
+    body = (tmp_path / ".env").read_text()
+    assert body.count("SQL_GATEWAY_BOOTSTRAP_PASSWORD=") == 1, body
+    assert "dev-sql-gateway-bootstrap" not in body.lower()
+    assert "CHANGEME" not in body
+    assert len(_values(tmp_path / ".env")["SQL_GATEWAY_BOOTSTRAP_PASSWORD"]) == 64
+
+
+def test_env_stays_private_when_secret_generation_fails(tmp_path):
+    """The recipe can abort between reading .env and writing it back.
+
+    chmod used to run after the loop, so an openssl that failed -- missing, or
+    out of entropy -- left an .env full of earlier secrets at whatever mode it
+    already had.
+    """
+    (tmp_path / ".env.example").write_text("INTERNAL_API_SECRET=\n")
+    env_path = tmp_path / ".env"
+    env_path.write_text("INTERNAL_API_SECRET=\n")
+    os.chmod(env_path, 0o644)
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    (stub / "openssl").write_text("#!/bin/sh\nexit 1\n")
+    os.chmod(stub / "openssl", 0o755)
+
+    done = _run_env_secrets(tmp_path, extra_path=stub, check=False)
+
+    assert done.returncode != 0, "a failed generation must not look like success"
+    mode = stat.S_IMODE(os.stat(env_path).st_mode)
     assert not mode & (stat.S_IRGRP | stat.S_IROTH), f"mode is {mode:o}"
 
 
@@ -269,12 +355,28 @@ def test_fill_secrets_leaves_a_configured_file_alone():
 
 
 def test_dev_path_leaves_the_prod_only_secret_alone(env):
-    """docker-compose.yml defaults it, so writing a value breaks an existing
-    dev volume that ClickHouse initialised with that default."""
+    """docker-compose.yml supplies it as one of the dev stack's known defaults,
+    so `make dev` has nothing to repair and .env stays silent about it."""
     env_path, example = env
     ensure_env_file(env_path, example)
 
     assert "SQL_GATEWAY_BOOTSTRAP_PASSWORD" not in _values(env_path)
+
+
+def test_dev_lite_runs_prod_compose_through_env_only():
+    """Why --env-only fills the prod set: the target it serves runs prod compose."""
+    recipe = _makefile_recipe("dev-lite")
+    assert "--env-only" in recipe
+    assert "$(PROD_COMPOSE) up" in recipe
+
+
+def test_env_only_fills_every_secret_prod_compose_requires(env):
+    """dev-lite aborted on the prod-only ${VAR:?} gate while this filled dev keys."""
+    env_path, example = env
+    run_env_only(env_path, example)
+
+    values = _values(env_path)
+    assert all(len(values[key]) == 64 for key in ALL_GENERATED_KEYS)
 
 
 def test_prod_path_fills_the_prod_only_secret(env):
