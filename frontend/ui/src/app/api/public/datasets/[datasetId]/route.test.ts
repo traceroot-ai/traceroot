@@ -11,7 +11,7 @@ const prismaMock = vi.hoisted(() => ({
   // the route tries the compound-unique lookup first and falls back to findFirst.
   dataset: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
 }));
-const apiAuth = vi.hoisted(() => ({ requireApiKeyProject: vi.fn() }));
+const apiAuth = vi.hoisted(() => ({ requireEvalApiKeyProject: vi.fn() }));
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -26,7 +26,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
   return { ...actual, prisma: prismaMock };
 });
-vi.mock("@/lib/eval/auth", () => ({ requireApiKeyProject: apiAuth.requireApiKeyProject }));
+vi.mock("@/lib/eval/auth", () => ({ requireEvalApiKeyProject: apiAuth.requireEvalApiKeyProject }));
 
 import { Prisma } from "@traceroot/core";
 import { GET, PATCH } from "./route";
@@ -60,7 +60,7 @@ const patchData = () => prismaMock.dataset.update.mock.calls[0][0].data;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  apiAuth.requireApiKeyProject.mockResolvedValue({ projectId: "p1" });
+  apiAuth.requireEvalApiKeyProject.mockResolvedValue({ projectId: "p1" });
   prismaMock.dataset.update.mockResolvedValue(stored);
   // Default: the path param is not a client_dataset_id, so the lookup falls through
   // to the internal-id findFirst that these cases stub.
@@ -121,7 +121,7 @@ describe("GET", () => {
   });
 
   it("401s a request with a bad API key before touching the database", async () => {
-    apiAuth.requireApiKeyProject.mockResolvedValue({
+    apiAuth.requireEvalApiKeyProject.mockResolvedValue({
       error: { status: 401, json: async () => ({ error: "Invalid API key" }) },
     });
     const res = await GET(getReq(), params);
@@ -179,7 +179,7 @@ describe("PATCH", () => {
   });
 
   it("401s a request with a bad API key before touching the database", async () => {
-    apiAuth.requireApiKeyProject.mockResolvedValue({
+    apiAuth.requireEvalApiKeyProject.mockResolvedValue({
       error: { status: 401, json: async () => ({ error: "Invalid API key" }) },
     });
     const res = await PATCH(jsonReq({ name: "renamed" }), params);

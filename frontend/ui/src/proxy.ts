@@ -69,7 +69,7 @@ export const config = {
   matcher: [
     // Protect all routes except:
     // - api/auth (auth routes)
-    // - api/public (API-key-authed SDK routes; auth via requireApiKeyProject, not a session cookie)
+    // - api/public (API-key-authed SDK routes; auth via requireEvalApiKeyProject, not a cookie)
     // - api/internal (internal API for Python backend, uses X-Internal-Secret)
     // - api/cli (CLI token exchange, authenticates by bearer session token, no cookie)
     // - api/billing/webhook (Stripe webhook, uses signature verification)

@@ -6,7 +6,7 @@ import { config, proxy } from "./proxy";
  * The middleware matcher is Next's negative-lookahead form: a path is PROTECTED
  * (the session-cookie middleware runs, redirecting to /auth/sign-in when there's
  * no cookie) iff it matches. Surfaces with their own auth — API-key public routes
- * (requireApiKeyProject), the internal API (X-Internal-Secret), auth routes — MUST
+ * (requireEvalApiKeyProject), the internal API (X-Internal-Secret), auth routes — MUST
  * be exempt, or their requests get 307'd to sign-in before their handler runs.
  *
  * Regression guard for the api/public omission that 307'd every SDK request.
