@@ -6,6 +6,11 @@ control plane — so the tests pin the proxying contract: the caller's credentia
 reaches upstream, upstream successes pass through untouched, upstream failures
 are normalized to ``{"detail": ...}``, and an unreachable control plane is a 503
 in the same shape rather than a stack trace.
+
+Managing keys requires an ``admin`` scope, refused here before anything is
+forwarded, so the caller in these proxying tests is admin-scoped — an
+``ingest`` key never reaches the forward, which is what the scope tests at the
+bottom assert.
 """
 
 import httpx
@@ -30,12 +35,13 @@ KEY_SUMMARY = {
 }
 
 
-def make_auth(project_id: str = "proj-A") -> AuthResult:
+def make_auth(project_id: str = "proj-A", scope: str = "admin") -> AuthResult:
     return AuthResult(
         project_id=project_id,
         workspace_id="ws-1",
         billing_plan="enterprise",
         ingestion_blocked=False,
+        scope=scope,
     )
 
 
@@ -221,3 +227,106 @@ def test_the_rate_limit_identity_is_stamped_for_the_caller(client, monkeypatch):
 
     assert response.status_code == 200
     assert stamped == [("ws-1", "enterprise")]
+
+
+# ── scope ───────────────────────────────────────────────────────────────
+#
+# Key management requires an ``admin`` key. The control plane requires the same
+# scope and still re-validates, so these assert the local refusal: that an
+# under-scoped key is stopped *here*, before a request crosses to the control
+# plane, rather than making a network round-trip to be told the same thing.
+
+
+@pytest.fixture()
+def ingest_client():
+    """A client whose credential is an ``ingest`` key."""
+    app.dependency_overrides[authenticate_api_key] = lambda: make_auth(scope="ingest")
+    with TestClient(app, raise_server_exceptions=False) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/api/v1/public/api-keys"),
+        ("post", "/api/v1/public/api-keys"),
+        ("delete", "/api/v1/public/api-keys/ak_1"),
+    ],
+)
+def test_an_ingest_key_is_refused_before_the_request_is_forwarded(ingest_client, method, path):
+    """403 here, and the control plane is never asked.
+
+    ``route.called`` is the assertion that matters: a check placed after the
+    forward would still answer 403 — the control plane requires the same scope —
+    and this test would still pass on the status alone. It is the untouched
+    upstream mock that proves the refusal is local.
+    """
+    upstream = respx.route(host="localhost", port=3000).mock(
+        return_value=httpx.Response(200, json={"keys": []})
+    )
+
+    response = getattr(ingest_client, method)(path, headers={"Authorization": "Bearer tr-caller"})
+
+    assert response.status_code == 403
+    assert not upstream.called, "an under-scoped key reached the control plane"
+
+
+@respx.mock
+def test_the_refusal_names_the_scope_and_is_the_detail_shape(ingest_client):
+    """Same body as the control plane's, so the layer is not identifiable."""
+    respx.route(host="localhost", port=3000).mock(return_value=httpx.Response(200, json={}))
+
+    response = ingest_client.get(
+        "/api/v1/public/api-keys", headers={"Authorization": "Bearer tr-caller"}
+    )
+
+    assert response.json() == {"detail": deps.INSUFFICIENT_SCOPE_DETAIL}
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/api/v1/public/api-keys"),
+        ("post", "/api/v1/public/api-keys"),
+        ("delete", "/api/v1/public/api-keys/ak_1"),
+    ],
+)
+def test_a_key_carrying_no_scope_is_refused_too(method, path):
+    """A credential resolved by a control plane older than the field fails closed.
+
+    Such a key resolves to ``ingest``, so key management is refused rather than
+    allowed through on the strength of a field that was never reported.
+    """
+    app.dependency_overrides[authenticate_api_key] = lambda: make_auth(scope=None)
+    upstream = respx.route(host="localhost", port=3000).mock(
+        return_value=httpx.Response(200, json={})
+    )
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        response = getattr(client, method)(path, headers={"Authorization": "Bearer tr-caller"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert not upstream.called
+
+
+@respx.mock
+def test_an_admin_key_still_reaches_the_control_plane(client):
+    """The gate refuses the under-scoped and changes nothing else.
+
+    The proxying tests above all run on an ``admin`` credential, so this is the
+    explicit statement of it: adding the check did not narrow the route for the
+    scope that is supposed to use it.
+    """
+    upstream = respx.get(f"{UI_URL}/api/public/api-keys").mock(
+        return_value=httpx.Response(200, json={"keys": [KEY_SUMMARY]})
+    )
+
+    response = client.get("/api/v1/public/api-keys", headers={"Authorization": "Bearer tr-caller"})
+
+    assert response.status_code == 200
+    assert upstream.called

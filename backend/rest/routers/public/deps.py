@@ -30,18 +30,17 @@ annotation above fixes *which credential* a route accepts; the scope fixes *what
 that credential may do*, and the two are independent, so a route that accepts an
 API key still has to say whether an ``ingest`` one is enough.
 
-Every route here that an API key can reach is reachable with an ``ingest`` key:
-ingestion, ``whoami``, the project-scoped reads, and the evaluation SDK's dataset
-and run reporting writes, which the SDK performs with the same key it sends
-telemetry with. Nothing requires ``admin``, because the administrative surface —
-minting, listing and revoking a project's keys — is not on this service; it is a
-session-authenticated control-plane route no API key reaches by any path.
+Key management (``/public/api-keys``) requires ``admin``. Every other route an
+API key can reach is reachable with an ``ingest`` key: ingestion, ``whoami``, the
+project-scoped reads, and the evaluation SDK's dataset and run reporting writes,
+which the SDK performs with the same key it sends telemetry with.
 
-For a route that does need more, depend on :func:`require_admin_key_scope`, or
+To require more on a route, depend on :func:`require_admin_key_scope`, or
 :func:`require_admin_scope` on a key-or-user route, alongside the stamped
-annotation. ``tests/rest/test_public_route_scopes.py`` pins the credential and
-scope of every public route, so adding one without deciding its scope fails
-there rather than shipping unchecked.
+annotation — see ``routers/public/api_keys.py`` for how.
+``tests/rest/test_public_route_scopes.py`` pins the credential and scope of every
+public route, so adding one without deciding its scope fails there rather than
+shipping unchecked.
 """
 
 import hashlib

@@ -18,14 +18,17 @@ The two columns are independent, and both are read from the route:
 * **scope** — the key scope the route requires: ``ingest`` (any valid key) or
   ``admin``. It is ``n/a`` on a ``user`` route, where no key arrives to scope.
 
-Every key-reachable route currently requires only ``ingest``, and that is a
-decision rather than an omission. Ingestion and ``whoami`` are what an
-application's credential exists to do; the project-scoped reads are what an
-``ingest`` key is defined to allow; and the evaluation reporting writes are
-performed by the SDK with the very key it sends telemetry with, so requiring
-``admin`` there would break every project whose keys were minted after the scope
-default changed, while hardening nothing. The administrative operations — minting,
-listing and revoking a project's keys — are not on this service at all.
+The three key-management routes require ``admin``. Every other key-reachable
+route requires only ``ingest``, and that is a decision rather than an omission:
+ingestion and ``whoami`` are what an application's credential exists to do; the
+project-scoped reads are what an ``ingest`` key is defined to allow; and the
+evaluation reporting writes are performed by the SDK with the very key it sends
+telemetry with, so requiring ``admin`` there would break every project whose keys
+were minted after the scope default changed, while hardening nothing.
+
+The key-management routes are proxies to the control plane, which requires the
+same scope and re-validates independently, so the requirement recorded here is
+the local half of two checks rather than the only one.
 """
 
 from fastapi.routing import APIRoute
@@ -58,6 +61,9 @@ EXPECTED_ROUTE_SCOPES = (
     ("GET", "/api/v1/public/alerts/{alert_id}", "key-or-user", "ingest"),
     ("PATCH", "/api/v1/public/alerts/{alert_id}", "user", "n/a"),
     ("PATCH", "/api/v1/public/alerts/{alert_id}/status", "user", "n/a"),
+    ("GET", "/api/v1/public/api-keys", "key", "admin"),
+    ("POST", "/api/v1/public/api-keys", "key", "admin"),
+    ("DELETE", "/api/v1/public/api-keys/{key_id}", "key", "admin"),
     ("GET", "/api/v1/public/dashboards", "key-or-user", "ingest"),
     ("POST", "/api/v1/public/dashboards", "user", "n/a"),
     ("DELETE", "/api/v1/public/dashboards/{dashboard_id}", "user", "n/a"),

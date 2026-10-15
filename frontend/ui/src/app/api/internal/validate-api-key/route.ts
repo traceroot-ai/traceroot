@@ -88,12 +88,13 @@ export async function POST(request: NextRequest) {
     // it now does: it narrows this value the same way `parseScope` does and
     // refuses an under-scoped key with the same 403 and the same message as
     // `requireApiKeyProject`, so a caller cannot tell which layer refused it.
-    // Every route it exposes is currently reachable with an `ingest` key — the
-    // administrative operations are the session-authenticated routes under
-    // `api/projects/[projectId]/api-keys`, which no key reaches — so what
-    // changed is that a route needing more can say so. Omitting this field
-    // (an older deployment of this app) is read there as the narrow scope,
-    // never as full access.
+    // Its key-management routes require `admin` and refuse anything less before
+    // forwarding to the routes here, which require the same scope and still
+    // re-validate — two checks, not a relocated one. Every other route it
+    // exposes stays reachable with an `ingest` key. Omitting this field (an
+    // older deployment of this app) is read there as the narrow scope, never as
+    // full access, so a key-management call is refused during a rollout rather
+    // than let through.
     scope: accessKey.scope,
     billingPlan,
     ingestionBlocked: accessKey.project.workspace.ingestionBlocked,
