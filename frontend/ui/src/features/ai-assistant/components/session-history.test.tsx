@@ -42,4 +42,17 @@ it("keeps the example selectable alongside RCA history and never exposes its del
   fireEvent.click(screen.getByRole("button", { name: "RCA investigation" }));
   expect(onSelect).toHaveBeenLastCalledWith(rca);
   expect(container.querySelector(".lucide-trash2")).toBeNull();
+  rerender(
+    <SessionHistory
+      sessions={[example, rca]}
+      currentSessionId={example.id}
+      projectId="demo"
+      onSelect={onSelect}
+      onDelete={vi.fn()}
+    />,
+  );
+  expect(container.querySelectorAll(".lucide-trash2")).toHaveLength(1);
+  expect(
+    screen.getByRole("button", { name: example.title! }).querySelector(".lucide-trash2"),
+  ).toBeNull();
 });
