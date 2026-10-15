@@ -152,6 +152,7 @@ _KNOWN_ATTRIBUTE_EXACT = frozenset(
     {
         "traceroot.llm.model",  # -> model_name column + LLM span-kind detection
         "decision.model_name",  # -> model_name column (OpenInference DECISION spans)
+        "embedding.model_name",  # -> model_name column (OpenInference EMBEDDING spans)
         # -> token/cost pipeline (parse_manual_usage). Consumed only when a model
         # name is present (the token block is model-gated), so usage reported
         # without traceroot.llm.model is dropped entirely rather than priced.
@@ -214,7 +215,7 @@ def _usable_token_value(value: Any) -> bool:
         return False
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return False
     return 0 <= parsed <= _MAX_PLAUSIBLE_TOKENS
 
@@ -259,7 +260,7 @@ def int_or_zero(value: Any) -> int:
         return 0
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         logger.warning("Non-numeric OTEL token attribute %r; treating as 0", value)
         return 0
     if parsed < 0:
@@ -525,6 +526,16 @@ def attributes_to_dict(attributes: list[dict]) -> dict[str, Any]:
     return result
 
 
+def _is_vercel_embedding_call(attrs: dict[str, Any]) -> bool:
+    """Recognize legacy provider calls without relying on a complete span tree."""
+    operation = first_present(attrs, ["ai.operationId", "operation.name"])
+    # operation.name can append the application's functionId after a space.
+    return str_attr(operation).split(" ", 1)[0] in (
+        "ai.embed.doEmbed",
+        "ai.embedMany.doEmbed",
+    )
+
+
 def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     """Determine the span kind from span attributes.
 
@@ -552,7 +563,8 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
 
     # Check OpenInference semantic conventions (handle None values)
     openinference_type = str_attr(attrs.get("openinference.span.kind")).upper()
-    if openinference_type == SpanKind.LLM:
+    # Embeddings use the existing LLM kind, just like GenAI's embeddings operation.
+    if openinference_type in (SpanKind.LLM, "EMBEDDING"):
         return SpanKind.LLM
     elif openinference_type == SpanKind.AGENT:
         return SpanKind.AGENT
@@ -562,6 +574,9 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.DECISION
     elif openinference_type == "CHAIN":
         return SpanKind.SPAN
+
+    if _is_vercel_embedding_call(attrs):
+        return SpanKind.LLM
 
     # GenAI semconv operation name (pydantic-ai, native OTel GenAI instrumentors)
     operation_name = str_attr(attrs.get("gen_ai.operation.name")).lower()
@@ -848,6 +863,12 @@ def transform_otel_to_clickhouse(
                     or span_attrs.get("gen_ai.request.model")
                     or span_attrs.get("llm.model_name")
                     or span_attrs.get("decision.model_name")
+                    or span_attrs.get("embedding.model_name")
+                    or (
+                        span_attrs.get("ai.model.id")
+                        if _is_vercel_embedding_call(span_attrs)
+                        else None
+                    )
                 )
                 if model_name:
                     span_record["model_name"] = model_name
@@ -878,6 +899,12 @@ def transform_otel_to_clickhouse(
                         # real usage still lands on an LLM .doGenerate child.
                         input_token_keys += ["ai.usage.inputTokens", "ai.usage.promptTokens"]
                         output_token_keys += ["ai.usage.outputTokens", "ai.usage.completionTokens"]
+                        # Legacy embeddings expose only ai.usage.tokens on BOTH the
+                        # operation wrapper and provider calls. Read it only on the
+                        # latter; equal usage or same-batch ancestry cannot identify
+                        # aggregates reliably. Embeddings consume input tokens only.
+                        if _is_vercel_embedding_call(span_attrs):
+                            input_token_keys.append("ai.usage.tokens")
                     api_input_tokens = first_present_number(span_attrs, input_token_keys)
                     api_output_tokens = first_present_number(span_attrs, output_token_keys)
                     # Cache buckets. The OpenInference keys (prompt_details.*) are the

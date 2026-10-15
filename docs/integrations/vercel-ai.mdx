@@ -127,6 +127,12 @@ Once initialized, every `generateText` / `streamText` call, model call, and tool
 | Multi-step iterations | Each step of a tool loop captured as a child span |
 
 
+## Embedding usage
+
+`embed` and `embedMany` record input-token usage and cost on their provider-call spans. The operation wrapper remains in the trace, but its aggregate legacy usage is not counted again. This also applies when a batch is split across multiple provider calls.
+
+For AI SDK 7's OpenTelemetry integration, use `@ai-sdk/otel@1.0.76` or newer. Older emitters can repeat usage on both the embedding wrapper and its provider calls; the upstream fix removes usage from the wrapper. Legacy embedding telemetry is supported separately.
+
 ## Run the example
 
 Clone the repo and run a complete agent end-to-end.
