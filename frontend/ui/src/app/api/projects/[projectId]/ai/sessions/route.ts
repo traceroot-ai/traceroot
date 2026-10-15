@@ -17,12 +17,15 @@ async function handleGET(_request: NextRequest, { params }: RouteParams) {
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
 
-  const res = await fetch(`${AGENT_SERVICE_URL}/api/v1/projects/${projectId}/sessions`, {
-    headers: {
-      "x-user-id": user.id,
-      "x-workspace-id": accessResult.project.workspaceId,
+  const res = await fetch(
+    `${AGENT_SERVICE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/sessions`,
+    {
+      headers: {
+        "x-user-id": user.id,
+        "x-workspace-id": accessResult.project.workspaceId,
+      },
     },
-  });
+  );
 
   if (!res.ok) {
     return new Response(JSON.stringify({ error: `Agent service error: ${res.status}` }), {
@@ -48,19 +51,22 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
 
   const body = await request.json();
 
-  const res = await fetch(`${AGENT_SERVICE_URL}/api/v1/projects/${projectId}/sessions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-user-id": user.id,
-      "x-workspace-id": accessResult.project.workspaceId,
+  const res = await fetch(
+    `${AGENT_SERVICE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/sessions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-id": user.id,
+        "x-workspace-id": accessResult.project.workspaceId,
+      },
+      body: JSON.stringify({
+        title: body.title,
+        traceId: body.traceId,
+        traceSessionId: body.traceSessionId,
+      }),
     },
-    body: JSON.stringify({
-      title: body.title,
-      traceId: body.traceId,
-      traceSessionId: body.traceSessionId,
-    }),
-  });
+  );
 
   if (!res.ok) {
     return new Response(JSON.stringify({ error: `Agent service error: ${res.status}` }), {
