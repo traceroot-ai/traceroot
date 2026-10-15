@@ -319,7 +319,7 @@ it.each(["VIEWER", "MEMBER"])("keeps the normal Home greeting and composer for d
     />,
   );
   expect(screen.getByTestId("message-input")).toBeTruthy();
-  expect(screen.getByTitle("New session")).toBeTruthy();
+  expect(screen.queryByTitle("New session")).toBeNull();
   expect(screen.getByText("Home greeting")).toBeTruthy();
   expect(screen.queryByText("Example investigations")).toBeNull();
   expect(screen.getByTestId("message-input").getAttribute("data-blocked-reason")).toContain(
