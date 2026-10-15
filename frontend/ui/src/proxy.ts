@@ -4,7 +4,6 @@ import {
   ATTRIBUTION_MAX_AGE_SECONDS,
   encodeAttributionCookie,
   getUtmParams,
-  readAttributionCookie,
 } from "@/lib/marketing-attribution";
 import { buildContentSecurityPolicy, cspHeaderName, REPORTING_ENDPOINTS } from "@/lib/csp";
 
@@ -68,18 +67,16 @@ export function proxy(req: NextRequest) {
     process.env.NEXT_PUBLIC_POSTHOG_HOST &&
     Object.keys(utm).length
   ) {
-    const previous = readAttributionCookie(req.headers.get("cookie"), Date.now());
-    // Forwarded UTMs and auth-page navigation must not restart the expiry window.
-    if (JSON.stringify(previous?.utm) !== JSON.stringify(utm)) {
-      const value = encodeAttributionCookie({ capturedAt: Date.now(), utm });
-      if (value)
-        response.cookies.set(ATTRIBUTION_COOKIE, value, {
-          path: "/",
-          maxAge: ATTRIBUTION_MAX_AGE_SECONDS,
-          sameSite: "lax",
-          secure: req.nextUrl.protocol === "https:",
-        });
-    }
+    // The same campaign can bring a visitor back later. Refresh every tagged
+    // visit, accepting the small timestamp shift on the forwarded sign-in hop.
+    const value = encodeAttributionCookie({ capturedAt: Date.now(), utm });
+    if (value)
+      response.cookies.set(ATTRIBUTION_COOKIE, value, {
+        path: "/",
+        maxAge: ATTRIBUTION_MAX_AGE_SECONDS,
+        sameSite: "lax",
+        secure: req.nextUrl.protocol === "https:",
+      });
   }
   return response;
 }

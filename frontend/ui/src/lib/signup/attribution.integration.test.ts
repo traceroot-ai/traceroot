@@ -4,6 +4,7 @@ import { memoryAdapter } from "better-auth/adapters/memory";
 import { admin } from "better-auth/plugins";
 import { NextRequest } from "next/server";
 import { proxy } from "@/proxy";
+import { ATTRIBUTION_COOKIE, ATTRIBUTION_MAX_AGE_SECONDS } from "@/lib/marketing-attribution";
 import { signupAttributionProperties } from "./attribution";
 
 const baseURL = "http://localhost:3000";
@@ -76,6 +77,43 @@ afterEach(() => {
 });
 
 describe("campaign attribution through real better-auth handlers", () => {
+  it("attributes day-31 signup to a repeat campaign click on day 29", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const returnedAt = capturedAt + 29 * day;
+    vi.mocked(Date.now).mockReturnValue(returnedAt);
+    const returning = proxy(
+      new NextRequest(`${baseURL}/?${new URLSearchParams(utm)}`, {
+        headers: { cookie: campaignCookie },
+      }),
+    );
+    const renewed = returning.cookies.get(ATTRIBUTION_COOKIE);
+    expect(renewed).toBeDefined();
+    expect(renewed?.maxAge).toBe(ATTRIBUTION_MAX_AGE_SECONDS);
+    expect(JSON.parse(renewed!.value)).toEqual({ v: 1, capturedAt: returnedAt, utm });
+    const redirected = proxy(
+      new NextRequest(returning.headers.get("location")!, {
+        headers: { cookie: responseCookies(returning).join("; ") },
+      }),
+    );
+    campaignCookie = responseCookies(redirected).join("; ");
+
+    vi.mocked(Date.now).mockReturnValue(capturedAt + 31 * day);
+    const { auth, created } = testAuth();
+    const response = await auth.handler(
+      request("/sign-up/email", {
+        email: "returning@example.com",
+        name: "Returning Visitor",
+        password: "test-password-123",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(created).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        properties: { ...expected, marketing_touch_at: new Date(returnedAt).toISOString() },
+      }),
+    );
+  });
+
   it("reads request headers from the email signup database hook", async () => {
     const { auth, created } = testAuth();
     const response = await auth.handler(

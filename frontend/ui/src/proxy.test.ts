@@ -166,7 +166,7 @@ describe("campaign attribution at the proxy entry", () => {
     },
   );
 
-  it("keeps the first server timestamp and expiry across a redirect and sign-up navigation", () => {
+  it("refreshes a tagged redirect but preserves attribution on untagged sign-up navigation", () => {
     const landing = proxy(
       request(`/projects/p1/traces?${new URLSearchParams({ ...utm, token: "private-token" })}`),
     );
@@ -187,32 +187,49 @@ describe("campaign attribution at the proxy entry", () => {
     expect(readAttributionCookie(cookieHeader, capturedAt)).toEqual({ capturedAt, utm });
     expect(expires).toBe(capturedAt + ATTRIBUTION_MAX_AGE_SECONDS * 1000);
 
-    vi.setSystemTime(capturedAt + 60_000);
+    vi.setSystemTime(capturedAt + 1000);
     const signIn = proxy(request(location.toString(), { cookies: cookieHeader }));
     expect(signIn.headers.get("location")).toBeNull();
     expect(signIn.headers.get("content-security-policy")).toContain("'strict-dynamic'");
-    expect(signIn.headers.get("set-cookie")).toBeNull();
+    const updatedCookieHeader = signIn.headers.get("set-cookie")!.split(";")[0];
+    expect(readAttributionCookie(updatedCookieHeader, capturedAt + 1000)).toEqual({
+      capturedAt: capturedAt + 1000,
+      utm,
+    });
 
     vi.setSystemTime(capturedAt + 120_000);
-    const signUp = proxy(request("/auth/sign-up", { cookies: cookieHeader }));
+    const signUp = proxy(request("/auth/sign-up", { cookies: updatedCookieHeader }));
     expect(signUp.headers.get("location")).toBeNull();
     expect(signUp.headers.get("set-cookie")).toBeNull();
-    expect(readAttributionCookie(cookieHeader, capturedAt + 120_000)).toEqual({ capturedAt, utm });
+    expect(readAttributionCookie(updatedCookieHeader, capturedAt + 120_000)).toEqual({
+      capturedAt: capturedAt + 1000,
+      utm,
+    });
   });
 
-  it("does not restart attribution when the same campaign is carried to a different auth page", () => {
-    const first = proxy(request(`/auth/sign-in?${new URLSearchParams(utm)}`));
-    const cookieHeader = first.headers.get("set-cookie")!.split(";")[0];
-    vi.setSystemTime(capturedAt + 60_000);
+  it.each(["/projects/p1/traces", "/auth/sign-in", "/auth/sign-up"])(
+    "refreshes the same campaign on a return visit to %s after 29 days",
+    (path) => {
+      const first = proxy(request(`${path}?${new URLSearchParams(utm)}`));
+      const cookieHeader = first.headers.get("set-cookie")!.split(";")[0];
+      const returnedAt = capturedAt + 29 * 24 * 60 * 60 * 1000;
+      vi.setSystemTime(returnedAt);
 
-    const second = proxy(
-      request(`/auth/sign-up?${new URLSearchParams(utm)}`, {
-        cookies: cookieHeader,
-      }),
-    );
+      const second = proxy(
+        request(`${path}?${new URLSearchParams(utm)}`, {
+          cookies: cookieHeader,
+        }),
+      );
 
-    expect(second.headers.get("set-cookie")).toBeNull();
-  });
+      expect(readAttributionCookie(second.headers.get("set-cookie"), returnedAt)).toEqual({
+        capturedAt: returnedAt,
+        utm,
+      });
+      const refreshed = second.cookies.get(ATTRIBUTION_COOKIE)!;
+      expect(refreshed.maxAge).toBe(ATTRIBUTION_MAX_AGE_SECONDS);
+      expect(Number(refreshed.expires)).toBe(returnedAt + ATTRIBUTION_MAX_AGE_SECONDS * 1000);
+    },
+  );
 
   it("replaces attribution for a changed campaign without retaining fields from the old one", () => {
     const first = proxy(request(`/auth/sign-in?${new URLSearchParams(utm)}`));
@@ -288,7 +305,10 @@ describe("campaign attribution at the proxy entry", () => {
     expect(readAttributionCookie(cookieHeader, capturedAt)).toEqual({ capturedAt, utm: campaign });
     vi.setSystemTime(capturedAt + 60_000);
     const second = proxy(request(url, { cookies: cookieHeader }));
-    expect(second.headers.get("set-cookie")).toBeNull();
+    expect(readAttributionCookie(second.headers.get("set-cookie"), capturedAt + 60_000)).toEqual({
+      capturedAt: capturedAt + 60_000,
+      utm: campaign,
+    });
   });
 
   it("does not emit an oversized cookie when bounded values expand during Unicode encoding", () => {
