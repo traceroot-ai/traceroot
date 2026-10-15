@@ -281,9 +281,20 @@ function OnboardingContent() {
   async function handleSwitchAccount() {
     setIsSwitchingAccount(true);
     setError(null);
+    let cleared: boolean;
     try {
-      await authClient.signOut();
+      // The client answers an HTTP failure in `error` and rejects only when the
+      // request never completed, so both have to be read before the session can
+      // be called cleared. A rate limit or a proxy error leaves the cookie in
+      // place, and leaving on it sends the user to a sign-in that the live
+      // session hands straight back to this page as the same account — the
+      // stranding this button exists to undo, now with nothing said about it.
+      const { error: signOutError } = await authClient.signOut();
+      cleared = !signOutError;
     } catch {
+      cleared = false;
+    }
+    if (!cleared) {
       // Both halves matter: a page that cannot be used by this account, behind a
       // button that stays disabled, says nothing at all about what went wrong.
       setError("Could not sign out. Please try again.");

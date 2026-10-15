@@ -27,6 +27,14 @@ const READY_WORKSPACE = { id: "ws-existing", name: "Example", role: "ADMIN", pro
 const EMPTY_WORKSPACE = { id: "ws-empty", name: "Example", role: "ADMIN", project_count: 0 };
 const VIEWER_EMPTY_WORKSPACE = { ...EMPTY_WORKSPACE, role: "VIEWER" };
 
+// Shaped like better-auth's client results (see @better-fetch/fetch): a cleared
+// session, and a sign-out the server answered with an error.
+const SIGNED_OUT = { data: { success: true }, error: null };
+const SIGN_OUT_REFUSED = {
+  data: null,
+  error: { status: 429, statusText: "Too Many Requests", message: "Too many requests" },
+};
+
 function setParams(init: Record<string, string>) {
   mocks.params = new URLSearchParams(init);
 }
@@ -144,7 +152,10 @@ beforeEach(() => {
   // every test that exercises the form is a first-run account unless it says
   // otherwise.
   mocks.getWorkspaces.mockResolvedValue([]);
-  mocks.signOut.mockResolvedValue(undefined);
+  // `{ data, error }` rather than nothing, because that is what the better-auth
+  // client resolves with: it reports a failed sign-out in `error` instead of
+  // rejecting, so a mock that resolves bare cannot tell the two apart.
+  mocks.signOut.mockResolvedValue(SIGNED_OUT);
 });
 
 afterEach(() => {
@@ -498,7 +509,7 @@ describe("OnboardingPage", () => {
     // say this — it passes for a page that fires both and awaits neither — so
     // the sign-out is resolved by hand.
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
-    const signOut = deferred<void>();
+    const signOut = deferred<typeof SIGNED_OUT>();
     mocks.signOut.mockReturnValue(signOut.promise);
     renderPage();
 
@@ -507,7 +518,7 @@ describe("OnboardingPage", () => {
     await waitFor(() => expect(mocks.signOut).toHaveBeenCalled());
     expect(mocks.push).not.toHaveBeenCalled();
 
-    signOut.resolve();
+    signOut.resolve(SIGNED_OUT);
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalledTimes(1));
   });
@@ -566,6 +577,24 @@ describe("OnboardingPage", () => {
 
   it("says so when the sign-out fails instead of stranding the button", async () => {
     mocks.signOut.mockRejectedValue(new Error("network down"));
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() => expect(screen.getByText("Could not sign out. Please try again.")));
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Not you? Sign out" }).hasAttribute("disabled")).toBe(
+      false,
+    );
+  });
+
+  it("stays here when the sign-out comes back refused rather than thrown", async () => {
+    // A rate limit or a proxy error resolves with an `error` instead of
+    // rejecting, and the session cookie survives it. Leaving for sign-in on
+    // that reaches a live session, which hands the user back here as the same
+    // account they asked to leave, with no sign anything went wrong.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.signOut.mockResolvedValue(SIGN_OUT_REFUSED);
     renderPage();
 
     await clickSignOut();
