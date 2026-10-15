@@ -39,7 +39,9 @@ session-authenticated control-plane route no API key reaches by any path.
 
 For a route that does need more, depend on :func:`require_admin_key_scope`, or
 :func:`require_admin_scope` on a key-or-user route, alongside the stamped
-annotation.
+annotation. ``tests/rest/test_public_route_scopes.py`` pins the credential and
+scope of every public route, so adding one without deciding its scope fails
+there rather than shipping unchecked.
 """
 
 import hashlib
