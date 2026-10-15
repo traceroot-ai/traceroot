@@ -219,6 +219,32 @@ describe("what the write sends", () => {
   });
 });
 
+describe("switching provider", () => {
+  it("drops the key and the rejection that belonged to the previous one", async () => {
+    mocks.testModelProvider.mockResolvedValue({
+      success: false,
+      error: "Invalid API key",
+      detail: "HTTP 401: Unauthorized",
+    });
+
+    renderBlock();
+    const field = await fillKey("sk-an-openai-key-pasted-under-the-default");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+    expect(await screen.findByText(/Invalid API key/)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Model provider"), { target: { value: "openai" } });
+
+    // Both belonged to the provider that was selected when they happened.
+    expect(screen.queryByText(/Invalid API key/)).toBeNull();
+    expect(field.value).toBe("");
+    expect(field.placeholder).toBe(`${ADAPTER_CONFIG.openai.label} API key`);
+    // And with nothing in the field there is no submit to misdirect.
+    expect(
+      (screen.getByRole("button", { name: "Verify and save" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+});
+
 describe("a stored row being usable straight away", () => {
   it("refreshes the lists the model pickers read, without a reload", async () => {
     // The assistant panel, the project home page and the detector agent-model

@@ -286,7 +286,19 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
       </p>
 
       <div className="flex gap-2">
-        <Select value={adapter} onValueChange={(value) => setAdapter(value as LLMAdapter)}>
+        <Select
+          value={adapter}
+          onValueChange={(value) => {
+            setAdapter(value as LLMAdapter);
+            // A key belongs to the provider that issued it, and so does the
+            // rejection the probe came back with. Carrying either across the
+            // switch leaves one provider's error on screen under another
+            // provider's form, with "Verify and save" ready to send the old
+            // key to the new provider.
+            setApiKey("");
+            setFailure(null);
+          }}
+        >
           <SelectTrigger aria-label="Model provider" className="h-8 w-[180px] shrink-0 text-[12px]">
             <SelectValue />
           </SelectTrigger>
