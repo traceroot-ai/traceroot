@@ -6630,7 +6630,7 @@
         "type": "object"
       },
       "WhoamiResponse": {
-        "description": "Identity a project API key resolves to, for `login` / `status`.\n\nName fields are nullable: they depend on what the internal key-validation\ncontract returns, and the backend never fabricates them. The full API token\nis never included \u2014 only ``key_hint``.",
+        "description": "Identity a project API key resolves to, for `login` / `status`.\n\nName fields are nullable: they depend on what the internal key-validation\ncontract returns, and the backend never fabricates them. The full API token\nis never included \u2014 only ``key_hint``.\n\n``key_scope`` is the exception to the nullability above, deliberately. A\nholder asking what their key may do needs an answer, not a maybe: a null\nwould have to be handled by every caller and would mean the same thing the\nnarrow scope already means. It is a closed set of values rather than a free\nstring so a client can exhaust it.",
         "properties": {
           "host": {
             "title": "Host",
@@ -6657,6 +6657,14 @@
               }
             ],
             "title": "Key Name"
+          },
+          "key_scope": {
+            "enum": [
+              "ingest",
+              "admin"
+            ],
+            "title": "Key Scope",
+            "type": "string"
           },
           "project_id": {
             "title": "Project Id",
@@ -6700,6 +6708,7 @@
           "workspace_name",
           "key_name",
           "key_hint",
+          "key_scope",
           "host",
           "ui_base_url"
         ],

@@ -17,6 +17,12 @@ class WhoamiResponse(BaseModel):
     Name fields are nullable: they depend on what the internal key-validation
     contract returns, and the backend never fabricates them. The full API token
     is never included — only ``key_hint``.
+
+    ``key_scope`` is the exception to the nullability above, deliberately. A
+    holder asking what their key may do needs an answer, not a maybe: a null
+    would have to be handled by every caller and would mean the same thing the
+    narrow scope already means. It is a closed set of values rather than a free
+    string so a client can exhaust it.
     """
 
     project_id: str
@@ -25,6 +31,11 @@ class WhoamiResponse(BaseModel):
     workspace_name: str | None
     key_name: str | None
     key_hint: str | None
+    # Spelled out rather than imported from the auth layer: nothing else in this
+    # module reaches into a router, and a response schema should not be what
+    # makes it start. The two are asserted identical by
+    # tests/rest/test_whoami.py::test_reported_scopes_are_the_auth_layers_scopes.
+    key_scope: Literal["ingest", "admin"]
     host: str
     ui_base_url: str
 
