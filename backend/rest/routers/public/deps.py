@@ -22,6 +22,24 @@ scope the route needs:
 Each ``*StampedAuth`` annotation stamps the rate-limit identity onto the request
 during dependency resolution, so always depend on the stamped variant on a
 rate-limited route — never on the unstamped intermediates.
+
+Access-key scope
+----------------
+An API key additionally carries a scope — ``ingest`` or ``admin``. The
+annotation above fixes *which credential* a route accepts; the scope fixes *what
+that credential may do*, and the two are independent, so a route that accepts an
+API key still has to say whether an ``ingest`` one is enough.
+
+Every route here that an API key can reach is reachable with an ``ingest`` key:
+ingestion, ``whoami``, the project-scoped reads, and the evaluation SDK's dataset
+and run reporting writes, which the SDK performs with the same key it sends
+telemetry with. Nothing requires ``admin``, because the administrative surface —
+minting, listing and revoking a project's keys — is not on this service; it is a
+session-authenticated control-plane route no API key reaches by any path.
+
+For a route that does need more, depend on :func:`require_admin_key_scope`, or
+:func:`require_admin_scope` on a key-or-user route, alongside the stamped
+annotation.
 """
 
 import hashlib
@@ -188,6 +206,15 @@ async def _verify_access_jwt(token: str) -> tuple[str, str]:
 # send telemetry and read, and nothing else. ``admin`` is everything the project
 # allows, including managing the project's keys.
 ApiKeyScope = Literal["ingest", "admin"]
+
+# The body the control plane answers an under-scoped key with, character for
+# character (``requireApiKeyProject`` in lib/public-auth.ts). Both layers
+# enforce and a caller must not be able to tell which one refused it; a
+# difference in wording would be precisely that tell, so this string is asserted
+# against the control plane's own source by test_public_key_scope.py.
+INSUFFICIENT_SCOPE_DETAIL = (
+    "This API key is scoped to telemetry ingestion and cannot manage project settings."
+)
 
 
 def parse_scope(value: object) -> ApiKeyScope:
@@ -1028,6 +1055,87 @@ async def _check_session_live(session_id: str) -> bool:
             detail="Authentication service error",
         )
     return live
+
+
+def require_scope(auth: AuthResult, required: ApiKeyScope) -> None:
+    """Refuse an API key whose scope does not cover ``required``.
+
+    The single rule behind every scope refusal on this service, so the two
+    dependencies below cannot drift from each other, and 403 is raised in exactly
+    one place.
+
+    A user credential always passes. Scope is a property of a key; a signed-in
+    member's authority is their project role, which is checked where roles are
+    checked. Only a ``kind="api_key"`` result has a scope to check, and
+    fabricating the narrow one for a user would turn an admin-scoped route into
+    one no person could call.
+
+    403, not 401: the key is genuine, so sending the caller back to
+    re-authenticate with a credential that will never work is a worse answer than
+    naming what it lacks. The status and the body are the control plane's,
+    verbatim — see :data:`INSUFFICIENT_SCOPE_DETAIL`.
+
+    Args:
+        auth (AuthResult): The resolved credential.
+        required (ApiKeyScope): The scope the route requires.
+
+    Returns:
+        None: The request may proceed.
+
+    Raises:
+        HTTPException: 403 when an API key's scope does not cover ``required``.
+    """
+    if auth.kind != "api_key":
+        return
+    # The control plane's rule, kept literal (``resolveApiKeyProject``): the only
+    # requirement there is to express is ``admin``, and ``ingest`` is the floor
+    # every valid key already meets, so there is nothing to check for it. A third
+    # scope would need a rule here rather than another branch.
+    if required == "admin" and parse_scope(auth.scope) != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=INSUFFICIENT_SCOPE_DETAIL,
+        )
+
+
+async def require_admin_key_scope(auth: KeyAuth) -> None:
+    """Require an ``admin``-scoped key on a key-only public route.
+
+    Depend on this alongside :data:`KeyStampedAuth`; both resolve through the same
+    inner :func:`authenticate_api_key`, which FastAPI caches per request, so the
+    credential costs one round-trip to the control plane rather than two.
+
+    Args:
+        auth (AuthResult): The resolved API-key credential, supplied by FastAPI
+            via the same inner dependency the stamped annotation uses.
+
+    Returns:
+        None: The request may proceed.
+
+    Raises:
+        HTTPException: 403 when the key is not ``admin``-scoped.
+    """
+    require_scope(auth, "admin")
+
+
+async def require_admin_scope(auth: _DualAuth) -> None:
+    """Require an ``admin``-scoped key on a key-or-user public route.
+
+    The :data:`DualStampedAuth` counterpart of :func:`require_admin_key_scope`,
+    sharing :func:`authenticate_public_caller` for the same reason. A user
+    credential passes, since a scope is something only a key carries.
+
+    Args:
+        auth (AuthResult): The resolved credential, supplied by FastAPI via the
+            same inner dependency the stamped annotation uses.
+
+    Returns:
+        None: The request may proceed.
+
+    Raises:
+        HTTPException: 403 when an API key is not ``admin``-scoped.
+    """
+    require_scope(auth, "admin")
 
 
 async def require_live_session(auth: _AccountAuth) -> None:
