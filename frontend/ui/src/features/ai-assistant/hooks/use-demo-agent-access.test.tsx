@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "user" } }, isPending: false }),
+}));
 import { beforeEach, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 

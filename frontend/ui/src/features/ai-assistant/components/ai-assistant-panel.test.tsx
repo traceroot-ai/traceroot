@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "user" } }, isPending: false }),
+}));
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import type { PendingDecision } from "../hooks/use-ai-chat";
