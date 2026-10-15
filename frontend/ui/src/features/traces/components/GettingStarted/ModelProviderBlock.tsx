@@ -114,7 +114,9 @@ interface ModelProviderBlockProps {
  */
 export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
   const queryClient = useQueryClient();
-  const [adapter, setAdapter] = useState<LLMAdapter>(INLINE_ADAPTERS[0]);
+  // Undefined when no adapter qualifies for the inline rule at all, which the
+  // render path below has to survive rather than throw on.
+  const [adapter, setAdapter] = useState<LLMAdapter | undefined>(INLINE_ADAPTERS[0]);
   const [apiKey, setApiKey] = useState("");
   const [failure, setFailure] = useState<{ message: string; detail?: string } | null>(null);
 
@@ -137,7 +139,11 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
   });
 
   const saveMutation = useMutation({
-    mutationFn: async () => {
+    // The adapter arrives as the mutation's variable rather than being read off
+    // state in here. The form is this mutation's only caller and does not
+    // render without an adapter, so the narrowing is structural: nothing in
+    // here has to account for an unselected provider.
+    mutationFn: async (chosen: LLMAdapter) => {
       // Probe first, and store only on success. A row whose key cannot
       // authenticate is worse than no row: it looks saved here and fails later
       // in a background worker, far from the paste. The probe is bounded by
@@ -146,7 +152,7 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
       // Trimmed once, so the credential that was verified is the credential
       // that gets stored — a pasted key often arrives with a stray newline.
       const credential = apiKey.trim();
-      const probe = await testModelProvider(workspaceId, { adapter, apiKey: credential });
+      const probe = await testModelProvider(workspaceId, { adapter: chosen, apiKey: credential });
       if (!probe.success) {
         throw new ProbeRejected(probe.error || "Connection failed", probe.detail);
       }
@@ -154,10 +160,10 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
       // BYOK provider's models from `customModels` alone, so a key on its own
       // would store a provider that offers nothing.
       return createModelProvider(workspaceId, {
-        adapter,
-        provider: ADAPTER_CONFIG[adapter].label,
+        adapter: chosen,
+        provider: ADAPTER_CONFIG[chosen].label,
         apiKey: credential,
-        customModels: (ADAPTER_MODELS[adapter] ?? []).map((model) => model.id),
+        customModels: (ADAPTER_MODELS[chosen] ?? []).map((model) => model.id),
       });
     },
     onMutate: () => setFailure(null),
@@ -263,6 +269,15 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
     );
   }
 
+  // No adapter a pasted key fully configures means there is no form to draw,
+  // and `ADAPTER_CONFIG[adapter]` would be a lookup on undefined. A TypeError
+  // thrown from here does not blank this step: the block renders inline in the
+  // Manual tab, so it would take the API key, the SDK install and the
+  // integration picker down with it. Say where the providers live instead.
+  if (!adapter) {
+    return <p className="text-[12px] text-muted-foreground">{settingsOnlyNote()}</p>;
+  }
+
   return (
     <div className="space-y-2">
       <p className="text-[12px] text-muted-foreground">
@@ -298,7 +313,7 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
           variant="outline"
           size="sm"
           className="shrink-0"
-          onClick={() => saveMutation.mutate()}
+          onClick={() => saveMutation.mutate(adapter)}
           disabled={saveMutation.isPending || apiKey.trim() === ""}
         >
           {saveMutation.isPending ? "Verifying..." : "Verify and save"}

@@ -326,6 +326,43 @@ describe("a member who cannot write one", () => {
   });
 });
 
+describe("no adapter a pasted key fully configures", () => {
+  it("names where the providers live instead of throwing through the whole tab", async () => {
+    // INLINE_ADAPTERS is derived once at module load, so an empty list can only
+    // be reached by reloading the module over an empty catalogue: with no
+    // curated models anywhere, every adapter fails the second half of the
+    // rule. `useState(INLINE_ADAPTERS[0])` then held undefined and
+    // `ADAPTER_CONFIG[undefined].label` threw from render — and because this
+    // block renders inline in ManualTab, that took the API key, the SDK install
+    // and the integration picker with it.
+    vi.resetModules();
+    vi.doMock("@traceroot/core", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@traceroot/core")>()),
+      ADAPTER_MODELS: {},
+    }));
+    try {
+      const fresh = await import("./ModelProviderBlock");
+      expect(fresh.INLINE_ADAPTERS).toEqual([]);
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <fresh.ModelProviderBlock workspaceId="ws-1" />
+        </QueryClientProvider>,
+      );
+
+      expect(await screen.findByText(/workspace settings/)).toBeTruthy();
+      expect(screen.queryByLabelText("API key")).toBeNull();
+      expect(screen.queryByLabelText("Model provider")).toBeNull();
+    } finally {
+      vi.doUnmock("@traceroot/core");
+      vi.resetModules();
+    }
+  });
+});
+
 describe("skipping the step", () => {
   it("writes nothing when the step is left alone", async () => {
     renderBlock();
