@@ -97,7 +97,15 @@ vi.mock("@/lib/api", () => ({
   createProject: mocks.createProject,
   getWorkspaces: mocks.getWorkspaces,
 }));
+// Not mocked, and deliberately: the page tells a name collision from any other
+// refusal by the status on this class, so a stand-in shape would let the page
+// read a 409 off something the API layer never produces.
+import { ApiError } from "@/lib/api/errors";
 import OnboardingPage from "./page";
+
+// What POST /api/workspaces answers when `uq_workspace_created_by_name` refuses
+// the write (see app/api/workspaces/route.ts, which maps Prisma's P2002 to it).
+const NAME_TAKEN = () => new ApiError(409, "A workspace with this name already exists");
 
 function makeQueryClient() {
   return new QueryClient({
@@ -563,6 +571,100 @@ describe("OnboardingPage", () => {
     );
 
     expect(mocks.updateWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("finishes the workspace a lost response left behind instead of dead-ending on it", async () => {
+    // The case the id in `createdWorkspace` cannot cover: the POST commits and
+    // the response never arrives — a dropped connection, a proxy answering 502
+    // after the write — so the page holds no id and the retry submits the same
+    // name. That is the 409 the issue describes, and pressing Create is the only
+    // recovery this page offers, so the collision has to resolve to the
+    // workspace it collided with.
+    mocks.getWorkspaces.mockResolvedValueOnce([]).mockResolvedValue([EMPTY_WORKSPACE]);
+    mocks.createWorkspace.mockRejectedValue(NAME_TAKEN());
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+
+    await reachHandback();
+
+    expect(mocks.createProject).toHaveBeenCalledWith("ws-empty", "my-llm-project");
+    // Nothing was created twice and nothing was renamed: the name is the one
+    // that collided, so there is nothing to rename it to.
+    expect(mocks.createWorkspace).toHaveBeenCalledTimes(1);
+    expect(mocks.updateWorkspace).not.toHaveBeenCalled();
+    expect(screen.queryByText("A workspace with this name already exists")).toBeNull();
+  });
+
+  it("does not put the project anywhere until it knows which workspace collided", async () => {
+    // The adopted id comes out of a request, so the project step has to wait for
+    // it. Call order cannot say that — it passes for a page that fires the
+    // lookup and creates the project against a stale id without awaiting
+    // either — so the lookup is resolved by hand and the assertion is that
+    // nothing was created while it was in flight.
+    const lookup = deferred<{ id: string; name: string; role: string }[]>();
+    mocks.getWorkspaces.mockResolvedValueOnce([]).mockReturnValue(lookup.promise);
+    mocks.createWorkspace.mockRejectedValue(NAME_TAKEN());
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+    await clickCreate();
+
+    await waitFor(() => expect(mocks.createWorkspace).toHaveBeenCalled());
+    expect(mocks.createProject).not.toHaveBeenCalled();
+
+    lookup.resolve([EMPTY_WORKSPACE]);
+
+    await waitFor(() =>
+      expect(mocks.createProject).toHaveBeenCalledWith("ws-empty", "my-llm-project"),
+    );
+  });
+
+  it("keeps the collision when the name belongs to somebody else's workspace", async () => {
+    // A workspace this account only reads is not one it created — the create
+    // makes its caller an ADMIN member — and it is not somewhere a project can
+    // go either. Adopting it would hand the user's first project to a workspace
+    // that is not theirs, so the refusal stands and says what it refused.
+    mocks.getWorkspaces.mockResolvedValueOnce([]).mockResolvedValue([VIEWER_EMPTY_WORKSPACE]);
+    mocks.createWorkspace.mockRejectedValue(NAME_TAKEN());
+    renderPage();
+    await clickCreate();
+
+    await waitFor(() =>
+      expect(screen.getByText("A workspace with this name already exists")).toBeDefined(),
+    );
+    expect(mocks.createProject).not.toHaveBeenCalled();
+  });
+
+  it("keeps the collision when two workspaces answer to the name", async () => {
+    // One of them is the account's own; the other is one it was promoted in.
+    // Nothing in the list payload says which — `createdBy` is not in it — so
+    // there is no answer to act on, and guessing would be the same mistake with
+    // a 50% chance of looking fine.
+    mocks.getWorkspaces
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([EMPTY_WORKSPACE, { ...EMPTY_WORKSPACE, id: "ws-other" }]);
+    mocks.createWorkspace.mockRejectedValue(NAME_TAKEN());
+    renderPage();
+    await clickCreate();
+
+    await waitFor(() =>
+      expect(screen.getByText("A workspace with this name already exists")).toBeDefined(),
+    );
+    expect(mocks.createProject).not.toHaveBeenCalled();
+  });
+
+  it("does not go looking for a workspace when the create failed for another reason", async () => {
+    // A 500 says nothing about whether a workspace exists under this name, and
+    // a lookup that found one anyway would adopt a workspace this attempt has no
+    // claim on.
+    mocks.getWorkspaces.mockResolvedValue([]);
+    mocks.createWorkspace.mockRejectedValue(new ApiError(500, "workspace service unavailable"));
+    renderPage();
+    await clickCreate();
+
+    await waitFor(() => expect(screen.getByText("workspace service unavailable")).toBeDefined());
+    // Once, for the check that let the form render.
+    expect(mocks.getWorkspaces).toHaveBeenCalledTimes(1);
+    expect(mocks.createProject).not.toHaveBeenCalled();
   });
 
   it("shows the derived workspace name once a pending session resolves", async () => {
