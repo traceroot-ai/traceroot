@@ -1,15 +1,9 @@
-"use client";
-
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { MessageList } from "./message-list";
-import type { AIMessage } from "../types";
+import type { AIMessage, AISession } from "../types";
 
 // Reviewed, shortened snapshot of a completed demo RCA (2026-10-14).
 // Never fetch another user's chat or copy private history into the demo.
 // Tool outputs omitted by capture policy remain omitted here.
-const EXAMPLE: AIMessage[] = [
+export const DEMO_EXAMPLE_MESSAGES: AIMessage[] = [
   {
     id: "demo-question",
     role: "user",
@@ -55,46 +49,10 @@ const EXAMPLE: AIMessage[] = [
   },
 ];
 
-export function DemoAgentExamples({ projectId }: { projectId?: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="px-4 py-3 text-[12px] text-muted-foreground">
-        Explore this example investigation. Demo conversations are read-only.
-      </div>
-      {open ? (
-        <>
-          <div className="px-4">
-            <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
-              Back to examples
-            </Button>
-          </div>
-          <p className="px-4 pt-2 text-[11px] text-muted-foreground">
-            Recorded demo investigation · shortened for clarity
-          </p>
-          <MessageList messages={EXAMPLE} projectId={projectId} />
-        </>
-      ) : (
-        <div className="p-4">
-          <h1 className="mb-4 text-[15px] font-medium">Example investigations</h1>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-[14px]">
-                Was this policy answer actually unsupported?
-              </CardTitle>
-              <CardDescription>
-                Follow the agent from a detector finding to the trace evidence and its
-                recommendation.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-                View investigation
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-    </div>
-  );
-}
+export const DEMO_EXAMPLE_SESSION: Omit<AISession, "projectId"> = {
+  id: "demo-example-policy",
+  title: "Was this policy answer actually unsupported?",
+  status: "completed",
+  createTime: "2026-10-14T15:21:14.925Z",
+  isExample: true,
+};

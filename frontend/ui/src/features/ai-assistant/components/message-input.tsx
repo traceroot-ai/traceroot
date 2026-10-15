@@ -13,6 +13,8 @@ interface MessageInputProps {
   modelSelection: ModelSelection;
   onModelChange: (selection: ModelSelection) => void;
   disabled?: boolean;
+  /** Let users compose, but explain why sending is unavailable. */
+  blockedReason?: string;
   workspaceId?: string;
   actions?: ReactNode;
   /** Overrides the default hint — e.g. while a proposal awaits a decision. */
@@ -24,17 +26,23 @@ export function MessageInput({
   modelSelection,
   onModelChange,
   disabled,
+  blockedReason,
   workspaceId,
   actions,
   placeholder,
 }: MessageInputProps) {
+  const [sendBlocked, setSendBlocked] = useState(false);
   const [input, setInput] = useState("");
 
-  const noModelSelected = !modelSelection.model;
+  const noModelSelected = !modelSelection.model && !blockedReason;
 
   const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed || disabled || noModelSelected) return;
+    if (blockedReason) {
+      setSendBlocked(true);
+      return;
+    }
     setInput("");
     // Clear optimistically so the composer stays responsive, then put the text
     // back if the send was refused — a dropped message with no bubble and no
@@ -66,6 +74,11 @@ export function MessageInput({
         rows={3}
         className="w-full resize-none rounded-none border border-input bg-transparent px-3 py-2 text-[13px] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
       />
+      {sendBlocked && blockedReason && (
+        <p role="alert" className="mb-2 text-[12px] text-destructive">
+          {blockedReason}
+        </p>
+      )}
       <div className="flex items-center justify-between">
         <ModelSelector value={modelSelection} onChange={onModelChange} workspaceId={workspaceId} />
         {actions}
