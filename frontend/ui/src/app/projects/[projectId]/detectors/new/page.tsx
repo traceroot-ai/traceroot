@@ -93,6 +93,12 @@ export default function NewDetectorPage() {
 
   const selectedTemplateDef = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate);
 
+  const isDuplicateNameError = Boolean(
+    createMutation.isError &&
+    createMutation.error?.message &&
+    /already exists|already in use/i.test(createMutation.error.message),
+  );
+
   // Block Create while a filter row is incomplete (missing value or metadata
   // key) — the write path rejects such payloads with a message the fetch
   // layer would flatten into a generic failure.
@@ -156,7 +162,7 @@ export default function NewDetectorPage() {
                   className="h-7 text-[13px]"
                   required
                 />
-                {createMutation.isError && (
+                {isDuplicateNameError && (
                   <p className="mt-1.5 text-[12px] text-destructive">
                     {createMutation.error.message}
                   </p>
@@ -244,6 +250,11 @@ export default function NewDetectorPage() {
 
             {/* Footer */}
             <div className="flex items-center justify-end gap-2 pt-1">
+              {createMutation.isError && !isDuplicateNameError && (
+                <span className="mr-auto text-[12px] text-destructive">
+                  {createMutation.error.message}
+                </span>
+              )}
               {conditionsError && (
                 <span className="text-[12px] text-destructive">{conditionsError}</span>
               )}
