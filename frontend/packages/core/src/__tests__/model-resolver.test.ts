@@ -221,6 +221,23 @@ describe("findByokKeyForPiProvider", () => {
     expect(key).toBe("decrypted-key");
   });
 
+  it("skips OpenAI-compatible adapters when nativeOnly is set", async () => {
+    invalidateProviderConfigCache("ws-6", "my-deepseek");
+    (prisma.modelProvider.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { provider: "my-deepseek", adapter: "deepseek" },
+    ]);
+    // A usable DeepSeek row: without nativeOnly this resolves to its key.
+    (prisma.modelProvider.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      adapter: "deepseek",
+      keyCipher: "cipher",
+      enabled: true,
+      baseUrl: null,
+      config: null,
+    });
+    const key = await findByokKeyForPiProvider("ws-6", "openai", { nativeOnly: true });
+    expect(key).toBeNull();
+  });
+
   it("returns null when no BYOK row's adapter maps to the requested provider", async () => {
     (prisma.modelProvider.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       { provider: "my-openai", adapter: "openai" },

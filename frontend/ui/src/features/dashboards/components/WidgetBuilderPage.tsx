@@ -25,6 +25,7 @@ import {
   isSpecComplete,
   parseSpec,
   type DraftSpec,
+  type WidgetFilterValue,
   type WidgetSchemaField,
 } from "../types";
 import { FIELD_UNIT } from "@/features/filters/filter-controls";
@@ -158,7 +159,7 @@ export function WidgetBuilderPage({
   // shape — so we cast through unknown here to satisfy the type checker.
   function handleFilterChange(
     idx: number,
-    patch: Partial<{ field: string; op: string; value: string | number }>,
+    patch: Partial<{ field: string; op: string; value: WidgetFilterValue | "" }>,
   ) {
     setDraft(
       (d) =>
@@ -317,7 +318,7 @@ export function WidgetBuilderPage({
                     <FilterRow
                       key={i}
                       index={i}
-                      filter={f as { field: string; op: string; value: string | number }}
+                      filter={f as { field: string; op: string; value: WidgetFilterValue }}
                       filterableFields={filterableFields}
                       fieldsMap={viewFields}
                       fieldsLoading={isSchemaPending}
