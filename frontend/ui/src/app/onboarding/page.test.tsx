@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   createProject: vi.fn(),
   getWorkspaces: vi.fn(),
   params: new URLSearchParams(),
+  signOut: vi.fn(),
   // Carries an id, because the page caches the workspace list per account: a
   // session without one would key every account's list together, which is the
   // bug these tests would then be blind to.
@@ -41,6 +42,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
     useSession: () => mocks.session,
+    signOut: mocks.signOut,
   },
 }));
 // Left in place, but only to catch the page reaching for it. This page renders
@@ -116,11 +118,33 @@ async function completeStepOne() {
   await waitFor(() => expect(screen.getByTestId("add-detectors-step")).toBeDefined());
 }
 
+// The sign-out round trip, read back from what the page pushed rather than
+// string-matched. What has to hold is that a sign-in landing on this URL comes
+// back to this page carrying the *same* hand-back — and comparing against the
+// same expression the page builds would pass for any encoding that is merely
+// self-consistent with itself, including one no browser would decode this way.
+function switchAccountRoundTrip(pushed: string) {
+  const signIn = new URL(pushed, "http://test.invalid");
+  const back = new URL(signIn.searchParams.get("callbackUrl") ?? "", "http://test.invalid");
+  return {
+    signInPath: signIn.pathname,
+    backTo: back.pathname,
+    handBack: back.searchParams.get("callbackUrl"),
+    workspaceId: back.searchParams.get("workspaceId"),
+  };
+}
+
+async function clickSignOut() {
+  const signOut = await waitFor(() => screen.getByRole("button", { name: "Not you? Sign out" }));
+  fireEvent.click(signOut);
+}
+
 beforeEach(() => {
   // The page refuses to onboard an account that already owns a workspace, so
   // every test that exercises the form is a first-run account unless it says
   // otherwise.
   mocks.getWorkspaces.mockResolvedValue([]);
+  mocks.signOut.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -130,6 +154,7 @@ afterEach(() => {
   mocks.createProject.mockReset();
   mocks.getWorkspaces.mockReset();
   mocks.layoutAccess.mockReset();
+  mocks.signOut.mockReset();
   mocks.params = new URLSearchParams();
   signedInAs("user-1", "kai@example.com");
 });
@@ -434,5 +459,132 @@ describe("OnboardingPage", () => {
 
     await waitFor(() => expect(screen.getByText("workspace boom")).toBeDefined());
     expect(screen.queryByTestId("add-detectors-step")).toBeNull();
+  });
+
+  it("names the account it is setting up", async () => {
+    // Without the shell there is no user menu, so nothing else on the page says
+    // which account this is — and being signed in as the wrong one is the
+    // likeliest reason a user wants out of here.
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("as kai@example.com")).toBeDefined());
+  });
+
+  it("signs out and returns here, keeping a waiting terminal's hand-back", async () => {
+    // The shell's user menu was the only way out of this page and it is gone.
+    // Navigating away to find a sign-out is what drops `callbackUrl`, which
+    // leaves `traceroot setup` polling for the whole device-code lifetime with
+    // nothing left pointing back at the approval.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() => expect(mocks.signOut).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledTimes(1));
+    expect(switchAccountRoundTrip(mocks.push.mock.calls[0][0])).toEqual({
+      signInPath: "/auth/sign-in",
+      backTo: "/onboarding",
+      handBack: "/device?user_code=ABCD1234",
+      workspaceId: null,
+    });
+  });
+
+  it("does not leave for sign-in until the sign-out has gone through", async () => {
+    // Pushing with the sign-out still in flight lands the new sign-in on top of
+    // the old session: better-auth's sign-out clears the cookie when it
+    // *returns*, so the race leaves the user signed in as the account they just
+    // asked to leave, on a page that looks like it worked. Call order cannot
+    // say this — it passes for a page that fires both and awaits neither — so
+    // the sign-out is resolved by hand.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    const signOut = deferred<void>();
+    mocks.signOut.mockReturnValue(signOut.promise);
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() => expect(mocks.signOut).toHaveBeenCalled());
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    signOut.resolve();
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledTimes(1));
+  });
+
+  it("comes back without the workspace the account being left owns", async () => {
+    // `?workspaceId=` is an invitation to add a project to that workspace. It
+    // belongs to the account signing out, and the whole point of the round trip
+    // is to come back as somebody else — who cannot add anything to it. The
+    // hand-back still has to survive, so this is not simply "/onboarding".
+    setParams({
+      workspaceId: "ws-existing",
+      workspaceName: "Example",
+      callbackUrl: "/device?user_code=ABCD1234",
+    });
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledTimes(1));
+    expect(switchAccountRoundTrip(mocks.push.mock.calls[0][0])).toEqual({
+      signInPath: "/auth/sign-in",
+      backTo: "/onboarding",
+      handBack: "/device?user_code=ABCD1234",
+      workspaceId: null,
+    });
+  });
+
+  it("carries no empty hand-back when nobody is waiting", async () => {
+    // A user who opened setup themselves has nowhere to be returned to, and an
+    // empty `callbackUrl=` reads as a caller to someone testing for the
+    // parameter's presence.
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith("/auth/sign-in?callbackUrl=%2Fonboarding"),
+    );
+  });
+
+  it("refuses to sign out from under a workspace that is being created", async () => {
+    // Between the workspace and the project is the one window where leaving
+    // costs something: the workspace is created under an account the user is
+    // walking away from, and nothing has it yet.
+    const workspace = deferred<{ id: string }>();
+    mocks.createWorkspace.mockReturnValue(workspace.promise);
+    renderPage();
+    await clickCreate();
+
+    await waitFor(() => expect(mocks.createWorkspace).toHaveBeenCalled());
+    const signOut = screen.getByRole("button", { name: "Not you? Sign out" });
+    expect(signOut.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(signOut);
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+
+  it("says so when the sign-out fails instead of stranding the button", async () => {
+    mocks.signOut.mockRejectedValue(new Error("network down"));
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() => expect(screen.getByText("Could not sign out. Please try again.")));
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Not you? Sign out" }).hasAttribute("disabled")).toBe(
+      false,
+    );
+  });
+
+  it("drops the way out once the project exists", async () => {
+    // The detectors step is about the project this account now owns, and the
+    // app — user menu included — is one click away from it.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+    await completeStepOne();
+
+    expect(screen.queryByRole("button", { name: "Not you? Sign out" })).toBeNull();
   });
 });

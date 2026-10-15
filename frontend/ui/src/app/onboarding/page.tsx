@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
+import { AccountLine } from "@/components/account-line";
 import { createWorkspace, createProject, getWorkspaces } from "@/lib/api";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
@@ -63,6 +64,31 @@ function StandaloneFrame({ children }: { children: React.ReactNode }) {
   );
 }
 
+// This page's own URL, for a round trip that has to come back to it. Whatever a
+// waiting `traceroot setup` terminal is polling against travels on it, because
+// a sign-in that drops `callbackUrl` strands that terminal for the whole
+// device-code lifetime with nothing left pointing back at the handoff.
+//
+// `?workspaceId=` is deliberately not carried. It names a workspace owned by
+// the account being signed *out* of, and the point of the round trip is to come
+// back as someone else — who cannot add a project to it. An account that signs
+// back in as itself gets the parameter re-derived from the setup check below, so
+// nothing is lost either way.
+function onboardingReturnUrl(returnTo: string | null): string {
+  return returnTo === null
+    ? "/onboarding"
+    : `/onboarding?callbackUrl=${encodeURIComponent(returnTo)}`;
+}
+
+// Sign-in, returning here afterwards. better-auth stores the whole callbackUrl
+// — query included — in the OAuth state and redirects to it verbatim, so the
+// hand-back survives the Google hop and not just an email sign-in. Shared by
+// the signed-out redirect and "Not you? Sign out" so the two cannot drift,
+// which is how /device says the same thing (see deviceSignInUrl there).
+function onboardingSignInUrl(returnTo: string | null): string {
+  return `/auth/sign-in?callbackUrl=${encodeURIComponent(onboardingReturnUrl(returnTo))}`;
+}
+
 function OnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -70,6 +96,7 @@ function OnboardingContent() {
   const { data: session, isPending } = authClient.useSession();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
   const [createdProject, setCreatedProject] = useState<{ id: string; name: string } | null>(null);
 
   // Determine mode from query params
@@ -240,6 +267,35 @@ function OnboardingContent() {
     }
   }
 
+  // Signed in as the wrong account, which has no other way out of this page: the
+  // shell's user menu was the only one and this page no longer renders it (see
+  // lib/chromeless-routes). Navigating away to find a sign-out drops the
+  // `callbackUrl` with it, which is the stranding that removing the shell was
+  // meant to prevent — so the way out has to be here, and it has to come back.
+  //
+  // Whether a sign-out is worth offering at all is not a judgement this page
+  // gets to make: better-auth has no separate social sign-up, so the Google
+  // button on sign-in and sign-up alike answers for any address already linked
+  // to that identity, and landing here as the wrong account is a routine
+  // outcome rather than a mistake the user can be assumed out of.
+  async function handleSwitchAccount() {
+    setIsSwitchingAccount(true);
+    setError(null);
+    try {
+      await authClient.signOut();
+    } catch {
+      // Both halves matter: a page that cannot be used by this account, behind a
+      // button that stays disabled, says nothing at all about what went wrong.
+      setError("Could not sign out. Please try again.");
+      setIsSwitchingAccount(false);
+      return;
+    }
+    // Pushed here rather than left to the signed-out branch below, which does
+    // reach the same URL once the cleared session re-renders: which of the two
+    // happens first is not something the destination should depend on.
+    router.push(onboardingSignInUrl(returnTo));
+  }
+
   // The form is withheld until the setup question is settled, not just until the
   // session is: rendering it early lets a fast submit create the duplicate
   // workspace the check above exists to prevent — which is also why a pending
@@ -258,12 +314,10 @@ function OnboardingContent() {
   if (!session && !isPending) {
     // Carry the hand-back on through sign-in. A null session here is not only
     // "never signed in" — it is also a cookie not yet visible after a social
-    // hop, or an expiry mid-form — and dropping `callbackUrl` at this point
-    // strands a terminal that is still polling, for the full device-code
-    // lifetime, with no way for the user to get back to it.
-    const returnHere =
-      returnTo === null ? "/onboarding" : `/onboarding?callbackUrl=${encodeURIComponent(returnTo)}`;
-    router.push(`/auth/sign-in?callbackUrl=${encodeURIComponent(returnHere)}`);
+    // hop, an expiry mid-form, or the sign-out "Not you?" just performed — and
+    // dropping `callbackUrl` at this point strands a terminal that is still
+    // polling, for the full device-code lifetime, with no way back to it.
+    router.push(onboardingSignInUrl(returnTo));
     return (
       <StandaloneFrame>
         <p className="text-[13px] text-muted-foreground">Redirecting to sign in...</p>
@@ -394,6 +448,20 @@ function OnboardingContent() {
                   >
                     Cancel
                   </Button>
+                </div>
+
+                {/* Which account this is, and the way out of it. On the form
+                    step only: once the project exists this account is the one
+                    the rest of the flow is about, and the app — with its user
+                    menu — is a click away. Disabled while a create is in
+                    flight, so a sign-out cannot land between the workspace and
+                    the project. */}
+                <div className="mt-4 flex justify-center">
+                  <AccountLine
+                    email={session?.user?.email ?? null}
+                    pending={isLoading || isSwitchingAccount}
+                    onSwitchAccount={handleSwitchAccount}
+                  />
                 </div>
               </>
             )}
