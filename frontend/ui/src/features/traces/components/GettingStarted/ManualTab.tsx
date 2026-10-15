@@ -8,6 +8,7 @@ import { ApiKeyBlock } from "./ApiKeyBlock";
 import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
+import { ModelProviderBlock } from "./ModelProviderBlock";
 import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
 
 const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
@@ -145,7 +146,16 @@ export function ManualTab({ projectId }: ManualTabProps) {
       </div>
 
       <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">5. External integrations</p>
+        <p className="text-[13px] font-medium text-foreground">5. Use your own model key</p>
+        {projectLoading ? (
+          <LoadingState label="Loading model providers..." />
+        ) : (
+          <ModelProviderBlock workspaceId={workspaceId} />
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[13px] font-medium text-foreground">6. External integrations</p>
         {projectLoading ? (
           <LoadingState label="Loading integrations..." />
         ) : (
