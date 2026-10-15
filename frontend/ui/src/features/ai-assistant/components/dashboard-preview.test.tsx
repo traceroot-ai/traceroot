@@ -264,7 +264,9 @@ describe("DashboardPreview", () => {
     scrollIntoView();
 
     await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(1));
-    expect(screen.getByText("not answered: too many buckets")).toBeTruthy();
+    expect(screen.getAllByText("not answered: too many buckets")).toHaveLength(1);
+    // Said outside the hidden grid too, so a screen reader learns why the tile is empty.
+    expect(screen.getByText("Tokens: not answered: too many buckets")).toBeTruthy();
   });
 
   it("draws a fixed span as its exact bounds on every tile", async () => {

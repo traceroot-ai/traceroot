@@ -178,6 +178,16 @@ export function DashboardPreview({ tiles }: { tiles: readonly PreviewTile[] }) {
           </div>
         ))}
       </div>
+      {/* The grid is a picture and hidden from assistive tech; a widget the read
+          could not answer would otherwise be silent, so its reason is said here. */}
+      {tiles.some((tile) => tile.notice !== undefined) && (
+        <ul className="sr-only">
+          {tiles.map(
+            (tile) =>
+              tile.notice !== undefined && <li key={tile.id}>{`${tile.title}: ${tile.notice}`}</li>,
+          )}
+        </ul>
+      )}
     </div>
   );
 }
