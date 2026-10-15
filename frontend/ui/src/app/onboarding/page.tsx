@@ -99,11 +99,12 @@ function OnboardingContent() {
   const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
   const [createdProject, setCreatedProject] = useState<{ id: string; name: string } | null>(null);
   // The workspace outlives a failed project step, and the retry is the same
-  // button right under the error. Creating it again would succeed — POST
-  // /api/workspaces has no name-uniqueness check — and leave a second,
-  // identically-named workspace the user has no way to notice: it is not on
-  // this page, and the workspace list they land on afterwards shows two rows
-  // they cannot tell apart.
+  // button right under the error. Creating it again is worse than untidy. With
+  // the name unchanged it collides with `uq_workspace_created_by_name` and the
+  // route turns that into a 409 ("A workspace with this name already exists"),
+  // so the retry cannot succeed at all and the user is walled off the first
+  // screen with no way forward. With the name edited it does succeed, and
+  // leaves the first workspace behind, orphaned and not mentioned anywhere.
   //
   // The name travels with the id, because reusing the workspace must not mean
   // ignoring the field: a user who renames it before retrying has said what

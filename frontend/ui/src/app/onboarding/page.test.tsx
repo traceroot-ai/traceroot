@@ -508,10 +508,10 @@ describe("OnboardingPage", () => {
   });
 
   it("reuses the workspace it already made when a failed attempt is retried", async () => {
-    // POST /api/workspaces has no name-uniqueness check, so the retry under the
-    // error re-created the workspace and left a second, identically-named
-    // orphan behind — invisible to the user who caused it, and
-    // indistinguishable from the real one on the workspace list.
+    // Retrying under the error used to re-create the workspace. With the name
+    // unchanged that hit `uq_workspace_created_by_name` and the route answered
+    // 409, so the retry could not succeed; with the name edited it created a
+    // second workspace and orphaned the first.
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
     mocks.createProject.mockRejectedValueOnce(new Error("project boom"));
     renderPage();
