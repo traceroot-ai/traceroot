@@ -82,8 +82,16 @@ vi.mock("./message-list", () => ({
   ),
 }));
 vi.mock("./message-input", () => ({
-  MessageInput: ({ placeholder }: { placeholder?: string }) => (
-    <div data-testid="message-input">{placeholder ?? ""}</div>
+  MessageInput: ({
+    placeholder,
+    blockedReason,
+  }: {
+    placeholder?: string;
+    blockedReason?: string;
+  }) => (
+    <div data-testid="message-input" data-blocked-reason={blockedReason}>
+      {placeholder ?? ""}
+    </div>
   ),
 }));
 vi.mock("./session-history", () => ({ SessionHistory: () => null }));
@@ -298,17 +306,23 @@ describe("AiAssistantPanel", () => {
   });
 });
 
-it.each(["VIEWER", "MEMBER"])(
-  "shows an example without a composer or new-session action for demo %s",
-  (role) => {
-    mocks.workspaceData = { is_demo: true, role };
-    mocks.projectData = { workspace_id: "demo" };
-    mocks.llmModels = { systemModels: [], byokProviders: [] };
-    render(<AiAssistantPanel projectId="p1" variant="page" onClose={() => {}} />);
-    expect(screen.queryByTestId("message-input")).toBeNull();
-    expect(screen.queryByTitle("New session")).toBeNull();
-    expect(screen.getByText("Example investigations")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "View investigation" }));
-    expect(screen.getByText(/Recorded demo investigation/)).toBeTruthy();
-  },
-);
+it.each(["VIEWER", "MEMBER"])("keeps the normal Home greeting and composer for demo %s", (role) => {
+  mocks.workspaceData = { is_demo: true, role };
+  mocks.projectData = { workspace_id: "demo" };
+  mocks.llmModels = { systemModels: [], byokProviders: [] };
+  render(
+    <AiAssistantPanel
+      projectId="p1"
+      variant="page"
+      emptyState={<div>Home greeting</div>}
+      onClose={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("message-input")).toBeTruthy();
+  expect(screen.getByTitle("New session")).toBeTruthy();
+  expect(screen.getByText("Home greeting")).toBeTruthy();
+  expect(screen.queryByText("Example investigations")).toBeNull();
+  expect(screen.getByTestId("message-input").getAttribute("data-blocked-reason")).toContain(
+    "demo project",
+  );
+});

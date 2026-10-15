@@ -71,7 +71,7 @@ export function SessionHistory({
   let currentGroup: string | null = null;
 
   for (const session of sessions) {
-    const group = getTimeGroup(session.createTime);
+    const group = session.isExample ? "Example sessions" : getTimeGroup(session.createTime);
     if (group !== currentGroup) {
       currentGroup = group;
       groups.push({ label: group, sessions: [] });
@@ -100,7 +100,7 @@ export function SessionHistory({
               <span className="min-w-0 flex-1 truncate text-[12px]">
                 {s.title || "Untitled session"}
               </span>
-              {!readOnly && (
+              {!readOnly && !s.isExample && (
                 <Trash2
                   className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
                   onClick={(e) => handleDelete(e, s.id)}

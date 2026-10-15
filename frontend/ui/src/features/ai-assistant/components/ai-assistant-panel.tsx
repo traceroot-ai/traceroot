@@ -14,7 +14,6 @@ import { AgentTraceSheet } from "./agent-trace-sheet";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 import { useDemoAgentAccess } from "../hooks/use-demo-agent-access";
-import { DemoAgentExamples } from "./demo-agent-examples";
 import { useRetention } from "@/lib/hooks/use-retention";
 
 interface AiAssistantPanelProps {
@@ -159,7 +158,7 @@ export function AiAssistantPanel({
     <div className={rootCls}>
       {/* Header */}
       <div className={headerCls}>
-        {canInteract && (
+        {!accessLoading && (
           <Button
             variant="ghost"
             size="icon"
@@ -240,20 +239,7 @@ export function AiAssistantPanel({
         )}
 
         {/* Messages */}
-        {readOnly && messages.length === 0 ? (
-          variant === "page" ? (
-            <DemoAgentExamples projectId={projectId} />
-          ) : (
-            <div className="p-4 text-[12px] text-muted-foreground">
-              Demo conversations are read-only.{" "}
-              {projectId && (
-                <a className="underline" href={`/projects/${projectId}/home`}>
-                  Explore an example investigation on Home.
-                </a>
-              )}
-            </div>
-          )
-        ) : !readOnly && !hasModels ? (
+        {!readOnly && !hasModels ? (
           <div className="flex flex-1 items-center justify-center px-6">
             <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
               <AlertTriangle className="h-8 w-8 text-yellow-500" />
@@ -271,7 +257,7 @@ export function AiAssistantPanel({
               </p>
             </div>
           </div>
-        ) : canInteract && messages.length === 0 && emptyState && !isStreaming ? (
+        ) : messages.length === 0 && emptyState && !isStreaming ? (
           // m-auto (not items/justify-center) so that when the region is
           // shorter than the content, the top stays reachable by scrolling
           // instead of clipping outside the scroll container.
@@ -305,12 +291,17 @@ export function AiAssistantPanel({
         )}
 
         {/* Input */}
-        {canInteract && (
+        {!accessLoading && (
           <MessageInput
             onSend={handleSend}
             modelSelection={modelSelection}
             onModelChange={setModelSelection}
-            disabled={!projectId || !hasModels}
+            disabled={!projectId || (!readOnly && !hasModels)}
+            blockedReason={
+              readOnly
+                ? "This is a demo project. You don’t have permission to send messages. You can explore example sessions in History."
+                : undefined
+            }
             workspaceId={workspaceId}
             // While a proposal awaits a decision, a typed reply revises it —
             // except a delete, which a reply skips; the bar says so instead.
@@ -320,6 +311,7 @@ export function AiAssistantPanel({
                 : undefined
             }
             actions={
+              canInteract &&
               isStreaming && (
                 <button
                   onClick={handleAbort}
@@ -332,11 +324,6 @@ export function AiAssistantPanel({
               )
             }
           />
-        )}
-        {readOnly && messages.length > 0 && (
-          <p className="border-t px-4 py-3 text-[12px] text-muted-foreground">
-            Demo conversations are read-only.
-          </p>
         )}
       </div>
       {projectId && (
