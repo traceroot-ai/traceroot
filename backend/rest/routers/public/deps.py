@@ -176,6 +176,48 @@ async def _verify_access_jwt(token: str) -> tuple[str, str]:
     return sub, sid
 
 
+# ── Access-key scope ────────────────────────────────────────────────────
+
+# What an access key is allowed to do. Two values rather than a permission
+# matrix, and the vocabulary is the control plane's: these are the strings stored
+# in ``access_keys.scope`` and reported by ``validate-api-key``, so the two sides
+# cannot drift (frontend/ui/src/lib/public-auth.ts).
+#
+# ``ingest`` is the credential an instrumented application carries. It travels to
+# wherever that application runs — into CI, containers and images — so it may
+# send telemetry and read, and nothing else. ``admin`` is everything the project
+# allows, including managing the project's keys.
+ApiKeyScope = Literal["ingest", "admin"]
+
+
+def parse_scope(value: object) -> ApiKeyScope:
+    """Narrow a reported scope, failing closed to ``ingest``.
+
+    The Python mirror of ``parseScope()`` in ``lib/public-auth.ts``, and
+    deliberately total: anything that is not exactly ``"admin"`` — a scope this
+    build does not recognise, a non-string, or the field being absent — resolves
+    to the narrow scope.
+
+    Absence is the case that matters, and it is not hypothetical. A control plane
+    older than the scope field omits it from every ``validate-api-key`` response,
+    which is the steady state of a rolling deploy that updates this service
+    first, and of the key-validator stub the contract job runs. Reading that
+    silence as ``admin`` would hand full project rights to every key for the
+    length of the rollout. Reading it as ``ingest`` refuses an administrative
+    call that would otherwise have been allowed — the direction an authorization
+    decision has to fail in.
+
+    Args:
+        value (object): The ``scope`` field as the control plane reported it, or
+            ``None`` when it reported none.
+
+    Returns:
+        ApiKeyScope: ``"admin"`` for an exact ``"admin"``, ``"ingest"`` for
+            anything else.
+    """
+    return "admin" if value == "admin" else "ingest"
+
+
 @dataclass
 class AuthResult:
     """Result of API key authentication.
@@ -188,7 +230,8 @@ class AuthResult:
     ``kind`` discriminates the credential that produced this result: an API key
     (``"api_key"``, the default so every existing construction stays valid) or a
     user session token (``"user"``). ``user_id``/``role`` are populated only on
-    the user path; they are ``None`` for API-key results.
+    the user path; they are ``None`` for API-key results. ``scope`` is the mirror
+    image: populated only on the API-key path, ``None`` for a user.
 
     Which fields are meaningful depends on how the result was constructed:
 
@@ -214,6 +257,12 @@ class AuthResult:
     workspace_name: str | None = None
     key_name: str | None = None
     key_hint: str | None = None
+    # What the authenticating key may do, as the control plane reported it and
+    # ``parse_scope`` narrowed it. Set only on the API-key path: a user
+    # credential has no key scope — its authority is its project role — so this
+    # stays None rather than being fabricated as the narrow scope, which a scope
+    # check would otherwise read as grounds to refuse a signed-in member.
+    scope: ApiKeyScope | None = None
     kind: Literal["api_key", "user"] = "api_key"
     user_id: str | None = None
     # Reserved for the Epic B guardrails layer (role-based authorization); no
@@ -346,6 +395,12 @@ async def authenticate_api_key(
         workspace_name=data.get("workspaceName"),
         key_name=data.get("keyName"),
         key_hint=data.get("keyHint"),
+        # Narrowed, never taken as given: an unrecognised value and an absent
+        # field both become ``ingest`` rather than a full-access grant. Unlike
+        # the fields above, a malformed scope is deliberately NOT a 503 —
+        # refusing the whole request would take ingestion down across a rolling
+        # deploy, when the narrow scope already denies everything it guards.
+        scope=parse_scope(data.get("scope")),
     )
 
 
