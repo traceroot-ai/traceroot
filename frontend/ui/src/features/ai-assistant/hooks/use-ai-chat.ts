@@ -18,7 +18,7 @@ import {
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
-import { DEMO_EXAMPLE_MESSAGES, DEMO_EXAMPLE_SESSION } from "../lib/demo-agent-example";
+import { DEMO_EXAMPLES, getDemoExample } from "../lib/demo-agent-example";
 
 const EMPTY_SELECTION: ModelSelection = { model: "", provider: "", source: "system", adapter: "" };
 
@@ -392,7 +392,7 @@ export function useAiChat({
 
   const handleSend = useCallback(
     async (message: string, modelSelection: ModelSelection) => {
-      if (demoReadOnly || activeSessionIdRef.current === DEMO_EXAMPLE_SESSION.id) return false;
+      if (demoReadOnly || getDemoExample(activeSessionIdRef.current)) return false;
       if (!projectId) return;
       setActiveSends((n) => n + 1);
       try {
@@ -537,13 +537,13 @@ export function useAiChat({
 
   const handleSelectSession = useCallback(
     async (session: AISession) => {
-      if (session.id === DEMO_EXAMPLE_SESSION.id && !demoReadOnly) return;
+      if (getDemoExample(session.id) && !demoReadOnly) return;
       sessionEpochRef.current++;
       activeSessionIdRef.current = session.id;
       setActiveSessionId(session.id);
       setHistoryOpen(false);
 
-      if (session.id === DEMO_EXAMPLE_SESSION.id) return;
+      if (getDemoExample(session.id)) return;
       if (!projectId) return;
       // A streaming session's live bucket is authoritative — the DB won't have
       // the in-flight assistant response until the run completes, so loading
@@ -640,12 +640,12 @@ export function useAiChat({
     abortSession(sessionId);
   }, [abortSession]);
 
-  const messages: AIMessage[] =
-    demoReadOnly && activeSessionId === DEMO_EXAMPLE_SESSION.id
-      ? DEMO_EXAMPLE_MESSAGES
-      : activeSessionId
-        ? (messagesBySession[activeSessionId] ?? [])
-        : [];
+  const example = demoReadOnly ? getDemoExample(activeSessionId) : undefined;
+  const messages: AIMessage[] = example
+    ? example.messages
+    : activeSessionId
+      ? (messagesBySession[activeSessionId] ?? [])
+      : [];
   const activeStreaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
   // The visible session's parked step — the same one findActiveParkedStep
   // targets, minus the in-flight exclusion (a ref, so it cannot drive a
@@ -685,7 +685,9 @@ export function useAiChat({
     messages,
     isStreaming: activeSends > 0 || activeStreaming || messages.some((m) => m.isStreaming),
     sessions:
-      demoReadOnly && projectId ? [{ ...DEMO_EXAMPLE_SESSION, projectId }, ...sessions] : sessions,
+      demoReadOnly && projectId
+        ? [...DEMO_EXAMPLES.map(({ session }) => ({ ...session, projectId })), ...sessions]
+        : sessions,
     historyOpen,
     currentSessionId: activeSessionId,
     modelSelection,
