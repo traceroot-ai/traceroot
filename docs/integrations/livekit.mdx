@@ -26,7 +26,7 @@ LiveKit Agents' native OpenTelemetry telemetry is automatically routed through T
   </Tab>
   <Tab title="TypeScript">
     ```bash
-    npm install @traceroot-ai/traceroot @livekit/agents
+    npm install @traceroot-ai/traceroot @livekit/agents zod
     ```
 
     Call `TraceRoot.initialize()` before defining or running your agent:
@@ -59,11 +59,12 @@ LiveKit Agents' native OpenTelemetry telemetry is automatically routed through T
         async def add_numbers(self, a: float, b: float) -> str:
             return f"{a} + {b} = {a + b}"
 
+    traceroot.initialize(integrations=[Integration.LIVEKIT])
+
     server = AgentServer()
 
     @server.rtc_session(agent_name="voice-assistant")
     async def entrypoint(ctx: JobContext) -> None:
-        traceroot.initialize(integrations=[Integration.LIVEKIT])
         ctx.add_shutdown_callback(traceroot.flush_async)
 
         session = AgentSession(
