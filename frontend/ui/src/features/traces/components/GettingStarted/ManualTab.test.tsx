@@ -53,6 +53,21 @@ describe("ManualTab", () => {
     expect(screen.getByTestId("model-provider-block").dataset.workspace).toBe("ws_1");
   });
 
+  it("says both workspace steps are unavailable when the project fetch fails", () => {
+    // An errored useProject is not a loading state: isLoading drops with no
+    // data behind it. Rendering on `!isLoading` alone gave both steps an empty
+    // workspace id, and ModelProviderBlock turns that into a settings link at
+    // `/workspaces//settings/model-providers` shown to someone who may be the
+    // admin it tells them to find.
+    projectQuery.isLoading = false;
+    projectQuery.data = undefined;
+    render(<ManualTab projectId="proj_1" />);
+    expect(screen.queryByTestId("model-provider-block")).toBeNull();
+    expect(screen.queryByTestId("github-connect")).toBeNull();
+    expect(screen.queryByTestId("slack-connect")).toBeNull();
+    expect(screen.getAllByText(/workspace could not be loaded/)).toHaveLength(2);
+  });
+
   it("shows a placeholder instead of the integrations while the project loads", () => {
     // Both workspace-scoped steps read the workspace id off the project, so
     // rendering them before the fetch settles puts rows on screen that cannot
