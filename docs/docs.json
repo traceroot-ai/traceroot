@@ -244,6 +244,22 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "API Reference",
+        "icon": "square-code",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api-reference/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "api-reference/openapi.json"
+          }
+        ]
       }
     ]
   },
