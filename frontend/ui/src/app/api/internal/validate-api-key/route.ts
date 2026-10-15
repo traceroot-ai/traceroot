@@ -84,10 +84,16 @@ export async function POST(request: NextRequest) {
     workspaceName: accessKey.project.workspace.name,
     keyName: accessKey.name ?? null,
     keyHint: accessKey.keyHint,
-    // Reported so the Python service can enforce scope on its own routes. It
-    // does not yet — every FastAPI public route still accepts any valid key —
-    // so this is the plumbing, not the enforcement. Enforcement today lives in
-    // `lib/public-auth.ts`.
+    // Reported so the Python service can enforce scope on its own routes, which
+    // it now does: it narrows this value the same way `parseScope` does and
+    // refuses an under-scoped key with the same 403 and the same message as
+    // `requireApiKeyProject`, so a caller cannot tell which layer refused it.
+    // Every route it exposes is currently reachable with an `ingest` key — the
+    // administrative operations are the session-authenticated routes under
+    // `api/projects/[projectId]/api-keys`, which no key reaches — so what
+    // changed is that a route needing more can say so. Omitting this field
+    // (an older deployment of this app) is read there as the narrow scope,
+    // never as full access.
     scope: accessKey.scope,
     billingPlan,
     ingestionBlocked: accessKey.project.workspace.ingestionBlocked,
