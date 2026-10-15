@@ -89,11 +89,43 @@ describe("cliHostFlags", () => {
     },
   );
 
+  it("names a deployment whose hosts carry an underscore", () => {
+    // `_` is legal in a URL host and ordinary in container and internal DNS
+    // names, and it is special to no shell. When the class that vets these
+    // origins excluded it, such a deployment lost both flags and the bare
+    // command the panel then rendered sent the CLI to TraceRoot Cloud.
+    expect(
+      cliHostFlags({ apiUrl: "http://app_internal:8000/api/v1", appUrl: "http://web_1:3000" }),
+    ).toEqual({ host: "http://app_internal:8000", authHost: "http://web_1:3000" });
+    // And on the same-origin default, where the app URL is the only input.
+    expect(cliHostFlags({ apiUrl: "/api/v1", appUrl: "http://app_internal:3000" })).toEqual({
+      host: "http://app_internal:3000",
+      authHost: null,
+    });
+  });
+
   it("drops both flags rather than render an origin a shell would mangle", () => {
     // A hostname can carry a quote (`http://%27.com` parses to `http://'.com`),
     // which would escape the quoting around it. Half a deployment is worse than
     // none: `--auth-host` beside an omitted `--host` leaves the API on Cloud.
-    for (const appUrl of ["http://%27.com", "http://a`b.com", "http://a;b.com", "http://a$b.com"]) {
+    for (const appUrl of [
+      "http://%27.com",
+      "http://a`b.com",
+      "http://a;b.com",
+      "http://a$b.com",
+      // Admitting `_` must not have admitted the rest of what the parser lets
+      // through; none of these names a deployment, so a flag carrying one is
+      // noise, and `*` and `&` would not survive the paste in any case.
+      "http://a*b.com",
+      "http://a&b.com",
+      "http://a!b.com",
+      "http://a~b.com",
+      "http://a+b.com",
+      "http://a,b.com",
+      "http://a(b.com",
+      "http://a{b.com",
+      'http://a"b.com',
+    ]) {
       expect(cliHostFlags({ apiUrl: "/api/v1", appUrl })).toEqual({ host: null, authHost: null });
     }
   });
@@ -167,5 +199,31 @@ describe("setupCommand", () => {
       "npx -y traceroot-cli@latest setup --project proj_1 " +
         "--host 'http://[::1]:8000' --auth-host 'http://[::1]:3000'",
     );
+  });
+
+  it("points setup at a deployment named the way a container network names it", async () => {
+    // The whole harm in one line: an underscore in the host used to cost both
+    // flags, and the bare command that was left defaults to TraceRoot Cloud,
+    // so a self-hosted operator's sign-in and first traces left their network.
+    const setupCommand = await setupCommandWith({
+      apiUrl: "http://app_internal:8000/api/v1",
+      appUrl: "http://web_1:3000",
+    });
+
+    expect(setupCommand({ projectId: "proj_1" })).toBe(
+      "npx -y traceroot-cli@latest setup --project proj_1 " +
+        "--host 'http://app_internal:8000' --auth-host 'http://web_1:3000'",
+    );
+  });
+
+  it("never lets a quote reach the line", async () => {
+    // `http://%27.com` parses to `http://'.com`, and a single-quoted word
+    // cannot carry a single quote, so there is no quoting that would make this
+    // origin safe. Dropping the flags keeps it out of the line entirely.
+    const setupCommand = await setupCommandWith({ appUrl: "http://%27.com" });
+    const line = setupCommand({ projectId: "proj_1" });
+
+    expect(line).toBe("npx -y traceroot-cli@latest setup --project proj_1");
+    expect(line).not.toContain("'");
   });
 });

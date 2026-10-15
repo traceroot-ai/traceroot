@@ -51,8 +51,24 @@ const PLAIN_PROJECT_ID = /^[A-Za-z0-9._-]+$/;
  * hostname or IPv6 literal, and an optional port — which excludes every one of
  * those, and in particular the one character single quotes cannot carry. With
  * that established, `quotedArg` is enough to make the value one word.
+ *
+ * The host class admits `_` alongside the letters, digits, `.` and `-` of a
+ * public domain. It is legal in a URL host, ordinary in container and internal
+ * DNS names (`http://app_internal:3000`), and special to no shell — and
+ * rejecting it is the one thing this check must not do, because a deployment
+ * served under such a name would lose both flags and the bare command would
+ * send its operator to TraceRoot Cloud, which is what this file exists to
+ * prevent.
+ *
+ * It stops there rather than admitting everything single quotes happen to
+ * survive, because the check also answers "could this be a host at all". The
+ * other characters the parser lets through — `&`, `!`, `~`, `+`, `,`, `(`, `{`,
+ * `"` and the four above — reach an origin only by percent-decoding, never by
+ * naming a deployment, so a flag carrying one is noise better dropped. Nothing
+ * excludes whitespace or control characters because nothing has to: the URL
+ * parser refuses a host containing them, so they arrive as a malformed URL.
  */
-const SHELL_SAFE_ORIGIN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d+)?$/;
+const SHELL_SAFE_ORIGIN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)(:\d+)?$/;
 
 /**
  * A value as a single shell word.
