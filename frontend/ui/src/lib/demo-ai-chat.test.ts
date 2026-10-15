@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const env = vi.hoisted(() => ({
   DEMO_WORKSPACE_ID: "ws_demo" as string | undefined,
@@ -27,15 +27,26 @@ function decide(workspaceId: string, role: string) {
   return decideDemoChat({ workspaceId, userId: "u1", role: role as Role, now: NOW });
 }
 
+// isDemoWorkspace (lib/demo-workspace.ts) reads process.env at call time.
+function setDemoWorkspace(id: string | undefined) {
+  env.DEMO_WORKSPACE_ID = id;
+  if (id === undefined) delete process.env.DEMO_WORKSPACE_ID;
+  else process.env.DEMO_WORKSPACE_ID = id;
+}
+
+afterEach(() => {
+  delete process.env.DEMO_WORKSPACE_ID;
+});
+
 beforeEach(() => {
-  env.DEMO_WORKSPACE_ID = "ws_demo";
+  setDemoWorkspace("ws_demo");
   env.DEMO_AI_DAILY_MESSAGE_LIMIT = 5;
   countMock.mockReset();
 });
 
 describe("decideDemoChat", () => {
   it("does not restrict any workspace when no demo workspace is set", async () => {
-    env.DEMO_WORKSPACE_ID = undefined;
+    setDemoWorkspace(undefined);
     expect(await decide("ws_demo", "VIEWER")).toEqual({ kind: "unrestricted" });
     expect(countMock).not.toHaveBeenCalled();
   });
