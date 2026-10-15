@@ -1,0 +1,89 @@
+---
+title: OpenCode
+description: Automatically trace OpenCode AI coding agent sessions with TraceRoot
+---
+
+Automatically capture agent turns, LLM calls, tool executions, subagent delegations, and token metrics from [OpenCode](https://opencode.ai) terminal sessions using the official `@traceroot-ai/opencode-plugin`.
+
+Each OpenCode session is transformed into a structured execution tree in TraceRoot, grouping multi-turn reasoning and tool calls under the root session context.
+
+<Note>
+  Tracing is fully opt-in and non-blocking: when disabled or unconfigured, the plugin adds zero overhead and will never crash or interrupt your coding agent.
+</Note>
+
+## Installation
+
+Install the TraceRoot plugin using the OpenCode CLI:
+
+```bash
+opencode plugin add @traceroot-ai/opencode-plugin
+```
+
+Or add it directly to your project's `opencode.json` (or global `~/.config/opencode/opencode.json`):
+
+```json
+{
+  "plugins": [
+    "@traceroot-ai/opencode-plugin"
+  ]
+}
+```
+
+## Configuration
+
+Tracing is activated by exporting `TRACEROOT_ENABLED=true` and your project API key:
+
+```bash
+export TRACEROOT_ENABLED=true
+export TRACEROOT_API_KEY="tr-..."
+```
+
+For self-hosted TraceRoot instances or custom OTLP ingestion endpoints:
+
+```bash
+export TRACEROOT_HOST_URL="https://traceroot.your-company.com"
+export TRACEROOT_OTLP_ENDPOINT="https://traceroot.your-company.com/v1/traces"
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `TRACEROOT_ENABLED` | `false` | Master switch. When `false` or unset, tracing is disabled and no event listeners are registered. |
+| `TRACEROOT_API_KEY` | - | TraceRoot project API key used to authenticate OTLP trace exports. |
+| `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | TraceRoot web and API base URL. |
+| `TRACEROOT_OTLP_ENDPOINT` | Derived from host | Explicit OTLP HTTP trace collector endpoint (e.g., `https://otlp.traceroot.ai/v1/traces`). |
+| `TRACEROOT_CAPTURE_CONTENT` | `true` | Record user prompt text and model output messages. Set to `false` for strict data privacy. |
+| `TRACEROOT_CAPTURE_TOOL_IO` | `true` | Record tool input arguments and output results in tool spans. |
+| `TRACEROOT_DEBUG` | `false` | Enable verbose diagnostic logging to stderr. |
+
+## Trace Hierarchy
+
+Each interactive session or scripted run generates a hierarchical trace tree:
+
+```
+OpenCode Session (session_id)           # SESSION span
+└── Turn 1: user prompt                 # AGENT span
+    └── claude-3-7-sonnet               # LLM span — tokens, latency
+        ├── tool: bash (git status)     # TOOL span — arguments + stdout
+        └── tool: file_edit (main.py)   # TOOL span — diff payload
+    └── Subagent: researcher            # SUBAGENT span
+        └── tool: search_web            # TOOL span
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|---|---|
+| **Sessions** | Groups all turns and tools under a persistent session trace identifier. |
+| **Agent Turns** | Each conversational turn is recorded as an agent span with prompt details. |
+| **LLM Calls** | Model identifier, provider, and request latency. |
+| **Token Usage** | Granular breakdown of prompt input, completion output, and cache read/write tokens. |
+| **Tool Executions** | Tool name, input parameters, execution return value, and error status. |
+| **Subagents** | Context propagation across spawned subagent runs. |
+
+## Resilience & Privacy
+
+- **Never blocks agent execution**: Trace spans are buffered in an asynchronous background queue and exported via non-blocking HTTP requests.
+- **Fail-safe**: Network failures, ingestion errors, or invalid configurations fail quietly without halting your OpenCode session.
+- **Privacy control**: Toggle `TRACEROOT_CAPTURE_CONTENT=false` and `TRACEROOT_CAPTURE_TOOL_IO=false` to omit sensitive source code and command arguments while preserving execution traces and token cost accounting.

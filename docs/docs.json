@@ -227,6 +227,7 @@
               "integrations/mastra",
               "integrations/microsoft-agent-framework",
               "integrations/openai-agents-sdk",
+              "integrations/opencode",
               "integrations/pi",
               "integrations/pydantic-ai",
               "integrations/vercel-ai"
