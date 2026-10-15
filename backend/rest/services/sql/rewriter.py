@@ -225,9 +225,7 @@ def _desugar_equivalents(
     Both are spellings of a window the extraction below already reads, so this
     changes which queries are refused and nothing about the window a query that
     already ran receives. ``BETWEEN x AND y`` is inclusive on both sides, and
-    ``col = x`` is the window that starts and ends at ``x``. Measured against
-    production on 2026-09-19, both shapes were refused while ``>= x AND <= y``,
-    which describes the same instants, ran and pruned to the same window.
+    ``col = x`` is the window that starts and ends at ``x``.
 
     The column node is copied into each half rather than shared between them.
     Sharing it would give the two comparisons one identity, and the re-walk below
@@ -365,14 +363,9 @@ def _extract_time_bounds(
     # hazard described above, and it is silent: the row is simply absent, and
     # measured on staging a window spelled with toDateTime() around the column
     # returned nothing where the same window compared directly returned a row.
-    # Refusing costs a caller one rewrite and says what to write instead.
-    #
-    # What it says is the rule this loop enforces, not the mistake it assumes was
-    # made. The sentence it replaced told the caller they had wrapped the column
-    # in a function or put it under OR, which was true of the shape it was written
-    # for and of nothing else: measured on 2026-09-19, `span_start_time != X` was
-    # refused by it, having wrapped nothing and used no OR, and so was `BETWEEN`,
-    # which this module now scopes.
+    # Refusing costs a caller one rewrite and says what to write instead. The
+    # message names the rule this loop enforces rather than the mistake it would
+    # otherwise have to guess at.
     for node in where.walk():
         if _is_time_column(node, column, aliases, qualified) and id(node) not in consumed:
             raise SqlValidationError(

@@ -592,8 +592,8 @@ SCOPEABLE_STILL = [
 ]
 
 # Sugar for a window the mapping already reads, and the pair of comparisons each
-# one expands to. Measured against production on 2026-09-19, the left column was
-# refused and the right column ran.
+# one expands to. Without the expansion the left column is refused and the right
+# column runs.
 EQUIVALENT_SPELLINGS = [
     (
         "BETWEEN",
