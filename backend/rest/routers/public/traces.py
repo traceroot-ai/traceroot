@@ -215,6 +215,18 @@ async def ingest_traces(
                 "application/json": {},
             },
         },
+        500: {
+            "description": "Storage error",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {"detail": {"type": "string"}},
+                        "required": ["detail"],
+                    },
+                },
+            },
+        },
     },
 )
 @limiter.limit(resolve_limit, key_func=key_ingest)
