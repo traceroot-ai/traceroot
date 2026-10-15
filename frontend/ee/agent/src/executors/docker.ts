@@ -234,7 +234,9 @@ export class DockerExecutor implements Executor {
  *
  * Matching is by name prefix rather than by label so that sandboxes created
  * before labels existed are reclaimed too; a container is spared only when it
- * carries the current owner id, which no other process can have.
+ * carries the current owner id, which no other process can have. That makes
+ * this safe only with one agent per Docker host: another live agent's
+ * sandboxes are removed too. See reclaimOnStartFromEnv for the opt-out.
  */
 export async function reclaimOrphanedSandboxes(ownerId: string): Promise<string[]> {
   let listed: string;

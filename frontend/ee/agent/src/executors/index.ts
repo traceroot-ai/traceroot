@@ -4,8 +4,13 @@ import { DaytonaExecutor } from "./daytona.js";
 
 export type { Executor, ExecResult, ExecOptions } from "./interface.js";
 
+/** The configured sandbox provider: "docker" unless SANDBOX_PROVIDER says otherwise. */
+export function sandboxProvider(env: NodeJS.ProcessEnv = process.env): string {
+  return env.SANDBOX_PROVIDER || "docker";
+}
+
 export function createExecutor(options: DockerExecutorOptions = {}): Executor {
-  const provider = process.env.SANDBOX_PROVIDER || "docker";
+  const provider = sandboxProvider();
 
   switch (provider) {
     case "docker":

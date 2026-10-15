@@ -11,7 +11,7 @@ vi.mock("child_process", () => ({
 
 const { DockerExecutor, reclaimOrphanedSandboxes, SANDBOX_LABEL, SESSION_LABEL, OWNER_LABEL } =
   await import("../docker.js");
-const { createExecutor } = await import("../index.js");
+const { createExecutor, sandboxProvider } = await import("../index.js");
 
 const TOKEN = "ghs_supersecrettoken000000000000000000";
 
@@ -291,6 +291,12 @@ describe("createExecutor", () => {
     )![1] as string[];
     expect(runArgs).toContain(`${SESSION_LABEL}=s1`);
     expect(runArgs).toContain(`${OWNER_LABEL}=o1`);
+  });
+
+  it("names docker as the provider unless one is configured", () => {
+    expect(sandboxProvider({})).toBe("docker");
+    expect(sandboxProvider({ SANDBOX_PROVIDER: "" })).toBe("docker");
+    expect(sandboxProvider({ SANDBOX_PROVIDER: "daytona" })).toBe("daytona");
   });
 
   it("rejects an unknown provider by name", () => {

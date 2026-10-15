@@ -31,9 +31,14 @@ import {
   type AgentTraceKind,
 } from "./self-trace.js";
 import { getSystemPrompt } from "./prompts/system.js";
-import { createExecutor } from "./executors/index.js";
+import { createExecutor, sandboxProvider } from "./executors/index.js";
 import { reclaimOrphanedSandboxes } from "./executors/docker.js";
-import { SandboxRegistry, idleTtlMsFromEnv } from "./executors/registry.js";
+import {
+  SandboxRegistry,
+  idleTtlMsFromEnv,
+  reclaimOnStartFromEnv,
+  startSandboxHousekeeping,
+} from "./executors/registry.js";
 import {
   clearSessionDeleted,
   fenceExecutorToSession,
@@ -56,7 +61,8 @@ const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:810
 const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 
 // Identifies this process to its sandbox containers. Startup reconciliation
-// removes every sandbox that does not carry it, so it must be fresh per process.
+// removes every sandbox that does not carry it, so it must be fresh per process,
+// and agents sharing a Docker host must turn reconciliation off.
 const INSTANCE_ID = randomUUID();
 
 // Per-session executor cache. Sandboxes are also labelled with INSTANCE_ID so a
@@ -441,15 +447,20 @@ async function main(): Promise<void> {
   // Sync standard model pricing from JSON → DB
   await syncStandardPrices();
 
-  // Reclaim sandboxes left behind by an earlier instance before taking traffic,
-  // then expire the ones this instance stops using. Between them these replace
-  // `make reset` as the only sweeper in the repo.
-  await reclaimOrphanedSandboxes(INSTANCE_ID);
-  sessionExecutors.startSweeping();
-
   rememberListener(
     serve({ fetch: app.fetch, port: PORT }, (info) => {
       console.log(`[Agent] Listening on http://localhost:${info.port}`);
+      // Reclaim sandboxes left behind by an earlier instance, then expire the
+      // ones this instance stops using. Between them these replace `make reset`
+      // as the only sweeper in the repo. This waits for the port: a duplicate
+      // process that fails with EADDRINUSE must not remove the live sandboxes
+      // of the instance holding it.
+      void startSandboxHousekeeping({
+        provider: sandboxProvider(),
+        registry: sessionExecutors,
+        reclaimOnStart: reclaimOnStartFromEnv(),
+        reclaim: () => reclaimOrphanedSandboxes(INSTANCE_ID),
+      });
     }),
   );
 }

@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SandboxRegistry, idleTtlMsFromEnv } from "../registry.js";
+import {
+  SandboxRegistry,
+  idleTtlMsFromEnv,
+  reclaimOnStartFromEnv,
+  startSandboxHousekeeping,
+} from "../registry.js";
 import type { Executor } from "../interface.js";
 
 /** A stand-in executor that only records whether it was destroyed. */
@@ -300,5 +305,51 @@ describe("idleTtlMsFromEnv", () => {
   it("honours an explicit value, including 0 to disable", () => {
     expect(idleTtlMsFromEnv({ SANDBOX_IDLE_TTL_MINUTES: "5" })).toBe(5 * 60_000);
     expect(idleTtlMsFromEnv({ SANDBOX_IDLE_TTL_MINUTES: "0" })).toBe(0);
+  });
+});
+
+describe("reclaimOnStartFromEnv", () => {
+  it("is on unless turned off", () => {
+    expect(reclaimOnStartFromEnv({})).toBe(true);
+    expect(reclaimOnStartFromEnv({ SANDBOX_RECLAIM_ON_START: "" })).toBe(true);
+    expect(reclaimOnStartFromEnv({ SANDBOX_RECLAIM_ON_START: "true" })).toBe(true);
+    expect(reclaimOnStartFromEnv({ SANDBOX_RECLAIM_ON_START: "false" })).toBe(false);
+    expect(reclaimOnStartFromEnv({ SANDBOX_RECLAIM_ON_START: " FALSE " })).toBe(false);
+    expect(reclaimOnStartFromEnv({ SANDBOX_RECLAIM_ON_START: "0" })).toBe(false);
+    expect(reclaimOnStartFromEnv({ SANDBOX_RECLAIM_ON_START: "no" })).toBe(false);
+  });
+});
+
+describe("startSandboxHousekeeping", () => {
+  function housekeeping(provider: string, reclaimOnStart = true) {
+    const { registry } = makeRegistry();
+    const startSweeping = vi.spyOn(registry, "startSweeping").mockImplementation(() => {});
+    const reclaim = vi.fn(async () => []);
+    return {
+      run: () => startSandboxHousekeeping({ provider, registry, reclaimOnStart, reclaim }),
+      startSweeping,
+      reclaim,
+    };
+  }
+
+  it("sweeps and reclaims docker sandboxes", async () => {
+    const { run, startSweeping, reclaim } = housekeeping("docker");
+    await run();
+    expect(startSweeping).toHaveBeenCalledOnce();
+    expect(reclaim).toHaveBeenCalledOnce();
+  });
+
+  it("leaves Daytona sandboxes to their own auto-stop", async () => {
+    const { run, startSweeping, reclaim } = housekeeping("daytona");
+    await run();
+    expect(startSweeping).not.toHaveBeenCalled();
+    expect(reclaim).not.toHaveBeenCalled();
+  });
+
+  it("still sweeps when reclaim is turned off for a shared host", async () => {
+    const { run, startSweeping, reclaim } = housekeeping("docker", false);
+    await run();
+    expect(startSweeping).toHaveBeenCalledOnce();
+    expect(reclaim).not.toHaveBeenCalled();
   });
 });

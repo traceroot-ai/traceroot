@@ -158,3 +158,37 @@ export class SandboxRegistry {
     }
   }
 }
+
+/**
+ * Whether startup should reclaim sandboxes other agent instances left behind.
+ *
+ * Reclaim removes every sandbox on the Docker host that this instance did not
+ * create, so it assumes one agent per Docker host. Replicas that share a host
+ * set SANDBOX_RECLAIM_ON_START=false, or they would remove each other's live
+ * sandboxes; the idle sweep still bounds what each one holds.
+ */
+export function reclaimOnStartFromEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.SANDBOX_RECLAIM_ON_START?.trim().toLowerCase();
+  return !(raw === "false" || raw === "0" || raw === "no");
+}
+
+/**
+ * Start the sandbox housekeeping that applies to `provider`. Call it once the
+ * server holds its port: a second process started by mistake on the same host
+ * fails with EADDRINUSE before it gets here, so it never reclaims the running
+ * instance's sandboxes.
+ *
+ * Only docker sandboxes are ours to expire. Daytona sandboxes are created with
+ * an autoStopInterval and stop themselves, so the idle sweep must not destroy
+ * them, and they carry none of the labels reclaim matches on.
+ */
+export async function startSandboxHousekeeping(options: {
+  provider: string;
+  registry: SandboxRegistry;
+  reclaimOnStart: boolean;
+  reclaim: () => Promise<unknown>;
+}): Promise<void> {
+  if (options.provider !== "docker") return;
+  options.registry.startSweeping();
+  if (options.reclaimOnStart) await options.reclaim();
+}
