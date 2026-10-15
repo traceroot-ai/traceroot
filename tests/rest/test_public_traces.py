@@ -214,16 +214,36 @@ class TestContentTypeValidation:
         assert response.status_code == 200
 
     def test_standard_v1_traces_route(self, client):
+        from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+            ExportTraceServiceResponse,
+        )
+
         test_client, mock_s3, mock_task = client
+        # Default protobuf response
         response = test_client.post(
             "/v1/traces",
             content=b"fake-protobuf-bytes",
             headers={"Content-Type": "application/x-protobuf"},
         )
         assert response.status_code == 200
-        assert response.json()["status"] == "ok"
+        assert "application/x-protobuf" in response.headers["content-type"]
+        decoded = ExportTraceServiceResponse.FromString(response.content)
+        assert isinstance(decoded, ExportTraceServiceResponse)
         mock_s3.upload_json.assert_called_once()
         mock_task.delay.assert_called_once()
+
+        # JSON response when Accept: application/json
+        json_resp = test_client.post(
+            "/v1/traces",
+            content=b"fake-protobuf-bytes",
+            headers={
+                "Content-Type": "application/x-protobuf",
+                "Accept": "application/json",
+            },
+        )
+        assert json_resp.status_code == 200
+        assert "application/json" in json_resp.headers["content-type"]
+        assert json_resp.json() == {}
 
 
 class TestIngestNoAuth:

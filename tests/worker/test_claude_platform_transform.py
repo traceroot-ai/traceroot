@@ -10,12 +10,14 @@ Covers:
 
 import json
 
-from shared.enums import SpanKind
+from shared.enums import SpanKind, SpanStatus
 from tests.worker.test_otel_transform import make_attr, make_otel_payload, make_span
 from worker.otel_transform import (
+    _format_input_with_system_instructions,
     get_span_kind,
     transform_otel_to_clickhouse,
 )
+from worker.tokens.buckets import normalize_token_usage
 
 
 class TestClaudePlatformSpanKind:
@@ -96,6 +98,27 @@ class TestClaudePlatformSpanKind:
         assert len(spans) == 1
         assert spans[0]["span_kind"] == SpanKind.TOOL
         assert spans[0]["name"] == "weather_checker"
+
+    def test_tool_name_extracted_from_anthropic_mcp_tool_use(self):
+        trace_hex = "11" * 16
+        span_hex = "23" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    name="anthropic.mcp_tool_use",
+                    attributes=[
+                        make_attr("anthropic.mcp_tool_use.name", "mcp_tool_query"),
+                        make_attr("gen_ai.tool.call.arguments", '{"q": "SELECT 1"}'),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "p-1")
+        assert len(spans) == 1
+        assert spans[0]["span_kind"] == SpanKind.TOOL
+        assert spans[0]["name"] == "mcp_tool_query"
 
 
 class TestClaudePlatformSessionId:
@@ -185,6 +208,71 @@ class TestClaudePlatformSystemInstructions:
         assert parsed_input[0] == {"role": "system", "content": "You are an AI assistant."}
         assert parsed_input[1] == {"role": "user", "content": "Help me fix this bug."}
 
+    def test_system_instructions_plain_text_messages(self):
+        trace_hex = "15" * 16
+        span_hex = "38" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    name="anthropic.model_request",
+                    attributes=[
+                        make_attr("gen_ai.system_instructions", "Be concise."),
+                        make_attr("gen_ai.input.messages", "What is the capital of France?"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "p-1")
+        assert (
+            spans[0]["input"]
+            == "System instructions:\nBe concise.\n\nWhat is the capital of France?"
+        )
+
+    def test_explicit_traceroot_input_priority_not_augmented(self):
+        """Explicit traceroot.span.input wins and is not augmented even if equal to gen_ai.input.messages."""
+        trace_hex = "15" * 16
+        span_hex = "39" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    name="anthropic.model_request",
+                    attributes=[
+                        make_attr("traceroot.span.input", "Exact user prompt"),
+                        make_attr("gen_ai.input.messages", "Exact user prompt"),
+                        make_attr("gen_ai.system_instructions", "System instructions here"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "p-1")
+        # traceroot.span.input had higher precedence, so system instructions should NOT be appended
+        assert spans[0]["input"] == "Exact user prompt"
+
+    def test_format_input_helper_edge_cases(self):
+        assert _format_input_with_system_instructions(None, "sys") is None
+        assert _format_input_with_system_instructions("input", None) == "input"
+
+        # List input
+        res_list = _format_input_with_system_instructions(
+            [{"role": "user", "content": "hi"}], "sys"
+        )
+        assert len(res_list) == 2
+        assert res_list[0] == {"role": "system", "content": "sys"}
+
+        # Non-str, non-list input
+        assert _format_input_with_system_instructions(42, "sys") == 42
+
+        # RecursionError handling
+        from unittest.mock import patch
+
+        with patch("json.loads", side_effect=RecursionError("deep recursion")):
+            res_rec = _format_input_with_system_instructions('{"nested": true}', "sys")
+            assert res_rec == 'System instructions:\nsys\n\n{"nested": true}'
+
 
 class TestClaudePlatformTokenDeduplication:
     def test_session_spans_token_deduplication(self):
@@ -226,8 +314,16 @@ class TestClaudePlatformTokenDeduplication:
             name="anthropic.session.outcome_evaluation",
             attributes=session_attrs,
         )
+        msg_span_hex = "05" * 8
+        span_msg = make_span(
+            trace_hex,
+            msg_span_hex,
+            parent_span_id_hex=turn_span_hex,
+            name="anthropic.messages.create",
+            attributes=session_attrs,
+        )
 
-        payload = make_otel_payload([span_turn, span_model, span_eval])
+        payload = make_otel_payload([span_turn, span_model, span_eval, span_msg])
 
         from unittest.mock import patch
 
@@ -245,6 +341,10 @@ class TestClaudePlatformTokenDeduplication:
         turn_span = span_by_name["anthropic.session.turn"]
         assert "input_tokens" not in turn_span or turn_span.get("input_tokens") is None
         assert "cost" not in turn_span or turn_span.get("cost") is None
+
+        # In-session messages.create should also have suppressed tokens (aggregate wrapper)
+        msg_span = span_by_name["anthropic.messages.create"]
+        assert "input_tokens" not in msg_span or msg_span.get("input_tokens") is None
 
         # Model request span should adopt tokens and calculate cost
         model_span = span_by_name["anthropic.model_request"]
@@ -334,3 +434,217 @@ class TestSpanIdempotentDeduplication:
         assert spans[0]["span_id"] == span_hex
         assert spans[0]["span_end_time"] is not None
         assert spans[0]["output"] == '[{"role": "assistant", "content": "Done"}]'
+
+    def test_deduplication_fills_missing_fields_and_merges_metadata(self):
+        trace_hex = "19" * 16
+        span_hex = "08" * 8
+
+        # First span arrives with minimal info and no end time
+        span_initial = make_span(
+            trace_hex,
+            span_hex,
+            name="anthropic.model_request",
+            start_nanos=1_000_000_000_000_000_000,
+            attributes=[
+                make_attr("custom.tag", "initial_value"),
+            ],
+        )
+        del span_initial["endTimeUnixNano"]
+
+        # Second span arrives with input, model_name, new metadata, git source, and error status
+        span_completed = make_span(
+            trace_hex,
+            span_hex,
+            name="anthropic.model_request",
+            start_nanos=1_000_000_000_000_000_000,
+            end_nanos=1_000_000_002_000_000_000,
+            status_code=2,
+            attributes=[
+                make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
+                make_attr("traceroot.span.input", "Translate this document"),
+                make_attr("traceroot.git.source_file", "agent/main.py"),
+                make_attr("traceroot.git.source_line", 42),
+                make_attr("traceroot.git.source_function", "run_agent"),
+                make_attr("custom.other_tag", "completed_value"),
+            ],
+        )
+        span_completed["status"]["message"] = "Rate limit reached"
+
+        payload = make_otel_payload([span_initial, span_completed])
+        _, spans = transform_otel_to_clickhouse(payload, "p-1")
+
+        assert len(spans) == 1
+        merged = spans[0]
+        assert merged["input"] == "Translate this document"
+        assert merged["model_name"] == "claude-sonnet-4-20250514"
+        assert merged["git_source_file"] == "agent/main.py"
+        assert merged["git_source_line"] == 42
+        assert merged["git_source_function"] == "run_agent"
+        assert merged["status"] == SpanStatus.ERROR
+        assert merged["status_message"] == "Rate limit reached"
+
+        parsed_meta = json.loads(merged["metadata"])
+        assert parsed_meta.get("custom.tag") == "initial_value"
+        assert parsed_meta.get("custom.other_tag") == "completed_value"
+
+    def test_deduplication_prefer_reported_usage_over_estimated_tokens(self):
+        trace_hex = "20" * 16
+        span_hex = "09" * 8
+
+        # First span is an LLM span with prompt and completion text, resulting in estimated tokens
+        span_initial = make_span(
+            trace_hex,
+            span_hex,
+            name="anthropic.model_request",
+            start_nanos=1_000_000_000_000_000_000,
+            end_nanos=1_000_000_001_000_000_000,
+            attributes=[
+                make_attr("gen_ai.request.model", "claude-3-5-sonnet-20241022"),
+                make_attr(
+                    "gen_ai.input.messages", json.dumps([{"role": "user", "content": "Hello"}])
+                ),
+                make_attr(
+                    "gen_ai.output.messages",
+                    json.dumps([{"role": "assistant", "content": "Hi there"}]),
+                ),
+            ],
+        )
+
+        # Second span arrives with authoritative reported API usage counts
+        span_reported = make_span(
+            trace_hex,
+            span_hex,
+            name="anthropic.model_request",
+            start_nanos=1_000_000_000_000_000_000,
+            end_nanos=1_000_000_001_000_000_000,
+            attributes=[
+                make_attr("gen_ai.request.model", "claude-3-5-sonnet-20241022"),
+                make_attr("gen_ai.usage.input_tokens", 50),
+                make_attr("gen_ai.usage.output_tokens", 25),
+            ],
+        )
+
+        from unittest.mock import patch
+
+        mock_prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(
+                make_otel_payload([span_initial, span_reported]), "p-1"
+            )
+
+        assert len(spans) == 1
+        s = spans[0]
+        # Authoritative reported counts must overwrite estimated tokens
+        assert s.get("input_tokens") == 50
+        assert s.get("output_tokens") == 25
+        assert s.get("total_tokens") == 75
+        assert "usage_details" in s
+
+    def test_deduplication_preserves_reported_usage_when_second_is_unreported(self):
+        trace_hex = "21" * 16
+        span_hex = "10" * 8
+
+        # First span has reported usage
+        span_reported = make_span(
+            trace_hex,
+            span_hex,
+            name="anthropic.model_request",
+            start_nanos=1_000_000_000_000_000_000,
+            end_nanos=1_000_000_001_000_000_000,
+            attributes=[
+                make_attr("gen_ai.request.model", "claude-3-5-sonnet-20241022"),
+                make_attr("gen_ai.usage.input_tokens", 100),
+                make_attr("gen_ai.usage.output_tokens", 50),
+            ],
+        )
+
+        # Second span arrives later without usage attributes
+        span_update = make_span(
+            trace_hex,
+            span_hex,
+            name="anthropic.model_request",
+            start_nanos=1_000_000_000_000_000_000,
+            end_nanos=1_000_000_002_000_000_000,
+            attributes=[
+                make_attr("gen_ai.request.model", "claude-3-5-sonnet-20241022"),
+            ],
+        )
+
+        from unittest.mock import patch
+
+        mock_prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(
+                make_otel_payload([span_reported, span_update]), "p-1"
+            )
+
+        assert len(spans) == 1
+        s = spans[0]
+        assert s.get("input_tokens") == 100
+        assert s.get("output_tokens") == 50
+        assert s.get("total_tokens") == 150
+        assert "usage_details" in s
+
+    def test_deduplication_first_without_metadata_gets_second_metadata(self):
+        trace_hex = "22" * 16
+        span_hex = "11" * 8
+        span_1 = make_span(trace_hex, span_hex, name="test_span")
+        span_2 = make_span(
+            trace_hex,
+            span_hex,
+            name="test_span",
+            attributes=[make_attr("new.tag", "val")],
+        )
+        _, spans = transform_otel_to_clickhouse(make_otel_payload([span_1, span_2]), "p-1")
+        assert len(spans) == 1
+        assert "new.tag" in json.loads(spans[0]["metadata"])
+
+    def test_deduplication_non_json_metadata_decode_error_handled(self):
+        trace_hex = "23" * 16
+        span_hex = "12" * 8
+        span_1 = make_span(
+            trace_hex,
+            span_hex,
+            name="test_span",
+            attributes=[make_attr("traceroot.span.metadata", "plain text 1")],
+        )
+        span_2 = make_span(
+            trace_hex,
+            span_hex,
+            name="test_span",
+            attributes=[make_attr("traceroot.span.metadata", "plain text 2")],
+        )
+        _, spans = transform_otel_to_clickhouse(make_otel_payload([span_1, span_2]), "p-1")
+        assert len(spans) == 1
+        assert spans[0]["metadata"] == "plain text 1"
+
+    def test_span_missing_start_time_skipped(self):
+        span = make_span("24" * 16, "13" * 8)
+        del span["startTimeUnixNano"]
+        _, spans = transform_otel_to_clickhouse(make_otel_payload([span]), "p-1")
+        assert len(spans) == 0
+
+
+class TestClaudePlatformScope:
+    def test_com_anthropic_scope_recognized(self):
+        """Scope com.anthropic.claude-platform should be recognized without unknown-scope warning."""
+        buckets = normalize_token_usage(
+            "com.anthropic.claude-platform",
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_tokens=10,
+            cache_write_tokens=5,
+        )
+        assert buckets.input_uncached == 85
+        assert buckets.cache_read == 10
+        assert buckets.cache_write == 5

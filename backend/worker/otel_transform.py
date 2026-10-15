@@ -104,7 +104,7 @@ def _format_input_with_system_instructions(input_messages: Any, system_instructi
             if isinstance(parsed, list):
                 sys_msg = {"role": "system", "content": system_instructions}
                 return json.dumps([sys_msg] + parsed)
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError, RecursionError):
             pass
         return f"System instructions:\n{system_instructions}\n\n{input_messages}"
     return input_messages
@@ -223,6 +223,19 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
         if value is not None:
             return value
     return None
+
+
+def first_present_entry(attrs: dict[str, Any], keys: list[str]) -> tuple[str | None, Any]:
+    """Return (key, value) of the first key that is present (not None) in attrs.
+
+    Uses `is not None` rather than truthiness so falsy-but-valid values like
+    empty string, 0, or {} do not fall through to lower-priority keys.
+    """
+    for key in keys:
+        value = attrs.get(key)
+        if value is not None:
+            return key, value
+    return None, None
 
 
 # Upper sanity bound per token field, shared by the manual-usage and instrumentor
@@ -736,6 +749,7 @@ def transform_otel_to_clickhouse(
     traces: dict[str, dict] = {}  # trace_id -> trace record
     spans: list[dict] = []
     seen_spans: dict[tuple[str, str], int] = {}  # (trace_id, span_id) -> index in spans
+    estimated_token_spans: set[tuple[str, str]] = set()
 
     # Track user_id/session_id per trace, collected from ANY span
     # Priority: root span values > first child span values
@@ -886,7 +900,7 @@ def transform_otel_to_clickhouse(
                 # Presence checks (`is not None`) rather than truthiness ensure that falsy
                 # but valid values (e.g. empty string) do not fall through to lower-priority keys.
                 system_instructions = span_attrs.get("gen_ai.system_instructions")
-                span_input = first_present(
+                input_key, span_input = first_present_entry(
                     span_attrs,
                     [
                         "traceroot.span.input",  # 1. TraceRoot SDK explicit input
@@ -898,11 +912,7 @@ def transform_otel_to_clickhouse(
                         "tool_arguments",  # 4. Raw pydantic-ai/Logfire attr before OpenInference normalization
                     ],
                 )
-                if (
-                    system_instructions is not None
-                    and span_attrs.get("gen_ai.input.messages") is not None
-                    and span_input == span_attrs.get("gen_ai.input.messages")
-                ):
+                if input_key == "gen_ai.input.messages" and system_instructions is not None:
                     span_input = _format_input_with_system_instructions(
                         span_input, system_instructions
                     )
@@ -1222,6 +1232,7 @@ def transform_otel_to_clickhouse(
                             span_record["output_tokens"] = usage["output_tokens"]
                         if usage["total_tokens"] is not None:
                             span_record["total_tokens"] = usage["total_tokens"]
+                            estimated_token_spans.add((trace_id, span_id))
                         if usage["cost"] is not None:
                             span_record["cost"] = usage["cost"]
 
@@ -1280,22 +1291,60 @@ def transform_otel_to_clickhouse(
                     existing = spans[existing_idx]
                     if end_time and not existing.get("span_end_time"):
                         existing["span_end_time"] = end_time
+                    if span_record.get("input") and not existing.get("input"):
+                        existing["input"] = span_record["input"]
                     if span_record.get("output") and not existing.get("output"):
                         existing["output"] = span_record["output"]
+                    if span_record.get("model_name") and not existing.get("model_name"):
+                        existing["model_name"] = span_record["model_name"]
+                    if span_record.get("metadata"):
+                        if not existing.get("metadata"):
+                            existing["metadata"] = span_record["metadata"]
+                        else:
+                            try:
+                                m_exist = json.loads(existing["metadata"])
+                                m_new = json.loads(span_record["metadata"])
+                                if isinstance(m_exist, dict) and isinstance(m_new, dict):
+                                    existing["metadata"] = json.dumps({**m_new, **m_exist})
+                            except (json.JSONDecodeError, TypeError, ValueError):
+                                pass
+                    if span_record.get("git_source_file") and not existing.get("git_source_file"):
+                        existing["git_source_file"] = span_record["git_source_file"]
+                    if (
+                        span_record.get("git_source_line") is not None
+                        and existing.get("git_source_line") is None
+                    ):
+                        existing["git_source_line"] = span_record["git_source_line"]
+                    if span_record.get("git_source_function") and not existing.get(
+                        "git_source_function"
+                    ):
+                        existing["git_source_function"] = span_record["git_source_function"]
                     if span_record.get("status") == SpanStatus.ERROR:
                         existing["status"] = SpanStatus.ERROR
                         existing["status_message"] = span_record.get("status_message")
-                    if span_record.get("cost") is not None and existing.get("cost") is None:
+                        if span_record.get("error_type"):
+                            existing["error_type"] = span_record["error_type"]
+
+                    incoming_has_reported = "usage_details" in span_record
+                    existing_is_estimated = span_key in estimated_token_spans
+
+                    if span_record.get("total_tokens") is not None:
+                        if existing.get("total_tokens") is None or (
+                            existing_is_estimated and incoming_has_reported
+                        ):
+                            existing["total_tokens"] = span_record["total_tokens"]
+                            existing["input_tokens"] = span_record.get("input_tokens")
+                            existing["output_tokens"] = span_record.get("output_tokens")
+                            if "usage_details" in span_record:
+                                existing["usage_details"] = span_record["usage_details"]
+                            elif "usage_details" in existing and existing_is_estimated:
+                                del existing["usage_details"]
+                            if span_record.get("cost") is not None:
+                                existing["cost"] = span_record["cost"]
+                            if incoming_has_reported:
+                                estimated_token_spans.discard(span_key)
+                    elif span_record.get("cost") is not None and existing.get("cost") is None:
                         existing["cost"] = span_record["cost"]
-                    if (
-                        span_record.get("total_tokens") is not None
-                        and existing.get("total_tokens") is None
-                    ):
-                        existing["total_tokens"] = span_record["total_tokens"]
-                        existing["input_tokens"] = span_record.get("input_tokens")
-                        existing["output_tokens"] = span_record.get("output_tokens")
-                        if "usage_details" in span_record:
-                            existing["usage_details"] = span_record["usage_details"]
                 else:
                     seen_spans[span_key] = len(spans)
                     spans.append(span_record)

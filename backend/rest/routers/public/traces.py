@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from google.protobuf.json_format import MessageToDict
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
+    ExportTraceServiceResponse,
 )
 from pydantic import BaseModel
 
@@ -79,27 +80,10 @@ class IngestResponse(BaseModel):
     file_key: str
 
 
-@router.post("", response_model=IngestResponse, operation_id="ingest_traces")
-@limiter.limit(resolve_limit, key_func=key_ingest)
-async def ingest_traces(
-    request: Request,
-    response: Response,
-    auth: IngestAuth,
-):
-    """Ingest OTLP trace data.
+async def _process_trace_ingest(request: Request, auth: IngestAuth) -> str:
+    """Validate, decode, persist to S3, and enqueue async trace processing.
 
-    Accepts OTLP protobuf format only (optionally gzip compressed).
-    Protobuf is converted to camelCase JSON before storage in S3.
-
-    S3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
-
-    Headers:
-        Authorization: Bearer <api_key>
-        Content-Encoding: gzip (optional)
-        Content-Type: application/x-protobuf
-
-    Body:
-        OTLP trace data in protobuf format
+    Returns the S3 key of the stored payload.
     """
     # Check if ingestion is blocked (free plan limit exceeded)
     # This flag is updated hourly by the billing worker
@@ -190,15 +174,55 @@ async def ingest_traces(
         # Log but don't fail the request - S3 has the data, can retry later
         logger.error(f"Failed to enqueue Celery task for {s3_key}: {e}")
 
-    # 7. Return success (async processing happens in background)
+    return s3_key
+
+
+@router.post("", response_model=IngestResponse, operation_id="ingest_traces")
+@limiter.limit(resolve_limit, key_func=key_ingest)
+async def ingest_traces(
+    request: Request,
+    response: Response,
+    auth: IngestAuth,
+):
+    """Ingest OTLP trace data (TraceRoot SDK endpoint).
+
+    Accepts OTLP protobuf format only (optionally gzip compressed).
+    Protobuf is converted to camelCase JSON before storage in S3.
+
+    S3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
+
+    Headers:
+        Authorization: Bearer <api_key>
+        Content-Encoding: gzip (optional)
+        Content-Type: application/x-protobuf
+
+    Body:
+        OTLP trace data in protobuf format
+    """
+    s3_key = await _process_trace_ingest(request, auth)
     return IngestResponse(status="ok", file_key=s3_key)
 
 
-# Also register the handler on the standard OTLP /v1/traces route
-otlp_standard_router.add_api_route(
+@otlp_standard_router.post(
     "/v1/traces",
-    ingest_traces,
-    methods=["POST"],
-    response_model=IngestResponse,
     operation_id="ingest_traces_otlp_default",
 )
+@limiter.limit(resolve_limit, key_func=key_ingest)
+async def ingest_traces_otlp_default(
+    request: Request,
+    response: Response,
+    auth: IngestAuth,
+):
+    """Standard OTLP /v1/traces endpoint for standard OTLP exporters.
+
+    Returns ExportTraceServiceResponse (empty protobuf or JSON) per OTLP spec.
+    """
+    await _process_trace_ingest(request, auth)
+    accept = request.headers.get("accept", "").lower()
+    if "application/json" in accept and "protobuf" not in accept:
+        return Response(content="{}", media_type="application/json")
+    otlp_response = ExportTraceServiceResponse()
+    return Response(
+        content=otlp_response.SerializeToString(),
+        media_type="application/x-protobuf",
+    )

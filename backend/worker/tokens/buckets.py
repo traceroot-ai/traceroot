@@ -73,6 +73,7 @@ _KNOWN_SCOPE_PREFIXES: tuple[str, ...] = (
     "@traceroot-ai/",
     "claude-platform",
     "anthropic",
+    "com.anthropic.",
 )
 
 # Scopes recognized by EXACT name — too short to prefix-match safely (a bare
