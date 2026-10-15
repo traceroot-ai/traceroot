@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react";
 import {
@@ -260,9 +261,9 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
       <p className="text-[12px] text-muted-foreground">
         This workspace&apos;s model providers could not be read, so this step cannot tell whether it
         already has a key. Check or add one in{" "}
-        <a href={settingsHref} className="font-medium underline underline-offset-4">
+        <Link href={settingsHref} className="font-medium underline underline-offset-4">
           Settings &rarr; Model Providers
-        </a>
+        </Link>
         .
       </p>
     );
@@ -308,9 +309,9 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
             ? "This workspace already uses its own key."
             : "This workspace has a key of its own, but it is turned off, so the AI assistant and detectors still run on TraceRoot's models."}{" "}
           Manage it in{" "}
-          <a href={settingsHref} className="font-medium underline underline-offset-4">
+          <Link href={settingsHref} className="font-medium underline underline-offset-4">
             Settings &rarr; Model Providers
-          </a>
+          </Link>
           .
         </p>
       </div>
@@ -332,9 +333,9 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
     return (
       <p className="text-[12px] text-muted-foreground">
         This workspace has no model key of its own. A workspace admin can add one in{" "}
-        <a href={settingsHref} className="font-medium underline underline-offset-4">
+        <Link href={settingsHref} className="font-medium underline underline-offset-4">
           Settings &rarr; Model Providers
-        </a>
+        </Link>
         .
       </p>
     );

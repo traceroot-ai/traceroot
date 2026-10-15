@@ -20,6 +20,17 @@ vi.mock("@/features/workspaces/hooks", () => ({
   useWorkspace: () => mocks.workspace,
 }));
 
+// The house pattern for next/link in jsdom, with a marker attribute so a
+// regression to a plain <a> is visible to the assertions that check these
+// links route through the app.
+vi.mock("next/link", () => ({
+  default: ({ children, ...props }: { children: React.ReactNode; href: string }) => (
+    <a data-nextlink="" {...props}>
+      {children}
+    </a>
+  ),
+}));
+
 // Radix Select renders through a portal and is flaky in jsdom; mock it to a
 // native <select> so the adapter choice can be driven directly, matching the
 // pattern used in ModelProvidersTab.test.tsx.
@@ -474,6 +485,51 @@ describe("no adapter a pasted key fully configures", () => {
       vi.resetModules();
     }
   });
+});
+
+describe("the links out to settings", () => {
+  // Three states carry a link to the same in-app route. A plain <a href> to it
+  // forces a full document load, which tears down the QueryClient and every
+  // cached query in the getting-started panel this step renders inside.
+  const states: [string, () => void][] = [
+    [
+      "an unreadable provider list",
+      () => mocks.getModelProviders.mockRejectedValue(new Error("network down")),
+    ],
+    [
+      "a provider the workspace already has",
+      () =>
+        mocks.getModelProviders.mockResolvedValue({
+          byokEnabled: true,
+          providers: [
+            {
+              id: "mp-existing",
+              adapter: "anthropic",
+              provider: "Anthropic",
+              keyPreview: "sk-ant-...xyz",
+              customModels: ["claude-opus-5"],
+              enabled: true,
+            },
+          ],
+        }),
+    ],
+    [
+      "a member who cannot write one",
+      () => {
+        mocks.workspace.data = { role: "MEMBER" };
+      },
+    ],
+  ];
+
+  for (const [state, arrange] of states) {
+    it(`routes the link shown for ${state} through the app`, async () => {
+      arrange();
+      renderBlock();
+      const link = await screen.findByRole("link", { name: /Settings/ });
+      expect(link.getAttribute("href")).toBe("/workspaces/ws-1/settings/model-providers");
+      expect(link.hasAttribute("data-nextlink")).toBe(true);
+    });
+  }
 });
 
 describe("skipping the step", () => {
