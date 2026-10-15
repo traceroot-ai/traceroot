@@ -1,11 +1,12 @@
 """Embedding accounting regressions for legacy Vercel and GenAI emitters.
 
 Fixtures mirror ai@7.0.141 / @ai-sdk/otel@1.0.141 captures, before and after
-@arizeai/openinference-vercel@2.7.2 enrichment. Only provider calls own usage;
+enrichment by OpenInference's Vercel instrumentation. Only provider calls own usage;
 the operation wrapper restates the sum and may arrive in a different batch.
 """
 
 import json
+from unittest.mock import Mock
 
 import pytest
 
@@ -15,6 +16,7 @@ from worker.otel_transform import transform_otel_to_clickhouse
 TRACE_ID = "aa" * 16
 WRAPPER_ID = "bb" * 8
 MODEL = "text-embedding-3-small"
+# Test-only configured price, not a guarantee of an entry in the stock catalog.
 INPUT_PRICE = 0.00000002
 
 
@@ -23,6 +25,21 @@ def embedding_prices(monkeypatch):
     monkeypatch.setattr(
         "worker.tokens.pricing.get_model_price", lambda model: {"input": INPUT_PRICE}
     )
+
+
+@pytest.fixture
+def text_estimate(monkeypatch):
+    # Deterministic estimation bait: no tokenizer downloads or pricing DB access.
+    estimate = Mock(
+        return_value={
+            "input_tokens": 14,
+            "output_tokens": 10_496,
+            "total_tokens": 10_510,
+            "cost": 0.01,
+        }
+    )
+    monkeypatch.setattr("worker.tokens.calculate_cost", estimate)
+    return estimate
 
 
 def _legacy_span(operation, span_id, tokens, *, enriched=True, parent=None, extra=()):
@@ -248,3 +265,108 @@ def test_current_semconv_embeddings_remain_billable_without_legacy_attributes():
     rows = _transform([span(WRAPPER_ID), span("01" * 8, 14, WRAPPER_ID)], "gen_ai")
     assert sum(row.get("input_tokens") or 0 for row in rows) == 14
     assert _transform([span("02" * 8, 14)], "custom-tracer")[0]["input_tokens"] == 14
+
+
+@pytest.mark.parametrize(
+    "markers",
+    [
+        [("openinference.span.kind", "EMBEDDING"), ("embedding.model_name", MODEL)],
+        [("gen_ai.operation.name", "embeddings"), ("gen_ai.request.model", MODEL)],
+        [("ai.operationId", "ai.embed.doEmbed"), ("ai.model.id", MODEL)],
+        [("operation.name", "ai.embedMany.doEmbed my-function"), ("ai.model.id", MODEL)],
+    ],
+    ids=["openinference", "genai", "legacy-embed", "legacy-embed-many"],
+)
+@pytest.mark.parametrize("usage", [None, "invalid", -1], ids=["missing", "invalid", "negative"])
+def test_embedding_without_valid_usage_does_not_estimate_text_or_vectors(
+    markers, usage, text_estimate
+):
+    vector = json.dumps([0.123456] * 1536)
+    attrs = [
+        *(make_attr(key, value) for key, value in markers),
+        make_attr("input.value", json.dumps(["Text to embed " * 30])),
+        make_attr("output.value", vector),
+    ]
+    if usage is not None:
+        attrs.append(make_attr("llm.token_count.prompt", usage))
+    row = _transform([make_span(TRACE_ID, "01" * 8, attributes=attrs)])[0]
+
+    assert row["span_kind"] == "LLM"
+    assert row["model_name"] == MODEL
+    assert row["output"] == vector
+    for field in ("input_tokens", "output_tokens", "total_tokens", "cost"):
+        assert row.get(field) is None, f"fabricated {field}: {row.get(field)}"
+    text_estimate.assert_not_called()
+
+
+@pytest.mark.parametrize("batches", ["together", "parent-first", "child-first"])
+def test_llamaindex_embedding_parent_does_not_duplicate_openai_child_usage(batches, text_estimate):
+    parent = make_span(
+        TRACE_ID,
+        WRAPPER_ID,
+        name="get_text_embedding",
+        attributes=[
+            make_attr("openinference.span.kind", "EMBEDDING"),
+            make_attr("embedding.model_name", MODEL),
+            make_attr("input.value", json.dumps({"texts": ["Text to embed " * 30]})),
+        ],
+    )
+    child = make_span(
+        TRACE_ID,
+        "01" * 8,
+        name="Embeddings",
+        parent_span_id_hex=WRAPPER_ID,
+        attributes=[
+            make_attr("openinference.span.kind", "EMBEDDING"),
+            make_attr("embedding.model_name", MODEL),
+            make_attr("llm.token_count.prompt", 14),
+            make_attr("output.value", json.dumps([0.123456] * 1536)),
+        ],
+    )
+    parent_payload = make_otel_payload(
+        [parent], scope_name="openinference.instrumentation.llama_index"
+    )
+    child_payload = make_otel_payload([child], scope_name="openinference.instrumentation.openai")
+    if batches == "together":
+        parent_payload["resourceSpans"][0]["scopeSpans"].extend(
+            child_payload["resourceSpans"][0]["scopeSpans"]
+        )
+        payloads = [parent_payload]
+    else:
+        payloads = (
+            [parent_payload, child_payload]
+            if batches == "parent-first"
+            else [child_payload, parent_payload]
+        )
+    rows = [
+        row for payload in payloads for row in transform_otel_to_clickhouse(payload, "proj-1")[1]
+    ]
+    by_id = {row["span_id"]: row for row in rows}
+    for field in ("input_tokens", "output_tokens", "total_tokens", "cost"):
+        assert by_id[WRAPPER_ID].get(field) is None
+    assert by_id["01" * 8]["input_tokens"] == 14
+    assert by_id["01" * 8]["output_tokens"] == 0
+    assert by_id["01" * 8]["parent_span_id"] == WRAPPER_ID
+    assert sum(row.get("total_tokens") or 0 for row in rows) == 14
+    assert sum(row.get("cost") or 0 for row in rows) == pytest.approx(14 * INPUT_PRICE)
+    text_estimate.assert_not_called()
+
+
+def test_reported_manual_embedding_usage_is_preserved(text_estimate):
+    row = _transform(
+        [
+            make_span(
+                TRACE_ID,
+                "01" * 8,
+                attributes=[
+                    make_attr("openinference.span.kind", "EMBEDDING"),
+                    make_attr("embedding.model_name", MODEL),
+                    make_attr("traceroot.llm.usage", json.dumps({"input_tokens": 14})),
+                ],
+            )
+        ]
+    )[0]
+    assert row["input_tokens"] == 14
+    assert row["output_tokens"] == 0
+    assert row["cost"] == pytest.approx(14 * INPUT_PRICE)
+    text_estimate.assert_not_called()

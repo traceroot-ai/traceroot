@@ -536,6 +536,15 @@ def _is_vercel_embedding_call(attrs: dict[str, Any]) -> bool:
     )
 
 
+def _is_embedding_span(attrs: dict[str, Any]) -> bool:
+    """Embedding spans use reported usage only, never completion-text estimates."""
+    return (
+        str_attr(attrs.get("openinference.span.kind")).upper() == "EMBEDDING"
+        or str_attr(attrs.get("gen_ai.operation.name")).lower() == "embeddings"
+        or _is_vercel_embedding_call(attrs)
+    )
+
+
 def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     """Determine the span kind from span attributes.
 
@@ -1092,11 +1101,15 @@ def transform_otel_to_clickhouse(
                     elif (
                         not aggregate_wrapper
                         and span_kind == SpanKind.LLM
+                        and not _is_embedding_span(span_attrs)
                         and not errored_without_response
                         and not _scope_skips_text_token_estimation(scope_name)
                     ):
                         # Fall back to text-based estimation — only for LLM (completion)
-                        # spans. Wrapper AGENT/CHAIN spans restate text their LLM children
+                        # spans. Embedding parents can restate a provider child's input,
+                        # and their output vectors are not generated text. Neither is
+                        # a reliable token source; keep only explicitly reported usage.
+                        # Wrapper AGENT/CHAIN spans restate text their LLM children
                         # already account for (e.g. the Vercel AI SDK's ai.generateText
                         # wrapper carries a model name and the conversation text but no
                         # token counts), so estimating them double-counts the trace.

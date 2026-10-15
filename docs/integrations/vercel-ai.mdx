@@ -129,7 +129,9 @@ Once initialized, every `generateText` / `streamText` call, model call, and tool
 
 ## Embedding usage
 
-`embed` and `embedMany` record input-token usage and cost on their provider-call spans. The operation wrapper remains in the trace, but its aggregate legacy usage is not counted again. This also applies when a batch is split across multiple provider calls.
+`embed` and `embedMany` record reported input-token usage on their provider-call spans. Cost is calculated when the model matches an entry in TraceRoot's pricing table; otherwise, cost remains unset. The current standard pricing table has no embedding models. The operation wrapper remains in the trace, but its aggregate legacy usage is not counted again. This also applies when a batch is split across multiple provider calls.
+
+Embedding spans without reported usage keep their token counts unset. TraceRoot does not estimate embedding tokens from input text or output vectors, avoiding duplicate estimates on orchestration spans whose provider-call children report the actual usage.
 
 For AI SDK 7's `OpenTelemetry` integration, use `@ai-sdk/otel@1.0.76` or newer. If you use an older version, upgrade `@ai-sdk/otel`: older semconv emitters can repeat usage on both the embedding wrapper and its provider calls, while the fixed emitter reports usage only on provider calls.
 
