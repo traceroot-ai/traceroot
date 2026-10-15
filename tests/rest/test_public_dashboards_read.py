@@ -375,6 +375,8 @@ def test_get_dashboard_drops_layout_entries_that_are_not_placements():
         {"i": "w-2", "x": "6", "y": 0, "w": 6, "h": 6},
         {"i": "w-2", "x": 6, "y": -1, "w": 6, "h": 6},
         {"i": "w-2", "x": 6, "y": 0, "w": True, "h": 6},
+        {"i": ["w-2"], "x": 6, "y": 0, "w": 6, "h": 6},
+        {"i": {"id": "w-2"}, "x": 6, "y": 0, "w": 6, "h": 6},
         "not an entry",
     ]
     _mock_detail(body={"dashboard": {**DETAIL_BODY["dashboard"], "layout": layout}})

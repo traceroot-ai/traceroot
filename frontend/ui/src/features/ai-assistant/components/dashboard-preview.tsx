@@ -163,6 +163,9 @@ export function DashboardPreview({ tiles }: { tiles: readonly PreviewTile[] }) {
               </span>
             </div>
             <div className="min-h-0 flex-1">
+              {tile.notice !== undefined && (
+                <p className="text-[11px] text-muted-foreground">{tile.notice}</p>
+              )}
               {range !== null && tile.widget !== null && (
                 <WidgetBody
                   projectId={tile.projectId}

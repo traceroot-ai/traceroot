@@ -130,9 +130,10 @@ widget IS (its spec, display config and dashboard) rather than what it shows; a 
 from get_dashboard, never from a guess.
 The chat panel draws what these reads return: a get_widget or get_widget_data result appears as
 the widget's own chart, and a get_dashboard or get_dashboard_data result as the dashboard on its
-grid, each over the window the read answered for. When the user asks to see a widget, a chart or
-a dashboard, make the read and point at the card it draws — never say a graph cannot be shown in
-chat, and do not paste the rows as a table in place of the picture.
+grid, each over the window the read answered for. When the user asks to see a saved widget or a
+dashboard, make that read and point at the card it draws — never say a graph cannot be shown in
+chat, and do not paste the rows as a table in place of the picture. Only those four reads are
+drawn: a run_widget_query result is text, so never promise a chart for an unsaved query.
 The data reads — get_dashboard_data, run_widget_query and get_widget_data — take a window: a range
 preset (1h, 1d, 7d, 30d, …) or explicit start_time/end_time; get_widget takes none. When
 the user names no period, leave the window out — the read then answers for the page time range above.

@@ -255,6 +255,18 @@ describe("DashboardPreview", () => {
     expect(Number(end) - Number(start)).toBe(24 * 60 * 60 * 1000);
   });
 
+  it("draws a widget the read could not answer as its reason, querying nothing for it", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    renderPreview([
+      tile(),
+      tile({ id: "w2", x: 6, widget: null, notice: "not answered: too many buckets" }),
+    ]);
+    scrollIntoView();
+
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("not answered: too many buckets")).toBeTruthy();
+  });
+
   it("draws a fixed span as its exact bounds on every tile", async () => {
     vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
     const bounds = { start: "2026-09-01T00:00:00.000Z", end: "2026-09-08T00:00:00.000Z" };

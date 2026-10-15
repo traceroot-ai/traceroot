@@ -2468,6 +2468,12 @@ describe("resourceCardModel — update and delete receipts", () => {
 });
 
 describe("readCardModel: widget and dashboard reads", () => {
+  /** The resource card a widget or dashboard read builds; fails the test on anything else. */
+  const resourceModel = (card: ReturnType<typeof readCardModel>): ResourceCardModel => {
+    if (card === null || card.kind === "alert_list")
+      throw new Error(`no resource card: ${card?.kind}`);
+    return card.model;
+  };
   // A span's label leaves the year out only within the current year.
   beforeEach(() => {
     vi.useFakeTimers();
@@ -2512,7 +2518,7 @@ describe("readCardModel: widget and dashboard reads", () => {
     window,
   });
 
-  it("cards a widget read as its chart over the preset it answered for, opening its dashboard", () => {
+  it("cards a widget read as its chart over the bounds it answered for, opening its dashboard", () => {
     const model = readCardModel(readStep("get_widget_data", widgetRead()), "p1");
     expect(model).toMatchObject({
       kind: "widget",
@@ -2529,8 +2535,13 @@ describe("readCardModel: widget and dashboard reads", () => {
         },
       },
     });
-    const chart = (model!.model.body as { chart: { bounds?: unknown } }).chart;
-    expect(chart.bounds).toBeUndefined();
+    // Labeled by the preset, drawn over the exact span the read answered:
+    // a reloaded card must not slide to a new "now".
+    const chart = (resourceModel(model).body as { chart: { bounds?: unknown } }).chart;
+    expect(chart.bounds).toEqual({
+      start: "2026-09-01T00:00:00.000Z",
+      end: "2026-09-08T00:00:00.000Z",
+    });
   });
 
   it("draws explicit, clamped or unknown-preset windows as their exact bounds", () => {
@@ -2541,12 +2552,13 @@ describe("readCardModel: widget and dashboard reads", () => {
       { ...ANSWERED, range: "2y" },
     ]) {
       const model = readCardModel(readStep("get_widget_data", widgetRead({}, window)), "p1");
-      const chart = (model!.model.body as { chart: { bounds?: unknown; range: { id: string } } })
-        .chart;
+      const chart = (
+        resourceModel(model).body as { chart: { bounds?: unknown; range: { id: string } } }
+      ).chart;
       expect(chart.bounds).toEqual(bounds);
       expect(chart.range.id).toBe("custom");
       // The header names the span, the same one the plot draws.
-      expect(model!.model.meta[2]).toMatch(/Sep 01, 00:00 - Sep 08, 00:00/);
+      expect(resourceModel(model).meta[2]).toMatch(/Sep 01, 00:00 - Sep 08, 00:00/);
     }
   });
 
@@ -2557,12 +2569,16 @@ describe("readCardModel: widget and dashboard reads", () => {
       "p1",
       30,
     );
-    expect((model!.model.body as { chart: { range: unknown } }).chart.range).toEqual(preset("30d"));
+    const chart = (resourceModel(model).body as { chart: { range: unknown; bounds?: unknown } })
+      .chart;
+    expect(chart.range).toEqual(preset("30d"));
+    // No bounds to hold: the page's preset is built back from now when drawn.
+    expect(chart.bounds).toBeUndefined();
   });
 
   it("falls back to the site's window when the read names none", () => {
     const model = readCardModel(readStep("get_widget", widgetRead({ status: null }, null)), "p1");
-    expect((model!.model.body as { chart: { range: unknown } }).chart.range).toEqual(
+    expect((resourceModel(model).body as { chart: { range: unknown } }).chart.range).toEqual(
       DEFAULT_DATE_FILTER,
     );
   });
@@ -2572,12 +2588,12 @@ describe("readCardModel: widget and dashboard reads", () => {
       readStep("get_widget_data", widgetRead({ status: "error", error: "spec: bad metric" })),
       "p1",
     );
-    expect(failed!.model.body).toEqual({
+    expect(resourceModel(failed).body).toEqual({
       kind: "notice",
       chips: ["view spans", "sum(total_tokens)", "by model_name", "bar"],
       text: "Couldn't answer this widget: spec: bad metric",
     });
-    expect(failed!.model.meta).toEqual(["Widget", "Overview"]);
+    expect(resourceModel(failed).meta).toEqual(["Widget", "Overview"]);
 
     const feed = readCardModel(
       readStep(
@@ -2586,7 +2602,7 @@ describe("readCardModel: widget and dashboard reads", () => {
       ),
       "p1",
     );
-    expect(feed!.model.body).toMatchObject({
+    expect(resourceModel(feed).body).toMatchObject({
       kind: "notice",
       chips: ["trace feed", "20 rows"],
       text: "A trace feed: open the dashboard to see its traces.",
@@ -2596,14 +2612,14 @@ describe("readCardModel: widget and dashboard reads", () => {
       readStep("get_widget", widgetRead({ type: "detector", spec: {}, status: null })),
       "p1",
     );
-    expect(legacy!.model.body).toMatchObject({ kind: "notice" });
+    expect(resourceModel(legacy).body).toMatchObject({ kind: "notice" });
   });
 
   it("draws no chart for a spec the schema rejects, or with no panel project to query", () => {
     const bad = readCardModel(readStep("get_widget_data", widgetRead({ spec: { view: 1 } })), "p1");
-    expect(bad!.model.body).toMatchObject({ kind: "widget", chart: null });
+    expect(resourceModel(bad).body).toMatchObject({ kind: "widget", chart: null });
     const noProject = readCardModel(readStep("get_widget_data", widgetRead()), undefined);
-    expect(noProject!.model).toMatchObject({ href: null, body: { chart: null } });
+    expect(resourceModel(noProject)).toMatchObject({ href: null, body: { chart: null } });
   });
 
   it("keeps the plain tool line for a widget read without an id, or an errored step", () => {
@@ -2642,13 +2658,14 @@ describe("readCardModel: widget and dashboard reads", () => {
         href: "/projects/p1/dashboard/db1",
       },
     });
-    const tiles = (model!.model.body as { tiles: PreviewTile[] }).tiles;
+    const tiles = (resourceModel(model).body as { tiles: PreviewTile[] }).tiles;
     expect(tiles.map(({ id, x, y, w, h }) => ({ id, x, y, w, h }))).toEqual([
       { id: "w-1", x: 6, y: 0, w: 6, h: 4 },
       { id: "w-2", x: 0, y: 0, w: 6, h: 6 },
       // No stored placement: the page stacks it at the left edge below everything.
       { id: "w-3", x: 0, y: 6, w: 4, h: 4 },
     ]);
+    expect(tiles.some((tile) => tile.notice !== undefined)).toBe(false);
     expect(tiles[0]).toMatchObject({
       title: "Tokens",
       projectId: "p1",
@@ -2659,12 +2676,32 @@ describe("readCardModel: widget and dashboard reads", () => {
     expect(tiles[2]!.widget).toBeNull();
   });
 
+  it("draws a widget the read could not answer as its reason, never querying it again", () => {
+    const widgets = [
+      {
+        id: "w-1",
+        title: "Long series",
+        type: "query",
+        spec: WIDGET_SPEC,
+        status: "error",
+        error: "not answered: the window has too many buckets for a dashboard read",
+      },
+      { id: "w-2", title: "Broken", type: "query", spec: {}, status: "error", error: null },
+    ];
+    const model = readCardModel(readStep("get_dashboard_data", dashboardRead({ widgets })), "p1");
+    const tiles = (resourceModel(model).body as { tiles: PreviewTile[] }).tiles;
+    expect(tiles.map((tile) => [tile.widget, tile.notice])).toEqual([
+      [null, "not answered: the window has too many buckets for a dashboard read"],
+      [null, "Couldn't answer this widget"],
+    ]);
+  });
+
   it("carries a fixed span onto every tile", () => {
     const model = readCardModel(
       readStep("get_dashboard_data", dashboardRead({ window: { ...ANSWERED, range: null } })),
       "p1",
     );
-    const tiles = (model!.model.body as { tiles: PreviewTile[] }).tiles;
+    const tiles = (resourceModel(model).body as { tiles: PreviewTile[] }).tiles;
     expect(tiles.every((tile) => tile.bounds?.start === "2026-09-01T00:00:00.000Z")).toBe(true);
   });
 
@@ -2673,12 +2710,12 @@ describe("readCardModel: widget and dashboard reads", () => {
       readStep("get_dashboard", dashboardRead({ layout: null, window: null })),
       "p1",
     );
-    expect(unknown!.model).toMatchObject({
+    expect(resourceModel(unknown)).toMatchObject({
       meta: ["Dashboard", "3 widgets"],
       body: { kind: "dashboard", tiles: [] },
     });
     const noProject = readCardModel(readStep("get_dashboard", dashboardRead()), undefined);
-    expect(noProject!.model).toMatchObject({ href: null, body: { tiles: [] } });
+    expect(resourceModel(noProject)).toMatchObject({ href: null, body: { tiles: [] } });
   });
 
   it("keeps the plain tool line when a widget cannot be read, so no other dashboard is drawn", () => {
@@ -2703,8 +2740,8 @@ describe("readCardModel: widget and dashboard reads", () => {
       ),
       "p1",
     );
-    const [tile] = (model!.model.body as { tiles: PreviewTile[] }).tiles;
+    const [tile] = (resourceModel(model).body as { tiles: PreviewTile[] }).tiles;
     expect(tile).toMatchObject({ x: 0, y: 0, w: 4, h: 4 });
-    expect(model!.model.meta[1]).toBe("1 widget");
+    expect(resourceModel(model).meta[1]).toBe("1 widget");
   });
 });

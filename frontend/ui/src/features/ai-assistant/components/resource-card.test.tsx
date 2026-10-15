@@ -16,7 +16,7 @@ vi.mock("./widget-chart-preview", () => ({
     bounds,
   }: Omit<WidgetChart, "range"> & { widgetId: string; rangeId: string }) => (
     <div data-testid="preview">
-      {`${projectId}/${widgetId}/${spec.display.type}/${rangeId}${bounds ? `/${bounds.start}` : ""}`}
+      {`${projectId}/${widgetId}/${spec.display.type}/${rangeId}${bounds ? `/${bounds.start}/${bounds.end}` : ""}`}
     </div>
   ),
 }));
@@ -99,7 +99,7 @@ describe("ResourceCard footer", () => {
       />,
     );
     expect((await screen.findByTestId("preview")).textContent).toBe(
-      "p1/w1/line/7d/2026-09-01T00:00:00.000Z",
+      "p1/w1/line/7d/2026-09-01T00:00:00.000Z/2026-09-08T00:00:00.000Z",
     );
   });
 

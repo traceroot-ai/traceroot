@@ -129,14 +129,17 @@ def _layout_items(raw: Any, widget_ids: set[str]) -> list[DashboardLayoutItem] |
         return []
     items: list[DashboardLayoutItem] = []
     for entry in raw:
-        if not isinstance(entry, dict) or entry.get("i") not in widget_ids:
+        # A non-string id (a list, an object) is not hashable, so it is
+        # checked before the membership test rather than failing the read.
+        widget_id = entry.get("i") if isinstance(entry, dict) else None
+        if not isinstance(widget_id, str) or widget_id not in widget_ids:
             continue
         coords = [entry.get(key) for key in ("x", "y", "w", "h")]
         # bool is an int subclass; a stored true is not a coordinate.
         if not all(isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in coords):
             continue
         x, y, w, h = coords
-        items.append(DashboardLayoutItem(i=entry["i"], x=x, y=y, w=w, h=h))
+        items.append(DashboardLayoutItem(i=widget_id, x=x, y=y, w=w, h=h))
     return items
 
 

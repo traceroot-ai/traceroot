@@ -136,6 +136,10 @@ export interface PreviewTile {
   range: DateFilterOption;
   /** The fixed span to draw instead of the preset, as on WidgetChart. */
   bounds?: CardBounds;
+  /** Why a read did not answer this widget. Such a tile draws the reason
+   *  and queries nothing: the server refused or failed that query, and the
+   *  card must not run it again past the read's own limits. */
+  notice?: string;
   x: number;
   y: number;
   w: number;
@@ -1805,11 +1809,14 @@ export function readCardModel(
 
 /**
  * The window a read's card is drawn over, resolved once so the header and
- * the plot name the same one. A preset the panel knows, answered as asked,
- * draws as that preset (clamped to the plan, as the page clamps its own); a
- * span the server answered for explicit bounds, a window it clamped, or a
- * preset the panel has no option for draws those exact bounds. A read that
- * names no window is drawn over the page's, like every other card.
+ * the plot name the same one. Whenever the read says which bounds it
+ * answered for, the plot draws exactly those — the figures in the agent's
+ * reply came from that span, and a reloaded card must not slide to a new
+ * "now" — labeled by the preset when it was one the panel knows and the
+ * server did not clamp it, and by the span itself otherwise. A definition
+ * read carries the page's preset with no bounds, and draws as that preset
+ * (clamped to the plan, as the page clamps its own). A read that names no
+ * window is drawn over the page's, like every other card.
  */
 function readWindow(
   value: unknown,
@@ -1820,12 +1827,16 @@ function readWindow(
   const rangeId = window === null ? null : str(window.range);
   const known =
     rangeId === null ? undefined : DATE_FILTER_OPTIONS.find((o) => o.id === rangeId && !o.isCustom);
-  if (window !== null && known !== undefined && window.clamped !== true) {
-    return { range: clampDateFilter(findRangePreset(known.id), retentionDays) };
-  }
   const start = window === null ? null : instant(window.start_time);
   const end = window === null ? null : instant(window.end_time);
-  if (start !== null && end !== null && end > start) {
+  const answered = start !== null && end !== null && end > start;
+  if (window !== null && known !== undefined && window.clamped !== true) {
+    const preset = findRangePreset(known.id);
+    return answered
+      ? { range: preset, bounds: { start: start.toISOString(), end: end.toISOString() } }
+      : { range: clampDateFilter(preset, retentionDays) };
+  }
+  if (answered) {
     const bounds = { start: start.toISOString(), end: end.toISOString() };
     const custom = DATE_FILTER_OPTIONS.find((o) => o.isCustom);
     return {
@@ -1920,8 +1931,9 @@ function widgetReadCardModel(
  * The card for a dashboard read (get_dashboard, get_dashboard_data): the
  * dashboard as it is, its widgets on their stored grid scaled to the card,
  * every tile drawn by the dashboard's own tile body over the one window the
- * read answered for. A widget the read skipped or could not answer is drawn
- * as the dashboard draws it. A read that reported no layout — an older
+ * read answered for. A feed the read skipped is drawn as the dashboard draws
+ * it; a widget the read could not answer shows the reason and is not queried
+ * again. A read that reported no layout — an older
  * server — draws no preview rather than a grid the page never laid out.
  */
 function dashboardReadCardModel(
@@ -1971,14 +1983,22 @@ function dashboardReadCardModel(
     tiles = widgets.map((widget, index) => {
       const { x, y, w, h } = placed[index];
       const type = widget.type;
+      const failed =
+        widget.status === "error"
+          ? (str(widget.error, MAX_REASON_CHARS) ?? "Couldn't answer this widget")
+          : null;
       return {
         id: widget.id as string,
         title: str(widget.title, MAX_TITLE_CHARS) ?? (widget.id as string),
         projectId,
         // The spec as stored, unparsed: the tile body applies the dashboard's
         // own schema and shows its own face for a spec it rejects.
-        widget: isWidgetType(type) ? { type, spec: plainObject(widget.spec) ?? {} } : null,
+        widget:
+          isWidgetType(type) && failed === null
+            ? { type, spec: plainObject(widget.spec) ?? {} }
+            : null,
         ...window,
+        ...(failed === null ? {} : { notice: failed }),
         x,
         y,
         w,
