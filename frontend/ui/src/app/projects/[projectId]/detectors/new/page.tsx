@@ -164,7 +164,7 @@ export default function NewDetectorPage() {
                 />
                 {isDuplicateNameError && (
                   <p className="mt-1.5 text-[12px] text-destructive">
-                    {createMutation.error.message}
+                    {createMutation.error?.message}
                   </p>
                 )}
               </div>
@@ -252,7 +252,7 @@ export default function NewDetectorPage() {
             <div className="flex items-center justify-end gap-2 pt-1">
               {createMutation.isError && !isDuplicateNameError && (
                 <span className="mr-auto text-[12px] text-destructive">
-                  {createMutation.error.message}
+                  {createMutation.error?.message}
                 </span>
               )}
               {conditionsError && (
