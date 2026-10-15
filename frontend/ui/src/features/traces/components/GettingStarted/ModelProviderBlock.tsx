@@ -121,10 +121,19 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
   const { data: workspace, isLoading: workspaceLoading } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
 
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError: providersUnreadable,
+  } = useQuery({
     queryKey: ["model-providers", workspaceId],
     queryFn: () => getModelProviders(workspaceId),
     enabled: !!workspaceId,
+    // Read the list fresh every time the step mounts, against the app-wide
+    // 60-second staleTime. The guard below is the only thing standing between a
+    // blind upsert and a hand-configured row, and a minute-old snapshot that
+    // says "none" is indistinguishable here from a current one.
+    staleTime: 0,
   });
 
   const saveMutation = useMutation({
@@ -180,7 +189,27 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
     return <p className="text-[12px] text-muted-foreground">Loading model providers...</p>;
   }
 
-  const providers = data?.providers ?? [];
+  // Fail closed when the list is not there to check. An unreadable or
+  // never-issued read leaves `data` undefined, which the guard below would
+  // otherwise read as "this workspace has none" — and the write is an
+  // unconditional upsert on (workspace, label) with the label auto-filled from
+  // the adapter, so saving through a transient failure would replace the key,
+  // base URL, models and enabled flag on a row someone configured by hand.
+  // Having no form at all is the lesser outcome for an optional step.
+  if (providersUnreadable || !data) {
+    return (
+      <p className="text-[12px] text-muted-foreground">
+        This workspace&apos;s model providers could not be read, so this step cannot tell whether it
+        already has a key. Check or add one in{" "}
+        <a href={settingsHref} className="font-medium underline underline-offset-4">
+          Settings &rarr; Model Providers
+        </a>
+        .
+      </p>
+    );
+  }
+
+  const providers = data.providers;
 
   // Never upsert over a provider the workspace already has: POST upserts on
   // (workspace, label), so writing the default label blindly would replace the
@@ -211,7 +240,7 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
     );
   }
 
-  if (data && !data.byokEnabled) {
+  if (!data.byokEnabled) {
     return (
       <p className="text-[12px] text-muted-foreground">
         Your own model keys are not available on this workspace&apos;s plan. Detectors and the AI

@@ -57,7 +57,7 @@ import {
   SETTINGS_ONLY_ADAPTERS,
 } from "./ModelProviderBlock";
 
-function renderBlock() {
+function renderBlock(workspaceId = "ws-1") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -65,7 +65,7 @@ function renderBlock() {
     queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <ModelProviderBlock workspaceId="ws-1" />
+        <ModelProviderBlock workspaceId={workspaceId} />
       </QueryClientProvider>,
     ),
   };
@@ -245,6 +245,32 @@ describe("a workspace the feature is not entitled on", () => {
     expect(await screen.findByText(/not available on this workspace/)).toBeTruthy();
     expect(screen.queryByLabelText("API key")).toBeNull();
     expect(mocks.testModelProvider).not.toHaveBeenCalled();
+  });
+});
+
+describe("a provider list that cannot be read", () => {
+  it("offers no form when the read fails, because the write upserts blindly", async () => {
+    // The only guard against replacing a hand-configured row is this list, and
+    // the POST auto-fills the label from the adapter. A failed or 403'd read
+    // that fell through to the form would let a save overwrite that row's key,
+    // base URL, models and enabled flag.
+    mocks.getModelProviders.mockRejectedValue(new Error("network down"));
+
+    renderBlock();
+    expect(await screen.findByText(/could not be read/)).toBeTruthy();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+  });
+
+  it("offers no form when there is no workspace to read the list for", async () => {
+    // A query that never runs is not a loading state in react-query v5: with
+    // `enabled` false it is pending-but-idle, so `isLoading` is false and the
+    // data is simply absent. Absent has to mean "unknown", not "none".
+    renderBlock("");
+    expect(await screen.findByText(/could not be read/)).toBeTruthy();
+    expect(mocks.getModelProviders).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("API key")).toBeNull();
   });
 });
 
