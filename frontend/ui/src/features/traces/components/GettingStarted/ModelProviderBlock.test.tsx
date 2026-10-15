@@ -367,6 +367,90 @@ describe("a provider list that cannot be read", () => {
   });
 });
 
+describe("a cached list this mount has not re-read", () => {
+  it("offers no form until the refetch behind a cached snapshot has answered", async () => {
+    // `staleTime: 0` guarantees the refetch is started, not that it has
+    // answered: react-query serves a cached entry at status "success" while it
+    // runs, so `isLoading` is false and a guard on it alone draws the form over
+    // the old snapshot. The Settings tab reads this very key, so a user who was
+    // just there arrives holding one — and if a provider was added in between,
+    // the upsert replaces it.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(["model-providers", "ws-1"], { byokEnabled: true, providers: [] });
+
+    let answer: (value: unknown) => void = () => {};
+    mocks.getModelProviders.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ModelProviderBlock workspaceId="ws-1" />
+      </QueryClientProvider>,
+    );
+
+    // In flight, behind a snapshot that says this workspace has no provider.
+    await waitFor(() => expect(mocks.getModelProviders).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(/Loading model providers/)).toBeTruthy();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
+
+    // And it comes back carrying the row that was added after that snapshot.
+    await act(async () => {
+      answer({
+        byokEnabled: true,
+        providers: [
+          {
+            id: "mp-added-since",
+            adapter: "anthropic",
+            provider: "Anthropic",
+            keyPreview: "sk-ant-...new",
+            customModels: ["claude-opus-5"],
+            enabled: true,
+          },
+        ],
+      });
+    });
+
+    expect(await screen.findByText("sk-ant-...new")).toBeTruthy();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+  });
+
+  it("keeps the form through a later refetch, once this mount has its answer", async () => {
+    // The guard asks whether this mount has read the list, not whether a read
+    // is in flight. Those differ on every background refetch react-query starts
+    // on its own — a window regaining focus while the key is being pasted — and
+    // taking the form away there would drop the field mid-paste for a snapshot
+    // the step has already seen.
+    const { queryClient } = renderBlock();
+    const field = await fillKey("sk-half-pasted");
+
+    let answer: (value: unknown) => void = () => {};
+    mocks.getModelProviders.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    act(() => {
+      void queryClient.invalidateQueries({ queryKey: ["model-providers", "ws-1"] });
+    });
+
+    await waitFor(() => expect(mocks.getModelProviders).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/Loading model providers/)).toBeNull();
+    expect(field.value).toBe("sk-half-pasted");
+
+    await act(async () => {
+      answer({ byokEnabled: true, providers: [] });
+    });
+    expect(screen.getByLabelText("API key")).toBeTruthy();
+  });
+});
+
 describe("a provider the workspace already has", () => {
   it("reports the existing row instead of a form that would upsert over it", async () => {
     mocks.getModelProviders.mockResolvedValue({

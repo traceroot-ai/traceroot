@@ -167,7 +167,8 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
 
   const {
     data,
-    isLoading,
+    fetchStatus,
+    isFetchedAfterMount,
     isError: providersUnreadable,
   } = useQuery({
     queryKey: ["model-providers", workspaceId],
@@ -243,9 +244,20 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
 
   const settingsHref = `/workspaces/${workspaceId}/settings/model-providers`;
 
-  // The role gates which state is the honest one, so nothing is shown until it
-  // is known: rendering early would tell an admin to go and find an admin.
-  if (isLoading || workspaceLoading) {
+  // Nothing is drawn until both the role and this mount's own read of the list
+  // have answered. The role gates which state is the honest one — rendering
+  // early would tell an admin to go and find an admin.
+  //
+  // The read is held to `isFetchedAfterMount` rather than `isLoading`, because
+  // `staleTime: 0` only guarantees the refetch is *started*: react-query serves
+  // a cached entry at status "success" while that refetch runs, so `isLoading`
+  // is false and a guard on it would draw the form over the stale snapshot. The
+  // workspace settings tab reads this same key, so a user arriving from it
+  // holds one — and a provider added between that snapshot and now would be
+  // upserted over by the save, which is the failure the guard below exists to
+  // prevent. The flag flips once per mount and stays set, so a later background
+  // refetch (a window regaining focus mid-paste) does not take the form away.
+  if (workspaceLoading || (fetchStatus !== "idle" && !isFetchedAfterMount)) {
     return <p className="text-[12px] text-muted-foreground">Loading model providers...</p>;
   }
 
@@ -256,7 +268,12 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
   // the adapter, so saving through a transient failure would replace the key,
   // base URL, models and enabled flag on a row someone configured by hand.
   // Having no form at all is the lesser outcome for an optional step.
-  if (providersUnreadable || !data) {
+  //
+  // `isFetchedAfterMount` is required here as well, so that a cached entry
+  // cannot stand in for a read that never ran at all: with `enabled` false
+  // there is no fetch for the guard above to wait on, and a snapshot another
+  // screen left behind is not an answer about this workspace now.
+  if (providersUnreadable || !data || !isFetchedAfterMount) {
     return (
       <p className="text-[12px] text-muted-foreground">
         This workspace&apos;s model providers could not be read, so this step cannot tell whether it
