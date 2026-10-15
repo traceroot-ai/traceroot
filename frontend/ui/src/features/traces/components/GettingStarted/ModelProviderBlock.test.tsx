@@ -1,0 +1,322 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ADAPTER_CONFIG, ADAPTER_MODELS, type LLMAdapter } from "@traceroot/core";
+
+const mocks = vi.hoisted(() => ({
+  getModelProviders: vi.fn(),
+  createModelProvider: vi.fn(),
+  testModelProvider: vi.fn(),
+  workspace: { data: undefined as { role: string } | undefined, isLoading: false },
+}));
+
+vi.mock("@/lib/api", () => ({
+  getModelProviders: mocks.getModelProviders,
+  createModelProvider: mocks.createModelProvider,
+  testModelProvider: mocks.testModelProvider,
+}));
+vi.mock("@/features/workspaces/hooks", () => ({
+  useWorkspace: () => mocks.workspace,
+}));
+
+// Radix Select renders through a portal and is flaky in jsdom; mock it to a
+// native <select> so the adapter choice can be driven directly, matching the
+// pattern used in ModelProvidersTab.test.tsx.
+vi.mock("@/components/ui/select", () => ({
+  Select: ({
+    value,
+    onValueChange,
+    children,
+  }: {
+    value: string;
+    onValueChange: (v: string) => void;
+    children: React.ReactNode;
+  }) => (
+    <select
+      aria-label="Model provider"
+      role="combobox"
+      value={value}
+      onChange={(e) => onValueChange(e.target.value)}
+    >
+      {children}
+    </select>
+  ),
+  SelectTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
+}));
+
+import {
+  INLINE_ADAPTERS,
+  isInlineConfigurable,
+  ModelProviderBlock,
+  SETTINGS_ONLY_ADAPTERS,
+} from "./ModelProviderBlock";
+
+function renderBlock() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <ModelProviderBlock workspaceId="ws-1" />
+      </QueryClientProvider>,
+    ),
+  };
+}
+
+async function fillKey(value = "sk-test-key") {
+  const field = await screen.findByLabelText("API key");
+  fireEvent.change(field, { target: { value } });
+  return field as HTMLInputElement;
+}
+
+beforeEach(() => {
+  mocks.getModelProviders.mockResolvedValue({ byokEnabled: true, providers: [] });
+  mocks.testModelProvider.mockResolvedValue({ success: true });
+  mocks.createModelProvider.mockResolvedValue({ id: "mp-1" });
+  mocks.workspace.data = { role: "ADMIN" };
+  mocks.workspace.isLoading = false;
+});
+
+afterEach(() => {
+  cleanup();
+  mocks.getModelProviders.mockReset();
+  mocks.createModelProvider.mockReset();
+  mocks.testModelProvider.mockReset();
+});
+
+describe("the adapters offered inline", () => {
+  it("offers exactly the adapters a single pasted key fully configures", () => {
+    // Taken across PROVIDER_PRIORITY, not ADAPTER_CONFIG's keys: the latter also
+    // holds the internal `typesafe` decision adapter, which would wrongly make
+    // this eight.
+    expect(INLINE_ADAPTERS).toEqual([
+      "anthropic",
+      "openai",
+      "deepseek",
+      "xai",
+      "moonshot",
+      "zai",
+      "google",
+    ]);
+    expect(SETTINGS_ONLY_ADAPTERS).toEqual(["openrouter", "azure", "amazon-bedrock"]);
+    expect(INLINE_ADAPTERS).not.toContain("typesafe");
+  });
+
+  it("keeps out an adapter whose key is not the whole credential, catalogue or not", () => {
+    // Today's tables exclude Azure, Bedrock and OpenRouter on both halves of
+    // the rule at once, so the concrete list above cannot tell the halves
+    // apart. Each clause is pinned here instead, against entries the tables do
+    // not have yet.
+    const catalogue = [{ id: "a-model" }];
+    expect(
+      isInlineConfigurable({ credentialType: "api-key", requiresBaseUrl: true }, catalogue),
+    ).toBe(false);
+    expect(isInlineConfigurable({ credentialType: "aws", requiresBaseUrl: false }, catalogue)).toBe(
+      false,
+    );
+    expect(isInlineConfigurable({ credentialType: "api-key", requiresBaseUrl: false }, [])).toBe(
+      false,
+    );
+    expect(isInlineConfigurable(undefined, catalogue)).toBe(false);
+    expect(
+      isInlineConfigurable({ credentialType: "api-key", requiresBaseUrl: false }, catalogue),
+    ).toBe(true);
+  });
+
+  it("asks for the provider rather than inferring it, defaulting to the top-ranked one", async () => {
+    renderBlock();
+    const select = (await screen.findByLabelText("Model provider")) as HTMLSelectElement;
+    expect(select.value).toBe("anthropic");
+    expect([...select.options].map((o) => o.value)).toEqual(INLINE_ADAPTERS);
+  });
+
+  it("names the adapters that stay in settings", async () => {
+    renderBlock();
+    const labels = SETTINGS_ONLY_ADAPTERS.map((a: LLMAdapter) => ADAPTER_CONFIG[a].label);
+    const note = await screen.findByText(/need more than a key/);
+    for (const label of labels) {
+      expect(note.textContent).toContain(label);
+    }
+  });
+});
+
+describe("probe before store", () => {
+  it("does not write until the probe has answered", async () => {
+    // A hand-resolved probe: while it is in flight the create must not have
+    // happened at all. Asserting call order after both settle would pass even
+    // if the two were fired together.
+    let releaseProbe: (result: { success: boolean }) => void = () => {};
+    mocks.testModelProvider.mockReturnValue(
+      new Promise<{ success: boolean }>((resolve) => {
+        releaseProbe = resolve;
+      }),
+    );
+
+    renderBlock();
+    await fillKey();
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Verifying..." })).toBeTruthy();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+
+    releaseProbe({ success: true });
+    await waitFor(() => expect(mocks.createModelProvider).toHaveBeenCalledTimes(1));
+  });
+
+  it("stores nothing, shows the provider's own error and keeps the key on a failed probe", async () => {
+    mocks.testModelProvider.mockResolvedValue({
+      success: false,
+      error: "Invalid API key",
+      detail: "HTTP 401: Unauthorized",
+    });
+
+    renderBlock();
+    const field = await fillKey("sk-wrong");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    expect(await screen.findByText(/Invalid API key/)).toBeTruthy();
+    expect(screen.getByText(/HTTP 401: Unauthorized/)).toBeTruthy();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+    expect(field.value).toBe("sk-wrong");
+  });
+});
+
+describe("what the write sends", () => {
+  it("seeds the selected adapter's curated model list alongside the key", async () => {
+    renderBlock();
+    fireEvent.change(await screen.findByLabelText("Model provider"), {
+      target: { value: "openai" },
+    });
+    // Pasted with the whitespace a copy out of a provider console picks up
+    // (a newline cannot be used here: a single-line input strips it before the
+    // component ever sees it). What gets verified has to be what gets stored.
+    await fillKey("  sk-openai  ");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    await waitFor(() => expect(mocks.createModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.testModelProvider).toHaveBeenCalledWith("ws-1", {
+      adapter: "openai",
+      apiKey: "sk-openai",
+    });
+    // A row with a key and no models is accepted, looks saved and offers
+    // nothing: the model pickers build a BYOK provider's list from
+    // customModels alone.
+    expect(mocks.createModelProvider).toHaveBeenCalledWith("ws-1", {
+      adapter: "openai",
+      provider: ADAPTER_CONFIG.openai.label,
+      apiKey: "sk-openai",
+      customModels: ADAPTER_MODELS.openai!.map((m) => m.id),
+    });
+  });
+});
+
+describe("a stored row being usable straight away", () => {
+  it("refreshes the lists the model pickers read, without a reload", async () => {
+    // The assistant panel, the project home page and the detector agent-model
+    // link all read ["llm-models", workspaceId]; a row that does not reach it
+    // is a key the user has to revisit settings to see.
+    const { queryClient } = renderBlock();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    await fillKey("sk-fresh");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    await waitFor(() => expect(mocks.createModelProvider).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["llm-models", "ws-1"] }),
+    );
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["model-providers", "ws-1"] });
+  });
+});
+
+describe("a workspace the feature is not entitled on", () => {
+  it("says so rather than offering a form the write would refuse", async () => {
+    mocks.getModelProviders.mockResolvedValue({ byokEnabled: false, providers: [] });
+
+    renderBlock();
+    expect(await screen.findByText(/not available on this workspace/)).toBeTruthy();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(mocks.testModelProvider).not.toHaveBeenCalled();
+  });
+});
+
+describe("a provider the workspace already has", () => {
+  it("reports the existing row instead of a form that would upsert over it", async () => {
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "mp-existing",
+          adapter: "anthropic",
+          provider: "Anthropic",
+          keyPreview: "sk-ant-...xyz",
+          customModels: ["claude-opus-5"],
+          enabled: true,
+        },
+      ],
+    });
+
+    renderBlock();
+    expect(await screen.findByText("sk-ant-...xyz")).toBeTruthy();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
+  });
+});
+
+describe("a member who cannot write one", () => {
+  it("says nothing about admins until the role is known", async () => {
+    // The role decides which state is honest, so showing one early tells an
+    // admin to go and find an admin. Asserted as a steady state: the provider
+    // list is let settle first, so the only thing still outstanding is the
+    // role, and the step must still be holding.
+    mocks.workspace.data = undefined;
+    mocks.workspace.isLoading = true;
+
+    renderBlock();
+    await waitFor(() => expect(mocks.getModelProviders).toHaveBeenCalledTimes(1));
+    await act(async () => {});
+
+    expect(screen.getByText("Loading model providers...")).toBeTruthy();
+    expect(screen.queryByText(/A workspace admin can add one/)).toBeNull();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+  });
+
+  it("shows the state rather than a form that would be refused", async () => {
+    mocks.workspace.data = { role: "MEMBER" };
+
+    renderBlock();
+    expect(await screen.findByText(/A workspace admin can add one/)).toBeTruthy();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(mocks.testModelProvider).not.toHaveBeenCalled();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+  });
+});
+
+describe("skipping the step", () => {
+  it("writes nothing when the step is left alone", async () => {
+    renderBlock();
+    const field = (await screen.findByLabelText("API key")) as HTMLInputElement;
+    // Rendering and reading the state is all an untouched step may do. The
+    // field starts empty because the user is the only source of the key:
+    // nothing is read from their machine, environment or files.
+    expect(field.value).toBe("");
+    expect(mocks.testModelProvider).not.toHaveBeenCalled();
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+  });
+
+  it("cannot be submitted with an empty key", async () => {
+    renderBlock();
+    await screen.findByLabelText("API key");
+    expect(
+      (screen.getByRole("button", { name: "Verify and save" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+});
