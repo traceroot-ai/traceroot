@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import { Breadcrumb, BreadcrumbItem } from "@/components/layout/breadcrumb";
 import { useWorkspace, useWorkspaces } from "../hooks";
-import { workspaceSwitchHref } from "../utils";
+import { DEMO_WORKSPACE_LABEL, workspaceSwitchHref } from "../utils";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 
 interface WorkspaceBreadcrumbProps {
@@ -40,7 +40,7 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
         href: current ? `/workspaces/${workspaceId}/projects` : undefined,
         options: workspaces?.map((ws) => ({
           id: ws.id,
-          label: ws.name,
+          label: ws.is_demo ? `${ws.name} (${DEMO_WORKSPACE_LABEL})` : ws.name,
           href: workspaceSwitchHref(pathname, ws.id),
           isCurrent: ws.id === workspaceId,
           settingsHref: `/workspaces/${ws.id}/settings`,

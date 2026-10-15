@@ -25,6 +25,9 @@ export interface Workspace {
   id: string;
   name: string;
   role: Role;
+  // True for the public demo workspace: every user is a VIEWER there, and it
+  // is not one of the user's own workspaces.
+  is_demo?: boolean;
   member_count?: number;
   project_count?: number;
   create_time: string;

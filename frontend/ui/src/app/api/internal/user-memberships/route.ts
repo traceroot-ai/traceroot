@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@traceroot/core";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
+import { isDemoWorkspace, sortDemoLast, userMembershipWhere } from "@/lib/demo-workspace";
 
 const userMembershipsSchema = z.object({
   userId: z.string().min(1, "userId is required"),
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
   const { userId } = result.data;
 
   const memberships = await prisma.workspaceMember.findMany({
-    where: { userId },
+    where: userMembershipWhere(userId, "include-demo"),
     include: {
       workspace: {
         include: {
@@ -52,10 +53,13 @@ export async function POST(request: NextRequest) {
     orderBy: { workspace: { name: "asc" } },
   });
 
-  const workspaces = memberships.map((m) => ({
+  // The demo workspace is listed last and marked, so a CLI script does not
+  // treat it as one of the user's own workspaces.
+  const workspaces = sortDemoLast(memberships, (m) => m.workspace.id).map((m) => ({
     id: m.workspace.id,
     name: m.workspace.name,
     role: m.role,
+    is_demo: isDemoWorkspace(m.workspace.id),
     projects: m.workspace.projects,
   }));
 

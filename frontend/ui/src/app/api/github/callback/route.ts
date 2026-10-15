@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
+import { userMembershipWhere } from "@/lib/demo-workspace";
 import {
   GITHUB_AUTH_STATE_COOKIE,
   GITHUB_INSTALL_STATE_COOKIE,
@@ -121,11 +122,12 @@ async function processGitHubCallback(
 
   // 5. Resolve target workspace: cookie set at /api/github/login kickoff, or
   //    the user's first membership for the direct-install flow (where the user
-  //    started at github.com and we never set the cookie).
+  //    started at github.com and we never set the cookie). Never the demo
+  //    workspace: a new user joins it before they create their own.
   let workspaceId = request.cookies.get(GITHUB_WORKSPACE_ID_COOKIE)?.value;
   if (!workspaceId) {
     const membership = await prisma.workspaceMember.findFirst({
-      where: { userId: user.id },
+      where: userMembershipWhere(user.id, "exclude-demo"),
       orderBy: { createTime: "asc" },
       select: { workspaceId: true },
     });
