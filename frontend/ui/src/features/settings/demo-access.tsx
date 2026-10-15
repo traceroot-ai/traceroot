@@ -6,12 +6,12 @@
 //
 // Demo viewers (members below ADMIN: every visitor) keep the Settings entry
 // and every menu item. General pages are readable but every control is
-// disabled. The other pages show an "Access denied" card, never an empty
+// disabled. The other pages show a demo settings explanation, never an empty
 // state. Admins of the demo workspace, and everyone in any other workspace,
 // see settings as before. The API routes behind the denied pages return 403
 // to demo viewers, so this is presentation, not the security boundary.
 import { type ReactNode } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useProject } from "@/features/projects/hooks";
 import { useWorkspace } from "@/features/workspaces/hooks";
 import { isDemoWorkspaceViewer } from "@/features/workspaces/utils";
@@ -29,23 +29,43 @@ export type SettingsSection =
 export type SettingsAccess =
   | { mode: "loading" }
   | { mode: "full" }
-  | { mode: "read-only" }
-  | { mode: "denied"; message: string };
+  | { mode: "read-only"; scope?: "workspace" | "project" }
+  | { mode: "denied"; title: string; message: string };
 
-const denied = (message: string): SettingsAccess => ({ mode: "denied", message });
+const denied = (scope: "workspace" | "project", message: string): SettingsAccess => ({
+  mode: "denied",
+  title: `Demo ${scope} settings`,
+  message,
+});
 
 const DEMO_VIEWER_ACCESS: Record<SettingsSection, SettingsAccess> = {
-  "workspace-general": { mode: "read-only" },
-  members: denied("You do not have permission to view the members of this workspace."),
-  "model-providers": denied(
-    "You do not have permission to view the model providers of this workspace.",
+  "workspace-general": { mode: "read-only", scope: "workspace" },
+  members: denied(
+    "workspace",
+    "The member list is not available in this demo workspace. You can manage members in your own workspace.",
   ),
-  integrations: denied("You do not have permission to view the integrations of this workspace."),
-  billing: denied("You do not have permission to view the billing settings of this workspace."),
-  "project-general": { mode: "read-only" },
-  "access-keys": denied("You do not have permission to view the API keys of this project."),
+  "model-providers": denied(
+    "workspace",
+    "Model provider settings are not available in this demo workspace. You can connect model providers in your own workspace.",
+  ),
+  integrations: denied(
+    "workspace",
+    "Integration settings are not available in this demo workspace. You can connect integrations in your own workspace.",
+  ),
+  billing: denied(
+    "workspace",
+    "Billing settings are not available in this demo workspace. You can manage billing in your own workspace.",
+  ),
+  "project-general": { mode: "read-only", scope: "project" },
+  "access-keys": denied(
+    "project",
+    "API keys are not available in this demo project. You can create API keys in your own project.",
+  ),
   // Its notification settings can list team email addresses.
-  detectors: denied("You do not have permission to view the detector settings of this project."),
+  detectors: denied(
+    "project",
+    "Detector settings are not available in this demo project. You can explore detectors and findings, or configure detectors in your own project.",
+  ),
 };
 
 /** The access to one settings section for a user with this workspace membership. */
@@ -76,14 +96,13 @@ export function useProjectSettingsAccess(
   return projectError || isError ? { mode: "full" } : settingsAccess(section, workspace);
 }
 
-function AccessDeniedCard({ message }: { message: string }) {
+function DemoSettingsCard({ title, message }: { title: string; message: string }) {
   return (
-    <Card className="max-w-xl" role="alert">
+    <Card className="max-w-xl">
       <CardHeader>
-        <CardTitle className="text-base">Access denied</CardTitle>
+        <CardTitle className="text-base">{title}</CardTitle>
         <CardDescription>{message}</CardDescription>
       </CardHeader>
-      <CardContent />
     </Card>
   );
 }
@@ -105,12 +124,17 @@ export function SettingsAccessGate({
     case "loading":
       return null;
     case "denied":
-      return <AccessDeniedCard message={access.message} />;
+      return <DemoSettingsCard title={access.title} message={access.message} />;
     case "read-only":
       return (
-        <fieldset disabled className="min-w-0" data-testid="settings-read-only">
-          {children}
-        </fieldset>
+        <>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Settings in this demo {access.scope ?? "project"} are read-only.
+          </p>
+          <fieldset disabled className="min-w-0" data-testid="settings-read-only">
+            {children}
+          </fieldset>
+        </>
       );
     case "full":
       return <>{children}</>;

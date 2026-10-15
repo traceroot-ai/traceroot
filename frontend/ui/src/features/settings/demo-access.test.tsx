@@ -35,13 +35,13 @@ const DEMO_MEMBER = { is_demo: true, role: "MEMBER" };
 const DEMO_ADMIN = { is_demo: true, role: "ADMIN" };
 const OTHER_VIEWER = { is_demo: false, role: "VIEWER" };
 
-const DENIED: [SettingsSection, string][] = [
-  ["members", "the members of this workspace"],
-  ["model-providers", "the model providers of this workspace"],
-  ["integrations", "the integrations of this workspace"],
-  ["billing", "the billing settings of this workspace"],
-  ["access-keys", "the API keys of this project"],
-  ["detectors", "the detector settings of this project"],
+const DENIED: SettingsSection[] = [
+  "members",
+  "model-providers",
+  "integrations",
+  "billing",
+  "access-keys",
+  "detectors",
 ];
 
 afterEach(() => {
@@ -51,29 +51,31 @@ afterEach(() => {
 });
 
 describe("settingsAccess", () => {
-  it.each(DENIED)("denies %s to a demo viewer", (section, subject) => {
+  it.each(DENIED)("denies %s to a demo viewer", (section) => {
     for (const ws of [DEMO_VIEWER, DEMO_MEMBER]) {
-      expect(settingsAccess(section, ws)).toEqual({
+      expect(settingsAccess(section, ws)).toMatchObject({
         mode: "denied",
-        message: `You do not have permission to view ${subject}.`,
+        message: expect.stringContaining("demo"),
       });
     }
   });
 
   it("makes the General pages read-only for a demo viewer", () => {
-    expect(settingsAccess("workspace-general", DEMO_VIEWER)).toEqual({ mode: "read-only" });
-    expect(settingsAccess("project-general", DEMO_VIEWER)).toEqual({ mode: "read-only" });
+    expect(settingsAccess("workspace-general", DEMO_VIEWER)).toEqual({
+      mode: "read-only",
+      scope: "workspace",
+    });
+    expect(settingsAccess("project-general", DEMO_VIEWER)).toEqual({
+      mode: "read-only",
+      scope: "project",
+    });
   });
 
   it("gives full access to demo admins and to every role in other workspaces", () => {
-    const sections: SettingsSection[] = [
-      "workspace-general",
-      "project-general",
-      ...DENIED.map(([s]) => s),
-    ];
+    const sections: SettingsSection[] = ["workspace-general", "project-general", ...DENIED];
     for (const ws of [DEMO_ADMIN, OTHER_VIEWER, { is_demo: false, role: "MEMBER" }, {}]) {
       for (const section of sections) {
-        expect(settingsAccess(section, ws)).toEqual({ mode: "full" });
+        expect(settingsAccess(section, ws)).toMatchObject({ mode: "full" });
       }
     }
   });
@@ -120,16 +122,18 @@ function renderLayout(tabs: typeof WORKSPACE_SETTINGS_TABS, section: SettingsSec
 }
 
 describe("SettingsLayout for a demo viewer", () => {
-  it("keeps every menu item and shows an Access denied card instead of the page", () => {
+  it("keeps every menu item and shows a demo settings explanation instead of the page", () => {
     state.workspace = DEMO_VIEWER;
     renderLayout(WORKSPACE_SETTINGS_TABS, "members");
 
     for (const tab of ["General", "Members", "Model Providers", "Integrations", "Billing"]) {
       expect(screen.getByRole("link", { name: tab })).toBeTruthy();
     }
-    expect(screen.getByText("Access denied")).toBeTruthy();
+    expect(screen.getByText("Demo workspace settings")).toBeTruthy();
     expect(
-      screen.getByText("You do not have permission to view the members of this workspace."),
+      screen.getByText(
+        "The member list is not available in this demo workspace. You can manage members in your own workspace.",
+      ),
     ).toBeTruthy();
     expect(screen.queryByText("Page content")).toBeNull();
   });
@@ -141,7 +145,7 @@ describe("SettingsLayout for a demo viewer", () => {
     for (const tab of ["General", "API Keys", "Detectors"]) {
       expect(screen.getByRole("link", { name: tab })).toBeTruthy();
     }
-    expect(screen.getByText("Access denied")).toBeTruthy();
+    expect(screen.getByText("Demo project settings")).toBeTruthy();
   });
 
   it("shows the General page with every input and button disabled", () => {
@@ -166,7 +170,7 @@ describe.each([
     state.workspace = workspace;
     renderLayout(WORKSPACE_SETTINGS_TABS, "members");
 
-    expect(screen.queryByText("Access denied")).toBeNull();
+    expect(screen.queryByText("Demo workspace settings")).toBeNull();
     expect(screen.getByText("Page content")).toBeTruthy();
     expect(
       (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).matches(":disabled"),
