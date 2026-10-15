@@ -54,6 +54,7 @@ vi.mock("@/features/projects/components", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: unknown[] }) => {
+    if (queryKey[0] === "workspace") return { data: { is_demo: false, role: "ADMIN" } };
     if (queryKey[0] === "project") return { data: mocks.projectData };
     if (queryKey[0] === "llm-models") return { data: mocks.llmModels };
     return { data: undefined };

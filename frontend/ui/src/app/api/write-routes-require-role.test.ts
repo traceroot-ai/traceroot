@@ -21,13 +21,13 @@ const WRITE_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
 
 const ALLOWED: Record<string, string> = {
   "POST /api/projects/[projectId]/ai/sessions":
-    "Starts the caller's own chat. Viewers may chat with the agent.",
+    "Starts the caller's own chat. Viewers may chat; demoAgentWriteDenied blocks demo viewers.",
   "DELETE /api/projects/[projectId]/ai/sessions/[sessionId]":
     "Deletes only the caller's own session; the agent service checks the owner.",
   "POST /api/projects/[projectId]/ai/sessions/[sessionId]/decisions":
     "Approves the agent's pending write; the write runs as the caller and the write service requires MEMBER.",
   "POST /api/projects/[projectId]/ai/sessions/[sessionId]/messages":
-    "Sends a message in the caller's own chat. Viewers may chat with the agent.",
+    "Sends a message in the caller's own chat. Viewers may chat; demoAgentWriteDenied blocks demo viewers.",
   "POST /api/workspaces": "Any signed-in user may create their own workspace.",
   "POST /api/github/callback": "OAuth callback; the install flow checks the role before it starts.",
 };

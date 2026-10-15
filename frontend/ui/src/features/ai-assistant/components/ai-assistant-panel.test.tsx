@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
         }>;
       }
     | undefined,
+  workspaceData: { is_demo: false, role: "ADMIN" },
   onClose: vi.fn(),
   messages: [] as Array<{ id: string; role: string; content: string }>,
   isStreaming: false,
@@ -31,6 +32,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: string[] }) => {
+    if (queryKey[0] === "workspace") return { data: mocks.workspaceData };
     if (queryKey[0] === "project") return { data: mocks.projectData };
     if (queryKey[0] === "llm-models") return { data: mocks.llmModels };
     return { data: undefined };
@@ -96,6 +98,7 @@ import { AiAssistantPanel } from "./ai-assistant-panel";
 
 afterEach(() => {
   cleanup();
+  mocks.workspaceData = { is_demo: false, role: "ADMIN" };
   mocks.projectData = undefined;
   mocks.llmModels = undefined;
   mocks.messages = [];
@@ -291,3 +294,18 @@ describe("AiAssistantPanel", () => {
     });
   });
 });
+
+it.each(["VIEWER", "MEMBER"])(
+  "shows an example without a composer or new-session action for demo %s",
+  (role) => {
+    mocks.workspaceData = { is_demo: true, role };
+    mocks.projectData = { workspace_id: "demo" };
+    mocks.llmModels = { systemModels: [], byokProviders: [] };
+    render(<AiAssistantPanel projectId="p1" onClose={() => {}} />);
+    expect(screen.queryByTestId("message-input")).toBeNull();
+    expect(screen.queryByTitle("New session")).toBeNull();
+    expect(screen.getByText("Example investigations")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "View investigation" }));
+    expect(screen.getByText(/Recorded demo investigation/)).toBeTruthy();
+  },
+);

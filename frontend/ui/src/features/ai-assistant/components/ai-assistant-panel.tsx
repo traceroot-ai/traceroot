@@ -13,6 +13,8 @@ import { SessionHistory } from "./session-history";
 import { AgentTraceSheet } from "./agent-trace-sheet";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
+import { useDemoAgentAccess } from "../hooks/use-demo-agent-access";
+import { DemoAgentExamples } from "./demo-agent-examples";
 import { useRetention } from "@/lib/hooks/use-retention";
 
 interface AiAssistantPanelProps {
@@ -66,6 +68,8 @@ export function AiAssistantPanel({
   // border runs edge to edge like every other section header; only the
   // content below it (messages, empty state, input) is centered in the
   // max-width column.
+  const { readOnly, loading: accessLoading } = useDemoAgentAccess(projectId);
+  const canInteract = !readOnly && !accessLoading;
   const rootCls =
     variant === "page"
       ? "flex h-full w-full flex-col bg-background"
@@ -99,7 +103,7 @@ export function AiAssistantPanel({
   const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && canInteract,
   });
   // Decision models (TypeSafe) cannot run chat.
   const chatProviders = llmModels?.byokProviders.filter((g) => !isDecisionAdapter(g.adapter)) ?? [];
@@ -155,15 +159,17 @@ export function AiAssistantPanel({
     <div className={rootCls}>
       {/* Header */}
       <div className={headerCls}>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={btnCls}
-          title="New session"
-          onClick={handleNewSession}
-        >
-          <Plus className={iconCls} />
-        </Button>
+        {canInteract && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={btnCls}
+            title="New session"
+            onClick={handleNewSession}
+          >
+            <Plus className={iconCls} />
+          </Button>
+        )}
         <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -188,6 +194,7 @@ export function AiAssistantPanel({
               projectId={projectId ?? ""}
               onSelect={handleSelectSession}
               onDelete={handleDeleteSession}
+              readOnly={!canInteract}
             />
           </PopoverContent>
         </Popover>
@@ -209,7 +216,7 @@ export function AiAssistantPanel({
         }
       >
         {/* Unsupported model warning */}
-        {unsupportedModels.length > 0 && (
+        {canInteract && unsupportedModels.length > 0 && (
           <div className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-[12px] dark:border-yellow-900 dark:bg-yellow-950">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600" />
             <div>
@@ -233,7 +240,9 @@ export function AiAssistantPanel({
         )}
 
         {/* Messages */}
-        {!hasModels ? (
+        {readOnly && messages.length === 0 ? (
+          <DemoAgentExamples projectId={projectId} />
+        ) : !readOnly && !hasModels ? (
           <div className="flex flex-1 items-center justify-center px-6">
             <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
               <AlertTriangle className="h-8 w-8 text-yellow-500" />
@@ -251,7 +260,7 @@ export function AiAssistantPanel({
               </p>
             </div>
           </div>
-        ) : messages.length === 0 && emptyState && !isStreaming ? (
+        ) : canInteract && messages.length === 0 && emptyState && !isStreaming ? (
           // m-auto (not items/justify-center) so that when the region is
           // shorter than the content, the top stays reachable by scrolling
           // instead of clipping outside the scroll container.
@@ -276,7 +285,7 @@ export function AiAssistantPanel({
         {/* A parked proposal is decided here, at the composer, not on its
             card: create/skip are the reply. Keyed by the decision so a
             superseding proposal re-arms the buttons in place. */}
-        {pendingDecision !== null && (
+        {canInteract && pendingDecision !== null && (
           <PendingDecisionBar
             key={pendingDecision.decisionId}
             decision={pendingDecision}
@@ -285,32 +294,39 @@ export function AiAssistantPanel({
         )}
 
         {/* Input */}
-        <MessageInput
-          onSend={handleSend}
-          modelSelection={modelSelection}
-          onModelChange={setModelSelection}
-          disabled={!projectId || !hasModels}
-          workspaceId={workspaceId}
-          // While a proposal awaits a decision, a typed reply revises it —
-          // except a delete, which a reply skips; the bar says so instead.
-          placeholder={
-            hasPendingDecision && pendingDecision?.approvalClass !== "approval"
-              ? "Reply to revise"
-              : undefined
-          }
-          actions={
-            isStreaming && (
-              <button
-                onClick={handleAbort}
-                className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                title="Stop generation"
-              >
-                <Square className="h-3 w-3 fill-current" />
-                Stop
-              </button>
-            )
-          }
-        />
+        {canInteract && (
+          <MessageInput
+            onSend={handleSend}
+            modelSelection={modelSelection}
+            onModelChange={setModelSelection}
+            disabled={!projectId || !hasModels}
+            workspaceId={workspaceId}
+            // While a proposal awaits a decision, a typed reply revises it —
+            // except a delete, which a reply skips; the bar says so instead.
+            placeholder={
+              hasPendingDecision && pendingDecision?.approvalClass !== "approval"
+                ? "Reply to revise"
+                : undefined
+            }
+            actions={
+              isStreaming && (
+                <button
+                  onClick={handleAbort}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title="Stop generation"
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                  Stop
+                </button>
+              )
+            }
+          />
+        )}
+        {readOnly && messages.length > 0 && (
+          <p className="border-t px-4 py-3 text-[12px] text-muted-foreground">
+            Demo conversations are read-only.
+          </p>
+        )}
       </div>
       {projectId && (
         <AgentTraceSheet

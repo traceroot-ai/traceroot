@@ -12,6 +12,7 @@ import {
   flattenAvailableModels,
   pickDefaultModel,
 } from "@/features/ai-assistant/lib/resolve-model";
+import { useDemoAgentAccess } from "@/features/ai-assistant/hooks/use-demo-agent-access";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 
 // Starter prompts shown while the current session has no messages. Clicking
@@ -32,6 +33,7 @@ export default function HomePage() {
   const params = useParams();
   const projectId = params.projectId as string;
   const { registerAiHost, aiContext, setAiContext, aiInitialSessionId } = useLayout();
+  const { readOnly, loading: accessLoading } = useDemoAgentAccess(projectId);
   const { handleSend } = useAiChatContext();
 
   // Claim the AI slot for this page so AppLayout's project rail can never
@@ -70,7 +72,7 @@ export default function HomePage() {
   const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && !readOnly && !accessLoading,
   });
   const defaultModel = pickDefaultModel(flattenAvailableModels(llmModels, false));
 
@@ -78,36 +80,37 @@ export default function HomePage() {
   // (between the toolbar and the input). Suppressed during a session handoff
   // so the greeting can't flash while the handed-off session's messages load;
   // the panel itself hides it as soon as the conversation has messages.
-  const greeting = aiInitialSessionId ? undefined : (
-    <div className="text-center">
-      <h1 className="text-[15px] font-medium">How can I help?</h1>
-      <p className="mt-1 text-[12px] text-muted-foreground">
-        Ask about this project&apos;s traces, sessions, errors, and detector findings.
-      </p>
-      <div className="mt-4 flex flex-wrap justify-center gap-2">
-        {STARTER_PROMPTS.map(({ icon: Icon, text }) => (
-          <button
-            key={text}
-            type="button"
-            disabled={!defaultModel}
-            onClick={() => {
-              if (!defaultModel) return;
-              void handleSend(text, {
-                model: defaultModel.id,
-                provider: defaultModel.provider,
-                source: defaultModel.source,
-                adapter: defaultModel.adapter,
-              });
-            }}
-            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            {text}
-          </button>
-        ))}
+  const greeting =
+    aiInitialSessionId || readOnly || accessLoading ? undefined : (
+      <div className="text-center">
+        <h1 className="text-[15px] font-medium">How can I help?</h1>
+        <p className="mt-1 text-[12px] text-muted-foreground">
+          Ask about this project&apos;s traces, sessions, errors, and detector findings.
+        </p>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          {STARTER_PROMPTS.map(({ icon: Icon, text }) => (
+            <button
+              key={text}
+              type="button"
+              disabled={!defaultModel}
+              onClick={() => {
+                if (!defaultModel) return;
+                void handleSend(text, {
+                  model: defaultModel.id,
+                  provider: defaultModel.provider,
+                  source: defaultModel.source,
+                  adapter: defaultModel.adapter,
+                });
+              }}
+              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              {text}
+            </button>
+          ))}
+        </div>
       </div>
-    </div>
-  );
+    );
 
   return (
     <div className="flex h-full flex-col text-[13px]">

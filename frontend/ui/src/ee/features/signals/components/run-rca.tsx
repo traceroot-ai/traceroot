@@ -1,5 +1,6 @@
 "use client";
 
+import { useDemoAgentAccess } from "@/features/ai-assistant/hooks/use-demo-agent-access";
 import { Button } from "@/components/ui/button";
 import { rcaInProgress, useRequestSignalRca } from "../hooks";
 
@@ -23,7 +24,11 @@ export function RunRca({
   /** False when the caller already says whether it failed or is running (until a new request starts). */
   showState?: boolean;
 }) {
+  const { readOnly, loading } = useDemoAgentAccess(projectId);
   const request = useRequestSignalRca(projectId, signalId);
+  if (loading) return null;
+  if (readOnly)
+    return <p className="text-[12px] text-muted-foreground">Demo analyses are read-only.</p>;
   if (!available) {
     return (
       <p className="text-[12px] text-muted-foreground">

@@ -3,9 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
+  readOnly: false,
   mutate: vi.fn(),
   isPending: false,
   isError: false,
+}));
+vi.mock("@/features/ai-assistant/hooks/use-demo-agent-access", () => ({
+  useDemoAgentAccess: () => ({ readOnly: mocks.readOnly, loading: false }),
 }));
 vi.mock("../hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../hooks")>();
@@ -23,6 +27,7 @@ import { RunRca } from "./run-rca";
 
 afterEach(() => {
   cleanup();
+  mocks.readOnly = false;
   mocks.mutate.mockReset();
   mocks.isPending = false;
   mocks.isError = false;
@@ -77,4 +82,12 @@ describe("RunRca", () => {
       "Analysis could not start. Please try again.",
     );
   });
+});
+
+it("hides execution for a read-only demo visitor", () => {
+  mocks.readOnly = true;
+  render(<RunRca projectId="p1" signalId="s1" state={null} available />);
+  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.getByText("Demo analyses are read-only.")).toBeTruthy();
+  expect(mocks.mutate).not.toHaveBeenCalled();
 });
