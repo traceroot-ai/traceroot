@@ -11,7 +11,8 @@
 // see settings as before. The API routes behind the denied pages return 403
 // to demo viewers, so this is presentation, not the security boundary.
 import { type ReactNode } from "react";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Info } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useProject } from "@/features/projects/hooks";
 import { useWorkspace } from "@/features/workspaces/hooks";
 import { isDemoWorkspaceViewer } from "@/features/workspaces/utils";
@@ -128,9 +129,14 @@ export function SettingsAccessGate({
     case "read-only":
       return (
         <>
-          <p className="mb-4 text-sm text-muted-foreground">
-            Settings in this demo {access.scope ?? "project"} are read-only.
-          </p>
+          <Card className="mb-4 border-border bg-muted/50 shadow-none">
+            <CardContent className="flex items-start gap-2 p-3">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <CardDescription className="text-[13px]">
+                Settings in this demo {access.scope ?? "project"} are read-only.
+              </CardDescription>
+            </CardContent>
+          </Card>
           <fieldset disabled className="min-w-0" data-testid="settings-read-only">
             {children}
           </fieldset>

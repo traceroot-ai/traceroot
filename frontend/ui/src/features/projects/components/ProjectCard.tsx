@@ -18,7 +18,7 @@ export function ProjectCard({ project, isDemo = false }: ProjectCardProps) {
 
   return (
     <Card
-      className="cursor-pointer transition-all hover:border-foreground/20 hover:shadow-md"
+      className="min-h-[85px] cursor-pointer transition-all hover:border-foreground/20 hover:shadow-md"
       onClick={() => router.push(`/projects/${project.id}/traces`)}
     >
       <CardContent className="p-4">

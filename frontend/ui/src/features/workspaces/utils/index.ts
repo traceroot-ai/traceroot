@@ -54,11 +54,6 @@ export function isDemoWorkspaceViewer(
   return !!workspace?.is_demo && workspace.role !== Role.ADMIN;
 }
 
-/** The label next to the demo workspace: "Demo" for its admins, "Demo · view only" otherwise. */
-export function demoWorkspaceLabel(role: string | undefined): string {
-  return role === Role.ADMIN ? "Demo" : "Demo · view only";
-}
-
 /**
  * Where the home page sends a signed-in user. The demo workspace is not one of
  * the user's own, so a user who has only the demo still goes to onboarding.
