@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { useWorkspace } from "@/features/workspaces/hooks";
 import { createModelProvider, getModelProviders, testModelProvider } from "@/lib/api";
-import { ImpersonationError } from "@/lib/api/errors";
+import { ApiError, ImpersonationError } from "@/lib/api/errors";
 
 /**
  * Whether this step can configure an adapter by itself, from that adapter's two
@@ -91,6 +91,12 @@ function settingsOnlyNote(): string {
       : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
   return `${list} need more than a key — add those in workspace settings.`;
 }
+
+/**
+ * For a failure that carries nothing the user can act on. Every response that
+ * does carry something shows that instead.
+ */
+const GENERIC_SAVE_FAILURE = "Could not save the key. Please try again.";
 
 interface ModelProviderBlockProps {
   workspaceId: string;
@@ -181,8 +187,20 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
         setFailure({ message: error.message, detail: error.detail });
       } else if (error instanceof ImpersonationError) {
         setFailure({ message: error.message });
+      } else if (error instanceof ApiError) {
+        // The route's own words, which are written for this reader: "BYOK is
+        // not available on your current plan" on a 403, "API key is required"
+        // or the first schema issue on a 400. Collapsing those into a retry
+        // prompt invites the user to keep resending a request that cannot
+        // succeed however many times they send it.
+        //
+        // A response that carried no message of its own leaves ApiError holding
+        // the status it synthesizes in that case, which tells the user nothing,
+        // so that one keeps the generic line.
+        const synthesized = error.message === `API error: ${error.status}`;
+        setFailure({ message: synthesized ? GENERIC_SAVE_FAILURE : error.message });
       } else {
-        setFailure({ message: "Could not save the key. Please try again." });
+        setFailure({ message: GENERIC_SAVE_FAILURE });
       }
     },
   });

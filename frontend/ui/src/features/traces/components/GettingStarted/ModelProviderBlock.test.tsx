@@ -50,6 +50,7 @@ vi.mock("@/components/ui/select", () => ({
   ),
 }));
 
+import { ApiError } from "@/lib/api/errors";
 import {
   INLINE_ADAPTERS,
   isInlineConfigurable,
@@ -216,6 +217,39 @@ describe("what the write sends", () => {
       apiKey: "sk-openai",
       customModels: ADAPTER_MODELS.openai!.map((m) => m.id),
     });
+  });
+});
+
+describe("a write the api refused", () => {
+  it("shows the reason the route gave rather than a prompt to retry it", async () => {
+    // The entitlement refusal and the schema failures all come back as the
+    // route's own string. Retrying any of them resends a request that will be
+    // refused on exactly the same grounds.
+    mocks.createModelProvider.mockRejectedValue(
+      new ApiError(403, "BYOK is not available on your current plan"),
+    );
+
+    renderBlock();
+    const field = await fillKey("sk-valid-but-unentitled");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    expect(await screen.findByText(/not available on your current plan/)).toBeTruthy();
+    expect(screen.queryByText(/Please try again/)).toBeNull();
+    // Nothing was stored, so the key stays where it can be reused.
+    expect(field.value).toBe("sk-valid-but-unentitled");
+  });
+
+  it("keeps the generic line for a response that carried no message of its own", async () => {
+    // ApiError synthesizes `API error: <status>` when the body had no `error`
+    // field. Putting that on screen tells the user less than saying nothing.
+    mocks.createModelProvider.mockRejectedValue(new ApiError(500, { unexpected: true }));
+
+    renderBlock();
+    await fillKey("sk-fine");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+
+    expect(await screen.findByText("Could not save the key. Please try again.")).toBeTruthy();
+    expect(screen.queryByText(/API error: 500/)).toBeNull();
   });
 });
 
