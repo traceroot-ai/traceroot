@@ -11,9 +11,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
-import { createWorkspace, updateWorkspace, createProject, getWorkspaces } from "@/lib/api";
+import {
+  createWorkspace,
+  updateWorkspace,
+  createProject,
+  getProjects,
+  getWorkspaces,
+} from "@/lib/api";
 import { ApiError } from "@/lib/api/errors";
-import type { Workspace } from "@/types/api";
+import type { Project, Workspace } from "@/types/api";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
 import { Check } from "lucide-react";
@@ -109,6 +115,63 @@ async function createOrAdoptWorkspace(name: string): Promise<{ id: string; name:
       throw err;
     }
     return { id: adopted.id, name };
+  }
+}
+
+// The project a 409 collided with, when the workspace's own list names it.
+//
+// There is no ownership to establish here, unlike the workspace lookup above.
+// `uq_project_workspace_live_name` is scoped to one workspace, the caller is
+// already a member of that workspace (the route refuses anyone else with a
+// 403), and the listing leaves out soft-deleted rows — which the index also
+// ignores. So a live row under this name is the row the create collided with,
+// and the index permits exactly one of them. More than one would mean the index
+// is not there, which is not something to adopt a project on.
+function findLiveProjectByName(projects: Project[], name: string): Project | null {
+  const live = projects.filter((project) => project.name === name && !project.delete_time);
+  return live.length === 1 ? live[0] : null;
+}
+
+// The project this attempt should use: a new one, or the one an earlier attempt
+// created and could not report back.
+//
+// The same lost response as the workspace above, one step later. `createdProject`
+// is set from the response, so a POST that commits without answering leaves it
+// null and the retry submits the same name into the same workspace — by then the
+// adopted or remembered one, so the collision is with the project the first
+// attempt wrote. The route answers 409 and that is the end of the account: this
+// is the last screen of sign-up and pressing Create is all it offers.
+//
+// The status identifies the collision on its own, as it does for the workspace:
+// this endpoint's only 409 is that constraint (see
+// app/api/workspaces/[workspaceId]/projects/route.ts, which maps Prisma's P2002
+// to it; everything else it refuses is a 400 or a 403). The lookup is guarded
+// regardless, so a 409 that came to mean something else could not adopt
+// anything.
+//
+// In project-only mode the workspace can be a shared one, where the 409 can
+// instead be a teammate's project under the same name. Adopting it is still the
+// better of the two answers: the user is a member of that workspace, the project
+// is the one they asked for by name, and the alternative is a first run that
+// cannot be finished. What this does not recover is an edited name after a lost
+// response — with no id in hand a retry under a different name cannot collide,
+// so it creates a second project and leaves the first unmentioned.
+async function createOrAdoptProject(
+  workspaceId: string,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  try {
+    const project = await createProject(workspaceId, name);
+    return { id: project.id, name: project.name };
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.status !== 409) {
+      throw err;
+    }
+    const adopted = findLiveProjectByName(await getProjects(workspaceId), name);
+    if (!adopted) {
+      throw err;
+    }
+    return { id: adopted.id, name: adopted.name };
   }
 }
 
@@ -303,7 +366,7 @@ function OnboardingContent() {
         return;
       }
 
-      const project = await createProject(workspaceId, projectName);
+      const project = await createOrAdoptProject(workspaceId, projectName);
 
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
 

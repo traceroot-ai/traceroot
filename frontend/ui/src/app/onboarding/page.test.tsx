@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   updateWorkspace: vi.fn(),
   createProject: vi.fn(),
   getWorkspaces: vi.fn(),
+  getProjects: vi.fn(),
   params: new URLSearchParams(),
   // The user carries an id as well as an email, because the page caches the
   // workspace list per account: a session without one would key every
@@ -78,6 +79,7 @@ vi.mock("@/lib/api", () => ({
   updateWorkspace: mocks.updateWorkspace,
   createProject: mocks.createProject,
   getWorkspaces: mocks.getWorkspaces,
+  getProjects: mocks.getProjects,
 }));
 // Not mocked, and deliberately: the page tells a name collision from any other
 // refusal by the status on this class, so a stand-in shape would let the page
@@ -88,6 +90,19 @@ import OnboardingPage from "./page";
 // What POST /api/workspaces answers when `uq_workspace_created_by_name` refuses
 // the write (see app/api/workspaces/route.ts, which maps Prisma's P2002 to it).
 const NAME_TAKEN = () => new ApiError(409, "A workspace with this name already exists");
+// And what POST /api/workspaces/[workspaceId]/projects answers when
+// `uq_project_workspace_live_name` refuses the write (see that route, which maps
+// the same P2002 to it).
+const PROJECT_NAME_TAKEN = () => new ApiError(409, "A project with this name already exists");
+// Shaped like that route's GET answers it: live projects only, each carrying the
+// `delete_time` the page checks.
+const LIVE_PROJECT = {
+  id: "proj-existing",
+  name: "my-llm-project",
+  trace_ttl_days: null,
+  delete_time: null,
+  create_time: "2026-01-01T00:00:00.000Z",
+};
 
 function makeQueryClient() {
   return new QueryClient({
@@ -142,6 +157,9 @@ beforeEach(() => {
   // every test that exercises the form is a first-run account unless it says
   // otherwise.
   mocks.getWorkspaces.mockResolvedValue([]);
+  // Only reached when a project create collides, so an empty list is the honest
+  // default: a test that expects an adoption says what the workspace holds.
+  mocks.getProjects.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -151,6 +169,7 @@ afterEach(() => {
   mocks.updateWorkspace.mockReset();
   mocks.createProject.mockReset();
   mocks.getWorkspaces.mockReset();
+  mocks.getProjects.mockReset();
   mocks.params = new URLSearchParams();
   signedInAs("user-1", "kai@example.com");
 });
@@ -607,6 +626,58 @@ describe("OnboardingPage", () => {
     // Once, for the check that let the form render.
     expect(mocks.getWorkspaces).toHaveBeenCalledTimes(1);
     expect(mocks.createProject).not.toHaveBeenCalled();
+  });
+
+  it("finishes the project a lost response left behind instead of dead-ending on it", async () => {
+    // The workspace half of this one step later, and the worse half: the
+    // project POST commits, the response never arrives, and the retry reuses
+    // the workspace and submits the same project name into it. That collides
+    // with `uq_project_workspace_live_name`, and this is the last screen of
+    // sign-up — so the collision has to resolve to the project it collided
+    // with rather than leave the account on a button that cannot work.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1", name: "My Workspace" });
+    mocks.createProject.mockRejectedValue(PROJECT_NAME_TAKEN());
+    mocks.getProjects.mockResolvedValue([LIVE_PROJECT]);
+    renderPage();
+
+    await reachHandback();
+
+    expect(mocks.getProjects).toHaveBeenCalledWith("ws-1");
+    expect(shownCommand()).toContain("--project proj-existing");
+    expect(mocks.createProject).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("A project with this name already exists")).toBeNull();
+  });
+
+  it("keeps the collision when the workspace has no live project under the name", async () => {
+    // A 409 whose project the listing cannot produce is not one to act on: the
+    // row may have been soft-deleted between the two requests, or the status may
+    // have come to mean something this page does not know about. Either way the
+    // refusal stands and says what it refused.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1", name: "My Workspace" });
+    mocks.createProject.mockRejectedValue(PROJECT_NAME_TAKEN());
+    mocks.getProjects.mockResolvedValue([
+      { ...LIVE_PROJECT, delete_time: "2026-01-02T00:00:00.000Z" },
+      { ...LIVE_PROJECT, id: "proj-other", name: "something-else" },
+    ]);
+    renderPage();
+    await clickCreate();
+
+    await waitFor(() =>
+      expect(screen.getByText("A project with this name already exists")).toBeDefined(),
+    );
+  });
+
+  it("does not go looking for a project when the create failed for another reason", async () => {
+    // A 500 says nothing about whether a project exists under this name, and
+    // adopting one found anyway would hand the user a project this attempt has
+    // no claim on.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1", name: "My Workspace" });
+    mocks.createProject.mockRejectedValue(new ApiError(500, "project service unavailable"));
+    renderPage();
+    await clickCreate();
+
+    await waitFor(() => expect(screen.getByText("project service unavailable")).toBeDefined());
+    expect(mocks.getProjects).not.toHaveBeenCalled();
   });
 
   it("shows the derived workspace name once a pending session resolves", async () => {
