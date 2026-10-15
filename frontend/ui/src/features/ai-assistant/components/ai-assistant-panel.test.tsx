@@ -301,7 +301,7 @@ it.each(["VIEWER", "MEMBER"])(
     mocks.workspaceData = { is_demo: true, role };
     mocks.projectData = { workspace_id: "demo" };
     mocks.llmModels = { systemModels: [], byokProviders: [] };
-    render(<AiAssistantPanel projectId="p1" onClose={() => {}} />);
+    render(<AiAssistantPanel projectId="p1" variant="page" onClose={() => {}} />);
     expect(screen.queryByTestId("message-input")).toBeNull();
     expect(screen.queryByTitle("New session")).toBeNull();
     expect(screen.getByText("Example investigations")).toBeTruthy();

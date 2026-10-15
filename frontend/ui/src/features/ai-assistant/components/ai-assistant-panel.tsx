@@ -241,7 +241,18 @@ export function AiAssistantPanel({
 
         {/* Messages */}
         {readOnly && messages.length === 0 ? (
-          <DemoAgentExamples projectId={projectId} />
+          variant === "page" ? (
+            <DemoAgentExamples projectId={projectId} />
+          ) : (
+            <div className="p-4 text-[12px] text-muted-foreground">
+              Demo conversations are read-only.{" "}
+              {projectId && (
+                <a className="underline" href={`/projects/${projectId}/home`}>
+                  Explore an example investigation on Home.
+                </a>
+              )}
+            </div>
+          )
         ) : !readOnly && !hasModels ? (
           <div className="flex flex-1 items-center justify-center px-6">
             <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
