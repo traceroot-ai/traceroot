@@ -86,8 +86,11 @@ const serverSchema = z.object({
   // AI chat in the demo workspace for members below MEMBER (visitors): the
   // number of messages each user may send per UTC day, and the one system
   // model their chats use.
-  DEMO_AI_DAILY_MESSAGE_LIMIT: z.coerce.number().int().min(0).default(5),
-  DEMO_AI_MODEL: z.string().default("claude-haiku-4-5"),
+  DEMO_AI_DAILY_MESSAGE_LIMIT: z.preprocess(
+    (value) => (typeof value === "string" && !value.trim() ? undefined : value),
+    z.coerce.number().int().min(0).default(5),
+  ),
+  DEMO_AI_MODEL: z.string().trim().min(1).default("claude-haiku-4-5"),
 });
 
 export const env = serverSchema.parse(process.env);

@@ -30,6 +30,7 @@ function decide(workspaceId: string, role: string) {
 beforeEach(() => {
   env.DEMO_WORKSPACE_ID = "ws_demo";
   env.DEMO_AI_DAILY_MESSAGE_LIMIT = 5;
+  env.DEMO_AI_MODEL = "claude-haiku-4-5";
   countMock.mockReset();
 });
 
@@ -60,6 +61,15 @@ describe("decideDemoChat", () => {
     });
   });
 
+  it("uses the configured model", async () => {
+    env.DEMO_AI_MODEL = "custom-demo-model";
+    countMock.mockResolvedValue(0);
+    expect(await decide("ws_demo", "VIEWER")).toMatchObject({
+      kind: "limited",
+      choice: { model: "custom-demo-model" },
+    });
+  });
+
   it("blocks a demo visitor with 429 at the limit", async () => {
     countMock.mockResolvedValue(5);
     const decision = await decide("ws_demo", "VIEWER");
@@ -76,16 +86,18 @@ describe("decideDemoChat", () => {
     expect((await decide("ws_demo", "VIEWER")).kind).toBe("blocked");
   });
 
-  it("counts only this user's chat messages since the start of the UTC day", async () => {
+  it("counts this user's chat and attributed RCA messages since the start of the UTC day", async () => {
     countMock.mockResolvedValue(0);
     await decide("ws_demo", "VIEWER");
     expect(countMock).toHaveBeenCalledWith({
       where: {
         workspaceId: "ws_demo",
-        kind: "chat",
         role: "user",
         createTime: { gte: new Date("2026-10-14T00:00:00Z") },
-        session: { userId: "u1" },
+        OR: [
+          { kind: "chat", session: { userId: "u1" } },
+          { kind: "rca", metadata: { path: ["initiatorUserId"], equals: "u1" } },
+        ],
       },
     });
   });

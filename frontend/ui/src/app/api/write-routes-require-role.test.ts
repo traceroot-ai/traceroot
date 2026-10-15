@@ -4,14 +4,15 @@
  * membership check and can write — the demo workspace makes every user a
  * viewer, so this must not regress.
  *
- * The check is textual: it follows each exported POST/PUT/PATCH/DELETE to its
- * handler body (in the route file or the module it imports from) and looks for
- * a role argument. A handler that is meant to be open to viewers goes in
+ * The check follows each exported POST/PUT/PATCH/DELETE to its handler body
+ * (in the route file or the module it imports from), then parses authorization
+ * calls for a role argument. A handler that is meant to be open to viewers goes in
  * ALLOWED with the reason.
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 
 const SRC = path.resolve(__dirname, "../..");
 const API = path.join(SRC, "app/api");
@@ -38,7 +39,30 @@ const CREDENTIAL_READS = ["GET /api/github/token"];
 // Calls that carry a role floor, e.g. requireProjectAccess(id, pid, Role.MEMBER),
 // requireProjectAuth(params, Role.MEMBER), authorize(projectId, Role.MEMBER),
 // requireWorkspaceMembership(uid, wid, "ADMIN").
-const ROLE_ARG = /\bRole\.(?:MEMBER|ADMIN)\b|["'](?:MEMBER|ADMIN)["']/;
+function hasRoleCheck(source: string): boolean {
+  const file = ts.createSourceFile("handler.ts", source, ts.ScriptTarget.Latest, true);
+  let found = false;
+  function visit(node: ts.Node) {
+    if (
+      ts.isCallExpression(node) &&
+      /^(require\w*|authorize|access)$/.test(node.expression.getText(file))
+    ) {
+      found ||= node.arguments.some((argument) => {
+        let arg = argument;
+        while (ts.isAsExpression(arg) || ts.isParenthesizedExpression(arg)) arg = arg.expression;
+        return (
+          (ts.isPropertyAccessExpression(arg) &&
+            arg.expression.getText(file) === "Role" &&
+            /^(MEMBER|ADMIN)$/.test(arg.name.text)) ||
+          (ts.isStringLiteral(arg) && /^(MEMBER|ADMIN)$/.test(arg.text))
+        );
+      });
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  return found;
+}
 
 function walk(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -110,6 +134,12 @@ const writeHandlers = TREES.flatMap((tree) => walk(path.join(API, tree))).flatMa
 });
 
 describe("write routes require a minimum role", () => {
+  it("requires an authorization call, not comments or incidental role strings", () => {
+    expect(hasRoleCheck('// requireAccess(id, Role.ADMIN)\nthrow Error("ADMIN");')).toBe(false);
+    expect(hasRoleCheck('const role = Role.MEMBER; log("ADMIN");')).toBe(false);
+    expect(hasRoleCheck("await requireProjectAccess(uid, pid, Role.MEMBER);")).toBe(true);
+    expect(hasRoleCheck('await requireWorkspaceMembership(uid, wid, "ADMIN");')).toBe(true);
+  });
   it("finds the write handlers it guards", () => {
     expect(writeHandlers.length).toBeGreaterThan(30);
     expect(writeHandlers.every((h) => h.body !== null)).toBe(true);
@@ -117,13 +147,13 @@ describe("write routes require a minimum role", () => {
 
   it("every write handler passes MEMBER or ADMIN, or is allowed with a reason", () => {
     const missing = writeHandlers
-      .filter((h) => !(h.key in ALLOWED) && !ROLE_ARG.test(h.body ?? ""))
+      .filter((h) => !(h.key in ALLOWED) && !hasRoleCheck(h.body ?? ""))
       .map((h) => h.key);
     expect(missing).toEqual([]);
   });
 
   it("reads that hand out a write credential also pass MEMBER or ADMIN", () => {
-    const missing = CREDENTIAL_READS.filter((key) => !ROLE_ARG.test(handlerFor(key) ?? ""));
+    const missing = CREDENTIAL_READS.filter((key) => !hasRoleCheck(handlerFor(key) ?? ""));
     expect(missing).toEqual([]);
   });
 

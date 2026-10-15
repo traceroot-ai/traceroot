@@ -39,10 +39,12 @@ export async function decideDemoChat(params: {
   const sent = await prisma.aIMessage.count({
     where: {
       workspaceId,
-      kind: "chat",
       role: "user",
       createTime: { gte: startOfUtcDay(params.now ?? new Date()) },
-      session: { userId },
+      OR: [
+        { kind: "chat", session: { userId } },
+        { kind: "rca", metadata: { path: ["initiatorUserId"], equals: userId } },
+      ],
     },
   });
   if (sent >= limit) {
