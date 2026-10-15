@@ -2526,21 +2526,40 @@ describe("readCardModel: widget and dashboard reads", () => {
         resourceType: "widget",
         resourceId: "w-1",
         title: "Tokens by model",
-        meta: ["Widget", "Overview", "Last 7 days"],
+        meta: ["Widget", "Overview", "Sep 01, 00:00 - Sep 08, 00:00"],
         href: "/projects/p1/dashboard/db1",
         body: {
           kind: "widget",
           chips: ["view spans", "sum(total_tokens)", "by model_name", "bar"],
-          chart: { projectId: "p1", range: preset("7d") },
+          chart: { projectId: "p1", range: { label: "Sep 01, 00:00 - Sep 08, 00:00" } },
         },
       },
     });
-    // Labeled by the preset, drawn over the exact span the read answered:
-    // a reloaded card must not slide to a new "now".
+    // Labeled by the span it is drawn over, not by the preset the read asked
+    // for: a reloaded card must not slide to a new "now", nor say "Last 7
+    // days" over a week that is no longer the last one.
     const chart = (resourceModel(model).body as { chart: { bounds?: unknown } }).chart;
     expect(chart.bounds).toEqual({
       start: "2026-09-01T00:00:00.000Z",
       end: "2026-09-08T00:00:00.000Z",
+    });
+  });
+
+  it("labels a preset read by its span, however long ago it was answered", () => {
+    // Reopened days later, "Last 24 hours" would describe a window the chart
+    // does not show.
+    vi.setSystemTime(new Date("2026-09-14T12:00:00Z"));
+    const window = {
+      start_time: "2026-09-07T11:00:00Z",
+      end_time: "2026-09-08T11:00:00Z",
+      range: "1d",
+      clamped: false,
+    };
+    const model = readCardModel(readStep("get_widget_data", widgetRead({}, window)), "p1");
+    expect(resourceModel(model).meta[2]).toBe("Sep 07, 11:00 - Sep 08, 11:00");
+    expect((resourceModel(model).body as { chart: { bounds: unknown } }).chart.bounds).toEqual({
+      start: "2026-09-07T11:00:00.000Z",
+      end: "2026-09-08T11:00:00.000Z",
     });
   });
 
@@ -2654,7 +2673,7 @@ describe("readCardModel: widget and dashboard reads", () => {
         resourceType: "dashboard",
         resourceId: "db1",
         title: "Overview",
-        meta: ["Dashboard", "3 widgets", "Last 7 days"],
+        meta: ["Dashboard", "3 widgets", "Sep 01, 00:00 - Sep 08, 00:00"],
         href: "/projects/p1/dashboard/db1",
       },
     });
@@ -2670,7 +2689,8 @@ describe("readCardModel: widget and dashboard reads", () => {
       title: "Tokens",
       projectId: "p1",
       widget: { type: "query", spec: WIDGET_SPEC },
-      range: preset("7d"),
+      range: { label: "Sep 01, 00:00 - Sep 08, 00:00" },
+      bounds: { start: "2026-09-01T00:00:00.000Z", end: "2026-09-08T00:00:00.000Z" },
     });
     // A kind the dashboard draws no body for keeps its place, empty.
     expect(tiles[2]!.widget).toBeNull();

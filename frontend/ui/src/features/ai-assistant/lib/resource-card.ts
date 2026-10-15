@@ -1812,11 +1812,12 @@ export function readCardModel(
  * the plot name the same one. Whenever the read says which bounds it
  * answered for, the plot draws exactly those — the figures in the agent's
  * reply came from that span, and a reloaded card must not slide to a new
- * "now" — labeled by the preset when it was one the panel knows and the
- * server did not clamp it, and by the span itself otherwise. A definition
- * read carries the page's preset with no bounds, and draws as that preset
- * (clamped to the plan, as the page clamps its own). A read that names no
- * window is drawn over the page's, like every other card.
+ * "now" — and the header names the span itself, never a preset: "Last 24
+ * hours" would be wrong the day after, when the chat is reopened. A
+ * definition read carries the page's preset with no bounds, draws relative
+ * to now, and says so by that preset (clamped to the plan, as the page
+ * clamps its own). A read that names no window is drawn over the page's,
+ * like every other card.
  */
 function readWindow(
   value: unknown,
@@ -1824,20 +1825,9 @@ function readWindow(
   retentionDays?: number | null,
 ): { range: DateFilterOption; bounds?: CardBounds } {
   const window = plainObject(value);
-  const rangeId = window === null ? null : str(window.range);
-  const known =
-    rangeId === null ? undefined : DATE_FILTER_OPTIONS.find((o) => o.id === rangeId && !o.isCustom);
   const start = window === null ? null : instant(window.start_time);
   const end = window === null ? null : instant(window.end_time);
-  const answered = start !== null && end !== null && end > start;
-  if (window !== null && known !== undefined && window.clamped !== true) {
-    const preset = findRangePreset(known.id);
-    return answered
-      ? { range: preset, bounds: { start: start.toISOString(), end: end.toISOString() } }
-      : { range: clampDateFilter(preset, retentionDays) };
-  }
-  if (answered) {
-    const bounds = { start: start.toISOString(), end: end.toISOString() };
+  if (start !== null && end !== null && end > start) {
     const custom = DATE_FILTER_OPTIONS.find((o) => o.isCustom);
     return {
       range: {
@@ -1846,8 +1836,14 @@ function readWindow(
         durationMinutes: null,
         isCustom: true,
       },
-      bounds,
+      bounds: { start: start.toISOString(), end: end.toISOString() },
     };
+  }
+  const rangeId = window === null ? null : str(window.range);
+  const known =
+    rangeId === null ? undefined : DATE_FILTER_OPTIONS.find((o) => o.id === rangeId && !o.isCustom);
+  if (known !== undefined) {
+    return { range: clampDateFilter(findRangePreset(known.id), retentionDays) };
   }
   return { range: resolveSiteRange(panelProjectId ?? null, retentionDays) };
 }
