@@ -26,9 +26,9 @@ if it comes back, more rows existed than the caller may have.
 names nor types for one, and an empty answer is the ordinary answer to a
 time-windowed query over a quiet day, so the response would not say what it was
 empty of: a CSV rendering loses its header row, and nothing reading the JSON can
-learn the shape of the answer. The projection is therefore derived from the
-caller's own statement in that case, which is the only reason this module reads
-SQL on the success path at all.
+learn the shape of the answer. The shape is therefore asked of the server, with
+``DESCRIBE`` over the very SQL that just ran, so the names and types returned are
+the ones the query would have come back with had a row matched.
 """
 
 from __future__ import annotations
@@ -43,12 +43,9 @@ import sqlglot
 import sqlglot.expressions as exp
 from clickhouse_connect.driver.exceptions import ClickHouseError
 from sqlglot.errors import SqlglotError
-from sqlglot.optimizer.qualify import qualify
-from sqlglot.optimizer.scope import build_scope
 
 from rest.services.sql.errors import SqlExecutionError
 from rest.services.sql.rewriter import scope_and_render
-from rest.services.sql.schema import PUBLIC_TABLES
 from shared.config import settings
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle only matters for type checkers
@@ -59,14 +56,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SqlColumn:
-    """One column of a result, named and typed as ClickHouse reported it.
-
-    ``type`` is ``None`` only for a result that came back with no rows and so no
-    metadata, and whose expression the curated schema cannot type on its own.
-    """
+    """One column of a result, named and typed as ClickHouse reported it."""
 
     name: str
-    type: str | None
+    type: str
 
 
 @dataclass(frozen=True)
@@ -265,156 +258,48 @@ def _placeholder_names(query: str) -> set[str]:
 # Describing a result the driver did not describe
 # ---------------------------------------------------------------------------
 
-#: The curated schema in the shape sqlglot's qualifier wants. It is what lets a
-#: ``SELECT *`` expand to the columns the views actually project, and it is the
-#: same contract ``GET /sql/schema`` publishes, so the two cannot disagree.
-_CURATED_SCHEMA: dict[str, dict[str, str]] = {
-    name: {column.name: column.type for column in table.columns}
-    for name, table in PUBLIC_TABLES.items()
-}
+#: ``DESCRIBE`` over a subquery, which is how the server is asked for the shape
+#: of an answer it already gave. It needs no privilege beyond the ``SELECT`` the
+#: query itself needed: verified on 25.2.2 as the read-only account holding only
+#: the two grants in ``bootstrap/sql_gateway_readonly.sql``.
+_DESCRIBE = "DESCRIBE (\n{sql}\n)"
 
 
-def _name_projections(node: exp.Expression) -> exp.Expression:
-    """Give every unnamed projection the text the caller wrote as its name.
+def _described_columns(
+    client: ClickHouseClient, sql: str, parameters: dict[str, Any]
+) -> list[SqlColumn]:
+    """Ask the server what the columns of *sql* are, for an answer with no rows.
 
-    The qualifier invents ``_col_0`` for an expression with no alias, which is a
-    name nobody wrote and ClickHouse never returns. The expression's own text is
-    at least the caller's own words, and it is what they would see rendered as a
-    CSV header. It is not always what ClickHouse would have called the column:
-    the server names an unaliased expression by its canonical form, so
-    ``duration_ms * 2`` comes back as ``multiply(duration_ms, 2)`` when there are
-    rows behind it. Aliasing the expression is how a caller pins either one.
-    """
-    if isinstance(node, exp.Select):
-        node.set(
-            "expressions",
-            [
-                projection
-                if projection.output_name
-                else exp.alias_(projection, projection.sql(dialect="clickhouse"), quoted=True)
-                for projection in node.expressions
-            ],
-        )
-    return node
+    Runs the identical statement, on the identical client, with the identical
+    parameters, so what comes back is the server's own naming and typing rather
+    than a second opinion about it. That matters in both directions. ClickHouse
+    names an unaliased expression by its canonical form, so ``duration_ms * 2``
+    comes back as ``multiply(duration_ms, 2)``, and it resolves a repeated alias
+    the way the query did, so ``SELECT span_id AS a, a`` is two columns both
+    called ``a``. Reading the statement instead gets each of those wrong, and a
+    wrong name is worse than a missing one because nothing downstream can tell.
 
+    ``DESCRIBE`` reads none of the underlying rows for the shapes measured on
+    25.2.2: no marks selected, no memory charged, a couple of milliseconds
+    against a project of 200k rows. The exception is a scalar subquery in the
+    projection, which the server evaluates while analysing, so that one shape
+    costs what the query itself cost. The account's settings profile caps it as
+    it caps everything else.
 
-def _canonical_tables(node: exp.Expression) -> exp.Expression:
-    """Spell every public table reference the way the curated schema spells it.
-
-    Layer 1 matches a table name case-insensitively and the rewriter emits the
-    curated view under its own lowercase name, so ``FROM SPANS`` is a query the
-    gateway accepts, scopes and answers. The qualifier below resolves columns
-    against ``_CURATED_SCHEMA``, whose keys are those canonical names, and
-    sqlglot does not fold the two together because ClickHouse identifiers are
-    case-sensitive. Left as written, a mixed-case table name resolved nothing: an
-    unqualified column and a ``*`` both failed outright, and a column written
-    against an alias came back with no type.
-
-    Only the table's own name is rewritten. A table alias and a column's
-    qualifier stay as the caller wrote them, because the executed SQL matches
-    those two case-sensitively (ClickHouse answers ``SPANS.span_id`` with code
-    47, whatever the table behind it is called), so folding either one here
-    would describe a projection the server never returned.
-    """
-    if isinstance(node, exp.Table):
-        identifier = node.args.get("this")
-        if isinstance(identifier, exp.Identifier) and identifier.name.lower() in PUBLIC_TABLES:
-            node.set(
-                "this",
-                exp.to_identifier(identifier.name.lower(), quoted=identifier.quoted),
-            )
-    return node
-
-
-def _widened_by_array_join(tree: exp.Expression) -> bool:
-    """True if a ``*`` in *tree* stands for more columns than the schema names.
-
-    ARRAY JOIN puts its own aliases in the row, and the curated schema describes
-    only the view's columns, so expanding a star from the schema alongside one
-    would name a projection shorter than the answer. It is the one construct the
-    gateway allows that widens a row this way; everything else a star can stand
-    for is a curated column or resolved from a subquery's own projection.
-    """
-    return any(join.args.get("kind") == "ARRAY" for join in tree.find_all(exp.Join)) and any(
-        select.is_star for select in tree.find_all(exp.Select)
-    )
-
-
-def _projected_columns(query: str) -> list[SqlColumn]:
-    """Describe the caller's projection, for a result that described nothing.
-
-    Reads the caller's own SQL rather than the rewritten form: the rewrite
-    replaces each logical table with a curated view whose name is not in the
-    public schema, and the caller's statement has already passed Layer 1, so it
-    parses and names nothing outside that schema. Nothing here reaches the
-    database or learns anything the caller did not already write.
-
-    Types are the half only ClickHouse settles, with one exception that is not a
-    guess: a projection that resolves to a curated column carries that column's
-    declared type. Anything computed comes back with no type at all, because a
-    type invented here would be trusted by whatever builds a schema from the
-    answer, and an absent one cannot be.
-
-    Returns an empty list if any part of the projection cannot be resolved,
-    which leaves the response as it was rather than describing it wrongly.
+    Returns an empty list if the call fails, which leaves the response exactly
+    as it would have been without this step.
     """
     try:
-        return _resolve_projection(query)
+        described = client.query(_DESCRIBE.format(sql=sql), parameters=parameters or None)
+        # DESCRIBE answers one row per column, name first and type second.
+        return [SqlColumn(name=row[0], type=row[1]) for row in described.result_rows]
     except Exception:
         # Broad on purpose. This runs after a query has already succeeded, and
-        # failing to describe the answer must never turn it into an error.
-        logger.debug("could not derive the projection of an empty result", exc_info=True)
+        # failing to describe the answer must never turn it into an error. The
+        # raw text may name the curated views, so it is logged and never
+        # returned.
+        logger.warning("could not describe the columns of an empty result", exc_info=True)
         return []
-
-
-def _resolve_projection(query: str) -> list[SqlColumn]:
-    """The work behind ``_projected_columns``, free to raise on anything odd."""
-    tree = sqlglot.parse_one(query, dialect="clickhouse")
-    if _widened_by_array_join(tree):
-        return []
-    qualified = qualify(
-        tree.transform(_name_projections).transform(_canonical_tables),
-        schema=_CURATED_SCHEMA,
-        dialect="clickhouse",
-        quote_identifiers=False,
-    )
-
-    # A set operation takes its column names from its first arm, as ClickHouse
-    # does. Its types are the common type across every arm, which nothing here
-    # can work out, so the arm's own types are deliberately not read.
-    root = qualified
-    while isinstance(root, exp.SetOperation):
-        root = root.this
-    if not isinstance(root, exp.Select):
-        return []
-
-    sources: dict[str, str] = {}
-    if root is qualified:
-        scope = build_scope(qualified)
-        if scope is not None:
-            # Lowercased on both sides, as every other table-name comparison in
-            # this layer is, rather than trusting the canonicalisation above to
-            # have reached this particular node.
-            sources = {
-                alias: source.name.lower()
-                for alias, source in scope.sources.items()
-                if isinstance(source, exp.Table) and source.name.lower() in PUBLIC_TABLES
-            }
-
-    columns: list[SqlColumn] = []
-    for projection in root.expressions:
-        if not projection.output_name or projection.is_star:
-            # One projection nobody can name leaves the whole list unreliable,
-            # and a list that does not match the answer is worse than none.
-            return []
-        inner = projection.this if isinstance(projection, exp.Alias) else projection
-        ch_type: str | None = None
-        if isinstance(inner, exp.Column):
-            table = sources.get(inner.table)
-            if table is not None:
-                ch_type = _CURATED_SCHEMA[table].get(inner.name)
-        columns.append(SqlColumn(name=projection.output_name, type=ch_type))
-    return columns
 
 
 class SqlQueryService:
@@ -514,9 +399,9 @@ class SqlQueryService:
         ]
         if not columns:
             # Only when the driver said nothing. See the module docstring: a
-            # result with no rows carries no metadata, and the caller's own
-            # statement is what says which columns the answer is empty of.
-            columns = _projected_columns(query)
+            # result with no rows carries no metadata, so the server is asked
+            # for the shape of the statement it has just answered.
+            columns = _described_columns(client, wrapped, merged_params)
 
         return SqlResult(
             columns=columns,

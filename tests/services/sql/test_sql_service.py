@@ -14,9 +14,7 @@ import pytest
 from clickhouse_connect.datatypes.registry import get_from_name
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
-from rest.services.sql import service as service_mod
 from rest.services.sql.errors import SqlExecutionError, SqlValidationError
-from rest.services.sql.schema import PUBLIC_TABLES
 from rest.services.sql.service import (
     SqlQueryService,
     classify_ch_error,
@@ -37,22 +35,45 @@ class FakeResult:
         self.summary = {"read_rows": "42", "read_bytes": "4096"}
 
 
+def _describe_rows(columns: list[tuple[str, str]]) -> list[list[Any]]:
+    """One row per column, as ClickHouse answers a DESCRIBE.
+
+    Name first and type second, then five fields this service never reads. They
+    are carried anyway so a test cannot pass by reading a two-element row that
+    the server does not send.
+    """
+    return [[name, ch_type, "", "", "", "", ""] for name, ch_type in columns]
+
+
 class FakeClient:
-    """Records the call and returns canned rows, or raises what it was given."""
+    """Records the call and returns canned rows, or raises what it was given.
+
+    A DESCRIBE is answered separately, because the service issues one only for a
+    result the driver did not describe, and what it returns is a different shape
+    from the query's own answer.
+    """
 
     def __init__(
         self,
         rows: list[list[Any]] | None = None,
         raises: Exception | None = None,
         columns: list[str] | None = None,
+        describes: list[tuple[str, str]] | None = None,
+        describe_raises: Exception | None = None,
     ):
         self.rows = rows if rows is not None else []
         self.raises = raises
         self.columns = columns
+        self.describes = describes
+        self.describe_raises = describe_raises
         self.calls: list[dict[str, Any]] = []
 
     def query(self, query: str, parameters: Any = None, settings: Any = None) -> FakeResult:
         self.calls.append({"query": query, "parameters": parameters, "settings": settings})
+        if query.lstrip().startswith("DESCRIBE"):
+            if self.describe_raises is not None:
+                raise self.describe_raises
+            return FakeResult(_describe_rows(self.describes or []), ["name", "type"])
         if self.raises is not None:
             raise self.raises
         return FakeResult(self.rows, self.columns)
@@ -61,6 +82,10 @@ class FakeClient:
     def last(self) -> dict[str, Any]:
         assert self.calls, "client was never called"
         return self.calls[-1]
+
+    @property
+    def describe_calls(self) -> list[dict[str, Any]]:
+        return [c for c in self.calls if c["query"].lstrip().startswith("DESCRIBE")]
 
 
 def _service(client: FakeClient, ceiling: int = 100) -> SqlQueryService:
@@ -480,142 +505,87 @@ class TestEmptyResultColumns:
 
     Every other test in this file has rows behind it, which is why none of them
     could fail on the answer being shapeless. An empty answer is the ordinary
-    answer to a time-windowed query over a quiet day.
+    answer to a time-windowed query over a quiet day, so the service asks the
+    server to describe the statement it has just run. These tests pin that the
+    ask happens, that it asks about the right statement, and that the answer is
+    passed through as given; what ClickHouse actually names a projection is
+    pinned against a real server in tests/integration.
     """
 
-    @staticmethod
-    def _empty() -> FakeClient:
-        return FakeClient(rows=[], columns=[])
-
-    def test_the_named_columns_come_from_the_statement(self) -> None:
-        result = _service(self._empty()).run("SELECT span_id, name FROM spans", PID)
-        assert [c.name for c in result.columns] == ["span_id", "name"]
+    def test_the_columns_come_from_the_server(self) -> None:
+        client = FakeClient(
+            rows=[], columns=[], describes=[("span_id", "String"), ("hits", "UInt64")]
+        )
+        result = _service(client).run("SELECT span_id, count() AS hits FROM spans", PID)
+        assert [(c.name, c.type) for c in result.columns] == [
+            ("span_id", "String"),
+            ("hits", "UInt64"),
+        ]
         assert result.rows == []
         assert result.row_count == 0
 
-    def test_a_curated_column_carries_its_declared_type(self) -> None:
-        result = _service(self._empty()).run("SELECT span_id, duration_ms FROM spans", PID)
-        assert [(c.name, c.type) for c in result.columns] == [
-            ("span_id", "String"),
-            ("duration_ms", "Nullable(Int64)"),
-        ]
+    def test_the_server_is_asked_about_the_sql_that_just_ran(self) -> None:
+        # Not the caller's statement and not the rewritten one, but the wrapped
+        # form that was executed: that is the query whose answer was empty, and
+        # the only one whose shape is the answer's shape.
+        client = FakeClient(rows=[], columns=[], describes=[("span_id", "String")])
+        _service(client).run("SELECT span_id FROM spans", PID)
+        executed, described = client.calls[0]["query"], client.calls[1]["query"]
+        assert described == f"DESCRIBE (\n{executed}\n)"
 
-    def test_an_alias_names_the_column(self) -> None:
-        result = _service(self._empty()).run("SELECT span_id AS id FROM spans", PID)
-        assert [(c.name, c.type) for c in result.columns] == [("id", "String")]
+    def test_the_describe_carries_the_same_parameters(self) -> None:
+        # The scope bind among them. Without it the describe fails with code 456
+        # and the caller gets a shapeless answer for no reason.
+        client = FakeClient(rows=[], columns=[], describes=[("span_id", "String")])
+        _service(client).run("SELECT span_id FROM spans", PID, parameters={"v": "x"})
+        assert client.calls[1]["parameters"] == client.calls[0]["parameters"]
+        assert client.calls[1]["parameters"] == {"v": "x", "scope_project_id": PID}
 
-    def test_a_star_expands_to_the_curated_columns(self) -> None:
-        result = _service(self._empty()).run("SELECT * FROM traces", PID)
-        assert [(c.name, c.type) for c in result.columns] == [
-            (c.name, c.type) for c in PUBLIC_TABLES["traces"].columns
-        ]
-
-    def test_a_computed_column_is_named_but_left_untyped(self) -> None:
-        # Only ClickHouse settles what count() returns, and a type invented here
-        # would be trusted by whatever builds a schema from the answer.
-        result = _service(self._empty()).run(
-            "SELECT name, count() AS hits FROM spans GROUP BY name", PID
-        )
-        assert [(c.name, c.type) for c in result.columns] == [("name", "String"), ("hits", None)]
-
-    def test_an_unaliased_expression_is_named_as_it_was_written(self) -> None:
-        result = _service(self._empty()).run("SELECT duration_ms * 2 FROM spans", PID)
-        assert [(c.name, c.type) for c in result.columns] == [("duration_ms * 2", None)]
-
-    def test_each_side_of_a_join_keeps_its_own_type(self) -> None:
-        result = _service(self._empty()).run(
-            "SELECT sp.duration_ms, tr.user_id FROM spans AS sp"
-            " JOIN traces AS tr ON sp.trace_id = tr.trace_id",
-            PID,
-        )
-        assert [(c.name, c.type) for c in result.columns] == [
-            ("duration_ms", "Nullable(Int64)"),
-            ("user_id", "Nullable(String)"),
-        ]
-
-    def test_a_union_is_named_by_its_first_arm_and_left_untyped(self) -> None:
-        # ClickHouse names a union's columns after the first arm but types them as
-        # the common type across every arm, which nothing here can work out.
-        result = _service(self._empty()).run(
-            "SELECT span_id AS id FROM spans UNION ALL SELECT trace_id AS id FROM traces", PID
-        )
-        assert [(c.name, c.type) for c in result.columns] == [("id", None)]
-
-    def test_a_projection_that_cannot_be_resolved_describes_nothing(self) -> None:
-        # ARRAY JOIN puts its own alias in the row, so a `*` beside one stands for
-        # more than the curated schema names. Saying nothing beats saying it wrong.
-        result = _service(self._empty()).run(
-            "SELECT * FROM spans AS s ARRAY JOIN mapKeys(s.metadata) AS k", PID
-        )
-        assert result.columns == []
-
-    def test_the_driver_still_decides_when_it_answered(self) -> None:
+    def test_nothing_is_described_when_the_driver_answered(self) -> None:
         # Rows behind it: the driver's own names and types are the contract, and
-        # the statement is not consulted at all.
+        # the server is not asked a second question.
         client = FakeClient(rows=[["s1"]], columns=["renamed_by_the_server"])
         result = _service(client).run("SELECT span_id FROM spans", PID)
         assert [(c.name, c.type) for c in result.columns] == [("renamed_by_the_server", "String")]
+        assert client.describe_calls == []
 
+    def test_a_repeated_name_is_reported_as_the_server_reports_it(self) -> None:
+        # ClickHouse resolves `SELECT span_id AS a, a` to two columns both called
+        # `a`. Whatever it says is passed through, duplicates included, because a
+        # list that silently disagrees with the answer is worse than no list.
+        client = FakeClient(rows=[], columns=[], describes=[("a", "String"), ("a", "String")])
+        result = _service(client).run("SELECT span_id AS a, a FROM spans", PID)
+        assert [(c.name, c.type) for c in result.columns] == [("a", "String"), ("a", "String")]
 
-# ---------------------------------------------------------------------------
-# A table name is matched the way every other layer matches it
-# ---------------------------------------------------------------------------
-class TestEmptyResultColumnsIgnoreTableCase:
-    """Layer 1 matches a table name case-insensitively, so ``FROM SPANS`` is a
-    query the gateway accepts, scopes and answers: the rewriter emits the curated
-    view under its own name and aliases it canonically, so ClickHouse never sees
-    the caller's spelling. The curated schema these columns resolve against is
-    spelled in that one canonical case too, and ClickHouse identifiers are
-    case-sensitive, so the name has to be folded before a projection can be
-    described (verified against 25.2.2: ``SELECT span_id FROM SPANS`` answers,
-    while ``SELECT SPANS.span_id FROM SPANS`` is code 47 and so never reaches
-    here).
-    """
+    def test_a_failed_describe_leaves_the_answer_as_it_was(self) -> None:
+        # The query already succeeded. Failing to describe it must not turn a
+        # good answer into an error, so the columns stay empty and the rest of
+        # the result is untouched.
+        client = FakeClient(
+            rows=[], columns=[], describe_raises=ClickHouseError("Code: 241. DB::Exception: boom")
+        )
+        result = _service(client).run("SELECT span_id FROM spans", PID)
+        assert client.describe_calls, "the describe was never attempted, so nothing was contained"
+        assert result.columns == []
+        assert result.rows == []
+        assert result.row_count == 0
+        assert result.truncated is False
 
-    @staticmethod
-    def _empty() -> FakeClient:
-        return FakeClient(rows=[], columns=[])
+    def test_a_describe_that_fails_outside_the_driver_is_contained_too(self) -> None:
+        # Not every failure here is a ClickHouseError: a connection reset on the
+        # second call arrives as something else entirely.
+        client = FakeClient(rows=[], columns=[], describe_raises=OSError("connection reset"))
+        result = _service(client).run("SELECT span_id FROM spans", PID)
+        assert client.describe_calls, "the describe was never attempted, so nothing was contained"
+        assert result.columns == []
 
-    def test_a_curated_column_keeps_its_type(self) -> None:
-        result = _service(self._empty()).run("SELECT span_id, duration_ms FROM SPANS", PID)
-        assert [(c.name, c.type) for c in result.columns] == [
-            ("span_id", "String"),
-            ("duration_ms", "Nullable(Int64)"),
-        ]
-
-    def test_a_star_expands_to_the_curated_columns(self) -> None:
-        result = _service(self._empty()).run("SELECT * FROM Traces", PID)
-        assert [(c.name, c.type) for c in result.columns] == [
-            (c.name, c.type) for c in PUBLIC_TABLES["traces"].columns
-        ]
-
-    def test_a_quoted_table_name_is_folded_too(self) -> None:
-        # Quoting changes nothing: the validator and the rewriter both read the
-        # identifier's text, so this query runs like the bare one.
-        result = _service(self._empty()).run('SELECT span_id FROM "SPANS"', PID)
-        assert [(c.name, c.type) for c in result.columns] == [("span_id", "String")]
-
-    def test_a_column_written_against_an_alias_keeps_its_type(self) -> None:
-        result = _service(self._empty()).run("SELECT s.duration_ms FROM SPANS AS s", PID)
-        assert [(c.name, c.type) for c in result.columns] == [("duration_ms", "Nullable(Int64)")]
-
-    def test_an_alias_borrowing_another_table_name_types_the_real_table(self) -> None:
-        # The caller's aliases are deliberately left alone, because the executed
-        # SQL matches them case-sensitively. Folding them here as well would
-        # resolve this projection against the wrong table's columns.
-        result = _service(self._empty()).run("SELECT Spans.trace_id FROM traces AS Spans", PID)
-        assert [(c.name, c.type) for c in result.columns] == [("trace_id", "String")]
-
-    def test_the_type_lookup_does_not_rely_on_the_folded_name(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # Defence in depth: the comparison against the curated schema lowercases
-        # both sides itself, so a projection that resolves without the fold (this
-        # column names its own alias, which the qualifier needs no schema for) is
-        # still typed.
-        monkeypatch.setattr(service_mod, "_canonical_tables", lambda node: node)
-        result = _service(self._empty()).run("SELECT s.duration_ms FROM SPANS AS s", PID)
-        assert [(c.name, c.type) for c in result.columns] == [("duration_ms", "Nullable(Int64)")]
+    def test_a_describe_that_answers_nothing_describes_nothing(self) -> None:
+        # The columns come from the rows of the answer, never from the header
+        # ClickHouse puts on a DESCRIBE, which names its own seven fields.
+        client = FakeClient(rows=[], columns=[], describes=[])
+        result = _service(client).run("SELECT span_id FROM spans", PID)
+        assert client.describe_calls, "the describe was never attempted, so nothing was measured"
+        assert result.columns == []
 
 
 # ---------------------------------------------------------------------------

@@ -118,11 +118,12 @@ class TestSuccess:
     def test_an_empty_result_still_carries_its_columns(
         self, stub: StubService, client: TestClient
     ) -> None:
-        # A result with no rows describes itself through the projection, and a
-        # column the server cannot type comes back with a null type rather than
-        # being dropped: a CSV rendering of this answer still has its header row.
+        # A result with no rows still names and types every column, because the
+        # service asks the server to describe the statement it ran. A CSV
+        # rendering of this answer therefore still has its header row, and the
+        # type is a string here as it is for any other answer.
         stub.result = SqlResult(
-            columns=[SqlColumn(name="name", type="String"), SqlColumn(name="hits", type=None)],
+            columns=[SqlColumn(name="name", type="String"), SqlColumn(name="hits", type="UInt64")],
             rows=[],
             row_count=0,
             truncated=False,
@@ -137,7 +138,7 @@ class TestSuccess:
         body = resp.json()
         assert body["columns"] == [
             {"name": "name", "type": "String"},
-            {"name": "hits", "type": None},
+            {"name": "hits", "type": "UInt64"},
         ]
         assert body["rows"] == []
         assert body["row_count"] == 0
