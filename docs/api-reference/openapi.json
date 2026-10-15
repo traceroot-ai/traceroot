@@ -1609,7 +1609,7 @@
         "type": "object"
       },
       "DashboardDataResponse": {
-        "description": "A dashboard's query widgets, up to the per-request cap, answered for one window.\n\nWidgets keep the dashboard's order. ``window`` is the window they were all\nanswered for \u2014 the one to name alongside any figure taken from here.",
+        "description": "A dashboard's query widgets, up to the per-request cap, answered for one window.\n\nWidgets keep the dashboard's order. ``window`` is the window they were all\nanswered for \u2014 the one to name alongside any figure taken from here.\n``layout`` is the dashboard's grid placement, as ``get_dashboard`` returns\nit.",
         "properties": {
           "dashboard": {
             "$ref": "#/components/schemas/DashboardSummary"
@@ -1617,6 +1617,20 @@
           "failed": {
             "title": "Failed",
             "type": "integer"
+          },
+          "layout": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DashboardLayoutItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layout"
           },
           "queried": {
             "title": "Queried",
@@ -1649,7 +1663,7 @@
         "type": "object"
       },
       "DashboardDetail": {
-        "description": "One dashboard with its widgets, ordered by creation time.",
+        "description": "One dashboard with its widgets, ordered by creation time.\n\n``layout`` is the stored grid placement of the widgets that have one, or\nNone when the dashboard service did not report it.",
         "properties": {
           "create_time": {
             "format": "date-time",
@@ -1686,6 +1700,20 @@
             "title": "Is Default",
             "type": "boolean"
           },
+          "layout": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DashboardLayoutItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layout"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -1714,6 +1742,40 @@
           "widgets"
         ],
         "title": "DashboardDetail",
+        "type": "object"
+      },
+      "DashboardLayoutItem": {
+        "description": "One widget's place on a dashboard's grid, in grid units.\n\n``i`` is the widget id; ``x``/``w`` count columns of the twelve-column\ngrid and ``y``/``h`` count rows. A widget with no entry is placed by the\ndashboard page itself, below everything that has one.",
+        "properties": {
+          "h": {
+            "title": "H",
+            "type": "integer"
+          },
+          "i": {
+            "title": "I",
+            "type": "string"
+          },
+          "w": {
+            "title": "W",
+            "type": "integer"
+          },
+          "x": {
+            "title": "X",
+            "type": "integer"
+          },
+          "y": {
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "i",
+          "x",
+          "y",
+          "w",
+          "h"
+        ],
+        "title": "DashboardLayoutItem",
         "type": "object"
       },
       "DashboardListItem": {
@@ -1866,7 +1928,7 @@
         "type": "object"
       },
       "DashboardWidgetData": {
-        "description": "One widget's answer within a dashboard data read.\n\n``status`` says what happened: ``ok`` carries the engine's columns/rows/\nmeta (a series carries every bucket of the window; every other display's\nrows are capped, with ``truncated`` set when the cap bit); ``skipped``\nis a feed widget (a trace list, not an aggregate \u2014 read those with\n``list_traces`` and the feed's filters); ``error`` carries a short reason\nand no rows \u2014 a broken widget, or a query widget past the per-request cap\nwith a reason naming it \u2014 so neither fails the whole dashboard.",
+        "description": "One widget's answer within a dashboard data read.\n\n``status`` says what happened: ``ok`` carries the engine's columns/rows/\nmeta (a series carries every bucket of the window; every other display's\nrows are capped, with ``truncated`` set when the cap bit); ``skipped``\nis a feed widget (a trace list, not an aggregate \u2014 read those with\n``list_traces`` and the feed's filters); ``error`` carries a short reason\nand no rows \u2014 a broken widget, or a query widget past the per-request cap\nwith a reason naming it \u2014 so neither fails the whole dashboard. ``spec``\nis the widget's stored spec whatever the status, so a caller can draw it.",
         "properties": {
           "columns": {
             "anyOf": [
@@ -1923,6 +1985,15 @@
               }
             ],
             "title": "Rows"
+          },
+          "spec": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec"
           },
           "status": {
             "enum": [
@@ -6630,7 +6701,7 @@
         "type": "object"
       },
       "WhoamiResponse": {
-        "description": "Identity a project API key resolves to, for `login` / `status`.\n\nName fields are nullable: they depend on what the internal key-validation\ncontract returns, and the backend never fabricates them. The full API token\nis never included \u2014 only ``key_hint``.",
+        "description": "Identity a project API key resolves to, for `login` / `status`.\n\nName fields are nullable: they depend on what the internal key-validation\ncontract returns, and the backend never fabricates them. The full API token\nis never included \u2014 only ``key_hint``.\n\n``key_scope`` is the exception to the nullability above, deliberately. A\nholder asking what their key may do needs an answer, not a maybe: a null\nwould have to be handled by every caller and would mean the same thing the\nnarrow scope already means. It is a closed set of values rather than a free\nstring so a client can exhaust it.",
         "properties": {
           "host": {
             "title": "Host",
@@ -6657,6 +6728,14 @@
               }
             ],
             "title": "Key Name"
+          },
+          "key_scope": {
+            "enum": [
+              "ingest",
+              "admin"
+            ],
+            "title": "Key Scope",
+            "type": "string"
           },
           "project_id": {
             "title": "Project Id",
@@ -6700,6 +6779,7 @@
           "workspace_name",
           "key_name",
           "key_hint",
+          "key_scope",
           "host",
           "ui_base_url"
         ],
@@ -7072,15 +7152,35 @@
         "type": "object"
       },
       "WidgetRef": {
-        "description": "The identity of the widget a data read answered, with its dashboard.",
+        "description": "The identity of the widget a data read answered, with its dashboard.\n\n``spec`` is the stored spec the read ran, as ``get_widget`` returns it.",
         "properties": {
           "dashboard_id": {
             "title": "Dashboard Id",
             "type": "string"
           },
+          "dashboard_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dashboard Name"
+          },
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "spec": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec"
           },
           "title": {
             "title": "Title",
