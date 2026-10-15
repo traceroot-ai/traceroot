@@ -354,6 +354,37 @@ describe("a provider the workspace already has", () => {
     expect(await screen.findByText("sk-ant-...xyz")).toBeTruthy();
     expect(screen.queryByLabelText("API key")).toBeNull();
     expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
+    expect(screen.getByText(/already uses its own key/)).toBeTruthy();
+    expect(screen.queryByText("Turned off")).toBeNull();
+  });
+
+  it("says a row that is switched off is switched off, and still offers no form", async () => {
+    // A disabled row means the workspace is running on system models, so the
+    // enabled-row copy would be false. It is still a row the step must not
+    // write through: the upsert keys on (workspace, label), so a save would
+    // replace its key and switch it back on at the same time.
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "mp-off",
+          adapter: "anthropic",
+          provider: "Anthropic",
+          keyPreview: "sk-ant-...off",
+          customModels: ["claude-opus-5"],
+          enabled: false,
+        },
+      ],
+    });
+
+    renderBlock();
+    expect(await screen.findByText("Turned off")).toBeTruthy();
+    expect(
+      screen.getByText(/turned off, so the AI assistant and detectors still run/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/already uses its own key/)).toBeNull();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
   });
 });
 

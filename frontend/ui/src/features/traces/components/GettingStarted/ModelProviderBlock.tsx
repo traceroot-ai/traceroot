@@ -235,10 +235,19 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
 
   const providers = data.providers;
 
-  // Never upsert over a provider the workspace already has: POST upserts on
-  // (workspace, label), so writing the default label blindly would replace the
-  // key on a row someone configured by hand. Report the state instead.
+  // Never upsert over a provider the workspace already has, and that counts a
+  // row that is switched off. POST upserts on (workspace, label), so writing
+  // the default label blindly would replace the key, base URL and models on a
+  // row someone configured by hand — and on a disabled row it would quietly
+  // switch it back on as well. A row that is off is still a row the step must
+  // not write through, so the rule stays blind to `enabled`.
+  //
+  // What `enabled` does decide is which state this is. A workspace whose only
+  // row is off is running on TraceRoot's models, so telling it that it "already
+  // uses its own key" would be false, and leaving a green check against the row
+  // would say nothing about why nothing changed.
   if (providers.length > 0) {
+    const usingOwnKey = providers.some((provider) => provider.enabled);
     return (
       <div className="space-y-1.5">
         <div className="divide-y divide-border rounded-md border border-border">
@@ -249,12 +258,21 @@ export function ModelProviderBlock({ workspaceId }: ModelProviderBlockProps) {
               <span className="truncate font-mono text-[12px] text-muted-foreground">
                 {provider.keyPreview}
               </span>
-              <Check className="ml-auto h-4 w-4 shrink-0 text-green-600" />
+              {provider.enabled ? (
+                <Check className="ml-auto h-4 w-4 shrink-0 text-green-600" />
+              ) : (
+                <span className="ml-auto shrink-0 text-[12px] text-muted-foreground">
+                  Turned off
+                </span>
+              )}
             </div>
           ))}
         </div>
         <p className="text-[12px] text-muted-foreground">
-          This workspace already uses its own key. Manage it in{" "}
+          {usingOwnKey
+            ? "This workspace already uses its own key."
+            : "This workspace has a key of its own, but it is turned off, so the AI assistant and detectors still run on TraceRoot's models."}{" "}
+          Manage it in{" "}
           <a href={settingsHref} className="font-medium underline underline-offset-4">
             Settings &rarr; Model Providers
           </a>
