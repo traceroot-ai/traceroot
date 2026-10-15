@@ -597,6 +597,26 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         ),
         "enabled": True,
     },
+    "list_signals": {
+        "name": "list_signals",
+        "description": (
+            "List the project's signals, newest first: the recurring problems "
+            "that detector findings are grouped into, with status (open, "
+            "resolved, dismissed), detector, hit count, reopen count and the "
+            "state of the current root cause analysis. Filter by status or "
+            "detector_id. Merged signals are left out."
+        ),
+        "enabled": True,
+    },
+    "get_signal": {
+        "name": "get_signal",
+        "description": (
+            "Fetch one signal by id, including when it was resolved. A merged "
+            "signal names the signal its findings moved to in merged_into_id. "
+            "Resolve the signal id by listing signals — never guess an id."
+        ),
+        "enabled": True,
+    },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
     # Dataset READS are tool-exposed; the dataset writes stay off the registry entirely.
     # Not because the registry cannot carry a write (it can, behind an x-tool policy
@@ -862,6 +882,22 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "verdict and cannot be requested; pausing a parked alert is a "
             "conflict, resume it to run it again. Setting the status the alert "
             "already has changes nothing."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "set_signal_status": {
+        "name": "set_signal_status",
+        "description": (
+            "Resolve or reopen a signal. Resolving needs a reason "
+            "(fixed_elsewhere, fixed_by_pr, already_fixed_before, other); "
+            "'other' also needs a note. A resolved signal opens again by itself "
+            "when its detector finds the problem in a trace that started after "
+            "the resolve. Dismissing is not possible here: a dismissed signal "
+            "never reopens, so a person dismisses in the web app. Send "
+            "expected_status to refuse the change when the status changed "
+            "since you read it (a conflict). Setting the current status "
+            "changes nothing."
         ),
         "enabled": True,
         "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
