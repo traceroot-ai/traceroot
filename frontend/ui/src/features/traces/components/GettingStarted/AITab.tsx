@@ -34,21 +34,54 @@ interface AITabProps {
  * The command itself is rendered rather than constant, because this page knows
  * the project the reader is looking at and the deployment that served them, and
  * the bare command would make them answer both again — see `./commands`.
+ *
+ * Which is also why there is a second state here. When `./commands` cannot tell
+ * which deployment served the page, the line it would otherwise render is the
+ * bare one, and that signs the reader in against TraceRoot Cloud — so on a
+ * self-hosted install a command shown here with no flags is not a lesser
+ * answer, it is the wrong one. Nothing runnable is drawn in that case: no code
+ * block and no copy button, because a command in that frame reads as one to
+ * paste however the surrounding text is worded.
+ *
+ * What is drawn instead names the variable and the value it holds, since the
+ * person looking at an empty traces page on a self-hosted install is usually
+ * the person who can correct it, and the value is already public — it is
+ * inlined into this bundle. The manual tab is mentioned because its steps do
+ * not read that variable, so it is a route that still works rather than a
+ * consolation; nothing here offers to fix the configuration, because nothing
+ * here can.
  */
 export function AITab({ projectId }: AITabProps) {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const workspaceId = project?.workspace_id ?? "";
+  const setup = setupCommand({ projectId });
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
-        <p className="text-[13px] font-medium text-foreground">Run this in your project</p>
-        <CodeBlock label="bash" value={setupCommand({ projectId })} />
-        <p className="text-[12px] text-muted-foreground">
-          Instruments your repo with a coding agent and handles API key configuration. Asks before
-          editing, and stops if you have uncommitted changes.
-        </p>
-      </div>
+      {setup.kind === "command" ? (
+        <div className="space-y-2">
+          <p className="text-[13px] font-medium text-foreground">Run this in your project</p>
+          <CodeBlock label="bash" value={setup.command} />
+          <p className="text-[12px] text-muted-foreground">
+            Instruments your repo with a coding agent and handles API key configuration. Asks before
+            editing, and stops if you have uncommitted changes.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[13px] font-medium text-foreground">
+            The setup command cannot be shown for this deployment
+          </p>
+          <p className="text-[12px] text-muted-foreground">
+            <code className="font-mono">{setup.variable}</code> is set to{" "}
+            <code className="font-mono">{setup.value}</code>, which is not an origin the command can
+            be pointed at. Without it the command would send sign-in and your first traces to
+            TraceRoot Cloud rather than here, so it is withheld rather than guessed. Correct that
+            value for this deployment and the command appears here; the steps on the manual tab do
+            not depend on it.
+          </p>
+        </div>
+      )}
 
       <div className="space-y-2">
         <p className="text-[13px] font-medium text-foreground">External integrations</p>

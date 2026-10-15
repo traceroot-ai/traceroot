@@ -109,12 +109,49 @@ function appOrigin(appUrl: string | undefined): string {
   return DEFAULT_APP_ORIGIN;
 }
 
-export interface CliHostFlags {
-  /** `--host`, or null when the CLI's own default is already this deployment. */
-  host: string | null;
-  /** `--auth-host`, or null when sign-in belongs on the same origin as the API. */
-  authHost: string | null;
+/**
+ * A deployment variable this file was given a value it cannot put in a command.
+ *
+ * Carried out of here rather than swallowed, because the person reading an
+ * empty traces page on a self-hosted install is usually the person who sets
+ * these, and the value is already public: `NEXT_PUBLIC_*` is inlined into the
+ * client bundle, so naming it on screen discloses nothing a reader could not
+ * already read out of the page they are on.
+ */
+export interface UnusableOrigin {
+  /** The variable to fix, spelled the way a deployment sets it. */
+  variable: "NEXT_PUBLIC_API_URL" | "NEXT_PUBLIC_APP_URL";
+  /** What it is set to, so the reader can see what this file saw. */
+  value: string;
 }
+
+/**
+ * Which deployment to point `setup` at, or why that cannot be answered.
+ *
+ * Discriminated rather than two nullable fields, because `host: null` has two
+ * unrelated meanings that a caller holding only the nulls cannot tell apart:
+ * the API genuinely *is* the host the CLI defaults to, so the flag would be
+ * noise, or the configured value is unusable and this file has nothing to say.
+ * The first renders a correct bare command; the second must not render one at
+ * all, because the bare command targets TraceRoot Cloud and a self-hosted
+ * reader pasting it signs in against someone else's deployment. Collapsing
+ * both into nulls is what let that happen, so the type now forces the caller
+ * to separate them.
+ */
+export type CliHostFlags =
+  | {
+      kind: "resolved";
+      /** `--host`, or null when the CLI's own default is already this deployment. */
+      host: string | null;
+      /** `--auth-host`, or null when sign-in belongs on the same origin as the API. */
+      authHost: string | null;
+    }
+  | ({ kind: "unresolved" } & UnusableOrigin);
+
+/** The one command, or the reason this deployment has none to show. */
+export type SetupCommand =
+  | { kind: "command"; command: string }
+  | ({ kind: "unavailable" } & UnusableOrigin);
 
 /**
  * Which deployment to point `setup` at: the API origin, and where to sign in.
@@ -151,20 +188,31 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
     // — so this is a value that is malformed outright: `http://`, `http://[`,
     // `//`, `http://:8000`. That says nothing about where the API is, and the
     // app's origin is not a stand-in for it: on a split deployment it would
-    // point the CLI's API traffic at the UI host. Saying nothing is the only
-    // honest answer, and it leaves the operator a `.env` to fix rather than a
-    // command that half works.
-    return { host: null, authHost: null };
+    // point the CLI's API traffic at the UI host. So the variable is reported
+    // back instead of guessed at, and the panel shows no command rather than
+    // one that runs against the wrong deployment.
+    return { kind: "unresolved", variable: "NEXT_PUBLIC_API_URL", value: input.apiUrl };
   }
 
   // Either both flags are renderable or neither is. A `--auth-host` beside a
   // silently-omitted `--host` would name one half of a deployment and leave the
-  // CLI defaulting to Cloud for the other, which is worse than saying nothing.
-  if (!SHELL_SAFE_ORIGIN.test(api) || !SHELL_SAFE_ORIGIN.test(app)) {
-    return { host: null, authHost: null };
+  // CLI defaulting to Cloud for the other, which is worse than showing nothing.
+  //
+  // The app origin is tested first because `api` is resolved against it
+  // whenever `NEXT_PUBLIC_API_URL` is relative — which its own default is — so
+  // an unusable `api` in that case is this variable's doing, and reporting the
+  // other one would send the reader to a value that is already correct.
+  if (!SHELL_SAFE_ORIGIN.test(app)) {
+    // `appOrigin`'s own fallback is `DEFAULT_APP_ORIGIN`, which passes, so
+    // reaching here means this variable was set to something that parsed.
+    return { kind: "unresolved", variable: "NEXT_PUBLIC_APP_URL", value: input.appUrl ?? app };
+  }
+  if (!SHELL_SAFE_ORIGIN.test(api)) {
+    return { kind: "unresolved", variable: "NEXT_PUBLIC_API_URL", value: input.apiUrl };
   }
 
   return {
+    kind: "resolved",
     host: api === new URL(CLI_DEFAULT_HOST).origin ? null : api,
     // The CLI's `--auth-host` already defaults to the effective `--host`, which
     // is `api` whether or not the flag above was rendered. Restating it when it
@@ -194,27 +242,38 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
  * All three are declared on the program rather than on `setup`, and commander
  * accepts a program option after the subcommand name, so they read as part of
  * the one line a user pastes.
+ *
+ * It can also answer that there is no command to show. When the deployment is
+ * unresolvable the line this function would otherwise return is the bare
+ * command, and the bare command is not a weaker version of the right one — it
+ * is the Cloud one, which is why that case comes back as `unavailable` rather
+ * than as a string the caller cannot tell apart from a correct bare command.
  */
-export function setupCommand(input: { projectId: string }): string {
-  const parts = [SETUP_BASE];
-
-  if (PLAIN_PROJECT_ID.test(input.projectId)) {
-    parts.push(`--project ${input.projectId}`);
-  }
-
-  const { host, authHost } = cliHostFlags({
-    // Validated, and with the `/api/v1` default that means "same origin".
+export function setupCommand(input: { projectId: string }): SetupCommand {
+  const flags = cliHostFlags({
+    // Validated as a string, not as a URL: `NEXT_PUBLIC_API_URL` is
+    // `z.string()` with the `/api/v1` default, so a value that is not an origin
+    // at all reaches here rather than failing the schema.
     apiUrl: clientEnv.NEXT_PUBLIC_API_URL,
     // Read straight from the environment, as `lib/auth-client.ts` and
     // `lib/eval/run-link.ts` do: the client schema does not carry it.
     appUrl: process.env.NEXT_PUBLIC_APP_URL,
   });
-  if (host !== null) {
-    parts.push(`--host ${quotedArg(host)}`);
-  }
-  if (authHost !== null) {
-    parts.push(`--auth-host ${quotedArg(authHost)}`);
+  if (flags.kind === "unresolved") {
+    return { kind: "unavailable", variable: flags.variable, value: flags.value };
   }
 
-  return parts.join(" ");
+  const parts = [SETUP_BASE];
+
+  if (PLAIN_PROJECT_ID.test(input.projectId)) {
+    parts.push(`--project ${input.projectId}`);
+  }
+  if (flags.host !== null) {
+    parts.push(`--host ${quotedArg(flags.host)}`);
+  }
+  if (flags.authHost !== null) {
+    parts.push(`--auth-host ${quotedArg(flags.authHost)}`);
+  }
+
+  return { kind: "command", command: parts.join(" ") };
 }
