@@ -20,7 +20,7 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
 
   return (
     <Card
-      className="cursor-pointer transition-all hover:border-foreground/20 hover:shadow-md"
+      className="min-h-[85px] cursor-pointer transition-all hover:border-foreground/20 hover:shadow-md"
       onClick={() => router.push(`/workspaces/${workspace.id}/projects`)}
     >
       <CardContent className="p-4">
