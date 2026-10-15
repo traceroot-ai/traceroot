@@ -15,7 +15,7 @@ locally built TraceRoot SDK package:
 
 ```bash
 pnpm --dir /path/to/traceroot-ts/packages/traceroot build
-npm --cache /tmp/npm-cache --prefix /path/to/traceroot-ts/packages/traceroot pack --pack-destination /tmp/traceroot-ts-pack
+mkdir -p /tmp/traceroot-ts-pack && npm --cache /tmp/npm-cache pack /path/to/traceroot-ts/packages/traceroot --pack-destination /tmp/traceroot-ts-pack
 npm install --no-save /tmp/traceroot-ts-pack/traceroot-ai-traceroot-*.tgz
 ```
 
@@ -29,6 +29,19 @@ The non-interactive demo uses LiveKit Inference credentials:
 
 ```bash
 npm run demo
+```
+
+The `npm run console` and `npm run console:text` scripts require the [LiveKit CLI](https://docs.livekit.io/home/cli/cli-setup/) (`lk`):
+
+```bash
+# macOS
+brew install livekit-cli
+
+# Linux / macOS
+curl -sSL https://get.livekit.io/cli | bash
+
+# Windows
+winget install LiveKit.LiveKitCLI
 ```
 
 For an interactive voice session, run the LiveKit CLI console from a real

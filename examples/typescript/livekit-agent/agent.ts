@@ -102,8 +102,11 @@ async function runDemo() {
       },
     );
   } finally {
-    await session.close();
-    await TraceRoot.shutdown();
+    try {
+      await session.close();
+    } finally {
+      await TraceRoot.shutdown();
+    }
   }
 }
 

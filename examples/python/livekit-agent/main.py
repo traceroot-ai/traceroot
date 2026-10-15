@@ -50,7 +50,7 @@ server = AgentServer()
 
 def _new_session(*, voice: bool) -> AgentSession:
     if not voice:
-        return AgentSession(llm="openai/chat-latest")
+        return AgentSession(llm="openai/chat-latest", vad=None)
 
     return AgentSession(
         stt="deepgram/nova-3:en",
@@ -69,8 +69,10 @@ async def run_demo() -> None:
             result = session.run(user_input="What is 12 plus 30? Use the add_numbers tool.")
             await result
     finally:
-        await session.aclose()
-        await traceroot.flush_async()
+        try:
+            await session.aclose()
+        finally:
+            await traceroot.flush_async()
 
 
 @server.rtc_session(agent_name="traceroot-livekit-agent")
