@@ -33,7 +33,7 @@ class _FakeCursor:
         elif query is INSERT_SQL:
             self.rowcount = self.missing
         else:
-            self._result = [(f"u{i}",) for i in range(self.missing)]
+            self._result = [(self.missing,)]
 
     def fetchone(self):
         return self._result[0] if self._result else None
@@ -84,7 +84,7 @@ def test_refuses_a_workspace_that_does_not_exist():
     assert not pg.committed
 
 
-def test_runs_without_pythonpath_set():
+def test_script_help_smoke():
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--help"],
         cwd=REPO_ROOT,

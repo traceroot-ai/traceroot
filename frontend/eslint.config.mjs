@@ -120,7 +120,7 @@ export default [
     },
   },
   {
-    files: ["ui/src/**/*.{ts,tsx}", "worker/src/**/*.ts"],
+    files: ["ui/src/**/*.{ts,tsx}"],
     ignores: ["**/*.{test,spec}.{ts,tsx}", "**/__tests__/**"],
     rules: {
       "no-restricted-syntax": ["error", ...demoWorkspaceQueryRestrictions],

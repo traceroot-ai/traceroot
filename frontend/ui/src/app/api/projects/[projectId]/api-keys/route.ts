@@ -68,6 +68,9 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
+  if (isDemoViewer(accessResult.project.workspaceId, accessResult.membership.role)) {
+    return errorResponse(DEMO_VIEWER_FORBIDDEN, 403);
+  }
 
   let body: unknown;
   try {

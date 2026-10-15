@@ -16,10 +16,9 @@ import argparse
 import os
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-# The users that the demo workspace does not have yet. The id is a random UUID,
-# like the ids the app writes with crypto.randomUUID().
+# Count users missing from the demo without loading every user into memory.
 MISSING_USERS_SQL = """
-    SELECT u.id
+    SELECT COUNT(*)
     FROM users u
     WHERE NOT EXISTS (
         SELECT 1 FROM workspace_members m
@@ -58,7 +57,7 @@ def backfill(pg, workspace_id, *, apply=False):
         if cursor.fetchone() is None:
             raise SystemExit(f"workspace {workspace_id} does not exist")
         cursor.execute(MISSING_USERS_SQL, {"workspace_id": workspace_id})
-        missing = len(cursor.fetchall())
+        missing = cursor.fetchone()[0]
         added = 0
         if apply and missing:
             cursor.execute(INSERT_SQL, {"workspace_id": workspace_id})

@@ -24,6 +24,7 @@ vi.mock("next/server", () => ({
 
 const findManyMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
+  Role: { ADMIN: "ADMIN" },
   prisma: {
     gitHubInstallation: {
       findMany: (...args: unknown[]) => findManyMock(...args),
@@ -75,6 +76,7 @@ function makeRequest({
 }
 
 beforeEach(() => {
+  vi.unstubAllEnvs();
   findManyMock.mockReset();
   requireAuthMock.mockReset();
   requireMembershipMock.mockReset();
@@ -88,6 +90,14 @@ beforeEach(() => {
 
 describe("GET /api/github/token", () => {
   describe("auth", () => {
+    it.each(["VIEWER", "MEMBER"])("refuses a demo %s before token issuance", async (role) => {
+      vi.stubEnv("DEMO_WORKSPACE_ID", "ws_demo");
+      requireAuthMock.mockResolvedValue({ user: { id: "u1" } });
+      requireMembershipMock.mockResolvedValue({ membership: { role } });
+      expect((await GET(makeRequest({ workspaceIdQuery: "ws_demo" }))).status).toBe(403);
+      expect(findManyMock).not.toHaveBeenCalled();
+      expect(getInstallationTokenMock).not.toHaveBeenCalled();
+    });
     it("uses internal path when x-workspace-id header + valid secret", async () => {
       verifyInternalSecretMock.mockReturnValue(true);
       findManyMock.mockResolvedValue([{ installationId: "1", accountLogin: "acme" }]);

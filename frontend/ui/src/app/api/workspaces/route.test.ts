@@ -52,6 +52,7 @@ function makeRequest(body: unknown) {
 }
 
 beforeEach(() => {
+  memberFindManyMock.mockReset();
   workspaceCreateMock.mockReset();
   memberCreateMock.mockReset();
   memberCreateMock.mockResolvedValue({});

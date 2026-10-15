@@ -33,7 +33,7 @@ function get(workspaceId: string) {
     GET as unknown as (
       req: unknown,
       ctx: { params: Promise<{ workspaceId: string }> },
-    ) => Promise<{ status: number }>
+    ) => Promise<{ status: number; data: unknown }>
   )({}, { params: Promise.resolve({ workspaceId }) });
 }
 
@@ -57,6 +57,35 @@ describe("GET /api/workspaces/[workspaceId]/members", () => {
     expect(requireWorkspaceMembershipMock).toHaveBeenCalledWith("user-1", "ws-demo", "ADMIN");
     expect(res.status).toBe(403);
     expect(memberFindManyMock).not.toHaveBeenCalled();
+  });
+
+  it("lets demo admins read the scoped member payload", async () => {
+    requireWorkspaceMembershipMock.mockResolvedValue({ membership: { role: "ADMIN" } });
+    memberFindManyMock.mockResolvedValue([
+      {
+        id: "m1",
+        role: "VIEWER",
+        createTime: "2026-10-15",
+        user: { id: "u2", email: "viewer@example.com", name: "Viewer" },
+      },
+    ]);
+    const res = await get("ws-demo");
+    expect(requireWorkspaceMembershipMock).toHaveBeenCalledWith("user-1", "ws-demo", "ADMIN");
+    expect(memberFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { workspaceId: "ws-demo" } }),
+    );
+    expect(res.data).toEqual({
+      members: [
+        {
+          id: "m1",
+          user_id: "u2",
+          email: "viewer@example.com",
+          name: "Viewer",
+          role: "VIEWER",
+          create_time: "2026-10-15",
+        },
+      ],
+    });
   });
 
   it("keeps the member list open to every member of any other workspace", async () => {
