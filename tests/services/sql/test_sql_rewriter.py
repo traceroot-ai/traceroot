@@ -612,6 +612,35 @@ EQUIVALENT_SPELLINGS = [
     ),
 ]
 
+# Negated sugar. The NOT sits directly above the node in the first two and two
+# levels further out in the last two, where AND is the direct parent, so a guard
+# that looked only at the parent would miss them.
+NEGATED_SUGAR = [
+    ("a negated BETWEEN", "span_start_time NOT BETWEEN '2026-09-01' AND '2026-09-02'"),
+    ("a negated equality", "NOT (span_start_time = '2026-09-01')"),
+    (
+        "a BETWEEN under an outer NOT",
+        "NOT (name = 'x' AND span_start_time BETWEEN '2026-09-01' AND '2026-09-02')",
+    ),
+    (
+        "an equality under an outer NOT",
+        "NOT (name = 'x' AND span_start_time = '2026-09-01')",
+    ),
+]
+
+# The same sugar with a NOT on a different conjunct. The negation is nowhere
+# above the time predicate, so the window it describes is still the caller's.
+NOT_ON_ANOTHER_CONJUNCT = [
+    (
+        "a BETWEEN beside a negated name filter",
+        "NOT (name = 'x') AND span_start_time BETWEEN '2026-09-01' AND '2026-09-02'",
+    ),
+    (
+        "an equality beside a negated name filter",
+        "NOT (name = 'x') AND span_start_time = '2026-09-01'",
+    ),
+]
+
 # Sugar carrying a bound the view cannot take. In the BETWEEN cases the other
 # side is perfectly scopeable, which is what makes them the interesting ones: the
 # expansion has to account for each half separately or the good half answers for
@@ -770,6 +799,42 @@ class TestTimeRange:
             PID,
         )
         assert "WHERE span_start_time BETWEEN '2026-09-01' AND '2026-09-02'" in rendered
+
+    @pytest.mark.parametrize("label,clause", NEGATED_SUGAR, ids=[n[0] for n in NEGATED_SUGAR])
+    def test_the_expansion_leaves_a_negated_predicate_alone(self, label: str, clause: str) -> None:
+        # A negated predicate names the window the caller excluded, so expanding
+        # it produces a pair of comparisons describing exactly the window that
+        # must not reach the view. Nothing reads that pair today, because the
+        # extraction descends only through AND and parentheses, so the re-walk
+        # refuses these queries either way. The expansion still has to stay off
+        # them: an extraction taught to descend into NOT would otherwise find a
+        # ready-made window and scope the view to it.
+        import sqlglot
+
+        where = (
+            sqlglot.parse_one(f"SELECT count() FROM spans WHERE {clause}", dialect="clickhouse")
+            .args["where"]
+            .this
+        )
+        expanded = rewriter_mod._desugar_equivalents(where, "span_start_time", {"spans"}, False)
+        assert expanded.sql(dialect="clickhouse") == where.sql(dialect="clickhouse"), label
+        assert not list(expanded.find_all(exp.GTE)), label
+        assert not list(expanded.find_all(exp.LTE)), label
+
+    @pytest.mark.parametrize(
+        "label,clause", NOT_ON_ANOTHER_CONJUNCT, ids=[n[0] for n in NOT_ON_ANOTHER_CONJUNCT]
+    )
+    def test_a_negation_elsewhere_does_not_cost_the_window(self, label: str, clause: str) -> None:
+        # The other side of the guard above. A NOT on some other conjunct says
+        # nothing about the time predicate beside it, so the window still has to
+        # reach the view; refusing or opening a side here would charge the caller
+        # for a negation that was never on the time column.
+        call = _view_call(
+            scope_and_render(f"SELECT count() FROM spans WHERE {clause}", PID)[0],
+            "spans_public_v1",
+        )
+        assert "start_time = toTimeZone(toDateTime64('2026-09-01', 3), timezone())" in call, label
+        assert "1900-01-01" not in call and "2299-12-31" not in call, label
 
     @pytest.mark.parametrize(
         "label,sql",

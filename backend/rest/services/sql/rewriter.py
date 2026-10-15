@@ -239,20 +239,21 @@ def _desugar_equivalents(
     ``!=`` is deliberately absent. It excludes an instant rather than bounding
     one, so there is no window to hand the view and it stays refused.
 
-    Negation is absent too, and is not tested for here. On sqlglot 26.33.0
-    ``NOT BETWEEN`` parses as ``Not(this=Between(...))`` and ``exp.Between`` has
-    no ``negated`` argument to inspect (``arg_types`` is ``this``/``low``/``high``),
-    so this transform does fire on the inner node and the copy it returns carries
-    the interval the caller excludes. Nothing reads that interval: the extraction
-    below descends only through ``AND`` and parentheses, so no comparison under a
-    ``Not`` is ever consumed, and the re-walk that requires every mention of the
-    column to have become a bound then refuses the query. ``NOT (col = x)`` is
-    refused by the same two steps. Teaching that walk to descend into ``Not``
-    without first suppressing this expansion would scope the view to exactly the
-    window the caller asked to exclude.
+    Nothing under a ``NOT`` is expanded. A negated predicate names the interval
+    the caller excluded, which is no window to hand the view, so those queries
+    stay refused.
     """
 
     def expand(node: exp.Expression) -> exp.Expression:
+        # The whole ancestor chain is checked rather than the parent alone.
+        # ``col NOT BETWEEN x AND y`` parses as ``Not(this=Between(...))``, but a
+        # ``NOT`` further out leaves ``AND`` directly above the node, as in
+        # ``NOT (name = 'x' AND col BETWEEN x AND y)``. The transform runs on a
+        # copy of the WHERE clause, so the chain ends at that clause. The re-walk
+        # below refuses both shapes today; this keeps them refused if the
+        # extraction ever learns to descend into ``Not``.
+        if node.find_ancestor(exp.Not) is not None:
+            return node
         if isinstance(node, exp.Between) and _is_time_column(node.this, column, aliases, qualified):
             return _closed_range(node.this, node.args["low"], node.args["high"])
         if isinstance(node, exp.EQ):
