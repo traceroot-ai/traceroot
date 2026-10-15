@@ -5,6 +5,7 @@ import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useAiChat } from "./use-ai-chat";
+import { DEMO_EXAMPLES } from "../lib/demo-agent-example";
 import { dateFilterStorageKey } from "@/lib/date-filter-storage";
 import type { AISession } from "../types";
 import type { ModelSelection } from "../components/model-selector";
@@ -163,6 +164,33 @@ describe("useAiChat session switching", () => {
     expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(
       true,
     );
+  });
+
+  it("switches through every bundled example without requesting a backend transcript", async () => {
+    const { result } = renderHook(() => useAiChat({ projectId: "p1", demoReadOnly: true }), {
+      wrapper,
+    });
+    for (const example of DEMO_EXAMPLES) {
+      const listed = result.current.sessions.find((session) => session.id === example.session.id);
+      expect(listed).toBeDefined();
+      await act(async () => {
+        await result.current.handleSelectSession(listed!);
+      });
+      expect(result.current.currentSessionId).toBe(example.session.id);
+      expect(result.current.messages).toEqual(example.messages);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not list or load demo examples in ordinary workspaces", async () => {
+    const { result } = renderChat();
+    expect(result.current.sessions.some((session) => session.isExample)).toBe(false);
+    await act(async () => {
+      await result.current.handleSelectSession({ ...DEMO_EXAMPLES[0].session, projectId: "p1" });
+    });
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentSessionId).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("loads an initialSessionId's history into its bucket on mount", async () => {
