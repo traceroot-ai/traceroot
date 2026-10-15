@@ -142,10 +142,32 @@ describe("the adapters offered inline", () => {
   it("names the adapters that stay in settings", async () => {
     renderBlock();
     const labels = SETTINGS_ONLY_ADAPTERS.map((a: LLMAdapter) => ADAPTER_CONFIG[a].label);
-    const note = await screen.findByText(/need more than a key/);
+    const note = await screen.findByText(/add those in workspace settings/);
     for (const label of labels) {
       expect(note.textContent).toContain(label);
     }
+  });
+
+  it("gives each of them the reason it is actually excluded for", async () => {
+    renderBlock();
+    const note = await screen.findByText(/add those in workspace settings/);
+
+    // A base URL, and an access-key pair or a default-credentials toggle plus a
+    // region, really are more than a key.
+    expect(note.textContent).toContain(
+      `${ADAPTER_CONFIG.azure.label} and ${ADAPTER_CONFIG["amazon-bedrock"].label} need more than a key`,
+    );
+    // OpenRouter's key is its whole credential — api-key, no base URL. It is
+    // excluded only for shipping no curated catalogue, so claiming it needs
+    // more than a key is false.
+    expect(ADAPTER_CONFIG.openrouter.credentialType).toBe("api-key");
+    expect(ADAPTER_CONFIG.openrouter.requiresBaseUrl).toBe(false);
+    expect(note.textContent).toContain(
+      `${ADAPTER_CONFIG.openrouter.label} needs a model list chosen`,
+    );
+    expect(note.textContent).not.toMatch(
+      new RegExp(`${ADAPTER_CONFIG.openrouter.label}[^—]*more than a key`),
+    );
   });
 });
 

@@ -82,14 +82,49 @@ class ProbeRejected extends Error {
   }
 }
 
+/** "a", "a and b", "a, b and c". */
+function joinLabels(labels: string[]): string {
+  return labels.length === 1
+    ? labels[0]
+    : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+}
+
+/**
+ * Why each adapter this step does not offer lives in settings instead, derived
+ * from the clause of `isInlineConfigurable` that adapter failed.
+ *
+ * The two clauses are not the same reason and cannot be reported as one. Azure
+ * OpenAI needs a base URL and AWS Bedrock needs an access-key pair or a
+ * default-credentials toggle plus a region, so for those a key genuinely is not
+ * the whole credential. OpenRouter's key is its whole credential — it is here
+ * only for shipping no curated catalogue, and a row stored with a key and
+ * nothing to seed offers no model anywhere. Telling the user it "needs more
+ * than a key" is untrue, and would stay untrue for the next catalogue-less
+ * single-key adapter the tables gain.
+ */
 function settingsOnlyNote(): string {
-  const labels = SETTINGS_ONLY_ADAPTERS.map((adapter) => ADAPTER_CONFIG[adapter].label);
-  if (labels.length === 0) return "";
-  const list =
-    labels.length === 1
-      ? labels[0]
-      : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
-  return `${list} need more than a key — add those in workspace settings.`;
+  const needMoreThanAKey: string[] = [];
+  const needAModelList: string[] = [];
+  for (const adapter of SETTINGS_ONLY_ADAPTERS) {
+    const config = ADAPTER_CONFIG[adapter];
+    if (config.credentialType !== "api-key" || config.requiresBaseUrl) {
+      needMoreThanAKey.push(config.label);
+    } else {
+      needAModelList.push(config.label);
+    }
+  }
+
+  const clauses: string[] = [];
+  if (needMoreThanAKey.length > 0) {
+    const verb = needMoreThanAKey.length === 1 ? "needs" : "need";
+    clauses.push(`${joinLabels(needMoreThanAKey)} ${verb} more than a key`);
+  }
+  if (needAModelList.length > 0) {
+    const verb = needAModelList.length === 1 ? "needs" : "need";
+    clauses.push(`${joinLabels(needAModelList)} ${verb} a model list chosen`);
+  }
+  if (clauses.length === 0) return "";
+  return `${clauses.join(", and ")} — add those in workspace settings.`;
 }
 
 /**
