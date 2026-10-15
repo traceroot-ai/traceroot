@@ -46,11 +46,12 @@ const PLAIN_PROJECT_ID = /^[A-Za-z0-9._-]+$/;
  * Origins this file is willing to put in the line.
  *
  * `new URL(...).origin` is not shell-safe on its own: a hostname may carry a
- * single quote (`http://%27.com` parses to `http://'.com`), and a backtick,
- * `$`, `;` or `*` survive parsing too. So the origin is held to a scheme, a
- * hostname or IPv6 literal, and an optional port — which excludes every one of
- * those, and in particular the one character single quotes cannot carry. With
- * that established, `quotedArg` is enough to make the value one word.
+ * quote of either kind (`http://%27.com` parses to `http://'.com`,
+ * `http://%22.com` to `http://".com`), and a backtick, `$`, `;` or `*` survive
+ * parsing too. So the origin is held to a scheme, a hostname or IPv6 literal,
+ * and an optional port — which excludes every one of those, and with them every
+ * character that would still be live inside the quoting `quotedArg` applies.
+ * With that established, `quotedArg` is enough to make the value one word.
  *
  * The host class admits `_` alongside the letters, digits, `.` and `-` of a
  * public domain. It is legal in a URL host, ordinary in container and internal
@@ -60,26 +61,36 @@ const PLAIN_PROJECT_ID = /^[A-Za-z0-9._-]+$/;
  * send its operator to TraceRoot Cloud, which is what this file exists to
  * prevent.
  *
- * It stops there rather than admitting everything single quotes happen to
- * survive, because the check also answers "could this be a host at all". The
- * other characters the parser lets through — `&`, `!`, `~`, `+`, `,`, `(`, `{`,
- * `"` and the four above — reach an origin only by percent-decoding, never by
- * naming a deployment, so a flag carrying one is noise better dropped. Nothing
+ * It stops there rather than admitting everything quoting happens to survive,
+ * because the check also answers "could this be a host at all". The other
+ * characters the parser lets through — `&`, `!`, `~`, `+`, `,`, `(` and `{`
+ * among them — reach an origin only by percent-decoding, never by naming a
+ * deployment, so a flag carrying one is noise better dropped. Nothing
  * excludes whitespace or control characters because nothing has to: the URL
  * parser refuses a host containing them, so they arrive as a malformed URL.
  */
 const SHELL_SAFE_ORIGIN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)(:\d+)?$/;
 
 /**
- * A value as a single shell word.
+ * A value as a single shell word, quoted the one way every shell this line may
+ * be pasted into agrees on.
  *
- * An origin can legitimately be an IPv6 literal — `http://[::1]:8000` — and zsh
- * reads the brackets as a glob: unquoted, the pasted line dies with "no matches
- * found" before `setup` ever runs. `SHELL_SAFE_ORIGIN` has already ruled out
- * the quote that would escape this, so wrapping is sound rather than hopeful.
+ * Quoting is needed at all for one shape: an origin can legitimately be an IPv6
+ * literal — `http://[::1]:8000` — and zsh reads the brackets as a glob, so
+ * unquoted the pasted line dies with "no matches found" before `setup` ever
+ * runs. Those brackets are also the only characters `SHELL_SAFE_ORIGIN` admits
+ * that any shell acts on, which is why nothing else here has to be escaped.
+ *
+ * Double quotes rather than single, because cmd.exe does not treat `'` as a
+ * quote character and neither does the argv parsing behind `npx` on Windows: a
+ * single-quoted value arrives with the quotes inside it and `setup` stops on an
+ * invalid host, so a self-hosted operator pasting into cmd.exe could not start
+ * at all. Double quotes are stripped by cmd.exe, PowerShell, bash and zsh
+ * alike, and what stays live inside them — `"`, `$`, a backtick, `\`, and `%`
+ * or `!` under cmd.exe — is exactly what `SHELL_SAFE_ORIGIN` excludes.
  */
 function quotedArg(value: string): string {
-  return `'${value}'`;
+  return `"${value}"`;
 }
 
 /** The origin serving the dashboard, falling back to the app's own default. */

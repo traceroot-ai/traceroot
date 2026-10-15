@@ -129,6 +129,35 @@ describe("cliHostFlags", () => {
       expect(cliHostFlags({ apiUrl: "/api/v1", appUrl })).toEqual({ host: null, authHost: null });
     }
   });
+
+  it("renders nothing a double-quoted word would leave live", () => {
+    // The flags go into the line inside double quotes, which cmd.exe,
+    // PowerShell, bash and zsh all strip. That only holds while the origin
+    // cannot carry a character those shells still act on inside one, so the
+    // class is checked against every printable ASCII character rather than the
+    // handful anyone thought to list. Each is percent-encoded into the host,
+    // where the URL parser decodes it back the way `http://%27.com` yields
+    // `http://'.com`.
+    const stillLiveInsideDoubleQuotes = ['"', "$", "`", "\\", "%", "!"];
+    let rendered = 0;
+
+    for (let code = 0x20; code < 0x7f; code += 1) {
+      const encoded = `%${code.toString(16).padStart(2, "0")}`;
+      const flags = cliHostFlags({ apiUrl: "/api/v1", appUrl: `http://a${encoded}b.example` });
+      for (const flag of [flags.host, flags.authHost]) {
+        if (flag === null) continue;
+        rendered += 1;
+        for (const live of stillLiveInsideDoubleQuotes) {
+          expect(flag).not.toContain(live);
+        }
+      }
+    }
+
+    // The characters the class does admit still have to reach the line, or the
+    // loop above would pass on a `cliHostFlags` that had stopped rendering
+    // anything at all.
+    expect(rendered).toBeGreaterThan(0);
+  });
 });
 
 describe("setupCommand", () => {
@@ -172,7 +201,7 @@ describe("setupCommand", () => {
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
       "npx -y traceroot-cli@latest setup --project proj_1 " +
-        "--host 'http://localhost:8000' --auth-host 'http://localhost:3000'",
+        '--host "http://localhost:8000" --auth-host "http://localhost:3000"',
     );
   });
 
@@ -183,13 +212,15 @@ describe("setupCommand", () => {
     const setupCommand = await setupCommandWith({});
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@latest setup --project proj_1 --host 'http://localhost:3000'",
+      'npx -y traceroot-cli@latest setup --project proj_1 --host "http://localhost:3000"',
     );
   });
 
   it("quotes an IPv6 origin so the line survives zsh", async () => {
     // Unquoted, zsh reads `[::1]` as a glob and the paste dies with "no matches
-    // found" before setup runs.
+    // found" before setup runs. These brackets are the only characters the
+    // origin class admits that any shell acts on, so this is the one shape
+    // quoting exists for.
     const setupCommand = await setupCommandWith({
       apiUrl: "http://[::1]:8000/api/v1",
       appUrl: "http://[::1]:3000",
@@ -197,7 +228,7 @@ describe("setupCommand", () => {
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
       "npx -y traceroot-cli@latest setup --project proj_1 " +
-        "--host 'http://[::1]:8000' --auth-host 'http://[::1]:3000'",
+        '--host "http://[::1]:8000" --auth-host "http://[::1]:3000"',
     );
   });
 
@@ -212,18 +243,39 @@ describe("setupCommand", () => {
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
       "npx -y traceroot-cli@latest setup --project proj_1 " +
-        "--host 'http://app_internal:8000' --auth-host 'http://web_1:3000'",
+        '--host "http://app_internal:8000" --auth-host "http://web_1:3000"',
     );
   });
 
   it("never lets a quote reach the line", async () => {
-    // `http://%27.com` parses to `http://'.com`, and a single-quoted word
-    // cannot carry a single quote, so there is no quoting that would make this
-    // origin safe. Dropping the flags keeps it out of the line entirely.
-    const setupCommand = await setupCommandWith({ appUrl: "http://%27.com" });
+    // The host parser hands back either quote — `http://%27.com` parses to
+    // `http://'.com` and `http://%22.com` to `http://".com` — and a quoted word
+    // cannot carry the quote that ends it, so no quoting makes such an origin
+    // safe. Dropping the flags keeps it out of the line entirely.
+    for (const appUrl of ["http://%22.com", "http://%27.com"]) {
+      const setupCommand = await setupCommandWith({ appUrl });
+      const line = setupCommand({ projectId: "proj_1" });
+
+      expect(line).toBe("npx -y traceroot-cli@latest setup --project proj_1");
+      expect(line).not.toContain('"');
+      expect(line).not.toContain("'");
+    }
+  });
+
+  it("quotes with the character cmd.exe also strips, not just the POSIX shells", async () => {
+    // cmd.exe does not treat `'` as a quote, and neither does the argv parsing
+    // behind `npx` on Windows, so single quotes reached the CLI inside the
+    // value and `setup` stopped with an invalid host — a self-hosted operator
+    // pasting the line into cmd.exe could not start at all. Double quotes are
+    // stripped by cmd.exe, PowerShell, bash and zsh alike.
+    const setupCommand = await setupCommandWith({
+      apiUrl: "http://[::1]:8000/api/v1",
+      appUrl: "http://[::1]:3000",
+    });
     const line = setupCommand({ projectId: "proj_1" });
 
-    expect(line).toBe("npx -y traceroot-cli@latest setup --project proj_1");
+    expect(line).toContain('--host "http://[::1]:8000"');
+    expect(line).toContain('--auth-host "http://[::1]:3000"');
     expect(line).not.toContain("'");
   });
 });
