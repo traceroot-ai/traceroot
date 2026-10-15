@@ -1,3 +1,4 @@
+import { demoAgentWriteDenied } from "@/lib/demo-agent";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, ModelSource, PlanType, isBillingEnabled } from "@traceroot/core";
@@ -51,6 +52,11 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+  const denied = demoAgentWriteDenied(
+    accessResult.project.workspaceId,
+    accessResult.membership.role,
+  );
+  if (denied) return denied;
 
   // URL parsers normalize standalone dot segments even after percent-encoding.
   if (sessionId === "." || sessionId === "..") {
