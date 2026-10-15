@@ -238,6 +238,12 @@ export function AiAssistantPanel({
           </div>
         )}
 
+        {sessions.some((session) => session.id === currentSessionId && session.isExample) && (
+          <p className="px-3 pt-3 text-[11px] text-muted-foreground">
+            Recorded example · shortened for clarity
+          </p>
+        )}
+
         {/* Messages */}
         {!readOnly && !hasModels ? (
           <div className="flex flex-1 items-center justify-center px-6">
