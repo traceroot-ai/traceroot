@@ -41,8 +41,13 @@ import {
 import { formatDate, formatRelativeTime } from "@/lib/utils";
 import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
 import { triggerFieldDef, triggerOpLabel } from "@/features/detectors/trigger-fields";
-import { resolveSiteRange } from "@/features/dashboards/range-presets";
-import type { DateFilterOption } from "@/lib/date-filter";
+import { findRangePreset, resolveSiteRange } from "@/features/dashboards/range-presets";
+import {
+  clampDateFilter,
+  DATE_FILTER_OPTIONS,
+  formatDateRange,
+  type DateFilterOption,
+} from "@/lib/date-filter";
 import {
   isWidgetType,
   parseSpec,
@@ -51,6 +56,7 @@ import {
 } from "@/features/dashboards/types";
 import {
   appendWidgetPlacement,
+  placeWidgets,
   type WidgetPlacement,
 } from "@/features/dashboards/widget-placement";
 import {
@@ -97,6 +103,16 @@ export interface WidgetChart {
   projectId: string;
   spec: WidgetSpec;
   range: DateFilterOption;
+  /** Set when the window is a fixed span rather than a preset: a read the
+   *  server answered for explicit bounds, or one it clamped. The plot draws
+   *  exactly these bounds and `range` only carries their label. */
+  bounds?: CardBounds;
+}
+
+/** A frozen absolute window, as ISO instants. */
+export interface CardBounds {
+  start: string;
+  end: string;
 }
 
 /**
@@ -111,10 +127,15 @@ export interface PreviewTile {
   id: string;
   title: string;
   projectId: string;
-  widget: { type: WidgetType; spec: Record<string, unknown> };
+  /** Null for a widget kind the dashboard draws no body for (a legacy
+   *  detector widget): the tile keeps its place and title, empty, as the
+   *  dashboard itself shows it. */
+  widget: { type: WidgetType; spec: Record<string, unknown> } | null;
   /** The window this tile queries, snapshotted when the card model was built
    *  so the card's header and the preview cannot name different ranges. */
   range: DateFilterOption;
+  /** The fixed span to draw instead of the preset, as on WidgetChart. */
+  bounds?: CardBounds;
   x: number;
   y: number;
   w: number;
@@ -148,7 +169,8 @@ export type ResourceCardBody =
   | { kind: "detector"; chips: string[]; prompt: DetectorPrompt | null }
   | { kind: "alert"; chips: string[]; chart: AlertChart | null }
   | { kind: "changes"; chips: string[]; preview: ChangePreview | null }
-  | { kind: "delete"; reason: string; cascade: string | null; chips: string[] };
+  | { kind: "delete"; reason: string; cascade: string | null; chips: string[] }
+  | { kind: "notice"; chips: string[]; text: string };
 
 /**
  * What an edit card can picture beside its change chips: the widget's new
@@ -1604,7 +1626,7 @@ export interface AlertListCardModel {
 /** The card a read-tool step renders, when the panel has one for it. */
 export type ReadCardModel =
   | { kind: "alert_list"; model: AlertListCardModel }
-  | { kind: "alert"; model: ResourceCardModel };
+  | { kind: "alert" | "widget" | "dashboard"; model: ResourceCardModel };
 
 /**
  * A row's evaluation state in words: parked, then paused, outrank everything
@@ -1770,5 +1792,212 @@ export function readCardModel(
     const model = alertDetailCardModel(details, panelProjectId, retentionDays);
     return model === null ? null : { kind: "alert", model };
   }
+  if (details.kind === "widget_read") {
+    const model = widgetReadCardModel(details, panelProjectId, retentionDays);
+    return model === null ? null : { kind: "widget", model };
+  }
+  if (details.kind === "dashboard_read") {
+    const model = dashboardReadCardModel(details, panelProjectId, retentionDays);
+    return model === null ? null : { kind: "dashboard", model };
+  }
   return null;
+}
+
+/**
+ * The window a read's card is drawn over, resolved once so the header and
+ * the plot name the same one. A preset the panel knows, answered as asked,
+ * draws as that preset (clamped to the plan, as the page clamps its own); a
+ * span the server answered for explicit bounds, a window it clamped, or a
+ * preset the panel has no option for draws those exact bounds. A read that
+ * names no window is drawn over the page's, like every other card.
+ */
+function readWindow(
+  value: unknown,
+  panelProjectId: string | undefined,
+  retentionDays?: number | null,
+): { range: DateFilterOption; bounds?: CardBounds } {
+  const window = plainObject(value);
+  const rangeId = window === null ? null : str(window.range);
+  const known =
+    rangeId === null ? undefined : DATE_FILTER_OPTIONS.find((o) => o.id === rangeId && !o.isCustom);
+  if (window !== null && known !== undefined && window.clamped !== true) {
+    return { range: clampDateFilter(findRangePreset(known.id), retentionDays) };
+  }
+  const start = window === null ? null : instant(window.start_time);
+  const end = window === null ? null : instant(window.end_time);
+  if (start !== null && end !== null && end > start) {
+    const bounds = { start: start.toISOString(), end: end.toISOString() };
+    const custom = DATE_FILTER_OPTIONS.find((o) => o.isCustom);
+    return {
+      range: {
+        id: custom?.id ?? "custom",
+        label: formatDateRange(start, end),
+        durationMinutes: null,
+        isCustom: true,
+      },
+      bounds,
+    };
+  }
+  return { range: resolveSiteRange(panelProjectId ?? null, retentionDays) };
+}
+
+/** A parseable ISO instant as a Date, or null. */
+function instant(value: unknown): Date | null {
+  if (typeof value !== "string") return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+/** The dashboard page a read's widget or dashboard opens, when both ids are path-safe. */
+function dashboardPageHref(panelProjectId: string | undefined, dashboardId: unknown) {
+  const projectId = pathSegment(panelProjectId);
+  const id = pathSegment(dashboardId);
+  return projectId === null || id === null ? null : `/projects/${projectId}/dashboard/${id}`;
+}
+
+/** What a read says when it did not answer a widget: a feed, or the reason it failed. */
+function unansweredText(status: unknown, type: string | null, error: unknown): string | null {
+  if (status === "error") {
+    return `Couldn't answer this widget: ${str(error, MAX_REASON_CHARS) ?? "unknown error"}`;
+  }
+  if (status === "skipped" || (type !== null && type !== "query")) {
+    return type === "trace_feed"
+      ? "A trace feed: open the dashboard to see its traces."
+      : "This widget has no chart to draw here: open the dashboard to see it.";
+  }
+  return null;
+}
+
+/**
+ * The card for a widget read (get_widget, get_widget_data): the widget's own
+ * chart over the window the read answered for, its spec as chips in the
+ * definition panel, and its dashboard to open. A feed or a widget the read
+ * could not answer says so in one line instead of drawing a broken chart.
+ */
+function widgetReadCardModel(
+  details: Record<string, unknown>,
+  panelProjectId: string | undefined,
+  retentionDays?: number | null,
+): ResourceCardModel | null {
+  const widget = plainObject(details.widget);
+  if (widget === null) return null;
+  const id = str(widget.id, MAX_TITLE_CHARS);
+  if (id === null) return null;
+  const type = str(widget.type);
+  const chips = widgetChips({ type, spec: widget.spec });
+  const notice = unansweredText(widget.status, type, widget.error);
+  const window = readWindow(details.window, panelProjectId, retentionDays);
+  const spec = notice === null ? parseSpec(widget.spec) : null;
+  const projectId = pathSegment(panelProjectId);
+  let body: ResourceCardBody;
+  if (notice !== null) {
+    body = { kind: "notice", chips, text: notice };
+  } else {
+    body = {
+      kind: "widget",
+      chips,
+      chart: spec === null || projectId === null ? null : { projectId, spec, ...window },
+    };
+  }
+
+  const meta: string[] = [RESOURCE_TYPE_LABELS.widget];
+  const dashboardName = str(widget.dashboard_name, MAX_TITLE_CHARS);
+  if (dashboardName !== null) meta.push(dashboardName);
+  // A chart names its window; a one-line notice draws nothing over one.
+  if (body.kind === "widget" && body.chart !== null) meta.push(window.range.label);
+  return {
+    resourceType: "widget",
+    resourceId: id,
+    created: true,
+    title: str(widget.title, MAX_TITLE_CHARS) ?? id,
+    meta,
+    href: dashboardPageHref(panelProjectId, widget.dashboard_id),
+    body,
+  };
+}
+
+/**
+ * The card for a dashboard read (get_dashboard, get_dashboard_data): the
+ * dashboard as it is, its widgets on their stored grid scaled to the card,
+ * every tile drawn by the dashboard's own tile body over the one window the
+ * read answered for. A widget the read skipped or could not answer is drawn
+ * as the dashboard draws it. A read that reported no layout — an older
+ * server — draws no preview rather than a grid the page never laid out.
+ */
+function dashboardReadCardModel(
+  details: Record<string, unknown>,
+  panelProjectId: string | undefined,
+  retentionDays?: number | null,
+): ResourceCardModel | null {
+  const dashboard = plainObject(details.dashboard);
+  if (dashboard === null || !Array.isArray(details.widgets)) return null;
+  const id = str(dashboard.id, MAX_TITLE_CHARS);
+  if (id === null) return null;
+  const widgets: Record<string, unknown>[] = [];
+  for (const entry of details.widgets) {
+    const widget = plainObject(entry);
+    // A widget the details cannot read (a persisted row cut partway through
+    // the list) would draw a different dashboard: keep the plain tool line.
+    if (widget === null || str(widget.id, MAX_TITLE_CHARS) === null) return null;
+    widgets.push(widget);
+  }
+
+  const window = readWindow(details.window, panelProjectId, retentionDays);
+  const projectId = pathSegment(panelProjectId);
+  let tiles: PreviewTile[] = [];
+  if (Array.isArray(details.layout) && projectId !== null) {
+    const stored = details.layout
+      .map(plainObject)
+      .filter((entry): entry is Record<string, unknown> => entry !== null)
+      .flatMap((entry) => {
+        const coords = [entry.x, entry.y, entry.w, entry.h];
+        return typeof entry.i === "string" &&
+          coords.every((n) => typeof n === "number" && Number.isInteger(n) && n >= 0)
+          ? [
+              {
+                i: entry.i,
+                x: entry.x as number,
+                y: entry.y as number,
+                w: entry.w as number,
+                h: entry.h as number,
+              },
+            ]
+          : [];
+      });
+    const placed = placeWidgets(
+      stored,
+      widgets.map((widget) => widget.id as string),
+    );
+    tiles = widgets.map((widget, index) => {
+      const { x, y, w, h } = placed[index];
+      const type = widget.type;
+      return {
+        id: widget.id as string,
+        title: str(widget.title, MAX_TITLE_CHARS) ?? (widget.id as string),
+        projectId,
+        // The spec as stored, unparsed: the tile body applies the dashboard's
+        // own schema and shows its own face for a spec it rejects.
+        widget: isWidgetType(type) ? { type, spec: plainObject(widget.spec) ?? {} } : null,
+        ...window,
+        x,
+        y,
+        w,
+        h,
+      };
+    });
+  }
+
+  const meta: string[] = [RESOURCE_TYPE_LABELS.dashboard];
+  meta.push(widgets.length === 1 ? "1 widget" : `${widgets.length} widgets`);
+  // One window label for the whole preview, as the created-dashboard card does.
+  if (tiles.length > 0) meta.push(window.range.label);
+  return {
+    resourceType: "dashboard",
+    resourceId: id,
+    created: true,
+    title: str(dashboard.name, MAX_TITLE_CHARS) ?? id,
+    meta,
+    href: dashboardPageHref(panelProjectId, dashboard.id),
+    body: { kind: "dashboard", tiles },
+  };
 }

@@ -31,6 +31,7 @@ from rest.schemas.dashboards import (
 from rest.schemas.public import (
     DashboardDataResponse,
     DashboardDetail,
+    DashboardLayoutItem,
     DashboardListItem,
     DashboardSummary,
     DashboardWidgetData,
@@ -106,6 +107,39 @@ async def list_dashboards_page(project_id: str) -> PublicDashboardListResponse:
     return PublicDashboardListResponse(data=items)
 
 
+def _layout_items(raw: Any, widget_ids: set[str]) -> list[DashboardLayoutItem] | None:
+    """The stored grid layout as placements of the dashboard's own widgets.
+
+    The layout column is free JSON the dashboard page writes, so an entry that
+    is not a placement (missing or non-integer coordinates, negative values)
+    or that names a widget no longer on the dashboard is dropped rather than
+    failing the read; the page itself ignores the same entries.
+
+    Args:
+        raw (Any): The stored layout, as the dashboard service returned it.
+        widget_ids (set[str]): The ids of the dashboard's widgets.
+
+    Returns:
+        list[DashboardLayoutItem] | None: The usable placements, or None when
+            the service reported no layout at all.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        return []
+    items: list[DashboardLayoutItem] = []
+    for entry in raw:
+        if not isinstance(entry, dict) or entry.get("i") not in widget_ids:
+            continue
+        coords = [entry.get(key) for key in ("x", "y", "w", "h")]
+        # bool is an int subclass; a stored true is not a coordinate.
+        if not all(isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in coords):
+            continue
+        x, y, w, h = coords
+        items.append(DashboardLayoutItem(i=entry["i"], x=x, y=y, w=w, h=h))
+    return items
+
+
 async def get_dashboard_detail(project_id: str, dashboard_id: str) -> DashboardDetail:
     """Fetch one dashboard (with widgets) via the internal detail route.
 
@@ -131,6 +165,16 @@ async def get_dashboard_detail(project_id: str, dashboard_id: str) -> DashboardD
     )
     try:
         dashboard: Any = data["dashboard"]
+        widgets = [
+            DashboardWidgetItem(
+                id=w["id"],
+                title=w["title"],
+                type=w["type"],
+                spec=w["spec"],
+                create_time=w["createTime"],
+            )
+            for w in dashboard["widgets"]
+        ]
         return DashboardDetail(
             id=dashboard["id"],
             name=dashboard["name"],
@@ -139,16 +183,8 @@ async def get_dashboard_detail(project_id: str, dashboard_id: str) -> DashboardD
             creator=dashboard["creator"],
             create_time=dashboard["createTime"],
             update_time=dashboard["updateTime"],
-            widgets=[
-                DashboardWidgetItem(
-                    id=w["id"],
-                    title=w["title"],
-                    type=w["type"],
-                    spec=w["spec"],
-                    create_time=w["createTime"],
-                )
-                for w in dashboard["widgets"]
-            ],
+            widgets=widgets,
+            layout=_layout_items(dashboard.get("layout"), {w.id for w in widgets}),
         )
     except (KeyError, TypeError, ValidationError) as e:
         raise _dashboard_service_error() from e
@@ -319,7 +355,12 @@ DASHBOARD_DATA_QUERY_WIDGET_CAP = 24
 
 def _widget_error(widget: DashboardWidgetItem, reason: str) -> DashboardWidgetData:
     return DashboardWidgetData(
-        id=widget.id, title=widget.title, type=widget.type, status="error", error=reason
+        id=widget.id,
+        title=widget.title,
+        type=widget.type,
+        status="error",
+        spec=widget.spec,
+        error=reason,
     )
 
 
@@ -353,7 +394,7 @@ async def _answer_widget(
     """
     if widget.type != "query":
         return DashboardWidgetData(
-            id=widget.id, title=widget.title, type=widget.type, status="skipped"
+            id=widget.id, title=widget.title, type=widget.type, status="skipped", spec=widget.spec
         )
     try:
         spec = WidgetSpec.model_validate(widget.spec)
@@ -396,6 +437,7 @@ async def _answer_widget(
         title=widget.title,
         type=widget.type,
         status="ok",
+        spec=widget.spec,
         columns=result["columns"],
         rows=rows[:row_cap],
         meta=result.get("meta", {}),
@@ -477,7 +519,7 @@ async def get_dashboard_data_page(
         calls.append(answer(w, past_cap))
     widgets = await asyncio.gather(*calls)
     statuses = [w.status for w in widgets]
-    summary = DashboardSummary(**detail.model_dump(exclude={"widgets"}))
+    summary = DashboardSummary(**detail.model_dump(exclude={"widgets", "layout"}))
     if caller_kind == "api_key":
         summary.creator = None
     return DashboardDataResponse(
@@ -487,6 +529,7 @@ async def get_dashboard_data_page(
         queried=statuses.count("ok"),
         skipped=statuses.count("skipped"),
         failed=statuses.count("error"),
+        layout=detail.layout,
     )
 
 
@@ -529,8 +572,13 @@ async def get_widget_data_page(
     answer = await _answer_widget(detail, project_id, start, end, row_cap=None, series_row_cap=None)
     return WidgetDataResponse(
         widget=WidgetRef(
-            id=detail.id, dashboard_id=detail.dashboard_id, title=detail.title, type=detail.type
+            id=detail.id,
+            dashboard_id=detail.dashboard_id,
+            title=detail.title,
+            type=detail.type,
+            dashboard_name=detail.dashboard_name,
+            spec=detail.spec,
         ),
         window=window,
-        **answer.model_dump(exclude={"id", "title", "type"}),
+        **answer.model_dump(exclude={"id", "title", "type", "spec"}),
     )

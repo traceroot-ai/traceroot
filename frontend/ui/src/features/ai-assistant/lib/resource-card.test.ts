@@ -2466,3 +2466,245 @@ describe("resourceCardModel — update and delete receipts", () => {
     expect(model).toBeNull();
   });
 });
+
+describe("readCardModel: widget and dashboard reads", () => {
+  // A span's label leaves the year out only within the current year.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-10T00:00:00Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function readStep(toolName: string, details: unknown, overrides: Partial<ToolCallStep> = {}) {
+    return {
+      toolCallId: "tcw1",
+      toolName,
+      args: {},
+      result: { content: [{ type: "text", text: "Widget: w-1" }], details },
+      isError: false,
+      status: "done",
+      ...overrides,
+    } as ToolCallStep;
+  }
+
+  const ANSWERED = {
+    start_time: "2026-09-01T00:00:00Z",
+    end_time: "2026-09-08T00:00:00Z",
+    range: "7d",
+    clamped: false,
+  };
+
+  const widgetRead = (widget: Record<string, unknown> = {}, window: unknown = ANSWERED) => ({
+    kind: "widget_read",
+    widget: {
+      id: "w-1",
+      title: "Tokens by model",
+      type: "query",
+      spec: WIDGET_SPEC,
+      status: "ok",
+      error: null,
+      dashboard_id: "db1",
+      dashboard_name: "Overview",
+      ...widget,
+    },
+    window,
+  });
+
+  it("cards a widget read as its chart over the preset it answered for, opening its dashboard", () => {
+    const model = readCardModel(readStep("get_widget_data", widgetRead()), "p1");
+    expect(model).toMatchObject({
+      kind: "widget",
+      model: {
+        resourceType: "widget",
+        resourceId: "w-1",
+        title: "Tokens by model",
+        meta: ["Widget", "Overview", "Last 7 days"],
+        href: "/projects/p1/dashboard/db1",
+        body: {
+          kind: "widget",
+          chips: ["view spans", "sum(total_tokens)", "by model_name", "bar"],
+          chart: { projectId: "p1", range: preset("7d") },
+        },
+      },
+    });
+    const chart = (model!.model.body as { chart: { bounds?: unknown } }).chart;
+    expect(chart.bounds).toBeUndefined();
+  });
+
+  it("draws explicit, clamped or unknown-preset windows as their exact bounds", () => {
+    const bounds = { start: "2026-09-01T00:00:00.000Z", end: "2026-09-08T00:00:00.000Z" };
+    for (const window of [
+      { ...ANSWERED, range: null },
+      { ...ANSWERED, clamped: true },
+      { ...ANSWERED, range: "2y" },
+    ]) {
+      const model = readCardModel(readStep("get_widget_data", widgetRead({}, window)), "p1");
+      const chart = (model!.model.body as { chart: { bounds?: unknown; range: { id: string } } })
+        .chart;
+      expect(chart.bounds).toEqual(bounds);
+      expect(chart.range.id).toBe("custom");
+      // The header names the span, the same one the plot draws.
+      expect(model!.model.meta[2]).toMatch(/Sep 01, 00:00 - Sep 08, 00:00/);
+    }
+  });
+
+  it("draws a definition read over the page's preset, clamped to the plan", () => {
+    const window = { range: "90d", start_time: null, end_time: null, clamped: false };
+    const model = readCardModel(
+      readStep("get_widget", widgetRead({ status: null }, window)),
+      "p1",
+      30,
+    );
+    expect((model!.model.body as { chart: { range: unknown } }).chart.range).toEqual(preset("30d"));
+  });
+
+  it("falls back to the site's window when the read names none", () => {
+    const model = readCardModel(readStep("get_widget", widgetRead({ status: null }, null)), "p1");
+    expect((model!.model.body as { chart: { range: unknown } }).chart.range).toEqual(
+      DEFAULT_DATE_FILTER,
+    );
+  });
+
+  it("says in one line why a widget was not answered, keeping its chips", () => {
+    const failed = readCardModel(
+      readStep("get_widget_data", widgetRead({ status: "error", error: "spec: bad metric" })),
+      "p1",
+    );
+    expect(failed!.model.body).toEqual({
+      kind: "notice",
+      chips: ["view spans", "sum(total_tokens)", "by model_name", "bar"],
+      text: "Couldn't answer this widget: spec: bad metric",
+    });
+    expect(failed!.model.meta).toEqual(["Widget", "Overview"]);
+
+    const feed = readCardModel(
+      readStep(
+        "get_widget_data",
+        widgetRead({ type: "trace_feed", spec: { limit: 20 }, status: "skipped" }),
+      ),
+      "p1",
+    );
+    expect(feed!.model.body).toMatchObject({
+      kind: "notice",
+      chips: ["trace feed", "20 rows"],
+      text: "A trace feed: open the dashboard to see its traces.",
+    });
+
+    const legacy = readCardModel(
+      readStep("get_widget", widgetRead({ type: "detector", spec: {}, status: null })),
+      "p1",
+    );
+    expect(legacy!.model.body).toMatchObject({ kind: "notice" });
+  });
+
+  it("draws no chart for a spec the schema rejects, or with no panel project to query", () => {
+    const bad = readCardModel(readStep("get_widget_data", widgetRead({ spec: { view: 1 } })), "p1");
+    expect(bad!.model.body).toMatchObject({ kind: "widget", chart: null });
+    const noProject = readCardModel(readStep("get_widget_data", widgetRead()), undefined);
+    expect(noProject!.model).toMatchObject({ href: null, body: { chart: null } });
+  });
+
+  it("keeps the plain tool line for a widget read without an id, or an errored step", () => {
+    expect(readCardModel(readStep("get_widget", { kind: "widget_read", widget: {} }), "p1")).toBe(
+      null,
+    );
+    expect(readCardModel(readStep("get_widget", { kind: "widget_read" }), "p1")).toBeNull();
+    expect(readCardModel(readStep("get_widget", widgetRead(), { isError: true }), "p1")).toBeNull();
+  });
+
+  const dashboardRead = (extra: Record<string, unknown> = {}) => ({
+    kind: "dashboard_read",
+    dashboard: { id: "db1", name: "Overview" },
+    window: ANSWERED,
+    widgets: [
+      { id: "w-1", title: "Tokens", type: "query", spec: WIDGET_SPEC, status: "ok", error: null },
+      { id: "w-2", title: "Feed", type: "trace_feed", spec: {}, status: "skipped", error: null },
+      { id: "w-3", title: "Old", type: "detector", spec: {}, status: "skipped", error: null },
+    ],
+    layout: [
+      { i: "w-1", x: 6, y: 0, w: 6, h: 4 },
+      { i: "w-2", x: 0, y: 0, w: 6, h: 6 },
+    ],
+    ...extra,
+  });
+
+  it("cards a dashboard read as its real grid, unplaced widgets stacked as the page does", () => {
+    const model = readCardModel(readStep("get_dashboard_data", dashboardRead()), "p1");
+    expect(model).toMatchObject({
+      kind: "dashboard",
+      model: {
+        resourceType: "dashboard",
+        resourceId: "db1",
+        title: "Overview",
+        meta: ["Dashboard", "3 widgets", "Last 7 days"],
+        href: "/projects/p1/dashboard/db1",
+      },
+    });
+    const tiles = (model!.model.body as { tiles: PreviewTile[] }).tiles;
+    expect(tiles.map(({ id, x, y, w, h }) => ({ id, x, y, w, h }))).toEqual([
+      { id: "w-1", x: 6, y: 0, w: 6, h: 4 },
+      { id: "w-2", x: 0, y: 0, w: 6, h: 6 },
+      // No stored placement: the page stacks it at the left edge below everything.
+      { id: "w-3", x: 0, y: 6, w: 4, h: 4 },
+    ]);
+    expect(tiles[0]).toMatchObject({
+      title: "Tokens",
+      projectId: "p1",
+      widget: { type: "query", spec: WIDGET_SPEC },
+      range: preset("7d"),
+    });
+    // A kind the dashboard draws no body for keeps its place, empty.
+    expect(tiles[2]!.widget).toBeNull();
+  });
+
+  it("carries a fixed span onto every tile", () => {
+    const model = readCardModel(
+      readStep("get_dashboard_data", dashboardRead({ window: { ...ANSWERED, range: null } })),
+      "p1",
+    );
+    const tiles = (model!.model.body as { tiles: PreviewTile[] }).tiles;
+    expect(tiles.every((tile) => tile.bounds?.start === "2026-09-01T00:00:00.000Z")).toBe(true);
+  });
+
+  it("draws no grid when the read reported no layout, or the panel has no project", () => {
+    const unknown = readCardModel(
+      readStep("get_dashboard", dashboardRead({ layout: null, window: null })),
+      "p1",
+    );
+    expect(unknown!.model).toMatchObject({
+      meta: ["Dashboard", "3 widgets"],
+      body: { kind: "dashboard", tiles: [] },
+    });
+    const noProject = readCardModel(readStep("get_dashboard", dashboardRead()), undefined);
+    expect(noProject!.model).toMatchObject({ href: null, body: { tiles: [] } });
+  });
+
+  it("keeps the plain tool line when a widget cannot be read, so no other dashboard is drawn", () => {
+    const widgets = [...dashboardRead().widgets, "[withheld: budget]"];
+    expect(readCardModel(readStep("get_dashboard", dashboardRead({ widgets })), "p1")).toBeNull();
+    expect(
+      readCardModel(readStep("get_dashboard", dashboardRead({ dashboard: {} })), "p1"),
+    ).toBeNull();
+    expect(
+      readCardModel(readStep("get_dashboard", dashboardRead({ widgets: "none" })), "p1"),
+    ).toBeNull();
+  });
+
+  it("ignores placements that are not placements", () => {
+    const model = readCardModel(
+      readStep(
+        "get_dashboard",
+        dashboardRead({
+          widgets: [dashboardRead().widgets[0]],
+          layout: [{ i: "w-1", x: "6", y: 0, w: 6, h: 4 }, "junk"],
+        }),
+      ),
+      "p1",
+    );
+    const [tile] = (model!.model.body as { tiles: PreviewTile[] }).tiles;
+    expect(tile).toMatchObject({ x: 0, y: 0, w: 4, h: 4 });
+    expect(model!.model.meta[1]).toBe("1 widget");
+  });
+});

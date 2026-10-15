@@ -117,6 +117,10 @@ DETAIL_BODY = {
                 "createTime": "2026-08-01T01:00:00Z",
             },
         ],
+        "layout": [
+            {"i": "w-1", "x": 0, "y": 0, "w": 6, "h": 4},
+            {"i": "w-2", "x": 6, "y": 0, "w": 6, "h": 6},
+        ],
     }
 }
 
@@ -143,6 +147,10 @@ DETAIL_EXPECTED = {
             "spec": {"filters": []},
             "create_time": "2026-08-01T01:00:00Z",
         },
+    ],
+    "layout": [
+        {"i": "w-1", "x": 0, "y": 0, "w": 6, "h": 4},
+        {"i": "w-2", "x": 6, "y": 0, "w": 6, "h": 6},
     ],
 }
 
@@ -354,6 +362,40 @@ def test_list_dashboards_malformed_item_is_503_not_500():
     client = TestClient(app, raise_server_exceptions=False)
     resp = client.get("/api/v1/public/dashboards?project_id=proj-A", headers=USER_HEADER)
     assert resp.status_code == 503
+
+
+@respx.mock
+def test_get_dashboard_drops_layout_entries_that_are_not_placements():
+    """The layout column is free JSON the page writes: an entry for a deleted
+    widget, or one with unusable coordinates, is dropped — never a 503."""
+    _mock_user_auth()
+    layout = [
+        {"i": "w-1", "x": 0, "y": 0, "w": 6, "h": 4},
+        {"i": "w-gone", "x": 6, "y": 0, "w": 6, "h": 4},
+        {"i": "w-2", "x": "6", "y": 0, "w": 6, "h": 6},
+        {"i": "w-2", "x": 6, "y": -1, "w": 6, "h": 6},
+        {"i": "w-2", "x": 6, "y": 0, "w": True, "h": 6},
+        "not an entry",
+    ]
+    _mock_detail(body={"dashboard": {**DETAIL_BODY["dashboard"], "layout": layout}})
+    resp = TestClient(app).get(
+        "/api/v1/public/dashboards/dash-1?project_id=proj-A", headers=USER_HEADER
+    )
+    assert resp.status_code == 200
+    assert resp.json()["layout"] == [{"i": "w-1", "x": 0, "y": 0, "w": 6, "h": 4}]
+
+
+@respx.mock
+def test_get_dashboard_without_a_reported_layout_reads_layout_null():
+    """An older dashboard service that does not report the layout still reads."""
+    _mock_user_auth()
+    dashboard = {k: v for k, v in DETAIL_BODY["dashboard"].items() if k != "layout"}
+    _mock_detail(body={"dashboard": dashboard})
+    resp = TestClient(app).get(
+        "/api/v1/public/dashboards/dash-1?project_id=proj-A", headers=USER_HEADER
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {**DETAIL_EXPECTED, "layout": None}
 
 
 @respx.mock
