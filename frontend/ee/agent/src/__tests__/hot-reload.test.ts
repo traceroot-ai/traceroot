@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   rememberExecutors,
+  closeCurrentListener,
   closePreviousListener,
   registerSignalHandlers,
   rememberListener,
@@ -103,6 +104,34 @@ describe("rememberExecutors", () => {
     // A second reload finds nothing to destroy.
     await closePreviousListener();
     expect(destroy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("closeCurrentListener", () => {
+  it("closes the current listener and releases its connections without touching executors", async () => {
+    const listener = fakeListener();
+    const destroy = vi.fn().mockResolvedValue(undefined);
+    rememberExecutors(new Map([["sess-1", { destroy }]]));
+    rememberListener(listener);
+
+    await closeCurrentListener();
+
+    expect(listener.closed()).toBe(1);
+    expect(listener.connectionsClosed()).toBe(1);
+    // Shutdown owns executor teardown — closing the listener must not do it.
+    expect(destroy).not.toHaveBeenCalled();
+    // The slot is cleared: a second close is a no-op for shutdown's retry path.
+    await closeCurrentListener();
+    expect(listener.closed()).toBe(1);
+  });
+
+  it("does nothing when nothing is listening", async () => {
+    await expect(closeCurrentListener()).resolves.toBeUndefined();
+  });
+
+  it("tolerates a listener without a close function", async () => {
+    rememberListener({} as ReloadableListener);
+    await expect(closeCurrentListener()).resolves.toBeUndefined();
   });
 });
 

@@ -70,22 +70,58 @@ export async function closePreviousListener(): Promise<void> {
   executors?.clear();
 
   const previous = hotState().listener;
-  if (!previous) return;
   hotState().listener = undefined;
+  await shutListener(previous, "previous");
+}
 
+/**
+ * Close the CURRENT remembered listener (used by shutdown): no new HTTP
+ * connection is accepted afterwards, and keep-alive sockets are released so
+ * `close` does not hang on an idle SSE reader. Executors are left alone —
+ * shutdown destroys those itself. Safe to call with nothing listening.
+ */
+export async function closeCurrentListener(): Promise<void> {
+  const current = hotState().listener;
+  hotState().listener = undefined;
+  await shutListener(current, "current");
+}
+
+/**
+ * Shared listener teardown. A close that fails is logged loudly rather than
+ * swallowed: the alternative is a server still bound to the port while the
+ * new code believes it is serving (reload) or a shutdown that reports
+ * success while still accepting work.
+ */
+async function shutListener(
+  listener: ReloadableListener | undefined,
+  which: "previous" | "current",
+): Promise<void> {
+  if (!listener || typeof listener.close !== "function") return;
   await new Promise<void>((resolve) => {
     // Without this, an idle keep-alive connection (a browser tab, an SSE
     // reader) holds `close` open and the reload stalls instead of rebinding.
-    previous.closeAllConnections?.();
-    previous.close((error) => {
-      if (error) {
-        console.error(
-          "[Agent] Failed to close the previous listener — this process may still be serving stale code on the old port:",
-          error,
-        );
-      }
+    try {
+      listener.closeAllConnections?.();
+      listener.close((error) => {
+        if (error) {
+          console.error(
+            which === "previous"
+              ? "[Agent] Failed to close the previous listener — this process may still be serving stale code on the old port:"
+              : "[Agent] Failed to close the listener during shutdown:",
+            error,
+          );
+        }
+        resolve();
+      });
+    } catch (error) {
+      console.error(
+        which === "previous"
+          ? "[Agent] Failed to close the previous listener — this process may still be serving stale code on the old port:"
+          : "[Agent] Failed to close the listener during shutdown:",
+        error,
+      );
       resolve();
-    });
+    }
   });
 }
 

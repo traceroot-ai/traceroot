@@ -32,12 +32,18 @@ import {
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
 import {
+  destroyAllExecutors,
+  reconcileStaleSandboxes,
+  startupGate,
+} from "./executors/sandbox-lifecycle.js";
+import {
   clearSessionDeleted,
   fenceExecutorToSession,
   markSessionDeleted,
 } from "./executors/deleted-session-fence.js";
 import { createTools } from "./tools/index.js";
 import {
+  closeCurrentListener,
   closePreviousListener,
   registerSignalHandlers,
   rememberExecutors,
@@ -55,6 +61,19 @@ const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 
 // Per-session executor cache (executor lifecycle tied to session)
 const sessionExecutors = new Map<string, Executor>();
+
+/**
+ * Register an executor unless shutdown has begun. The check-and-set is
+ * synchronous, so on this single-threaded loop it is atomic with the
+ * shutdown snapshot below: an executor is either inside the destroy set or
+ * its request is refused here — never registered after the snapshot and
+ * orphaned when the process exits.
+ */
+function trackSessionExecutor(sessionId: string, executor: Executor): boolean {
+  if (isShuttingDown) return false;
+  sessionExecutors.set(sessionId, executor);
+  return true;
+}
 
 /** The self-trace kind of a turn is its attribution's turn kind (the three this route produces). */
 const TRACE_KIND: Record<"rca_execution" | "rca_followup" | "chat", AgentTraceKind> = {
@@ -200,6 +219,17 @@ app.route("/", decisionsRoute);
 
 // Message route — SSE streaming via agent runner
 app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
+  // Startup: a container born while reconciliation scans Docker could land in
+  // the listing with a session the snapshot predates, and be deleted as
+  // stale. Waiting here closes that race. Health/readiness never wait.
+  await startupGate.wait();
+
+  // Shutdown: the process is exiting. Refuse new turns outright so no
+  // executor can be registered after the shutdown snapshot is taken.
+  if (isShuttingDown) {
+    return c.json({ error: "agent is shutting down" }, 503);
+  }
+
   const projectId = c.req.param("projectId");
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
@@ -251,8 +281,14 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   // Get or create executor for this session (lazy — not initialized until tool use)
   let executor = sessionExecutors.get(sessionId);
   if (!executor) {
-    executor = fenceExecutorToSession(createExecutor(), sessionId);
-    sessionExecutors.set(sessionId, executor);
+    const fresh = fenceExecutorToSession(createExecutor(sessionId), sessionId);
+    // A shutdown that began while this request awaited auth/db must not leave
+    // an executor the shutdown will never destroy: refuse the registration
+    // instead of leaking its future container.
+    if (!trackSessionExecutor(sessionId, fresh)) {
+      return c.json({ error: "agent is shutting down" }, 503);
+    }
+    executor = fresh;
   }
 
   // Both tenancy ids come from the ONE session row authorized above — never
@@ -387,22 +423,52 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 // Graceful shutdown
 let isShuttingDown = false;
 
-async function shutdown(signal: string): Promise<void> {
+export async function shutdown(signal: string): Promise<void> {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log(`\n[Agent] Received ${signal}, shutting down...`);
   try {
-    // Destroy all active executors (sandbox containers)
-    for (const [id, executor] of sessionExecutors) {
-      await executor.destroy();
-      sessionExecutors.delete(id);
+    // First stop accepting work: with the listener closed, no new connection
+    // can reach executor creation, and requests already inside the handler
+    // hit the shutdown refusal instead of registering untracked sandboxes.
+    await closeCurrentListener();
+    // Then destroy all active executors concurrently: N sequential
+    // `docker rm -f` calls can exceed compose's stop grace, after which the
+    // process is SIGKILLed with containers still alive. One failure never
+    // blocks the rest; failures are reported and reflected in the exit code
+    // rather than silently swallowed.
+    const { destroyed, failed } = await destroyAllExecutors(sessionExecutors);
+    for (const { sessionId, error } of failed) {
+      console.error(`[Agent] Failed to destroy sandbox for session ${sessionId}:`, error);
     }
     await prisma.$disconnect();
+    if (failed.length > 0) {
+      console.error(`[Agent] Shutdown incomplete: destroyed ${destroyed}, failed ${failed.length}`);
+      process.exit(1);
+    }
     console.log("[Agent] Cleanup complete");
     process.exit(0);
   } catch (error) {
     console.error("[Agent] Error during shutdown:", error);
     process.exit(1);
+  }
+}
+
+/**
+ * Close the startup gate around stale-sandbox reconciliation: no request may
+ * create a container while the scan is classifying, so nothing it lists can
+ * be a live sandbox this process is about to own. The gate releases on
+ * success and on failure alike — Docker being down must delay requests, not
+ * refuse them (best-effort startup policy).
+ */
+export async function runStartupReconciliation(): Promise<void> {
+  startupGate.close();
+  try {
+    await reconcileStaleSandboxes(new Set(sessionExecutors.keys()));
+  } catch (error) {
+    console.error("[Agent] Sandbox reconciliation failed, continuing without it:", error);
+  } finally {
+    startupGate.release();
   }
 }
 
@@ -437,6 +503,13 @@ async function main(): Promise<void> {
       console.log(`[Agent] Listening on http://localhost:${info.port}`);
     }),
   );
+
+  // Reclaim sandboxes orphaned by a previous process (crash, SIGKILL after
+  // the stop grace, or any exit that skipped shutdown). Runs only after the
+  // listener is up: a process that fails to bind (EADDRINUSE) never reaches
+  // here, so it cannot delete the live owner's containers. Best-effort — a
+  // Docker outage must not keep the agent from serving.
+  await runStartupReconciliation();
 }
 
 // Under vitest the app is exercised via app.request — don't boot the server.

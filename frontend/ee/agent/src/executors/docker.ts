@@ -2,6 +2,13 @@ import { spawn, execFile } from "child_process";
 import { promisify } from "util";
 import type { Executor, ExecResult, ExecOptions } from "./interface.js";
 import { ASKPASS_PATH, ASKPASS_SCRIPT, buildCloneCommand } from "./git-clone-command.js";
+import {
+  agentInstanceId,
+  isAlreadyRemoved,
+  removeSandboxContainer,
+  sandboxContainerName,
+  sandboxRunLabelArgs,
+} from "./sandbox-lifecycle.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -10,33 +17,109 @@ const WORKSPACE_DIR = "/workspace";
 
 export class DockerExecutor implements Executor {
   private containerId: string | null = null;
+  private readonly sessionId?: string;
+  private readonly ownerId: string;
+
+  constructor(options?: { sessionId?: string; ownerId?: string }) {
+    this.sessionId = options?.sessionId;
+    this.ownerId = options?.ownerId ?? agentInstanceId();
+  }
+
+  /**
+   * Serializes init against destroy. Without it, a destroy racing an
+   * in-flight init can run while `containerId` is still null (a no-op) and
+   * the init then finishes creating a container nobody owns — leaked at
+   * shutdown. Chained this way, destroy either precedes init (which then
+   * refuses via `destroyedFlag`) or follows it (and removes the container).
+   */
+  private lifecycle: Promise<void> = Promise.resolve();
+  private destroyedFlag = false;
+
+  private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.lifecycle.then(fn);
+    // The chain itself never rejects — each caller still sees its own
+    // outcome — so one failure cannot wedge later lifecycle calls.
+    this.lifecycle = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
 
   async init(): Promise<void> {
+    return this.runExclusive(async () => {
+      if (this.destroyedFlag) {
+        throw new Error("executor was destroyed before initialization");
+      }
+      return this.initInner();
+    });
+  }
+
+  private async initInner(): Promise<void> {
     console.log("[DockerExecutor] Creating container...");
 
-    const { stdout } = await execFileAsync("docker", [
-      "run",
-      "-d",
-      "--name",
-      `traceroot-sandbox-${Date.now()}`,
-      // Network enabled — required for git clone and gh CLI (per design doc)
-      // Token-based auth is ephemeral (1hr) and container is disposable
-      "-w",
-      WORKSPACE_DIR,
-      DOCKER_IMAGE,
-      "sleep",
-      "infinity",
-    ]);
+    const containerName = sandboxContainerName();
+    let containerId: string;
+    try {
+      // Labels travel as separate argv entries (execFile, no shell), so a
+      // hostile session id can never inject — and an invalid one is simply
+      // omitted by sandboxRunLabelArgs rather than refused.
+      const { stdout } = await execFileAsync("docker", [
+        "run",
+        "-d",
+        "--name",
+        containerName,
+        ...sandboxRunLabelArgs(this.sessionId, this.ownerId),
+        // Network enabled — required for git clone and gh CLI (per design doc)
+        // Token-based auth is ephemeral (1hr) and container is disposable
+        "-w",
+        WORKSPACE_DIR,
+        DOCKER_IMAGE,
+        "sleep",
+        "infinity",
+      ]);
+      containerId = stdout.trim();
+      if (!containerId) throw new Error("docker run produced no container id");
+    } catch (error) {
+      // `docker run` itself failed: nothing was started (or the id was
+      // never reported), so there is nothing to reclaim — surface the cause.
+      throw error instanceof Error ? error : new Error(String(error));
+    }
 
-    this.containerId = stdout.trim();
+    this.containerId = containerId;
 
-    // Create workspace directories
-    await this.exec(`mkdir -p ${WORKSPACE_DIR}/traces ${WORKSPACE_DIR}/notes`);
+    try {
+      // Create workspace directories. exec() resolves — never rejects — on
+      // command failure, so the exit code must be checked explicitly: a
+      // failed mkdir must throw here, not report a ready container.
+      const workspace = await this.exec(`mkdir -p ${WORKSPACE_DIR}/traces ${WORKSPACE_DIR}/notes`);
+      if (workspace.code !== 0) {
+        throw new Error(initFailureMessage("workspace directories", workspace));
+      }
 
-    // Install basic tools if not in image
-    await this.exec(
-      "apt-get update -qq && apt-get install -y -qq git jq curl > /dev/null 2>&1 || true",
-    );
+      // Install basic tools if not in image. Best-effort by policy (`|| true`
+      // keeps the shell exit zero): a tool-install failure must not fail
+      // sandbox creation here — that readiness question belongs to #1462.
+      await this.exec(
+        "apt-get update -qq && apt-get install -y -qq git jq curl > /dev/null 2>&1 || true",
+      );
+    } catch (error) {
+      // The container exists but never became usable. Without this pass it
+      // would leak: nothing tracks it yet outside this instance.
+      const leaked = this.containerId;
+      this.containerId = null;
+      try {
+        await removeSandboxContainer(leaked);
+      } catch (cleanupError) {
+        // The caller still sees the setup failure below; the reclaim failure
+        // is logged here, and the startup reconciler retries it next boot.
+        console.error(
+          `[DockerExecutor] Failed to reclaim partially initialized container ${leaked.slice(0, 12)}:`,
+          cleanupError,
+        );
+      }
+      throw error instanceof Error ? error : new Error(String(error));
+    }
 
     console.log(`[DockerExecutor] Container ready: ${this.containerId.slice(0, 12)}`);
   }
@@ -175,12 +258,30 @@ export class DockerExecutor implements Executor {
   }
 
   async destroy(): Promise<void> {
+    await this.runExclusive(async () => {
+      this.destroyedFlag = true;
+      return this.destroyInner();
+    });
+  }
+
+  private async destroyInner(): Promise<void> {
     if (!this.containerId) return;
-    console.log(`[DockerExecutor] Destroying container ${this.containerId.slice(0, 12)}`);
+    const id = this.containerId;
+    console.log(`[DockerExecutor] Destroying container ${id.slice(0, 12)}`);
     try {
-      await execFileAsync("docker", ["rm", "-f", this.containerId]);
-    } catch {
-      // Ignore errors during cleanup
+      await execFileAsync("docker", ["rm", "-f", id], { timeout: 15_000 });
+    } catch (error) {
+      // An already-absent container is the steady state (double delete,
+      // reconciler won the race) — not a failure. Anything else is real: log
+      // loudly and surface it so shutdown exits non-zero instead of
+      // reporting success while the container is still on the host.
+      if (isAlreadyRemoved(error)) {
+        this.containerId = null;
+        return;
+      }
+      console.error(`[DockerExecutor] Failed to remove container ${id.slice(0, 12)}:`, error);
+      this.containerId = null;
+      throw error instanceof Error ? error : new Error(String(error));
     }
     this.containerId = null;
   }
@@ -228,4 +329,17 @@ export async function setupGhCli(
 
 function shellEscape(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/** How much failed-setup output survives into the init error — a diagnostic, never a dump. */
+const SETUP_DIAGNOSTIC_CHARS = 2000;
+
+/**
+ * A meaningful init error for a setup step whose command resolved nonzero.
+ * Prefers stderr (where the shell reports the cause) with stdout as fallback,
+ * bounded so a chatty failure cannot flood the turn that surfaces it.
+ */
+function initFailureMessage(step: string, result: ExecResult): string {
+  const detail = (result.stderr.trim() || result.stdout.trim()).slice(0, SETUP_DIAGNOSTIC_CHARS);
+  return `sandbox setup failed at ${step} (exit ${result.code})${detail ? `: ${detail}` : ""}`;
 }

@@ -29,11 +29,30 @@ function stubSpawn() {
   });
 }
 
-/** execFile is promisified, so it must call back node-style. */
+/** execFile is promisified, so it must call back node-style. Handles both the
+ *  3-arg (`file, args, cb`) and 4-arg (`file, args, options, cb`) forms. */
 function stubExecFile(stdout = "container123\n") {
-  execFileMock.mockImplementation((_cmd: string, _args: string[], cb: unknown) => {
-    (cb as (e: null, r: { stdout: string; stderr: string }) => void)(null, { stdout, stderr: "" });
+  execFileMock.mockImplementation((...callArgs: unknown[]) => {
+    const cb = callArgs[callArgs.length - 1] as (
+      e: null,
+      r: { stdout: string; stderr: string },
+    ) => void;
+    cb(null, { stdout, stderr: "" });
   });
+}
+
+function execFileArgv(): string[][] {
+  return execFileMock.mock.calls.map((call) => call[1] as string[]);
+}
+
+/** The argv of the `docker run` invocation, or undefined when none happened. */
+function dockerRunArgs(): string[] | undefined {
+  return execFileArgv().find((argv) => argv[0] === "run");
+}
+
+/** The argv of every `docker rm` invocation. */
+function dockerRmArgv(): string[][] {
+  return execFileArgv().filter((argv) => argv[0] === "rm");
 }
 
 async function readyExecutor() {
@@ -150,5 +169,154 @@ describe("DockerExecutor.cloneRepo", () => {
   it("reports native git support", async () => {
     const executor = await readyExecutor();
     expect(executor.hasNativeGit()).toBe(true);
+  });
+});
+
+describe("DockerExecutor sandbox identity", () => {
+  it("creates containers with the sandbox and owner labels", async () => {
+    await readyExecutor();
+    const argv = dockerRunArgs();
+    expect(argv).toBeDefined();
+    expect(argv).toContain("--label");
+    expect(argv).toContain("traceroot.sandbox=true");
+    expect(argv?.join(" ")).toMatch(/traceroot\.owner=[A-Za-z0-9_.-]+/);
+  });
+
+  it("names containers with the sandbox prefix and a unique suffix", async () => {
+    await readyExecutor();
+    const argv = dockerRunArgs() ?? [];
+    const nameIndex = argv.indexOf("--name") + 1;
+    expect(argv[nameIndex]).toMatch(/^traceroot-sandbox-\d+-[A-Za-z0-9-]+$/);
+  });
+
+  it("labels the container with the session id it was created for", async () => {
+    stubSpawn();
+    stubExecFile("abc123\n");
+    const executor = new DockerExecutor({ sessionId: "sess-abc-123" });
+    await executor.init();
+    expect(dockerRunArgs()).toContain("traceroot.session=sess-abc-123");
+  });
+
+  it("omits the session label for an unsafe session id instead of injecting it", async () => {
+    stubSpawn();
+    stubExecFile("abc123\n");
+    const executor = new DockerExecutor({ sessionId: 's1" ; rm -rf / ; "' });
+    await executor.init();
+    const argv = dockerRunArgs() ?? [];
+    expect(argv.join(" ")).not.toContain("traceroot.session=");
+    // Ownership labels still land — the container is owned, just unattributed.
+    expect(argv).toContain("traceroot.sandbox=true");
+  });
+
+  it("removes a partially initialized container when setup throws", async () => {
+    stubSpawn();
+    stubExecFile("deadbeef1234\n");
+    const executor = new DockerExecutor({ sessionId: "sess-cleanup" });
+    const setupFailure = new Error("workspace setup failed");
+    vi.spyOn(executor, "exec").mockRejectedValueOnce(setupFailure);
+
+    await expect(executor.init()).rejects.toThrow("workspace setup failed");
+
+    const rms = dockerRmArgv();
+    expect(rms).toHaveLength(1);
+    expect(rms[0]).toEqual(["rm", "-f", "deadbeef1234"]);
+    expect(executor.isReady()).toBe(false);
+  });
+
+  it("treats a nonzero mkdir exit as failed setup, not a ready sandbox", async () => {
+    // exec() resolves nonzero results instead of rejecting: without an
+    // explicit code check this failure would report a ready container.
+    stubSpawn();
+    stubExecFile("deadbeef1234\n");
+    const executor = new DockerExecutor({ sessionId: "sess-mkdir" });
+    vi.spyOn(executor, "exec").mockResolvedValueOnce({
+      stdout: "",
+      stderr: "mkdir: permission denied",
+      code: 1,
+    });
+
+    await expect(executor.init()).rejects.toThrow(
+      /sandbox setup failed at workspace directories \(exit 1\): mkdir: permission denied/,
+    );
+
+    expect(dockerRmArgv()).toEqual([["rm", "-f", "deadbeef1234"]]);
+    expect(executor.isReady()).toBe(false);
+  });
+});
+
+describe("DockerExecutor.destroy", () => {
+  it("removes the container and reports not-ready afterwards", async () => {
+    const executor = await readyExecutor();
+    execFileMock.mockClear();
+    stubExecFile("");
+
+    await executor.destroy();
+
+    expect(dockerRmArgv()).toHaveLength(1);
+    expect(executor.isReady()).toBe(false);
+  });
+
+  it("treats an already-removed container as success", async () => {
+    const executor = await readyExecutor();
+    execFileMock.mockImplementation((...callArgs: unknown[]) => {
+      const cb = callArgs[callArgs.length - 1] as (e: Error | null) => void;
+      cb(new Error("Error: No such container: deadbeef1234"));
+    });
+
+    await expect(executor.destroy()).resolves.toBeUndefined();
+    expect(executor.isReady()).toBe(false);
+  });
+
+  it("surfaces a Docker-daemon failure instead of swallowing it", async () => {
+    const executor = await readyExecutor();
+    execFileMock.mockImplementation((...callArgs: unknown[]) => {
+      const cb = callArgs[callArgs.length - 1] as (e: Error | null) => void;
+      cb(new Error("Cannot connect to the Docker daemon"));
+    });
+
+    await expect(executor.destroy()).rejects.toThrow(/Docker daemon/);
+  });
+});
+
+describe("DockerExecutor init/destroy serialization", () => {
+  it("removes the container when destroy races an in-flight init", async () => {
+    stubSpawn();
+    stubExecFile("raceid1234\n");
+    const executor = new DockerExecutor({ sessionId: "sess-race" });
+    let mkdirRelease!: (result: { stdout: string; stderr: string; code: number }) => void;
+    const mkdirPending = new Promise<{ stdout: string; stderr: string; code: number }>(
+      (resolve) => {
+        mkdirRelease = resolve;
+      },
+    );
+    vi.spyOn(executor, "exec")
+      .mockReturnValueOnce(mkdirPending)
+      .mockResolvedValue({ stdout: "", stderr: "", code: 0 });
+
+    const initPromise = executor.init();
+    // Let init finish `docker run` and park inside the workspace setup.
+    await vi.waitFor(() => expect(executor.isReady()).toBe(true));
+    const destroyPromise = executor.destroy();
+
+    mkdirRelease({ stdout: "", stderr: "", code: 0 });
+    await initPromise;
+    await destroyPromise;
+
+    // The destroy waited for the init instead of no-op-ing on a null id: the
+    // just-created container was removed exactly once, never leaked.
+    expect(dockerRmArgv()).toEqual([["rm", "-f", "raceid1234"]]);
+    expect(executor.isReady()).toBe(false);
+  });
+
+  it("refuses init when destroy already ran", async () => {
+    stubSpawn();
+    stubExecFile("unused\n");
+    const executor = new DockerExecutor({ sessionId: "sess-dead" });
+
+    await executor.destroy();
+    await expect(executor.init()).rejects.toThrow(/destroyed before initialization/);
+
+    // No container was ever created for the refused init.
+    expect(execFileArgv().some((argv) => argv[0] === "run")).toBe(false);
   });
 });

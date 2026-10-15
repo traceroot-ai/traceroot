@@ -484,6 +484,10 @@ services:
       dockerfile: docker/Dockerfile.agent
     ports:
       - "8100:8100"
+    # Parallel sandbox cleanup still needs headroom when many sessions are
+    # live: without this, compose SIGKILLs the agent 10s after SIGTERM, which
+    # leaks every container not yet removed.
+    stop_grace_period: 30s
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
