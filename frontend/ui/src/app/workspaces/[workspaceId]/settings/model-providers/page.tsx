@@ -3,11 +3,13 @@
 import { useParams } from "next/navigation";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
 import { ModelProvidersTab } from "@/features/settings/workspace";
+import { useWorkspaceSettingsAccess } from "@/features/settings/demo-access";
 import { SettingsLayout, WORKSPACE_SETTINGS_TABS } from "@/features/settings/settings-layout";
 
 export default function WorkspaceSettingsModelProvidersPage() {
   const params = useParams();
   const workspaceId = params.workspaceId as string;
+  const access = useWorkspaceSettingsAccess(workspaceId, "model-providers");
 
   return (
     <div className="flex h-full">
@@ -16,6 +18,7 @@ export default function WorkspaceSettingsModelProvidersPage() {
       <SettingsLayout
         tabs={WORKSPACE_SETTINGS_TABS}
         activeTab="model-providers"
+        access={access}
         basePath={`/workspaces/${workspaceId}/settings`}
       >
         <ModelProvidersTab workspaceId={workspaceId} />

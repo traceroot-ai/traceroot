@@ -6,7 +6,7 @@ import { Settings } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Workspace } from "@/types/api";
-import { DEMO_WORKSPACE_LABEL } from "../utils";
+import { demoWorkspaceLabel } from "../utils";
 
 interface WorkspaceCardProps {
   workspace: Workspace;
@@ -27,7 +27,9 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
         <div className="mb-3 flex items-start justify-between">
           <div className="flex min-w-0 items-center gap-2">
             <h3 className="truncate text-[13px] font-medium">{workspace.name}</h3>
-            {workspace.is_demo && <Badge variant="outline">{DEMO_WORKSPACE_LABEL}</Badge>}
+            {workspace.is_demo && (
+              <Badge variant="outline">{demoWorkspaceLabel(workspace.role)}</Badge>
+            )}
           </div>
           <Link
             href={`/workspaces/${workspace.id}/settings`}

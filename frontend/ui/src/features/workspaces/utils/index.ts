@@ -43,8 +43,21 @@ export function workspaceSwitchHref(pathname: string, targetWorkspaceId: string)
   return `/workspaces/${targetWorkspaceId}/${match[1]}`;
 }
 
-/** The label shown next to the public demo workspace. */
-export const DEMO_WORKSPACE_LABEL = "Demo · view only";
+/**
+ * A viewer of the public demo workspace: a member below ADMIN (every visitor,
+ * not our team). The client-side twin of isDemoViewer in lib/demo-workspace;
+ * the API routes stay the real check.
+ */
+export function isDemoWorkspaceViewer(
+  workspace: { is_demo?: boolean; role?: string } | undefined,
+): boolean {
+  return !!workspace?.is_demo && workspace.role !== Role.ADMIN;
+}
+
+/** The label next to the demo workspace: "Demo" for its admins, "Demo · view only" otherwise. */
+export function demoWorkspaceLabel(role: string | undefined): string {
+  return role === Role.ADMIN ? "Demo" : "Demo · view only";
+}
 
 /**
  * Where the home page sends a signed-in user. The demo workspace is not one of

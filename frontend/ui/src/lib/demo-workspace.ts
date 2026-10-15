@@ -26,6 +26,19 @@ export function isDemoWorkspace(workspaceId: string): boolean {
 }
 
 /**
+ * A member of the demo workspace below ADMIN: every visitor, but not our team.
+ * They can read the demo project, but not the settings behind it (keys, model
+ * providers, integrations, billing, alert recipients). The UI shows them an
+ * access-denied card for those pages; these routes are the real check.
+ */
+export function isDemoViewer(workspaceId: string, role: string): boolean {
+  return isDemoWorkspace(workspaceId) && role !== Role.ADMIN;
+}
+
+/** The 403 message for a settings read that demo viewers cannot make. */
+export const DEMO_VIEWER_FORBIDDEN = "Not available in the demo workspace";
+
+/**
  * Whether a query over one user's memberships counts the demo workspace.
  * "include-demo" for surfaces that show the demo (the workspace list);
  * "exclude-demo" for decisions about the user's own workspaces (onboarding,

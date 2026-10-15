@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { SettingsAccessGate, type SettingsAccess } from "./demo-access";
 
 interface SettingsTab {
   id: string;
@@ -58,6 +59,11 @@ interface SettingsLayoutProps {
   children: ReactNode;
   /** Optional link to navigate to a related settings context (e.g. Org Settings from project). */
   crossLink?: CrossLink;
+  /**
+   * What the user may do on this page (see demo-access.tsx). Every tab stays in
+   * the menu either way; only the page body changes. Omitted means full access.
+   */
+  access?: SettingsAccess;
 }
 
 export function SettingsLayout({
@@ -66,6 +72,7 @@ export function SettingsLayout({
   basePath,
   children,
   crossLink,
+  access = { mode: "full" },
 }: SettingsLayoutProps) {
   return (
     <>
@@ -103,7 +110,9 @@ export function SettingsLayout({
         </ul>
       </nav>
 
-      <div className="flex-1 overflow-auto p-6">{children}</div>
+      <div className="flex-1 overflow-auto p-6">
+        <SettingsAccessGate access={access}>{children}</SettingsAccessGate>
+      </div>
     </>
   );
 }
