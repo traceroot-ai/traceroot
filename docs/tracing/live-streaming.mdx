@@ -3,11 +3,13 @@ title: Live Tracing
 description: Watch spans stream into the trace viewer in real time while your agent is still running
 ---
 
-When you open a trace whose root span hasn't ended yet, TraceRoot streams new spans into the viewer as they arrive. There is no toggle and no SDK flag — live tracing is on by default for every in-flight trace.
+When you open a trace whose root span hasn't ended yet, TraceRoot streams new spans into the viewer as they arrive. You don't need a toggle or an SDK flag — live tracing is on by default for every in-flight trace.
 
 <Frame caption="Traces list: Live toggle beside Columns and the date range">
   <img src="/images/trace_live_toggle_v1.png" alt="Traces list with the Live toggle highlighted in the toolbar" />
 </Frame>
+
+The **Live** switch on the Traces list is separate: it refreshes the list every 5 seconds.
 
 ## How spans arrive
 
