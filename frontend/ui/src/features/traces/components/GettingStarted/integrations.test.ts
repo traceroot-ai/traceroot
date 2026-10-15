@@ -39,6 +39,8 @@ describe("GettingStarted integrations", () => {
     expect(opencode?.languages.typescript?.installCommand).toBe(
       "opencode plugin add @traceroot-ai/opencode-plugin",
     );
+    expect(opencode?.languages.typescript?.initSnippet).toContain("TRACEROOT_ENABLED=true");
+    expect(opencode?.languages.typescript?.initSnippet).toContain('"plugin":');
     expect(opencode?.languages.typescript?.initSnippet).toContain("@traceroot-ai/opencode-plugin");
   });
 });
