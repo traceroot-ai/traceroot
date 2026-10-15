@@ -35,8 +35,16 @@
   },
   "redirects": [
     {
+      "source": "/detectors/get-started",
+      "destination": "/detectors/introduction#how-to-create-a-detector"
+    },
+    {
+      "source": "/detectors/notifications",
+      "destination": "/detectors/introduction#notifications"
+    },
+    {
       "source": "/detectors/alerts",
-      "destination": "/detectors/notifications"
+      "destination": "/detectors/introduction#notifications"
     },
     {
       "source": "/alerts/introduction",
@@ -143,9 +151,7 @@
           {
             "group": "Detectors",
             "pages": [
-              "detectors/introduction",
-              "detectors/get-started",
-              "detectors/notifications"
+              "detectors/introduction"
             ]
           },
           {
