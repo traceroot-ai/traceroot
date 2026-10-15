@@ -1322,7 +1322,11 @@ def transform_otel_to_clickhouse(
                     if span_record.get("status") == SpanStatus.ERROR:
                         existing["status"] = SpanStatus.ERROR
                         existing["status_message"] = span_record.get("status_message")
-                        if span_record.get("error_type"):
+                        if span_record.get("error_type") and (
+                            not existing.get("error_type")
+                            or existing.get("error_type") == "unknown"
+                            or span_record["error_type"] != "unknown"
+                        ):
                             existing["error_type"] = span_record["error_type"]
 
                     incoming_has_reported = "usage_details" in span_record

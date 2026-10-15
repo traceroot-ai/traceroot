@@ -184,7 +184,7 @@ async def ingest_traces(
     response: Response,
     auth: IngestAuth,
 ):
-    """Ingest OTLP trace data (TraceRoot SDK endpoint).
+    """Ingest OTLP trace data.
 
     Accepts OTLP protobuf format only (optionally gzip compressed).
     Protobuf is converted to camelCase JSON before storage in S3.
@@ -206,6 +206,16 @@ async def ingest_traces(
 @otlp_standard_router.post(
     "/v1/traces",
     operation_id="ingest_traces_otlp_default",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "OTLP export response",
+            "content": {
+                "application/x-protobuf": {},
+                "application/json": {},
+            },
+        },
+    },
 )
 @limiter.limit(resolve_limit, key_func=key_ingest)
 async def ingest_traces_otlp_default(

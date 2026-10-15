@@ -11,7 +11,12 @@ Covers:
 import json
 
 from shared.enums import SpanKind, SpanStatus
-from tests.worker.test_otel_transform import make_attr, make_otel_payload, make_span
+from tests.worker.test_otel_transform import (
+    make_attr,
+    make_exception_event,
+    make_otel_payload,
+    make_span,
+)
 from worker.otel_transform import (
     _format_input_with_system_instructions,
     get_span_kind,
@@ -633,6 +638,36 @@ class TestSpanIdempotentDeduplication:
         del span["startTimeUnixNano"]
         _, spans = transform_otel_to_clickhouse(make_otel_payload([span]), "p-1")
         assert len(spans) == 0
+
+    def test_deduplication_preserves_specific_error_type_when_incoming_is_unknown(self):
+        trace_hex = "25" * 16
+        span_hex = "14" * 8
+        # Span 1 has specific exception event -> error_type is "RateLimitError"
+        span_1 = make_span(trace_hex, span_hex, name="test_span", status_code=2)
+        span_1["events"] = [make_exception_event("RateLimitError")]
+
+        # Span 2 is redelivered with error code 2, but has no exception events -> error_type is "unknown"
+        span_2 = make_span(trace_hex, span_hex, name="test_span", status_code=2)
+
+        _, spans = transform_otel_to_clickhouse(make_otel_payload([span_1, span_2]), "p-1")
+        assert len(spans) == 1
+        # Specific error_type must NOT be overwritten by "unknown"
+        assert spans[0]["error_type"] == "RateLimitError"
+
+    def test_deduplication_upgrades_unknown_error_type_when_incoming_is_specific(self):
+        trace_hex = "26" * 16
+        span_hex = "15" * 8
+        # Span 1 has no exception event -> error_type is "unknown"
+        span_1 = make_span(trace_hex, span_hex, name="test_span", status_code=2)
+
+        # Span 2 arrives with specific exception event -> error_type is "ValueError"
+        span_2 = make_span(trace_hex, span_hex, name="test_span", status_code=2)
+        span_2["events"] = [make_exception_event("ValueError")]
+
+        _, spans = transform_otel_to_clickhouse(make_otel_payload([span_1, span_2]), "p-1")
+        assert len(spans) == 1
+        # "unknown" should be upgraded to "ValueError"
+        assert spans[0]["error_type"] == "ValueError"
 
 
 class TestClaudePlatformScope:
