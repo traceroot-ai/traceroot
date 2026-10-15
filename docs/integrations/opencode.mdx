@@ -23,7 +23,7 @@ Or add it directly to your project's `opencode.json` (or global `~/.config/openc
 
 ```json
 {
-  "plugins": [
+  "plugin": [
     "@traceroot-ai/opencode-plugin"
   ]
 }
@@ -42,7 +42,7 @@ For self-hosted TraceRoot instances or custom OTLP ingestion endpoints:
 
 ```bash
 export TRACEROOT_HOST_URL="https://traceroot.your-company.com"
-export TRACEROOT_OTLP_ENDPOINT="https://traceroot.your-company.com/v1/traces"
+export TRACEROOT_OTLP_ENDPOINT="https://traceroot.your-company.com/api/v1/public/traces"
 ```
 
 ### Environment Variables
@@ -52,7 +52,7 @@ export TRACEROOT_OTLP_ENDPOINT="https://traceroot.your-company.com/v1/traces"
 | `TRACEROOT_ENABLED` | `false` | Master switch. When `false` or unset, tracing is disabled and no event listeners are registered. |
 | `TRACEROOT_API_KEY` | - | TraceRoot project API key used to authenticate OTLP trace exports. |
 | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | TraceRoot web and API base URL. |
-| `TRACEROOT_OTLP_ENDPOINT` | Derived from host | Explicit OTLP HTTP trace collector endpoint (e.g., `https://otlp.traceroot.ai/v1/traces`). |
+| `TRACEROOT_OTLP_ENDPOINT` | Derived from host | Explicit OTLP HTTP trace collector endpoint (e.g., `https://otlp.traceroot.ai/v1/traces` in cloud, or `https://traceroot.your-company.com/api/v1/public/traces` for self-hosted). |
 | `TRACEROOT_CAPTURE_CONTENT` | `true` | Record user prompt text and model output messages. Set to `false` for strict data privacy. |
 | `TRACEROOT_CAPTURE_TOOL_IO` | `true` | Record tool input arguments and output results in tool spans. |
 | `TRACEROOT_DEBUG` | `false` | Enable verbose diagnostic logging to stderr. |
