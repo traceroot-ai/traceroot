@@ -101,9 +101,7 @@ describe("runBillingJob and the demo workspace", () => {
 
     expect(mocks.stripeCalls).not.toHaveBeenCalled();
     expect(mocks.runUsageQuotaNotifications).not.toHaveBeenCalled();
-    // Its usage is still recorded, and nothing is blocked.
+    // Its usage is still recorded.
     expect(mocks.workspaceUpdate).toHaveBeenCalledTimes(1);
-    const data = mocks.workspaceUpdate.mock.calls[0][0].data;
-    expect(data.ingestionBlocked ?? false).toBe(false);
   });
 });

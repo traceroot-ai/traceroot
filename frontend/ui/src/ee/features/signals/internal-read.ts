@@ -60,6 +60,7 @@ async function readOne(projectId: string, signalId: string) {
       createTime: true,
       resolvedAt: true,
       mergedIntoId: true,
+      rcas: { select: { reopenSeq: true, rca: { select: { status: true } } } },
     },
   });
   if (!signal) return null;
@@ -83,6 +84,8 @@ async function readOne(projectId: string, signalId: string) {
     // A merged signal is still answered, so a caller holding its id learns where
     // its hits went; the list leaves merged signals out.
     mergedIntoId: signal.mergedIntoId,
+    rcaState:
+      signal.rcas.find((opening) => opening.reopenSeq === signal.reopenSeq)?.rca.status ?? null,
   };
 }
 

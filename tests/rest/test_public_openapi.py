@@ -937,9 +937,9 @@ def test_create_ops_are_enabled_tools_with_pinned_policy(op_id):
     assert tool["policy"] == policy
 
 
-# The thirteen edit operations, pinned to their exact write-tool policy. Role
+# The edit operations, pinned to their exact write-tool policy. Role
 # floors follow the cookie routes (renaming a workspace or changing a project's
-# retention is administrative; the four project resources take MEMBER).
+# retention is administrative; the project resources take MEMBER).
 # Updates are "confirm" like the creates; deletes are "approval" — the class
 # that parks on a destructive card attended and is blocked unattended.
 _CONFIRM = "confirm"

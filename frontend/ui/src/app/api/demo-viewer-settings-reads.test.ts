@@ -57,7 +57,7 @@ vi.mock("@/lib/request-session", () => ({
 import { GET as getModelProviders } from "./workspaces/[workspaceId]/model-providers/route";
 import { GET as getGitHubStatus } from "./github/status/route";
 import { GET as getSubscriptionInfo } from "./billing/subscription-info/route";
-import { GET as getApiKeys } from "./projects/[projectId]/api-keys/route";
+import { GET as getApiKeys, POST as createApiKey } from "./projects/[projectId]/api-keys/route";
 import { GET as getWorkspace } from "./workspaces/[workspaceId]/route";
 import { GET as getProject } from "./projects/[projectId]/route";
 
@@ -136,6 +136,7 @@ describe("a demo viewer", () => {
     const res = await call(getWorkspace, {}, workspaceParams());
     expect(res.status).toBe(200);
     expect(res.data.name).toBe("Workspace");
+    expect(res.data.retention_days).toBeNull();
     for (const field of [
       "billingPlan",
       "billingCustomerId",
@@ -145,6 +146,11 @@ describe("a demo viewer", () => {
     ]) {
       expect(res.data).not.toHaveProperty(field);
     }
+  });
+
+  it.each(["VIEWER", "MEMBER"])("refuses API key creation by a demo %s", async (role) => {
+    auth.role = role;
+    expect((await call(createApiKey, {}, projectParams)).status).toBe(403);
   });
 
   it("reads the project without its alert email addresses", async () => {

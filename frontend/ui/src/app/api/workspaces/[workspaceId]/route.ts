@@ -1,6 +1,6 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Role } from "@traceroot/core";
+import { prisma, Role, getRetentionDays } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -62,6 +62,7 @@ async function handleGET(request: NextRequest, { params }: RouteParams) {
     name: workspace.name,
     role: membership.role,
     is_demo: isDemo,
+    retention_days: getRetentionDays(workspace.billingPlan),
     // The demo workspace has every user as a member; that count is not shown.
     member_count: isDemo ? undefined : workspace._count.members,
     projects: workspace.projects.map((p) => ({

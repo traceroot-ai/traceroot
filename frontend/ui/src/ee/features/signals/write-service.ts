@@ -101,19 +101,7 @@ export async function changeSignalStatus(input: {
     };
   }
 
-  const signal = await prisma.signal.findFirst({
-    where: { id: signalId, projectId },
-    select: {
-      id: true,
-      projectId: true,
-      detectorId: true,
-      title: true,
-      status: true,
-      resolvedAt: true,
-      reopenSeq: true,
-    },
-  });
-  if (!signal) return { ok: false, status: 404, error: SIGNAL_NOT_FOUND_MESSAGE };
+  const signal = result.signal;
 
   const changed = result.changed ? ["status"] : [];
   if (result.changed) {

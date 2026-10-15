@@ -79,6 +79,33 @@ describe("PATCH /api/internal/write/signals/[id]/status", () => {
     });
   });
 
+  it("forwards the agent session and reopen change", async () => {
+    changeSignalStatusMock.mockResolvedValue({
+      ok: true,
+      changed: ["status"],
+      data: { id: "sig-1", status: "open" },
+    });
+    await PATCH(
+      makeRequest({ ...body, agentSessionId: "session-1", change: { status: "open" } }),
+      params,
+    );
+    expect(changeSignalStatusMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        change: { status: "open" },
+        provenance: { transport: "public-api", agentSessionId: "session-1" },
+      }),
+    );
+  });
+
+  it("returns 400 for invalid JSON", async () => {
+    const request = makeRequest({});
+    request.json = async () => {
+      throw new SyntaxError("invalid");
+    };
+    expect((await PATCH(request, params)).status).toBe(400);
+    expect(changeSignalStatusMock).not.toHaveBeenCalled();
+  });
+
   it("maps a service failure to its status and error", async () => {
     changeSignalStatusMock.mockResolvedValue({ ok: false, status: 409, error: "changed" });
     const res = await PATCH(makeRequest(body), params);

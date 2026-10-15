@@ -170,6 +170,10 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
     sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
     if sessions_list_op is not None:
         sessions_list_op["responses"].setdefault("500", _error_response("Failed to list sessions"))
+    signal_get_op = schema.get("paths", {}).get("/api/v1/public/signals/{signal_id}", {}).get("get")
+    if signal_get_op:
+        signal_get_op["responses"].setdefault("404", _error_response("Signal not found"))
+
     session_get_op = schema["paths"].get("/api/v1/public/sessions/{session_id}", {}).get("get")
     if session_get_op is not None:
         session_get_op["responses"].setdefault("404", _error_response("Session not found"))
@@ -604,7 +608,8 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "that detector findings are grouped into, with status (open, "
             "resolved, dismissed), detector, hit count, reopen count and the "
             "state of the current root cause analysis. Filter by status or "
-            "detector_id. Merged signals are left out."
+            "detector_id. Merged signals are left out. Returns 50 results by default; "
+            "increment page to fetch subsequent pages until all needed signals are found."
         ),
         "enabled": True,
     },

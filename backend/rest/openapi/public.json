@@ -5314,6 +5314,7 @@
                 "type": "null"
               }
             ],
+            "format": "date-time",
             "title": "Resolved At"
           },
           "signal_id": {
@@ -12421,7 +12422,7 @@
           "Signals (Public)"
         ],
         "x-tool": {
-          "description": "List the project's signals, newest first: the recurring problems that detector findings are grouped into, with status (open, resolved, dismissed), detector, hit count, reopen count and the state of the current root cause analysis. Filter by status or detector_id. Merged signals are left out.",
+          "description": "List the project's signals, newest first: the recurring problems that detector findings are grouped into, with status (open, resolved, dismissed), detector, hit count, reopen count and the state of the current root cause analysis. Filter by status or detector_id. Merged signals are left out. Returns 50 results by default; increment page to fetch subsequent pages until all needed signals are found.",
           "enabled": true,
           "name": "list_signals"
         }
@@ -12480,6 +12481,16 @@
               }
             },
             "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Signal not found"
           },
           "422": {
             "content": {

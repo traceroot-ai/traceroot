@@ -751,7 +751,7 @@ class SignalStatusRow(BaseModel):
     detector_id: str
     title: str
     status: Literal["open", "resolved", "dismissed"]
-    resolved_at: str | None
+    resolved_at: str | None = Field(json_schema_extra={"format": "date-time"})
     reopen_count: int
 
 
