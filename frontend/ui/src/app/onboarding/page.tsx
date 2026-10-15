@@ -16,7 +16,7 @@ import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
 import { Check } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { AddDetectorsStep } from "@/features/detectors/components/add-detectors-step";
+import { CliHandbackStep } from "@/features/onboarding/components/cli-handback-step";
 
 const onboardingSchema = z.object({
   workspaceName: z.string().min(1, "Workspace name is required"),
@@ -131,7 +131,7 @@ function OnboardingContent() {
   // `createdProject` is in it because this page creates the very project the
   // check looks for — the invalidation in `handleSubmit` refetches the list,
   // which now has one, and without this a first-run account would be bounced off
-  // the detectors step it was just shown.
+  // the hand-back step, away from the command it was about to copy.
   const setupNeed =
     !!userId && !isProjectOnlyMode && !createdProject && workspaces
       ? resolveSetupNeed(workspaces)
@@ -215,10 +215,12 @@ function OnboardingContent() {
 
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
 
-      // Detectors only ever run on trace ingest, so choosing them now produces
-      // nothing either way. When something is waiting on us, that question is
-      // worse than useless: it holds a terminal open behind a judgement call the
-      // user cannot yet make. Hand back immediately instead.
+      // A terminal that is already mid-`traceroot setup` does not need to be
+      // told to run it. It is blocked on the device approval this page runs
+      // ahead of, and everything the hand-back step would offer — the command,
+      // the manual walkthrough, the way out — is a question about a run that is
+      // already underway. So that step is for a browser-first user only, and a
+      // waiting caller gets its terminal back the moment the project exists.
       if (returnTo !== null) {
         router.push(returnTo);
         return;
@@ -271,7 +273,7 @@ function OnboardingContent() {
           <h1 className="text-lg font-semibold">Setup</h1>
           <p className="text-[13px] text-muted-foreground">
             {createdProject
-              ? `${isProjectOnlyMode ? "Project" : "Workspace and project"} created — one more thing`
+              ? `${isProjectOnlyMode ? "Project" : "Workspace and project"} created — the rest happens in your terminal`
               : "Set up your workspace and first project"}
           </p>
         </div>
@@ -287,14 +289,22 @@ function OnboardingContent() {
         <Card>
           <CardContent className="p-4">
             {createdProject ? (
-              <div>
-                <p className="mb-2 text-[13px] font-medium">Add detectors</p>
-                <AddDetectorsStep
-                  projectId={createdProject.id}
-                  projectName={createdProject.name}
-                  onDone={() => router.push(`/projects/${createdProject.id}/traces`)}
-                />
-              </div>
+              <CliHandbackStep
+                projectId={createdProject.id}
+                projectName={createdProject.name}
+                // The instrumentation half of "manually", which is what exists
+                // today: the getting-started panel on the project's own traces
+                // page. The provider half goes in front of this whole step, so
+                // this is the one line that moves when it arrives.
+                onSetUpManually={() => router.push(`/projects/${createdProject.id}/traces`)}
+                // Where an onboarded account with nobody waiting belongs, and
+                // the same place the already-onboarded check above sends one.
+                // Skipping leaves a workspace with a project in it, which is a
+                // finished account by every check the app makes — so nothing
+                // routes this user back here, and nothing shows them a project
+                // they cannot open.
+                onSkip={() => router.push("/workspaces")}
+              />
             ) : (
               <>
                 <div className="space-y-0">
