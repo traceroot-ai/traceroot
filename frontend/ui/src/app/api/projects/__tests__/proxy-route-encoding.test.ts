@@ -27,6 +27,7 @@ vi.mock("@traceroot/core", () => ({
 import { GET as findings } from "../[projectId]/traces/[traceId]/findings/route";
 import { GET as detectorRuns } from "../[projectId]/traces/[traceId]/detector-runs/route";
 import { GET as live } from "../[projectId]/traces/[traceId]/live/route";
+import { GET as listSessions, POST as createSession } from "../[projectId]/ai/sessions/route";
 import { DELETE as deleteSession } from "../[projectId]/ai/sessions/[sessionId]/route";
 import {
   GET as messages,
@@ -156,5 +157,26 @@ describe.each(routes)("$name proxy URL", (route) => {
     requireProjectAccess.mockResolvedValue({ error: new Response(null, { status: 403 }) });
     expect((await invoke("normal-id")).status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe.each([
+  { name: "list sessions", handler: listSessions, method: "GET" },
+  { name: "create session", handler: createSession, method: "POST" },
+])("$name proxy URL", (route) => {
+  it("encodes the authorised project ID without adding query parameters", async () => {
+    const projectId = "project/with?reserved#chars&project_id=other";
+    await route.handler(
+      new NextRequest("http://localhost/api/proxy", {
+        method: route.method,
+        ...(route.method === "POST" ? { body: JSON.stringify({ title: "hello" }) } : {}),
+      }),
+      { params: Promise.resolve({ projectId }) },
+    );
+    const url = new URL(fetchMock.mock.calls[0][0]);
+    expect(requireProjectAccess).toHaveBeenCalledWith("caller", projectId);
+    expect(url.pathname).toBe(`/api/v1/projects/${encodeURIComponent(projectId)}/sessions`);
+    expect(url.search).toBe("");
+    expect(url.hash).toBe("");
   });
 });
