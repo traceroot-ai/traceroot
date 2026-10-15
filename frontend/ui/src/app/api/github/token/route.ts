@@ -1,7 +1,7 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership, verifyInternalSecret } from "@/lib/auth-helpers";
 import { getInstallationToken } from "@traceroot/github";
 
@@ -12,7 +12,7 @@ import { getInstallationToken } from "@traceroot/github";
  *
  * Two auth paths:
  *   - Internal (agent tools): X-Internal-Secret + x-workspace-id header.
- *   - Browser/session: workspaceId query param + workspace membership.
+ *   - Browser/session: workspaceId query param + MEMBER role or higher.
  */
 async function handleGET(request: NextRequest) {
   try {
@@ -28,7 +28,14 @@ async function handleGET(request: NextRequest) {
       if (!workspaceId) {
         return NextResponse.json({ error: "workspaceId required" }, { status: 400 });
       }
-      const memberCheck = await requireWorkspaceMembership(authResult.user.id, workspaceId);
+      // An installation token can write to the connected repos, so a viewer must
+      // not mint one. The agent path above is unaffected: it acts for the
+      // workspace through the internal secret.
+      const memberCheck = await requireWorkspaceMembership(
+        authResult.user.id,
+        workspaceId,
+        Role.MEMBER,
+      );
       if (memberCheck.error) return memberCheck.error;
     }
 
