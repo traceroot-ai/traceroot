@@ -82,8 +82,8 @@ The SDKs send traces and evaluation results with a project API key. These routes
 | Status | Meaning |
 | --- | --- |
 | `400` | `project_id` is missing on a read with a user credential, or does not match the API key's project. |
-| `401` | The `Authorization` header is missing or malformed, or the credential is invalid, expired or revoked. |
-| `403` | The credential is the wrong kind for the route, or you have no access to the project. |
+| `401` | The `Authorization` header is missing or malformed, the credential is invalid, expired or revoked, or a user credential was sent to a route that accepts only a project API key. |
+| `403` | An API key was sent to a route that needs a user login, or you have no access to the project. |
 | `503` | TraceRoot could not verify the credential. Retry the request. |
 
 ## Self-hosted
