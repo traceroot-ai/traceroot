@@ -14,6 +14,7 @@ import { AgentTraceSheet } from "./agent-trace-sheet";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 import { useDemoAgentAccess } from "../hooks/use-demo-agent-access";
+import { DEMO_AGENT_SEND_DENIED } from "../constants";
 import { useRetention } from "@/lib/hooks/use-retention";
 
 interface AiAssistantPanelProps {
@@ -158,7 +159,7 @@ export function AiAssistantPanel({
     <div className={rootCls}>
       {/* Header */}
       <div className={headerCls}>
-        {!accessLoading && (
+        {canInteract && (
           <Button
             variant="ghost"
             size="icon"
@@ -238,12 +239,6 @@ export function AiAssistantPanel({
           </div>
         )}
 
-        {sessions.some((session) => session.id === currentSessionId && session.isExample) && (
-          <p className="px-3 pt-3 text-[11px] text-muted-foreground">
-            Recorded example · shortened for clarity
-          </p>
-        )}
-
         {/* Messages */}
         {!readOnly && !hasModels ? (
           <div className="flex flex-1 items-center justify-center px-6">
@@ -303,11 +298,7 @@ export function AiAssistantPanel({
             modelSelection={modelSelection}
             onModelChange={setModelSelection}
             disabled={!projectId || (!readOnly && !hasModels)}
-            blockedReason={
-              readOnly
-                ? "This is a demo project. You don’t have permission to send messages. You can explore example sessions in History."
-                : undefined
-            }
+            blockedReason={readOnly ? DEMO_AGENT_SEND_DENIED : undefined}
             workspaceId={workspaceId}
             // While a proposal awaits a decision, a typed reply revises it —
             // except a delete, which a reply skips; the bar says so instead.
