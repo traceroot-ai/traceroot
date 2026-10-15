@@ -195,6 +195,36 @@ class TestContentTypeValidation:
         )
         assert response.status_code == 200
 
+    def test_application_protobuf_accepted(self, client):
+        test_client, _mock_s3, _ = client
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/protobuf"},
+        )
+        assert response.status_code == 200
+
+    def test_application_octet_stream_accepted(self, client):
+        test_client, _mock_s3, _ = client
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        assert response.status_code == 200
+
+    def test_standard_v1_traces_route(self, client):
+        test_client, mock_s3, mock_task = client
+        response = test_client.post(
+            "/v1/traces",
+            content=b"fake-protobuf-bytes",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+        mock_s3.upload_json.assert_called_once()
+        mock_task.delay.assert_called_once()
+
 
 class TestIngestNoAuth:
     """Tests without auth override — verify auth dependency is enforced."""

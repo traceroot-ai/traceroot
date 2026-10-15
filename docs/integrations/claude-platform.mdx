@@ -1,0 +1,67 @@
+---
+title: Claude Platform OpenTelemetry Export
+description: Ingest native OpenTelemetry traces directly from the Claude Console for Messages API and Claude Managed Agents
+---
+
+The Claude Platform can export OpenTelemetry traces directly for Messages API requests and Claude Managed Agents sessions without modifying your application code.
+
+An organization administrator sets up an OTLP destination in the Claude Console, and the Claude API pushes telemetry directly to TraceRoot.
+
+## Claude Console Setup
+
+Follow these steps in the [Claude Console](https://console.anthropic.com/):
+
+### 1. Add an OTLP Destination
+
+1. Navigate to **Organization Settings** (or **Manage Claude**) → **OpenTelemetry**.
+2. Click **Add Destination**.
+3. Under **Provider**, choose **Custom**.
+
+### 2. Configure Endpoint and Authentication
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| **Base URL** | `https://api.traceroot.ai` (or your self-hosted host) | The root URL of your TraceRoot instance. |
+| **OTLP traces endpoint URL override** | `/api/v1/public/traces` | Explicit endpoint path for OTLP traces. TraceRoot also accepts the default `/v1/traces`. |
+| **Headers** | `Authorization: Bearer <TRACEROOT_API_KEY>` | Your TraceRoot project API key. |
+
+> [!NOTE]
+> Ensure the override uses the same host as the base URL. The Claude Platform exports over HTTPS on port 443 with OTLP/HTTP protobuf (with automatic gzip compression).
+
+### 3. Content Modes
+
+Claude Console allows choosing what data is exported:
+
+- **Full content** (Recommended): Emits message contents, prompt instructions, and tool arguments/results along with metadata.
+- **Metadata only**: Emits token counts, latencies, model names, and session identifiers without prompt or completion payloads.
+
+### 4. Verify Connectivity
+
+Click **Test** in the Claude Console to send a verification payload. Once verified, all Managed Agents and Messages API executions in your organization will stream to TraceRoot in real time.
+
+---
+
+## What Gets Captured
+
+TraceRoot maps Claude Platform traces into rich session and span hierarchies:
+
+| Claude Span Name | TraceRoot Kind | Description |
+|------------------|----------------|-------------|
+| `anthropic.session.turn` | **AGENT** | High-level agent turn within a Managed Agent session. |
+| `anthropic.model_request` | **LLM** | Underlying LLM completion request with prompt/completion messages. |
+| `anthropic.messages.create` | **LLM** | Direct Messages API request span. |
+| `anthropic.custom_tool_use` | **TOOL** | Custom tool invocation with argument parameters and execution results. |
+| `anthropic.mcp_tool_use` | **TOOL** | Model Context Protocol (MCP) tool call. |
+| `anthropic.session.outcome_evaluation` | **EVALUATION** | Session-level task outcome evaluation. |
+| `anthropic.compaction` | **SPAN** | Context window compaction and token pruning events. |
+
+### Session Grouping
+
+Claude Managed Agents sessions are grouped by `anthropic.session.id`. A single agent session can span multiple traces and turns while remaining unified under one session view in the TraceRoot dashboard.
+
+### Accurate Token & Cost Accounting
+
+TraceRoot automatically deduplicates token metrics across Claude Platform's nested span levels:
+- Turn wrappers (`anthropic.session.turn`) and SDK client spans are prevented from double-counting child usage.
+- Token counts and costs are attributed accurately from `anthropic.model_request` and `anthropic.session.outcome_evaluation`.
+- Cache read and cache creation tokens are accounted for with accurate pricing discounts.

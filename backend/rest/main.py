@@ -45,7 +45,12 @@ from rest.routers.public.project_write import router as public_project_write_rou
 from rest.routers.public.sessions_read import router as public_sessions_read_router
 from rest.routers.public.sql import SqlBodyLimitMiddleware
 from rest.routers.public.sql import router as public_sql_router
-from rest.routers.public.traces import router as public_traces_router
+from rest.routers.public.traces import (
+    otlp_standard_router,
+)
+from rest.routers.public.traces import (
+    router as public_traces_router,
+)
 from rest.routers.public.traces_read import router as public_traces_read_router
 from rest.routers.public.whoami import router as public_whoami_router
 from rest.routers.public.widgets_query import router as public_widgets_query_router
@@ -152,6 +157,8 @@ app.include_router(live_router, prefix="/api/v1")
 
 # Public API for SDK ingestion (API key auth)
 app.include_router(public_traces_router, prefix="/api/v1")
+# Standard OTLP traces route (/v1/traces) without /api/v1 prefix
+app.include_router(otlp_standard_router)
 
 # Public read API for API-key clients (e.g. the CLI)
 app.include_router(public_whoami_router, prefix="/api/v1")

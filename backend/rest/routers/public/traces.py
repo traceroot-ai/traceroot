@@ -38,11 +38,14 @@ from rest.routers.public.deps import (
 from rest.services.s3 import get_s3_service
 from worker.ingest_tasks import process_s3_traces
 
-__all__ = ["AuthResult", "KeyAuth", "authenticate_api_key", "router"]
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public/traces", tags=["Traces"])
+
+# Standard OTLP traces route (<base>/v1/traces) for exporters like Claude Platform
+otlp_standard_router = APIRouter(tags=["Traces (Public)"])
+
+__all__ = ["AuthResult", "KeyAuth", "authenticate_api_key", "otlp_standard_router", "router"]
 
 
 # Ingest shares the workspace/plan stamping wrapper with the public read routes
@@ -119,7 +122,7 @@ async def ingest_traces(
         )
     # handle parameters like 'application/x-protobuf; charset=utf-8'
     mime = content_type.split(";", 1)[0].strip().lower()
-    if mime != "application/x-protobuf":
+    if mime not in ("application/x-protobuf", "application/protobuf", "application/octet-stream"):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Content-Type must be application/x-protobuf",
@@ -189,3 +192,13 @@ async def ingest_traces(
 
     # 7. Return success (async processing happens in background)
     return IngestResponse(status="ok", file_key=s3_key)
+
+
+# Also register the handler on the standard OTLP /v1/traces route
+otlp_standard_router.add_api_route(
+    "/v1/traces",
+    ingest_traces,
+    methods=["POST"],
+    response_model=IngestResponse,
+    operation_id="ingest_traces_otlp_default",
+)
