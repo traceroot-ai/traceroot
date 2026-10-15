@@ -270,7 +270,15 @@ def test_set_status_reopen_sends_only_the_status():
     resp = _patch({"project_id": "proj-1", "status": "open"})
 
     assert resp.status_code == 200
-    assert resp.json()["signal"]["status"] == "open"
+    assert resp.json()["signal"] == {
+        "signal_id": "sig-1",
+        "project_id": "proj-1",
+        "detector_id": "det-1",
+        "title": "Invokes a tool with an invalid date input",
+        "status": "open",
+        "resolved_at": None,
+        "reopen_count": 1,
+    }
     assert _sent(write)["change"] == {"status": "open"}
     assert "expectedStatus" not in _sent(write)
 

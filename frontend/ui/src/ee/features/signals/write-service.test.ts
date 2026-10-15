@@ -32,6 +32,15 @@ import {
 } from "./write-service";
 
 const RESOLVED_AT = new Date("2026-10-14T10:00:00.000Z");
+const record = {
+  id: "sig-1",
+  projectId: "p1",
+  detectorId: "det-1",
+  title: "Invokes a tool with an invalid date input",
+  status: "resolved",
+  resolvedAt: RESOLVED_AT,
+  reopenSeq: 2,
+};
 const provenance = { transport: "public-api" as const, agentSessionId: null };
 const resolve = { status: "resolved", reason: "fixed_by_pr", note: "Fixed in abc123" };
 
@@ -50,15 +59,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   tx.project.findUnique.mockResolvedValue({ workspaceId: "ws-1", deleteTime: null });
   tx.workspaceMember.findUnique.mockResolvedValue({ role: "MEMBER" });
-  setSignalStatusMock.mockResolvedValue({ ok: true, changed: true, status: "resolved" });
-  root.signal.findFirst.mockResolvedValue({
-    id: "sig-1",
-    projectId: "p1",
-    detectorId: "det-1",
-    title: "Invokes a tool with an invalid date input",
+  setSignalStatusMock.mockResolvedValue({
+    ok: true,
+    changed: true,
     status: "resolved",
-    resolvedAt: RESOLVED_AT,
-    reopenSeq: 2,
+    signal: record,
   });
 });
 
@@ -122,6 +127,7 @@ describe("changeSignalStatus — the write", () => {
       change: resolve,
       expectedStatus: "open",
     });
+    expect(root.signal.findFirst).not.toHaveBeenCalled();
     expect(result).toEqual({
       ok: true,
       changed: ["status"],
@@ -150,14 +156,32 @@ describe("changeSignalStatus — the write", () => {
   });
 
   it("reopens with no reason", async () => {
-    setSignalStatusMock.mockResolvedValue({ ok: true, changed: true, status: "open" });
+    setSignalStatusMock.mockResolvedValue({
+      ok: true,
+      changed: true,
+      status: "open",
+      signal: { ...record, status: "open", resolvedAt: null },
+    });
     const result = await call({ change: { status: "open" } });
     expect(result).toMatchObject({ ok: true, changed: ["status"] });
     expect(setSignalStatusMock.mock.calls[0][1].change).toEqual({ status: "open", note: null });
   });
 
+  it("preserves a note when reopening", async () => {
+    await call({ change: { status: "open", note: "Needs more work" } });
+    expect(setSignalStatusMock.mock.calls[0][1].change).toEqual({
+      status: "open",
+      note: "Needs more work",
+    });
+  });
+
   it("writes no audit row when the status is already the one asked for", async () => {
-    setSignalStatusMock.mockResolvedValue({ ok: true, changed: false, status: "resolved" });
+    setSignalStatusMock.mockResolvedValue({
+      ok: true,
+      changed: false,
+      status: "resolved",
+      signal: record,
+    });
     const result = await call();
     expect(result).toMatchObject({ ok: true, changed: [] });
     expect(root.auditLog.create).not.toHaveBeenCalled();

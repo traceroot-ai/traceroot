@@ -46,6 +46,27 @@ describe("POST /api/internal/project-signals", () => {
     expect(listSignalsMock).not.toHaveBeenCalled();
   });
 
+  it.each([{}, { projectId: "" }])("rejects missing project scope %j", async (body) => {
+    expect((await handleInternalSignalRead(request(body))).status).toBe(400);
+  });
+
+  it("rejects invalid JSON", async () => {
+    const req = request({});
+    req.json = async () => {
+      throw new SyntaxError("invalid");
+    };
+    expect((await handleInternalSignalRead(req)).status).toBe(400);
+  });
+
+  it("defaults the limit and clamps the upper page bound", async () => {
+    listSignalsMock.mockResolvedValue({ signals: [], total: 0 });
+    await handleInternalSignalRead(request({ projectId: "p1", page: 99999 }));
+    expect(listSignalsMock).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ limit: 50, page: 10000 }),
+    );
+  });
+
   it("refuses an unknown status filter", async () => {
     const res = await handleInternalSignalRead(request({ projectId: "p1", status: "closed" }));
     expect(res.status).toBe(400);
@@ -115,6 +136,10 @@ describe("POST /api/internal/project-signals", () => {
       createTime: T0,
       resolvedAt: T0,
       mergedIntoId: "sig-2",
+      rcas: [
+        { reopenSeq: 0, rca: { status: "done" } },
+        { reopenSeq: 1, rca: { status: "queued" } },
+      ],
     });
     db.detector.findFirst.mockResolvedValue(null);
     const res = await handleInternalSignalRead(request({ projectId: "p1", signalId: "sig-1" }));
@@ -126,6 +151,7 @@ describe("POST /api/internal/project-signals", () => {
       status: "resolved",
       resolvedAt: T0.toISOString(),
       mergedIntoId: "sig-2",
+      rcaState: "done",
     });
   });
 
