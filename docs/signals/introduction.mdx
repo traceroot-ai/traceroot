@@ -29,7 +29,7 @@ Select a signal to open its panel:
 
 - **Status**: the signal's state, and the control to change it.
 - **Summary**: what the signal covers.
-- **Root Cause Analysis**: the latest analysis, or a **Run root cause analysis** button. When an analysis is shown, **Open in agent** opens it in the AI agent for follow-up questions.
+- **Root Cause Analysis**: the latest analysis, or a **Run root cause analysis** button. When an analysis is shown, **Open in agent** opens it in the TraceRoot Agent for follow-up questions.
 - **Count over time**: of the traces the detector checked, how many this signal affected (**Affected**) and how many it did not (**Unaffected**), over the date range.
 - **Affected traces**: up to 10 recent traces from the date range. **View all** opens them on the Tracing page, filtered to the signal.
 
@@ -51,7 +51,7 @@ A signal keeps collecting new findings in every state. [Notifications](/detector
 
 ## Root cause analysis
 
-The [AI agent](/ai-agent/root-cause-analysis) reads one of the signal's traces and explains the cause. With [GitHub](/ai-agent/github-integration) connected, it also reads the related code and recent commits. The detector's **Root cause analysis** setting decides when it runs:
+The [TraceRoot Agent](/ai-agent/root-cause-analysis) reads one of the signal's traces and explains the cause. With [GitHub](/ai-agent/github-integration) connected, it also reads the related code and recent commits. The detector's **Root cause analysis** setting decides when it runs:
 
 - **Automatic**: on each new signal, and on a reopened signal when the last analysis is more than 24 hours old.
 - **Manual**: only when you click **Run root cause analysis** on the signal's panel.

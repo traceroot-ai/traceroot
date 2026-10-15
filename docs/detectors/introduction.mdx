@@ -3,7 +3,7 @@ title: Introduction
 description: Find problems in your agent's traces
 ---
 
-A detector checks your agent's traces for one specific problem, such as a hallucination or a failed task. You hear about the problem without reading every trace. For each trace it checks, a model reads the trace and answers yes or no. A yes is a **finding**. TraceRoot groups findings of the same problem into a [signal](/signals/introduction), and the AI agent can find the signal's root cause.
+A detector checks your agent's traces for one specific problem, such as a hallucination or a failed task. You hear about the problem without reading every trace. For each trace it checks, a model reads the trace and answers yes or no. A yes is a **finding**. TraceRoot groups findings of the same problem into a [signal](/signals/introduction), and the TraceRoot Agent can find the signal's root cause.
 
 Detectors work on every plan. Free includes 100 detector runs per billing period.
 
@@ -17,7 +17,7 @@ Detection runs in two steps. The second step, root cause analysis, costs more, s
 
 **Step 1, the judge.** About a minute after a trace's last span arrives, each detector checks whether the trace matches its filter and its sampling rate. If it does, the detector's model reads the trace, answers whether the problem is present, and writes a one-sentence summary. Detectors skip traces that come from [evaluations](/evals/introduction).
 
-**Step 2, the agent.** The AI agent reads one trace of a signal and writes a root cause analysis with a code location and a recommendation. [Signals](/signals/introduction) explains when it runs.
+**Step 2, the agent.** The TraceRoot Agent reads one trace of a signal and writes a root cause analysis with a code location and a recommendation. [Signals](/signals/introduction) explains when it runs.
 
 Each step has its own model. You pick the judge model on each detector. You pick the agent model once per project, in **Settings → Detectors → Agent Model**. Either can be a model TraceRoot provides or a model from your own provider key ([bring your own key](/ai-agent/byok)).
 
@@ -41,15 +41,15 @@ Open your project in [TraceRoot Cloud](https://app.traceroot.ai), select **Detec
 
 ## Create detectors with AI
 
-Select **Home** from the left nav to open the AI agent, then describe the detector you want, or ask it to suggest one from your project. For example:
+Select **Home** from the left nav to open the TraceRoot Agent, then describe the detector you want, or ask it to suggest one from your project. For example:
 
 - "Create a detector that flags traces where a tool call fails"
 - "Suggest a new detector based on my current detectors"
 
 The agent drafts the detector. Nothing is saved until you click **Create detector** under the chat; reply instead to revise the draft.
 
-<Frame caption="AI agent: a detector request, the detectors it read, and its summary of them">
-  <img src="/images/detector_agent_v1.png" alt="AI agent listing and reading the project's detectors, then summarizing their setup" />
+<Frame caption="TraceRoot Agent: a detector request, the detectors it read, and its summary of them">
+  <img src="/images/detector_agent_v1.png" alt="TraceRoot Agent listing and reading the project's detectors, then summarizing their setup" />
 </Frame>
 
 AI coding agents can also create detectors with the [TraceRoot CLI](/cli/get-started) (`traceroot detectors create`) or the public API under `/api/v1/public/detectors`. Writes need a signed-in user; a project API key can only read.
@@ -120,7 +120,7 @@ You connect Slack once per TraceRoot workspace. TraceRoot posts to one Slack cha
   <Card title="Signals" icon="lightbulb" href="/signals/introduction">
     See how findings are grouped, reviewed and resolved.
   </Card>
-  <Card title="AI Agent" icon="brain" href="/ai-agent/overview">
+  <Card title="TraceRoot Agent" icon="brain" href="/ai-agent/overview">
     Learn how the agent behind root cause analysis works.
   </Card>
 </CardGroup>
