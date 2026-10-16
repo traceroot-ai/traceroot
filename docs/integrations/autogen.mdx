@@ -98,7 +98,7 @@ user_proxy.initiate_chat(
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `ConversableAgent.initiate_chat`.
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `user_proxy.initiate_chat`, named after the agent that opened the chat.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
