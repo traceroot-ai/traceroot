@@ -541,6 +541,7 @@ class AlertSummary(BaseModel):
     last_error_at: datetime | None
     last_notify_status: str | None
     last_notify_error: str | None
+    last_notify_severity: str | None
     last_notify_at: datetime | None
     create_time: datetime
     update_time: datetime

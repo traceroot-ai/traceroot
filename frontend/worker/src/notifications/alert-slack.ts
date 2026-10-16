@@ -3,7 +3,10 @@ import {
   ALERT_CLOSE_MAX_RESENDS,
   decryptKey,
   hasEntitlement,
+  PERMANENT_SLACK_ERROR,
   prisma,
+  RETRIES_EXHAUSTED,
+  SLACK_CONFIGURATION_FAILURES,
   type AlertStatus,
   type PlanType,
 } from "@traceroot/core";
@@ -31,7 +34,6 @@ import {
   type AlertNotifyOutcome,
   type AlertNotifyStatus,
 } from "../alerts/claim.js";
-import { RETRIES_EXHAUSTED, SLACK_CONFIGURATION_FAILURES } from "../alerts/delivery.js";
 import { revertAlertEmission } from "../alerts/emission.js";
 import { logError, logInfo } from "../alerts/log.js";
 
@@ -319,7 +321,7 @@ async function compensateNonDelivery(payload: AlertNotificationJob, reason: stri
  */
 const PERMANENT_DELIVERY_FAILURES = new Set([
   ...SLACK_CONFIGURATION_FAILURES,
-  "permanent-slack-error",
+  PERMANENT_SLACK_ERROR,
 ]);
 
 // Carries the plan it was refused for, so it is a prefix rather than a member.

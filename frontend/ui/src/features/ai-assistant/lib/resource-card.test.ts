@@ -624,6 +624,7 @@ describe("alert cards", () => {
         lastError: null,
         lastNotifyStatus: null,
         lastNotifyError: null,
+        lastNotifySeverity: null,
       },
       body: {
         kind: "alert",
@@ -873,6 +874,7 @@ describe("readCardModel", () => {
               lastEvaluatedAt: "2026-09-11T14:48:00Z",
               lastNotifyStatus: null,
               lastNotifyError: null,
+              lastNotifySeverity: null,
             },
             href: "/projects/p1/alerts/al-1",
           },
@@ -964,6 +966,38 @@ describe("readCardModel", () => {
     expect((model as { model: { rows: unknown[] } }).model.rows).toHaveLength(1);
   });
 
+  it("passes replayable notification severity to the alert badge", () => {
+    const model = readCardModel(
+      readStep(
+        "list_alerts",
+        listDetails([
+          row({
+            severity: "ALERT",
+            last_notify_status: "FAILED",
+            last_notify_error: "no-channel",
+            last_notify_severity: "ALERT",
+          }),
+        ]),
+      ),
+      "p1",
+    );
+
+    expect(model).toMatchObject({
+      kind: "alert_list",
+      model: {
+        rows: [
+          {
+            badge: {
+              lastNotifyStatus: "FAILED",
+              lastNotifyError: "no-channel",
+              lastNotifySeverity: "ALERT",
+            },
+          },
+        ],
+      },
+    });
+  });
+
   it("cards a get_alert read as the alert's own card: chart, badge, chips, facts, panel open", () => {
     const model = readCardModel(
       readStep("get_alert", {
@@ -979,6 +1013,7 @@ describe("readCardModel", () => {
           severity: "ALERT",
           alerted_at: "2026-09-11T14:35:00Z",
           last_notify_status: "DELIVERED",
+          last_notify_severity: "ALERT",
           last_notify_at: "2026-09-11T14:35:10Z",
           filters: [{ field: "environment", op: "=", value: "production" }],
           renotify: { mode: "OFF" },
@@ -1007,6 +1042,7 @@ describe("readCardModel", () => {
           lastEvaluatedAt: "2026-09-11T14:48:00Z",
           lastNotifyStatus: "DELIVERED",
           lastNotifyError: null,
+          lastNotifySeverity: "ALERT",
         },
         facts: [
           // formatDate renders local time, so only the seconds (and the shape)

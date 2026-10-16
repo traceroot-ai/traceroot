@@ -19,6 +19,7 @@ function row(overrides: Partial<AlertListRow> = {}): AlertListRow {
       lastEvaluatedAt: "2026-09-11T14:48:00Z",
       lastNotifyStatus: null,
       lastNotifyError: null,
+      lastNotifySeverity: null,
     },
     href: "/projects/p1/alerts/al-1",
     ...overrides,
@@ -54,6 +55,7 @@ describe("AlertListCard", () => {
                 lastEvaluatedAt: "2026-09-11T14:48:00Z",
                 lastNotifyStatus: "DELIVERED",
                 lastNotifyError: null,
+                lastNotifySeverity: null,
               },
               href: "/projects/p1/alerts/al-2",
             }),
@@ -69,6 +71,7 @@ describe("AlertListCard", () => {
                 lastEvaluatedAt: null,
                 lastNotifyStatus: null,
                 lastNotifyError: null,
+                lastNotifySeverity: null,
               },
               href: "/projects/p1/alerts/al-3",
             }),
@@ -107,6 +110,37 @@ describe("AlertListCard", () => {
     const link = screen.getByRole("link", { name: /p95 latency over 2s/ });
     expect(link.getAttribute("href")).toBe("/projects/p1/alerts/al-1");
     expect(link.textContent).not.toContain("OK");
+  });
+
+  it("shows the retry message for a failed configuration notification with its severity", async () => {
+    render(
+      <AlertListCard
+        model={model({
+          rows: [
+            row({
+              badge: {
+                status: "ACTIVE",
+                severity: "ALERT",
+                lastError: null,
+                lastEvaluatedAt: "2026-09-11T14:48:00Z",
+                lastNotifyStatus: "FAILED",
+                lastNotifyError: "no-channel",
+                lastNotifySeverity: "ALERT",
+              },
+            }),
+          ],
+        })}
+      />,
+    );
+
+    screen.getByRole("button", { name: "Alert" }).click();
+
+    expect(
+      await screen.findByText(
+        "No Slack channel is set for this workspace, so nothing was sent. Choose one in workspace settings. Once fixed in workspace settings, it is sent on the next evaluation while the rule is still in the same state.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/will not be sent again/)).toBeNull();
   });
 
   it("says a row's state alone when it carries no whole rule, and skips a badge it cannot resolve", () => {
