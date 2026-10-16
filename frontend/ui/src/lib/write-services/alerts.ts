@@ -584,8 +584,10 @@ export async function setAlertStatus(input: {
 
 /**
  * Hard-delete an alert for a MEMBER of its project. An outstanding page is
- * not notified as resolved; the answer carries `pageCleared` when one was
- * open so the caller can say so.
+ * closed in Slack by the worker, off the outbox row this leaves in the same
+ * transaction, and the answer carries `pageCleared` when one was open. A close
+ * an earlier edit or resume left on the row and the worker has not sent yet
+ * moves to the outbox too: the rule goes, but the page it closes was still seen.
  */
 export async function deleteAlert(input: {
   actorUserId: string;
@@ -602,9 +604,13 @@ export async function deleteAlert(input: {
     const access = await requireProjectMember(tx, projectId, input.actorUserId);
     if (!access.ok) return { result: access };
 
+    // Locked for the same reason an edit locks it: the delete reads the page and
+    // the close marker it turns into an outbox row. Unlocked, a tick could take
+    // the marker in between and the close would be sent twice.
+    await tx.$queryRaw`SELECT id FROM alerts WHERE id = ${alertId} AND project_id = ${projectId} FOR UPDATE`;
     const existing = await tx.alert.findFirst({
       where: { id: alertId, projectId },
-      select: { id: true, name: true, severity: true, alertedAt: true },
+      select: { id: true, name: true, severity: true, alertedAt: true, pendingClose: true },
     });
     if (!existing) return { result: ALERT_NOT_FOUND };
 
@@ -612,6 +618,11 @@ export async function deleteAlert(input: {
     if (count === 0) return { result: ALERT_NOT_FOUND };
 
     const pageCleared = hasOutstandingAlertPage(existing);
+    if (pageCleared || existing.pendingClose !== null) {
+      await tx.alertDeletedClose.create({
+        data: { projectId, alertId, name: existing.name, actorUserId: input.actorUserId },
+      });
+    }
     return {
       result: {
         ok: true,

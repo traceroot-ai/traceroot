@@ -24,6 +24,7 @@ const alertUpdateMany = vi.fn<(args: PrismaUpdateArgs) => Promise<{ count: numbe
 // The rule is re-read before anything is sent, so a job whose rule was paused or
 // deleted during a backoff needs a row here as much as the writes need a client.
 const alertFindUnique = vi.fn<(args: unknown) => Promise<Record<string, unknown> | null>>();
+const deletedCloseCreate = vi.fn<(args: { data: Record<string, unknown> }) => Promise<unknown>>();
 
 interface PrismaUpdateArgs {
   where: Record<string, unknown>;
@@ -46,6 +47,9 @@ vi.mock("@traceroot/core", async (importOriginal) => ({
     alert: {
       updateMany: (args: PrismaUpdateArgs) => alertUpdateMany(args),
       findUnique: (args: unknown) => alertFindUnique(args),
+    },
+    alertDeletedClose: {
+      create: (args: { data: Record<string, unknown> }) => deletedCloseCreate(args),
     },
     user: { findUnique: (args: unknown) => userFindUnique(args) },
   },
@@ -114,6 +118,9 @@ const closeJob = {
   name: "Checkout p95 latency",
   ...closeMarker,
 };
+
+/** The close of a rule deleted with its page open, as the outbox drain queues it. */
+const deletedCloseJob = { ...closeJob, reason: "deleted" as const };
 
 const closeRestores = () =>
   alertUpdateMany.mock.calls.map(([args]) => args).filter((args) => "pendingClose" in args.data);
@@ -186,6 +193,7 @@ beforeEach(() => {
   // reads that way, so the default row is the one this job's emission wrote.
   alertFindUnique.mockReset().mockResolvedValue(alertRow());
   queueAdd.mockReset().mockResolvedValue(undefined);
+  deletedCloseCreate.mockReset().mockResolvedValue({});
   workerHandlers.clear();
 });
 const slackHttpError = (statusCode: number) => ({ code: "slack_webapi_http_error", statusCode });
@@ -730,6 +738,70 @@ describe("startAlertNotificationWorker", () => {
     expect(stateWrites()).toHaveLength(0);
   });
 
+  it("puts a deleted rule's close back into the outbox, not on a rule that is gone", async () => {
+    const { startAlertNotificationWorker } = await importModule();
+    startAlertNotificationWorker();
+
+    workerHandlers.get("failed")?.(
+      {
+        id: "j1",
+        attemptsMade: 12,
+        opts: { attempts: 12 },
+        data: { ...deletedCloseJob, resends: 1 },
+      },
+      new Error("rate limited"),
+    );
+    await vi.waitFor(() => expect(deletedCloseCreate).toHaveBeenCalledTimes(1));
+
+    expect(deletedCloseCreate).toHaveBeenCalledWith({
+      data: {
+        projectId: "proj_1",
+        alertId: "al_1",
+        name: "Checkout p95 latency",
+        actorUserId: "user_1",
+        resends: 2,
+        createTime: new Date("2026-06-23T12:31:00.000Z"),
+      },
+    });
+    expect(closeRestores()).toHaveLength(0);
+  });
+
+  it("gives up on a deleted rule's close past the cap, like any other", async () => {
+    const { ALERT_CLOSE_MAX_RESENDS } = await import("@traceroot/core");
+    const { startAlertNotificationWorker } = await importModule();
+    startAlertNotificationWorker();
+
+    workerHandlers.get("failed")?.(
+      {
+        id: "j1",
+        attemptsMade: 12,
+        opts: { attempts: 12 },
+        data: { ...deletedCloseJob, resends: ALERT_CLOSE_MAX_RESENDS },
+      },
+      new Error("rate limited"),
+    );
+    await vi.waitFor(() =>
+      expect(logError.mock.calls.some(([line]) => String(line).includes("given up"))).toBe(true),
+    );
+    expect(deletedCloseCreate).not.toHaveBeenCalled();
+  });
+
+  it("logs a deleted rule's close it could not put back, for a project that is gone", async () => {
+    deletedCloseCreate.mockRejectedValue(new Error("foreign key violation"));
+    const { startAlertNotificationWorker } = await importModule();
+    startAlertNotificationWorker();
+
+    workerHandlers.get("failed")?.(
+      { id: "j1", attemptsMade: 12, opts: { attempts: 12 }, data: deletedCloseJob },
+      new Error("rate limited"),
+    );
+    await vi.waitFor(() =>
+      expect(
+        logError.mock.calls.some(([line]) => String(line).includes("close restore failed")),
+      ).toBe(true),
+    );
+  });
+
   it("counts each cycle a close runs out of, and gives up on it past the cap", async () => {
     const { ALERT_CLOSE_MAX_RESENDS } = await import("@traceroot/core");
     const { startAlertNotificationWorker } = await importModule();
@@ -878,6 +950,27 @@ describe("sendAlertClose", () => {
 
     expect(postMessage).not.toHaveBeenCalled();
     expect(alertUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("posts the close of a deleted rule without looking for the rule", async () => {
+    alertFindUnique.mockResolvedValue(null);
+    const { sendAlertClose } = await importModule();
+    await sendAlertClose(deletedCloseJob);
+
+    expect(alertFindUnique).not.toHaveBeenCalled();
+    expect(buildAlertClosedBlocks).toHaveBeenCalledWith(
+      expect.objectContaining({ alertId: "al_1", reason: "deleted", actor: "Ada" }),
+    );
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(alertUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("still drops the close of a deleted rule on a channel no retry can reach", async () => {
+    findUnique.mockResolvedValue(noChannelRow);
+    const { sendAlertClose } = await importModule();
+    await sendAlertClose(deletedCloseJob);
+
+    expect(postMessage).not.toHaveBeenCalled();
   });
 
   it("drops rather than loops on a channel no retry can reach", async () => {

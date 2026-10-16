@@ -27,6 +27,7 @@ import {
 } from "../queues/alert-notification-queue.js";
 import {
   recordAlertNotifyOutcome,
+  restoreAlertDeletedClose,
   restoreAlertPendingClose,
   type AlertNotifyOutcome,
   type AlertNotifyStatus,
@@ -429,9 +430,11 @@ export async function sendAlertNotification(payload: AlertNotificationJob): Prom
 
 /**
  * A close whose attempts ran out goes back on the rule for a later tick to send, with
- * one more cycle counted against it. Past `ALERT_CLOSE_MAX_RESENDS` it is dropped: a
- * channel that has refused it this long is not one another half hour will open, and
- * without the cap the close is re-queued for as long as the outage and the rule last.
+ * one more cycle counted against it; a deleted rule's close has no rule to go back on,
+ * so it goes back into the outbox it came from. Past `ALERT_CLOSE_MAX_RESENDS` it is
+ * dropped: a channel that has refused it this long is not one another half hour will
+ * open, and without the cap the close is re-queued for as long as the outage and the
+ * rule last.
  * Guarded: the caller is already on a path that failed, and the worst a lost restore
  * costs is the unclosed page this job existed to close.
  */
@@ -443,6 +446,18 @@ async function restoreClose(job: AlertCloseJob, reason: string): Promise<void> {
     return;
   }
   try {
+    if (job.reason === "deleted") {
+      await restoreAlertDeletedClose({
+        projectId: job.projectId,
+        alertId: job.alertId,
+        name: job.name,
+        actorUserId: job.actorUserId,
+        at: new Date(job.at),
+        resends,
+      });
+      logInfo(`close put back for a later tick ${tag}`);
+      return;
+    }
     const restored = await restoreAlertPendingClose(job.alertId, {
       reason: job.reason,
       actorUserId: job.actorUserId,
@@ -475,28 +490,31 @@ async function resolveActor(userId: string): Promise<string | null> {
 }
 
 /**
- * Posts the close of a page an edit or a resume discarded. It leaves the rule's
+ * Posts the close of a page an edit, a resume or a delete discarded. It leaves the rule's
  * `lastNotify*` columns alone: they report on the page the rule stands on, which the
  * scheduler reads to decide a redelivery, and a close is about the page before it.
  *
  * The rule's status is not consulted. Pausing stops a rule from paging; it does not
  * make the page it already sent any less discarded, and a close held for the resume
  * leaves the channel reading an alert nobody is evaluating. Only a rule that is gone
- * has nothing to close. A channel no retry can reach drops the close, since the page
- * it would close cannot have been delivered through that channel either; a failure a
- * retry may get past is rethrown, and the caller puts the close back once the job's
- * attempts run out.
+ * has nothing to close, and the close of the delete itself is the one exception: it
+ * is not looked up, since no rule is left to find. A channel no retry can reach drops
+ * the close, since the page it would close cannot have been delivered through that
+ * channel either; a failure a retry may get past is rethrown, and the caller puts the
+ * close back once the job's attempts run out.
  */
 export async function sendAlertClose(job: AlertCloseJob): Promise<void> {
   const tag = `alert=${job.alertId} project=${job.projectId} close=${job.reason}`;
 
-  const alert = await prisma.alert.findUnique({
-    where: { id: job.alertId },
-    select: { id: true },
-  });
-  if (alert === null) {
-    logInfo(`slack skip ${tag} reason=alert-deleted`);
-    return;
+  if (job.reason !== "deleted") {
+    const alert = await prisma.alert.findUnique({
+      where: { id: job.alertId },
+      select: { id: true },
+    });
+    if (alert === null) {
+      logInfo(`slack skip ${tag} reason=alert-deleted`);
+      return;
+    }
   }
 
   const resolution = await resolveAlertChannel(job.projectId);

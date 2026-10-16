@@ -5,11 +5,15 @@ import {
   claimDueAlerts,
   completeAlertEvaluation,
   parkAlertRule,
+  readDeletedAlertCloses,
   readStoppedAlertCloses,
   recordAlertEvaluationFailure,
+  restoreAlertDeletedClose,
   restoreAlertPendingClose,
+  takeAlertDeletedClose,
   takeAlertPendingClose,
   type AlertCloseTarget,
+  type AlertDeletedCloseRow,
   type ClaimedAlert,
 } from "./claim.js";
 import { mapWithConcurrency } from "./concurrency.js";
@@ -195,6 +199,42 @@ async function sendCloseAlone(target: AlertCloseTarget): Promise<void> {
       error,
     );
     await restoreClose(target, close);
+  }
+}
+
+/**
+ * The close of a rule deleted with its page open. The same take-then-enqueue order as
+ * a rule's own close, off the outbox row instead of the marker: the take is the delete
+ * of the row, and a close that could not be queued goes back as a row. Never throws.
+ */
+async function sendDeletedClose(id: string): Promise<void> {
+  let close: AlertDeletedCloseRow | null;
+  try {
+    close = await takeAlertDeletedClose(id);
+  } catch (error) {
+    logError(`deleted close take failed close=${id}`, error);
+    return;
+  }
+  if (close === null) return;
+
+  const tag = `alert=${close.alertId} project=${close.projectId}`;
+  try {
+    await enqueueAlertClose({
+      alertId: close.alertId,
+      projectId: close.projectId,
+      name: close.name,
+      reason: "deleted",
+      actorUserId: close.actorUserId,
+      at: close.at.toISOString(),
+      ...(close.resends > 0 ? { resends: close.resends } : {}),
+    });
+  } catch (error) {
+    logError(`deleted close enqueue failed, putting it back ${tag}`, error);
+    try {
+      await restoreAlertDeletedClose(close);
+    } catch (restoreError) {
+      logError(`deleted close restore failed ${tag}`, restoreError);
+    }
   }
 }
 
@@ -449,6 +489,19 @@ async function readStoppedCloses(): Promise<AlertCloseTarget[]> {
   }
 }
 
+/** A failed read costs this tick these closes and nothing else: the rows stay put. */
+async function readDeletedCloses(): Promise<string[]> {
+  try {
+    return await readDeletedAlertCloses();
+  } catch (error) {
+    logError(
+      "deleted close read failed, the closes of deleted rules wait for the next tick",
+      error,
+    );
+    return [];
+  }
+}
+
 export async function runAlertTick(now: Date): Promise<void> {
   const tick = computeAlertTick(now);
 
@@ -469,6 +522,9 @@ export async function runAlertTick(now: Date): Promise<void> {
     ...(await readStoppedCloses()),
   ];
   await mapWithConcurrency(owed, ALERT_CLOSE_CONCURRENCY, sendCloseAlone);
+
+  // A deleted rule has no claim and no page to follow, so its close has nothing to wait on.
+  await mapWithConcurrency(await readDeletedCloses(), ALERT_CLOSE_CONCURRENCY, sendDeletedClose);
 }
 
 export interface AlertSchedulerHandle {

@@ -16,6 +16,7 @@ const { tx, root, order, store } = vi.hoisted(() => ({
     project: { findUnique: vi.fn() },
     workspaceMember: { findUnique: vi.fn() },
     alert: { findFirst: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
+    alertDeletedClose: { create: vi.fn() },
     user: { findUnique: vi.fn() },
     auditLog: { create: vi.fn() },
   },
@@ -122,7 +123,14 @@ beforeEach(() => {
   store.clear();
   store.set("alert-1", row());
   store.set("other-1", row({ id: "other-1", projectId: "p-other", name: "Elsewhere" }));
-  for (const model of [tx.project, tx.workspaceMember, tx.alert, tx.user, tx.auditLog]) {
+  for (const model of [
+    tx.project,
+    tx.workspaceMember,
+    tx.alert,
+    tx.alertDeletedClose,
+    tx.user,
+    tx.auditLog,
+  ]) {
     for (const fn of Object.values(model)) fn.mockReset();
   }
   tx.$queryRaw.mockReset();
@@ -145,6 +153,10 @@ beforeEach(() => {
     const rows = rowsMatching(where);
     for (const r of rows) store.delete(r.id as string);
     return { count: rows.length };
+  });
+  tx.alertDeletedClose.create.mockImplementation(async () => {
+    order.push("outbox");
+    return {};
   });
   tx.user.findUnique.mockResolvedValue({ name: "Ada", email: "ada@example.com" });
   root.auditLog.create.mockReset();
@@ -722,7 +734,7 @@ describe("deleteAlert", () => {
     });
     expect(store.has("alert-1")).toBe(false);
     expect(tx.alert.deleteMany).toHaveBeenCalledWith({ where: { id: "alert-1", projectId: "p1" } });
-    expect(order).toEqual(["delete", "commit", "audit"]);
+    expect(order).toEqual(["lock", "delete", "outbox", "commit", "audit"]);
     expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         operation: "delete_alert",
@@ -742,6 +754,56 @@ describe("deleteAlert", () => {
     store.set("alert-1", row({ severity: "OK", alertedAt: null }));
     expect(await remove()).toMatchObject({ ok: true, pageCleared: false });
     expect(await remove()).toEqual({ ok: false, status: 404, error: "Alert not found" });
+  });
+
+  describe("the close it leaves for the page it took with it", () => {
+    it("leaves an outbox row naming the rule and who deleted it", async () => {
+      mockAccess();
+      await remove({ actorUserId: "u2" });
+      expect(tx.alertDeletedClose.create).toHaveBeenCalledTimes(1);
+      expect(tx.alertDeletedClose.create).toHaveBeenCalledWith({
+        data: { projectId: "p1", alertId: "alert-1", name: "P95 latency", actorUserId: "u2" },
+      });
+    });
+
+    it("leaves one for a page carried across a gap in NO_DATA", async () => {
+      mockAccess();
+      store.set("alert-1", row({ severity: "NO_DATA" }));
+      expect(await remove()).toMatchObject({ ok: true, pageCleared: true });
+      expect(tx.alertDeletedClose.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("moves a close an earlier edit left and no tick has sent yet", async () => {
+      mockAccess();
+      store.set(
+        "alert-1",
+        row({
+          severity: "UNKNOWN",
+          alertedAt: null,
+          pendingClose: { reason: "edited", actorUserId: "u1", at: T0.toISOString() },
+        }),
+      );
+      // The edit already discarded the page, so this delete reports none of its own.
+      expect(await remove({ actorUserId: "u2" })).toMatchObject({ ok: true, pageCleared: false });
+      expect(tx.alertDeletedClose.create).toHaveBeenCalledWith({
+        data: { projectId: "p1", alertId: "alert-1", name: "P95 latency", actorUserId: "u2" },
+      });
+    });
+
+    it("leaves nothing when no page was open and no close was waiting", async () => {
+      mockAccess();
+      store.set("alert-1", row({ severity: "OK", alertedAt: null }));
+      await remove();
+      expect(tx.alertDeletedClose.create).not.toHaveBeenCalled();
+      expect(order).toEqual(["lock", "delete", "commit", "audit"]);
+    });
+
+    it("leaves nothing for a delete that found no row", async () => {
+      mockAccess();
+      tx.alert.deleteMany.mockResolvedValueOnce({ count: 0 });
+      await remove();
+      expect(tx.alertDeletedClose.create).not.toHaveBeenCalled();
+    });
   });
 
   it("404s when the row vanishes between the read and the delete", async () => {

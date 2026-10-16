@@ -7,12 +7,17 @@ import type { AlertTick } from "../tick.js";
 // Loosely typed rows: the claim and the close read share this one raw client.
 const queryRaw = vi.fn<(query: Prisma.Sql) => Promise<unknown[]>>();
 const updateMany = vi.fn<(args: Record<string, unknown>) => Promise<{ count: number }>>();
+const createDeletedClose = vi.fn<(args: Record<string, unknown>) => Promise<unknown>>();
 
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
   return {
     ...actual,
-    prisma: { alert: { updateMany }, $queryRaw: queryRaw },
+    prisma: {
+      alert: { updateMany },
+      alertDeletedClose: { create: createDeletedClose },
+      $queryRaw: queryRaw,
+    },
   };
 });
 
@@ -21,10 +26,13 @@ const {
   completeAlertEvaluation,
   parkAlertRule,
   recordAlertEvaluationFailure,
+  readDeletedAlertCloses,
   readStoppedAlertCloses,
   recordAlertNotifyOutcome,
+  restoreAlertDeletedClose,
   restoreAlertPendingClose,
   revertAlertEmissionState,
+  takeAlertDeletedClose,
   takeAlertPendingClose,
   ALERT_CLAIM_LIMIT,
 } = await import("../claim.js");
@@ -93,6 +101,7 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   queryRaw.mockReset().mockResolvedValue([]);
   updateMany.mockReset().mockResolvedValue({ count: 1 });
+  createDeletedClose.mockReset();
 });
 
 afterEach(() => {
@@ -785,7 +794,7 @@ describe("the close an edit or a resume left on the rule", () => {
   });
 
   it("clears a stored value that is not a marker rather than finding it every tick", async () => {
-    queryRaw.mockResolvedValue([{ pendingClose: { reason: "deleted" } }]);
+    queryRaw.mockResolvedValue([{ pendingClose: { reason: "renamed" } }]);
 
     expect(await takeAlertPendingClose("alert-1")).toBeNull();
     expect(console.error).toHaveBeenCalledTimes(1);
@@ -800,5 +809,60 @@ describe("the close an edit or a resume left on the rule", () => {
 
     updateMany.mockResolvedValue({ count: 0 });
     expect(await restoreAlertPendingClose("alert-1", marker)).toBe(false);
+  });
+});
+
+describe("the close of a deleted rule", () => {
+  const close = {
+    projectId: "proj-1",
+    alertId: "alert-1",
+    name: "P95 latency",
+    actorUserId: "user-1",
+    at: new Date("2026-08-12T10:36:10.000Z"),
+    resends: 0,
+  };
+
+  it("is read as ids, oldest first, for live projects only, under the claim's cap", async () => {
+    queryRaw.mockResolvedValue([{ id: "c1" }, { id: "c2" }]);
+
+    expect(await readDeletedAlertCloses()).toEqual(["c1", "c2"]);
+
+    const { sql, values } = queryRaw.mock.calls[0][0];
+    expect(sql).toContain("FROM alert_deleted_closes c");
+    expect(sql).toContain("p.delete_time IS NULL");
+    expect(sql).toContain("ORDER BY c.create_time ASC");
+    expect(values).toEqual([ALERT_CLAIM_LIMIT]);
+  });
+
+  it("is taken by deleting the row and returning what it held, in one statement", async () => {
+    queryRaw.mockResolvedValue([close]);
+
+    expect(await takeAlertDeletedClose("c1")).toEqual(close);
+
+    const { sql, values } = queryRaw.mock.calls[0][0];
+    expect(sql).toContain("DELETE FROM alert_deleted_closes");
+    expect(sql).toContain("RETURNING");
+    expect(sql).toContain('create_time AS "at"');
+    expect(values).toEqual(["c1"]);
+  });
+
+  it("is not this caller's to send once another tick has taken it", async () => {
+    queryRaw.mockResolvedValue([]);
+    expect(await takeAlertDeletedClose("c1")).toBeNull();
+  });
+
+  it("goes back as a row that keeps its age and its resend count", async () => {
+    await restoreAlertDeletedClose({ ...close, resends: 2 });
+
+    expect(createDeletedClose).toHaveBeenCalledWith({
+      data: {
+        projectId: "proj-1",
+        alertId: "alert-1",
+        name: "P95 latency",
+        actorUserId: "user-1",
+        resends: 2,
+        createTime: close.at,
+      },
+    });
   });
 });

@@ -118,6 +118,8 @@ vi.mock("@traceroot/core", async (importOriginal) => {
       updateMany: alertUpdateMany,
       deleteMany: alertDeleteMany,
     },
+    // The close a delete leaves for a rule it took with its page open.
+    alertDeletedClose: { create: async () => ({}) },
     project: { findUnique: async () => ({ workspaceId: "ws-1", deleteTime: null }) },
     workspaceMember: { findUnique: async () => ({ role: "MEMBER" }) },
     user: {
@@ -125,7 +127,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
       findUnique: async () => ({ name: "Ada", email: "ada@example.com" }),
     },
     auditLog: { create: auditCreate },
-    // The row lock an edit and a resume take before reading the rule.
+    // The row lock an edit, a resume and a delete take before reading the rule.
     $queryRaw: async () => [],
     $transaction: (operations: Promise<unknown>[] | ((tx: unknown) => unknown)) =>
       typeof operations === "function" ? operations(client) : Promise.all(operations),

@@ -38,8 +38,12 @@ export function hasOutstandingAlertPage(state: {
   return (state.severity === "ALERT" || state.severity === "NO_DATA") && state.alertedAt !== null;
 }
 
-/** Why an open page was closed without a recovery: the write that voided its state. */
-export const ALERT_CLOSE_REASONS = ["edited", "resumed"] as const;
+/**
+ * Why an open page was closed without a recovery: the write that voided its state.
+ * A `deleted` close never sits on the rule as a marker, since the row is gone; it
+ * waits in the `alert_deleted_closes` outbox instead.
+ */
+export const ALERT_CLOSE_REASONS = ["edited", "resumed", "deleted"] as const;
 export type AlertCloseReason = (typeof ALERT_CLOSE_REASONS)[number];
 
 export function isAlertCloseReason(value: string): value is AlertCloseReason {

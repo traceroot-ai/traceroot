@@ -498,3 +498,68 @@ export async function restoreAlertPendingClose(
   });
   return count === 1;
 }
+
+/** The close of a rule deleted with its page open, as the outbox holds it. */
+export interface AlertDeletedCloseRow {
+  readonly projectId: string;
+  readonly alertId: string;
+  readonly name: string;
+  readonly actorUserId: string;
+  /** When the rule was deleted. Kept across a put-back, so the oldest close stays first. */
+  readonly at: Date;
+  readonly resends: number;
+}
+
+/**
+ * The outbox rows a tick should send, oldest first under the claim's cap. Ids only:
+ * the row itself is read by the take, so a close is never sent from a read that
+ * another tick's take has since made stale.
+ */
+export async function readDeletedAlertCloses(): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+    SELECT c.id
+    FROM alert_deleted_closes c
+    -- Deletion is soft, so no cascade fires: a deleted project has no channel to tell.
+    JOIN projects p ON p.id = c.project_id AND p.delete_time IS NULL
+    ORDER BY c.create_time ASC
+    LIMIT ${ALERT_CLAIM_LIMIT}
+  `);
+  return rows.map((row) => row.id);
+}
+
+/**
+ * Takes an outbox row, and is the only thing that may: one delete that returns what
+ * it removed, so of two ticks one gets the row and the other gets nothing. Null
+ * means there was nothing left to take.
+ */
+export async function takeAlertDeletedClose(id: string): Promise<AlertDeletedCloseRow | null> {
+  const rows = await prisma.$queryRaw<AlertDeletedCloseRow[]>(Prisma.sql`
+    DELETE FROM alert_deleted_closes
+    WHERE id = ${id}
+    RETURNING
+      project_id AS "projectId",
+      alert_id AS "alertId",
+      name,
+      actor_user_id AS "actorUserId",
+      create_time AS "at",
+      resends
+  `);
+  return rows[0] ?? null;
+}
+
+/**
+ * Puts a taken close back when it provably reached nobody, for a later tick to send.
+ * Throws when the project is gone with its rows, which leaves nobody to tell.
+ */
+export async function restoreAlertDeletedClose(close: AlertDeletedCloseRow): Promise<void> {
+  await prisma.alertDeletedClose.create({
+    data: {
+      projectId: close.projectId,
+      alertId: close.alertId,
+      name: close.name,
+      actorUserId: close.actorUserId,
+      resends: close.resends,
+      createTime: close.at,
+    },
+  });
+}
