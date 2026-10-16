@@ -180,21 +180,22 @@ describe("the hand-back step's first-trace watch", () => {
     expect(screen.queryByText(/Your first trace arrived/)).toBeNull();
   });
 
-  it("offers the trace that arrives rather than navigating to it", async () => {
+  it("opens the trace that arrives", async () => {
     await reachHandback();
     await rounds(1);
 
     tracePage = [trace("t-run", "2026-05-01T10:05:00Z")];
     await rounds(1);
 
+    // Both waiting pages end the same way: the trace the run was for is what
+    // the person lands on, without having to ask for it.
+    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces?traceId=t-run");
+    // The link stays in the arrival line as the way forward if that push is
+    // slow or refused, so the state is never a statement with no exit.
     expect(screen.getByText(/Your first trace arrived/)).toBeDefined();
     expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
       "/projects/proj-1/traces?traceId=t-run",
     );
-    // The page is still the page they were on: nothing navigated out from under
-    // someone who may be mid-copy, or part-way through the manual walkthrough.
-    expect(mocks.push).not.toHaveBeenCalled();
-    expect(screen.getByText("Finish setting up in your terminal")).toBeDefined();
   });
 
   it("leaves both exits working while it waits", async () => {

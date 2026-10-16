@@ -71,10 +71,10 @@ describe("CliHandbackStep", () => {
     expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
   });
 
-  it("offers the trace when it arrives instead of navigating to it", () => {
-    // The person is looking at this page — they just copied a command off it,
-    // and the two alternatives below are still live choices. Taking the page
-    // away to show them good news would make a decision they have not made.
+  it("shows the arrived trace without closing the step down", () => {
+    // The page opens the trace; this step only reports it. Until that push
+    // lands the link is the way through, and neither alternative below is
+    // withdrawn — the arrival adds an exit, it does not remove any.
     const { onSetUpManually, onSkip } = renderStep({
       wait: { kind: "found", found: { projectId: "proj-1", traceId: "t-1" } },
     });
