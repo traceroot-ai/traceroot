@@ -10,7 +10,26 @@ import {
   isDetectorRunBlocked,
   isIngestionBlocked,
   hasEntitlement,
+  countCurrentSeats,
 } from "../plans.ts";
+
+describe("countCurrentSeats", () => {
+  it("sums members and pending invites", () => {
+    expect(countCurrentSeats({ members: 2, invites: 3 })).toBe(5);
+  });
+
+  it("subtracts one when the operation supersedes an invite", () => {
+    expect(countCurrentSeats({ members: 2, invites: 3 }, { supersedesInvite: true })).toBe(4);
+  });
+
+  it("does not go negative when invites is already zero and supersedesInvite is true", () => {
+    // Callers only pass supersedesInvite: true when they already found a
+    // matching invite, so invites >= 1 in practice, but the math itself
+    // shouldn't silently clamp — this documents the (unreachable in
+    // practice) edge rather than hiding it.
+    expect(countCurrentSeats({ members: 2, invites: 0 }, { supersedesInvite: true })).toBe(1);
+  });
+});
 
 describe("slack-integration entitlement", () => {
   it("is available on every plan (free tier included)", () => {

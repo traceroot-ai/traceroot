@@ -1,7 +1,15 @@
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, Role, RoleSchema, getSeatLimit, canAddSeat, PlanType } from "@traceroot/core";
+import {
+  prisma,
+  Role,
+  RoleSchema,
+  countCurrentSeats,
+  getSeatLimit,
+  canAddSeat,
+  PlanType,
+} from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -133,7 +141,7 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
   }
 
   const plan = (workspace.billingPlan || PlanType.FREE) as PlanType;
-  const currentSeats = workspace._count.members + workspace._count.invites;
+  const currentSeats = countCurrentSeats(workspace._count);
   const seatLimit = getSeatLimit(plan);
 
   if (!canAddSeat(plan, currentSeats)) {
