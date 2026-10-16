@@ -254,6 +254,19 @@ def test_get_alert_preserves_severity_for_a_replayable_notification_failure():
 
 
 @respx.mock
+def test_get_alert_legacy_response_without_notification_severity_returns_null():
+    _mock_user_auth()
+    alert = {**DETAIL_BODY["alert"]}
+    alert.pop("lastNotifySeverity")
+    _mock_internal({"alert": alert})
+
+    resp = TestClient(app).get("/api/v1/public/alerts/alr-1?project_id=proj-A", headers=USER_HEADER)
+
+    assert resp.status_code == 200
+    assert resp.json()["last_notify_severity"] is None
+
+
+@respx.mock
 def test_list_alerts_api_key_reads_with_creator_redacted():
     """Dual-stamp: an API key fixes its own project and reads the same rows,
     but ``creator`` is nulled — a project key is not a user credential, and
