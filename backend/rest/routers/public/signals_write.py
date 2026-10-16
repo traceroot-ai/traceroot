@@ -36,7 +36,7 @@ from rest.routers.public.deps import AccountStampedAuth
 from rest.schemas.eval import ErrorResponse
 from rest.schemas.public_write import SignalStatusRequest, SignalStatusResponse, SignalStatusRow
 
-router = APIRouter(prefix="/public", tags=["Signals (Public)"])
+router = APIRouter(prefix="/public", tags=["Signals"])
 
 
 def _change_body(payload: SignalStatusRequest) -> dict[str, Any]:

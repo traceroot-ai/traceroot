@@ -1334,6 +1334,7 @@ def test_each_resource_has_one_tag():
         "Detectors",
         "Offline Eval",
         "Sessions",
+        "Signals",
         "SQL",
         "Traces",
         "Whoami",

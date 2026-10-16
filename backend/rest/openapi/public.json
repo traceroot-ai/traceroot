@@ -12498,7 +12498,7 @@
         ],
         "summary": "List Signals",
         "tags": [
-          "Signals (Public)"
+          "Signals"
         ],
         "x-tool": {
           "description": "List the project's signals, newest first: the recurring problems that detector findings are grouped into, with status (open, resolved, dismissed), detector, hit count, reopen count and the state of the current root cause analysis. Filter by status or detector_id. Merged signals are left out. Returns 50 results by default; increment page to fetch subsequent pages until all needed signals are found.",
@@ -12599,7 +12599,7 @@
         ],
         "summary": "Get Signal",
         "tags": [
-          "Signals (Public)"
+          "Signals"
         ],
         "x-tool": {
           "description": "Fetch one signal by id, including when it was resolved. A merged signal names the signal its findings moved to in merged_into_id. Resolve the signal id by listing signals \u2014 never guess an id.",
@@ -12722,7 +12722,7 @@
         ],
         "summary": "Resolve or reopen a signal",
         "tags": [
-          "Signals (Public)"
+          "Signals"
         ],
         "x-tool": {
           "description": "Resolve or reopen a signal. Resolving needs a reason (fixed_elsewhere, fixed_by_pr, already_fixed_before, other); 'other' also needs a note. A resolved signal opens again by itself when its detector finds the problem in a trace that started after the resolve. Dismissing is not possible here: a dismissed signal never reopens, so a person dismisses in the web app. Send expected_status to refuse the change when the status changed since you read it (a conflict). Setting the current status changes nothing.",
