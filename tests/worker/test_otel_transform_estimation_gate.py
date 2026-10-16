@@ -113,6 +113,13 @@ def test_tool_span_with_model_gets_no_estimated_tokens():
     _assert_no_fabricated_tokens(spans[0])
 
 
+def test_decision_span_with_model_gets_no_estimated_tokens():
+    spans = _transform(
+        [_span_with(_model_and_text([make_attr("openinference.span.kind", "DECISION")]))]
+    )
+    _assert_no_fabricated_tokens(spans[0])
+
+
 def test_explicit_traceroot_agent_type_gets_no_estimated_tokens():
     """Explicit traceroot.span.type wins over everything, including the model-attr
     fallback that would otherwise classify a modeled span as LLM."""
