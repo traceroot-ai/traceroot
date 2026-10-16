@@ -20,19 +20,24 @@ Every TraceRoot subscription plan includes a default retention period:
 
 ## Configuring Per-Project Retention (`trace_ttl_days`)
 
-While your workspace subscription establishes the baseline retention, you can override retention on a per-project basis using the `trace_ttl_days` parameter.
+A project carries a `trace_ttl_days` field intended to override the plan baseline per project.
+
+<Warning>
+`trace_ttl_days` is stored but not yet enforced. The query window is gated on the billing plan alone — `clamp_retention_window` reads the plan's retention days, and no read, clamp or delete path consults `trace_ttl_days`. Setting it does not move the window described under [Query Window Clamping](#query-window-clamping).
+</Warning>
 
 ### Configuration Rules
 
 - **Allowed Range**: Integer between **1 and 365 days**.
 - **Reverting to Default**: Passing `null` resets the project's retention back to the workspace plan default.
 - **Permission**: Changing project retention requires the **ADMIN** role in the project's workspace.
+- **Credential**: `PATCH /api/v1/public/projects/{id}` is user-only. A project API key (`tr-` prefix) is rejected with `403`, so these calls need a user session token.
 
 ### Example: Setting Project Retention via REST API
 
 ```bash
-curl -X PATCH https://app.traceroot.ai/api/v1/public/projects/proj_91a0c8b21e054fbb8b1234567890abcd \
-  -H "Authorization: Bearer $TRACEROOT_API_KEY" \
+curl -X PATCH https://app.traceroot.ai/api/v1/public/projects/9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30 \
+  -H "Authorization: Bearer $TRACEROOT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "trace_ttl_days": 60
@@ -45,9 +50,9 @@ Response:
   "updated": true,
   "changed": ["trace_ttl_days"],
   "project": {
-    "id": "proj_91a0c8b21e054fbb8b1234567890abcd",
+    "id": "9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30",
     "name": "Production Agent Service",
-    "workspace_id": "wrk_11223344556677889900aabbccddeeff"
+    "workspace_id": "4c7d1e92-85af-4b03-8c6a-12fd9b3e7a51"
   }
 }
 ```
@@ -55,14 +60,14 @@ Response:
 ### Example: Setting Retention via the TraceRoot CLI
 
 ```bash
-traceroot projects update proj_91a0c8b21e054fbb8b1234567890abcd --trace-ttl-days 60
+traceroot projects update 9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30 --trace-ttl-days 60
 ```
 
 To reset the project back to the plan default:
 
 ```bash
-curl -X PATCH https://app.traceroot.ai/api/v1/public/projects/proj_91a0c8b21e054fbb8b1234567890abcd \
-  -H "Authorization: Bearer $TRACEROOT_API_KEY" \
+curl -X PATCH https://app.traceroot.ai/api/v1/public/projects/9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30 \
+  -H "Authorization: Bearer $TRACEROOT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "trace_ttl_days": null

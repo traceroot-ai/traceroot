@@ -35,7 +35,7 @@ Storage consumption is calculated from the total number of unique traces and spa
 
 ### Internal Agent & Detector Traces Count Toward Storage
 
-To keep your monitoring clean, TraceRoot automatically excludes internal agent traces and detector evaluation runs from your application trace views and dashboard metrics (`source = "agent"` and `source = "detector"` are filtered by default).
+To keep your monitoring clean, customer-facing trace views and dashboard metrics return only `source = user` rows. The allow-list is deliberate: internal markers such as `agent` and `detector` are excluded, and so is any internal marker added later.
 
 <Warning>
 While internal detector and agent traces do not appear in customer trace lists or dashboards, **they are stored in ClickHouse and count toward your workspace's total storage usage**. Storage calculations scan all ingested records regardless of origin.
@@ -59,7 +59,7 @@ Depending on your model configuration, inference costs are billed in one of two 
 
 ## Monitoring Workspace Usage
 
-Workspace administrators can view real-time usage metrics in **Workspace Settings > Billing**:
+Workspace administrators can view usage metrics in **Workspace Settings > Billing**. The figures come from an hourly billing job rather than live counters, and the tab shows a **Last updated** timestamp:
 - Total ingested traces and spans over the active billing cycle.
 - Total AI message runs broken down by kind (`chat`, `rca`, `detector`).
 - Cost and token distributions categorized by model and provider.

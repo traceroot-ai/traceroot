@@ -63,14 +63,14 @@ The response includes standard rate limit headers:
 | `X-RateLimit-Remaining` | The number of requests remaining in the current window. |
 | `X-RateLimit-Reset` | Unix epoch timestamp indicating when the quota window resets. |
 
-TraceRoot Python and TypeScript SDKs, as well as OpenTelemetry OTLP exporters, automatically recognize `Retry-After` and back off requests exponentially.
+OpenTelemetry OTLP exporters recognize `Retry-After` and back off automatically. The TraceRoot SDKs do not retry 429s on the tracing path, so handle backoff yourself in any custom client.
 
 ---
 
 ## Best Practices
 
 - **Batch Ingestion**: When using SDKs or OTLP collectors, batch spans before sending them to maximize throughput under the `ingest` budget.
-- **Use Webhooks & Alerts for Monitoring**: Rather than polling read endpoints in rapid loops, configure [Threshold Alerts](/detectors/notifications) or use the in-app AI assistant.
+- **Use Alerts for Monitoring**: Rather than polling read endpoints in rapid loops, configure [Threshold Alerts](/alerts/overview) or [detector notifications](/detectors/notifications), or use the in-app AI assistant.
 - **Implement Jittered Backoff**: If writing custom automation scripts or CI pipelines, implement exponential backoff with jitter whenever handling 429 status codes.
 
 ---
