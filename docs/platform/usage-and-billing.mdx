@@ -7,7 +7,7 @@ TraceRoot Cloud bills for usage across two primary dimensions: **AI Message Runs
 
 Understanding how these meters work helps you plan capacity, configure detector sampling rates, and optimize LLM monitoring costs.
 
-## Metered AI Messages
+## Metered AI messages
 
 TraceRoot meters AI workloads based on completed assistant execution runs. Three types of AI messages are metered:
 
@@ -17,33 +17,29 @@ TraceRoot meters AI workloads based on completed assistant execution runs. Three
 | **`rca`** | Root Cause Analysis | Deep investigative runs where the agent inspects source code, commit history, and trace trees to find failure causes. |
 | **`detector`** | LLM-as-a-Judge | Automated evaluation runs where a judge model assesses sampled incoming traces against trigger conditions. |
 
-### What is NOT Metered
+### What is not metered
 
-- **Detector Digest Summaries**: Scheduled notification summaries generated for Slack or email digests are system-level operations and are **free of charge**. They do not count against your monthly AI message quota.
+Scheduled detector digest summaries generated for Slack or email notifications are system-level operations and are **free of charge**. They do not count against your monthly AI message quota.
 
-### Multi-Tool Execution Accounting
+### Multi-tool execution accounting
 
 When an agent executes multiple tools during a turn (for example, reading a file, downloading traces, and checking git history), TraceRoot persists individual segments at each tool boundary.
 
 To ensure fair billing, **only the final segment of a run records usage tokens**. You are billed for exactly **one run per completed turn**, regardless of how many intermediate tool calls were required to answer your prompt.
 
----
-
-## Trace and Span Storage
+## Trace and span storage
 
 Storage consumption is calculated from the total number of unique traces and spans ingested and stored in ClickHouse during your billing period.
 
-### Internal Agent & Detector Traces Count Toward Storage
+### Internal agent and detector traces count toward storage
 
 To keep your monitoring clean, customer-facing trace views and dashboard metrics return only `source = user` rows. The allow-list is deliberate: internal markers such as `agent` and `detector` are excluded, and so is any internal marker added later.
 
 <Warning>
-While internal detector and agent traces do not appear in customer trace lists or dashboards, **they are stored in ClickHouse and count toward your workspace's total storage usage**. Storage calculations scan all ingested records regardless of origin.
+  While internal detector and agent traces do not appear in customer trace lists or dashboards, **they are stored in ClickHouse and count toward your workspace's total storage usage**. Storage calculations scan all ingested records regardless of origin.
 </Warning>
 
----
-
-## System Inference vs. BYOK (Bring Your Own Key)
+## System inference vs. BYOK (Bring Your Own Key)
 
 Depending on your model configuration, inference costs are billed in one of two ways:
 
@@ -55,18 +51,14 @@ Depending on your model configuration, inference costs are billed in one of two 
    - Inference calls are dispatched using your own API credentials (e.g., OpenAI, Anthropic, Google Vertex AI, or OpenRouter).
    - Raw model token fees are billed directly by your model provider, while TraceRoot meters the platform execution run.
 
----
-
-## Monitoring Workspace Usage
+## Monitoring workspace usage
 
 Workspace administrators can view usage metrics in **Workspace Settings > Billing**. The figures come from an hourly billing job rather than live counters, and the tab shows a **Last updated** timestamp:
 - Total ingested traces and spans over the active billing cycle.
 - Total AI message runs broken down by kind (`chat`, `rca`, `detector`).
 - Cost and token distributions categorized by model and provider.
 
----
-
-## Next Steps
+## Next steps
 
 <CardGroup cols={2}>
   <Card title="Data Retention" icon="database" href="/platform/retention">

@@ -5,14 +5,14 @@ description: Authenticate SDKs, ingestion pipelines, and CLI requests with proje
 
 TraceRoot uses project API keys (prefixed with `tr-`) to authenticate telemetry ingestion from Python and TypeScript SDKs, OpenTelemetry exporters, and CLI requests.
 
-## Project Scoping
+## Project scoping
 
 Every API key in TraceRoot is **strictly scoped to a single project**:
 
 - Requests authenticated by a key can only ingest traces or read data within that specific project.
 - Keys cannot perform cross-project queries or access workspace-level administrative settings (such as inviting members or managing billing).
 
-## Creating an API Key
+## Creating an API key
 
 API keys are created directly in the TraceRoot web interface:
 
@@ -22,14 +22,12 @@ API keys are created directly in the TraceRoot web interface:
 4. Enter an optional **Name** — a descriptive label to identify the key's usage (e.g., `production-agent`, `staging-eval-runner`).
 5. Click **Create**.
 
-<Note>
-**Role Requirement**: Creating or renaming an API key requires the **MEMBER** role or above; deleting a key requires the **ADMIN** role.
-</Note>
+Creating or renaming an API key requires the **MEMBER** role or above; deleting a key requires the **ADMIN** role.
 
-## The Key is Shown Only Once
+## The key is shown only once
 
 <Warning>
-TraceRoot displays the full API key **only once** immediately upon creation. TraceRoot stores only a one-way cryptographic hash of the secret (`secretHash`) in the database. If you lose the key, it cannot be recovered—you must revoke it and generate a new one.
+  TraceRoot displays the full API key **only once** immediately upon creation. TraceRoot stores only a one-way cryptographic hash of the secret (`secretHash`) in the database. If you lose the key, it cannot be recovered—you must revoke it and generate a new one.
 </Warning>
 
 Copy the key immediately and save it securely in your secret manager or local `.env` configuration:
@@ -39,9 +37,7 @@ TRACEROOT_API_KEY=tr-d0a3ee92-659e-4f63-ae11-8ca6f57657e3
 TRACEROOT_HOST_URL=https://app.traceroot.ai
 ```
 
----
-
-## Key Identification and Properties
+## Key identification and properties
 
 In the TraceRoot UI, you can inspect and track existing keys:
 
@@ -52,20 +48,14 @@ In the TraceRoot UI, you can inspect and track existing keys:
 | **Created** | Timestamp indicating when the key was originally generated. |
 | **Last Used** | Timestamp updated whenever the key authenticates an incoming request. |
 
----
-
-## Renaming and Revoking Keys
+## Renaming and revoking keys
 
 - **Renaming**: You can edit the friendly name of any key in the UI without affecting active connections or invalidating the token.
 - **Revoking**: If a key is leaked or decommissioned, click the delete icon next to the key. The dialog asks you to type the key's name (or `delete`, for an unnamed key) before **Delete API Key** is enabled. Revocation takes effect immediately: subsequent requests using that key return HTTP `401 Unauthorized`.
 
-<Note>
-**No Public API Route for Key Creation**: To prevent programmatic credential amplification and unauthorized key sprawl, TraceRoot intentionally does not expose a public API endpoint for creating API keys. Keys must be created interactively through the authenticated web console.
-</Note>
+There is no public API route for key creation. Keys must be created interactively through the authenticated web console, which prevents programmatic credential amplification and unauthorized key sprawl.
 
----
-
-## Next Steps
+## Next steps
 
 <CardGroup cols={2}>
   <Card title="Rate Limits" icon="gauge" href="/platform/rate-limits">

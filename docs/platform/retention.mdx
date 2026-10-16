@@ -5,7 +5,7 @@ description: Understand subscription retention policies and configure custom pro
 
 TraceRoot automatically manages query access to your telemetry in ClickHouse. Traces and spans are queryable only within the retention window, after which out-of-window reads are clamped or rejected.
 
-## Plan Retention Defaults
+## Plan retention defaults
 
 Every TraceRoot subscription plan includes a default retention period:
 
@@ -14,69 +14,19 @@ Every TraceRoot subscription plan includes a default retention period:
 | **Free** | **15 days** | Prototyping, testing, and hobbyist projects. |
 | **Starter** | **30 days** | Standard monthly production tracking and triage. |
 | **Pro** | **90 days** | Multi-month trend analysis, quarterly reviews, and regression testing. |
-| **Enterprise** | **Custom** | Tailored retention policies to satisfy SOC2, HIPAA, or custom compliance mandates. |
+| **Enterprise** | **Custom** | Workspaces that need a custom retention window. |
 
----
-
-## Configuring Per-Project Retention (`trace_ttl_days`)
+## Configuring per-project retention (`trace_ttl_days`)
 
 A project carries a `trace_ttl_days` field intended to override the plan baseline per project.
 
 <Warning>
-`trace_ttl_days` is stored but not yet enforced. The query window is gated on the billing plan alone — `clamp_retention_window` reads the plan's retention days, and no read, clamp or delete path consults `trace_ttl_days`. Setting it does not move the window described under [Query Window Clamping](#query-window-clamping).
+  `trace_ttl_days` is stored but not yet enforced. The query window is gated on the billing plan alone — `clamp_retention_window` reads the plan's retention days, and no read, clamp or delete path consults `trace_ttl_days`. Setting it does not move the window described under [Query window clamping](#query-window-clamping).
 </Warning>
 
-### Configuration Rules
+The field accepts an integer between **1 and 365 days**, and passing `null` resets the project's retention back to the workspace plan default. Changing project retention requires the **ADMIN** role in the project's workspace. `PATCH /api/v1/public/projects/{id}` is user-only: a project API key (`tr-` prefix) is rejected with `403`, so these calls need a user session token.
 
-- **Allowed Range**: Integer between **1 and 365 days**.
-- **Reverting to Default**: Passing `null` resets the project's retention back to the workspace plan default.
-- **Permission**: Changing project retention requires the **ADMIN** role in the project's workspace.
-- **Credential**: `PATCH /api/v1/public/projects/{id}` is user-only. A project API key (`tr-` prefix) is rejected with `403`, so these calls need a user session token.
-
-### Example: Setting Project Retention via REST API
-
-```bash
-curl -X PATCH https://app.traceroot.ai/api/v1/public/projects/9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30 \
-  -H "Authorization: Bearer $TRACEROOT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "trace_ttl_days": 60
-  }'
-```
-
-Response:
-```json
-{
-  "updated": true,
-  "changed": ["trace_ttl_days"],
-  "project": {
-    "id": "9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30",
-    "name": "Production Agent Service",
-    "workspace_id": "4c7d1e92-85af-4b03-8c6a-12fd9b3e7a51"
-  }
-}
-```
-
-### Example: Setting Retention via the TraceRoot CLI
-
-```bash
-traceroot projects update 9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30 --trace-ttl-days 60
-```
-
-To reset the project back to the plan default:
-
-```bash
-curl -X PATCH https://app.traceroot.ai/api/v1/public/projects/9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30 \
-  -H "Authorization: Bearer $TRACEROOT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "trace_ttl_days": null
-  }'
-```
-
----
-
-## Query Window Clamping
+## Query window clamping
 
 When querying telemetry through the REST API, dashboards, or widgets, requested time ranges are compared against your retention window:
 
@@ -96,9 +46,7 @@ When querying telemetry through the REST API, dashboards, or widgets, requested 
 
 This prevents queries from failing or returning inaccurate partial aggregates without explanation.
 
----
-
-## Next Steps
+## Next steps
 
 <CardGroup cols={2}>
   <Card title="Rate Limits" icon="gauge" href="/platform/rate-limits">
