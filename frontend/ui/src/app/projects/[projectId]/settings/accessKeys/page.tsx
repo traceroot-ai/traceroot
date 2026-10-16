@@ -4,11 +4,13 @@ import { useParams } from "next/navigation";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { AccessKeysTab } from "@/features/settings/project";
 import { useProject } from "@/features/projects/hooks";
+import { useProjectSettingsAccess } from "@/features/settings/demo-access";
 import { SettingsLayout, PROJECT_SETTINGS_TABS } from "@/features/settings/settings-layout";
 
 export default function ProjectSettingsAccessKeysPage() {
   const params = useParams();
   const projectId = params.projectId as string;
+  const access = useProjectSettingsAccess(projectId, "access-keys");
   const { data: project } = useProject(projectId);
 
   return (
@@ -18,6 +20,7 @@ export default function ProjectSettingsAccessKeysPage() {
       <SettingsLayout
         tabs={PROJECT_SETTINGS_TABS}
         activeTab="accessKeys"
+        access={access}
         basePath={`/projects/${projectId}/settings`}
         crossLink={
           project?.workspace_id
