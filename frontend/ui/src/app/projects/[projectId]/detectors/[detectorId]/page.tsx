@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, X } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -12,6 +12,8 @@ import { useDetector } from "@/features/detectors/hooks/use-detectors";
 import { useRuns, selfTraceId, type BackendRun } from "@/features/detectors/hooks/use-findings";
 import { DetectorRunsTable } from "@/features/detectors/components/detector-runs-table";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { listReturnHrefWithDateWindow, useListReturnHref } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -96,6 +98,12 @@ export default function DetectorDetailPage() {
       customEndDate: state.customEndDate,
     });
 
+  // Back to the list on the page, page size and filters it was left on, with this
+  // page's current range (see listReturnHrefWithDateWindow).
+  const listPath = `/projects/${projectId}/detectors`;
+  const rememberedListHref = useListReturnHref(`detectors:${projectId}`, listPath);
+  const listHref = listReturnHrefWithDateWindow(rememberedListHref, buildUrl(listPath));
+
   const { data: detector } = useDetector(projectId, detectorId);
 
   // Findings are the same runs filtered to Identified = Yes (finding_id IS NOT
@@ -107,6 +115,10 @@ export default function DetectorDetailPage() {
     error,
   } = useRuns(projectId, detectorId, { ...queryOptions, identified: identifiedOnly });
   const runs = useMemo(() => runsData?.data ?? [], [runsData]);
+
+  // Every new page of runs, or a new search/filter/time range, starts at the top of the list.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(listRef, JSON.stringify(queryOptions));
 
   // Clicking a row's trace_id cell opens that run's original trace, with its RCA
   // auto-opening if one exists (the panel gates auto-open on a real RCA session,
@@ -193,7 +205,7 @@ export default function DetectorDetailPage() {
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <button
             type="button"
-            onClick={() => router.push(buildUrl(`/projects/${projectId}/detectors`))}
+            onClick={() => router.push(listHref)}
             className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
           >
             Detectors
@@ -228,7 +240,7 @@ export default function DetectorDetailPage() {
           )}
         </SearchFilterBar>
 
-        <div className="flex-1 overflow-auto bg-background">
+        <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {(() => {
             const noun = identifiedOnly ? "findings" : "runs";
 

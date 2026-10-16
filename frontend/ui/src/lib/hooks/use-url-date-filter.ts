@@ -32,6 +32,42 @@ interface UseUrlDateFilterReturn {
   };
 }
 
+/**
+ * Parses an ISO `?start=` / `?end=` param; null when absent, not a date, or not a
+ * real calendar day. `new Date` rolls an impossible day forward (2025-02-30 becomes
+ * March 2), which would quietly query a window the link never named.
+ */
+function parseUrlDate(raw: string | null): Date | null {
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (isNaN(date.getTime())) return null;
+  const day = /^\d{4}-\d{2}-\d{2}/.exec(raw)?.[0];
+  if (day && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) !== day) return null;
+  return date;
+}
+
+/**
+ * Resolves the URL's date params into a selection. A custom window needs two
+ * parseable bounds in order: a hand-edited or truncated link without them falls
+ * back to `fallback` rather than throwing on an invalid date or querying an
+ * unbounded (or inverted, always-empty) range. Bounds that don't form a valid
+ * custom window are dropped.
+ */
+function resolveUrlSelection(
+  filterId: string,
+  rawStart: string | null,
+  rawEnd: string | null,
+  fallback: DateFilterOption,
+): { filter: DateFilterOption; start: Date | null; end: Date | null; invalid: boolean } {
+  const filter = findDateFilterOption(filterId);
+  const start = parseUrlDate(rawStart);
+  const end = parseUrlDate(rawEnd);
+  if (filter.isCustom && !(start && end && start <= end)) {
+    return { filter: fallback, start: null, end: null, invalid: true };
+  }
+  return { filter, start, end, invalid: false };
+}
+
 export function useUrlDateFilter(
   onFilterChange?: () => void,
   defaultId?: string,
@@ -52,13 +88,17 @@ export function useUrlDateFilter(
   // default, restore, or user action); clamping to the retention window is a
   // derived read below, so it re-evaluates when retention resolves instead of
   // being baked in here while it's still unknown.
-  const initialDateFilter = urlDateFilterId
-    ? findDateFilterOption(urlDateFilterId)
-    : defaultId
-      ? findDateFilterOption(defaultId)
-      : DEFAULT_DATE_FILTER;
-  const initialCustomStart = urlStartDate ? new Date(urlStartDate) : null;
-  const initialCustomEnd = urlEndDate ? new Date(urlEndDate) : null;
+  const defaultDateFilter = defaultId ? findDateFilterOption(defaultId) : DEFAULT_DATE_FILTER;
+  const initialSelection = urlDateFilterId
+    ? resolveUrlSelection(urlDateFilterId, urlStartDate, urlEndDate, defaultDateFilter)
+    : {
+        filter: defaultDateFilter,
+        start: parseUrlDate(urlStartDate),
+        end: parseUrlDate(urlEndDate),
+      };
+  const initialDateFilter = initialSelection.filter;
+  const initialCustomStart = initialSelection.start;
+  const initialCustomEnd = initialSelection.end;
 
   const [rawDateFilter, setRawDateFilter] = useState<DateFilterOption>(initialDateFilter);
   const [rawCustomStartDate, setCustomStartDateState] = useState<Date | null>(initialCustomStart);
@@ -126,31 +166,36 @@ export function useUrlDateFilter(
   // Sync state from URL when it changes (e.g., navigating from another page)
   useEffect(() => {
     const newDateFilterId = searchParams.get("date_filter");
-    const newStartDate = searchParams.get("start");
-    const newEndDate = searchParams.get("end");
+    const rawStart = searchParams.get("start");
+    const rawEnd = searchParams.get("end");
+    const resolved = newDateFilterId
+      ? resolveUrlSelection(newDateFilterId, rawStart, rawEnd, defaultDateFilter)
+      : null;
 
-    if (newDateFilterId) {
-      const newFilter = findDateFilterOption(newDateFilterId);
-      if (newFilter.id !== rawDateFilter.id) {
-        setRawDateFilter(newFilter);
+    if (resolved) {
+      if (resolved.filter.id !== rawDateFilter.id) {
+        setRawDateFilter(resolved.filter);
         setFilterVersion((v) => v + 1);
       }
-    }
-
-    if (newStartDate) {
-      const parsed = new Date(newStartDate);
-      if (!rawCustomStartDate || parsed.getTime() !== rawCustomStartDate.getTime()) {
-        setCustomStartDateState(parsed);
+      // An invalid custom window in the URL: drop its bounds along with it, so
+      // the picker can't later reopen on an unusable range.
+      if (resolved.invalid) {
+        if (rawCustomStartDate) setCustomStartDateState(null);
+        if (rawCustomEndDate) setCustomEndDateState(null);
+        return;
       }
     }
 
-    if (newEndDate) {
-      const parsed = new Date(newEndDate);
-      if (!rawCustomEndDate || parsed.getTime() !== rawCustomEndDate.getTime()) {
-        setCustomEndDateState(parsed);
-      }
+    const newStart = resolved ? resolved.start : parseUrlDate(rawStart);
+    if (newStart && (!rawCustomStartDate || newStart.getTime() !== rawCustomStartDate.getTime())) {
+      setCustomStartDateState(newStart);
     }
-  }, [searchParams, rawDateFilter, rawCustomStartDate, rawCustomEndDate]);
+
+    const newEnd = resolved ? resolved.end : parseUrlDate(rawEnd);
+    if (newEnd && (!rawCustomEndDate || newEnd.getTime() !== rawCustomEndDate.getTime())) {
+      setCustomEndDateState(newEnd);
+    }
+  }, [searchParams, rawDateFilter, rawCustomStartDate, rawCustomEndDate, defaultDateFilter]);
 
   // Update URL when state changes
   const updateUrl = useCallback(
@@ -169,6 +214,9 @@ export function useUrlDateFilter(
         params.delete("start");
         params.delete("end");
       }
+
+      // Reset to first page in the same mutation so date filter and page reset don't race
+      params.delete("page_index");
 
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     },
