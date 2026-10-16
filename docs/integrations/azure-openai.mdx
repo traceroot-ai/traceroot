@@ -74,10 +74,6 @@ Azure OpenAI has no dedicated instrumentor: tracing is provided directly through
     ```python
     import os
     from openai import AzureOpenAI
-    import traceroot
-    from traceroot import Integration
-
-    traceroot.initialize(integrations=[Integration.OPENAI])
 
     client = AzureOpenAI(
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
@@ -101,11 +97,6 @@ Azure OpenAI has no dedicated instrumentor: tracing is provided directly through
 
     ```typescript
     import { AzureOpenAI } from 'openai';
-    import { TraceRoot } from '@traceroot-ai/traceroot';
-
-    TraceRoot.initialize({
-      instrumentModules: { openAI: AzureOpenAI },
-    });
 
     const client = new AzureOpenAI({
       endpoint: process.env.AZURE_OPENAI_ENDPOINT,
@@ -120,9 +111,6 @@ Azure OpenAI has no dedicated instrumentor: tracing is provided directly through
     });
 
     console.log(response.choices[0].message.content);
-
-    // Flush pending traces before the process exits
-    await TraceRoot.shutdown();
     ```
   </Tab>
 </Tabs>

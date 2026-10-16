@@ -66,7 +66,7 @@ TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and 
 
     # This call is automatically traced
     response = client.converse(
-        modelId="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0",
         messages=[
             {"role": "user", "content": [{"text": "What is the capital of France?"}]},
         ],
@@ -94,7 +94,7 @@ TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and 
 
     // This command is automatically traced
     const command = new ConverseCommand({
-      modelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+      modelId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
       messages: [{ role: 'user', content: [{ text: 'What is the capital of France?' }] }],
     });
 
@@ -111,7 +111,7 @@ TraceRoot provides Bedrock instrumentation in both **Python** (via `boto3`) and 
 
 | Attribute  | Description                                                       |
 | ---------- | ----------------------------------------------------------------- |
-| Model ID   | `anthropic.claude-3-5-sonnet-*`, `amazon.titan-*`, etc.           |
+| Model ID   | `us.anthropic.claude-*`, `amazon.titan-*`, etc.                   |
 | Messages   | Input conversation messages and prompts                           |
 | Response   | Model output content and completions                              |
 | Tool calls | Function and tool call definitions, inputs, outputs, and errors   |

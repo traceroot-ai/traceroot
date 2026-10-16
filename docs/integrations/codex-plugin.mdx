@@ -48,7 +48,7 @@ Because Codex hooks run in isolated subprocesses that do not always inherit your
 
 ### Optional Configuration
 
-Settings can be specified in project-local `.codex/traceroot.json`, global `~/.codex/traceroot.json`, or environment variables:
+Non-sensitive settings (`enabled`, `max_chars`, `debug`, `fail_on_error`) can be specified in project-local `.codex/traceroot.json`, global `~/.codex/traceroot.json`, or environment variables. Sensitive settings (`api_key` and `host_url`) are read only from environment variables or global `~/.codex/traceroot.json` so checked-in repository configs cannot redirect authenticated uploads:
 
 | Setting | Env Var | Default | Description |
 | ------- | ------- | ------- | ----------- |
@@ -66,7 +66,7 @@ Settings can be specified in project-local `.codex/traceroot.json`, global `~/.c
 | Agent turns | User queries, reasoning, and final agent answers |
 | Tool calls | File edits, bash terminal commands, grep searches |
 | Model usage | LLM model names, token counts, and step latencies |
-| Git context | Repository name, branch, and active commit hash |
+| Git context | Repository name and active commit hash |
 
 ## Repository
 
