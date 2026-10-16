@@ -25,12 +25,8 @@ vi.mock("@/lib/first-trace", () => ({
   findFirstTrace: (...args: unknown[]) => mocks.findFirstTrace(...args),
 }));
 
-import {
-  MAX_BARREN_ROUNDS,
-  POLL_INTERVAL_MS,
-  WAIT_BUDGET_MS,
-  useFirstTraceWait,
-} from "./use-first-trace-wait";
+import { POLL_INTERVAL_MS, WAIT_BUDGET_MS } from "@/lib/hooks/use-trace-wait";
+import { MAX_BARREN_ROUNDS, useFirstTraceWait } from "./use-first-trace-wait";
 import type { Project, Workspace } from "@/types/api";
 
 const WORKSPACES: Workspace[] = [
