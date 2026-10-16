@@ -38,9 +38,10 @@ OPENAI_API_KEY=your-openai-api-key
 
     {/* [start:snippet:tracing-get-started-python] */}
     ```python
+    from openai import OpenAI
+
     import traceroot
     from traceroot import Integration
-    from openai import OpenAI
 
     # This single line instruments all OpenAI API calls
     traceroot.initialize(integrations=[Integration.OPENAI])

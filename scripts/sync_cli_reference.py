@@ -23,19 +23,17 @@ END_MARKER = "{/* [end:cli-commands] */}"
 
 
 def _clean_description(desc: str) -> str:
-    """Take the first sentence or first line of a tool description."""
+    """Take the first sentence of a tool description."""
     if not desc:
         return ""
-    # Strip any newlines or leading/trailing whitespace
-    lines = [line.strip() for line in desc.splitlines() if line.strip()]
-    if not lines:
+    # Join the first paragraph before sentence-splitting so hard-wrapped docstrings aren't truncated
+    first_para = " ".join(desc.split("\n\n")[0].splitlines()).strip()
+    if not first_para:
         return ""
-    first = lines[0]
-    # Keep up to the first sentence
-    match = re.match(r"^(.*?[.!?])(?:\s|$)", first)
+    match = re.match(r"^(.*?[.!?])(?:\s|$)", first_para)
     if match:
         return match.group(1).strip()
-    return first.rstrip(".") + "."
+    return first_para
 
 
 def build_command_reference() -> list[tuple[str, str]]:
@@ -77,9 +75,10 @@ def build_command_reference() -> list[tuple[str, str]]:
         entry = tool_map.get(tool_name)
 
         if not entry:
-            # Fallback if tool isn't in openapi
-            commands.append((f"`{cmd_path}`", f"Manage {placement['path'][0]}."))
-            continue
+            raise KeyError(
+                f"Tool {tool_name!r} (command '{cmd_path}') not found in OpenAPI spec. "
+                "Ensure public.json is updated or placement fixture is correct."
+            )
 
         path_str, op = entry
         desc = _clean_description(op.get("description") or op.get("summary", ""))

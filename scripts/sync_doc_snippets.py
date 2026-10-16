@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync documentation snippets from runnable examples into docs/snippets/ and docs pages.
+"""Sync documentation snippets from runnable examples into docs pages.
 
 Usage:
     python scripts/sync_doc_snippets.py          # Regenerate snippets and update docs
@@ -16,15 +16,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES_DIR = REPO_ROOT / "examples"
 DOCS_DIR = REPO_ROOT / "docs"
-SNIPPETS_DIR = DOCS_DIR / "snippets"
 
 START_MARKER_RE = re.compile(r"(?:#|//|\{/\*)\s*\[start:([\w-]+)\]\s*(?:\*/)?")
 END_MARKER_RE = re.compile(r"(?:#|//|\{/\*)\s*\[end:([\w-]+)\]\s*(?:\*/)?")
 
 # Target doc files that embed snippets between markers
 DOC_EMBED_MARKER_RE = re.compile(
-    r"((?:<!--|\{/\*)\s*\[start:snippet:([\w-]+)\]\s*(?:-->|\*/\})\n)(.*?)"
-    r"((?:<!--|\{/\*)\s*\[end:snippet:\2\]\s*(?:-->|\*/\}))",
+    r"(\{/\*\s*\[start:snippet:([\w-]+)\]\s*\*/\}\n)(.*?)"
+    r"(\{/\*\s*\[end:snippet:\2\]\s*\*/\})",
     re.DOTALL,
 )
 
@@ -79,11 +78,6 @@ def extract_snippets_from_examples() -> dict[str, dict[str, str]]:
     return snippets
 
 
-def format_snippet_file_content(lang: str, code: str) -> str:
-    """Format the content for a reusable .mdx snippet file."""
-    return f"```{lang}\n{code}\n```\n"
-
-
 def sync_doc_file(
     doc_path: Path,
     snippets: dict[str, dict[str, str]],
@@ -97,14 +91,17 @@ def sync_doc_file(
     content = doc_path.read_text(encoding="utf-8")
     mismatches: list[str] = []
 
-    # Validate that all expected snippet markers exist on the page
-    if expected_snippets:
-        found_markers = set(re.findall(r"(?:<!--|\{/\*)\s*\[start:snippet:([\w-]+)\]", content))
-        for exp_id in expected_snippets:
-            if exp_id not in found_markers:
-                mismatches.append(
-                    f"{doc_path.relative_to(REPO_ROOT)}: missing expected snippet marker '[start:snippet:{exp_id}]'",
-                )
+    # Validate that the document contains exactly the expected snippet blocks
+    matches = list(DOC_EMBED_MARKER_RE.finditer(content))
+    found_snippet_ids = [m.group(2) for m in matches]
+
+    if expected_snippets is not None and (
+        len(matches) != len(expected_snippets) or found_snippet_ids != expected_snippets
+    ):
+        mismatches.append(
+            f"{doc_path.relative_to(REPO_ROOT)}: expected {len(expected_snippets)} snippet blocks "
+            f"{expected_snippets}, but found {len(matches)} matching blocks {found_snippet_ids}"
+        )
 
     def replacer(match: re.Match[str]) -> str:
         open_tag = match.group(1)
@@ -159,42 +156,11 @@ def main() -> int:
 
     errors: list[str] = []
 
-    # 1. Sync / check docs/snippets/*.mdx files
-    SNIPPETS_DIR.mkdir(parents=True, exist_ok=True)
-    for snippet_id, info in sorted(snippets.items()):
-        snippet_file = SNIPPETS_DIR / f"{snippet_id}.mdx"
-        expected_content = format_snippet_file_content(info["lang"], info["code"])
-
-        if args.check:
-            if not snippet_file.exists():
-                errors.append(f"Missing snippet file: {snippet_file.relative_to(REPO_ROOT)}")
-            else:
-                actual_content = snippet_file.read_text(encoding="utf-8")
-                if actual_content != expected_content:
-                    errors.append(
-                        f"Snippet file out of date: {snippet_file.relative_to(REPO_ROOT)} "
-                        f"(source: {info['source']})",
-                    )
-        else:
-            snippet_file.write_text(expected_content, encoding="utf-8")
-
-    # 2. Sync / check docs target pages
+    # Sync / check docs target pages
     expected_page_snippets: dict[Path, list[str]] = {
         DOCS_DIR / "tracing" / "get-started.mdx": [
             "tracing-get-started-python",
             "tracing-get-started-typescript",
-        ],
-        DOCS_DIR / "tracing" / "cost-tracking.mdx": [
-            "tracing-cost-tracking-python",
-            "tracing-cost-tracking-typescript",
-        ],
-        DOCS_DIR / "tracing" / "python-sdk.mdx": [
-            "python-sdk-init",
-            "python-sdk-observe",
-        ],
-        DOCS_DIR / "tracing" / "typescript-sdk.mdx": [
-            "typescript-sdk-init",
-            "typescript-sdk-observe",
         ],
     }
 
@@ -219,7 +185,7 @@ def main() -> int:
         print(f"All {len(snippets)} doc snippets are in sync with examples/.")
     else:
         print(
-            f"Successfully synced {len(snippets)} snippets to docs/snippets/ and docs pages.",
+            f"Successfully synced {len(snippets)} snippets to docs pages.",
         )
     return 0
 

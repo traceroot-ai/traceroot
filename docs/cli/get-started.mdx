@@ -74,11 +74,11 @@ The `sql` commands are documented in [Read-only SQL](/cli/sql).
 
 | Command | Description |
 | :--- | :--- |
-| `login` | Validate an API key or authenticate with browser and save credentials. |
+| `login` | Sign in with the browser (device flow), or persist an explicit --api-key. |
 | `logout` | Revoke the session server-side (best-effort) and remove the local credential. |
-| `status` | Show the identity your credentials resolve to — workspace, project, host, and key hint. |
-| `doctor` | Check local environment, dependencies, configuration, and API connectivity. |
-| `instrument` | Auto-instrument your codebase for OpenTelemetry tracing. |
+| `status` | Show the identity your credentials resolve to (email or key hint, workspace, project, and host). |
+| `doctor` | Check local environment, credentials, configuration, repository, and agent skills. |
+| `instrument` | Generate an agent prompt to instrument this repo with TraceRoot. |
 | `skills list` | List available AI agent skills and their capabilities. |
 | `skills install` | Install skills into your coding agent workspace. |
 | `traces list` | List recent traces for the caller's project (newest first). |
@@ -123,7 +123,7 @@ The `sql` commands are documented in [Read-only SQL](/cli/sql).
 | `datasets versions get <version-id>` | Read an immutable snapshot: the version plus its cases, whole or a page at a time. |
 | `evals list` | List evaluations, newest first, each with its run count and latest run. |
 | `evals runs list` | List evaluation runs, newest first, optionally one evaluation's or one status's. |
-| `evals runs get <id>` | Read a run's own summary: status, result counts, and per-score and per-metric. |
+| `evals runs get <id>` | Read a run's own summary: status, result counts, and per-score and per-metric means over the run's results. |
 
 {/* [end:cli-commands] */}
 

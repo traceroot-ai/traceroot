@@ -88,10 +88,11 @@
     "evals": "Work with evaluations",
     "evals runs": "Read recorded evaluation runs"
   },
+  "handwritten_note": "Hand-maintained against the CLI's --help output.",
   "handwritten": [
     {
       "command": "login",
-      "description": "Validate an API key or authenticate with browser and save credentials."
+      "description": "Sign in with the browser (device flow), or persist an explicit --api-key."
     },
     {
       "command": "logout",
@@ -99,15 +100,15 @@
     },
     {
       "command": "status",
-      "description": "Show the identity your credentials resolve to — workspace, project, host, and key hint."
+      "description": "Show the identity your credentials resolve to (email or key hint, workspace, project, and host)."
     },
     {
       "command": "doctor",
-      "description": "Check local environment, dependencies, configuration, and API connectivity."
+      "description": "Check local environment, credentials, configuration, repository, and agent skills."
     },
     {
       "command": "instrument",
-      "description": "Auto-instrument your codebase for OpenTelemetry tracing."
+      "description": "Generate an agent prompt to instrument this repo with TraceRoot."
     },
     {
       "command": "skills list",

@@ -7,7 +7,6 @@ TraceRoot captures token usage from instrumented LLM calls. It calculates cost o
 
 <Tabs>
   <Tab title="Python">
-    {/* [start:snippet:tracing-cost-tracking-python] */}
     ```python
     import traceroot
     from traceroot import Integration
@@ -22,10 +21,8 @@ TraceRoot captures token usage from instrumented LLM calls. It calculates cost o
         messages=[{"role": "user", "content": "Hello"}],
     )
     ```
-{/* [end:snippet:tracing-cost-tracking-python] */}
   </Tab>
   <Tab title="TypeScript">
-    {/* [start:snippet:tracing-cost-tracking-typescript] */}
     ```typescript
     import OpenAI from 'openai';
     import { TraceRoot } from '@traceroot-ai/traceroot';
@@ -39,7 +36,6 @@ TraceRoot captures token usage from instrumented LLM calls. It calculates cost o
       messages: [{ role: 'user', content: 'Hello' }],
     });
     ```
-{/* [end:snippet:tracing-cost-tracking-typescript] */}
   </Tab>
 </Tabs>
 

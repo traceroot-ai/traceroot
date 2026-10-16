@@ -51,14 +51,8 @@ def test_docs_json_mdx_parity() -> None:
     navigation = docs_json.get("navigation", {})
     declared_pages = set(_extract_pages_from_docs_json(navigation))
 
-    # Intentionally hidden / non-navigation pages:
-    # docs/snippets/*.mdx are reusable components imported into other docs, not sidebar pages.
-    allowed_hidden_dirs = {DOCS_DIR / "snippets"}
-
     disk_pages: set[str] = set()
     for mdx_path in DOCS_DIR.rglob("*.mdx"):
-        if any(mdx_path.is_relative_to(hidden_dir) for hidden_dir in allowed_hidden_dirs):
-            continue
         rel_str = str(mdx_path.relative_to(DOCS_DIR).with_suffix(""))
         disk_pages.add(rel_str)
 
