@@ -10,7 +10,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { useLayout } from "@/components/layout/app-layout";
+import { Logo } from "@/components/Logo";
+import { AccountLine } from "@/components/account-line";
 import {
   createWorkspace,
   updateWorkspace,
@@ -25,6 +26,10 @@ import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
 import { Check } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { CliHandbackStep } from "@/features/onboarding/components/cli-handback-step";
+import { ManualSetupStep } from "@/features/onboarding/components/manual-setup-step";
+import { useProjectTraceWait } from "@/features/onboarding/use-project-trace-wait";
+import { traceUrl } from "@/lib/first-trace";
+import { cn } from "@/lib/utils";
 
 const onboardingSchema = z.object({
   workspaceName: z.string().min(1, "Workspace name is required"),
@@ -54,6 +59,46 @@ function getDefaultWorkspaceName(email: string | null | undefined): string {
 
   const company = domain.split(".")[0];
   return company.charAt(0).toUpperCase() + company.slice(1);
+}
+
+// The frame the app shell used to provide. This page renders outside the shell
+// (see lib/chromeless-routes), so it is also outside the `<main>` that gave the
+// old `h-full` something to resolve against — nothing sets a height on html or
+// body, so a percentage height here collapses to the content. `min-h-screen` is
+// what makes the empty background actually fill the screen, and `min-h-` rather
+// than `h-` is what lets the box grow past the viewport once the step after the
+// form is taller than it, instead of clipping the top of the card.
+function StandaloneFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
+      {children}
+    </div>
+  );
+}
+
+// This page's own URL, for a round trip that has to come back to it. Whatever a
+// waiting `traceroot setup` terminal is polling against travels on it, because
+// a sign-in that drops `callbackUrl` strands that terminal for the whole
+// device-code lifetime with nothing left pointing back at the handoff.
+//
+// `?workspaceId=` is deliberately not carried. It names a workspace owned by
+// the account being signed *out* of, and the point of the round trip is to come
+// back as someone else — who cannot add a project to it. An account that signs
+// back in as itself gets the parameter re-derived from the setup check below, so
+// nothing is lost either way.
+function onboardingReturnUrl(returnTo: string | null): string {
+  return returnTo === null
+    ? "/onboarding"
+    : `/onboarding?callbackUrl=${encodeURIComponent(returnTo)}`;
+}
+
+// Sign-in, returning here afterwards. better-auth stores the whole callbackUrl
+// — query included — in the OAuth state and redirects to it verbatim, so the
+// hand-back survives the Google hop and not just an email sign-in. Shared by
+// the signed-out redirect and "Not you? Sign out" so the two cannot drift,
+// which is how /device says the same thing (see deviceSignInUrl there).
+function onboardingSignInUrl(returnTo: string | null): string {
+  return `/auth/sign-in?callbackUrl=${encodeURIComponent(onboardingReturnUrl(returnTo))}`;
 }
 
 // The workspace a 409 collided with, when the list names it unambiguously.
@@ -180,9 +225,9 @@ function OnboardingContent() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const { data: session, isPending } = authClient.useSession();
-  const { setHeaderContent } = useLayout();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
   const [createdProject, setCreatedProject] = useState<{ id: string; name: string } | null>(null);
   // The workspace outlives a failed project step, and the retry is the same
   // button right under the error. Creating it again is worse than untidy. With
@@ -202,12 +247,18 @@ function OnboardingContent() {
   // committed and lost its response leaves it null, which is what
   // `createOrAdoptWorkspace` is for.
   const createdWorkspace = useRef<{ id: string; name: string } | null>(null);
-
-  // Set header content
-  useEffect(() => {
-    setHeaderContent(<span className="text-[13px] font-medium">Workspaces</span>);
-    return () => setHeaderContent(null);
-  }, [setHeaderContent]);
+  // Which of the two post-creation steps is showing. Separate from
+  // `createdProject` rather than folded into one enum because that value is
+  // also what tells the rest of the page this account is no longer a candidate
+  // for the setup check below, and that has to stay true across both steps.
+  //
+  // "Set up manually" used to leave for the project's traces page, where this
+  // same walkthrough lives. It worked, and it surprised people: signing up had
+  // visibly ended somewhere in the middle, with no marker for where the flow
+  // stopped and the app began. So the walkthrough is shown here instead, in
+  // the frame the previous two steps used, and the user leaves when they say
+  // so.
+  const [manualSetup, setManualSetup] = useState(false);
 
   // Determine mode from query params
   const existingWorkspaceId = searchParams.get("workspaceId");
@@ -305,6 +356,32 @@ function OnboardingContent() {
     }
   }, [setupComplete, addProjectUrl, returnTo, router]);
 
+  // Watch the project this page just made for the run's first trace. Starts
+  // with the hand-back step and keeps going across the manual one, because both
+  // are steps about getting that trace sent.
+  //
+  // Reads only, and nothing waits on it: the command on screen is correct
+  // whether or not this tab is still open, and closing the tab — or never
+  // running the command at all — leaves the account exactly as it is. A run
+  // that was already under way in a terminal never gets here, because the page
+  // hands such a caller straight back (see `handleSubmit`), so this only ever
+  // watches a project whose own setup is still ahead of it.
+  const traceWait = useProjectTraceWait(
+    !!createdProject,
+    createdProject?.id ?? null,
+    session?.user?.id ? { id: session.user.id, email: session.user.email } : undefined,
+  );
+
+  // Both ends of a first run finish the same way: the page that was waiting for
+  // the trace opens it. The person's attention is on the terminal they were
+  // just sent to, not on this tab, and the trace is the thing the whole flow
+  // was for — so arriving at it is the completion, not an offer to complete.
+  useEffect(() => {
+    if (traceWait.kind === "found") {
+      router.push(traceUrl(traceWait.found));
+    }
+  }, [traceWait, router]);
+
   const defaultWorkspace = getDefaultWorkspaceName(session?.user?.email);
 
   const {
@@ -389,6 +466,46 @@ function OnboardingContent() {
     }
   }
 
+  // Signed in as the wrong account, which has no other way out of this page: the
+  // shell's user menu was the only one and this page no longer renders it (see
+  // lib/chromeless-routes). Navigating away to find a sign-out drops the
+  // `callbackUrl` with it, which is the stranding that removing the shell was
+  // meant to prevent — so the way out has to be here, and it has to come back.
+  //
+  // Whether a sign-out is worth offering at all is not a judgement this page
+  // gets to make: better-auth has no separate social sign-up, so the Google
+  // button on sign-in and sign-up alike answers for any address already linked
+  // to that identity, and landing here as the wrong account is a routine
+  // outcome rather than a mistake the user can be assumed out of.
+  async function handleSwitchAccount() {
+    setIsSwitchingAccount(true);
+    setError(null);
+    let cleared: boolean;
+    try {
+      // The client answers an HTTP failure in `error` and rejects only when the
+      // request never completed, so both have to be read before the session can
+      // be called cleared. A rate limit or a proxy error leaves the cookie in
+      // place, and leaving on it sends the user to a sign-in that the live
+      // session hands straight back to this page as the same account — the
+      // stranding this button exists to undo, now with nothing said about it.
+      const { error: signOutError } = await authClient.signOut();
+      cleared = !signOutError;
+    } catch {
+      cleared = false;
+    }
+    if (!cleared) {
+      // Both halves matter: a page that cannot be used by this account, behind a
+      // button that stays disabled, says nothing at all about what went wrong.
+      setError("Could not sign out. Please try again.");
+      setIsSwitchingAccount(false);
+      return;
+    }
+    // Pushed here rather than left to the signed-out branch below, which does
+    // reach the same URL once the cleared session re-renders: which of the two
+    // happens first is not something the destination should depend on.
+    router.push(onboardingSignInUrl(returnTo));
+  }
+
   // The form is withheld until the setup question is settled, not just until the
   // session is: rendering it early lets a fast submit create the duplicate
   // workspace the check above exists to prevent — which is also why a pending
@@ -398,39 +515,58 @@ function OnboardingContent() {
   // form at all has no way to finish signing up.
   if (isPending || workspacesLoading || setupComplete || addProjectUrl) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <StandaloneFrame>
         <p className="text-[13px] text-muted-foreground">Loading...</p>
-      </div>
+      </StandaloneFrame>
     );
   }
 
   if (!session && !isPending) {
     // Carry the hand-back on through sign-in. A null session here is not only
     // "never signed in" — it is also a cookie not yet visible after a social
-    // hop, or an expiry mid-form — and dropping `callbackUrl` at this point
-    // strands a terminal that is still polling, for the full device-code
-    // lifetime, with no way for the user to get back to it.
-    const returnHere =
-      returnTo === null ? "/onboarding" : `/onboarding?callbackUrl=${encodeURIComponent(returnTo)}`;
-    router.push(`/auth/sign-in?callbackUrl=${encodeURIComponent(returnHere)}`);
+    // hop, an expiry mid-form, or the sign-out "Not you?" just performed — and
+    // dropping `callbackUrl` at this point strands a terminal that is still
+    // polling, for the full device-code lifetime, with no way back to it.
+    router.push(onboardingSignInUrl(returnTo));
     return (
-      <div className="flex h-full items-center justify-center">
+      <StandaloneFrame>
         <p className="text-[13px] text-muted-foreground">Redirecting to sign in...</p>
-      </div>
+      </StandaloneFrame>
     );
   }
 
+  // What this run has already done, said once and reused by both of the steps
+  // that follow the form.
+  const createdWhat = isProjectOnlyMode ? "Project" : "Workspace and project";
+  // One answer for the frame, the heading and the body, so a width can never
+  // describe a step that is not the one rendered.
+  const showManualStep = !!createdProject && manualSetup;
+
   return (
-    <div className="h-full overflow-auto bg-background">
-      <div className="mx-auto max-w-md px-4 py-8">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-lg font-semibold">Setup</h1>
-          <p className="text-[13px] text-muted-foreground">
-            {createdProject
-              ? `${isProjectOnlyMode ? "Project" : "Workspace and project"} created — the rest happens in your terminal`
-              : "Set up your workspace and first project"}
-          </p>
+    <StandaloneFrame>
+      {/* The walkthrough is five numbered steps with code in them, so its step
+          gets a wider column than a two-field form needs. Same centred frame
+          either way — the point of keeping it is that the flow still visibly
+          has an end. */}
+      <div className={cn("w-full", showManualStep ? "max-w-2xl" : "max-w-md")}>
+        {/* Header. The logo is here because the sidebar carried the only one on
+            this page, and the shell it belonged to is gone — /auth and /device
+            front their cards the same way, which is the run of screens this
+            page sits in the middle of. */}
+        <div className="mb-6 flex flex-col items-center gap-2 text-center">
+          <Logo size="lg" />
+          <div>
+            <h1 className="text-lg font-semibold">Setup</h1>
+            <p className="text-[13px] text-muted-foreground">
+              {/* "The rest happens in your terminal" stops being true the
+                  moment the user says they would rather it did not. */}
+              {showManualStep
+                ? `${createdWhat} created — add tracing to your application`
+                : createdProject
+                  ? `${createdWhat} created — the rest happens in your terminal`
+                  : "Set up your workspace and first project"}
+            </p>
+          </div>
         </div>
 
         {/* Error message */}
@@ -444,24 +580,50 @@ function OnboardingContent() {
         <Card>
           <CardContent className="p-4">
             {createdProject ? (
-              <CliHandbackStep
-                projectId={createdProject.id}
-                projectName={createdProject.name}
-                // The instrumentation half of "manually", which is what exists
-                // today: the getting-started panel on the project's own traces
-                // page. The provider half goes in front of this whole step, so
-                // this is the one line that moves when it arrives.
-                onSetUpManually={() => router.push(`/projects/${createdProject.id}/traces`)}
-                // Where an onboarded account with nobody waiting belongs, and
-                // the same place the already-onboarded check above sends one.
-                // Skipping leaves a workspace with a project in it, which is a
-                // finished account by every check the app makes — so nothing
-                // routes this user back here, and nothing shows them a project
-                // they cannot open.
-                onSkip={() => router.push("/workspaces")}
-              />
+              manualSetup ? (
+                <ManualSetupStep
+                  projectId={createdProject.id}
+                  onBack={() => setManualSetup(false)}
+                  // The project's own traces page, which is where the first trace
+                  // of the run they are about to instrument will land. It is also
+                  // the one page that keeps this same walkthrough on screen until
+                  // that trace arrives (see the traces page's getting-started
+                  // branch), so leaving half-way through loses nothing — and
+                  // unlike the workspace list, it has something to say to an
+                  // account whose only project is empty.
+                  onDone={() => router.push(`/projects/${createdProject.id}/traces`)}
+                  wait={traceWait}
+                />
+              ) : (
+                <CliHandbackStep
+                  projectId={createdProject.id}
+                  projectName={createdProject.name}
+                  // The instrumentation half of "manually", which is what exists
+                  // today: the getting-started panel's manual walkthrough, shown
+                  // as a step of this flow rather than navigated to. The provider
+                  // half goes in front of that step, so this stays the one line
+                  // that moves when it arrives.
+                  onSetUpManually={() => setManualSetup(true)}
+                  // Where an onboarded account with nobody waiting belongs, and
+                  // the same place the already-onboarded check above sends one.
+                  // Skipping leaves a workspace with a project in it, which is a
+                  // finished account by every check the app makes — so nothing
+                  // routes this user back here, and nothing shows them a project
+                  // they cannot open.
+                  onSkip={() => router.push("/workspaces")}
+                  wait={traceWait}
+                />
+              )
             ) : (
               <>
+                {/* Each row is an icon beside a column that fills the card, so
+                    the controls in that column fill it too. They used to be
+                    clamped to 20rem, which left the block 50px short of the
+                    right padding while touching the left — visibly off-centre
+                    against the buttons and the account line below, which are
+                    centred on the card. Filling makes the only margins the
+                    card's own padding, so the symmetry holds at every width
+                    instead of depending on a number that matches one. */}
                 <div className="space-y-0">
                   {/* Workspace Section */}
                   <div className="flex items-start gap-3">
@@ -482,7 +644,7 @@ function OnboardingContent() {
                         Your team's home for billing and members
                       </p>
                       {isProjectOnlyMode ? (
-                        <div className="flex max-w-xs items-center gap-2 border bg-muted/50 px-2.5 py-1.5 text-[13px]">
+                        <div className="flex items-center gap-2 border bg-muted/50 px-2.5 py-1.5 text-[13px]">
                           <span>{existingWorkspaceName || "Selected workspace"}</span>
                           <Check className="ml-auto h-3.5 w-3.5 text-green-600" />
                         </div>
@@ -490,7 +652,7 @@ function OnboardingContent() {
                         <Input
                           placeholder="Acme Inc"
                           {...register("workspaceName")}
-                          className="h-8 max-w-xs text-[13px]"
+                          className="h-8 text-[13px]"
                         />
                       )}
                       {errors.workspaceName && (
@@ -516,7 +678,7 @@ function OnboardingContent() {
                       <Input
                         placeholder="my-llm-project"
                         {...register("projectName")}
-                        className="h-8 max-w-xs text-[13px]"
+                        className="h-8 text-[13px]"
                       />
                       {errors.projectName && (
                         <p className="mt-1 text-[11px] text-red-500">
@@ -546,12 +708,26 @@ function OnboardingContent() {
                     Cancel
                   </Button>
                 </div>
+
+                {/* Which account this is, and the way out of it. On the form
+                    step only: once the project exists this account is the one
+                    the rest of the flow is about, and the app — with its user
+                    menu — is a click away. Disabled while a create is in
+                    flight, so a sign-out cannot land between the workspace and
+                    the project. */}
+                <div className="mt-4">
+                  <AccountLine
+                    email={session?.user?.email ?? null}
+                    pending={isLoading || isSwitchingAccount}
+                    onSwitchAccount={handleSwitchAccount}
+                  />
+                </div>
               </>
             )}
           </CardContent>
         </Card>
       </div>
-    </div>
+    </StandaloneFrame>
   );
 }
 

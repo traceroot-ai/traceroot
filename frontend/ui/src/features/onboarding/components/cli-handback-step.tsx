@@ -3,6 +3,8 @@
 import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/features/traces/components/GettingStarted/CodeBlock";
 import { setupCommand } from "@/features/traces/components/GettingStarted/commands";
+import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { FirstTraceLine } from "./first-trace-line";
 
 interface CliHandbackStepProps {
   /** The project the command will point `setup` at. */
@@ -22,6 +24,13 @@ interface CliHandbackStepProps {
   onSetUpManually: () => void;
   /** "Skip for now" — into the app with the application still uninstrumented. */
   onSkip: () => void;
+  /**
+   * How the watch for this project's first trace is going.
+   *
+   * The command is what produces that trace, so this is where saying so
+   * belongs: between the thing to run and the alternatives to running it.
+   */
+  wait: TraceWait;
 }
 
 /**
@@ -49,19 +58,20 @@ export function CliHandbackStep({
   projectName,
   onSetUpManually,
   onSkip,
+  wait,
 }: CliHandbackStepProps) {
   return (
     <div className="flex flex-col gap-3">
       <div>
         <p className="text-[13px] font-medium">Finish setting up in your terminal</p>
         <p className="mt-1 text-[11px] text-muted-foreground">
-          {projectName} is ready. Run this where your application lives — it signs this machine in,
-          writes its API key, instruments your code with your coding agent and waits for the first
-          trace.
+          {projectName} is ready. Run this where your application lives.
         </p>
       </div>
 
       <CodeBlock label="terminal" value={setupCommand({ projectId })} />
+
+      <FirstTraceLine wait={wait} />
 
       <div className="flex items-center justify-center gap-2">
         <Button
