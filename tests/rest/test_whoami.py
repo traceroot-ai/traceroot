@@ -11,6 +11,7 @@ from httpx import Response
 from rest.main import app
 from rest.routers.public.deps import ApiKeyScope, AuthResult, authenticate_api_key
 from rest.schemas.public import WhoamiResponse
+from shared.config import settings
 
 BASE_URL = "http://localhost:3000"
 
@@ -47,6 +48,49 @@ class TestWhoami:
         assert data["workspace_name"] == "My Workspace"
         assert data["key_name"] == "CI key"
         assert data["key_hint"] == "tr_ab…yz"
+
+    def test_an_https_deployment_does_not_report_its_api_host_as_http(self, monkeypatch):
+        """The scheme survives a proxy that terminates TLS somewhere else.
+
+        Regression: a deployment reachable only over HTTPS answered this route
+        with ``host`` on ``http://`` while reporting ``ui_base_url`` on
+        ``https://`` — one response disagreeing with itself about its own
+        deployment. The cause is that uvicorn trusts ``X-Forwarded-Proto`` only
+        from ``forwarded_allow_ips`` (default ``127.0.0.1``), which a load
+        balancer on another address is not, so ``request.base_url`` falls back
+        to ``http``. A client that stores the reported host then writes a URL
+        that redirects, or fails outright where the redirect is not followed.
+        """
+        monkeypatch.setattr(
+            settings, "traceroot_public_ui_url", "https://staging.example.ai", raising=False
+        )
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("ingest")
+        client = TestClient(app)
+        data = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        ).json()
+        assert data["host"].startswith("https://")
+        assert not data["host"].startswith("http://")
+
+    def test_a_plain_http_deployment_is_left_alone(self, monkeypatch):
+        """No spurious upgrade: a local deployment really is served over HTTP.
+
+        The upgrade is driven by configuration rather than applied blindly, so
+        a deployment whose own UI origin is HTTP keeps the scheme it was
+        reached on. Without this, running against a local stack would hand the
+        command-line tool an ``https`` URL nothing is listening on.
+        """
+        monkeypatch.setattr(
+            settings, "traceroot_public_ui_url", "http://localhost:3000", raising=False
+        )
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("ingest")
+        client = TestClient(app)
+        data = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        ).json()
+        assert data["host"].startswith("http://")
 
     @pytest.mark.parametrize("scope", ["ingest", "admin"])
     def test_reports_the_keys_scope(self, scope):

@@ -28,6 +28,30 @@ from shared.config import settings
 router = APIRouter(prefix="/public/whoami", tags=["Whoami (Public)"])
 
 
+def _public_api_host(request: Request) -> str:
+    """The API host as a client outside the deployment would reach it.
+
+    ``request.base_url`` takes its scheme from what the ASGI server believes the
+    connection was. Behind a proxy that terminates TLS, that belief is only
+    right if the proxy's ``X-Forwarded-Proto`` is trusted, and uvicorn trusts it
+    only from the peers named by ``forwarded_allow_ips`` — which defaults to
+    ``127.0.0.1`` and is not set here. So a deployment whose TLS ends at a load
+    balancer on some other address reports ``http://`` for a host that answers
+    only on ``https://``, and the response contradicts itself: ``host`` arrives
+    as ``http`` next to a ``ui_base_url`` of ``https`` for the same deployment.
+
+    The configured public UI origin is not a guess in the same way — it is
+    deployment configuration rather than anything a client can set. When it is
+    HTTPS this deployment is reached over HTTPS, so the scheme comes from there.
+    HTTPS wins a disagreement deliberately: handing back a URL that redirects is
+    recoverable, and handing back one that refuses the connection is not.
+    """
+    base = str(request.base_url).rstrip("/")
+    if settings.traceroot_public_ui_url.startswith("https://") and base.startswith("http://"):
+        return f"https://{base[len('http://') :]}"
+    return base
+
+
 @router.get("", response_model=WhoamiResponse, operation_id="whoami")
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
@@ -35,7 +59,8 @@ router = APIRouter(prefix="/public/whoami", tags=["Whoami (Public)"])
 async def whoami(request: Request, response: Response, auth: KeyStampedAuth) -> WhoamiResponse:
     """Return the identity the authenticated API key maps to."""
     # `host` reflects the request's Host header (the API host the client
-    # reached). It is only echoed back, never used server-side — but it is
+    # reached), with the scheme corrected for a TLS-terminating proxy. It is
+    # only echoed back, never used server-side — but the host itself is
     # client-controllable unless a trusted proxy validates Host, so consumers
     # should treat it as informational.
     return WhoamiResponse(
@@ -54,6 +79,6 @@ async def whoami(request: Request, response: Response, auth: KeyStampedAuth) -> 
         # a 500. (A user credential carries no scope; were this route ever to
         # accept one, it would need an answer of its own rather than this.)
         key_scope=parse_scope(auth.scope),
-        host=str(request.base_url).rstrip("/"),
+        host=_public_api_host(request),
         ui_base_url=settings.traceroot_public_ui_url.rstrip("/"),
     )
