@@ -11,15 +11,17 @@
  */
 
 import 'dotenv/config';
+// [start:tracing-get-started-typescript]
 import OpenAI from 'openai';
-import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
+import { TraceRoot } from '@traceroot-ai/traceroot';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
-TraceRoot.initialize({
-  instrumentModules: { openAI: OpenAI },
-});
+// This single line instruments all OpenAI API calls
+TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
 
 const openai = new OpenAI();
+// [end:tracing-get-started-typescript]
+import { observe, usingAttributes } from '@traceroot-ai/traceroot';
+
 console.log('[Observability: TraceRoot]');
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
