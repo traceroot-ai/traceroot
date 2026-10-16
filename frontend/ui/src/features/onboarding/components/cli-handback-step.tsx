@@ -55,9 +55,7 @@ export function CliHandbackStep({
       <div>
         <p className="text-[13px] font-medium">Finish setting up in your terminal</p>
         <p className="mt-1 text-[11px] text-muted-foreground">
-          {projectName} is ready. Run this where your application lives — it signs this machine in,
-          writes its API key, instruments your code with your coding agent and waits for the first
-          trace.
+          {projectName} is ready. Run this where your application lives.
         </p>
       </div>
 

@@ -55,4 +55,14 @@ describe("CliHandbackStep", () => {
 
     expect(screen.getByText(/checkout-agent is ready/)).toBeDefined();
   });
+
+  it("says where the command has to be run", () => {
+    // The one fact a reader cannot get from the command itself: it is run
+    // against their checkout, not in the dashboard's terminal-shaped box. A
+    // user who pastes it into the wrong directory gets a key written somewhere
+    // their application will never read.
+    renderStep();
+
+    expect(screen.getByText(/Run this where your application lives/)).toBeDefined();
+  });
 });
