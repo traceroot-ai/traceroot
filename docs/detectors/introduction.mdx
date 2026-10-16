@@ -39,6 +39,78 @@ Open your project in [TraceRoot Cloud](https://app.traceroot.ai), select **Detec
 6. **Signals**: leave **Generate signals** on to group findings into signals. Set **Root cause analysis** as described [below](#root-cause-analysis).
 7. Click **Create Detector**. The detector checks traces that arrive from then on.
 
+## Template output fields
+
+Every template except **Blank** also defines the fields the judge fills in when it reports a finding. They are the finding's structured output, next to its one-sentence summary, and the judge supplies them only when `identified` is true.
+
+| Template | ID | Output fields |
+|---|---|---|
+| Failure | `failure` | `category` |
+| Hallucination | `hallucination` | `type`, `hallucinated_claim` |
+| Logic Error | `logic` | `severity`, `error_description` |
+| Task Completion | `task` | `success`, `what_was_missed` |
+| Safety | `safety` | `risk_level`, `issue_type` |
+| Blank | `blank` | none |
+
+Each of these fields holds a string.
+
+<Warning>
+  **Task Completion** inverts `identified`: a finding means the task was **not** completed, in part or at all. A trace where the agent did complete the task answers `identified` false and records no finding.
+</Warning>
+
+## Filter fields
+
+A filter is a list of conditions, and a trace has to satisfy every one of them to be checked. A condition names one of these fields.
+
+| Field | Label | Operators | Value |
+|---|---|---|---|
+| `model_name` | Model | `=`, `!=` | A model the trace called |
+| `environment` | Environment | `=`, `!=` | An environment the trace's spans carry |
+| `cost` | Cost | `>`, `>=`, `<`, `<=`, `=` | Total cost of the trace, in USD |
+| `total_tokens` | Tokens | `>`, `>=`, `<`, `<=`, `=` | Total tokens across the trace's spans |
+| `duration_ms` | Latency | `>`, `>=`, `<`, `<=`, `=` | Milliseconds from the first span's start to the last span's end |
+| `errors` | Errors | `>`, `>=`, `<`, `<=`, `=` | Number of spans in the trace with an error status |
+| `metadata` | Metadata | `=`, `contains` | A value stored under the metadata key you name |
+
+**Model**, **Environment** and **Metadata** are matched across the whole trace: `=` passes when some span carries the value, and `!=` passes when no span does. `contains` matches a substring and ignores case. A metadata condition reads the key whether it was attached to the trace or to a single span.
+
+## Judge with TypeSafe AI
+
+[TypeSafe AI](/ai-agent/byok) offers `jev-1.13.0`, a decision model you can pick as a detector's judge once the provider key is in place. It answers with probabilities over a fixed set of options instead of writing text, so it judges detectors only and is kept out of the chat and root cause analysis model pickers.
+
+Jev answers two questions about each trace: whether the trace shows the problem your prompt describes, and which category of that problem it is. The trace becomes a finding when the answer to the first question reaches `0.5`.
+
+The categories are the template's failure modes, not its name.
+
+| Template | Categories |
+|---|---|
+| Failure | `tool_error`, `silent_failure`, `loop`, `timeout`, `swallowed_error` |
+| Hallucination | `ungrounded_claim`, `contradicted_claim` |
+| Logic Error | `circular_reasoning`, `wrong_conclusion`, `missed_step`, `contradictory_actions` |
+| Task Completion | `partial_completion`, `task_failed` |
+| Safety | `pii_exposure`, `prompt_injection`, `harmful_content` |
+| Blank | `problem` |
+
+Every template except **Blank** also offers `other`, for a real problem that none of its categories fits. It reads as *unlisted problem* in the summary.
+
+Jev writes no rationale, so its summaries follow a fixed shape. A finding names its most likely category and the runner-up:
+
+```text
+Ungrounded claim (82% likely); runner-up: contradicted claim (12%); no written rationale.
+```
+
+A trace that shows no problem reports the chance that it does:
+
+```text
+No problem found (18% chance of one).
+```
+
+A trace that shows a problem Jev cannot place in a category names none:
+
+```text
+Problem found (76% likely), category unclear; no written rationale.
+```
+
 ## Create detectors with AI
 
 Select **Home** from the left nav to open the TraceRoot Agent, then describe the detector you want, or ask it to suggest one from your project. For example:
