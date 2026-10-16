@@ -50,7 +50,7 @@ Evaluates logical coherence and execution integrity:
 - Contradictory actions (e.g., creating a resource and immediately deleting it without reason)
 
 **Output fields**:
-- `severity` (`string`): The impact level (`"high"`, `"medium"`, `"low"`).
+- `severity` (`string`): The impact level (e.g., `"high"`, `"medium"`, `"low"`).
 - `error_description` (`string`): Clear explanation of the flawed reasoning step.
 
 ### Task Completion (`task`)
@@ -73,8 +73,8 @@ Scans traces for security, compliance, and safety risks:
 - **Harmful content**: Toxic, discriminatory, or dangerous agent outputs.
 
 **Output fields**:
-- `risk_level` (`string`): Risk tier (`"critical"`, `"high"`, `"medium"`, `"low"`).
-- `issue_type` (`string`): Categorization (`"pii"`, `"prompt_injection"`, `"harmful_content"`).
+- `risk_level` (`string`): Risk tier (e.g., `"critical"`, `"high"`, `"medium"`, `"low"`).
+- `issue_type` (`string`): Categorization (e.g., `"pii"`, `"prompt_injection"`, `"harmful_content"`).
 
 ### Blank (`blank`)
 
@@ -102,7 +102,7 @@ Trigger conditions define which traces a detector evaluates. Traces must pass tr
 | `environment` | Environment | `=`, `!=` | String / Enum | Passes if any span carries this environment tag |
 | `cost` | Cost | `>`, `>=`, `<`, `<=`, `=` | Number (USD) | Total cumulative cost of the trace |
 | `total_tokens` | Tokens | `>`, `>=`, `<`, `<=`, `=` | Integer | Total cumulative token count across all spans in the trace |
-| `duration_ms` | Latency | `>`, `>=`, `<`, `<=`, `=` | Integer (ms) | Total trace execution duration from root start to last span end |
+| `duration_ms` | Latency | `>`, `>=`, `<`, `<=`, `=` | Integer (ms) | Trace duration, from the earliest span start to the latest span end |
 | `errors` | Errors | `>`, `>=`, `<`, `<=`, `=` | Integer | Count of error spans in the trace |
 | `metadata` | Metadata | `=`, `contains` | Text (requires key) | Checks trace-level or span-level metadata for the specified key (`contains` is case-insensitive) |
 
@@ -120,11 +120,11 @@ By default, detectors run on **`claude-haiku-4-5`** (`DETECTOR_SYSTEM_DEFAULT_MO
 
 [TypeSafe AI](/ai-agent/byok) is a specialized BYOK provider that provides the **`jev-1.13.0`** decision model. Unlike general LLMs, TypeSafe AI is designed exclusively as a detector judge and is kept out of interactive chat and root cause analysis.
 
-- **Decision Probabilities**: Rather than generating unstructured conversational text, Jev returns mathematical probability distributions across problem categories.
+- **Decision Probabilities**: Rather than generating unstructured conversational text, Jev returns mathematical probability distributions across problem categories. The categories are the failure modes of the detector's template, not the template name — Hallucination offers `ungrounded_claim` and `contradicted_claim`, Logic Error offers `circular_reasoning`, `wrong_conclusion`, `missed_step` and `contradictory_actions`, plus an `other` catch-all. A blank or custom detector gets a single `problem` category.
 - **The 0.5 Threshold**: A trace is flagged as a finding (`identified=true`) when the gate probability reaches or exceeds **`0.5`** (`gate >= 0.5`).
 - **Standardized Summaries**: Jev summaries present the top identified category and runner-up with percentage probabilities and **no written rationale**:
   ```text
-  Hallucination (82% likely); runner-up: logic error (12%); no written rationale.
+  Ungrounded claim (82% likely); runner-up: contradicted claim (12%); no written rationale.
   ```
   If no problem exceeds the threshold (`gate < 0.5`), the summary reports:
   ```text
@@ -134,25 +134,28 @@ By default, detectors run on **`claude-haiku-4-5`** (`DETECTOR_SYSTEM_DEFAULT_MO
   ```text
   Problem found (76% likely), category unclear; no written rationale.
   ```
+- **Decision Spans**: The judge's own execution trace records each System One call as a `DECISION` span, with the questions it asked and the probabilities it returned.
 
 ---
 
 ## Findings & the Runs Table
 
-The detector detail view contains two tabs: **Runs** (all traces evaluated by this detector) and **Findings** (the subset of runs where `identified=true`).
+A detector's page lists its **runs**: every trace it evaluated. From the detector list, a detector's **Findings** count opens the same table filtered to the runs that identified a problem (`finding_id != null`).
 
 ### Runs Table Columns
 
 | Column | Description | Click Action |
 |---|---|---|
 | **Timestamp** | When the detector evaluated the trace | — |
-| **Run ID** | Unique identifier for the evaluation run | If self-traced, opens the internal judge execution trace |
+| **Judge Run ID** | Unique identifier for the evaluation run | Opens the judge's own execution trace, when the run was self-traced |
 | **Trace ID** | ID of the evaluated production trace | Opens the trace in the TraceRoot trace viewer |
-| **Finding ID** | Generated ID when an issue is detected (`finding_id != null`) | Opens the AI agent's [Root Cause Analysis](/ai-agent/root-cause-analysis) trace |
-| **Identified** | Badge indicating whether a problem was flagged | — |
+| **Signal ID** | The signal this run's finding joined | Opens the signal on the Signals page |
+| **Agent Run ID** | The agent trace of the root cause analysis that ran on this trace | Opens the agent's analysis trace |
+| **Identified** | Badge indicating whether a problem was flagged; a failed run reached no verdict and shows a dash | — |
 | **Summary** | One-line summary produced by the judge model | — |
 | **Status** | Status of the evaluation run (`completed`, `failed`) | — |
-| **Agent analysis** | Lifecycle status of the automated RCA investigation | — |
+
+**Signal ID** reads **Not grouped** when grouping gave up on the finding, and a dash when the run identified nothing or has no signal yet. **Agent Run ID** is a dash when the run only joined a signal that was analysed on another trace; that signal holds the analysis.
 
 ### Finding Structure
 
@@ -160,4 +163,5 @@ When a detector flags a trace, it persists a finding containing:
 - **Finding ID**: A unique identifier linking the detection result, the customer trace, and the RCA session.
 - **Judge Summary**: A concise description of the failure mode.
 - **Output Data**: A structured JSON object matching the template's schema (for example, `{ "category": "tool_error" }` or `{ "type": "unsupported_claim", "hallucinated_claim": "..." }`).
-- **RCA Trace Link**: When **Run root cause analysis on findings** is enabled, clicking the **Finding ID** or the red **Alert** badge in the trace viewer opens the AI agent's investigation trace. See [Root Cause Analysis](/ai-agent/root-cause-analysis) for details on sandbox execution and automated fix pull requests.
+
+Findings are grouped into signals, and root cause analysis runs per signal rather than per finding. Opening a flagged trace from the detector pages opens the trace viewer with the agent's RCA session already loaded in the chat panel, so you can ask it follow-up questions; the agent's own analysis trace is a separate link, the run's **Agent Run ID**. See [Root Cause Analysis](/ai-agent/root-cause-analysis) for details on sandbox execution and automated fix pull requests.
