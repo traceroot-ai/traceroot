@@ -103,6 +103,23 @@ vi.mock("@/lib/api", () => ({
 // refusal by the status on this class, so a stand-in shape would let the page
 // read a 409 off something the API layer never produces.
 import { ApiError } from "@/lib/api/errors";
+// The manual step renders the getting-started panel's own walkthrough, so the
+// page's tests inherit its edges: a project lookup, a key that can only be
+// minted once, and two external-service rows that each fetch. Stubbed the same
+// way that walkthrough's own test stubs them — the structure it renders is what
+// matters here, and the structure is still the real component's.
+vi.mock("@/features/projects/hooks", () => ({
+  useProject: () => ({ data: { workspace_id: "ws-1" } }),
+}));
+vi.mock("@/features/traces/components/GettingStarted/ApiKeyBlock", () => ({
+  ApiKeyBlock: () => <div data-testid="api-key-block" />,
+}));
+vi.mock("@/components/github/GitHubConnectButton", () => ({
+  GitHubConnectButton: () => <div data-testid="github-connect" />,
+}));
+vi.mock("@/components/slack/SlackConnectButton", () => ({
+  SlackConnectButton: () => <div data-testid="slack-connect" />,
+}));
 import OnboardingPage from "./page";
 
 // What POST /api/workspaces answers when `uq_workspace_created_by_name` refuses
@@ -187,6 +204,12 @@ async function clickSignOut() {
   fireEvent.click(signOut);
 }
 
+async function reachManualStep() {
+  await reachHandback();
+  fireEvent.click(screen.getByRole("button", { name: "Set up manually" }));
+  await waitFor(() => expect(screen.getByText("Set up tracing by hand")).toBeDefined());
+}
+
 beforeEach(() => {
   // Reset explicitly: `signedInAs` mutates a store that outlives the test that
   // called it, so a later test would otherwise inherit whichever account the
@@ -251,14 +274,85 @@ describe("OnboardingPage", () => {
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
-  it("sends a user who would rather not run the command to the manual walkthrough", async () => {
+  it("shows the manual walkthrough as a step of the flow, not a page away from it", async () => {
+    // "Set up manually" used to navigate to the project's traces page, where
+    // this same walkthrough lives. The content was right and the exit was the
+    // surprise: signing up ended mid-sentence, with nothing to say which part
+    // was still onboarding. So the walkthrough is a third step in the same
+    // frame — same heading, same card — and nothing is routed anywhere until
+    // the user asks.
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
     renderPage();
-    await reachHandback();
+    await reachManualStep();
 
-    fireEvent.click(screen.getByRole("button", { name: "Set up manually" }));
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Setup" })).toBeDefined();
+    // The real walkthrough, rendered rather than reimplemented: its own
+    // numbered steps, the key block and the integration picker, carrying the
+    // project this run just created.
+    expect(screen.getByText("1. Create an API key")).toBeDefined();
+    expect(screen.getByTestId("api-key-block")).toBeDefined();
+    expect(screen.getByText("3. Select your integration")).toBeDefined();
+    expect(screen.getByRole("radio", { name: "OpenAI" })).toBeDefined();
+    expect(screen.getByText("5. External integrations")).toBeDefined();
+    // And the terminal is no longer what is being asked of this user, so the
+    // frame stops saying it is.
+    expect(
+      screen.getByText(/Workspace and project created — add tracing to your application/),
+    ).toBeDefined();
+    expect(screen.queryByText("Finish setting up in your terminal")).toBeNull();
+  });
+
+  it("lets a user who changed their mind back to the terminal command", async () => {
+    // Choosing "manually" and then thinking better of it is ordinary, and the
+    // command carries the project id this user would otherwise have to
+    // remember — so the step before this one has to still be reachable.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+    await reachManualStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to the terminal command" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Finish setting up in your terminal")).toBeDefined(),
+    );
+    expect(shownCommand()).toContain("--project proj-1");
+    expect(screen.queryByText("Set up tracing by hand")).toBeNull();
+    // Nothing navigated in either direction: both steps are this page.
+    expect(mocks.push).not.toHaveBeenCalled();
+    // The project was created once, by the form, and going back does not
+    // re-run it.
+    expect(mocks.createProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends the manual step on the project whose traces it is setting up", async () => {
+    // Onboarding has to end somewhere that works for an account that has not
+    // instrumented anything yet. The project's traces page is that: it is
+    // where the first trace lands, and until one does it keeps this same
+    // walkthrough on screen — so leaving part-way through is not a dead end.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+    await reachManualStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Go to my project" }));
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces");
+  });
+
+  it("offers the manual step to an account adding a project to a workspace it owns", async () => {
+    // Project-only mode is the same first run arriving from `?workspaceId=`,
+    // so it gets the same three steps — and the heading says what this run
+    // actually created rather than claiming a workspace it did not make.
+    setParams({ workspaceId: "ws-existing", workspaceName: "Example" });
+    mocks.createProject.mockResolvedValue({ id: "proj-2", name: "my-llm-project" });
+    renderPage();
+    await reachManualStep();
+
+    expect(screen.getByText(/^Project created — add tracing to your application$/)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Go to my project" }));
+    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-2/traces");
   });
 
   it("leaves a skipped account somewhere it can act, not back in onboarding", async () => {
