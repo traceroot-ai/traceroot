@@ -18,7 +18,6 @@ Both SDKs read `TRACEROOT_API_KEY` from the process environment. They do not loa
     ```text
     TraceRoot: no API key provided — tracing is disabled. Set the TRACEROOT_API_KEY environment variable or pass api_key= to traceroot.initialize().
     ```
-
   </Tab>
   <Tab title="TypeScript">
     A missing key logs this warning. Spans may still be created locally, but export authentication fails:
@@ -26,7 +25,6 @@ Both SDKs read `TRACEROOT_API_KEY` from the process environment. They do not loa
     ```text
     [TraceRoot] No API key provided. Set TRACEROOT_API_KEY env var or pass apiKey to initialize(). Spans will be emitted but export will fail.
     ```
-
   </Tab>
 </Tabs>
 
@@ -46,14 +44,7 @@ Do not set a value such as `https://app.traceroot.ai/api/v1/public/traces`, beca
 
 ### Check whether tracing is disabled
 
-The SDKs parse `TRACEROOT_ENABLED` differently:
-
-| SDK | Values that disable tracing |
-|---|---|
-| Python | `false`, `0`, `no`, or `off`, case-insensitive |
-| TypeScript | The exact lowercase string `false` |
-
-For TypeScript, values such as `0`, `False`, and `off` do not disable tracing.
+Check `TRACEROOT_ENABLED` and any explicit initialization option against [Disable tracing entirely](/tracing/data-capture#disable-tracing-entirely).
 
 ### Flush short-lived TypeScript processes
 
