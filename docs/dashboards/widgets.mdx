@@ -7,7 +7,7 @@ description: Build query charts, trace feeds, custom metrics, and time-series vi
 
 TraceRoot provides two creatable widget types, rich filtering and aggregation capabilities, and flexible time-window controls.
 
-## Widget Types
+## Widget types
 
 When adding a widget to a dashboard, you specify its `type`:
 
@@ -16,13 +16,7 @@ When adding a widget to a dashboard, you specify its `type`:
 | `query` | Computes metric aggregates and time-series distributions across spans or traces. | Full query specification (`view`, `filters`, `metric`, `breakdown`, `display`). |
 | `trace_feed` | Displays a live, reverse-chronological list of execution traces matching search criteria. | Trace filter predicates and an optional row limit (`filters`, `limit`). |
 
-<Note>
-Earlier database schemas mention a legacy third type (`detector`), but it has been deprecated. Only `query` and `trace_feed` widgets can be created.
-</Note>
-
----
-
-## Query Widget Specification
+## Query widget specification
 
 A `query` widget executes an analytical aggregation across ClickHouse telemetry data. The `spec` object requires three fields — `view`, `metric` and `display`. `filters` defaults to `[]` and `breakdown` to `null`:
 
@@ -41,13 +35,13 @@ interface QueryWidgetSpec {
 }
 ```
 
-### 1. View (`view`)
+### View (`view`)
 
 The underlying dataset to query:
 - `"spans"`: Individual units of work (LLM calls, tool executions, chain steps, or vector searches).
 - `"traces"`: End-to-end execution trees and top-level session requests.
 
-### 2. Filters (`filters`)
+### Filters (`filters`)
 
 An array of filter predicates applied to the query. Each filter includes:
 - `field` (string): The field to filter. On `spans` these are `name`, `span_kind`, `status`, `error_type`, `model_name`, `environment`, `is_root` and `metadata`, plus the numeric measures below.
@@ -64,32 +58,21 @@ Example filter:
 }
 ```
 
-### 3. Metric (`metric`)
+### Metric (`metric`)
 
 Defines the quantitative measure and the aggregation function plotted on the y-axis:
 - `measure` (string): The metric to aggregate. On `spans` these are `duration_ms`, `cost`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `total_tokens` and `tokens_per_second`, plus the `"count"` sentinel.
-- `agg` (string): One of 11 aggregation functions:
-  - `count`: Count of matching records.
-  - `sum`: Total sum of the measure values.
-  - `avg`: Arithmetic mean.
-  - `min`: Minimum recorded value.
-  - `max`: Maximum recorded value.
-  - `p50`: 50th percentile (median).
-  - `p75`: 75th percentile.
-  - `p90`: 90th percentile.
-  - `p95`: 95th percentile.
-  - `p99`: 99th percentile.
-  - `uniq`: Approximate count of unique distinct values (HyperLogLog).
+- `agg` (string): One of 11 aggregation functions — `count`, `sum`, `avg`, `min`, `max`, `p50`, `p75`, `p90`, `p95`, `p99` and `uniq`. The `pNN` functions are percentiles, so `p50` is the median, and `uniq` is an approximate distinct count (HyperLogLog).
 
 <Warning>
-Each measure accepts only its own aggregations, not all 11. Numeric measures take `sum`, `avg`, `min`, `max`, `p50`, `p75`, `p90`, `p95`, `p99` and `uniq` — not `count`. The `count` sentinel takes only `count`, and `trace_id`, `user_id` and `session_id` take only `count` and `uniq`. So `{"measure": "cost", "agg": "count"}` parses but fails validation.
+  Each measure accepts only its own aggregations, not all 11. Numeric measures take `sum`, `avg`, `min`, `max`, `p50`, `p75`, `p90`, `p95`, `p99` and `uniq` — not `count`. The `count` sentinel takes only `count`, and `trace_id`, `user_id` and `session_id` take only `count` and `uniq`. So `{"measure": "cost", "agg": "count"}` parses but fails validation.
 </Warning>
 
-### 4. Breakdown (`breakdown`)
+### Breakdown (`breakdown`)
 
 An optional grouping dimension string (`string | null`, default `null`). When provided, the metric is segmented by this dimension (e.g. `"model_name"`, `"span_kind"`, or `"error_type"`). Not every field is groupable: `status` is a filter only, because it is effectively binary.
 
-### 5. Display (`display`) and Breakdown Rules
+### Display (`display`) and breakdown rules
 
 TraceRoot supports 7 display types. Depending on the visualization type, specific rules govern whether `breakdown` is required, optional, or forbidden:
 
@@ -103,13 +86,9 @@ TraceRoot supports 7 display types. Depending on the visualization type, specifi
 | `table` | Tabular breakdown of values | **Optional**. Displays aggregated rows with optional groupings. |
 | `histogram` | Value frequency distribution | **Rejected**. Must be `null`; compiles into automated value bins. |
 
-<Warning>
-A `pie` or `bar` widget missing a breakdown is rejected with a validation error (`"<type> requires a breakdown dimension"`). Similarly, passing a breakdown to a `number` or `histogram` widget is rejected to prevent silent group truncation.
-</Warning>
+A `pie` or `bar` widget missing a breakdown is rejected with a validation error (`"<type> requires a breakdown dimension"`), and passing a breakdown to a `number` or `histogram` widget is rejected to prevent silent group truncation.
 
----
-
-## Trace Feed Widget Specification
+## Trace feed widget specification
 
 A `trace_feed` widget renders an embedded list of recent traces that match given filter conditions:
 
@@ -123,9 +102,7 @@ interface TraceFeedSpec {
 - `filters`: An array of trace filter predicates (e.g. `[{ "field": "errors", "op": "gt", "value": 0 }]`). These use the trace-list predicate vocabulary — `eq`, `contains`, `in`, `gt`, `gte`, `lt`, `lte` — not the `=`/`>` operators a query widget's filters take.
 - `limit`: Maximum number of traces to return. Must be an integer between `1` and `200` (`TRACE_FEED_LIMIT_MAX = 200`). If omitted, it defaults to `10` (`TRACE_FEED_DEFAULT_LIMIT = 10`).
 
----
-
-## Display Configuration (`displayConfig`)
+## Display configuration (`displayConfig`)
 
 In addition to `spec`, widgets accept an optional `displayConfig` object (`display_config` in API requests). This is a free-form JSON dictionary (`Record<string, unknown>`) used by frontend renderers to store layout options, custom color palettes, metric formatting, or axis thresholds.
 
@@ -139,13 +116,11 @@ In addition to `spec`, widgets accept an optional `displayConfig` object (`displ
 }
 ```
 
----
-
-## Time Windows
+## Time windows
 
 When querying dashboard data or widget results, time windows are evaluated in one of three ways:
 
-1. **Preset Ranges**: Relative time windows anchored to the current moment. TraceRoot supports 10 preset identifiers:
+1. **Preset ranges**: Relative time windows anchored to the current moment. TraceRoot supports 10 preset identifiers:
    - `30m`: Last 30 minutes
    - `1h`: Last 1 hour
    - `3h`: Last 3 hours
@@ -157,22 +132,17 @@ When querying dashboard data or widget results, time windows are evaluated in on
    - `60d`: Last 60 days
    - `90d`: Last 90 days
 
-2. **Explicit Time Ranges**: Absolute ISO 8601 timestamps passed via `start_time` and `end_time` (e.g., `start_time=2026-10-01T00:00:00Z&end_time=2026-10-02T00:00:00Z`). Both bounds must be provided together.
+2. **Explicit time ranges**: Absolute ISO 8601 timestamps passed via `start_time` and `end_time` (e.g., `start_time=2026-10-01T00:00:00Z&end_time=2026-10-02T00:00:00Z`). Both bounds must be provided together.
 
-3. **Default Window**: If neither a preset `range` nor explicit `start_time`/`end_time` parameters are specified, TraceRoot automatically defaults to the past **24 hours** (`1d`).
+3. **Default window**: If neither a preset `range` nor explicit `start_time`/`end_time` parameters are specified, TraceRoot automatically defaults to the past **24 hours** (`1d`).
 
----
-
-## Testing Specs with `POST /widgets/query`
+## Testing specs with `POST /widgets/query`
 
 Before saving a widget to a dashboard, you can test its query specification statelessly using the `POST /api/v1/public/widgets/query` route.
 
-This endpoint compiles and executes the `WidgetSpec` against your ClickHouse dataset without creating a persistent widget row in your database. It is especially useful for:
-- Testing filter combinations and syntax before committing to a dashboard.
-- Ad-hoc analytics scripts or CI assertions.
-- Tool use by autonomous AI agents.
+This endpoint compiles and executes the `WidgetSpec` against your ClickHouse dataset without creating a persistent widget row in your database.
 
-### Example: Stateless Query Request
+### Example: stateless query request
 
 ```bash
 curl -X POST https://app.traceroot.ai/api/v1/public/widgets/query \
@@ -211,9 +181,7 @@ Response:
 }
 ```
 
----
-
-## Public Widget API Routes
+## Public widget API routes
 
 The TraceRoot Public REST API provides six dedicated routes for widgets:
 
@@ -226,11 +194,9 @@ The TraceRoot Public REST API provides six dedicated routes for widgets:
 | `DELETE` | `/api/v1/public/widgets/{widget_id}` | Hard-delete a widget from its dashboard. |
 | `GET` | `/api/v1/public/widgets/{widget_id}/data` | Evaluate and return computed chart data for an existing widget over a time window. |
 
----
+## Creating widgets
 
-## Creating Widgets
-
-### Example 1: Create a Query Widget (cURL)
+### Example 1: create a query widget (cURL)
 
 The following example adds a P95 Latency line chart broken down by model name to an existing dashboard:
 
@@ -263,7 +229,7 @@ curl -X POST https://app.traceroot.ai/api/v1/public/widgets \
   }'
 ```
 
-### Example 2: Create a Trace Feed Widget (cURL)
+### Example 2: create a trace feed widget (cURL)
 
 The following example adds a filtered trace feed widget showing the latest error traces:
 
@@ -285,7 +251,7 @@ curl -X POST https://app.traceroot.ai/api/v1/public/widgets \
   }'
 ```
 
-### Example 3: Create a Widget Using the TraceRoot CLI
+### Example 3: create a widget using the TraceRoot CLI
 
 You can also create widgets using the TraceRoot CLI by supplying a JSON specification file:
 
@@ -322,7 +288,7 @@ Or query widget data over a 7-day window directly from your terminal:
 traceroot widgets data cm2x9g1b70003l508f2j6c4ra --range 7d
 ```
 
-## Next Steps
+## Next steps
 
 <CardGroup cols={2}>
   <Card title="Dashboards Introduction" icon="table-columns" href="/dashboards/introduction">
