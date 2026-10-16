@@ -25,7 +25,7 @@ Run `traceroot login` to sign in through your browser:
 traceroot login
 ```
 
-This initiates an OAuth device flow (RFC 8628), opens your browser to authorize access, and saves a session credential to `~/.config/traceroot/credentials.json`. The session token is automatically refreshed before each request.
+This initiates an OAuth device flow (RFC 8628), opens your browser to authorize access, and saves a session credential to `~/.config/traceroot/credentials.json`. The session token is exchanged for a short-lived access token, refreshed automatically as it expires.
 
 ### API key login (CI & scripts)
 
@@ -68,7 +68,7 @@ traceroot status
 ```
 
 - **Browser login**: Displays your authenticated email address, host URL, active project (or a hint to select one), and accessible workspaces.
-- **API key login**: Displays your workspace, project, host URL, and a masked key hint (e.g. `tr-d0a3-…-57e3`).
+- **API key login**: Displays your workspace, project, host URL, and a masked key hint (e.g. `tr-d0a3-57e3`).
 
 ## Scope to a project
 
@@ -148,7 +148,7 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 | :-- | :-- |
 | `login` | Sign in with your browser (device flow) and store session credentials. Pass `--api-key <key>` to validate and save an API key instead. |
 | `status` | Show the identity your credentials resolve to — email, host, project, and workspaces (browser login) or workspace, project, host, and key hint (API key). |
-| `projects list` | List accessible projects across workspaces; the `PROJECT ID` column is what `--project` and `TRACEROOT_PROJECT_ID` take. Flag: `--workspace-id <id>`. |
+| `projects list` | List accessible projects across workspaces; the `PROJECT ID` column is what `--project` and `TRACEROOT_PROJECT_ID` take. |
 | `traces list` | List traces for your project, newest first. Flags: `--limit <n>`, `--since <dur>`, `--from <time>`, `--to <time>`. |
 | `traces get <id>` | Show one trace: header, span tree, duration, and link to open in TraceRoot. Defaults to the `skeleton` projection (no span I/O); pass `--fields full` (or groups `core`, `usage`, `io`, `metadata`) for span data. Flag: `--fields <groups>`. |
 | `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, `manifest.json`, and `finding.json` (if flagged) to a directory. Defaults to `full` projection. Flags: `--output <dir>`, `--force`, `--fields <groups>`. |
