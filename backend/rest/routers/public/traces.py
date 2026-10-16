@@ -21,7 +21,6 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from google.protobuf.json_format import MessageToDict
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
-    ExportTraceServiceResponse,
 )
 from pydantic import BaseModel
 
@@ -39,14 +38,11 @@ from rest.routers.public.deps import (
 from rest.services.s3 import get_s3_service
 from worker.ingest_tasks import process_s3_traces
 
+__all__ = ["AuthResult", "KeyAuth", "authenticate_api_key", "router"]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public/traces", tags=["Traces"])
-
-# Standard OTLP traces route (<base>/v1/traces) for exporters like Claude Platform
-otlp_standard_router = APIRouter(tags=["Traces (Public)"])
-
-__all__ = ["AuthResult", "KeyAuth", "authenticate_api_key", "otlp_standard_router", "router"]
 
 
 # Ingest shares the workspace/plan stamping wrapper with the public read routes
@@ -201,50 +197,3 @@ async def ingest_traces(
     """
     s3_key = await _process_trace_ingest(request, auth)
     return IngestResponse(status="ok", file_key=s3_key)
-
-
-@otlp_standard_router.post(
-    "/v1/traces",
-    operation_id="ingest_traces_otlp_default",
-    response_class=Response,
-    responses={
-        200: {
-            "description": "OTLP export response",
-            "content": {
-                "application/x-protobuf": {},
-                "application/json": {},
-            },
-        },
-        500: {
-            "description": "Storage error",
-            "content": {
-                "application/json": {
-                    "schema": {
-                        "type": "object",
-                        "properties": {"detail": {"type": "string"}},
-                        "required": ["detail"],
-                    },
-                },
-            },
-        },
-    },
-)
-@limiter.limit(resolve_limit, key_func=key_ingest)
-async def ingest_traces_otlp_default(
-    request: Request,
-    response: Response,
-    auth: IngestAuth,
-):
-    """Standard OTLP /v1/traces endpoint for standard OTLP exporters.
-
-    Returns ExportTraceServiceResponse (empty protobuf or JSON) per OTLP spec.
-    """
-    await _process_trace_ingest(request, auth)
-    accept = request.headers.get("accept", "").lower()
-    if "application/json" in accept and "protobuf" not in accept:
-        return Response(content="{}", media_type="application/json")
-    otlp_response = ExportTraceServiceResponse()
-    return Response(
-        content=otlp_response.SerializeToString(),
-        media_type="application/x-protobuf",
-    )

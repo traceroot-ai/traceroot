@@ -116,6 +116,8 @@ def _span_aggregates_child_usage(
     attrs: dict[str, Any],
     span_name: str | None = None,
     otel_kind: int | str | None = None,
+    trace_has_model_request: bool = False,
+    trace_has_api_spans: bool = False,
 ) -> bool:
     """Check whether a span restates the token usage of its model-call children.
 
@@ -125,6 +127,8 @@ def _span_aggregates_child_usage(
         attrs (dict[str, Any]): Span attributes.
         span_name (str | None): Span name string.
         otel_kind (int | str | None): OTel span kind.
+        trace_has_model_request (bool): Whether anthropic.model_request is present for this trace.
+        trace_has_api_spans (bool): Whether Claude Platform API spans exist for this trace.
 
     Returns:
         bool: True when the span's token counts duplicate its children's and must
@@ -139,8 +143,13 @@ def _span_aggregates_child_usage(
     # 2. In a session (anthropic.session.id present), only anthropic.model_request
     #    and anthropic.session.outcome_evaluation report usage; all other spans
     #    (anthropic.session.turn, anthropic.messages.create, tool spans) aggregate.
-    # 3. For messages.create outside sessions, SDK emits CLIENT span and API emits SERVER span;
-    #    CLIENT span duplicates the server span.
+    # 3. For messages.create outside sessions:
+    #    Anthropic's rule is to sum either anthropic.messages.create (SERVER) or its
+    #    anthropic.model_request children, never both. In Claude Platform export,
+    #    anthropic.model_request carries the LLM execution counts and messages.create
+    #    (SERVER) is the endpoint wrapper that duplicates those tokens.
+    #    SDK-only traffic emits CLIENT anthropic.messages.create with no API spans;
+    #    its usage must NOT be suppressed unless API spans are present for the request.
     s_name = (span_name or str_attr(attrs.get("name")) or "").lower()
     if s_name:
         if s_name == "anthropic.session.turn":
@@ -148,8 +157,13 @@ def _span_aggregates_child_usage(
         if attrs.get("anthropic.session.id"):
             if s_name not in ("anthropic.model_request", "anthropic.session.outcome_evaluation"):
                 return True
-        elif s_name == "anthropic.messages.create" and otel_kind in (3, "SPAN_KIND_CLIENT", "3"):
-            return True
+        elif s_name == "anthropic.messages.create":
+            if trace_has_model_request:
+                return True
+            if otel_kind in (2, "SPAN_KIND_SERVER", "2"):
+                return True
+            if otel_kind in (3, "SPAN_KIND_CLIENT", "3") and trace_has_api_spans:
+                return True
 
     # Fallback for a wrapper that reaches us without an operation name — an emitter
     # version that stops setting one would otherwise silently resume double-pricing,
@@ -773,8 +787,26 @@ def transform_otel_to_clickhouse(
     _trace_is_evaluation: set[str] = set()  # any eval-kind span seen for this trace
     _trace_environment: dict[str, str] = {}  # first non-null environment seen
 
+    # Trace-level Claude Platform API span tracking in batch:
+    # Prevents double-counting when model_request or API SERVER spans exist alongside CLIENT wrappers.
+    _trace_has_model_request: set[str] = set()
+    _trace_has_api_spans: set[str] = set()
+
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
+    for _rs in resource_spans:
+        for _ss in _rs.get("scopeSpans", []):
+            for _s in _ss.get("spans", []):
+                _tid = decode_otel_id(_s.get("traceId"))
+                if not _tid:
+                    continue
+                _sname = (_s.get("name") or "").lower()
+                _kind = _s.get("kind")
+                if _sname == "anthropic.model_request":
+                    _trace_has_model_request.add(_tid)
+                    _trace_has_api_spans.add(_tid)
+                elif _sname.startswith("anthropic.") and _kind in (2, "SPAN_KIND_SERVER", "2"):
+                    _trace_has_api_spans.add(_tid)
 
     for resource_span in resource_spans:
         # camelCase: scopeSpans
@@ -1073,6 +1105,8 @@ def transform_otel_to_clickhouse(
                         span_attrs,
                         span_name=span_name_raw,
                         otel_kind=otel_kind,
+                        trace_has_model_request=trace_id in _trace_has_model_request,
+                        trace_has_api_spans=trace_id in _trace_has_api_spans,
                     )
 
                     # Manual usage reported via the SDKs' update-span API

@@ -9,11 +9,11 @@ An organization administrator sets up an OTLP destination in the Claude Console,
 
 ## Claude Console Setup
 
-Follow these steps in the [Claude Console](https://console.anthropic.com/):
+Follow these steps in the Claude Console:
 
-### 1. Add an OTLP Destination
+### 1. Add a Telemetry Destination
 
-1. Navigate to **Organization Settings** (or **Manage Claude**) → **OpenTelemetry**.
+1. Navigate to **Settings** → **Telemetry Destinations** (or visit [platform.claude.com/settings/telemetry-destinations](https://platform.claude.com/settings/telemetry-destinations)).
 2. Click **Add Destination**.
 3. Under **Provider**, choose **Custom**.
 
@@ -21,12 +21,12 @@ Follow these steps in the [Claude Console](https://console.anthropic.com/):
 
 | Setting | Value | Description |
 |---------|-------|-------------|
-| **Base URL** | `https://app.traceroot.ai` (or your self-hosted host) | The root URL of your TraceRoot instance. |
-| **OTLP traces endpoint URL override** | `/api/v1/public/traces` | Explicit endpoint path for OTLP traces. TraceRoot also accepts the default `/v1/traces`. |
+| **OTLP endpoint URL** | `https://app.traceroot.ai` (or your self-hosted host) | The base URL of your TraceRoot instance. |
+| **OTLP traces endpoint URL** | `https://app.traceroot.ai/api/v1/public/traces` | Full URL for OTLP traces ingestion (found under **Advanced settings**). |
 | **Headers** | `Authorization: Bearer <TRACEROOT_API_KEY>` | Your TraceRoot project API key. |
 
-> [!NOTE]
-> Ensure the override uses the same host as the base URL. The Claude Platform exports over HTTPS on port 443 with OTLP/HTTP protobuf (with automatic gzip compression).
+> [!IMPORTANT]
+> The **OTLP traces endpoint URL** under **Advanced settings** must be set to the **full URL** (`https://app.traceroot.ai/api/v1/public/traces`), not a relative path. Do not use the default `/v1/traces` on Cloud: it returns a 307 redirect to sign-in, and Anthropic automatically disables any telemetry destination that receives a 3xx response.
 
 ### 3. Content Modes
 
@@ -37,7 +37,7 @@ Claude Console allows choosing what data is exported:
 
 ### 4. Verify Connectivity
 
-Click **Test** in the Claude Console to send a verification payload. Once verified, all Managed Agents and Messages API executions in your organization will stream to TraceRoot in real time.
+Click **Test** in the Claude Console to send a verification payload (`anthropic.test` span). Once verified, all Managed Agents and Messages API executions in your organization will stream to TraceRoot in real time.
 
 ---
 
@@ -48,7 +48,7 @@ TraceRoot maps Claude Platform traces into rich session and span hierarchies:
 | Claude Span Name | TraceRoot Kind | Description |
 |------------------|----------------|-------------|
 | `anthropic.session.turn` | **AGENT** | High-level agent turn within a Managed Agent session. |
-| `anthropic.model_request` | **LLM** | Underlying LLM completion request with prompt/completion messages. |
+| `anthropic.model_request` | **LLM** | Underlying LLM completion request with prompt/completion messages and usage metrics. |
 | `anthropic.messages.create` | **LLM** | Direct Messages API request span. |
 | `anthropic.custom_tool_use` | **TOOL** | Custom tool invocation with argument parameters and execution results. |
 | `anthropic.mcp_tool_use` | **TOOL** | Model Context Protocol (MCP) tool call. |
@@ -57,11 +57,13 @@ TraceRoot maps Claude Platform traces into rich session and span hierarchies:
 
 ### Session Grouping
 
-Claude Managed Agents sessions are grouped by `anthropic.session.id`. A single agent session can span multiple traces and turns while remaining unified under one session view in the TraceRoot dashboard.
+Claude Managed Agents sessions are grouped by `anthropic.session.id` (or `gen_ai.conversation.id`). A single agent session can span multiple traces and turns while remaining unified under one session view in the TraceRoot dashboard.
 
 ### Accurate Token & Cost Accounting
 
 TraceRoot automatically deduplicates token metrics across Claude Platform's nested span levels:
-- Turn wrappers (`anthropic.session.turn`) and SDK client spans are prevented from double-counting child usage.
+- In Messages API exports, parent `anthropic.messages.create` (SERVER) spans aggregate and defer pricing to their child `anthropic.model_request` spans, preventing double-counting.
+- SDK-only tracing (`anthropic.messages.create` CLIENT) preserves its token usage and cost calculation.
+- Managed Agent turn wrappers (`anthropic.session.turn`) and nested `messages.create` spans aggregate child usage.
 - Token counts and costs are attributed accurately from `anthropic.model_request` and `anthropic.session.outcome_evaluation`.
-- Cache read and cache creation tokens are accounted for with accurate pricing discounts.
+- Cache read and cache creation tokens are accounted for with accurate model-specific pricing discounts.
