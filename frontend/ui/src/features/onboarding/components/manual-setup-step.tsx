@@ -2,6 +2,8 @@
 
 import { Button } from "@/components/ui/button";
 import { ManualTab } from "@/features/traces/components/GettingStarted/ManualTab";
+import type { TraceWait } from "@/lib/hooks/use-trace-wait";
+import { FirstTraceLine } from "./first-trace-line";
 
 interface ManualSetupStepProps {
   /** The project the key, the snippets and the integrations belong to. */
@@ -10,6 +12,16 @@ interface ManualSetupStepProps {
   onBack: () => void;
   /** Into the app, instrumented or not. */
   onDone: () => void;
+  /**
+   * How the watch for this project's first trace is going.
+   *
+   * The same watch the step before this one shows, still running: instrumenting
+   * by hand ends in a trace exactly as the command does, and the moment it
+   * arrives is the moment these steps are finished with. Stopping the watch
+   * because the user chose the longer path would blind the page precisely where
+   * the confirmation is worth the most.
+   */
+  wait: TraceWait;
 }
 
 /**
@@ -33,7 +45,7 @@ interface ManualSetupStepProps {
  * the destination, and picks one that keeps showing these same steps until the
  * first trace arrives, so leaving part-way through loses nothing.
  */
-export function ManualSetupStep({ projectId, onBack, onDone }: ManualSetupStepProps) {
+export function ManualSetupStep({ projectId, onBack, onDone, wait }: ManualSetupStepProps) {
   return (
     <div className="flex flex-col gap-4">
       {/* A notch above the walkthrough's own numbered labels, which are 14px
@@ -42,6 +54,8 @@ export function ManualSetupStep({ projectId, onBack, onDone }: ManualSetupStepPr
       <p className="text-sm font-semibold">Set up tracing by hand</p>
 
       <ManualTab projectId={projectId} />
+
+      <FirstTraceLine wait={wait} />
 
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Button size="sm" className="h-7 px-4 text-[12px]" onClick={onDone}>

@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   createProject: vi.fn(),
   getWorkspaces: vi.fn(),
   getProjects: vi.fn(),
+  getTraces: vi.fn(),
   params: new URLSearchParams(),
   signOut: vi.fn(),
   // Carries an id, because the page caches the workspace list per account: a
@@ -108,6 +109,13 @@ import { ApiError } from "@/lib/api/errors";
 // minted once, and two external-service rows that each fetch. Stubbed the same
 // way that walkthrough's own test stubs them — the structure it renders is what
 // matters here, and the structure is still the real component's.
+// The hand-back step watches the new project for its first trace. This suite
+// runs on real timers, so it only ever sees the first read; what the watch then
+// does with it is driven under fake timers in page.first-trace.test.tsx. Mocked
+// so that no test here reaches for the network to find out.
+vi.mock("@/lib/api/traces", () => ({
+  getTraces: mocks.getTraces,
+}));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: { workspace_id: "ws-1" } }),
 }));
@@ -219,6 +227,7 @@ beforeEach(() => {
   // every test that exercises the form is a first-run account unless it says
   // otherwise.
   mocks.getWorkspaces.mockResolvedValue([]);
+  mocks.getTraces.mockResolvedValue({ data: [], meta: { page: 0, limit: 1, total: 0 } });
   // `{ data, error }` rather than nothing, because that is what the better-auth
   // client resolves with: it reports a failed sign-out in `error` instead of
   // rejecting, so a mock that resolves bare cannot tell the two apart.
@@ -235,6 +244,7 @@ afterEach(() => {
   mocks.updateWorkspace.mockReset();
   mocks.createProject.mockReset();
   mocks.getWorkspaces.mockReset();
+  mocks.getTraces.mockReset();
   mocks.layoutAccess.mockReset();
   mocks.signOut.mockReset();
   mocks.getProjects.mockReset();

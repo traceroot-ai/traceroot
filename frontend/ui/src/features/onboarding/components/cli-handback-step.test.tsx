@@ -4,6 +4,12 @@ import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
 import { CliHandbackStep } from "./cli-handback-step";
 
+vi.mock("next/link", () => ({
+  default: ({ href, children }: { href: string; children: React.ReactNode }) => (
+    <a href={href}>{children}</a>
+  ),
+}));
+
 function renderStep(overrides: Partial<Parameters<typeof CliHandbackStep>[0]> = {}) {
   const onSetUpManually = vi.fn();
   const onSkip = vi.fn();
@@ -13,6 +19,7 @@ function renderStep(overrides: Partial<Parameters<typeof CliHandbackStep>[0]> = 
       projectName="my-llm-project"
       onSetUpManually={onSetUpManually}
       onSkip={onSkip}
+      wait={{ kind: "waiting" }}
       {...overrides}
     />,
   );
@@ -54,6 +61,45 @@ describe("CliHandbackStep", () => {
     renderStep({ projectName: "checkout-agent" });
 
     expect(screen.getByText(/checkout-agent is ready/)).toBeDefined();
+  });
+
+  it("says it is watching for the trace the command will produce", () => {
+    // Without this the step gives no sign that anything is listening, so
+    // running the command looks like it leads nowhere.
+    renderStep();
+
+    expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
+  });
+
+  it("offers the trace when it arrives instead of navigating to it", () => {
+    // The person is looking at this page — they just copied a command off it,
+    // and the two alternatives below are still live choices. Taking the page
+    // away to show them good news would make a decision they have not made.
+    const { onSetUpManually, onSkip } = renderStep({
+      wait: { kind: "found", found: { projectId: "proj-1", traceId: "t-1" } },
+    });
+
+    expect(screen.getByText(/Your first trace arrived/)).toBeDefined();
+    expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
+      "/projects/proj-1/traces?traceId=t-1",
+    );
+    // Nothing about the arrival closes the step down.
+    expect(screen.getByRole("button", { name: "Set up manually" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
+    expect(onSetUpManually).not.toHaveBeenCalled();
+    expect(onSkip).not.toHaveBeenCalled();
+  });
+
+  it("says so, and still points somewhere, when no trace turns up", () => {
+    // The outcome the spinner must never settle into. The run is still going
+    // wherever the command was run; only this page has stopped watching.
+    renderStep({ wait: { kind: "gave-up", fallbackUrl: "/projects/proj-1/traces" } });
+
+    expect(screen.getByText(/Still no trace/)).toBeDefined();
+    expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
+      "/projects/proj-1/traces",
+    );
+    expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
   });
 
   it("says where the command has to be run", () => {
