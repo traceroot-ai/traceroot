@@ -24,17 +24,17 @@ Earlier database schemas mention a legacy third type (`detector`), but it has be
 
 ## Query Widget Specification
 
-A `query` widget executes an analytical aggregation across ClickHouse telemetry data. The `spec` object requires five primary fields:
+A `query` widget executes an analytical aggregation across ClickHouse telemetry data. The `spec` object requires three fields — `view`, `metric` and `display`. `filters` defaults to `[]` and `breakdown` to `null`:
 
 ```typescript
 interface QueryWidgetSpec {
   view: "spans" | "traces";
-  filters: WidgetFilter[];
+  filters?: WidgetFilter[]; // defaults to []
   metric: {
     measure: string;
     agg: "count" | "sum" | "avg" | "min" | "max" | "p50" | "p75" | "p90" | "p95" | "p99" | "uniq";
   };
-  breakdown: string | null;
+  breakdown?: string | null; // defaults to null
   display: {
     type: "line" | "area" | "bar" | "pie" | "number" | "table" | "histogram";
   };
@@ -50,8 +50,8 @@ The underlying dataset to query:
 ### 2. Filters (`filters`)
 
 An array of filter predicates applied to the query. Each filter includes:
-- `field` (string): The column or attribute to filter (e.g. `span_kind`, `service_name`, `error_type`).
-- `op` (string): One of `=`, `contains`, `>`, `>=`, `<`, `<=`.
+- `field` (string): The field to filter. On `spans` these are `name`, `span_kind`, `status`, `error_type`, `model_name`, `environment`, `is_root` and `metadata`, plus the numeric measures below.
+- `op` (string): Operators are per field — `=` and `contains` on string dimensions, `>`, `>=`, `<`, `<=` and `=` on numeric ones.
 - `value` (string or number): The value to compare against. Empty strings and non-finite numbers (`NaN`, `Infinity`) are rejected.
 - `key` (string, optional): Required when querying keyed fields such as span attributes or custom trace metadata.
 
@@ -67,8 +67,8 @@ Example filter:
 ### 3. Metric (`metric`)
 
 Defines the quantitative measure and the aggregation function plotted on the y-axis:
-- `measure` (string): Numeric metric to aggregate (e.g. `duration_ms`, `cost`, `total_tokens`, `prompt_tokens`, `completion_tokens`, or the `"count"` sentinel).
-- `agg` (string): One of the 11 supported aggregation functions:
+- `measure` (string): The metric to aggregate. On `spans` these are `duration_ms`, `cost`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `total_tokens` and `tokens_per_second`, plus the `"count"` sentinel.
+- `agg` (string): One of 11 aggregation functions:
   - `count`: Count of matching records.
   - `sum`: Total sum of the measure values.
   - `avg`: Arithmetic mean.
@@ -81,9 +81,13 @@ Defines the quantitative measure and the aggregation function plotted on the y-a
   - `p99`: 99th percentile.
   - `uniq`: Approximate count of unique distinct values (HyperLogLog).
 
+<Warning>
+Each measure accepts only its own aggregations, not all 11. Numeric measures take `sum`, `avg`, `min`, `max`, `p50`, `p75`, `p90`, `p95`, `p99` and `uniq` — not `count`. The `count` sentinel takes only `count`, and `trace_id`, `user_id` and `session_id` take only `count` and `uniq`. So `{"measure": "cost", "agg": "count"}` parses but fails validation.
+</Warning>
+
 ### 4. Breakdown (`breakdown`)
 
-An optional grouping dimension string (`string | null`, default `null`). When provided, the metric is segmented by this dimension (e.g. `"model_name"`, `"service_name"`, or `"status"`).
+An optional grouping dimension string (`string | null`, default `null`). When provided, the metric is segmented by this dimension (e.g. `"model_name"`, `"span_kind"`, or `"error_type"`). Not every field is groupable: `status` is a filter only, because it is effectively binary.
 
 ### 5. Display (`display`) and Breakdown Rules
 
@@ -116,7 +120,7 @@ interface TraceFeedSpec {
 }
 ```
 
-- `filters`: An array of trace filter predicates (e.g. `[{ "field": "errors", "op": "gt", "value": 0 }]`).
+- `filters`: An array of trace filter predicates (e.g. `[{ "field": "errors", "op": "gt", "value": 0 }]`). These use the trace-list predicate vocabulary — `eq`, `contains`, `in`, `gt`, `gte`, `lt`, `lte` — not the `=`/`>` operators a query widget's filters take.
 - `limit`: Maximum number of traces to return. Must be an integer between `1` and `200` (`TRACE_FEED_LIMIT_MAX = 200`). If omitted, it defaults to `10` (`TRACE_FEED_DEFAULT_LIMIT = 10`).
 
 ---
@@ -235,8 +239,8 @@ curl -X POST https://app.traceroot.ai/api/v1/public/widgets \
   -H "Authorization: Bearer $TRACEROOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_91a0c8b21e054fbb8b1234567890abcd",
-    "dashboard_id": "dsh_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+    "project_id": "9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30",
+    "dashboard_id": "cm2x9f7a40001l508h3k9d7bq",
     "title": "P95 Latency by Model",
     "type": "query",
     "spec": {
@@ -268,8 +272,8 @@ curl -X POST https://app.traceroot.ai/api/v1/public/widgets \
   -H "Authorization: Bearer $TRACEROOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_91a0c8b21e054fbb8b1234567890abcd",
-    "dashboard_id": "dsh_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+    "project_id": "9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30",
+    "dashboard_id": "cm2x9f7a40001l508h3k9d7bq",
     "title": "Recent Error Traces",
     "type": "trace_feed",
     "spec": {
@@ -287,8 +291,8 @@ You can also create widgets using the TraceRoot CLI by supplying a JSON specific
 
 ```json widget.json
 {
-  "project_id": "proj_91a0c8b21e054fbb8b1234567890abcd",
-  "dashboard_id": "dsh_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+  "project_id": "9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30",
+  "dashboard_id": "cm2x9f7a40001l508h3k9d7bq",
   "title": "Total Cost by Model",
   "type": "query",
   "spec": {
@@ -315,7 +319,7 @@ traceroot widgets create --from-file widget.json
 Or query widget data over a 7-day window directly from your terminal:
 
 ```bash
-traceroot widgets data wdg_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6 --range 7d
+traceroot widgets data cm2x9g1b70003l508f2j6c4ra --range 7d
 ```
 
 ## Next Steps
@@ -324,7 +328,7 @@ traceroot widgets data wdg_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6 --range 7d
   <Card title="Dashboards Introduction" icon="table-columns" href="/dashboards/introduction">
     Learn about dashboard layouts, naming rules, and default seed configurations.
   </Card>
-  <Card title="CLI Dashboards & Widgets" icon="terminal" href="/cli/dashboards-and-widgets">
-    Explore the full command-line reference for managing dashboards and widgets.
+  <Card title="TraceRoot CLI" icon="terminal" href="/cli/get-started">
+    Explore the command-line reference for reading and managing project resources.
   </Card>
 </CardGroup>

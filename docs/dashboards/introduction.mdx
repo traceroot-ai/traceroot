@@ -15,9 +15,9 @@ The Default dashboard includes eight pre-configured widgets:
 
 - **Trace count**: A stat counter showing the total number of traces.
 - **Total cost**: A stat counter aggregating total LLM spend.
-- **Tokens**: A stat counter summing total token consumption across spans.
+- **Tokens**: A stat counter summing total token consumption.
 - **p95 latency**: A stat counter tracking the 95th percentile execution latency in milliseconds.
-- **Cost over time · by model**: A line chart breaking down cumulative cost across different LLM models over time.
+- **Cost over time · by model**: A line chart breaking down cost across different LLM models over time.
 - **Tokens by model**: A bar chart comparing total token usage grouped by model name.
 - **Recent traces**: A live trace feed widget displaying the latest 10 traces.
 - **Recent failures**: A filtered trace feed widget showing the latest 10 traces that recorded errors (`errors > 0`).
@@ -77,7 +77,7 @@ curl -X POST https://app.traceroot.ai/api/v1/public/dashboards \
   -H "Authorization: Bearer $TRACEROOT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_91a0c8b21e054fbb8b1234567890abcd",
+    "project_id": "9f2a7c14-3b8e-4d61-9a05-7e1c2f4b8d30",
     "name": "Production Agent Metrics",
     "description": "Real-time cost, token, and latency metrics for customer support agents"
   }'
@@ -97,7 +97,7 @@ traceroot dashboards create \
   <Card title="Widgets" icon="chart-mixed" href="/dashboards/widgets">
     Learn how to build query widgets, configure display types, set time ranges, and use trace feeds.
   </Card>
-  <Card title="CLI Dashboards & Widgets" icon="terminal" href="/cli/dashboards-and-widgets">
+  <Card title="TraceRoot CLI" icon="terminal" href="/cli/get-started">
     Manage dashboards and widgets directly from the command line.
   </Card>
 </CardGroup>
