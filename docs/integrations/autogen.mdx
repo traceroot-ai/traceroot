@@ -10,7 +10,7 @@ Automatically capture agent loops, message histories, and tool executions within
 This integration instruments [AG2](https://github.com/ag2ai/ag2), the community-maintained continuation that provides the `autogen` package:
 
 ```bash
-pip install traceroot "ag2[gemini]"
+pip install traceroot "ag2[gemini]>=0.14.0,<1.0"
 ```
 
 Microsoft's newer `autogen-agentchat` package uses a different API and is not currently supported by this integration.

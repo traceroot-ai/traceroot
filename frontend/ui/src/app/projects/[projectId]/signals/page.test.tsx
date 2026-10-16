@@ -14,6 +14,7 @@ const list = vi.hoisted(() => ({
   dateFilter: { id: "7d", isCustom: false },
   customStartDate: null as Date | null,
   customEndDate: null as Date | null,
+  meta: { page: 0, limit: 50, total: 0 },
 }));
 const detectorNames = vi.hoisted(() => ({ data: [] as { id: string; name: string }[] }));
 // Captures the filter fields the page builds, to check the Detector field's options.
@@ -31,8 +32,10 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
       customStartDate: list.customStartDate,
       customEndDate: list.customEndDate,
       filters: list.filters,
+      page: 2,
+      limit: 100,
     },
-    queryOptions: { page: 0, limit: 50, filters: list.filters },
+    queryOptions: { page: 2, limit: 100, filters: list.filters },
     updateFilters: list.updateFilters,
     updateDateFilter: vi.fn(),
     updateCustomRange: vi.fn(),
@@ -51,7 +54,7 @@ vi.mock("@/features/detectors/hooks/use-detectors", () => ({
 }));
 vi.mock("@/ee/features/signals/hooks", () => ({
   useSignals: () => ({
-    data: { data: [], meta: { page: 0, limit: 50, total: 0 } },
+    data: { data: [], meta: list.meta },
     isLoading: false,
     error: null,
   }),
@@ -89,7 +92,11 @@ vi.mock("@/features/filters/trace-search-filter-input", () => ({
   },
 }));
 vi.mock("@/components/date-filter-select", () => ({ DateFilterSelect: () => null }));
-vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
+vi.mock("@/components/list-pagination", () => ({
+  ListPagination: ({ page, limit }: { page: number; limit: number }) => (
+    <div data-testid="pager">{`page ${page} limit ${limit}`}</div>
+  ),
+}));
 
 import SignalsPage from "./page";
 
@@ -106,6 +113,7 @@ afterEach(() => {
   list.dateFilter = { id: "7d", isCustom: false };
   list.customStartDate = null;
   list.customEndDate = null;
+  list.meta = { page: 0, limit: 50, total: 0 };
 });
 
 const setup = (over: Record<string, number> = {}) => ({
@@ -226,5 +234,14 @@ describe("Signals page detector filter options", () => {
     ]);
     const detectorField = fields.find((f) => f.field === "detector");
     expect(detectorField?.enum_values).toEqual(["alpha", "Beta"]);
+  });
+});
+
+describe("Signals page pagination", () => {
+  it("drives the pager from the client page state, not the server's echo", () => {
+    // meta.page/limit are the previous query's echo while placeholder data is shown.
+    list.meta = { page: 0, limit: 50, total: 500 };
+    render(<SignalsPage />);
+    expect(screen.getByTestId("pager").textContent).toBe("page 2 limit 100");
   });
 });

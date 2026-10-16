@@ -302,6 +302,32 @@ describe("SessionManager.buildContext", () => {
     expect((context[2] as RestoredResult).content[0].text.length).toBeLessThanOrEqual(600);
   });
 
+  it("records a card read as shown, without claiming its text survived", async () => {
+    mocks.findUnique.mockResolvedValue({
+      id: "s1",
+      messages: [
+        row("1", "user", "show me the overview dashboard"),
+        row("2", "tool_step", "", {
+          metadata: {
+            toolCallId: "t1",
+            toolName: "get_dashboard_data",
+            args: { dashboard_id: "d1" },
+            result: { details: { kind: "dashboard_read", dashboard: { id: "d1" } } },
+            isError: false,
+          },
+        }),
+      ],
+    });
+
+    const context = await new SessionManager("s1").buildContext();
+
+    const [outcome] = context.filter((m) => m.role === "toolResult").map(outcomeOf);
+    expect(outcome).toEqual({
+      status: "completed",
+      note: "shown to the user as a card; the result text was not persisted",
+    });
+  });
+
   it("degrades a tool_step with absent or truncated metadata without inventing an outcome", async () => {
     mocks.findUnique.mockResolvedValue({
       id: "s1",
