@@ -51,6 +51,11 @@ interface TraceViewerPanelProps {
   autoOpenRca?: boolean;
   /** When true, the panel mounts already expanded to full width (e.g. opened in a new tab). */
   initialFullscreen?: boolean;
+  /**
+   * Width of the overlay when not fullscreen; defaults to 70% of the viewport. A
+   * narrower value lets the panel the trace was opened from show beneath it.
+   */
+  overlayWidthClassName?: string;
   /** Span to select once the trace loads — the deep link behind a chat tool step's "Open span". */
   initialSpanId?: string;
   /**
@@ -69,6 +74,11 @@ interface TraceViewerPanelProps {
    * detector tab.
    */
   newTabPath?: string;
+  /**
+   * More query parameters the new tab keeps, such as the list's filters and
+   * page, so the page it reopens still holds the row this trace came from.
+   */
+  newTabParams?: Record<string, string>;
   /**
    * When provided, this trace is used directly instead of fetching it, and the
    * live SSE stream + detector-findings lookups are disabled. Lets the
@@ -112,8 +122,7 @@ interface TraceViewerPanelProps {
   headerIdentity?: { label: string; value: string };
   /**
    * A badge rendered in the main header, immediately left of the navigation
-   * buttons — the same spot the findings "Alert" tag uses. offline-eval puts the
-   * test case's outcome (Passed / Did not pass / Errored) here. Unset in production.
+   * buttons. offline-eval puts the test case's outcome (Passed / Did not pass / Errored) here. Unset in production.
    */
   headerStatus?: ReactNode;
   /**
@@ -178,9 +187,11 @@ export function TraceViewerPanel({
   customEndDate,
   autoOpenRca,
   initialFullscreen,
+  overlayWidthClassName,
   embedded,
   initialSpanId,
   newTabPath,
+  newTabParams,
   traceOverride,
   hideDetectors,
   spanActions,
@@ -239,15 +250,11 @@ export function TraceViewerPanel({
 
   const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
 
-  // Detector findings → Alert button + auto-open RCA chat when entered from
-  // the findings page. The trace-level finding (at most one per trace) carries
-  // the RCA session the worker already populated. The Alert button opens that
-  // analysis, so it only renders when an RCA record exists — a finding from an
-  // RCA-disabled detector has no analysis to open (gate on the record, not the
-  // sessionId, so the button doesn't flicker while the RCA is still pending).
-  // With an override we render hardcoded data and touch no network: disable the
-  // findings lookup (empty id), the trace fetch, and the live SSE stream. The
-  // lookup is also skipped for an internal trace opened directly (a detector
+  // Detector findings → auto-open the RCA chat when entered from the findings
+  // page. The trace-level finding (at most one per trace) carries the RCA
+  // session the worker already populated. With an override we render hardcoded
+  // data and touch no network: disable the findings lookup (empty id), the
+  // trace fetch, and the live SSE stream. The lookup is also skipped for an internal trace opened directly (a detector
   // self-trace, an agent trace): detectors never target those, so the answer
   // is always empty.
   const { data: traceFindingsData } = useTraceFindings(
@@ -256,7 +263,6 @@ export function TraceViewerPanel({
   );
   const traceFinding = traceFindingsData?.findings?.[0];
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
-  const hasRca = !!traceFinding && !!rcaData?.rca;
   const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
 
   // Detectors never target internal traces (the judge's read asserts
@@ -420,7 +426,7 @@ export function TraceViewerPanel({
                 ? sidebarCollapsed
                   ? "top-14 w-[calc(100%-3.5rem)]"
                   : "top-14 w-[calc(100%-12rem)]"
-                : "top-0 w-[70%]",
+                : cn("top-0", overlayWidthClassName ?? "w-[70%]"),
             ),
       )}
     >
@@ -446,22 +452,6 @@ export function TraceViewerPanel({
           </div>
           <div className="flex items-center gap-1">
             {headerStatus}
-            {hasRca && (
-              <button
-                type="button"
-                onClick={() => {
-                  // The customer trace: the assistant's tools read customer
-                  // traffic only, and the RCA chat is about the analyzed trace.
-                  setAiContext(traceOverride ? null : { traceId });
-                  setAiInitialSessionId(rcaSessionId);
-                  setAiPanelOpen(true);
-                }}
-                className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
-                title="Findings detected — open root cause analysis"
-              >
-                Alert
-              </button>
-            )}
             <Button
               variant="outline"
               size="sm"
@@ -508,8 +498,8 @@ export function TraceViewerPanel({
                       // reopen it as one instead of looking it up as an original.
                       extraParams:
                         source === "detector" || source === "agent"
-                          ? { traceId: traceId, fullscreen: "1", source: source }
-                          : { traceId: traceId, fullscreen: "1" },
+                          ? { ...newTabParams, traceId: traceId, fullscreen: "1", source: source }
+                          : { ...newTabParams, traceId: traceId, fullscreen: "1" },
                     }),
                     "_blank",
                   )
@@ -531,7 +521,8 @@ export function TraceViewerPanel({
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  // The customer trace id on purpose (see the Alert button).
+                  // The customer trace: the assistant's tools read customer
+                  // traffic only.
                   setAiContext(traceOverride ? null : { traceId });
                   // Bot button always opens a fresh chat; an active RCA session
                   // would otherwise hijack the next message into the worker's
@@ -666,8 +657,8 @@ export function TraceViewerPanel({
                       {(source === "detector" || source === "agent") &&
                       (!error || (error instanceof ApiError && error.status === 404)) ? (
                         source === "agent" ? (
-                          // Every way into an agent trace — the Alert chip, a Finding ID
-                          // cell, a tool step's Open span — gates on the execution's
+                          // Every way into an agent trace — a Finding ID cell, a tool
+                          // step's Open span — gates on the execution's
                           // traceStatus being "available", i.e. the agent already reported
                           // a successful export. So a 404 here is ingest lag, never a
                           // failed export, and the detector run's timestamp window below

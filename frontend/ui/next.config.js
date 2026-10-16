@@ -15,10 +15,39 @@ function resolveAppVersion() {
   }
 }
 
+// Sent on every response, static assets included. Browsers ignore HSTS on
+// plain-HTTP responses, so local and HTTP-only self-hosted setups are unaffected,
+// and it leaves out includeSubDomains so a self-hosted deployment never pins the
+// operator's other subdomains to HTTPS. Nothing embeds the app, so no page may
+// be framed, and the app uses no camera, microphone or location, so no page may
+// ask for them.
+const securityHeaders = [
+  { key: "Strict-Transport-Security", value: "max-age=63072000" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+];
+
+// API responses carry account and trace data, so neither the browser nor a
+// proxy may keep a copy. This is the value Next.js sends on dynamically rendered
+// pages.
+const apiCacheHeaders = [
+  { key: "Cache-Control", value: "private, no-cache, no-store, max-age=0, must-revalidate" },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
+  // Don't advertise the framework in an X-Powered-By header.
+  poweredByHeader: false,
+  async headers() {
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/api/:path*", headers: apiCacheHeaders },
+    ];
+  },
   env: {
     NEXT_PUBLIC_APP_VERSION: resolveAppVersion(),
   },

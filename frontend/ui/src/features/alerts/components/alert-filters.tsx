@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import { FilterRow } from "@/features/dashboards/components/FilterRow";
+import { FilterRow, type FilterRowPatch } from "@/features/dashboards/components/FilterRow";
 import { useWidgetSchema } from "@/features/dashboards/hooks/use-widget-data";
 import type { WidgetSchemaField } from "@/features/dashboards/types";
+import { ALERT_FILTER_OPERATORS_BY_FIELD } from "@traceroot/core";
 import { ALERT_FILTER_FIELDS, EMPTY_ALERT_FILTER, type AlertFilter } from "../rule-model";
 import { FILTER_VALUE_LOOKBACK_MS } from "../preview";
 
@@ -32,8 +33,14 @@ export function AlertFilters({ projectId, filters, onFiltersChange }: AlertFilte
     () =>
       ALERT_FILTER_FIELDS.flatMap((key) => {
         const meta = spansFields?.[key];
-        return meta && meta.filterOps.length > 0
-          ? [[key, meta] as [string, WidgetSchemaField]]
+        if (!meta) return [];
+        // The engine filters on more operators than an alert stores (`in`), so
+        // the row offers only the ones the alert API accepts for the field.
+        const filterOps = meta.filterOps.filter((op) =>
+          (ALERT_FILTER_OPERATORS_BY_FIELD[key] as readonly string[]).includes(op),
+        );
+        return filterOps.length > 0
+          ? [[key, { ...meta, filterOps }] as [string, WidgetSchemaField]]
           : [];
       }),
     [spansFields],
@@ -50,8 +57,12 @@ export function AlertFilters({ projectId, filters, onFiltersChange }: AlertFilte
     return { start: new Date(end.getTime() - FILTER_VALUE_LOOKBACK_MS), end };
   });
 
-  const handleChange = (index: number, patch: Partial<AlertFilter>) => {
-    onFiltersChange(filters.map((f, i) => (i === index ? { ...f, ...patch } : f)));
+  // The row offers no `in` here (see filterableFields), so no patch carries a
+  // list value and every patch is an alert filter's.
+  const handleChange = (index: number, patch: FilterRowPatch) => {
+    onFiltersChange(
+      filters.map((f, i) => (i === index ? { ...f, ...(patch as Partial<AlertFilter>) } : f)),
+    );
   };
 
   const handleRemove = (index: number) => {
