@@ -298,14 +298,16 @@ describe("OnboardingPage", () => {
 
     expect(mocks.push).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Setup" })).toBeDefined();
-    // The real walkthrough, rendered rather than reimplemented: its own
-    // numbered steps, the key block and the integration picker, carrying the
-    // project this run just created.
-    expect(screen.getByText("1. Create an API key")).toBeDefined();
+    // The real walkthrough, rendered rather than reimplemented: its own steps,
+    // the key block and the integration picker, carrying the project this run
+    // just created. Matched without the step numbers — inserting a step into
+    // the walkthrough renumbers the ones below it, and that is not this page's
+    // business.
+    expect(screen.getByText(/Create an API key/)).toBeDefined();
     expect(screen.getByTestId("api-key-block")).toBeDefined();
-    expect(screen.getByText("3. Select your integration")).toBeDefined();
+    expect(screen.getByText(/Select your integration/)).toBeDefined();
     expect(screen.getByRole("radio", { name: "OpenAI" })).toBeDefined();
-    expect(screen.getByText("5. External integrations")).toBeDefined();
+    expect(screen.getByText(/External integrations/)).toBeDefined();
     // And the terminal is no longer what is being asked of this user, so the
     // frame stops saying it is.
     expect(
