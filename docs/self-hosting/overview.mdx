@@ -27,7 +27,7 @@ TraceRoot is structured as a collection of specialized microservices defined in 
 ### Critical Dependency: Alerting Runs in the Detector Service
 
 The `detector` service is not only responsible for LLM evaluations—it also powers TraceRoot's alerting engine:
-- It starts four BullMQ worker consumers: `detector run`, `detector RCA`, `detector digest`, and `alert notification`.
+- It starts five BullMQ worker consumers: `detector run`, `detector RCA`, `detector digest`, `signal assignment`, and `alert notification`.
 - It runs the once-a-minute alert scheduler tick (`startAlertScheduler()`).
 - Setting `ALERTS_SCHEDULER_ENABLED=false` or stopping the `detector` container stops alert evaluations and outbound notifications immediately.
 

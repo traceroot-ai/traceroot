@@ -9,7 +9,7 @@ For scalable production deployments, TraceRoot provides an official Helm chart m
 
 ## Helm Chart Overview
 
-The current stable release is **v1.1.0**.
+The current stable release is **v1.1.1**.
 
 ### Key Infrastructure Model
 
@@ -49,7 +49,7 @@ kubectl create secret generic traceroot \
   --from-literal=encryption-key="$(openssl rand -hex 32)"
 ```
 
-Enabling the SQL gateway needs two more keys in the same Secret, `clickhouse-writer-password` and `clickhouse-ro-password`.
+Enabling the SQL gateway needs one more key in the same Secret, `clickhouse-ro-password`. The writer owns the curated views, but the provisioning hook generates its password and never stores it, so there is no writer key to supply.
 
 ### 3. Prepare `values.yaml`
 
