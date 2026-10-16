@@ -121,7 +121,7 @@ Once initialized, every `generateText` / `streamText` call, model call, and tool
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `ai.generateText` (or your configured `functionId` such as `weather_agent`).
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `ai.generateText`. `functionId` sets a telemetry attribute on the span; it does not rename it.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
