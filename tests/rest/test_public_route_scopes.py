@@ -99,6 +99,7 @@ EXPECTED_ROUTE_SCOPES = (
     ("POST", "/api/v1/public/projects", "user", "n/a"),
     ("DELETE", "/api/v1/public/projects/{project_id}", "user", "n/a"),
     ("PATCH", "/api/v1/public/projects/{project_id}", "user", "n/a"),
+    ("POST", "/api/v1/public/projects/{project_id}/api-keys", "user", "n/a"),
     ("GET", "/api/v1/public/sessions", "key-or-user", "ingest"),
     ("GET", "/api/v1/public/sessions/{session_id}", "key-or-user", "ingest"),
     ("POST", "/api/v1/public/sql", "key-or-user", "ingest"),
