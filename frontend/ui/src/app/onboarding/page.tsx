@@ -19,6 +19,7 @@ import { Check } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { CliHandbackStep } from "@/features/onboarding/components/cli-handback-step";
 import { ManualSetupStep } from "@/features/onboarding/components/manual-setup-step";
+import { useProjectTraceWait } from "@/features/onboarding/use-project-trace-wait";
 import { cn } from "@/lib/utils";
 
 const onboardingSchema = z.object({
@@ -208,6 +209,22 @@ function OnboardingContent() {
       router.push(addProjectUrl);
     }
   }, [setupComplete, addProjectUrl, returnTo, router]);
+
+  // Watch the project this page just made for the run's first trace. Starts
+  // with the hand-back step and keeps going across the manual one, because both
+  // are steps about getting that trace sent.
+  //
+  // Reads only, and nothing waits on it: the command on screen is correct
+  // whether or not this tab is still open, and closing the tab — or never
+  // running the command at all — leaves the account exactly as it is. A run
+  // that was already under way in a terminal never gets here, because the page
+  // hands such a caller straight back (see `handleSubmit`), so this only ever
+  // watches a project whose own setup is still ahead of it.
+  const traceWait = useProjectTraceWait(
+    !!createdProject,
+    createdProject?.id ?? null,
+    session?.user?.id ? { id: session.user.id, email: session.user.email } : undefined,
+  );
 
   const defaultWorkspace = getDefaultWorkspaceName(session?.user?.email);
 
@@ -409,6 +426,7 @@ function OnboardingContent() {
                   // unlike the workspace list, it has something to say to an
                   // account whose only project is empty.
                   onDone={() => router.push(`/projects/${createdProject.id}/traces`)}
+                  wait={traceWait}
                 />
               ) : (
                 <CliHandbackStep
@@ -427,6 +445,7 @@ function OnboardingContent() {
                   // routes this user back here, and nothing shows them a project
                   // they cannot open.
                   onSkip={() => router.push("/workspaces")}
+                  wait={traceWait}
                 />
               )
             ) : (
