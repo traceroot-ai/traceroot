@@ -1,0 +1,109 @@
+---
+title: Traces
+description: List, inspect, and export execution traces
+---
+
+The `traces` command group lets you query, inspect, and export execution traces captured by TraceRoot SDKs and integrations.
+
+## Commands
+
+### `traceroot traces list`
+
+List traces for your project, sorted newest first.
+
+```bash
+traceroot traces list [options]
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--limit <n>` | number | Maximum number of traces to return (default: `50`, max `200`) |
+| `--since <duration>` | string | Filter traces within a relative duration (e.g. `1h`, `24h`, `7d`) |
+| `--from <iso-date>` | string | Start of the time range in ISO 8601 format |
+| `--to <iso-date>` | string | End of the time range in ISO 8601 format |
+| `--project <id>` | string | Project ID (required when using browser login) |
+| `--json` | boolean | Output raw JSON data |
+
+```bash
+# List the last 10 traces
+traceroot traces list --limit 10
+
+# List traces captured in the past 2 hours
+traceroot traces list --since 2h
+
+# Filter traces within an explicit UTC time window
+traceroot traces list \
+  --from 2026-06-23T14:00:00Z \
+  --to 2026-06-23T20:00:00Z
+
+# Extract trace IDs using jq
+traceroot traces list --since 24h --json | jq -r '.data[].trace_id'
+```
+
+### `traceroot traces get <trace-id>`
+
+Fetch and display a single trace by ID, showing its span hierarchy, duration breakdown, and deep link to TraceRoot Cloud. The required `<trace-id>` is the unique 32-character hexadecimal identifier of the trace.
+
+```bash
+traceroot traces get <trace-id> [options]
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--fields <groups>` | string | Projection groups to retrieve: `skeleton` (default), `full`, or comma-separated `io`, `metadata` |
+| `--project <id>` | string | Project ID (required when using browser login) |
+| `--json` | boolean | Emit the complete trace record as JSON to stdout |
+
+The projection groups are:
+
+- **`skeleton` (default)**: Retrieves the span tree hierarchy, operation names, durations, statuses, and service/model identifiers without fetching large input/output payloads. Keeps responses fast and compact.
+- **`full` (or `--fields io,metadata`)**: Fetches complete span attributes, including raw LLM prompts, completions, tool call arguments, outputs, and custom user attributes.
+
+```bash
+# View the span tree skeleton
+traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef
+
+# View full span inputs, outputs, and metadata (only emitted with --json)
+traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef --fields full --json
+
+# Extract all error messages within spans using jq
+traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef --json | \
+  jq '.spans[] | select(.status == "ERROR") | {name, status_message}'
+```
+
+### `traceroot traces export <trace-id>`
+
+Export an entire trace bundle to a local directory. This is useful for archiving, offline evaluations, sharing reproducible bug reports, or feeding test fixtures into AI coding agents. The required `<trace-id>` is the identifier of the trace to export.
+
+```bash
+traceroot traces export <trace-id> [options]
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--output <dir>` | string | Destination directory for the bundle (default: `./trace_<trace-id>_<timestamp>`) |
+| `--force` | boolean | Write into the destination even when it is already non-empty |
+| `--fields <groups>` | string | Projection to export: `full` (default) or `skeleton` |
+| `--project <id>` | string | Project ID (required when using browser login) |
+
+A trace bundle directory contains four JSON files, plus a fifth when a detector flagged the trace:
+
+```text
+trace_99224be337d725fd5e8f2e7b45dc22ef_20261013T094500Z/
+├── trace.json          # Root trace metadata, duration, start/end timestamps, tags
+├── spans.json          # Array of all spans with parent-child relationships and attributes
+├── git_context.json    # Commit hash, branch, remote repository, and dirty state (if captured)
+├── finding.json        # The detector finding — only written when the trace was flagged
+└── manifest.json       # bundle_version, project_id, trace_id, and the file list
+```
+
+```bash
+# Export the full trace bundle to a custom directory
+traceroot traces export 99224be337d725fd5e8f2e7b45dc22ef --output ./debug-trace
+
+# Write into a directory that already has files in it
+traceroot traces export 99224be337d725fd5e8f2e7b45dc22ef --output ./debug-trace --force
+
+# Export only the skeleton projection
+traceroot traces export 99224be337d725fd5e8f2e7b45dc22ef --fields skeleton --output ./skeleton-trace
+```

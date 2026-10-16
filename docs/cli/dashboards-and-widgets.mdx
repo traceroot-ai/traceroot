@@ -1,0 +1,186 @@
+---
+title: Dashboards & Widgets
+description: Manage custom metric dashboards and query widgets
+---
+
+TraceRoot lets you organize analytical visualizations into custom dashboards composed of modular widgets. You can manage dashboard structures and query widget data directly through the CLI.
+
+## Dashboards
+
+### `traceroot dashboards list`
+
+List all dashboards in your project.
+
+```bash
+traceroot dashboards list [options]
+```
+
+```bash
+traceroot dashboards list
+```
+
+`dashboards list` has no custom renderer, so its columns are the response keys in schema order — `ID`, `NAME`, `DESCRIPTION`, `IS DEFAULT`, `CREATOR`, `CREATE TIME`, `UPDATE TIME`, `WIDGET COUNT`:
+
+```text
+ID                         NAME                      DESCRIPTION  IS DEFAULT  CREATOR  CREATE TIME           UPDATE TIME           WIDGET COUNT
+cm2k7p9x40000qz8rn3f1i7bd  LLM Performance Overview                false       Alice    2026-09-14T08:12:04Z  2026-10-01T11:40:55Z  6
+cm2k8r1a70001qz8rv5g2k4ce  Agent Cost & Errors                     false       Alice    2026-09-20T15:03:19Z  2026-09-28T09:21:02Z  4
+```
+
+### `traceroot dashboards get <id>`
+
+Inspect a dashboard's metadata and the list of widgets it contains.
+
+```bash
+traceroot dashboards get <dashboard-id> [options]
+```
+
+```bash
+traceroot dashboards get cm2k7p9x40000qz8rn3f1i7bd
+```
+
+### `traceroot dashboards create`
+
+Create a new dashboard.
+
+```bash
+traceroot dashboards create --from-file <path> [options]
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--from-file <path>` | string | Path to JSON file (or `-` for stdin) |
+| `--name <string>` | string | Name of the dashboard |
+| `--description <string>` | string | Optional description |
+| `--project <id>` | string | Project ID (required when using browser login) |
+
+```bash
+traceroot dashboards create --name "Production Agent Health" --description "Real-time metrics for customer support agents"
+```
+
+### `traceroot dashboards update <id>`
+
+Rename a dashboard or update its description.
+
+```bash
+traceroot dashboards update <dashboard-id> [options]
+```
+
+```bash
+traceroot dashboards update cm2k7p9x40000qz8rn3f1i7bd --name "Support Agent V2 Metrics"
+```
+
+### `traceroot dashboards delete <id>`
+
+Permanently delete a dashboard and all widgets associated with it.
+
+```bash
+traceroot dashboards delete <dashboard-id> --reason <text>
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--reason <text>` | string | *(Required)* Audit justification |
+
+```bash
+traceroot dashboards delete cm2k7p9x40000qz8rn3f1i7bd --reason "Superseded by global dashboard"
+```
+
+## Widgets
+
+Widgets represent individual charts, counters, or tables anchored to a specific dashboard.
+
+### `traceroot widgets create`
+
+Add a new widget to an existing dashboard.
+
+```bash
+traceroot widgets create --from-file <path> [options]
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--from-file <path>` | string | Path to JSON definition |
+| `--dashboard-id <id>` | string | Target dashboard ID |
+| `--title <string>` | string | Widget title |
+| `--type <string>` | string | Widget type (`timeseries`, `counter`, `table`, `bar`) |
+| `--spec <json-string>` | string | Query specification defining metrics, dimensions, and filters |
+
+Define a widget in `latency_widget.json`:
+
+```json
+{
+  "dashboard_id": "cm2k7p9x40000qz8rn3f1i7bd",
+  "title": "P95 Latency by Model",
+  "type": "timeseries",
+  "spec": {
+    "metric": "duration_ms",
+    "aggregation": "p95",
+    "group_by": ["model_name"]
+  }
+}
+```
+
+```bash
+traceroot widgets create --from-file latency_widget.json
+```
+
+### `traceroot widgets get <id>`
+
+Inspect a saved widget, including its title, type, and exact query specification.
+
+```bash
+traceroot widgets get <widget-id>
+```
+
+```bash
+traceroot widgets get cm2k7qa1b0002qz8rt6h2j9df
+```
+
+### `traceroot widgets data <id>`
+
+Execute a saved widget's query specification over a specific time window and print the computed results without re-sending the spec.
+
+```bash
+traceroot widgets data <widget-id> [options]
+```
+
+| Flag | Type | Description |
+| :--- | :--- | :--- |
+| `--range <preset>` | string | Time range preset: `30m`, `1h`, `3h`, `6h`, `1d`, `7d`, `14d`, `30d`, `60d`, `90d` |
+| `--start-time <iso>` | string | Custom window start timestamp |
+| `--end-time <iso>` | string | Custom window end timestamp |
+| `--json` | boolean | Output raw aggregated data points as JSON |
+
+```bash
+# Fetch widget data for the past day
+traceroot widgets data cm2k7qa1b0002qz8rt6h2j9df --range 1d
+```
+
+### `traceroot widgets update <id>`
+
+Update a widget's title, query specification, or display settings.
+
+```bash
+traceroot widgets update <widget-id> [options]
+```
+
+<Warning>
+  Supplying `--spec` replaces the entire existing query specification.
+</Warning>
+
+```bash
+traceroot widgets update cm2k7qa1b0002qz8rt6h2j9df --title "Median & P95 Latency"
+```
+
+### `traceroot widgets delete <id>`
+
+Permanently remove a widget from its dashboard.
+
+```bash
+traceroot widgets delete <widget-id> --reason <text>
+```
+
+```bash
+traceroot widgets delete cm2k7qa1b0002qz8rt6h2j9df --reason "No longer tracked"
+```

@@ -1,0 +1,43 @@
+---
+title: Introduction
+description: Overview of the TraceRoot CLI
+---
+
+The TraceRoot CLI (`traceroot-cli`) brings the full capabilities of TraceRoot to your terminal. It allows developers, CI/CD pipelines, and AI coding agents (such as Claude Code, Cursor, and Codex) to inspect traces, manage detectors and findings, query telemetry using analytical SQL, configure alerts, and install agent skills directly from the command line.
+
+Full source code lives in the [`traceroot-cli`](https://github.com/traceroot-ai/traceroot-cli) repository. Install it, sign in, and run your first commands in [Get Started](/cli/get-started).
+
+## Key capabilities
+
+- **Trace inspection & export**: List recent traces, inspect detailed span hierarchies and I/O payloads, and export portable trace bundles to disk for offline evaluation and debugging.
+- **Continuous quality & failure detection**: List, create, and manage detectors and inspect detector findings with full root cause analysis (RCA).
+- **Alerts & dashboards**: View, configure, and manage threshold alerts and custom dashboard widgets.
+- **Analytical SQL engine**: Run fast, read-only SQL queries over spans and traces using ClickHouse analytical syntax.
+- **AI agent tooling**: Install first-party agent skills into Claude Code, Codex, or generic agent directories, generate instrumentation prompts with `instrument`, and verify your setup with `doctor`.
+- **Scriptable by design**: Predictable exit codes (0–5), a single-line JSON error contract on stderr, and native `--json` output across commands make the CLI ideal for automation with `jq` and shell pipelines.
+
+## Where to start
+
+<CardGroup cols={2}>
+  <Card title="Get Started" icon="play" href="/cli/get-started">
+    Step-by-step walkthrough of installation, login, and initial commands.
+  </Card>
+  <Card title="Authentication" icon="key" href="/cli/authentication">
+    Browser login vs API keys, 7-level credential precedence, and project scoping.
+  </Card>
+  <Card title="Traces" icon="route" href="/cli/traces">
+    Listing, inspecting span trees, and exporting trace bundles.
+  </Card>
+  <Card title="Detectors & Findings" icon="shield-check" href="/cli/detectors-and-findings">
+    Managing failure detectors and reviewing RCA findings.
+  </Card>
+  <Card title="SQL Queries" icon="database" href="/cli/sql">
+    Querying telemetry tables and schemas using SQL.
+  </Card>
+  <Card title="Scripting & CI" icon="terminal" href="/cli/scripting">
+    Exit codes, JSON output error envelopes, and `jq` automation.
+  </Card>
+  <Card title="Command Reference" icon="book" href="/cli/reference">
+    Comprehensive reference of all 50 commands, global flags, and environment variables.
+  </Card>
+</CardGroup>
