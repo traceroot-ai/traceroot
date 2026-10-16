@@ -10,18 +10,14 @@ Automatically capture module executions, signature predictions, and underlying L
 <Tabs>
   <Tab title="Python">
     ```bash
-    pip install "traceroot[dspy]" dspy
+    pip install "traceroot[dspy]"
     ```
   </Tab>
 </Tabs>
 
+The `dspy` extra brings in DSPy itself along with the OpenInference instrumentor that emits its spans.
+
 ## Set up
-
-Install TraceRoot with the DSPy extra. The extra includes DSPy and the OpenInference instrumentor that emits its spans.
-
-```bash
-pip install "traceroot[dspy]"
-```
 
 <Tabs>
   <Tab title="Python">
@@ -73,7 +69,7 @@ traceroot.flush()
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `ChainOfThought.forward` (or `Predict.forward` when invoking a predictor directly).
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `CoTQA.forward` — the outer module — with `ChainOfThought.forward` and `Predict(StringSignature).forward` nested beneath it.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured

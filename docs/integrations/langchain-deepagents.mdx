@@ -10,7 +10,7 @@ Automatically capture the full multi-agent hierarchy of [DeepAgents](https://git
 <Tabs>
   <Tab title="Python">
     ```bash
-    pip install traceroot deepagents langchain-core
+    pip install traceroot deepagents langchain-core langchain-anthropic
     ```
   </Tab>
   <Tab title="TypeScript">
@@ -116,7 +116,7 @@ Automatically capture the full multi-agent hierarchy of [DeepAgents](https://git
 ## Verify
 
 Run your code and confirm the trace arrives:
-1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `research_session` (when wrapped with `@observe`) or `supervisor.invoke`.
+1. **In the TraceRoot UI**: Navigate to **Tracing > Traces** in [TraceRoot Cloud](https://app.traceroot.ai). You should see a trace with root span `research_session`, the name passed to `observe`.
 2. **Via the CLI**: Run `traceroot traces list` to inspect your recent traces from the terminal.
 
 ## What gets captured
