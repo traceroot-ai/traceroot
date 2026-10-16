@@ -479,7 +479,12 @@ class SqlRequest(BaseModel):
 
 
 class SqlColumn(BaseModel):
-    """One column of a result, named and typed as ClickHouse reported it."""
+    """One column of a result, named and typed as ClickHouse reported it.
+
+    A result with no rows carries no metadata from the driver, so the service
+    asks the server to describe the statement it just ran. Either way the name
+    and the type are the server's own, so neither is ever absent.
+    """
 
     name: str
     type: str
