@@ -1,11 +1,9 @@
 ---
 title: Usage and Billing
-description: How AI runs, trace storage, and telemetry volume are metered and billed on TraceRoot Cloud
+description: How AI runs and ingested events are metered and billed on TraceRoot Cloud
 ---
 
-TraceRoot Cloud bills for usage across two primary dimensions: **AI Message Runs** and **Trace & Span Storage**.
-
-Understanding how these meters work helps you plan capacity, configure detector sampling rates, and optimize LLM monitoring costs.
+TraceRoot Cloud meters two dimensions: **AI message runs** and **events**. An event is one ingested trace or one ingested span, and the two are summed against your plan's allowance.
 
 ## Metered AI messages
 
@@ -21,22 +19,29 @@ TraceRoot meters AI workloads based on completed assistant execution runs. Three
 
 Scheduled detector digest summaries generated for Slack or email notifications are system-level operations and are **free of charge**. They do not count against your monthly AI message quota.
 
-### Multi-tool execution accounting
+### How chat runs are counted
 
-When an agent executes multiple tools during a turn (for example, reading a file, downloading traces, and checking git history), TraceRoot persists individual segments at each tool boundary.
+When an agent executes multiple tools during a turn (for example, reading a file, downloading traces, and checking git history), TraceRoot persists individual segments at each tool boundary. Only the final segment records usage tokens, so one completed `chat` turn counts as exactly **one run** however many intermediate tool calls it took.
 
-To ensure fair billing, **only the final segment of a run records usage tokens**. You are billed for exactly **one run per completed turn**, regardless of how many intermediate tool calls were required to answer your prompt.
+This rule is the `chat` meter only. The other two kinds take their counts from their own records: `rca` from the stored RCA runs, and `detector` from the `detector_runs` table in ClickHouse.
 
-## Trace and span storage
+## Event metering
 
-Storage consumption is calculated from the total number of unique traces and spans ingested and stored in ClickHouse during your billing period.
+Your event count for a billing period is every trace plus every span ingested in that period, whatever its origin.
 
-### Internal agent and detector traces count toward storage
+| Plan | Events included | Beyond the allowance |
+| :--- | :--- | :--- |
+| **Free** | 50,000 | Ingestion is blocked until you upgrade. |
+| **Starter** | 150,000 | $4 per 50,000 events. |
+| **Pro** | 150,000 | $4 per 50,000 events. |
+| **Enterprise** | Unlimited | Custom. |
 
-To keep your monitoring clean, customer-facing trace views and dashboard metrics return only `source = user` rows. The allow-list is deliberate: internal markers such as `agent` and `detector` are excluded, and so is any internal marker added later.
+### Internal agent and detector events count toward the total
+
+Customer-facing trace views and dashboard metrics return only `source = user` rows. The allow-list is deliberate: internal markers such as `agent` and `detector` are excluded, and so is any internal marker added later.
 
 <Warning>
-  While internal detector and agent traces do not appear in customer trace lists or dashboards, **they are stored in ClickHouse and count toward your workspace's total storage usage**. Storage calculations scan all ingested records regardless of origin.
+  Detector scans and agent analyses write traces and spans of their own. They never appear in your trace lists or dashboards, but they are ingested and **count toward your event total**. The billing tab reports them separately as **Platform events**.
 </Warning>
 
 ## System inference vs. BYOK (Bring Your Own Key)
@@ -54,7 +59,7 @@ Depending on your model configuration, inference costs are billed in one of two 
 ## Monitoring workspace usage
 
 Workspace administrators can view usage metrics in **Workspace Settings > Billing**. The figures come from an hourly billing job rather than live counters, and the tab shows a **Last updated** timestamp:
-- Total ingested traces and spans over the active billing cycle.
+- Ingested traces and spans over the active billing cycle, and their total.
 - Total AI message runs broken down by kind (`chat`, `rca`, `detector`).
 - Cost and token distributions categorized by model and provider.
 

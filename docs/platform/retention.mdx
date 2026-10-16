@@ -1,6 +1,6 @@
 ---
 title: Data Retention
-description: Understand subscription retention policies and configure custom project trace TTL
+description: Plan retention windows, query window clamping, and the per-project trace TTL field
 ---
 
 TraceRoot automatically manages query access to your telemetry in ClickHouse. Traces and spans are queryable only within the retention window, after which out-of-window reads are clamped or rejected.
@@ -24,7 +24,7 @@ A project carries a `trace_ttl_days` field intended to override the plan baselin
   `trace_ttl_days` is stored but not yet enforced. The query window is gated on the billing plan alone — `clamp_retention_window` reads the plan's retention days, and no read, clamp or delete path consults `trace_ttl_days`. Setting it does not move the window described under [Query window clamping](#query-window-clamping).
 </Warning>
 
-The field accepts an integer between **1 and 365 days**, and passing `null` resets the project's retention back to the workspace plan default. Changing project retention requires the **ADMIN** role in the project's workspace. `PATCH /api/v1/public/projects/{id}` is user-only: a project API key (`tr-` prefix) is rejected with `403`, so these calls need a user session token.
+The field accepts an integer between **1 and 365 days**, and passing `null` resets the project's retention back to the workspace plan default. Changing project retention requires the **ADMIN** role in the project's workspace. `PATCH /api/v1/public/projects/{id}` is user-only: a project API key (`tr-` prefix) is rejected with `403`, so these calls need a user session token or a CLI access JWT.
 
 ## Query window clamping
 
@@ -53,6 +53,6 @@ This prevents queries from failing or returning inaccurate partial aggregates wi
     Check API and ingestion rate limit thresholds across plan tiers.
   </Card>
   <Card title="Usage and Billing" icon="credit-card" href="/platform/usage-and-billing">
-    Learn how storage and AI message runs are calculated.
+    Learn how AI runs and ingested events are metered.
   </Card>
 </CardGroup>
