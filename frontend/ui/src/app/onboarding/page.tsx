@@ -18,6 +18,8 @@ import { resolveSetupNeed, onboardingUrlForSetup } from "@/lib/account-setup";
 import { Check } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { CliHandbackStep } from "@/features/onboarding/components/cli-handback-step";
+import { ManualSetupStep } from "@/features/onboarding/components/manual-setup-step";
+import { cn } from "@/lib/utils";
 
 const onboardingSchema = z.object({
   workspaceName: z.string().min(1, "Workspace name is required"),
@@ -98,6 +100,18 @@ function OnboardingContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
   const [createdProject, setCreatedProject] = useState<{ id: string; name: string } | null>(null);
+  // Which of the two post-creation steps is showing. Separate from
+  // `createdProject` rather than folded into one enum because that value is
+  // also what tells the rest of the page this account is no longer a candidate
+  // for the setup check below, and that has to stay true across both steps.
+  //
+  // "Set up manually" used to leave for the project's traces page, where this
+  // same walkthrough lives. It worked, and it surprised people: signing up had
+  // visibly ended somewhere in the middle, with no marker for where the flow
+  // stopped and the app began. So the walkthrough is shown here instead, in
+  // the frame the previous two steps used, and the user leaves when they say
+  // so.
+  const [manualSetup, setManualSetup] = useState(false);
 
   // Determine mode from query params
   const existingWorkspaceId = searchParams.get("workspaceId");
@@ -338,9 +352,20 @@ function OnboardingContent() {
     );
   }
 
+  // What this run has already done, said once and reused by both of the steps
+  // that follow the form.
+  const createdWhat = isProjectOnlyMode ? "Project" : "Workspace and project";
+  // One answer for the frame, the heading and the body, so a width can never
+  // describe a step that is not the one rendered.
+  const showManualStep = !!createdProject && manualSetup;
+
   return (
     <StandaloneFrame>
-      <div className="w-full max-w-md">
+      {/* The walkthrough is five numbered steps with code in them, so its step
+          gets a wider column than a two-field form needs. Same centred frame
+          either way — the point of keeping it is that the flow still visibly
+          has an end. */}
+      <div className={cn("w-full", showManualStep ? "max-w-2xl" : "max-w-md")}>
         {/* Header. The logo is here because the sidebar carried the only one on
             this page, and the shell it belonged to is gone — /auth and /device
             front their cards the same way, which is the run of screens this
@@ -350,9 +375,13 @@ function OnboardingContent() {
           <div>
             <h1 className="text-lg font-semibold">Setup</h1>
             <p className="text-[13px] text-muted-foreground">
-              {createdProject
-                ? `${isProjectOnlyMode ? "Project" : "Workspace and project"} created — the rest happens in your terminal`
-                : "Set up your workspace and first project"}
+              {/* "The rest happens in your terminal" stops being true the
+                  moment the user says they would rather it did not. */}
+              {showManualStep
+                ? `${createdWhat} created — add tracing to your application`
+                : createdProject
+                  ? `${createdWhat} created — the rest happens in your terminal`
+                  : "Set up your workspace and first project"}
             </p>
           </div>
         </div>
@@ -368,22 +397,38 @@ function OnboardingContent() {
         <Card>
           <CardContent className="p-4">
             {createdProject ? (
-              <CliHandbackStep
-                projectId={createdProject.id}
-                projectName={createdProject.name}
-                // The instrumentation half of "manually", which is what exists
-                // today: the getting-started panel on the project's own traces
-                // page. The provider half goes in front of this whole step, so
-                // this is the one line that moves when it arrives.
-                onSetUpManually={() => router.push(`/projects/${createdProject.id}/traces`)}
-                // Where an onboarded account with nobody waiting belongs, and
-                // the same place the already-onboarded check above sends one.
-                // Skipping leaves a workspace with a project in it, which is a
-                // finished account by every check the app makes — so nothing
-                // routes this user back here, and nothing shows them a project
-                // they cannot open.
-                onSkip={() => router.push("/workspaces")}
-              />
+              manualSetup ? (
+                <ManualSetupStep
+                  projectId={createdProject.id}
+                  onBack={() => setManualSetup(false)}
+                  // The project's own traces page, which is where the first trace
+                  // of the run they are about to instrument will land. It is also
+                  // the one page that keeps this same walkthrough on screen until
+                  // that trace arrives (see the traces page's getting-started
+                  // branch), so leaving half-way through loses nothing — and
+                  // unlike the workspace list, it has something to say to an
+                  // account whose only project is empty.
+                  onDone={() => router.push(`/projects/${createdProject.id}/traces`)}
+                />
+              ) : (
+                <CliHandbackStep
+                  projectId={createdProject.id}
+                  projectName={createdProject.name}
+                  // The instrumentation half of "manually", which is what exists
+                  // today: the getting-started panel's manual walkthrough, shown
+                  // as a step of this flow rather than navigated to. The provider
+                  // half goes in front of that step, so this stays the one line
+                  // that moves when it arrives.
+                  onSetUpManually={() => setManualSetup(true)}
+                  // Where an onboarded account with nobody waiting belongs, and
+                  // the same place the already-onboarded check above sends one.
+                  // Skipping leaves a workspace with a project in it, which is a
+                  // finished account by every check the app makes — so nothing
+                  // routes this user back here, and nothing shows them a project
+                  // they cannot open.
+                  onSkip={() => router.push("/workspaces")}
+                />
+              )
             ) : (
               <>
                 <div className="space-y-0">
