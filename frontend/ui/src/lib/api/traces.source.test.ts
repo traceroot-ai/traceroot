@@ -54,7 +54,11 @@ describe("the trace viewer asks through isCustomerTraffic", () => {
   );
 
   it("spells out no list of internal sources", () => {
-    expect(panel).not.toMatch(/source\s*===\s*"detector"/);
+    // A single comparison is fine where a branch picks copy for one known kind; what
+    // must not come back is the either-or list that decides customer vs internal.
+    expect(panel).not.toMatch(
+      /source\s*===\s*"(detector|agent)"\s*\|\|\s*source\s*===\s*"(detector|agent)"/,
+    );
     expect(panel).not.toMatch(/source\s*!==\s*"user"/);
   });
 

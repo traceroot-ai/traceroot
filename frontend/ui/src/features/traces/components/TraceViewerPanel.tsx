@@ -666,23 +666,30 @@ export function TraceViewerPanel({
                             This analysis trace has been exported but isn&rsquo;t ingested yet.
                             Check back in a moment.
                           </p>
-                        ) : // self_traced is set optimistically at emit time, and the SDK
-                        // export is batched, so the trace may not be ingested yet and a
-                        // 404 miss here is expected, not an error. A non-404 failure
-                        // still surfaces as a real error below. Once the export window
-                        // has passed, the stamp is stale: the export failed and nothing
-                        // will arrive, so say so instead of telling the user to keep
-                        // waiting.
-                        isSelfTracePending(runTimestamp) ? (
-                          <p className="text-sm text-muted-foreground">
-                            This detector run&rsquo;s trace is still being recorded. Check back in a
-                            moment.
-                          </p>
+                        ) : source === "detector" ? (
+                          // self_traced is set optimistically at emit time, and the SDK
+                          // export is batched, so the trace may not be ingested yet and a
+                          // 404 miss here is expected, not an error. A non-404 failure
+                          // still surfaces as a real error below. Once the export window
+                          // has passed, the stamp is stale: the export failed and nothing
+                          // will arrive, so say so instead of telling the user to keep
+                          // waiting.
+                          isSelfTracePending(runTimestamp) ? (
+                            <p className="text-sm text-muted-foreground">
+                              This detector run&rsquo;s trace is still being recorded. Check back in
+                              a moment.
+                            </p>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              No trace was recorded for this run — the self-trace export
+                              didn&rsquo;t reach the backend.
+                            </p>
+                          )
                         ) : (
-                          <p className="text-sm text-muted-foreground">
-                            No trace was recorded for this run — the self-trace export didn&rsquo;t
-                            reach the backend.
-                          </p>
+                          // Only the internal kinds above know why their trace can be
+                          // missing; any other internal source gets the plain error
+                          // rather than borrowing a detector run's copy.
+                          <p className="text-sm text-destructive">Error loading trace</p>
                         )
                       ) : (
                         <p className="text-sm text-destructive">Error loading trace</p>
