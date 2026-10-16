@@ -217,6 +217,9 @@ describe("free-plan lifetime usage", () => {
     expect(mocks.notify).not.toHaveBeenCalled();
     state.billingPlan = "free";
     await runBillingJob();
+    expect(mocks.findMany.mock.calls[1][0].include.projects.where).toEqual({
+      OR: [{ deleteTime: null }, { freeQuotaEligible: true, workspace: { billingPlan: "free" } }],
+    });
     expect(state.currentUsage.traces).toBe(50_005);
     expect(state.detectorBlocked).toBe(true);
   });

@@ -20,8 +20,15 @@ active projects and newly created projects are eligible, and remain eligible aft
 soft deletion. This avoids retroactively charging previously deleted projects,
 while also counting projects created and deleted between billing runs. The
 eligibility backfill and column addition run in one transaction, with a five-second
-lock timeout. If the migration times out, retry it after the blocking transaction
-finishes, before deploying the worker.
+lock timeout. If it times out, Prisma records the migration as failed, so
+`migrate deploy` alone will not retry it. After confirming the migration transaction
+rolled back and the blocking transaction has finished, run these commands from
+`frontend/packages/core` before deploying the worker:
+
+```bash
+pnpm exec prisma migrate resolve --rolled-back 20261015000000_lifetime_free_usage
+pnpm exec prisma migrate deploy
+```
 
 ## Accounting and verification
 
