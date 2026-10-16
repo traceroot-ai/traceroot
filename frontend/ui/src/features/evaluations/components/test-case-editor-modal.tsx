@@ -138,7 +138,7 @@ export function TestCaseEditorModal({
     mode.kind === "create"
       ? input.trim().length > 0
       : encodeEditedText(mode.input, input) !== encodeEditedText(mode.input, mode.input) ||
-        expected.trim() !== (mode.expected ?? "") ||
+        (expected !== (mode.expected ?? "") && expected.trim() !== (mode.expected ?? "")) ||
         // Both sides go through the seeded TEXT, so a case stored as `{}` (which `metadataToText`
         // renders blank) matches an untouched blank field instead of reading as an edit.
         metadataSignature(metadata) !== metadataSignature(seedMetadataText);

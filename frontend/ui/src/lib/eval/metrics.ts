@@ -8,7 +8,7 @@
  * completion is where the resolved manifest arrives and has to be folded in.
  */
 
-import { canonicalJson } from "./canonical";
+import { canonicalJson, LoneSurrogateError } from "./canonical";
 
 /**
  * Merge a resolved manifest (from completion) into the stored one, by definition name:
@@ -38,5 +38,12 @@ export function mergeScorerManifests(stored: unknown, incoming: unknown): unknow
  *  an idempotent replay (array element order is preserved: `mergeScorerManifests` keeps stored
  *  order, so a replay's merged manifest matches the stored one element-for-element). */
 export function scorerManifestsEqual(a: unknown, b: unknown): boolean {
-  return canonicalJson(a) === canonicalJson(b);
+  try {
+    return canonicalJson(a) === canonicalJson(b);
+  } catch (err) {
+    if (err instanceof LoneSurrogateError) {
+      return JSON.stringify(a) === JSON.stringify(b);
+    }
+    throw err;
+  }
 }

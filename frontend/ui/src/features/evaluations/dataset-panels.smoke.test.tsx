@@ -242,6 +242,7 @@ describe("Edit dataset panel", () => {
     const save = await screen.findByRole("button", { name: "Save" });
     const name = (await screen.findByLabelText("Name")) as HTMLInputElement;
     expect(name.value).toBe("Billing routing ");
+    expect(save.hasAttribute("disabled")).toBe(true);
 
     // Trimming the editor side enables Save because it normalizes stored whitespace.
     fireEvent.change(name, { target: { value: "Billing routing" } });
