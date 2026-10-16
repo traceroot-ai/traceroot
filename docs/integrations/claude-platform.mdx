@@ -22,11 +22,11 @@ Follow these steps in the Claude Console:
 | Setting | Value | Description |
 |---------|-------|-------------|
 | **OTLP endpoint URL** | `https://app.traceroot.ai` (or your self-hosted host) | The base URL of your TraceRoot instance. |
-| **OTLP traces endpoint URL** | `https://app.traceroot.ai/api/v1/public/traces` | Full URL for OTLP traces ingestion (found under **Advanced settings**). |
+| **OTLP traces endpoint URL** | `https://<your-traceroot-host>/api/v1/public/traces` | Full URL for OTLP traces ingestion (found under **Advanced settings**); use `app.traceroot.ai` for TraceRoot Cloud. |
 | **Headers** | `Authorization: Bearer <TRACEROOT_API_KEY>` | Your TraceRoot project API key. |
 
 > [!IMPORTANT]
-> The **OTLP traces endpoint URL** under **Advanced settings** must be set to the **full URL** (`https://app.traceroot.ai/api/v1/public/traces`), not a relative path. Do not use the default `/v1/traces` on Cloud: it returns a 307 redirect to sign-in, and Anthropic automatically disables any telemetry destination that receives a 3xx response.
+> The **OTLP traces endpoint URL** under **Advanced settings** must be set to the **full URL** (e.g. `https://app.traceroot.ai/api/v1/public/traces`), not a relative path. Do not use the default `/v1/traces` on Cloud: it returns a 307 redirect to sign-in, and Anthropic automatically disables any telemetry destination that receives a 3xx response.
 
 ### 3. Content Modes
 

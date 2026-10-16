@@ -112,12 +112,16 @@ def _format_input_with_system_instructions(input_messages: Any, system_instructi
 
 def _span_aggregates_child_usage(
     scope_name: str | None,
-    span_kind: str,
+    span_kind: SpanKind,
     attrs: dict[str, Any],
     span_name: str | None = None,
     otel_kind: int | str | None = None,
     trace_has_model_request: bool = False,
     trace_has_api_spans: bool = False,
+    is_model_request_parent: bool = False,
+    is_server_span_parent: bool = False,
+    has_any_model_request_parents: bool = False,
+    has_any_server_parents: bool = False,
 ) -> bool:
     """Check whether a span restates the token usage of its model-call children.
 
@@ -129,6 +133,10 @@ def _span_aggregates_child_usage(
         otel_kind (int | str | None): OTel span kind.
         trace_has_model_request (bool): Whether anthropic.model_request is present for this trace.
         trace_has_api_spans (bool): Whether Claude Platform API spans exist for this trace.
+        is_model_request_parent (bool): Whether this span is the parent of an anthropic.model_request span.
+        is_server_span_parent (bool): Whether this span is the parent of an API SERVER span.
+        has_any_model_request_parents (bool): Whether any model_request span in the batch declared a parent.
+        has_any_server_parents (bool): Whether any server span in the batch declared a parent.
 
     Returns:
         bool: True when the span's token counts duplicate its children's and must
@@ -148,8 +156,11 @@ def _span_aggregates_child_usage(
     #    anthropic.model_request children, never both. In Claude Platform export,
     #    anthropic.model_request carries the LLM execution counts and messages.create
     #    (SERVER) is the endpoint wrapper that duplicates those tokens.
+    #    When model_request child spans are present, the parent messages.create wrapper
+    #    aggregates usage and is suppressed. For SERVER-only exports where no model_request
+    #    child exists, the SERVER span carries the authoritative usage and is retained.
     #    SDK-only traffic emits CLIENT anthropic.messages.create with no API spans;
-    #    its usage must NOT be suppressed unless API spans are present for the request.
+    #    its usage must NOT be suppressed unless API spans are present for that request.
     s_name = (span_name or str_attr(attrs.get("name")) or "").lower()
     if s_name:
         if s_name == "anthropic.session.turn":
@@ -158,12 +169,19 @@ def _span_aggregates_child_usage(
             if s_name not in ("anthropic.model_request", "anthropic.session.outcome_evaluation"):
                 return True
         elif s_name == "anthropic.messages.create":
-            if trace_has_model_request:
+            if is_model_request_parent:
                 return True
-            if otel_kind in (2, "SPAN_KIND_SERVER", "2"):
+            if (
+                otel_kind in (2, "SPAN_KIND_SERVER", "2")
+                and trace_has_model_request
+                and not has_any_model_request_parents
+            ):
                 return True
-            if otel_kind in (3, "SPAN_KIND_CLIENT", "3") and trace_has_api_spans:
-                return True
+            if otel_kind in (3, "SPAN_KIND_CLIENT", "3"):
+                if is_server_span_parent or is_model_request_parent:
+                    return True
+                if trace_has_api_spans and not has_any_server_parents:
+                    return True
 
     # Fallback for a wrapper that reaches us without an operation name — an emitter
     # version that stops setting one would otherwise silently resume double-pricing,
@@ -791,6 +809,9 @@ def transform_otel_to_clickhouse(
     # Prevents double-counting when model_request or API SERVER spans exist alongside CLIENT wrappers.
     _trace_has_model_request: set[str] = set()
     _trace_has_api_spans: set[str] = set()
+    _model_request_parent_span_ids: set[str] = set()
+    _server_parent_span_ids: set[str] = set()
+    span_metadata_map: dict[tuple[str, str], dict[str, Any] | str] = {}
 
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
@@ -800,13 +821,18 @@ def transform_otel_to_clickhouse(
                 _tid = decode_otel_id(_s.get("traceId"))
                 if not _tid:
                     continue
+                _pid = decode_otel_id(_s.get("parentSpanId"))
                 _sname = (_s.get("name") or "").lower()
                 _kind = _s.get("kind")
                 if _sname == "anthropic.model_request":
                     _trace_has_model_request.add(_tid)
                     _trace_has_api_spans.add(_tid)
+                    if _pid:
+                        _model_request_parent_span_ids.add(_pid)
                 elif _sname.startswith("anthropic.") and _kind in (2, "SPAN_KIND_SERVER", "2"):
                     _trace_has_api_spans.add(_tid)
+                    if _pid:
+                        _server_parent_span_ids.add(_pid)
 
     for resource_span in resource_spans:
         # camelCase: scopeSpans
@@ -1107,6 +1133,10 @@ def transform_otel_to_clickhouse(
                         otel_kind=otel_kind,
                         trace_has_model_request=trace_id in _trace_has_model_request,
                         trace_has_api_spans=trace_id in _trace_has_api_spans,
+                        is_model_request_parent=span_id in _model_request_parent_span_ids,
+                        is_server_span_parent=span_id in _server_parent_span_ids,
+                        has_any_model_request_parents=bool(_model_request_parent_span_ids),
+                        has_any_server_parents=bool(_server_parent_span_ids),
                     )
 
                     # Manual usage reported via the SDKs' update-span API
@@ -1292,6 +1322,7 @@ def transform_otel_to_clickhouse(
                     if span_attrs.get(key) is not None
                 }
                 explicit_metadata = span_attrs.get("traceroot.span.metadata")
+                incoming_metadata: dict[str, Any] | str | None = None
                 if explicit_metadata is not None:
                     parsed_explicit = explicit_metadata
                     if isinstance(parsed_explicit, str):
@@ -1300,13 +1331,13 @@ def transform_otel_to_clickhouse(
                         except (TypeError, ValueError):
                             parsed_explicit = None
                     if isinstance(parsed_explicit, dict):
-                        span_record["metadata"] = json.dumps({**parsed_explicit, **span_path_attrs})
+                        incoming_metadata = {**parsed_explicit, **span_path_attrs}
                     elif isinstance(explicit_metadata, str):
                         # Not a JSON object (free-text or a scalar): store it as
                         # given. Nothing to merge into, so this span has no paths.
-                        span_record["metadata"] = explicit_metadata
+                        incoming_metadata = explicit_metadata
                     else:
-                        span_record["metadata"] = json.dumps(explicit_metadata)
+                        incoming_metadata = json.dumps(explicit_metadata)
                 else:
                     # Collect non-internal attributes as metadata. The span-path
                     # attributes are not "known" (they have no dedicated column),
@@ -1317,7 +1348,7 @@ def transform_otel_to_clickhouse(
                         if not _is_known_attribute(k) and v is not None
                     }
                     if extra_attrs:
-                        span_record["metadata"] = json.dumps(extra_attrs)
+                        incoming_metadata = extra_attrs
 
                 span_key = (trace_id, span_id)
                 if span_key in seen_spans:
@@ -1331,17 +1362,15 @@ def transform_otel_to_clickhouse(
                         existing["output"] = span_record["output"]
                     if span_record.get("model_name") and not existing.get("model_name"):
                         existing["model_name"] = span_record["model_name"]
-                    if span_record.get("metadata"):
-                        if not existing.get("metadata"):
-                            existing["metadata"] = span_record["metadata"]
+                    if incoming_metadata is not None:
+                        if span_key not in span_metadata_map:
+                            span_metadata_map[span_key] = incoming_metadata
                         else:
-                            try:
-                                m_exist = json.loads(existing["metadata"])
-                                m_new = json.loads(span_record["metadata"])
-                                if isinstance(m_exist, dict) and isinstance(m_new, dict):
-                                    existing["metadata"] = json.dumps({**m_new, **m_exist})
-                            except (json.JSONDecodeError, TypeError, ValueError):
-                                pass
+                            prev_meta = span_metadata_map[span_key]
+                            if isinstance(prev_meta, dict) and isinstance(incoming_metadata, dict):
+                                span_metadata_map[span_key] = {**incoming_metadata, **prev_meta}
+                            elif prev_meta is None:
+                                span_metadata_map[span_key] = incoming_metadata
                     if span_record.get("git_source_file") and not existing.get("git_source_file"):
                         existing["git_source_file"] = span_record["git_source_file"]
                     if (
@@ -1384,6 +1413,8 @@ def transform_otel_to_clickhouse(
                     elif span_record.get("cost") is not None and existing.get("cost") is None:
                         existing["cost"] = span_record["cost"]
                 else:
+                    if incoming_metadata is not None:
+                        span_metadata_map[span_key] = incoming_metadata
                     seen_spans[span_key] = len(spans)
                     spans.append(span_record)
 
@@ -1552,5 +1583,14 @@ def transform_otel_to_clickhouse(
                 traces[trace_id]["git_ref"] = attrs["git_ref"]
             if attrs["git_repo"] is not None:
                 traces[trace_id]["git_repo"] = attrs["git_repo"]
+    # Serialize accumulated per-span metadata dictionaries once after deduplication,
+    # preventing quadratic JSON decoding and re-encoding when repeated duplicate spans arrive.
+    for s_key, s_meta in span_metadata_map.items():
+        s_idx = seen_spans.get(s_key)
+        if s_idx is not None and s_meta is not None:
+            if isinstance(s_meta, dict):
+                spans[s_idx]["metadata"] = json.dumps(s_meta)
+            elif isinstance(s_meta, str):
+                spans[s_idx]["metadata"] = s_meta
 
     return list(traces.values()), spans

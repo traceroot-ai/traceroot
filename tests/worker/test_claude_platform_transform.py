@@ -532,6 +532,119 @@ class TestClaudePlatformTokenDeduplication:
         total_trace_tokens = sum(s.get("total_tokens") or 0 for s in spans)
         assert total_trace_tokens == 1200
 
+    def test_server_only_messages_create_retains_usage(self):
+        """SERVER-only export without model_request child must retain its usage and cost."""
+        trace_hex = "1a" * 16
+        server_span_hex = "0b" * 8
+
+        msg_attrs = [
+            make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
+            make_attr("gen_ai.usage.input_tokens", 1000),
+            make_attr("gen_ai.usage.output_tokens", 200),
+        ]
+
+        server_span_dict = make_span(
+            trace_hex,
+            server_span_hex,
+            name="anthropic.messages.create",
+            attributes=msg_attrs,
+        )
+        server_span_dict["kind"] = 2  # SPAN_KIND_SERVER
+
+        payload = make_otel_payload([server_span_dict])
+
+        from unittest.mock import patch
+
+        mock_prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(payload, "p-1")
+
+        server_span = spans[0]
+        assert server_span.get("input_tokens") == 1000
+        assert server_span.get("output_tokens") == 200
+        assert server_span.get("total_tokens") == 1200
+        assert server_span.get("cost") is not None
+
+    def test_multi_call_trace_retains_unrelated_sdk_usage(self):
+        """A trace with both an API export call and an unrelated SDK call preserves SDK usage."""
+        trace_hex = "1b" * 16
+        call1_client_hex = "0c" * 8
+        call1_server_hex = "0d" * 8
+        call1_model_hex = "0e" * 8
+        call2_client_hex = "0f" * 8
+
+        attrs1 = [
+            make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
+            make_attr("gen_ai.usage.input_tokens", 500),
+            make_attr("gen_ai.usage.output_tokens", 100),
+        ]
+        attrs2 = [
+            make_attr("gen_ai.request.model", "claude-sonnet-4-20250514"),
+            make_attr("gen_ai.usage.input_tokens", 300),
+            make_attr("gen_ai.usage.output_tokens", 50),
+        ]
+
+        # Call 1: SDK client + API server + API model_request
+        c1_client = make_span(
+            trace_hex, call1_client_hex, name="anthropic.messages.create", attributes=attrs1
+        )
+        c1_client["kind"] = 3
+        c1_server = make_span(
+            trace_hex,
+            call1_server_hex,
+            parent_span_id_hex=call1_client_hex,
+            name="anthropic.messages.create",
+            attributes=attrs1,
+        )
+        c1_server["kind"] = 2
+        c1_model = make_span(
+            trace_hex,
+            call1_model_hex,
+            parent_span_id_hex=call1_server_hex,
+            name="anthropic.model_request",
+            attributes=attrs1,
+        )
+        c1_model["kind"] = 1
+
+        # Call 2: Unrelated SDK-only client span in the same trace
+        c2_client = make_span(
+            trace_hex, call2_client_hex, name="anthropic.messages.create", attributes=attrs2
+        )
+        c2_client["kind"] = 3
+
+        payload = make_otel_payload([c1_client, c1_server, c1_model, c2_client])
+
+        from unittest.mock import patch
+
+        mock_prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(payload, "p-1")
+
+        s_c1_client = next(s for s in spans if s["span_id"] == call1_client_hex)
+        s_c1_server = next(s for s in spans if s["span_id"] == call1_server_hex)
+        s_c1_model = next(s for s in spans if s["span_id"] == call1_model_hex)
+        s_c2_client = next(s for s in spans if s["span_id"] == call2_client_hex)
+
+        # Call 1 wrappers suppressed
+        assert s_c1_client.get("total_tokens") is None
+        assert s_c1_server.get("total_tokens") is None
+        # Call 1 model_request retains usage
+        assert s_c1_model.get("total_tokens") == 600
+        # Call 2 SDK client span retains usage
+        assert s_c2_client.get("total_tokens") == 350
+        # Trace total must be 600 + 350 = 950
+        assert sum(s.get("total_tokens") or 0 for s in spans) == 950
+
 
 class TestSpanIdempotentDeduplication:
     def test_redelivered_duplicate_spans_deduplicated_in_batch(self):
@@ -799,6 +912,32 @@ class TestSpanIdempotentDeduplication:
         assert len(spans) == 1
         # "unknown" should be upgraded to "ValueError"
         assert spans[0]["error_type"] == "ValueError"
+
+    def test_duplicate_spans_many_distinct_tags_linear_merge(self):
+        """Repeated duplicate spans with distinct tags merge cleanly without quadratic JSON serialization."""
+        trace_hex = "27" * 16
+        span_hex = "16" * 8
+
+        # Create 50 duplicates of the same span, each with a distinct custom tag
+        spans_list = []
+        for i in range(50):
+            s = make_span(
+                trace_hex,
+                span_hex,
+                name="anthropic.model_request",
+                start_nanos=1_000_000_000_000_000_000,
+                attributes=[make_attr(f"custom.tag.{i}", f"value_{i}")],
+            )
+            spans_list.append(s)
+
+        payload = make_otel_payload(spans_list)
+        _, spans = transform_otel_to_clickhouse(payload, "p-1")
+
+        assert len(spans) == 1
+        meta = json.loads(spans[0]["metadata"])
+        assert len(meta) == 50
+        for i in range(50):
+            assert meta.get(f"custom.tag.{i}") == f"value_{i}"
 
 
 class TestClaudePlatformScope:
