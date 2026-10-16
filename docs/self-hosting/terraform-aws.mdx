@@ -1,0 +1,103 @@
+---
+title: Terraform on AWS
+description: Provision production-grade TraceRoot infrastructure on AWS using Terraform
+---
+
+The official Terraform module at [traceroot-ai/traceroot-terraform-aws](https://github.com/traceroot-ai/traceroot-terraform-aws) provisions a complete, production-ready AWS environment for TraceRoot, including managed network, database, caching, storage, and EKS resources.
+
+## Module version
+
+The current module version is **v1.5.0**.
+
+### Resources provisioned
+
+When applied, the module deploys:
+- **VPC & Networking**: Multi-AZ public and private subnets, NAT gateways, route tables, and security groups.
+- **Amazon EKS**: Managed Kubernetes cluster running workloads on Fargate profiles (`fargate_profile_namespaces`) rather than node groups.
+- **Amazon Aurora PostgreSQL**: Serverless v2 cluster, sized in ACUs with `postgres_min_capacity` and `postgres_max_capacity`.
+- **Amazon ElastiCache Redis**: High-availability Redis replication group.
+- **Amazon S3 and EFS**: Object storage for trace payloads and evaluation data, plus the file system backing ClickHouse.
+- **Amazon ECR**: Repositories for the service images.
+- **IAM Roles (IRSA)**: Fine-grained IAM policies mapped to Kubernetes service accounts.
+- **ACM and ALB Ingress**: A certificate and load balancer for the hostname in `domain`.
+- **Helm Release**: Deploys the TraceRoot application chart directly onto the EKS cluster.
+
+## Helm chart version precondition
+
+The Terraform module `v1.5.0` defaults `traceroot_helm_chart_version` to `"1.0.0"`. However, enabling the SQL gateway (`enable_sql_gateway = true`) enforces a Terraform precondition requiring chart version **`1.1.0`** or higher, because an older chart would drop the `sqlGateway` values silently.
+
+If you copy the default example from the module README and enable the SQL gateway without overriding the chart version, `terraform plan` will fail with:
+
+```text
+enable_sql_gateway requires a traceroot chart that provides the provisioning hooks (1.1.0 or later); 1.0.0 would silently ignore it.
+```
+
+Set `traceroot_helm_chart_version` explicitly; `1.1.1` is the current chart release.
+
+## Example Terraform configuration
+
+The module is not published on the Terraform Registry, so reference it by its git source and pin `ref` to a tag. `image_tag` is its only required input; every other variable has a default. Here is a configuration with the SQL gateway enabled:
+
+```hcl main.tf
+terraform {
+  required_version = ">= 1.5"
+}
+
+provider "aws" {
+  region = "us-east-1"
+}
+
+module "traceroot" {
+  source = "github.com/traceroot-ai/traceroot-terraform-aws?ref=v1.5.0"
+
+  # Required: the git SHA tag of the images to run. Never "latest" — the daily
+  # CI build overwrites it.
+  image_tag = "sha-abc1234"
+
+  # Names the namespace (traceroot-{environment}) and the database.
+  environment = "production"
+  name        = "traceroot-production"
+  aws_region  = "us-east-1"
+
+  # Public hostname. The module requests the ACM certificate for it and wires
+  # up the load balancer; leave it empty to use the ALB's own URL.
+  domain = "traceroot.example.com"
+
+  # Disable cloud billing on self-hosted instances to unlock all features.
+  enable_billing = "false"
+
+  # Must be >= 1.1.0 when enable_sql_gateway = true.
+  traceroot_helm_chart_version = "1.1.1"
+  enable_sql_gateway           = true
+
+  # Sizing: Aurora Serverless v2 ACUs and ClickHouse storage.
+  postgres_min_capacity   = 0.5
+  postgres_max_capacity   = 4.0
+  clickhouse_storage_size = "100Gi"
+}
+```
+
+The module **generates** the application's own secrets — session signing, internal API, database, cache and the SQL gateway passwords — with `random_password` and writes them into Kubernetes Secrets, so there are no variables to supply for them. Keys you own, such as GitHub App and LLM provider credentials, are passed as variables. Terraform state therefore holds secret material: use an encrypted remote backend, and never commit `.tfvars` or state files.
+
+## Deployment workflow
+
+### 1. Initialize and validate
+
+```bash
+terraform init
+terraform validate
+```
+
+### 2. Plan and review
+
+```bash
+terraform plan -out=tfplan
+```
+
+### 3. Apply infrastructure
+
+```bash
+terraform apply tfplan
+```
+
+Once provisioning completes, configure your DNS record (Route 53 or external DNS) pointing your domain to the AWS Application Load Balancer created by the module.

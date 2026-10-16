@@ -57,6 +57,10 @@
     {
       "source": "/alerts/slack",
       "destination": "/alerts/overview#slack-notifications"
+    },
+    {
+      "source": "/developer/self-hosting",
+      "destination": "/self-hosting/overview"
     }
   ],
   "search": {
@@ -94,8 +98,19 @@
             "group": "Overview",
             "pages": [
               "getting-started/introduction",
-              "getting-started/quickstart",
-              "developer/self-hosting"
+              "getting-started/quickstart"
+            ]
+          },
+          {
+            "group": "Self-Hosting",
+            "pages": [
+              "self-hosting/overview",
+              "self-hosting/docker-compose",
+              "self-hosting/kubernetes",
+              "self-hosting/terraform-aws",
+              "self-hosting/configuration",
+              "self-hosting/migrations",
+              "self-hosting/sql-gateway"
             ]
           },
           {
