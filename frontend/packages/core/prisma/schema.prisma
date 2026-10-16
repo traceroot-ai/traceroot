@@ -98,8 +98,6 @@ model Workspace {
   // at 1.05× pass-through via STRIPE_PRICE_ID_RCA_USAGE / STRIPE_PRICE_ID_DETECTOR_USAGE.
   // detector.scansRun is informational only (BYOK + system; no quota).
   currentUsage          Json?             @map("current_usage")
-  // Free-plan observed usage floor; independent of the paid billing-period snapshot.
-  freeLifetimeUsage     Json?             @map("free_lifetime_usage")
 
   modelProviders      ModelProvider[]
   githubInstallations GitHubInstallation[]

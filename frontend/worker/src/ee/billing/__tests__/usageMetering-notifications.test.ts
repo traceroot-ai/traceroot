@@ -8,7 +8,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mocks = vi.hoisted(() => ({
   workspaceFindMany: vi.fn(),
   workspaceUpdate: vi.fn(),
-  workspaceFindUnique: vi.fn(),
   detectorRcaCount: vi.fn(),
   getWorkspaceUsageDetails: vi.fn(),
   runUsageQuotaNotifications: vi.fn(),
@@ -16,11 +15,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@traceroot/core", () => ({
   prisma: {
-    $transaction: async (callback: any) =>
-      callback({
-        $queryRaw: vi.fn().mockResolvedValue([]),
-        workspace: { findUnique: mocks.workspaceFindUnique, update: mocks.workspaceUpdate },
-      }),
     workspace: { findMany: mocks.workspaceFindMany, update: mocks.workspaceUpdate },
     detectorRca: { count: mocks.detectorRcaCount },
     aIMessage: {
@@ -72,10 +66,6 @@ beforeEach(() => {
   delete process.env.STRIPE_SECRET_KEY;
   mocks.workspaceFindMany.mockResolvedValue([workspace()]);
   mocks.workspaceUpdate.mockResolvedValue({});
-  mocks.workspaceFindUnique.mockImplementation(async ({ where }) => {
-    const workspaces = await mocks.workspaceFindMany.mock.results.at(-1)?.value;
-    return workspaces.find((w: { id: string }) => w.id === where.id);
-  });
   mocks.detectorRcaCount.mockResolvedValue(7);
   mocks.getWorkspaceUsageDetails.mockResolvedValue({
     traces: 100,

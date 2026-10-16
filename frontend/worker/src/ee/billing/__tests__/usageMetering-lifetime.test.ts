@@ -1,10 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
-  findUnique: vi.fn(),
   update: vi.fn(),
-  lock: vi.fn(),
   query: vi.fn(),
   notify: vi.fn(),
 }));
@@ -14,12 +12,7 @@ vi.mock("@traceroot/core", async () => ({
     "../../../../../packages/core/src/ee/billing/plans.ts",
   )),
   prisma: {
-    workspace: { findMany: mocks.findMany },
-    $transaction: async (callback: any) =>
-      callback({
-        $queryRaw: mocks.lock,
-        workspace: { findUnique: mocks.findUnique, update: mocks.update },
-      }),
+    workspace: { findMany: mocks.findMany, update: mocks.update },
     detectorRca: { count: vi.fn().mockResolvedValue(0) },
     aIMessage: {
       count: vi.fn().mockResolvedValue(0),
@@ -33,7 +26,6 @@ vi.mock("../clickhouse.js", () => ({ getWorkspaceUsageDetails: mocks.query }));
 vi.mock("../usageNotifications.js", () => ({ runUsageQuotaNotifications: mocks.notify }));
 
 import { runBillingJob } from "../usageMetering.js";
-import { persistWorkspaceUsage } from "../persistWorkspaceUsage.js";
 
 function usage(events = 0, scans = 0) {
   return {
@@ -66,7 +58,6 @@ function workspace() {
     billingPeriodStart: null as Date | null,
     billingPeriodEnd: null as Date | null,
     projects: [project("a")],
-    freeLifetimeUsage: null as unknown,
     currentUsage: {} as any,
     ingestionBlocked: false,
     detectorBlocked: false,
@@ -85,18 +76,25 @@ beforeEach(() => {
   state = workspace();
   counts = { a: usage() };
   mocks.findMany.mockImplementation(async () => [structuredClone(state)]);
-  mocks.findUnique.mockImplementation(async () => state);
   mocks.update.mockImplementation(async ({ data }) => Object.assign(state, data));
   mocks.query.mockImplementation(async ({ projectIds }: { projectIds: string[] }) => {
     const total = usage();
     for (const id of projectIds) {
       const value = counts[id];
       total.traces += value.traces;
+      total.spans += value.spans;
       total.detectorRuns += value.detectorRuns;
       total.bySource.user.traces += value.traces;
+      total.bySource.user.spans += value.spans;
     }
     return total;
   });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe("free-plan lifetime usage", () => {
@@ -106,10 +104,6 @@ describe("free-plan lifetime usage", () => {
     state.projects[0].deleteTime = new Date();
     await runBillingJob();
 
-    expect(mocks.findMany.mock.calls[0][0].include.projects).toEqual({
-      where: { OR: [{ deleteTime: null }, { freeQuotaEligible: true }] },
-      select: { id: true, deleteTime: true, freeQuotaEligible: true },
-    });
     expect(mocks.query.mock.lastCall?.[0].projectIds).toEqual(["a"]);
     expect(state.ingestionBlocked).toBe(true);
     expect(state.detectorBlocked).toBe(true);
@@ -152,69 +146,103 @@ describe("free-plan lifetime usage", () => {
     expect(state.detectorBlocked).toBe(false);
   });
 
-  it("preserves an observed floor when a later query has fewer rows or no projects", async () => {
-    counts.a = usage(50_000, 100);
-    await runBillingJob();
-    state.projects = [];
-    await runBillingJob();
-    expect(state.currentUsage.traces).toBe(50_000);
-    expect(state.currentUsage.bySource.user.traces).toBe(50_000);
-    expect(state.detectorBlocked).toBe(true);
-  });
+  it.each(["traces", "spans", "detectorRuns"] as const)(
+    "counts a rewritten %s row after the job captured its start time",
+    async (field) => {
+      const captured = new Date("2026-10-15T12:00:00Z");
+      vi.useFakeTimers();
+      vi.setSystemTime(captured);
+      counts.a = usage(50_000, 100);
+      if (field === "spans") {
+        counts.a.traces = 0;
+        counts.a.spans = 50_000;
+        counts.a.bySource.user = { traces: 0, spans: 50_000 };
+      }
+      await runBillingJob();
+      expect(state.ingestionBlocked).toBe(true);
+      expect(state.detectorBlocked).toBe(true);
 
-  it("keeps paid active-project periods and preserves the floor across upgrades", async () => {
+      // Model the retained version after replacement/merge: one existing row
+      // now has an insertion timestamp later than the pending job's start.
+      // The previous fixed upper bound excluded it and cleared the hard cap.
+      mocks.query.mockImplementationOnce(async ({ start, end }: { start: Date; end: Date }) => {
+        const rewrittenAt = new Date(captured.getTime() + 1000);
+        vi.setSystemTime(rewrittenAt);
+        const measured = structuredClone(counts.a);
+        if (rewrittenAt < start || rewrittenAt >= end) {
+          measured[field] -= 1;
+          if (field !== "detectorRuns") measured.bySource.user[field] -= 1;
+        }
+        return measured;
+      });
+      await runBillingJob();
+
+      expect(state.currentUsage.updatedAt).toBe(captured.toISOString());
+      expect(state.currentUsage.traces + state.currentUsage.spans).toBe(50_000);
+      expect(state.currentUsage.detector.scansRun).toBe(100);
+      expect(state.ingestionBlocked).toBe(true);
+      expect(state.detectorBlocked).toBe(true);
+      expect(mocks.notify.mock.lastCall?.[0].meters).toContainEqual({
+        meter: "detector",
+        used: 100,
+        cap: 100,
+      });
+      expect(mocks.notify.mock.lastCall?.[0].meters).toContainEqual({
+        meter: "events",
+        used: 50_000,
+        cap: 50_000,
+      });
+    },
+  );
+
+  it("keeps paid active-project periods and re-counts eligible history on downgrade", async () => {
     counts.a = usage(50_000, 100);
-    await runBillingJob();
+    state.projects[0].deleteTime = new Date();
+    state.projects.push(project("b"));
+    counts.b = usage(5, 1);
     state.billingPlan = "pro";
-    state.projects.push(project("deleted", true));
-    counts.deleted = usage();
+    state.ingestionBlocked = true;
+    state.detectorBlocked = true;
     state.billingPeriodStart = new Date("2026-10-01T00:00:00Z");
     state.billingPeriodEnd = new Date("2026-11-01T00:00:00Z");
-    counts.a = usage(5, 1);
     await runBillingJob();
     expect(mocks.query.mock.lastCall?.[0]).toEqual({
-      projectIds: ["a"],
+      projectIds: ["b"],
       start: state.billingPeriodStart,
       end: state.billingPeriodEnd,
     });
     expect(state.currentUsage.traces).toBe(5);
     expect(state.ingestionBlocked).toBe(false);
     expect(state.detectorBlocked).toBe(false);
-    expect(mocks.notify).toHaveBeenCalledTimes(1);
+    expect(mocks.notify).not.toHaveBeenCalled();
     state.billingPlan = "free";
     await runBillingJob();
-    expect(state.currentUsage.traces).toBe(50_000);
+    expect(state.currentUsage.traces).toBe(50_005);
     expect(state.detectorBlocked).toBe(true);
   });
 
-  it("commits older measurements against the fresh floor under a row lock", async () => {
-    await persistWorkspaceUsage(state.id, "free", usage(50_000, 100), { currentUsage: {} });
-    await persistWorkspaceUsage(state.id, "free", usage(40_000, 80), { currentUsage: {} });
-    expect(state.currentUsage.traces).toBe(50_000);
-    expect(state.detectorBlocked).toBe(true);
-    expect(mocks.lock.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.findUnique.mock.invocationCallOrder[0],
-    );
-  });
-
-  it("does not overwrite a changed plan or send stale notifications", async () => {
-    mocks.query.mockImplementationOnce(async () => {
-      state.billingPlan = "pro";
-      return usage(50_000, 100);
+  it("keeps the calendar-month fallback bounded for paid workspaces", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 15, 12));
+    state.billingPlan = "pro";
+    await runBillingJob();
+    expect(mocks.query.mock.lastCall?.[0]).toEqual({
+      projectIds: ["a"],
+      start: new Date(2026, 9, 1),
+      end: new Date(2026, 10, 1),
     });
-    await runBillingJob();
-    expect(mocks.update).not.toHaveBeenCalled();
-    expect(mocks.notify).not.toHaveBeenCalled();
   });
 
-  it("ignores invalid saved counters and preserves each source independently", async () => {
-    state.freeLifetimeUsage = {
-      detectorRuns: -1,
-      bySource: { user: { traces: "invalid", spans: -1 }, agent: { traces: 7, spans: 9 } },
-    };
+  it("logs event and detector block transitions without repeating unchanged flags", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    counts.a = usage(50_000, 100);
     await runBillingJob();
-    expect(state.currentUsage).toMatchObject({ traces: 7, spans: 9, detector: { scansRun: 0 } });
-    expect(state.currentUsage.bySource.agent).toEqual({ traces: 7, spans: 9 });
+    await runBillingJob();
+    const messages = log.mock.calls.map(([message]) => String(message));
+    expect(messages.filter((m) => m.includes("ingestion_blocked: true"))).toHaveLength(1);
+    expect(messages.filter((m) => m.includes("detector_blocked: true"))).toHaveLength(1);
+    expect(state.ingestionBlocked).toBe(true);
+    expect(state.detectorBlocked).toBe(true);
   });
 
   it("does not notify when persisting usage fails and continues with the next workspace", async () => {

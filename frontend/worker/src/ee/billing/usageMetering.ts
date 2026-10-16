@@ -18,9 +18,12 @@
 import Stripe from "stripe";
 import {
   prisma,
+  USAGE_CONFIG,
   PlanType,
   isAiRunBlocked,
   isRcaRunBlocked,
+  isDetectorRunBlocked,
+  isIngestionBlocked,
   DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
   AI_RUN_QUOTAS,
   RCA_RUN_QUOTAS,
@@ -28,7 +31,6 @@ import {
   EVENT_QUOTAS,
 } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse.js";
-import { persistWorkspaceUsage, type WorkspaceUsageUpdate } from "./persistWorkspaceUsage.js";
 import { runUsageQuotaNotifications } from "./usageNotifications.js";
 
 let stripe: Stripe | null = null;
@@ -54,7 +56,12 @@ export async function runBillingJob(): Promise<void> {
     const workspaces = await prisma.workspace.findMany({
       include: {
         projects: {
-          where: { OR: [{ deleteTime: null }, { freeQuotaEligible: true }] },
+          where: {
+            OR: [
+              { deleteTime: null },
+              { freeQuotaEligible: true, workspace: { billingPlan: PlanType.FREE } },
+            ],
+          },
           select: { id: true, deleteTime: true, freeQuotaEligible: true },
         },
       },
@@ -115,7 +122,7 @@ async function processWorkspace(
 ): Promise<void> {
   const plan = workspace.billingPlan as PlanType;
   const isFreePlan = plan === PlanType.FREE;
-  // Free usage retains eligible projects after deletion; paid usage stays period-scoped.
+  // Eligible projects remain in free-plan accounting after soft deletion.
   const projectIds = workspace.projects
     .filter((p) => (isFreePlan ? p.freeQuotaEligible : p.deleteTime === null))
     .map((p) => p.id);
@@ -130,7 +137,10 @@ async function processWorkspace(
 
   if (isFreePlan) {
     start = ctx.allTimeStart;
-    end = ctx.now;
+    // Rewrites refresh ClickHouse version timestamps. A fixed "now" can exclude
+    // the surviving version after a merge, temporarily refunding consumed usage.
+    // Keep free telemetry lifetime-scoped; paid periods below remain bounded.
+    end = new Date("2100-01-01T00:00:00Z");
   } else if (workspace.billingPeriodStart && workspace.billingPeriodEnd) {
     // Use billing period dates from Stripe (updated via webhook each month)
     start = workspace.billingPeriodStart;
@@ -142,12 +152,12 @@ async function processWorkspace(
   }
 
   // A projectless workspace short-circuits to zeros inside getWorkspaceUsageDetails.
-  let usage = await getWorkspaceUsageDetails({ projectIds, start, end });
+  const usage = await getWorkspaceUsageDetails({ projectIds, start, end });
 
-  // Every stored row, whoever wrote it (747562e2), counts toward usage.
-  // Paid Stripe quantities use these period totals; free quotas use the
-  // committed lifetime totals returned in step 6.
-  let totalEvents = usage.traces + usage.spans;
+  // Every stored row, whoever wrote it (747562e2). usage.bySource splits the
+  // same total for display; it deliberately does not feed the cap, so blocking
+  // and the Stripe quantity stay one number.
+  const totalEvents = usage.traces + usage.spans;
 
   // =========================================================================
   // 2. Query AI usage from PostgreSQL
@@ -214,7 +224,13 @@ async function processWorkspace(
         }
       | undefined) ?? {};
 
-  const updateData: WorkspaceUsageUpdate = {
+  const updateData: {
+    currentUsage: object;
+    ingestionBlocked?: boolean;
+    aiBlocked?: boolean;
+    rcaBlocked?: boolean;
+    detectorBlocked?: boolean;
+  } = {
     currentUsage: {
       traces: usage.traces,
       spans: usage.spans,
@@ -288,7 +304,20 @@ async function processWorkspace(
   // 4. Update blocking flags
   // =========================================================================
 
-  // Event and detector blocking are committed with the lifetime floor in step 6.
+  // 4a. Event ingestion blocking.
+  // Computed for ALL plans (not gated on isFreePlan): free plans hard-cap at
+  // the included span allowance, paid plans always resolve to false. Evaluating
+  // this unconditionally is what clears a stale block when a previously-blocked
+  // free workspace upgrades — gating it behind `if (isFreePlan)` left the flag
+  // stuck true forever (paid plans never re-entered the branch). Mirrors the
+  // paid-plan unblock already done for AI (4c) and RCA (4c-ter).
+  const shouldBlockIngestion = isIngestionBlocked(plan, totalEvents);
+  if (workspace.ingestionBlocked !== shouldBlockIngestion) {
+    updateData.ingestionBlocked = shouldBlockIngestion;
+    console.log(
+      `[Billing] Workspace ${workspace.id}: ${totalEvents}/${USAGE_CONFIG.includedUnits} events, ingestion_blocked: ${shouldBlockIngestion}`,
+    );
+  }
 
   // 4b. AI run blocking
   if (isFreePlan) {
@@ -326,6 +355,25 @@ async function processWorkspace(
   if (!isFreePlan && workspace.rcaBlocked) {
     updateData.rcaBlocked = false;
     console.log(`[Billing] Workspace ${workspace.id}: unblocking RCA (paid plan)`);
+  }
+
+  // 4d. Detector blocking — Free plan only, 100-scan hard cap (any source).
+  // Count comes from the ClickHouse `detector_runs` aggregate we just fetched
+  // (same source as traces/spans). Mirrors the AI-runs hard-cap pattern at 4b.
+  if (isFreePlan) {
+    const shouldBlockDetector = isDetectorRunBlocked(plan, usage.detectorRuns);
+    if (workspace.detectorBlocked !== shouldBlockDetector) {
+      updateData.detectorBlocked = shouldBlockDetector;
+      console.log(
+        `[Billing] Workspace ${workspace.id}: ${usage.detectorRuns}/${DETECTOR_RUN_QUOTAS[plan].included} detector scans, detector_blocked: ${shouldBlockDetector}`,
+      );
+    }
+  }
+
+  // 4e. Paid plans: always unblock detector
+  if (!isFreePlan && workspace.detectorBlocked) {
+    updateData.detectorBlocked = false;
+    console.log(`[Billing] Workspace ${workspace.id}: unblocking detector (paid plan)`);
   }
 
   // =========================================================================
@@ -521,13 +569,10 @@ async function processWorkspace(
   // =========================================================================
   // 6. Write to database
   // =========================================================================
-  const committedUsage = await persistWorkspaceUsage(workspace.id, plan, usage, updateData);
-  if (!committedUsage) {
-    console.log(`[Billing] Workspace ${workspace.id}: plan changed, skipping stale usage`);
-    return;
-  }
-  usage = committedUsage;
-  totalEvents = usage.traces + usage.spans;
+  await prisma.workspace.update({
+    where: { id: workspace.id },
+    data: updateData,
+  });
 
   // =========================================================================
   // 7. Free-plan usage-quota emails (80% warn / 100% blocked, per meter).
