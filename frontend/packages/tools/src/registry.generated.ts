@@ -1626,7 +1626,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
   {
     name: "list_signals",
     description:
-      "List the project's signals, newest first: the recurring problems that detector findings are grouped into, with status (open, resolved, dismissed), detector, hit count, reopen count and the state of the current root cause analysis. Filter by status or detector_id. Merged signals are left out.",
+      "List the project's signals, newest first: the recurring problems that detector findings are grouped into, with status (open, resolved, dismissed), detector, hit count, reopen count and the state of the current root cause analysis. Filter by status or detector_id. Merged signals are left out. Returns 50 results by default; increment page to fetch subsequent pages until all needed signals are found.",
     method: "get",
     path: "/api/v1/public/signals",
     inputSchema: {

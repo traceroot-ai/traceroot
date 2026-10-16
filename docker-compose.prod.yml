@@ -486,6 +486,10 @@ services:
       dockerfile: docker/Dockerfile.agent
     ports:
       - "8100:8100"
+    # Shutdown tears down every sandbox container this instance owns. The 10s
+    # default can expire mid-teardown, and anything still alive when SIGKILL
+    # lands is leaked until the next start reconciles it.
+    stop_grace_period: 60s
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -505,6 +509,8 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       # --- Sandbox ---
       SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-docker}
+      SANDBOX_IDLE_TTL_MINUTES: ${SANDBOX_IDLE_TTL_MINUTES:-30}
+      SANDBOX_RECLAIM_ON_START: ${SANDBOX_RECLAIM_ON_START:-true}
       DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
       # --- AI keys ---
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

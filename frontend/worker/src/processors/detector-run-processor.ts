@@ -94,6 +94,8 @@ interface TriggeredResult {
   detectorName: string;
   summary: string;
   data: unknown;
+  /** Whether this run's eval recorded inference usage; persisted on the run. */
+  usedInference: boolean;
   /** Whether this run's self-trace was emitted; carried to the triggered run write. */
   selfTraced: boolean;
 }
@@ -130,6 +132,25 @@ async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
     );
     return usage.inferenceCost;
   }
+}
+
+/**
+ * Whether a scan recorded inference usage — the model was reached and billed,
+ * whatever the run's final status. Token counts are the reliable signal: a
+ * provider can be billed with a zero cost (free/system model, BYOK), and an
+ * error response can name a model without ever producing tokens, so neither a
+ * model id nor a positive cost alone proves a call. The sandbox eval
+ * accumulates tokens across attempts, so a run that burned calls and then
+ * failed (no submit_result, a rejected TypeSafe answer) still counts; a
+ * failure before any call (missing key, unknown model, span download) leaves
+ * both counts at zero.
+ *
+ * Persisted to detector_runs.used_inference, which the usage meter reads
+ * alongside status: a run consumes quota (and stays in the paid overage
+ * denominator) when its latest version completed OR used inference.
+ */
+function recordedInferenceUsage(usage: ScanUsage): boolean {
+  return usage.inferenceInputTokens + usage.inferenceOutputTokens > 0;
 }
 
 interface SingleDetectorOutcome {
@@ -238,6 +259,9 @@ async function runSingleDetector(params: {
       traceId,
       findingId: null,
       status: "failed",
+      // The eval threw before it returned a usage record: nothing here proves
+      // a model call was billed, so the run stays out of the usage meter.
+      usedInference: false,
       selfTraced,
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
     return { triggered: null, usage: null };
@@ -267,6 +291,7 @@ async function runSingleDetector(params: {
       traceId,
       findingId: null,
       status: result.error ? "failed" : "completed",
+      usedInference: recordedInferenceUsage(usage),
       selfTraced,
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
     return { triggered: null, usage };
@@ -283,6 +308,7 @@ async function runSingleDetector(params: {
       detectorName: detector.name,
       summary: result.summary,
       data: result.data,
+      usedInference: recordedInferenceUsage(usage),
       selfTraced,
     },
     usage,
@@ -310,6 +336,9 @@ export async function processTrace(
           traceId,
           findingId: null,
           status: "failed",
+          // No detector ever ran, so nothing was billed: this failure must not
+          // consume detector-scan quota.
+          usedInference: false,
         }).catch((err) => console.error("[Detector] Failed to write run:", err)),
       ),
     );
@@ -465,6 +494,7 @@ async function evaluateTrace(
         traceId,
         findingId,
         status: "completed",
+        usedInference: r.usedInference,
         timestampMs: findingTimestamp,
         selfTraced: r.selfTraced,
       }).catch((err) => console.error("[Detector] Failed to write run:", err)),

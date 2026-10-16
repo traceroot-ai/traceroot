@@ -1,3 +1,4 @@
+import { demoAgentWriteDenied } from "@/lib/demo-agent";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
@@ -16,6 +17,11 @@ async function handleDELETE(_request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+  const denied = demoAgentWriteDenied(
+    accessResult.project.workspaceId,
+    accessResult.membership.role,
+  );
+  if (denied) return denied;
 
   const res = await fetch(
     `${AGENT_SERVICE_URL}/api/v1/projects/${projectId}/sessions/${sessionId}`,

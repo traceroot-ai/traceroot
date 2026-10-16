@@ -22,11 +22,6 @@ vi.mock("@traceroot/core", () => ({
   isBillingEnabled: () => false,
 }));
 
-const decideDemoChatMock = vi.fn();
-vi.mock("@/lib/demo-ai-chat", () => ({
-  decideDemoChat: (...args: unknown[]) => decideDemoChatMock(...args),
-}));
-
 import { POST } from "./route";
 
 const params = Promise.resolve({ projectId: "p1", sessionId: "s1" });
@@ -49,8 +44,6 @@ describe("POST /api/projects/[projectId]/ai/sessions/[sessionId]/messages", () =
       project: { id: "p1", workspaceId: "ws1", name: "proj" },
       membership: { workspaceId: "ws1", userId: "u1", role: "VIEWER" },
     });
-    decideDemoChatMock.mockReset();
-    decideDemoChatMock.mockResolvedValue({ kind: "unrestricted" });
     workspaceFindUniqueMock.mockResolvedValue({ aiBlocked: false, billingPlan: "PRO" });
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -127,55 +120,6 @@ describe("POST /api/projects/[projectId]/ai/sessions/[sessionId]/messages", () =
 
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "Agent service error" });
-  });
-
-  it("asks the demo policy with the caller's workspace, user and role", async () => {
-    fetchMock.mockResolvedValue(new Response("data: {}\n\n", { status: 200 }));
-    await POST(makeRequest(sendBody), { params });
-    expect(decideDemoChatMock).toHaveBeenCalledWith({
-      workspaceId: "ws1",
-      userId: "u1",
-      role: "VIEWER",
-    });
-  });
-
-  it("returns 429 with the policy's message when the demo daily limit is used up", async () => {
-    decideDemoChatMock.mockResolvedValue({
-      kind: "blocked",
-      status: 429,
-      error: "The demo allows 5 AI messages per day.",
-    });
-
-    const res = await POST(makeRequest(sendBody), { params });
-
-    expect(res.status).toBe(429);
-    expect(await res.json()).toEqual({ error: "The demo allows 5 AI messages per day." });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("replaces the requested model with the demo model for a limited visitor", async () => {
-    fetchMock.mockResolvedValue(new Response("data: {}\n\n", { status: 200 }));
-    decideDemoChatMock.mockResolvedValue({
-      kind: "limited",
-      choice: { model: "claude-haiku-4-5", providerName: undefined, source: "SYSTEM" },
-      remaining: 3,
-    });
-
-    await POST(
-      makeRequest({
-        ...sendBody,
-        model: "claude-opus-4-8",
-        providerName: "byok-x",
-        source: "BYOK",
-      }),
-      { params },
-    );
-
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const forwarded = JSON.parse(init.body as string);
-    expect(forwarded.model).toBe("claude-haiku-4-5");
-    expect(forwarded.source).toBe("SYSTEM");
-    expect(forwarded).not.toHaveProperty("providerName");
   });
 
   it("rejects an unauthenticated caller before reaching the service", async () => {

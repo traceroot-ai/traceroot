@@ -1,8 +1,8 @@
+import { demoAgentWriteDenied } from "@/lib/demo-agent";
 import { withImpersonationPolicy } from "@/lib/support/route-guard";
 import { NextRequest } from "next/server";
 import { prisma, ModelSource, PlanType, isBillingEnabled } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
-import { decideDemoChat, type ChatModelChoice } from "@/lib/demo-ai-chat";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
@@ -47,28 +47,16 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+  const denied = demoAgentWriteDenied(
+    accessResult.project.workspaceId,
+    accessResult.membership.role,
+  );
+  if (denied) return denied;
 
   const body = await request.json();
 
-  // Visitors in the demo workspace have a daily message limit and one system model.
-  const demo = await decideDemoChat({
-    workspaceId: accessResult.project.workspaceId,
-    userId: user.id,
-    role: accessResult.membership.role,
-  });
-  if (demo.kind === "blocked") {
-    return new Response(JSON.stringify({ error: demo.error }), {
-      status: demo.status,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  const choice: ChatModelChoice =
-    demo.kind === "limited"
-      ? demo.choice
-      : { model: body.model, providerName: body.providerName, source: body.source };
-
   // Validate BYOK source: verify workspace actually has a configured provider
-  if (choice.source === ModelSource.BYOK) {
+  if (body.source === ModelSource.BYOK) {
     const hasConfiguredByok = await prisma.modelProvider.findFirst({
       where: { workspaceId: accessResult.project.workspaceId },
     });
@@ -106,9 +94,9 @@ async function handlePOST(request: NextRequest, { params }: RouteParams) {
       },
       body: JSON.stringify({
         message: body.message,
-        model: choice.model,
-        providerName: choice.providerName,
-        source: choice.source,
+        model: body.model,
+        providerName: body.providerName,
+        source: body.source,
         traceId: body.traceId,
         traceSessionId: body.traceSessionId,
         // The window the page is showing: the default for the agent's

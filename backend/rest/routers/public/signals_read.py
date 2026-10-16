@@ -22,7 +22,7 @@ from rest.routers.public.deps import DualStampedAuth
 from rest.routers.signal_read_common import get_signal_detail, list_signals_page
 from rest.schemas.public import PublicSignalListResponse, SignalDetail
 
-router = APIRouter(prefix="/public/signals", tags=["Signals (Public)"])
+router = APIRouter(prefix="/public/signals", tags=["Signals"])
 
 
 @router.get("", response_model=PublicSignalListResponse, operation_id="list_signals")

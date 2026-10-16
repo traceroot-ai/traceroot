@@ -18,6 +18,8 @@ import {
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
+import { DEMO_EXAMPLES, getDemoExample } from "../lib/demo-agent-example";
+
 const EMPTY_SELECTION: ModelSelection = { model: "", provider: "", source: "system", adapter: "" };
 
 /**
@@ -47,6 +49,7 @@ export interface PendingDecision {
 export type PendingDecisionAction = "create" | "skip";
 
 interface UseAiChatOptions extends AiTraceContext {
+  demoReadOnly?: boolean;
   projectId: string | undefined;
   initialSessionId?: string; // pre-load an existing session (e.g. RCA session from Step 2)
   /** The plan's retention, so the window sent with a message is already clamped; undefined while unknown. */
@@ -59,6 +62,7 @@ export function useAiChat({
   traceSessionId,
   initialSessionId,
   retentionDays,
+  demoReadOnly = false,
 }: UseAiChatOptions) {
   const queryClient = useQueryClient();
 
@@ -388,6 +392,7 @@ export function useAiChat({
 
   const handleSend = useCallback(
     async (message: string, modelSelection: ModelSelection) => {
+      if (demoReadOnly || getDemoExample(activeSessionIdRef.current)) return false;
       if (!projectId) return;
       setActiveSends((n) => n + 1);
       try {
@@ -471,6 +476,7 @@ export function useAiChat({
       traceId,
       traceSessionId,
       retentionDays,
+      demoReadOnly,
       ensureSession,
       runSettled,
       sendMessage,
@@ -519,11 +525,11 @@ export function useAiChat({
 
   const handleOpenHistory = useCallback(async () => {
     if (!projectId) return;
+    setHistoryOpen(true);
     try {
       const res = await fetch(`/api/projects/${projectId}/ai/sessions`);
       const data = await res.json();
       setSessions(data.sessions || []);
-      setHistoryOpen(true);
     } catch (err) {
       console.error(err);
     }
@@ -531,10 +537,13 @@ export function useAiChat({
 
   const handleSelectSession = useCallback(
     async (session: AISession) => {
+      if (getDemoExample(session.id) && !demoReadOnly) return;
       sessionEpochRef.current++;
+      activeSessionIdRef.current = session.id;
       setActiveSessionId(session.id);
       setHistoryOpen(false);
 
+      if (getDemoExample(session.id)) return;
       if (!projectId) return;
       // A streaming session's live bucket is authoritative — the DB won't have
       // the in-flight assistant response until the run completes, so loading
@@ -552,7 +561,7 @@ export function useAiChat({
         console.error("[AI Chat] Failed to load session messages:", err);
       }
     },
-    [projectId, setSessionMessages, sessionWriteEpoch, isSessionStreaming],
+    [projectId, demoReadOnly, setSessionMessages, sessionWriteEpoch, isSessionStreaming],
   );
 
   const handleDeleteSession = useCallback(
@@ -631,7 +640,12 @@ export function useAiChat({
     abortSession(sessionId);
   }, [abortSession]);
 
-  const messages: AIMessage[] = activeSessionId ? (messagesBySession[activeSessionId] ?? []) : [];
+  const example = demoReadOnly ? getDemoExample(activeSessionId) : undefined;
+  const messages: AIMessage[] = example
+    ? example.messages
+    : activeSessionId
+      ? (messagesBySession[activeSessionId] ?? [])
+      : [];
   const activeStreaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
   // The visible session's parked step — the same one findActiveParkedStep
   // targets, minus the in-flight exclusion (a ref, so it cannot drive a
@@ -670,7 +684,10 @@ export function useAiChat({
     // State
     messages,
     isStreaming: activeSends > 0 || activeStreaming || messages.some((m) => m.isStreaming),
-    sessions,
+    sessions:
+      demoReadOnly && projectId
+        ? [...DEMO_EXAMPLES.map(({ session }) => ({ ...session, projectId })), ...sessions]
+        : sessions,
     historyOpen,
     currentSessionId: activeSessionId,
     modelSelection,
