@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { STATIC_FILTER_FIELDS, type FilterFieldDef } from "./registry";
 
 describe("STATIC_FILTER_FIELDS fallback", () => {
-  it("covers the trace + membership + aggregate tiers", () => {
+  it("covers the trace + signal + membership + aggregate tiers", () => {
     expect(STATIC_FILTER_FIELDS.map((f) => f.field).sort()).toEqual(
       [
         "cost",
@@ -16,6 +16,7 @@ describe("STATIC_FILTER_FIELDS fallback", () => {
         "metadata",
         "model_name",
         "name",
+        "signal_id",
         "span_kind",
         "status",
         "total_tokens",
@@ -42,6 +43,8 @@ describe("STATIC_FILTER_FIELDS fallback", () => {
     for (const f of STATIC_FILTER_FIELDS) {
       if (f.type === "categorical") expect(f.operators).toEqual(["in"]);
       else if (f.type === "numeric") expect(f.operators).toEqual(["eq", "gt", "gte", "lt", "lte"]);
+      // A signal id is copied whole, never typed in part: exact match only.
+      else if (f.field === "signal_id") expect(f.operators).toEqual(["eq"]);
       else if (f.type === "text") expect(f.operators).toEqual(["eq", "contains"]);
     }
   });

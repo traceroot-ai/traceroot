@@ -13,6 +13,10 @@ vi.mock("next/server", () => ({
 vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-secret" } }));
 
 const workspaceFindUniqueMock = vi.fn();
+const agentRunCountsMock = vi.fn();
+vi.mock("@traceroot/core/signals", () => ({
+  agentRunCountsByDetector: (...args: unknown[]) => agentRunCountsMock(...args),
+}));
 vi.mock("@traceroot/core", () => ({
   prisma: {
     workspace: {
@@ -59,6 +63,8 @@ function backendResponse(body: unknown, status = 200) {
 
 beforeEach(() => {
   workspaceFindUniqueMock.mockReset();
+  agentRunCountsMock.mockReset();
+  agentRunCountsMock.mockResolvedValue({});
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   backendFetchMock.mockReset();
@@ -140,12 +146,62 @@ describe("GET .../detector-counts — proxy", () => {
     expect(res.status).toBe(502);
   });
 
-  it("forwards the backend response status and body", async () => {
+  it("adds actual agent-run counts without changing judge counts", async () => {
     const recent = new Date(Date.now() - 5 * 86_400_000).toISOString();
     const body = { data: { "det-1": { finding_count: 3, run_count: 5 } } };
+    agentRunCountsMock.mockResolvedValue({ "det-1": 2, "det-2": 1 });
     backendFetchMock.mockResolvedValue(backendResponse(body));
     const res = await GET(makeRequest({ start_after: recent }), makeParams());
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: {
+        "det-1": { finding_count: 3, run_count: 5, agent_run_count: 2 },
+        "det-2": { finding_count: 0, run_count: 0, agent_run_count: 1 },
+      },
+    });
+    expect(agentRunCountsMock).toHaveBeenCalledWith(expect.anything(), {
+      projectId: "proj-1",
+      from: new Date(recent),
+      to: expect.any(Date),
+    });
+  });
+
+  it("keeps backend errors and does not query agent counts", async () => {
+    const body = { detail: "unavailable" };
+    backendFetchMock.mockResolvedValue(backendResponse(body, 503));
+    const res = await GET(makeRequest({ start_after: new Date().toISOString() }), makeParams());
+    expect(res.status).toBe(503);
     expect(await res.json()).toEqual(body);
+    expect(agentRunCountsMock).not.toHaveBeenCalled();
+  });
+
+  it("fails rather than returning a false zero when agent counts are unavailable", async () => {
+    backendFetchMock.mockResolvedValue(backendResponse({ data: {} }));
+    agentRunCountsMock.mockRejectedValue(new Error("db unavailable"));
+    const res = await GET(makeRequest({ start_after: new Date().toISOString() }), makeParams());
+    expect(res.status).toBe(500);
+  });
+
+  it("passes exclusive range bounds into the agent count", async () => {
+    backendFetchMock.mockResolvedValue(backendResponse({ data: {} }));
+    const start = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    const end = new Date(Date.now() - 86_400_000).toISOString();
+    await GET(makeRequest({ start_after: start, end_before: end }), makeParams());
+    expect(agentRunCountsMock).toHaveBeenCalledWith(expect.anything(), {
+      projectId: "proj-1",
+      from: new Date(start),
+      to: new Date(end),
+    });
+  });
+
+  it("rejects invalid end times and reversed windows before querying", async () => {
+    const start = new Date().toISOString();
+    for (const end of ["invalid", new Date(Date.now() - 86_400_000).toISOString()]) {
+      expect(
+        (await GET(makeRequest({ start_after: start, end_before: end }), makeParams())).status,
+      ).toBe(400);
+    }
+    expect(agentRunCountsMock).not.toHaveBeenCalled();
+    expect(backendFetchMock).not.toHaveBeenCalled();
   });
 });
