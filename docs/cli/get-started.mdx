@@ -82,6 +82,8 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 | `evals list` | List evaluations with their run count and latest run. Flags: `--limit <n>`, `--name <substring>`. |
 | `evals runs list` | List evaluation runs, newest first. Flags: `--limit <n>`, `--evaluation-id <id>`, `--status <status>`. |
 | `evals runs get <run-id>` | Show one run: counts, per-scorer means, per-case cost and duration, and its URL. |
+| `sql [query]` | Run one read-only query over the project's spans and traces. See [Read-only SQL](/cli/sql). |
+| `sql schema` | List every table and column available to read-only SQL. |
 
 ## What's next
 

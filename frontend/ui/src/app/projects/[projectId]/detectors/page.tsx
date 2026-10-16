@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -26,6 +27,8 @@ import { PlanType } from "@traceroot/core";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
 import { getTemplate } from "@/features/detectors/templates";
+import { serializeFiltersParam } from "@/features/filters/predicate";
+import { useSignalCounts } from "@/ee/features/signals/hooks";
 
 function formatDetectorModel(detector: {
   detectionModel: string | null;
@@ -43,6 +46,25 @@ function formatDetectorModel(detector: {
   // Both "system" and a never-set null source resolve to the screening
   // default at eval time, so an unpinned detector reads the same either way.
   return DETECTOR_SYSTEM_DEFAULT_MODEL_ID;
+}
+
+/**
+ * A count that opens what it counts. It stops the click from reaching the row,
+ * whose own click opens the detector unfiltered. A dash while loading.
+ */
+function CountLink({ href, label, value }: { href: string; label: string; value: number | null }) {
+  if (value === null) return <>—</>;
+  return (
+    <Link
+      href={href}
+      aria-label={label}
+      title={label}
+      onClick={(e) => e.stopPropagation()}
+      className="hover:text-foreground hover:underline"
+    >
+      {value}
+    </Link>
+  );
 }
 
 export default function DetectorsPage() {
@@ -74,11 +96,12 @@ export default function DetectorsPage() {
   // across the list <-> detail navigation, mirroring how the Traces tabs
   // propagate the range via the URL. Arriving from the sidebar carries no
   // param, so the section resets to its default — the same as Traces.
-  const buildUrl = (path: string) =>
+  const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
       dateFilter: state.dateFilter,
       customStartDate: state.customStartDate,
       customEndDate: state.customEndDate,
+      extraParams,
     });
 
   const { data, isLoading, error } = useDetectorList(projectId, {
@@ -87,14 +110,15 @@ export default function DetectorsPage() {
     search_query: queryOptions.search_query,
   });
 
-  const {
-    data: counts,
-    isLoading: countsLoading,
-    error: countsError,
-  } = useDetectorCounts(projectId, {
+  // A count shows only once it has loaded: a dash while loading or when its
+  // query failed, never a clickable 0 that is not a real count.
+  const { data: counts } = useDetectorCounts(projectId, {
     start_after: queryOptions.start_after,
     end_before: queryOptions.end_before,
   });
+
+  // Every signal a detector has, as the Signals page lists it for that detector.
+  const { data: signalCounts } = useSignalCounts(projectId);
 
   const deleteMutation = useDeleteDetector(projectId);
   const detectors = data?.data ?? [];
@@ -211,10 +235,13 @@ export default function DetectorsPage() {
                     Sampling
                   </th>
                   <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Findings
+                    Judge Runs
                   </th>
                   <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Runs
+                    Signals
+                  </th>
+                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    Agent Runs
                   </th>
                   <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Created At
@@ -235,10 +262,22 @@ export default function DetectorsPage() {
                   const template = getTemplate(detector.template);
                   const modelLabel = formatDetectorModel(detector);
                   const c = counts?.[detector.id];
-                  const findingCount = c?.finding_count ?? 0;
                   const runCount = c?.run_count ?? 0;
+                  const agentRunCount = c?.agent_run_count ?? 0;
+                  const signalCount = signalCounts?.counts[detector.id] ?? 0;
                   const countClass =
                     "border-r border-border/50 px-3 py-1.5 text-right text-[12px] text-muted-foreground tabular-nums";
+                  const detectorPath = `/projects/${projectId}/detectors/${detector.id}`;
+                  // Judge runs open the detector page; signals open the
+                  // Signals page narrowed to this detector.
+                  const countLinks = {
+                    runs: buildUrl(detectorPath),
+                    signals: buildUrl(`/projects/${projectId}/signals`, {
+                      filters: serializeFiltersParam([
+                        { field: "detector", op: "in", value: [detector.name] },
+                      ])!,
+                    }),
+                  };
                   return (
                     <tr
                       key={detector.id}
@@ -262,8 +301,26 @@ export default function DetectorsPage() {
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {detector.sampleRate}%
                       </td>
-                      <td className={countClass}>{countsLoading ? "—" : findingCount}</td>
-                      <td className={countClass}>{countsLoading ? "—" : runCount}</td>
+                      <td className={countClass}>
+                        <CountLink
+                          href={countLinks.runs}
+                          label={`View judge runs for ${detector.name}`}
+                          value={counts ? runCount : null}
+                        />
+                      </td>
+                      <td className={countClass}>
+                        <CountLink
+                          href={countLinks.signals}
+                          label={`View signals for ${detector.name}`}
+                          value={signalCounts ? signalCount : null}
+                        />
+                      </td>
+                      <td
+                        className={countClass}
+                        title="RCA agent runs started in the selected time range, including retries"
+                      >
+                        {counts ? agentRunCount : "—"}
+                      </td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {formatDate(detector.createTime)}
                       </td>
