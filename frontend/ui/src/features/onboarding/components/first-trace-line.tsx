@@ -13,13 +13,11 @@ import type { TraceWait } from "@/lib/hooks/use-trace-wait";
  * to believe the page will react, so they either sit on it or leave it. One
  * line is enough to say that it will.
  *
- * It never takes the page away from them. The device page opens the trace the
- * moment it lands, and can, because it has just told the person to go back to
- * their terminal — nobody is looking at that tab. Here somebody is: they are
- * mid-copy, or part-way down a manual walkthrough that shows an API key exactly
- * once, and the step still offers choices they have not made yet. Navigating
- * out from under any of that would be taking a decision on their behalf to tell
- * them good news. So the arrival is offered, and the person clicks it.
+ * Both pages that wait for a first trace open it when it lands — this one and
+ * the device page — so the arrival state here is what the person sees for the
+ * moment before the page moves. It still carries the link, because navigation
+ * can be slow or refused and a statement with no way forward would leave them
+ * stranded on good news.
  *
  * Every state is a statement and a way forward, and none of them disables
  * anything around it. The run is happening in a terminal and will finish
@@ -39,7 +37,7 @@ export function FirstTraceLine({ wait }: { wait: TraceWait }) {
     return (
       <p className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
         <Check className="h-3.5 w-3.5 text-green-600" />
-        <span>Your first trace arrived.</span>
+        <span>Your first trace arrived. Opening it…</span>
         <Link href={traceUrl(wait.found)} className="font-medium underline hover:text-foreground">
           View it
         </Link>
