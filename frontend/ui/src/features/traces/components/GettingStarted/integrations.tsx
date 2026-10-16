@@ -291,10 +291,7 @@ TraceRoot.initialize({
     languages: {
       typescript: {
         installCommand: OPENCODE_INSTALL_COMMAND,
-        initSnippet: `export TRACEROOT_ENABLED=true
-
-// opencode.json
-{
+        initSnippet: `{
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     "@traceroot-ai/opencode-plugin"
