@@ -177,3 +177,93 @@ describe("dataset upsert change", () => {
     ).toBe(true);
   });
 });
+
+describe("RegisterRunRequestSchema dataset coverage", () => {
+  const register = (over: Record<string, unknown> = {}) => ({
+    evaluation_name: "Billing routing",
+    dataset_id: "ds1",
+    candidate_version: "git:abc123",
+    ...over,
+  });
+  /** The message the register route surfaces — `parsed.error.issues[0].message`. */
+  const reject = (over: Record<string, unknown>) => {
+    const parsed = RegisterRunRequestSchema.safeParse(register(over));
+    expect(parsed.success).toBe(false);
+    return parsed.success ? "" : parsed.error.issues[0].message;
+  };
+
+  it("leaves coverage absent for an SDK that does not send it", () => {
+    const parsed = RegisterRunRequestSchema.parse(register());
+    expect(parsed.dataset_case_count).toBeUndefined();
+    expect(parsed.run_selection).toBeUndefined();
+  });
+
+  it("accepts the three declarable coverage shapes", () => {
+    for (const run_selection of [
+      { mode: "full", selected_case_count: 500 },
+      { mode: "first", selected_case_count: 20 },
+      { mode: "sample", selected_case_count: 20, sample_seed: 7 },
+      // An unseeded sample is legitimate — it simply cannot be reproduced.
+      { mode: "sample", selected_case_count: 20 },
+    ]) {
+      expect(
+        RegisterRunRequestSchema.safeParse(register({ dataset_case_count: 500, run_selection }))
+          .success,
+      ).toBe(true);
+    }
+  });
+
+  it("rejects a half-declared coverage block in either direction", () => {
+    expect(reject({ run_selection: { mode: "first", selected_case_count: 20 } })).toContain(
+      "run_selection requires dataset_case_count",
+    );
+    expect(reject({ dataset_case_count: 500 })).toContain(
+      "dataset_case_count requires run_selection",
+    );
+  });
+
+  it("rejects a selection that cannot describe a real run", () => {
+    expect(
+      reject({
+        dataset_case_count: 10,
+        run_selection: { mode: "first", selected_case_count: 20 },
+      }),
+    ).toContain("cannot exceed dataset_case_count");
+    // "full" over a partial selection would render as "Full dataset" on a subset.
+    expect(
+      reject({
+        dataset_case_count: 500,
+        run_selection: { mode: "full", selected_case_count: 20 },
+      }),
+    ).toContain('mode "full" requires');
+    // A seed on a non-sample implies a reproducible randomisation that never happened.
+    expect(
+      reject({
+        dataset_case_count: 500,
+        run_selection: { mode: "first", selected_case_count: 20, sample_seed: 7 },
+      }),
+    ).toContain("sample_seed is only valid");
+  });
+
+  it("refuses two denominators that disagree, and allows the agreeing pair", () => {
+    const run_selection = { mode: "first", selected_case_count: 20 };
+    expect(reject({ case_count: 99, dataset_case_count: 500, run_selection })).toContain(
+      "case_count contradicts",
+    );
+    expect(
+      RegisterRunRequestSchema.safeParse(
+        register({ case_count: 20, dataset_case_count: 500, run_selection }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("strips an unknown key inside run_selection rather than losing the whole run", () => {
+    const parsed = RegisterRunRequestSchema.parse(
+      register({
+        dataset_case_count: 500,
+        run_selection: { mode: "first", selected_case_count: 20, unknown_selection_field: "x" },
+      }),
+    );
+    expect(parsed.run_selection).toEqual({ mode: "first", selected_case_count: 20 });
+  });
+});
