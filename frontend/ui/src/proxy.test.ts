@@ -57,6 +57,17 @@ describe("proxy middleware", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 
+  it("still protects /onboarding, which renders bare but is not public", () => {
+    // /onboarding renders with no app shell around it, exactly as /device does
+    // (see lib/chromeless-routes) — but for an unrelated reason, and the
+    // exemption above must not follow the resemblance. /device is exempt
+    // because it is reachable while SIGNED OUT and owns its own sign-in
+    // round-trip; every action on /onboarding needs a session, and exempting it
+    // would hand the workspace-creation form to anyone with the URL.
+    const res = proxy(request("/onboarding?callbackUrl=%2Fdevice"));
+    expect(res.headers.get("location")).toContain("/auth/sign-in");
+  });
+
   it("lets auth pages through without a token", () => {
     const res = proxy(request("/auth/sign-in"));
     expect(res.headers.get("location")).toBeNull();

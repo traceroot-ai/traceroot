@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
+import { AccountLine } from "@/components/account-line";
 
 const FALLBACK_CLIENT_NAME = "A command-line application";
 
@@ -399,34 +400,6 @@ function CodeEntry({ value, onChange, onSubmit, error }: CodeEntryProps) {
           Continue
         </Button>
       </form>
-    </div>
-  );
-}
-
-type AccountLineProps = {
-  email: string | null;
-  pending: boolean;
-  onSwitchAccount: () => void;
-};
-
-// Which account this is about, and the way out of it. Shared by consent and the
-// setup screen so the two cannot drift: being signed in as the wrong account is
-// the likeliest reason an account the CLI cannot use is looking at either one.
-function AccountLine({ email, pending, onSwitchAccount }: AccountLineProps) {
-  if (!email) {
-    return null;
-  }
-  return (
-    <div className="space-y-0.5 text-[12px] text-muted-foreground">
-      <p>as {email}</p>
-      <button
-        type="button"
-        onClick={onSwitchAccount}
-        disabled={pending}
-        className="underline hover:text-foreground disabled:opacity-50"
-      >
-        Not you? Sign out
-      </button>
     </div>
   );
 }
