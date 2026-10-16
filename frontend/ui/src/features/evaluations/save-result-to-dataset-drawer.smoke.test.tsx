@@ -82,7 +82,11 @@ function stubFetch(postResponse?: { ok: boolean; status: number; body: unknown }
   return fetchMock;
 }
 
-function mount(action: ResultDatasetAction, onOpenChange = () => {}) {
+function mount(
+  action: ResultDatasetAction,
+  onOpenChange = () => {},
+  result: typeof RESULT = RESULT,
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -92,7 +96,7 @@ function mount(action: ResultDatasetAction, onOpenChange = () => {}) {
           open
           onOpenChange={onOpenChange}
           action={action}
-          result={RESULT}
+          result={result}
           sourceDatasetId="ds1"
           sourceDatasetName="Billing routing"
         />
@@ -158,6 +162,33 @@ describe("SaveResultToDatasetDrawer", () => {
     // whitespace republishes a genuinely different case — Save must not gate it away.
     const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: `${RESULT.input} ` } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("keeps Save disabled on open when expected is structured JSON that pretty-prints", () => {
+    mount("update_existing_case", () => {}, {
+      ...RESULT,
+      expectedOutput: '{"summary":"ok"}',
+    });
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    const expected = screen.getByLabelText("Expected answer") as HTMLTextAreaElement;
+    fireEvent.change(expected, { target: { value: '{"summary":"updated"}' } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("preserves the distinction between null and empty candidate output", () => {
+    mount("update_existing_case", () => {}, {
+      ...RESULT,
+      expectedOutput: null,
+      candidateOutput: "",
+    });
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // Toggling candidate switch when candidate is "" but expected was null is a real change.
+    fireEvent.click(screen.getByRole("switch"));
     expect(save.hasAttribute("disabled")).toBe(false);
   });
 

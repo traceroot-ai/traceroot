@@ -386,7 +386,7 @@ describe("Dataset detail — filtering and adding rows", () => {
     expect((patch?.body as { input: string }).input.endsWith(" ")).toBe(true);
   });
 
-  it("reformatting structured Input is not a change, but editing a value is", async () => {
+  it("an edit to structured-looking Input enables Save — tc_ id hashes exact bytes", async () => {
     const structuredCase = testCase({
       id: "row-struct",
       testCaseId: "tc_struct",
@@ -413,11 +413,12 @@ describe("Dataset detail — filtering and adding rows", () => {
     const save = screen.getByRole("button", { name: "Save" });
     expect(save.hasAttribute("disabled")).toBe(true);
 
-    // Reformatting structured input does not enable Save.
+    // Any edit to Input (including reformatting) enables Save, so genuine string
+    // inputs whose tc_ id hashes exact bytes can always be persisted.
     fireEvent.change(input, { target: { value: '{"query": "hello"}' } });
-    expect(save.hasAttribute("disabled")).toBe(true);
+    expect(save.hasAttribute("disabled")).toBe(false);
 
-    // Editing a value in structured input enables Save.
+    // Editing a value in structured input also enables Save.
     fireEvent.change(input, { target: { value: '{"query": "world"}' } });
     expect(save.hasAttribute("disabled")).toBe(false);
   });

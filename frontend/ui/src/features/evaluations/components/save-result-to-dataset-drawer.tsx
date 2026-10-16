@@ -177,20 +177,20 @@ export function SaveResultToDatasetDrawer({
 
   // Only "update" republishes an existing case, so only it needs a dirty gate; save/duplicate
   // always create a case and are savable as they stand. Every field is compared the way it is
-  // PERSISTED — this drawer POSTs `input` and `expected` verbatim, and a case's id is a hash of
-  // its exact input (`stableCaseId` over `canonicalJson`, which does not trim) — so nothing here
-  // trims. A whitespace-only edit really does change the published case; gating it away as a
-  // no-op would leave the reviewer unable to save a change the backend would have accepted.
-  // Trimming `input` on the way in is not an option either: that id derivation is byte-parity
-  // with the TS/Python SDKs, so a trimming UI would give `" hi "` a different `tc_` id than the
-  // same input pushed from an SDK, and a re-publish would duplicate the case, not upsert it.
+  // PERSISTED — `input` and `expected` compare encoded values against their stored seed so
+  // structured values that EditableValueBlock pretty-prints on mount do not start dirty, while
+  // real value edits (and string whitespace edits) enable Save.
   const hasChanges =
     action === "update_existing_case"
-      ? (meta.picksDataset && targetDatasetId !== sourceDatasetId) ||
-        encodeEditedText(result.input, input) !== encodeEditedText(result.input, result.input) ||
+      ? encodeEditedText(result.input, input) !== encodeEditedText(result.input, result.input) ||
         (useCandidateAsExpected
-          ? (result.candidateOutput ?? "") !== (result.expectedOutput ?? "")
-          : expected !== (result.expectedOutput ?? ""))
+          ? result.candidateOutput === null
+            ? result.expectedOutput !== null
+            : result.expectedOutput === null ||
+              encodeEditedText(result.expectedOutput, result.candidateOutput) !==
+                encodeEditedText(result.expectedOutput, result.expectedOutput)
+          : encodeEditedText(result.expectedOutput, expected) !==
+            encodeEditedText(result.expectedOutput, result.expectedOutput ?? ""))
       : true;
 
   const canSave =

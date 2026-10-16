@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { EditableValueBlock } from "@/features/offline-eval/components";
 import { canonicalJson, LoneSurrogateError } from "@/lib/eval/canonical";
-import { encodeEditedText } from "@/lib/eval/json-value";
 import { useSaveTestCase, useUpdateTestCase } from "../hooks";
 
 /**
@@ -130,14 +129,14 @@ export function TestCaseEditorModal({
   const pending = save.isPending || update.isPending;
   // In edit mode, keep Save disabled until a field actually changes. In create mode,
   // require non-empty input before enabling Save (+ Row -> Save with empty fields is blocked).
-  // Each field is compared the way it is PERSISTED: `input` is persisted via `encodeEditedText`
-  // so pure reformatting of structured input is a no-op; `expected` is stored as
-  // `expected.trim() || null` so we trim editor side only; and `metadata` is stored parsed
-  // so it compares canonically (see `metadataSignature`).
+  // `input` uses a raw compare (`input !== mode.input`) because `mode.input` is display text
+  // and UI-authored inputs are genuine strings whose tc_ id hashes exact bytes; `expected`
+  // is stored as `expected.trim() || null` so we trim editor side only; and `metadata` is
+  // stored parsed so it compares canonically (see `metadataSignature`).
   const hasChanges =
     mode.kind === "create"
       ? input.trim().length > 0
-      : encodeEditedText(mode.input, input) !== encodeEditedText(mode.input, mode.input) ||
+      : input !== mode.input ||
         (expected !== (mode.expected ?? "") && expected.trim() !== (mode.expected ?? "")) ||
         // Both sides go through the seeded TEXT, so a case stored as `{}` (which `metadataToText`
         // renders blank) matches an untouched blank field instead of reading as an edit.
