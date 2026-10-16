@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -7,26 +7,67 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   createWorkspace: vi.fn(),
   createProject: vi.fn(),
+  getWorkspaces: vi.fn(),
+  params: new URLSearchParams(),
+  signOut: vi.fn(),
+  // Carries an id, because the page caches the workspace list per account: a
+  // session without one would key every account's list together, which is the
+  // bug these tests would then be blind to.
+  session: {
+    data: { user: { id: "user-1", email: "kai@example.com" } },
+    isPending: false,
+  },
+  layoutAccess: vi.fn(),
 }));
+
+// Shaped like GET /api/workspaces answers it (see app/api/workspaces/route.ts).
+// `role` and `project_count` are what the handoff decision reads, so a stub
+// without them would prove nothing about the real payload.
+const READY_WORKSPACE = { id: "ws-existing", name: "Example", role: "ADMIN", project_count: 1 };
+const EMPTY_WORKSPACE = { id: "ws-empty", name: "Example", role: "ADMIN", project_count: 0 };
+const VIEWER_EMPTY_WORKSPACE = { ...EMPTY_WORKSPACE, role: "VIEWER" };
+
+// Shaped like better-auth's client results (see @better-fetch/fetch): a cleared
+// session, and a sign-out the server answered with an error.
+const SIGNED_OUT = { data: { success: true }, error: null };
+const SIGN_OUT_REFUSED = {
+  data: null,
+  error: { status: 429, statusText: "Too Many Requests", message: "Too many requests" },
+};
+
+function setParams(init: Record<string, string>) {
+  mocks.params = new URLSearchParams(init);
+}
+
+function signedInAs(id: string, email: string) {
+  mocks.session = { data: { user: { id, email } }, isPending: false };
+}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mocks.params,
 }));
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
-    useSession: () => ({
-      data: { user: { email: "kai@example.com" } },
-      isPending: false,
-    }),
+    useSession: () => mocks.session,
+    signOut: mocks.signOut,
   },
 }));
+// Left in place, but only to catch the page reaching for it. This page renders
+// outside the app shell (see lib/chromeless-routes), where `useLayout` hands
+// back the context's inert defaults — so a `setHeaderContent` call here writes
+// a title into a header that is never rendered, and reads as working in a test
+// while showing nothing in a browser.
 vi.mock("@/components/layout/app-layout", () => ({
-  useLayout: () => ({ setHeaderContent: vi.fn() }),
+  useLayout: () => {
+    mocks.layoutAccess();
+    return { setHeaderContent: vi.fn() };
+  },
 }));
 vi.mock("@/lib/api", () => ({
   createWorkspace: mocks.createWorkspace,
   createProject: mocks.createProject,
+  getWorkspaces: mocks.getWorkspaces,
 }));
 vi.mock("@/features/detectors/components/add-detectors-step", () => ({
   AddDetectorsStep: ({
@@ -47,10 +88,15 @@ vi.mock("@/features/detectors/components/add-detectors-step", () => ({
 
 import OnboardingPage from "./page";
 
-function renderPage() {
-  const queryClient = new QueryClient({
+function makeQueryClient() {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+}
+
+// `queryClient` is a parameter so one test can mount the page twice against the
+// same cache, which is what an account switch inside the app looks like.
+function renderPage(queryClient: QueryClient = makeQueryClient()) {
   return render(
     <QueryClientProvider client={queryClient}>
       <OnboardingPage />
@@ -58,19 +104,86 @@ function renderPage() {
   );
 }
 
+// A promise this test resolves by hand, so "did the page wait for this?" can be
+// asserted rather than inferred from call order.
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+// The form is withheld until the workspace check settles, so submitting means
+// waiting for it first.
+async function clickCreate() {
+  const create = await waitFor(() => screen.getByRole("button", { name: "Create" }));
+  fireEvent.click(create);
+}
+
 async function completeStepOne() {
-  fireEvent.click(screen.getByRole("button", { name: "Create" }));
+  await clickCreate();
   await waitFor(() => expect(screen.getByTestId("add-detectors-step")).toBeDefined());
 }
+
+// The sign-out round trip, read back from what the page pushed rather than
+// string-matched. What has to hold is that a sign-in landing on this URL comes
+// back to this page carrying the *same* hand-back — and comparing against the
+// same expression the page builds would pass for any encoding that is merely
+// self-consistent with itself, including one no browser would decode this way.
+function switchAccountRoundTrip(pushed: string) {
+  const signIn = new URL(pushed, "http://test.invalid");
+  const back = new URL(signIn.searchParams.get("callbackUrl") ?? "", "http://test.invalid");
+  return {
+    signInPath: signIn.pathname,
+    backTo: back.pathname,
+    handBack: back.searchParams.get("callbackUrl"),
+    workspaceId: back.searchParams.get("workspaceId"),
+  };
+}
+
+async function clickSignOut() {
+  const signOut = await waitFor(() => screen.getByRole("button", { name: "Not you? Sign out" }));
+  fireEvent.click(signOut);
+}
+
+beforeEach(() => {
+  // The page refuses to onboard an account that already owns a workspace, so
+  // every test that exercises the form is a first-run account unless it says
+  // otherwise.
+  mocks.getWorkspaces.mockResolvedValue([]);
+  // `{ data, error }` rather than nothing, because that is what the better-auth
+  // client resolves with: it reports a failed sign-out in `error` instead of
+  // rejecting, so a mock that resolves bare cannot tell the two apart.
+  mocks.signOut.mockResolvedValue(SIGNED_OUT);
+});
 
 afterEach(() => {
   cleanup();
   mocks.push.mockReset();
   mocks.createWorkspace.mockReset();
   mocks.createProject.mockReset();
+  mocks.getWorkspaces.mockReset();
+  mocks.layoutAccess.mockReset();
+  mocks.signOut.mockReset();
+  mocks.params = new URLSearchParams();
+  signedInAs("user-1", "kai@example.com");
 });
 
 describe("OnboardingPage", () => {
+  it("does not reach for the app shell's layout context", async () => {
+    // This page renders with no shell around it, so there is no header to put a
+    // title in and no rail to collapse. Depending on the shell's context is how
+    // the two drift back apart: the call succeeds against the context defaults
+    // and nothing shows, which is invisible until someone opens the page.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+    await completeStepOne();
+
+    expect(mocks.layoutAccess).not.toHaveBeenCalled();
+  });
+
   it("shows the detectors step after workspace + project creation instead of redirecting", async () => {
     mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
     mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
@@ -93,12 +206,414 @@ describe("OnboardingPage", () => {
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/traces");
   });
 
+  it("hands straight back to a waiting caller instead of asking about detectors", async () => {
+    // `traceroot setup` is holding a terminal open on the device approval this
+    // page runs ahead of. Detectors only ever run on trace ingest, so asking now
+    // produces nothing and delays the handoff behind a judgement call the user
+    // has no basis to make yet.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+
+    await clickCreate();
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234"));
+    expect(screen.queryByTestId("add-detectors-step")).toBeNull();
+  });
+
+  it("holds the handoff open until both the workspace and the project exist", async () => {
+    // The whole point of the change: the terminal is released last. Ordering the
+    // *calls* does not say that — it passes for code that puts both requests on
+    // the wire and pushes without awaiting the second, which is the original bug
+    // exactly. So drive the two promises by hand and assert nothing is pushed
+    // while either is still in flight.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    const workspace = deferred<{ id: string }>();
+    const project = deferred<{ id: string; name: string }>();
+    mocks.createWorkspace.mockReturnValue(workspace.promise);
+    mocks.createProject.mockReturnValue(project.promise);
+    renderPage();
+
+    await clickCreate();
+
+    // Workspace request in flight: the account still owns nothing.
+    await waitFor(() => expect(mocks.createWorkspace).toHaveBeenCalledWith("Example"));
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    workspace.resolve({ id: "ws-1" });
+
+    // Project request in flight: the workspace exists but is empty, which is the
+    // same dead end for the CLI from the other side.
+    await waitFor(() => expect(mocks.createProject).toHaveBeenCalledWith("ws-1", "my-llm-project"));
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    project.resolve({ id: "proj-1", name: "my-llm-project" });
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234"));
+    expect(mocks.push).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not hand back when the project could not be created", async () => {
+    // A terminal released against a workspace with no project is the same dead
+    // end from the other direction.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockRejectedValue(new Error("project creation failed"));
+    renderPage();
+
+    await clickCreate();
+
+    await waitFor(() => expect(screen.getByText(/project creation failed/)).toBeDefined());
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("refuses an off-origin callback and falls back to the normal flow", async () => {
+    // The value arrives in a query string anyone can craft a link with, so an
+    // unvalidated redirect here would bounce a freshly-created account to a
+    // foreign site at the exact moment it trusts the page.
+    setParams({ callbackUrl: "https://evil.example/steal" });
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+
+    await clickCreate();
+
+    // A rejected value means there is nowhere to hand back to, which is the
+    // same position as a user who arrived on their own — so the normal flow
+    // continues and nothing is pushed. Asserting `push("/")` here used to pass
+    // only because the validator answered a rejected value with its fallback,
+    // which sent a new account to the root instead of its traces.
+    await waitFor(() => expect(screen.getByTestId("add-detectors-step")).toBeDefined());
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("hands an account that already has a project straight back to the caller", async () => {
+    // The Google button on /auth/sign-up routes through here, and better-auth
+    // has no social sign-up to distinguish from social sign-in — so an existing
+    // account, or an email account linked to the same Google identity, arrives
+    // on this page without being new. It owns what the terminal was waiting
+    // for, so there is nothing to do but hand back.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.getWorkspaces.mockResolvedValue([READY_WORKSPACE]);
+    renderPage();
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234"));
+    expect(screen.queryByRole("button", { name: "Create" })).toBeNull();
+    expect(mocks.createWorkspace).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+  });
+
+  it("shows the form to a viewer whose only workspace is empty, instead of bouncing back", async () => {
+    // The seam between this page and /device. /device sends this account here
+    // rather than to project-only mode because creating a project needs MEMBER
+    // or higher, so the workspace it already belongs to is no help. If this page
+    // then counts that same workspace as done, the two disagree and every
+    // "Continue setup" click lands the user straight back on /device: a loop
+    // with no form in it.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.getWorkspaces.mockResolvedValue([VIEWER_EMPTY_WORKSPACE]);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create" })).toBeDefined());
+    expect(mocks.push).not.toHaveBeenCalled();
+    // The workspace field is theirs to fill: the way out is a workspace of
+    // their own, not the read-only one they cannot add to.
+    expect(screen.getByPlaceholderText("Acme Inc")).toBeDefined();
+  });
+
+  it("asks a member with an empty workspace for the project alone, not a second workspace", async () => {
+    // Same missing project, different answer: this account can add one to the
+    // workspace it already has, so the page redirects itself into project-only
+    // mode — the destination /device uses for this case — and carries the
+    // waiting terminal along.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.getWorkspaces.mockResolvedValue([{ ...EMPTY_WORKSPACE, role: "MEMBER" }]);
+    renderPage();
+
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith(
+        `/onboarding?workspaceId=ws-empty&workspaceName=Example&callbackUrl=${encodeURIComponent(
+          "/device?user_code=ABCD1234",
+        )}`,
+      ),
+    );
+    // Nothing offers a duplicate workspace in the meantime.
+    expect(screen.queryByRole("button", { name: "Create" })).toBeNull();
+    expect(mocks.createWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("redirects to project-only mode with no callbackUrl when nobody is waiting", async () => {
+    // Same case arrived at directly rather than from a terminal: there is
+    // nothing to hand back to, so the URL says so instead of carrying an empty
+    // `callbackUrl=`. This page would survive one (`safeCallbackUrl` answers a
+    // blank value with its fallback, and `|| null` turns that back into "nobody
+    // waiting"), but the shared builder is also used by /device, and a caller
+    // that tests for the parameter's presence would read an empty one as a
+    // caller to return to.
+    mocks.getWorkspaces.mockResolvedValue([{ ...EMPTY_WORKSPACE, role: "MEMBER" }]);
+    renderPage();
+
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith(
+        "/onboarding?workspaceId=ws-empty&workspaceName=Example",
+      ),
+    );
+  });
+
+  it("does not let the previous account's cached list mark a new account onboarded", async () => {
+    // Signing out from /device's "Not you? Sign out" stays inside the app, so
+    // the QueryClient — and everything in it — survives the account switch. A
+    // list cached under a bare "workspaces" key would then answer for the next
+    // account: a brand-new one gets handed straight back to the terminal that
+    // is waiting for the workspace it still does not have.
+    const queryClient = makeQueryClient();
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+
+    // Account A is set up, so its visit hands back and leaves its list in the
+    // cache.
+    signedInAs("user-a", "kai@example.com");
+    mocks.getWorkspaces.mockResolvedValue([{ ...READY_WORKSPACE, id: "ws-a" }]);
+    const first = renderPage(queryClient);
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/device?user_code=ABCD1234"));
+    first.unmount();
+
+    // Account B in the same tab owns nothing.
+    mocks.push.mockReset();
+    signedInAs("user-b", "new@example.com");
+    mocks.getWorkspaces.mockResolvedValue([]);
+    renderPage(queryClient);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create" })).toBeDefined());
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("stays on the detectors step after the refetch reports the new project", async () => {
+    // Creating the workspace and project invalidates the very list this page
+    // gates itself on, so the refetch comes back describing an account that is
+    // now set up. Unless what this page created is excluded, the handoff effect
+    // fires the moment that refetch lands and replaces the detectors step with
+    // a redirect to /workspaces. The second value carries `project_count`, or
+    // the refetched account would read as unfinished and the test would pass
+    // without exercising anything.
+    mocks.getWorkspaces
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ ...READY_WORKSPACE, id: "ws-1" }]);
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+
+    await completeStepOne();
+
+    // Two fetches is also the proof that invalidating the shared "workspaces"
+    // key still reaches the per-account entry this page reads: if the two
+    // stopped matching, the refetch would never happen and this stays at one.
+    await waitFor(() => expect(mocks.getWorkspaces).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("add-detectors-step")).toBeDefined();
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("sends an already-onboarded account with nobody waiting to its workspaces", async () => {
+    mocks.getWorkspaces.mockResolvedValue([READY_WORKSPACE]);
+    renderPage();
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/workspaces"));
+    expect(mocks.createWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("withholds the form until the workspace check settles", async () => {
+    // Rendering the form while the check is in flight is the whole hazard: a
+    // submit landing first creates the duplicate workspace the check exists to
+    // prevent.
+    const workspaces = deferred<{ id: string; name: string }[]>();
+    mocks.getWorkspaces.mockReturnValue(workspaces.promise);
+    renderPage();
+
+    expect(screen.queryByRole("button", { name: "Create" })).toBeNull();
+
+    workspaces.resolve([]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create" })).toBeDefined());
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("still lets a first-run account onboard when the workspace check fails", async () => {
+    // A duplicate workspace is recoverable; an account that cannot reach this
+    // form at all can never finish signing up. So a failed check shows the form.
+    mocks.getWorkspaces.mockRejectedValue(new Error("workspaces unavailable"));
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create" })).toBeDefined());
+    await completeStepOne();
+    expect(mocks.createWorkspace).toHaveBeenCalledWith("Example");
+  });
+
+  it("does not check for a workspace when adding a project to one", async () => {
+    // `?workspaceId=` means "add a project to this workspace I already own", so
+    // owning one is the precondition here rather than a reason to leave.
+    setParams({ workspaceId: "ws-existing", workspaceName: "Example" });
+    mocks.createProject.mockResolvedValue({ id: "proj-2", name: "my-llm-project" });
+    renderPage();
+
+    await completeStepOne();
+    expect(mocks.getWorkspaces).not.toHaveBeenCalled();
+    expect(mocks.createWorkspace).not.toHaveBeenCalled();
+    expect(mocks.createProject).toHaveBeenCalledWith("ws-existing", "my-llm-project");
+  });
+
   it("still surfaces creation errors on step one", async () => {
     mocks.createWorkspace.mockRejectedValue(new Error("workspace boom"));
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await clickCreate();
 
     await waitFor(() => expect(screen.getByText("workspace boom")).toBeDefined());
     expect(screen.queryByTestId("add-detectors-step")).toBeNull();
+  });
+
+  it("names the account it is setting up", async () => {
+    // Without the shell there is no user menu, so nothing else on the page says
+    // which account this is — and being signed in as the wrong one is the
+    // likeliest reason a user wants out of here.
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("as kai@example.com")).toBeDefined());
+  });
+
+  it("signs out and returns here, keeping a waiting terminal's hand-back", async () => {
+    // The shell's user menu was the only way out of this page and it is gone.
+    // Navigating away to find a sign-out is what drops `callbackUrl`, which
+    // leaves `traceroot setup` polling for the whole device-code lifetime with
+    // nothing left pointing back at the approval.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() => expect(mocks.signOut).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledTimes(1));
+    expect(switchAccountRoundTrip(mocks.push.mock.calls[0][0])).toEqual({
+      signInPath: "/auth/sign-in",
+      backTo: "/onboarding",
+      handBack: "/device?user_code=ABCD1234",
+      workspaceId: null,
+    });
+  });
+
+  it("does not leave for sign-in until the sign-out has gone through", async () => {
+    // Pushing with the sign-out still in flight lands the new sign-in on top of
+    // the old session: better-auth's sign-out clears the cookie when it
+    // *returns*, so the race leaves the user signed in as the account they just
+    // asked to leave, on a page that looks like it worked. Call order cannot
+    // say this — it passes for a page that fires both and awaits neither — so
+    // the sign-out is resolved by hand.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    const signOut = deferred<typeof SIGNED_OUT>();
+    mocks.signOut.mockReturnValue(signOut.promise);
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() => expect(mocks.signOut).toHaveBeenCalled());
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    signOut.resolve(SIGNED_OUT);
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledTimes(1));
+  });
+
+  it("comes back without the workspace the account being left owns", async () => {
+    // `?workspaceId=` is an invitation to add a project to that workspace. It
+    // belongs to the account signing out, and the whole point of the round trip
+    // is to come back as somebody else — who cannot add anything to it. The
+    // hand-back still has to survive, so this is not simply "/onboarding".
+    setParams({
+      workspaceId: "ws-existing",
+      workspaceName: "Example",
+      callbackUrl: "/device?user_code=ABCD1234",
+    });
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledTimes(1));
+    expect(switchAccountRoundTrip(mocks.push.mock.calls[0][0])).toEqual({
+      signInPath: "/auth/sign-in",
+      backTo: "/onboarding",
+      handBack: "/device?user_code=ABCD1234",
+      workspaceId: null,
+    });
+  });
+
+  it("carries no empty hand-back when nobody is waiting", async () => {
+    // A user who opened setup themselves has nowhere to be returned to, and an
+    // empty `callbackUrl=` reads as a caller to someone testing for the
+    // parameter's presence.
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith("/auth/sign-in?callbackUrl=%2Fonboarding"),
+    );
+  });
+
+  it("refuses to sign out from under a workspace that is being created", async () => {
+    // Between the workspace and the project is the one window where leaving
+    // costs something: the workspace is created under an account the user is
+    // walking away from, and nothing has it yet.
+    const workspace = deferred<{ id: string }>();
+    mocks.createWorkspace.mockReturnValue(workspace.promise);
+    renderPage();
+    await clickCreate();
+
+    await waitFor(() => expect(mocks.createWorkspace).toHaveBeenCalled());
+    const signOut = screen.getByRole("button", { name: "Not you? Sign out" });
+    expect(signOut.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(signOut);
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+
+  it("says so when the sign-out fails instead of stranding the button", async () => {
+    mocks.signOut.mockRejectedValue(new Error("network down"));
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() => expect(screen.getByText("Could not sign out. Please try again.")));
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Not you? Sign out" }).hasAttribute("disabled")).toBe(
+      false,
+    );
+  });
+
+  it("stays here when the sign-out comes back refused rather than thrown", async () => {
+    // A rate limit or a proxy error resolves with an `error` instead of
+    // rejecting, and the session cookie survives it. Leaving for sign-in on
+    // that reaches a live session, which hands the user back here as the same
+    // account they asked to leave, with no sign anything went wrong.
+    setParams({ callbackUrl: "/device?user_code=ABCD1234" });
+    mocks.signOut.mockResolvedValue(SIGN_OUT_REFUSED);
+    renderPage();
+
+    await clickSignOut();
+
+    await waitFor(() => expect(screen.getByText("Could not sign out. Please try again.")));
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Not you? Sign out" }).hasAttribute("disabled")).toBe(
+      false,
+    );
+  });
+
+  it("drops the way out once the project exists", async () => {
+    // The detectors step is about the project this account now owns, and the
+    // app — user menu included — is one click away from it.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+    await completeStepOne();
+
+    expect(screen.queryByRole("button", { name: "Not you? Sign out" })).toBeNull();
   });
 });
