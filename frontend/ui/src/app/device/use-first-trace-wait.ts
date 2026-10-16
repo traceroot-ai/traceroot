@@ -1,37 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { TraceApiUser } from "@/lib/api/client";
-import type { Project, Workspace } from "@/types/api";
 import {
   captureTraceBaseline,
   findFirstTrace,
   retryUnknownBaseline,
-  type FirstTrace,
   type TraceBaseline,
 } from "@/lib/first-trace";
+import { useTraceWait, type RoundResult, type TraceWait } from "@/lib/hooks/use-trace-wait";
+import type { Project, Workspace } from "@/types/api";
 import { readWatchedProjects, watchOrder } from "./first-trace";
-
-/**
- * How long between rounds of looking.
- *
- * A round costs one project listing per workspace plus one trace read per
- * watched project, and trace reads come out of the same per-workspace budget as
- * the dashboard's. Ten seconds keeps a whole wait well inside the smallest
- * plan's allowance while still opening the trace within a few seconds of it
- * landing — and nobody is watching this tab in the meantime, because it just
- * sent them back to their terminal.
- */
-export const POLL_INTERVAL_MS = 10_000;
-
-/**
- * How long a tab will wait in total.
- *
- * Long enough to cover installing the SDK, instrumenting a service and running
- * it, and finite because a spinner with no end is the one outcome this wait
- * must never produce. When the budget runs out the tab says so.
- */
-export const WAIT_BUDGET_MS = 10 * 60 * 1000;
 
 /**
  * How many rounds may find nowhere to look before the wait stops early.
@@ -41,20 +20,11 @@ export const WAIT_BUDGET_MS = 10 * 60 * 1000;
  * account rather than an account with nothing in it. Spinning out the full
  * budget on that tells the person less than saying so does, and a couple of
  * rounds of slack keeps a single network blip from ending the wait.
+ *
+ * The onboarding page needs no equivalent: it was handed a project id, so a
+ * round of its own can never find nowhere to look.
  */
 export const MAX_BARREN_ROUNDS = 3;
-
-/**
- * Where the approved panel stands: still watching, settled on a trace, or
- * finished without one.
- *
- * `gave-up` carries somewhere to go, because a wait that ends empty still owes
- * the person a way into the product.
- */
-export type TraceWait =
-  | { kind: "waiting" }
-  | { kind: "found"; found: FirstTrace }
-  | { kind: "gave-up"; fallbackUrl: string };
 
 const WORKSPACES_URL = "/workspaces";
 
@@ -67,26 +37,23 @@ function fallbackUrlFor(projects: Project[]): string {
  * Watch for the first trace the terminal this tab just authorized sends, and
  * report where that wait stands.
  *
- * Strictly additive, in both directions. The approval already happened before
- * `active` turns true, so nothing here can gate or alter it; and nothing here
- * writes, so a tab that is closed — or never opened — changes nothing about the
- * run. The terminal stays the authority on how the run turned out. Whatever
- * this hook reports, the panel keeps pointing the person back to it.
+ * The pacing, the budget and the cancellation are `useTraceWait`'s. What is
+ * here is the part only this page has to do: find the projects to watch at all.
+ * Approval is the *first* step of the run, so the project is chosen — or
+ * created — afterwards, and every round has to go looking again.
  *
- * The loop is a chain of timeouts rather than an interval, so a slow round
- * cannot overlap the next one, and `cancelled` closes over the whole chain so
- * an unmount stops it without a late state update.
+ * The approval already happened before `active` turns true, so nothing here can
+ * gate or alter it. The terminal stays the authority on how the run turned out;
+ * whatever this reports, the panel keeps pointing the person back to it.
  */
 export function useFirstTraceWait(
   active: boolean,
   workspaces: Workspace[],
   user: TraceApiUser | undefined,
 ): TraceWait {
-  const [wait, setWait] = useState<TraceWait>({ kind: "waiting" });
-
-  // The loop reads these through refs so a re-render with an equivalent-but-new
-  // workspace array or session object does not restart the wait — and with it
-  // the baseline, which would then be drawn after the run had already started.
+  // The round reads these through refs so a re-render with an
+  // equivalent-but-new workspace array or session object does not restart the
+  // wait, and with it the baseline.
   const workspacesRef = useRef(workspaces);
   workspacesRef.current = workspaces;
   const userRef = useRef(user);
@@ -96,35 +63,22 @@ export function useFirstTraceWait(
   // different set of places to look.
   const workspaceKey = useMemo(() => workspaces.map((w) => w.id).join(","), [workspaces]);
 
-  useEffect(() => {
-    if (!active) {
-      return;
-    }
-
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+  const beginWait = useCallback((isCancelled: () => boolean) => {
     let baseline: TraceBaseline | null = null;
     let barrenRounds = 0;
-    const deadline = Date.now() + WAIT_BUDGET_MS;
 
-    function giveUp(projects: Project[]) {
-      setWait({ kind: "gave-up", fallbackUrl: fallbackUrlFor(projects) });
-    }
-
-    async function round(): Promise<void> {
+    return async function round(): Promise<RoundResult | null> {
       const projects = await readWatchedProjects(workspacesRef.current);
-      if (cancelled) {
-        return;
+      if (isCancelled()) {
+        return null;
       }
+      const fallbackUrl = fallbackUrlFor(projects);
 
       if (projects.length === 0) {
         barrenRounds += 1;
-        if (barrenRounds >= MAX_BARREN_ROUNDS) {
-          giveUp(projects);
-          return;
-        }
-        schedule(projects);
-        return;
+        return barrenRounds >= MAX_BARREN_ROUNDS
+          ? { kind: "stop", fallbackUrl }
+          : { kind: "again", fallbackUrl };
       }
       barrenRounds = 0;
 
@@ -137,53 +91,21 @@ export function useFirstTraceWait(
           projects.map((project) => project.id),
           userRef.current,
         );
-        if (cancelled) {
-          return;
-        }
-        schedule(projects);
-        return;
+        return isCancelled() ? null : { kind: "again", fallbackUrl };
       }
 
       // Any project whose baseline read failed gets another go first: until it
       // settles, nothing in that project can match, and it may be the only one
       // the run will ever touch.
       baseline = await retryUnknownBaseline(baseline, userRef.current);
-      if (cancelled) {
-        return;
+      if (isCancelled()) {
+        return null;
       }
 
       const found = await findFirstTrace(watchOrder(projects, baseline), baseline, userRef.current);
-      if (cancelled) {
-        return;
-      }
-      if (found) {
-        setWait({ kind: "found", found });
-        return;
-      }
-      schedule(projects);
-    }
-
-    function schedule(projects: Project[]) {
-      if (Date.now() + POLL_INTERVAL_MS > deadline) {
-        giveUp(projects);
-        return;
-      }
-      timer = setTimeout(() => {
-        void round();
-      }, POLL_INTERVAL_MS);
-    }
-
-    void round();
-
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
+      return found ? { kind: "found", found } : { kind: "again", fallbackUrl };
     };
-    // workspacesRef/userRef hold the current values; workspaceKey and the user
-    // id are the identities a restart should actually follow.
-  }, [active, workspaceKey, user?.id]);
+  }, []);
 
-  return wait;
+  return useTraceWait(active, beginWait, `${workspaceKey}|${user?.id ?? ""}`);
 }
