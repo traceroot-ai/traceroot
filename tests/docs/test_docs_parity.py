@@ -236,7 +236,7 @@ def test_cli_reference_parity() -> None:
                 assert source_commit == latest_sha, (
                     f"cli-placements.json source_commit ({source_commit[:7]}) is behind "
                     f"traceroot-cli src/registry/naming.ts ({latest_sha[:7]}). "
-                    "Update cli-placements.json and re-run make sync-cli-ref."
+                    "Update cli-placements.json and re-run `uv run python scripts/sync_cli_reference.py`."
                 )
     except (urllib.error.URLError, TimeoutError, OSError):
         # Offline or rate-limited; skip remote check and rely on pinned commit
