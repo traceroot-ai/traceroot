@@ -586,6 +586,14 @@ function OnboardingContent() {
               )
             ) : (
               <>
+                {/* Each row is an icon beside a column that fills the card, so
+                    the controls in that column fill it too. They used to be
+                    clamped to 20rem, which left the block 50px short of the
+                    right padding while touching the left — visibly off-centre
+                    against the buttons and the account line below, which are
+                    centred on the card. Filling makes the only margins the
+                    card's own padding, so the symmetry holds at every width
+                    instead of depending on a number that matches one. */}
                 <div className="space-y-0">
                   {/* Workspace Section */}
                   <div className="flex items-start gap-3">
@@ -606,7 +614,7 @@ function OnboardingContent() {
                         Your team's home for billing and members
                       </p>
                       {isProjectOnlyMode ? (
-                        <div className="flex max-w-xs items-center gap-2 border bg-muted/50 px-2.5 py-1.5 text-[13px]">
+                        <div className="flex items-center gap-2 border bg-muted/50 px-2.5 py-1.5 text-[13px]">
                           <span>{existingWorkspaceName || "Selected workspace"}</span>
                           <Check className="ml-auto h-3.5 w-3.5 text-green-600" />
                         </div>
@@ -614,7 +622,7 @@ function OnboardingContent() {
                         <Input
                           placeholder="Acme Inc"
                           {...register("workspaceName")}
-                          className="h-8 max-w-xs text-[13px]"
+                          className="h-8 text-[13px]"
                         />
                       )}
                       {errors.workspaceName && (
@@ -640,7 +648,7 @@ function OnboardingContent() {
                       <Input
                         placeholder="my-llm-project"
                         {...register("projectName")}
-                        className="h-8 max-w-xs text-[13px]"
+                        className="h-8 text-[13px]"
                       />
                       {errors.projectName && (
                         <p className="mt-1 text-[11px] text-red-500">
