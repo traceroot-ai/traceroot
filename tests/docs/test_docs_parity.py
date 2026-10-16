@@ -5,7 +5,7 @@ Guards against documentation drift for:
 2. docs/integrations/overview.mdx vs the in-app picker (integrations.tsx) and fixtures.
 3. docs/ai-agent/byok.mdx BYOK model catalog vs ADAPTER_MODELS in llm-providers.ts.
 4. CLI command reference in docs/cli/get-started.mdx vs public.json + placements.
-5. docs/snippets/ and embedded doc code blocks vs runnable examples.
+5. Embedded doc code blocks in docs/ vs runnable examples.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def test_docs_json_mdx_parity() -> None:
 
 
 def test_integrations_overview_parity() -> None:
-    """The integrations in docs/integrations/overview.mdx match the in-app picker."""
+    """The integrations in docs/integrations/overview.mdx match the in-app picker and SDK contracts."""
     overview_path = DOCS_DIR / "integrations" / "overview.mdx"
     assert overview_path.exists(), f"Missing {overview_path.relative_to(REPO_ROOT)}"
 
@@ -78,10 +78,8 @@ def test_integrations_overview_parity() -> None:
     # Exclude pages that are not provider cards: internal-models is a general
     # page, and openai-compatible documents a configuration pattern shared by
     # several providers rather than an SDK integration of its own.
-    # typesafe is documented in docs before in-app picker card onboarding.
     docs_integrations.discard("internal-models")
     docs_integrations.discard("openai-compatible")
-    docs_integrations.discard("typesafe")
 
     # In-app picker source
     picker_path = (
@@ -100,7 +98,8 @@ def test_integrations_overview_parity() -> None:
     picker_integrations = set(re.findall(r'id:\s*"([a-zA-Z0-9-]+)"', picker_content))
 
     missing_in_docs = picker_integrations - docs_integrations
-    extra_in_docs = docs_integrations - picker_integrations
+    # typesafe is documented in docs before in-app picker card onboarding:
+    extra_in_docs = (docs_integrations - picker_integrations) - {"typesafe"}
 
     assert not missing_in_docs, (
         f"Integrations in in-app picker missing from docs/integrations/overview.mdx: {sorted(missing_in_docs)}"
@@ -122,30 +121,49 @@ def test_integrations_overview_parity() -> None:
         "openai-agents": "openai-agents-sdk",
     }
     py_mapped = {py_slug_aliases.get(s, s) for s in py_integrations}
-    known_docs_or_native = docs_integrations | {
-        "python-sdk",
-        "typescript-sdk",
-        "groq",
-        "bedrock",
+
+    # Bidirectional: Python enum entries missing from docs (groq and bedrock use provider configs without dedicated cards yet)
+    missing_py_in_docs = (py_mapped - docs_integrations) - {"bedrock", "groq"}
+    assert not missing_py_in_docs, (
+        f"Python Integration enum entries missing from docs/integrations/overview.mdx: {sorted(missing_py_in_docs)}"
+    )
+
+    # Bidirectional: Docs pages not in Python Integration enum (TypeScript-only or external integrations)
+    non_py_docs = {
+        "langchain-deepagents",
+        "mastra",
+        "openrouter",
+        "pi",
         "typesafe",
+        "vercel-ai",
     }
-    unexpected_py = py_mapped - known_docs_or_native
-    assert not unexpected_py, (
-        f"Python Integration enum entries not documented in docs or known aliases: {sorted(unexpected_py)}"
+    unexpected_docs_non_py = (docs_integrations - py_mapped) - non_py_docs
+    assert not unexpected_docs_non_py, (
+        f"Docs integrations not present in Python Integration enum or allowed non-Python set: {sorted(unexpected_docs_non_py)}"
     )
 
     # Check vendored SDK READMEs integration list fixture
     sdk_fixture = FIXTURES_DIR / "sdk-readmes-integrations.json"
     assert sdk_fixture.exists(), f"Missing {sdk_fixture.relative_to(REPO_ROOT)}"
     sdk_data = json.loads(sdk_fixture.read_text(encoding="utf-8"))
+
+    all_sdk_slugs: set[str] = set()
     for lang, sdk_integrations in sdk_data.items():
         sdk_slugs = {
             py_slug_aliases.get(i.replace("_", "-"), i.replace("_", "-")) for i in sdk_integrations
         }
-        missing_sdk = sdk_slugs - known_docs_or_native
+        all_sdk_slugs |= sdk_slugs
+        missing_sdk = (sdk_slugs - docs_integrations) - {"bedrock", "groq"}
         assert not missing_sdk, (
             f"SDK README ({lang}) integrations missing from docs/integrations/overview.mdx: {sorted(missing_sdk)}"
         )
+
+    # Bidirectional: Docs pages that no SDK README lists
+    known_non_sdk_docs = {"langchain-deepagents", "openrouter", "typesafe"}
+    docs_missing_from_sdk = (docs_integrations - all_sdk_slugs) - known_non_sdk_docs
+    assert not docs_missing_from_sdk, (
+        f"Docs integrations missing from all SDK READMEs and not in known non-SDK set: {sorted(docs_missing_from_sdk)}"
+    )
 
 
 def test_byok_models_parity() -> None:
@@ -190,7 +208,38 @@ def test_byok_models_parity() -> None:
 
 
 def test_cli_reference_parity() -> None:
-    """CLI reference in docs/cli/get-started.mdx must match generated output."""
+    """CLI reference in docs/cli/get-started.mdx must match generated output and pinned source commit."""
+    placements_path = FIXTURES_DIR / "cli-placements.json"
+    assert placements_path.exists(), f"Missing {placements_path.relative_to(REPO_ROOT)}"
+    placements_data = json.loads(placements_path.read_text(encoding="utf-8"))
+
+    source_commit = placements_data.get("source_commit")
+    assert source_commit and re.match(r"^[0-9a-f]{40}$", source_commit), (
+        f"{placements_path.name} must record a 40-character source_commit SHA tying it to "
+        "traceroot-cli/src/registry/naming.ts."
+    )
+
+    # Verify that the pinned commit has not drifted from traceroot-cli main when network is reachable
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(
+            "https://api.github.com/repos/traceroot-ai/traceroot-cli/commits?path=src/registry/naming.ts&page=1&per_page=1",
+            headers={"User-Agent": "traceroot-docs-parity"},
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data and isinstance(data, list) and "sha" in data[0]:
+                latest_sha = data[0]["sha"]
+                assert source_commit == latest_sha, (
+                    f"cli-placements.json source_commit ({source_commit[:7]}) is behind "
+                    f"traceroot-cli src/registry/naming.ts ({latest_sha[:7]}). "
+                    "Update cli-placements.json and re-run make sync-cli-ref."
+                )
+    except (urllib.error.URLError, TimeoutError, OSError):
+        # Offline or rate-limited; skip remote check and rely on pinned commit
+        pass
+
     script_path = REPO_ROOT / "scripts" / "sync_cli_reference.py"
     assert script_path.exists(), f"Missing {script_path.relative_to(REPO_ROOT)}"
 
@@ -206,7 +255,7 @@ def test_cli_reference_parity() -> None:
 
 
 def test_snippets_drift_parity() -> None:
-    """Doc snippets in docs/snippets/ and docs pages must match examples/."""
+    """Embedded doc code blocks in docs/ pages must match examples/."""
     script_path = REPO_ROOT / "scripts" / "sync_doc_snippets.py"
     assert script_path.exists(), f"Missing {script_path.relative_to(REPO_ROOT)}"
 

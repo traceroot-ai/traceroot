@@ -88,7 +88,10 @@
     "evals": "Work with evaluations",
     "evals runs": "Read recorded evaluation runs"
   },
-  "handwritten_note": "Hand-maintained against the CLI's --help output.",
+  "source_repository": "traceroot-ai/traceroot-cli",
+  "source_path": "src/registry/naming.ts",
+  "source_commit": "85e9d6520ea9870e5ea31262906fbdce4efefb30",
+  "handwritten_note": "Hand-maintained against the CLI's --help output at source_commit.",
   "handwritten": [
     {
       "command": "login",

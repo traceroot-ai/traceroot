@@ -152,6 +152,16 @@ def sync(check: bool = False) -> int:
             return 1
 
     if check:
+        with open(PLACEMENTS_PATH, encoding="utf-8") as f:
+            placements_data = json.load(f)
+        source_commit = placements_data.get("source_commit")
+        if not source_commit or not re.match(r"^[0-9a-f]{40}$", source_commit):
+            print(
+                f"{PLACEMENTS_PATH}: missing or invalid 40-character source_commit SHA.",
+                file=sys.stderr,
+            )
+            return 1
+
         if content != new_content:
             print(
                 f"{CLI_DOC_PATH} command reference is stale. "

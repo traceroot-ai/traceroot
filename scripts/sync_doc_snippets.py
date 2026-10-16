@@ -22,8 +22,8 @@ END_MARKER_RE = re.compile(r"(?:#|//|\{/\*)\s*\[end:([\w-]+)\]\s*(?:\*/)?")
 
 # Target doc files that embed snippets between markers
 DOC_EMBED_MARKER_RE = re.compile(
-    r"(\{/\*\s*\[start:snippet:([\w-]+)\]\s*\*/\}\n)(.*?)"
-    r"(\{/\*\s*\[end:snippet:\2\]\s*\*/\})",
+    r"(([ \t]*)\{/\*\s*\[start:snippet:([\w-]+)\]\s*\*/\}\n)(.*?)"
+    r"([ \t]*\{/\*\s*\[end:snippet:\3\]\s*\*/\})",
     re.DOTALL,
 )
 
@@ -93,7 +93,7 @@ def sync_doc_file(
 
     # Validate that the document contains exactly the expected snippet blocks
     matches = list(DOC_EMBED_MARKER_RE.finditer(content))
-    found_snippet_ids = [m.group(2) for m in matches]
+    found_snippet_ids = [m.group(3) for m in matches]
 
     if expected_snippets is not None and (
         len(matches) != len(expected_snippets) or found_snippet_ids != expected_snippets
@@ -105,9 +105,10 @@ def sync_doc_file(
 
     def replacer(match: re.Match[str]) -> str:
         open_tag = match.group(1)
-        snippet_id = match.group(2)
-        old_body = match.group(3)
-        close_tag = match.group(4)
+        tag_indent = match.group(2)
+        snippet_id = match.group(3)
+        old_body = match.group(4)
+        old_close_tag = match.group(5)
 
         if snippet_id not in snippets:
             mismatches.append(
@@ -116,25 +117,21 @@ def sync_doc_file(
             return match.group(0)
 
         snippet = snippets[snippet_id]
-        indent = ""
-        for line in old_body.splitlines():
-            if line.strip():
-                indent = line[: len(line) - len(line.lstrip())]
-                break
-
+        indent = tag_indent
         lang = snippet["lang"]
         code_lines = snippet["code"].splitlines()
         indented_code = "\n".join(
             (f"{indent}{line}" if line.strip() else "") for line in code_lines
         )
         new_body = f"{indent}```{lang}\n{indented_code}\n{indent}```\n"
+        new_close_tag = f"{tag_indent}{{/* [end:snippet:{snippet_id}] */}}"
 
-        if old_body.strip() != new_body.strip():
+        if old_body.strip() != new_body.strip() or old_close_tag != new_close_tag:
             mismatches.append(
                 f"{doc_path.relative_to(REPO_ROOT)}: snippet '{snippet_id}' differs from source",
             )
 
-        return f"{open_tag}{new_body}{close_tag}"
+        return f"{open_tag}{new_body}{new_close_tag}"
 
     new_content = DOC_EMBED_MARKER_RE.sub(replacer, content)
 

@@ -41,7 +41,7 @@ On Windows or in environments without tmux, use `make dev-lite` instead.
 | `make prod-lite` | Run the Docker stack directly without tmux. Helpful on Windows and in environments without tmux. |
 | `make sync-openapi` | Regenerate the public OpenAPI schema (`backend/rest/openapi/public.json`) and widget registry snapshot. |
 | `make sync-cli-ref` | Regenerate the CLI command reference (`docs/cli/get-started.mdx`) from OpenAPI and placements. |
-| `make sync-doc-snippets` | Extract doc snippets from runnable examples and sync into `docs/snippets/` and docs pages. |
+| `make sync-doc-snippets` | Extract doc snippets from runnable examples and sync into docs pages. |
 
 `make dev`, `make dev-autoreload`, and `make dev-lite` install the pre-commit hook automatically on first run.
 
