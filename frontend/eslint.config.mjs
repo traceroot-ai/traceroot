@@ -36,6 +36,28 @@ const registryGlyphPattern =
   "FolderKanban|Globe|Layers|Layers3|LayoutDashboard|LayoutGrid|Shapes|Users|" +
   "Workflow|Wrench)(Icon)?$";
 
+// The public demo workspace has every user as a member. A query over one user's
+// memberships must say whether the demo counts, or it silently changes things
+// like onboarding and the "only workspace" guard. These selectors reject a
+// hand-written per-user `where` (one with userId but no workspaceId) and a
+// list of all workspaces; use userMembershipWhere() / isDemoWorkspace() from
+// ui/src/lib/demo-workspace.ts, or say why the demo is fine with an
+// eslint-disable comment.
+const demoWorkspaceQueryRestrictions = [
+  {
+    selector:
+      "CallExpression[callee.object.property.name='workspaceMember'][callee.property.name=/^(findMany|findFirst|count)$/] > ObjectExpression > Property[key.name='where'] > ObjectExpression:has(> Property[key.name='userId']):not(:has(> Property[key.name='workspaceId']))",
+    message:
+      'Build a per-user membership `where` with userMembershipWhere(userId, "include-demo" | "exclude-demo") from @/lib/demo-workspace, so the query chooses whether the demo workspace counts.',
+  },
+  {
+    selector:
+      "CallExpression[callee.object.property.name='workspace'][callee.property.name='findMany']",
+    message:
+      "A list of all workspaces includes the demo workspace (DEMO_WORKSPACE_ID). Filter it with isDemoWorkspace(), or say why it belongs in the list with an eslint-disable-next-line comment.",
+  },
+];
+
 export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -95,6 +117,13 @@ export default [
     files: ["ui/src/components/icons/domain-icons.ts", "ui/src/**/*.{test,spec}.{ts,tsx}"],
     rules: {
       "no-restricted-imports": ["error", { patterns: relativeImportPatterns }],
+    },
+  },
+  {
+    files: ["ui/src/**/*.{ts,tsx}"],
+    ignores: ["**/*.{test,spec}.{ts,tsx}", "**/__tests__/**"],
+    rules: {
+      "no-restricted-syntax": ["error", ...demoWorkspaceQueryRestrictions],
     },
   },
   {

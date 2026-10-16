@@ -5,6 +5,7 @@ import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useAiChat } from "./use-ai-chat";
+import { DEMO_EXAMPLES } from "../lib/demo-agent-example";
 import { dateFilterStorageKey } from "@/lib/date-filter-storage";
 import type { AISession } from "../types";
 import type { ModelSelection } from "../components/model-selector";
@@ -128,6 +129,69 @@ describe("useAiChat session switching", () => {
       expect(result.current.messages.some((m) => m.content === "partial answer")).toBe(true),
     );
   };
+
+  it("keeps the demo example in History after opening RCA and returning Home", async () => {
+    const { result, rerender } = renderHook(
+      ({ initialSessionId }: { initialSessionId?: string }) =>
+        useAiChat({ projectId: "p1", initialSessionId, demoReadOnly: true }),
+      { wrapper, initialProps: { initialSessionId: "rca-1" as string | undefined } },
+    );
+    await waitFor(() => expect(result.current.messages[0]?.content).toBe("history of rca-1"));
+    rerender({ initialSessionId: undefined });
+    await act(async () => {
+      await result.current.handleOpenHistory();
+    });
+    const example = result.current.sessions.find((s) => s.id === "demo-example-policy");
+    expect(example).toBeDefined();
+    await act(async () => {
+      await result.current.handleSelectSession(example!);
+    });
+    expect(result.current.messages.at(-1)?.content).toContain("false positive");
+    await act(async () => {
+      expect(await result.current.handleSend("blocked", MODEL)).toBe(false);
+    });
+    expect(historyFetches).not.toContain("demo-example-policy");
+    await act(async () => {
+      await result.current.handleSelectSession(sessionB);
+    });
+    expect(result.current.messages[0]?.content).toBe("history of B");
+    await act(async () => {
+      await result.current.handleSelectSession(example!);
+    });
+    expect(result.current.messages.at(-1)?.content).toContain("false positive");
+    act(() => result.current.handleNewSession());
+    expect(result.current.messages).toEqual([]);
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(
+      true,
+    );
+  });
+
+  it("switches through every bundled example without requesting a backend transcript", async () => {
+    const { result } = renderHook(() => useAiChat({ projectId: "p1", demoReadOnly: true }), {
+      wrapper,
+    });
+    for (const example of DEMO_EXAMPLES) {
+      const listed = result.current.sessions.find((session) => session.id === example.session.id);
+      expect(listed).toBeDefined();
+      await act(async () => {
+        await result.current.handleSelectSession(listed!);
+      });
+      expect(result.current.currentSessionId).toBe(example.session.id);
+      expect(result.current.messages).toEqual(example.messages);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not list or load demo examples in ordinary workspaces", async () => {
+    const { result } = renderChat();
+    expect(result.current.sessions.some((session) => session.isExample)).toBe(false);
+    await act(async () => {
+      await result.current.handleSelectSession({ ...DEMO_EXAMPLES[0].session, projectId: "p1" });
+    });
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentSessionId).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it("loads an initialSessionId's history into its bucket on mount", async () => {
     const { result } = renderHook(() => useAiChat({ projectId: "p1", initialSessionId: "rca-1" }), {
