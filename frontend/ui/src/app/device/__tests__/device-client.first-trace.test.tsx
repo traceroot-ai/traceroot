@@ -64,7 +64,8 @@ vi.mock("@/lib/auth-client", () => ({
 }));
 
 import { DeviceClient } from "../device-client";
-import { MAX_BARREN_ROUNDS, POLL_INTERVAL_MS, WAIT_BUDGET_MS } from "../use-first-trace-wait";
+import { POLL_INTERVAL_MS, WAIT_BUDGET_MS } from "@/lib/hooks/use-trace-wait";
+import { MAX_BARREN_ROUNDS } from "../use-first-trace-wait";
 
 const WAITING_TEXT = "Waiting for your first trace. This page opens it when it arrives.";
 const TERMINAL_TEXT = "Return to your terminal to finish setting up.";
