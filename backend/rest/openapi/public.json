@@ -3596,6 +3596,27 @@
         "title": "PublicProjectListResponse",
         "type": "object"
       },
+      "PublicSignalListResponse": {
+        "description": "Paginated list of the project's signals for the public API (newest first).",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SignalSummary"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "PublicSignalListResponse",
+        "type": "object"
+      },
       "PublicTestCase": {
         "description": "One test case in a version snapshot.\n\n``input``/``expected``/``metadata`` are NATIVE JSON values \u2014 an object stays an\nobject, a JSON-looking string stays a string \u2014 so they are ``Any``, not ``str``.",
         "properties": {
@@ -5151,6 +5172,335 @@
           "status"
         ],
         "title": "SessionTraceItem",
+        "type": "object"
+      },
+      "SignalDetail": {
+        "description": "One signal, including when it was resolved and whether it was merged.\n\nA merged signal is still answered, with ``merged_into_id`` naming the signal\nits findings moved to; lists leave merged signals out.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "detector_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detector Name"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "hit_count": {
+            "title": "Hit Count",
+            "type": "integer"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "merged_into_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merged Into Id"
+          },
+          "rca_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rca State"
+          },
+          "reopen_count": {
+            "title": "Reopen Count",
+            "type": "integer"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal_id",
+          "detector_id",
+          "detector_name",
+          "title",
+          "status",
+          "hit_count",
+          "reopen_count",
+          "first_seen_at",
+          "last_seen_at",
+          "created_at",
+          "resolved_at",
+          "merged_into_id"
+        ],
+        "title": "SignalDetail",
+        "type": "object"
+      },
+      "SignalStatusRequest": {
+        "additionalProperties": false,
+        "description": "Body for resolving or reopening a signal.\n\nOnly ``resolved`` and ``open`` are settable here. A dismissed signal never\nreopens on a new finding, so dismissing stays a decision a person makes in\nthe web app. Resolving needs a ``reason``; the reason ``other`` also needs\na ``note``. The write service is the single validator of those rules.",
+        "properties": {
+          "expected_status": {
+            "description": "The status the caller last read. When the signal's current status differs, nothing is written and the answer is a 409.",
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Expected Status",
+            "type": "string"
+          },
+          "note": {
+            "description": "A free-text note; required when reason is \"other\"",
+            "maxLength": 4000,
+            "title": "Note",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the signal is resolved; required when status is \"resolved\"",
+            "enum": [
+              "fixed_elsewhere",
+              "fixed_by_pr",
+              "already_fixed_before",
+              "other"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "resolved",
+              "open"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "status"
+        ],
+        "title": "SignalStatusRequest",
+        "type": "object"
+      },
+      "SignalStatusResponse": {
+        "description": "The signal after the write. ``changed`` is empty when it already had that status.",
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "signal": {
+            "$ref": "#/components/schemas/SignalStatusRow"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "updated",
+          "changed",
+          "signal"
+        ],
+        "title": "SignalStatusResponse",
+        "type": "object"
+      },
+      "SignalStatusRow": {
+        "description": "A signal as the status write returns it.",
+        "properties": {
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reopen_count": {
+            "title": "Reopen Count",
+            "type": "integer"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "date-time",
+            "title": "Resolved At"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal_id",
+          "project_id",
+          "detector_id",
+          "title",
+          "status",
+          "resolved_at",
+          "reopen_count"
+        ],
+        "title": "SignalStatusRow",
+        "type": "object"
+      },
+      "SignalSummary": {
+        "description": "A signal: a recurring problem that one detector's findings are grouped into.\n\n``reopen_count`` counts the automatic reopens (a new finding after the\nsignal was resolved). ``rca_state`` is the state of the root cause analysis\nof the current opening, null when none ran for it.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "detector_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detector Name"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "hit_count": {
+            "title": "Hit Count",
+            "type": "integer"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "rca_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rca State"
+          },
+          "reopen_count": {
+            "title": "Reopen Count",
+            "type": "integer"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "signal_id",
+          "detector_id",
+          "detector_name",
+          "title",
+          "status",
+          "hit_count",
+          "reopen_count",
+          "first_seen_at",
+          "last_seen_at",
+          "created_at"
+        ],
+        "title": "SignalSummary",
         "type": "object"
       },
       "SpanResponse": {
@@ -12015,6 +12365,386 @@
           "description": "Fetch one session with all its traces (ids, names, status, I/O summaries). Use before deep-diving individual traces of a conversation.",
           "enabled": true,
           "name": "get_session"
+        }
+      }
+    },
+    "/api/v1/public/signals": {
+      "get": {
+        "description": "List the signals in the caller's project (newest first). Merged signals are left out.",
+        "operationId": "list_signals",
+        "parameters": [
+          {
+            "description": "Items per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "0-based page index",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "0-based page index",
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only signals with this status",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "open",
+                    "resolved",
+                    "dismissed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only signals with this status",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Only signals of this detector",
+            "in": "query",
+            "name": "detector_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only signals of this detector",
+              "title": "Detector Id"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSignalListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Signals",
+        "tags": [
+          "Signals"
+        ],
+        "x-tool": {
+          "description": "List the project's signals, newest first: the recurring problems that detector findings are grouped into, with status (open, resolved, dismissed), detector, hit count, reopen count and the state of the current root cause analysis. Filter by status or detector_id. Merged signals are left out. Returns 50 results by default; increment page to fetch subsequent pages until all needed signals are found.",
+          "enabled": true,
+          "name": "list_signals"
+        }
+      }
+    },
+    "/api/v1/public/signals/{signal_id}": {
+      "get": {
+        "description": "Get one signal of the caller's project. A merged signal names the signal it moved to.",
+        "operationId": "get_signal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signal_id",
+            "required": true,
+            "schema": {
+              "title": "Signal Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Signal not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Signal",
+        "tags": [
+          "Signals"
+        ],
+        "x-tool": {
+          "description": "Fetch one signal by id, including when it was resolved. A merged signal names the signal its findings moved to in merged_into_id. Resolve the signal id by listing signals \u2014 never guess an id.",
+          "enabled": true,
+          "name": "get_signal"
+        }
+      }
+    },
+    "/api/v1/public/signals/{signal_id}/status": {
+      "patch": {
+        "description": "Resolve or reopen a signal. Dismissing is not possible here.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Resolving needs a ``reason``; the reason ``other`` also\nneeds a ``note``. A resolved signal opens again by itself when its\ndetector finds the problem in a trace that started after the resolve. Send\n``expected_status`` to refuse the change when someone else changed the\nstatus first. Setting the status the signal already has changes nothing.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    signal_id (str): The signal to change.\n    payload (SignalStatusRequest): The project, the target status, and\n        the reason, note and expected status.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    SignalStatusResponse: The signal with its new status.\n\nRaises:\n    HTTPException: The write service's 400/403/404/409 verbatim, or a\n        503 when its response is ambiguous.",
+        "operationId": "set_signal_status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signal_id",
+            "required": true,
+            "schema": {
+              "title": "Signal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignalStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The status changed since the caller read it, or the signal was merged"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Resolve or reopen a signal",
+        "tags": [
+          "Signals"
+        ],
+        "x-tool": {
+          "description": "Resolve or reopen a signal. Resolving needs a reason (fixed_elsewhere, fixed_by_pr, already_fixed_before, other); 'other' also needs a note. A resolved signal opens again by itself when its detector finds the problem in a trace that started after the resolve. Dismissing is not possible here: a dismissed signal never reopens, so a person dismisses in the web app. Send expected_status to refuse the change when the status changed since you read it (a conflict). Setting the current status changes nothing.",
+          "enabled": true,
+          "name": "set_signal_status",
+          "policy": {
+            "approvalClass": "confirm",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
         }
       }
     },

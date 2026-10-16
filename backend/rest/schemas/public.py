@@ -629,3 +629,49 @@ class PublicAlertListResponse(BaseModel):
 
     data: list[AlertSummary]
     meta: AlertListMeta
+
+
+# ── signals ─────────────────────────────────────────────────────────────
+
+# Mirrors SIGNAL_STATUSES in frontend/packages/core/src/ee/signals/constants.ts
+# (a parity test reads that file).
+SignalStatus = Literal["open", "resolved", "dismissed"]
+
+
+class SignalSummary(BaseModel):
+    """A signal: a recurring problem that one detector's findings are grouped into.
+
+    ``reopen_count`` counts the automatic reopens (a new finding after the
+    signal was resolved). ``rca_state`` is the state of the root cause analysis
+    of the current opening, null when none ran for it.
+    """
+
+    signal_id: str
+    detector_id: str
+    detector_name: str | None
+    title: str
+    status: SignalStatus
+    hit_count: int
+    reopen_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    created_at: datetime
+    rca_state: str | None = None
+
+
+class SignalDetail(SignalSummary):
+    """One signal, including when it was resolved and whether it was merged.
+
+    A merged signal is still answered, with ``merged_into_id`` naming the signal
+    its findings moved to; lists leave merged signals out.
+    """
+
+    resolved_at: datetime | None
+    merged_into_id: str | None
+
+
+class PublicSignalListResponse(BaseModel):
+    """Paginated list of the project's signals for the public API (newest first)."""
+
+    data: list[SignalSummary]
+    meta: PaginationMeta
