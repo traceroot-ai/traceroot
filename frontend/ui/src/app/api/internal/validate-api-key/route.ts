@@ -84,6 +84,11 @@ export async function POST(request: NextRequest) {
     workspaceName: accessKey.project.workspace.name,
     keyName: accessKey.name ?? null,
     keyHint: accessKey.keyHint,
+    // Reported so the Python service can enforce scope on its own routes. It
+    // does not yet — every FastAPI public route still accepts any valid key —
+    // so this is the plumbing, not the enforcement. Enforcement today lives in
+    // `lib/public-auth.ts`.
+    scope: accessKey.scope,
     billingPlan,
     ingestionBlocked: accessKey.project.workspace.ingestionBlocked,
     expiresAt: accessKey.expireTime?.toISOString() ?? null,
