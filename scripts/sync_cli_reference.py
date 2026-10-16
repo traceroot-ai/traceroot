@@ -155,7 +155,10 @@ def sync(check: bool = False) -> int:
         with open(PLACEMENTS_PATH, encoding="utf-8") as f:
             placements_data = json.load(f)
         source_commit = placements_data.get("source_commit")
-        if not source_commit or not re.match(r"^[0-9a-f]{40}$", source_commit):
+        if (
+            not isinstance(source_commit, str)
+            or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None
+        ):
             print(
                 f"{PLACEMENTS_PATH}: missing or invalid 40-character source_commit SHA.",
                 file=sys.stderr,

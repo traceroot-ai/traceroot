@@ -214,7 +214,9 @@ def test_cli_reference_parity() -> None:
     placements_data = json.loads(placements_path.read_text(encoding="utf-8"))
 
     source_commit = placements_data.get("source_commit")
-    assert source_commit and re.match(r"^[0-9a-f]{40}$", source_commit), (
+    assert (
+        isinstance(source_commit, str) and re.fullmatch(r"[0-9a-f]{40}", source_commit) is not None
+    ), (
         f"{placements_path.name} must record a 40-character source_commit SHA tying it to "
         "traceroot-cli/src/registry/naming.ts."
     )
