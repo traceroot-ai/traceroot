@@ -132,6 +132,9 @@ export interface Span {
   span_end_time: string | null;
   status: SpanStatus;
   status_message: string | null;
+  // Exception class name stamped at ingest; "unknown" on ERROR spans without one.
+  // "" when nothing was stamped: OK spans, and spans ingested before this column.
+  error_type: string;
   model_name: string | null;
   cost: number | null;
   input_tokens: number | null;

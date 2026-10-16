@@ -177,6 +177,26 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Link
+                    href={`/projects/${projectId}/signals`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/signals") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <DOMAIN_ICONS.signal className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Signals"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Signals
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
                     href={`/projects/${projectId}/dashboard`}
                     className={cn(
                       "flex items-center gap-2 py-2 text-[13px] transition-colors",

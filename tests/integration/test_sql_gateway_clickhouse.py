@@ -3,7 +3,7 @@
 Unit tests prove the validator and rewriter in isolation. These prove that what the
 rewriter renders is accepted by a real ClickHouse, and that the guarantees hold where
 they have to hold: every gateway query below runs as the read-only account, against
-migrations 001 to 012 applied as written and accounts provisioned from the repository's
+every migration applied as written and accounts provisioned from the repository's
 own bootstrap SQL. See ``conftest.py`` for the environment the suite needs; without it
 every test here skips.
 

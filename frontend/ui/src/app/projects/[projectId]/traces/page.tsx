@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
@@ -19,6 +19,7 @@ import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -36,6 +37,7 @@ import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
 // Imported from the hook's own module, not the feature barrel: the page tests replace that
 // barrel wholesale with a factory mock, and a barrel import here would go missing under it.
 import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
+import { useTraceSignalIds } from "@/ee/features/signals/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
 // Tab definitions
@@ -123,6 +125,11 @@ export default function TracesPage() {
     { refetchInterval: autoRefresh ? 5000 : false },
   );
 
+  // Every new page of rows, or a new filter/search/time range, starts at the top of
+  // the list. A live-refresh refetch keeps the same query, so it leaves the scroll alone.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(listRef, JSON.stringify([queryOptions, userId]));
+
   const prefetchTraces = usePrefetchTraces(projectId);
 
   const { visibleColumns, toggleField, reset: resetColumns } = useTraceColumns(projectId);
@@ -155,6 +162,13 @@ export default function TracesPage() {
 
   const traces = data?.data || [];
   const total = data?.meta?.total ?? 0;
+  // Read only while the Signal IDs column is shown.
+  const traceIds = useMemo(() => (data?.data ?? []).map((t) => t.trace_id), [data]);
+  const { data: signalIds, isError: signalIdsFailed } = useTraceSignalIds(
+    projectId,
+    traceIds,
+    visibleColumns.includes("signal_ids"),
+  );
   const showGettingStarted = !checking && !hasEverTraced && !existsError;
 
   // Hide AI button during loading AND when GettingStarted is shown
@@ -302,12 +316,15 @@ export default function TracesPage() {
             </div>
           ) : (
             <div className="flex h-full flex-col">
-              <div className="flex-1 overflow-auto">
+              <div ref={listRef} className="flex-1 overflow-auto">
                 <TraceListTable
+                  projectId={projectId}
                   traces={traces}
                   selectedTraceId={selectedTraceId}
                   onSelectTrace={selectTrace}
                   visibleColumns={visibleColumns}
+                  signalIdsByTrace={signalIds?.signalIds}
+                  signalIdsFailed={signalIdsFailed}
                 />
               </div>
 

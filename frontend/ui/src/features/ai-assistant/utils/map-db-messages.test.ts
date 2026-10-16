@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readCardModel } from "../lib/resource-card";
 import { mapDbMessages } from "./map-db-messages";
 
 const base = { createTime: "2026-01-01T00:00:00Z" };
@@ -33,6 +34,46 @@ describe("mapDbMessages", () => {
       outputBytes: 11,
       isError: false,
       status: "done",
+    });
+  });
+
+  it("rebuilds a card read's row into a step the panel cards again, as it did live", () => {
+    // The persister keeps a card read's details alone (no text), so a
+    // reloaded chat draws the same card instead of a plain tool line.
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "row2",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t2",
+          toolName: "get_widget_data",
+          args: { widget_id: "w-1" },
+          result: {
+            details: {
+              kind: "widget_read",
+              widget: {
+                id: "w-1",
+                title: "Recent failures",
+                type: "trace_feed",
+                spec: { limit: 10 },
+                status: "skipped",
+                error: null,
+                dashboard_id: "db1",
+                dashboard_name: "Overview",
+              },
+              window: null,
+            },
+          },
+          outputBytes: 900,
+          isError: false,
+        },
+      },
+    ]);
+    expect(readCardModel(msg.toolStep!, "p1")).toMatchObject({
+      kind: "widget",
+      model: { title: "Recent failures", href: "/projects/p1/dashboard/db1" },
     });
   });
 

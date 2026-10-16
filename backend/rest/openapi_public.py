@@ -598,9 +598,92 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "enabled": True,
     },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
+    # Dataset READS are tool-exposed; the dataset writes stay off the registry entirely.
+    # Not because the registry cannot carry a write (it can, behind an x-tool policy
+    # block), but because no policy decision has been made for dataset writes.
+    "list_datasets": {
+        "name": "list_datasets",
+        "description": (
+            "List the project's evaluation datasets, newest first, with each dataset's "
+            "current published version. Filter by a case-insensitive substring of the "
+            "name. Use this for discovery before reading a specific dataset."
+        ),
+        "enabled": True,
+    },
+    "get_dataset": {
+        "name": "get_dataset",
+        "description": (
+            "Read one evaluation dataset by id: its name, description, key, and current "
+            "published version. A dataset with no published version has none, and its "
+            "cases cannot be read until one exists."
+        ),
+        "enabled": True,
+    },
+    "list_dataset_versions": {
+        "name": "list_dataset_versions",
+        "description": (
+            "List a dataset's published versions, newest first, each with its case count "
+            "and whether it is the current one. Versions are immutable snapshots: editing a "
+            "dataset's test cases publishes a new version rather than changing an old one, "
+            "while renaming a dataset or changing its description publishes nothing."
+        ),
+        "enabled": True,
+    },
+    "get_dataset_version": {
+        "name": "get_dataset_version",
+        "description": (
+            "Read one immutable dataset version and its test cases (input, expected, "
+            "metadata, and trace provenance where the case was captured from one). Always "
+            "pass limit (for example 20) and follow next_cursor until it is null: without "
+            "limit the whole version comes back in one response, which can be very large."
+        ),
+        "enabled": True,
+    },
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
     "complete_run": {"enabled": False},
+    # The run read is tool-exposed; the reporting writes above stay SDK-facing. Its payload
+    # is bounded by scorer count rather than case count, and the route reads no per-case
+    # TEXT and sits in the READ bucket, so an agent calling it in a loop cannot pull an
+    # unbounded body.
+    "list_evaluations": {
+        "name": "list_evaluations",
+        "description": (
+            "List the project's evaluations, newest first: each one's name, the key an SDK "
+            "reports it under, the dataset it runs against, how many runs it has, and its "
+            "latest run. Filter by a case-insensitive substring of the name. An evaluation "
+            "that has never been run reports a null latest_run. Use this to find an "
+            "evaluation before listing its runs."
+        ),
+        "enabled": True,
+    },
+    "list_evaluation_runs": {
+        "name": "list_evaluation_runs",
+        "description": (
+            "List evaluation runs, newest first. Filter by evaluation_id to see one "
+            "evaluation's runs, or by status to see only runs in that state. Each row is "
+            "identity and outcome only: which "
+            "run it is, what was evaluated, the dataset version it pinned, its status, and "
+            "when it started and finished. A run's counts and per-scorer means come from "
+            "get_evaluation_run. Use this to find a run id."
+        ),
+        "enabled": True,
+    },
+    "read_run": {
+        "name": "get_evaluation_run",
+        "description": (
+            "Read one evaluation run's summary: its status, result counts, per-scorer "
+            "scores, and mean cost and duration per case. scored_count, task_error_count "
+            "and scorer_error_count are null until the run completes. A case is errored "
+            "or not_scored; passed and failed are older statuses, so passed_count and "
+            "failed_count are usually 0. Each score and metric carries "
+            "observed_count, the number of results it was taken over. A numeric score's "
+            "value is its mean and a boolean score's is its pass rate. A categorical or "
+            "mixed-type score, or one no result reported, has a null value: it has no "
+            "mean, and is not a score of 0."
+        ),
+        "enabled": True,
+    },
     # Account-tenancy ops have no membership to gate; minRole VIEWER is the no-role-floor convention.
     "create_workspace": {
         "name": "create_workspace",
@@ -1095,6 +1178,61 @@ def build_public_schema(app: Any) -> dict[str, Any]:
     _apply_widget_spec_vocabulary(schema)
     _apply_tool_curation(schema)
     return schema
+
+
+#: Base URLs for the docs' API playground. The cloud host serves the public API
+#: under the same origin the SDKs default to; self-hosters point the variable at
+#: their own backend.
+DOCS_SERVERS: list[dict[str, Any]] = [
+    {"url": "https://app.traceroot.ai", "description": "TraceRoot Cloud"},
+    {
+        "url": "{baseUrl}",
+        "description": "Self-hosted",
+        "variables": {
+            "baseUrl": {
+                "default": "http://localhost:8000",
+                "description": "Your TraceRoot backend URL",
+            }
+        },
+    },
+]
+
+_SDK_NOTE = (
+    "<Note>The TraceRoot SDKs call this endpoint for you; call it directly only "
+    "where no SDK fits. It accepts a project API key only.</Note>"
+)
+_INGEST_NOTE = (
+    "\n\nSend the body as OTLP protobuf with `Content-Type: application/x-protobuf`, "
+    "optionally gzip-compressed with `Content-Encoding: gzip`."
+)
+
+
+def build_docs_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return the copy of the public document that the Mintlify API reference reads.
+
+    Mintlify only reads files inside ``docs/``, so the reference needs its own
+    copy. It is the public document plus what only the docs need: ``servers``
+    for the playground, and a note on each operation hidden from the tool
+    registry (the SDKs' ingest and evaluation-run writes) saying the SDKs call
+    it. ``public.json`` itself stays unchanged, so the tool registry is unaffected.
+
+    Args:
+        schema (dict[str, Any]): The public-only OpenAPI document; not mutated.
+
+    Returns:
+        dict[str, Any]: The docs copy.
+    """
+    docs = copy.deepcopy(schema)
+    docs["servers"] = copy.deepcopy(DOCS_SERVERS)
+    for item in docs["paths"].values():
+        for method, op in item.items():
+            if method not in _HTTP_METHODS or op.get("x-tool", {}).get("enabled", True):
+                continue
+            note = _SDK_NOTE
+            if op.get("operationId") == "ingest_traces":
+                note += _INGEST_NOTE
+            op["x-mint"] = {"content": note}
+    return docs
 
 
 def render(schema: dict[str, Any]) -> str:

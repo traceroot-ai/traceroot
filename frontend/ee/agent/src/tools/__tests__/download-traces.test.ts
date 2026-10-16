@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { downloadOneTrace } from "../download-traces.js";
+import { createDownloadTracesTool, downloadOneTrace } from "../download-traces.js";
 import type { Executor } from "../../executors/interface.js";
 
-// Only writeFile is exercised by downloadOneTrace; stub the rest of Executor.
+// Only writeFile and isReady are exercised here; stub the rest of Executor.
 const executor = {
   writeFile: vi.fn().mockResolvedValue(undefined),
+  isReady: vi.fn().mockReturnValue(true),
 } as unknown as Executor;
 
 describe("downloadOneTrace", () => {
@@ -42,5 +43,39 @@ describe("downloadOneTrace", () => {
     expect(url).toContain("/api/v1/projects/proj-1/traces/tid-1");
     expect(url).toContain("?fields=full");
     expect(result.spanCount).toBe(1);
+  });
+});
+
+describe("createDownloadTracesTool", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("suggests a grep for LLM spans that matches the spans.jsonl it wrote", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          name: "demo",
+          spans: [{ span_id: "s1", parent_span_id: null, name: "chat", span_kind: "LLM" }],
+        }),
+      }),
+    );
+
+    const tool = createDownloadTracesTool("proj-1", "user-1", executor);
+    const result = await tool.execute("call-1", { traceIds: ["tid-1"] });
+    const text = (result.content[0] as { text: string }).text;
+
+    const pattern = text.match(/grep '([^']+)' \S+\/spans\.jsonl/)?.[1];
+    expect(pattern).toBe('"span_kind":"LLM"');
+    const spansWrite = vi
+      .mocked(executor.writeFile)
+      .mock.calls.find(([path]) => String(path).endsWith("/spans.jsonl"));
+    expect(String(spansWrite?.[1])).toContain(pattern);
   });
 });

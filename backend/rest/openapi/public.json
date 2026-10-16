@@ -267,6 +267,44 @@
         "title": "AlertFilterItem",
         "type": "object"
       },
+      "AlertFilterItemRequest": {
+        "additionalProperties": false,
+        "description": "A row predicate an alert's measure is evaluated over.",
+        "properties": {
+          "field": {
+            "description": "A span field, e.g. model_name or metadata",
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "description": "The map entry to compare; required for the metadata field",
+            "title": "Key",
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "=",
+              "contains"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": [
+              "string",
+              "number"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "AlertFilterItemRequest",
+        "type": "object"
+      },
       "AlertListMeta": {
         "description": "Pagination plus the project's alert capacity.",
         "properties": {
@@ -296,7 +334,7 @@
         "type": "object"
       },
       "AlertRenotify": {
-        "description": "How often an alert re-notifies while it stays in the alerting state.\n\nKept a single-level object rather than a discriminated union: the tool\nregistry generator refuses nested schema references. The cross-field\nrule is enforced by a validator instead, so a contradictory stored rule\nfails the detail read closed rather than passing through half-typed.",
+        "description": "How often an alert re-notifies while it stays in the alerting state.\n\nKept a single-level object rather than a discriminated union, matching\nthe request-side shape. The cross-field rule is enforced by a validator\ninstead, so a contradictory stored rule fails the detail read closed\nrather than passing through half-typed.",
         "properties": {
           "interval_minutes": {
             "anyOf": [
@@ -693,36 +731,7 @@
           "filters": {
             "description": "Row predicates the measure is evaluated over",
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "field": {
-                  "description": "A span field, e.g. model_name or metadata",
-                  "type": "string"
-                },
-                "key": {
-                  "description": "The map entry to compare; required for the metadata field",
-                  "type": "string"
-                },
-                "op": {
-                  "enum": [
-                    "=",
-                    "contains"
-                  ],
-                  "type": "string"
-                },
-                "value": {
-                  "type": [
-                    "string",
-                    "number"
-                  ]
-                }
-              },
-              "required": [
-                "field",
-                "op",
-                "value"
-              ],
-              "type": "object"
+              "$ref": "#/components/schemas/AlertFilterItemRequest"
             },
             "title": "Filters",
             "type": "array"
@@ -1143,6 +1152,7 @@
                     "enum": [
                       "name",
                       "span_kind",
+                      "error_type",
                       "model_name",
                       "environment",
                       null
@@ -1187,6 +1197,7 @@
                             "name",
                             "span_kind",
                             "status",
+                            "error_type",
                             "model_name",
                             "environment",
                             "is_root",
@@ -1210,6 +1221,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -1226,12 +1238,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -1378,6 +1400,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -1394,12 +1417,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -1576,7 +1609,7 @@
         "type": "object"
       },
       "DashboardDataResponse": {
-        "description": "A dashboard's query widgets, up to the per-request cap, answered for one window.\n\nWidgets keep the dashboard's order. ``window`` is the window they were all\nanswered for \u2014 the one to name alongside any figure taken from here.",
+        "description": "A dashboard's query widgets, up to the per-request cap, answered for one window.\n\nWidgets keep the dashboard's order. ``window`` is the window they were all\nanswered for \u2014 the one to name alongside any figure taken from here.\n``layout`` is the dashboard's grid placement, as ``get_dashboard`` returns\nit.",
         "properties": {
           "dashboard": {
             "$ref": "#/components/schemas/DashboardSummary"
@@ -1584,6 +1617,20 @@
           "failed": {
             "title": "Failed",
             "type": "integer"
+          },
+          "layout": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DashboardLayoutItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layout"
           },
           "queried": {
             "title": "Queried",
@@ -1616,7 +1663,7 @@
         "type": "object"
       },
       "DashboardDetail": {
-        "description": "One dashboard with its widgets, ordered by creation time.",
+        "description": "One dashboard with its widgets, ordered by creation time.\n\n``layout`` is the stored grid placement of the widgets that have one, or\nNone when the dashboard service did not report it.",
         "properties": {
           "create_time": {
             "format": "date-time",
@@ -1653,6 +1700,20 @@
             "title": "Is Default",
             "type": "boolean"
           },
+          "layout": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DashboardLayoutItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layout"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -1681,6 +1742,40 @@
           "widgets"
         ],
         "title": "DashboardDetail",
+        "type": "object"
+      },
+      "DashboardLayoutItem": {
+        "description": "One widget's place on a dashboard's grid, in grid units.\n\n``i`` is the widget id; ``x``/``w`` count columns of the twelve-column\ngrid and ``y``/``h`` count rows. A widget with no entry is placed by the\ndashboard page itself, below everything that has one.",
+        "properties": {
+          "h": {
+            "title": "H",
+            "type": "integer"
+          },
+          "i": {
+            "title": "I",
+            "type": "string"
+          },
+          "w": {
+            "title": "W",
+            "type": "integer"
+          },
+          "x": {
+            "title": "X",
+            "type": "integer"
+          },
+          "y": {
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "i",
+          "x",
+          "y",
+          "w",
+          "h"
+        ],
+        "title": "DashboardLayoutItem",
         "type": "object"
       },
       "DashboardListItem": {
@@ -1833,7 +1928,7 @@
         "type": "object"
       },
       "DashboardWidgetData": {
-        "description": "One widget's answer within a dashboard data read.\n\n``status`` says what happened: ``ok`` carries the engine's columns/rows/\nmeta (a series carries every bucket of the window; every other display's\nrows are capped, with ``truncated`` set when the cap bit); ``skipped``\nis a feed widget (a trace list, not an aggregate \u2014 read those with\n``list_traces`` and the feed's filters); ``error`` carries a short reason\nand no rows \u2014 a broken widget, or a query widget past the per-request cap\nwith a reason naming it \u2014 so neither fails the whole dashboard.",
+        "description": "One widget's answer within a dashboard data read.\n\n``status`` says what happened: ``ok`` carries the engine's columns/rows/\nmeta (a series carries every bucket of the window; every other display's\nrows are capped, with ``truncated`` set when the cap bit); ``skipped``\nis a feed widget (a trace list, not an aggregate \u2014 read those with\n``list_traces`` and the feed's filters); ``error`` carries a short reason\nand no rows \u2014 a broken widget, or a query widget past the per-request cap\nwith a reason naming it \u2014 so neither fails the whole dashboard. ``spec``\nis the widget's stored spec whatever the status, so a caller can draw it.",
         "properties": {
           "columns": {
             "anyOf": [
@@ -1890,6 +1985,15 @@
               }
             ],
             "title": "Rows"
+          },
+          "spec": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec"
           },
           "status": {
             "enum": [
@@ -2318,6 +2422,39 @@
             "title": "Identified",
             "type": "boolean"
           },
+          "signal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Id"
+          },
+          "signal_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Status"
+          },
+          "signal_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Title"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -2452,6 +2589,43 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "EvaluationLatestRun": {
+        "description": "An evaluation's most recent run, so a listing answers \"where does this stand?\".",
+        "properties": {
+          "evaluation_run_id": {
+            "title": "Evaluation Run Id",
+            "type": "string"
+          },
+          "run_number": {
+            "title": "Run Number",
+            "type": "integer"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "completed_with_errors",
+              "failed",
+              "incomplete",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_run_id",
+          "run_number",
+          "status",
+          "started_at"
+        ],
+        "title": "EvaluationLatestRun",
+        "type": "object"
+      },
       "ExportManifest": {
         "description": "manifest.json: index of the bundle's parts.",
         "properties": {
@@ -2568,6 +2742,14 @@
             "title": "Run Ids",
             "type": "array"
           },
+          "signals": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FindingSignal"
+            },
+            "title": "Signals",
+            "type": "array"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -2593,6 +2775,35 @@
           "rca"
         ],
         "title": "FindingDetail",
+        "type": "object"
+      },
+      "FindingSignal": {
+        "description": "The signal one detector's hit in a finding belongs to.",
+        "properties": {
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "signal_status": {
+            "title": "Signal Status",
+            "type": "string"
+          },
+          "signal_title": {
+            "title": "Signal Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detector_id",
+          "signal_id",
+          "signal_title",
+          "signal_status"
+        ],
+        "title": "FindingSignal",
         "type": "object"
       },
       "FindingSummary": {
@@ -2621,6 +2832,14 @@
             "title": "Run Ids",
             "type": "array"
           },
+          "signals": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FindingSignal"
+            },
+            "title": "Signals",
+            "type": "array"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -2644,6 +2863,62 @@
           "detectors"
         ],
         "title": "FindingSummary",
+        "type": "object"
+      },
+      "GetDatasetVersionResponse": {
+        "description": "A version snapshot: the version's identity plus a PAGE of its cases.",
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PublicTestCase"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "version_number": {
+            "title": "Version Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_version_id",
+          "dataset_id",
+          "version_number",
+          "label",
+          "items",
+          "next_cursor"
+        ],
+        "title": "GetDatasetVersionResponse",
         "type": "object"
       },
       "GitContext": {
@@ -2769,6 +3044,118 @@
         "title": "IngestResponse",
         "type": "object"
       },
+      "ListDatasetVersionsResponse": {
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/PublicDatasetVersion"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "versions",
+          "next_cursor"
+        ],
+        "title": "ListDatasetVersionsResponse",
+        "type": "object"
+      },
+      "ListDatasetsResponse": {
+        "properties": {
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/PublicDataset"
+            },
+            "title": "Datasets",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "datasets",
+          "next_cursor"
+        ],
+        "title": "ListDatasetsResponse",
+        "type": "object"
+      },
+      "ListEvaluationRunsResponse": {
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/PublicEvaluationRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs",
+          "next_cursor"
+        ],
+        "title": "ListEvaluationRunsResponse",
+        "type": "object"
+      },
+      "ListEvaluationsResponse": {
+        "properties": {
+          "evaluations": {
+            "items": {
+              "$ref": "#/components/schemas/PublicEvaluation"
+            },
+            "title": "Evaluations",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "evaluations",
+          "next_cursor"
+        ],
+        "title": "ListEvaluationsResponse",
+        "type": "object"
+      },
       "PaginationMeta": {
         "description": "Pagination metadata for list responses.",
         "properties": {
@@ -2884,6 +3271,125 @@
         "title": "PublicDashboardListResponse",
         "type": "object"
       },
+      "PublicDataset": {
+        "description": "A dataset as the public API describes it.\n\nEvery field is REQUIRED and nullable rather than optional: the route always emits all\nof them, and a default here would say the key may be absent, which is a different\ncontract from \"present and null\". The shape roster compares this to the Zod side\nfield-for-field, so the two cannot drift apart on that distinction.\n\n``dataset_id`` is the id a CLIENT addresses the dataset by \u2014 its own\n``client_dataset_id`` when it created the dataset, or the row id for one authored in\nthe UI. ``key`` is the pre-image of that id, so a pulled dataset recovers its key when\nkey and name differ.\n\nNo case count: no dataset read computes one, and deriving it would need an N+1 over\nversions. It lives on a version, where it is one grouped aggregate.",
+        "properties": {
+          "current_dataset_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Dataset Version Id"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "name",
+          "description",
+          "current_dataset_version_id",
+          "key",
+          "updated_at"
+        ],
+        "title": "PublicDataset",
+        "type": "object"
+      },
+      "PublicDatasetVersion": {
+        "properties": {
+          "case_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Case Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "version_number": {
+            "title": "Version Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_version_id",
+          "version_number",
+          "label",
+          "note",
+          "case_count",
+          "created_at",
+          "is_current"
+        ],
+        "title": "PublicDatasetVersion",
+        "type": "object"
+      },
       "PublicDetectorListResponse": {
         "description": "Paginated list of the project's detectors for the public API.",
         "properties": {
@@ -2903,6 +3409,147 @@
           "meta"
         ],
         "title": "PublicDetectorListResponse",
+        "type": "object"
+      },
+      "PublicEvaluation": {
+        "description": "One evaluation lineage: a stable purpose, re-run over time.\n\nIdentity and counts only. Scores belong to a run \u2014 a lineage has no single headline\nscore, and averaging across runs would invent one.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "evaluation_id": {
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "evaluation_key": {
+            "title": "Evaluation Key",
+            "type": "string"
+          },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvaluationLatestRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "run_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Run Count",
+            "type": "integer"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_id",
+          "name",
+          "evaluation_key",
+          "dataset_id",
+          "run_count",
+          "latest_run",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PublicEvaluation",
+        "type": "object"
+      },
+      "PublicEvaluationRun": {
+        "description": "One run as the LISTING reports it: identity, where it ran, and how it ended.\n\nNo counts, means, cost or duration. Those are aggregates over a run's results, so a page\nof runs would be a page of aggregate queries; the run read answers them one run at a\ntime.",
+        "properties": {
+          "candidate_version": {
+            "title": "Candidate Version",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "evaluation_id": {
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "evaluation_key": {
+            "title": "Evaluation Key",
+            "type": "string"
+          },
+          "evaluation_name": {
+            "title": "Evaluation Name",
+            "type": "string"
+          },
+          "evaluation_run_id": {
+            "title": "Evaluation Run Id",
+            "type": "string"
+          },
+          "run_number": {
+            "title": "Run Number",
+            "type": "integer"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "completed_with_errors",
+              "failed",
+              "incomplete",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_run_id",
+          "evaluation_id",
+          "evaluation_name",
+          "evaluation_key",
+          "run_number",
+          "candidate_version",
+          "environment",
+          "status",
+          "dataset_id",
+          "dataset_version_id",
+          "started_at",
+          "completed_at"
+        ],
+        "title": "PublicEvaluationRun",
         "type": "object"
       },
       "PublicFindingListResponse": {
@@ -2941,6 +3588,56 @@
           "data"
         ],
         "title": "PublicProjectListResponse",
+        "type": "object"
+      },
+      "PublicTestCase": {
+        "description": "One test case in a version snapshot.\n\n``input``/``expected``/``metadata`` are NATIVE JSON values \u2014 an object stays an\nobject, a JSON-looking string stays a string \u2014 so they are ``Any``, not ``str``.",
+        "properties": {
+          "expected": {
+            "title": "Expected"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "metadata": {
+            "title": "Metadata"
+          },
+          "source_span_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Span Id"
+          },
+          "source_trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Trace Id"
+          },
+          "test_case_id": {
+            "title": "Test Case Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_case_id",
+          "input",
+          "expected",
+          "metadata",
+          "source_trace_id",
+          "source_span_id"
+        ],
+        "title": "PublicTestCase",
         "type": "object"
       },
       "PublicTraceDetailResponse": {
@@ -3339,6 +4036,11 @@
       "RCAResult": {
         "description": "Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).\n\nThe agent trace behind an RCA (``detector_rca_executions``) is internal and\ndeliberately not part of this contract: its trace id is not readable through\nthe public trace endpoints, so advertising it here would be misleading.",
         "properties": {
+          "inherited": {
+            "default": false,
+            "title": "Inherited",
+            "type": "boolean"
+          },
           "result": {
             "anyOf": [
               {
@@ -3360,6 +4062,196 @@
           "result"
         ],
         "title": "RCAResult",
+        "type": "object"
+      },
+      "ReadRunResponse": {
+        "description": "A run's SUMMARY \u2014 deliberately no per-case rows, so the payload is bounded by\nscorer count rather than case count and needs no truncation flag.",
+        "properties": {
+          "candidate_version": {
+            "title": "Candidate Version",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "errored_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Errored Count",
+            "type": "integer"
+          },
+          "evaluation_id": {
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "evaluation_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Key"
+          },
+          "evaluation_name": {
+            "title": "Evaluation Name",
+            "type": "string"
+          },
+          "evaluation_run_id": {
+            "title": "Evaluation Run Id",
+            "type": "string"
+          },
+          "failed_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Failed Count",
+            "type": "integer"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/RunMetricItem"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "not_scored_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Not Scored Count",
+            "type": "integer"
+          },
+          "passed_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Passed Count",
+            "type": "integer"
+          },
+          "result_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Result Count",
+            "type": "integer"
+          },
+          "run_number": {
+            "title": "Run Number",
+            "type": "integer"
+          },
+          "run_path": {
+            "title": "Run Path",
+            "type": "string"
+          },
+          "run_url": {
+            "title": "Run Url",
+            "type": "string"
+          },
+          "scored_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored Count"
+          },
+          "scorer_error_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorer Error Count"
+          },
+          "scores": {
+            "items": {
+              "$ref": "#/components/schemas/RunMetricItem"
+            },
+            "title": "Scores",
+            "type": "array"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "completed_with_errors",
+              "failed",
+              "incomplete",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_error_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Error Count"
+          }
+        },
+        "required": [
+          "evaluation_run_id",
+          "evaluation_id",
+          "evaluation_name",
+          "run_number",
+          "candidate_version",
+          "environment",
+          "status",
+          "started_at",
+          "dataset_id",
+          "dataset_version_id",
+          "run_path",
+          "run_url",
+          "result_count",
+          "scored_count",
+          "task_error_count",
+          "scorer_error_count",
+          "passed_count",
+          "failed_count",
+          "errored_count",
+          "not_scored_count"
+        ],
+        "title": "ReadRunResponse",
         "type": "object"
       },
       "RegisterRunRequest": {
@@ -3520,6 +4412,78 @@
           "run_url"
         ],
         "title": "RegisterRunResponse",
+        "type": "object"
+      },
+      "RunMetricItem": {
+        "description": "One score or one derived metric. Identical shape for both: they differ in\nPROVENANCE (a scorer reported it vs the platform derived it from the trace), not in\nstructure, and a client renders them the same way.\n\n``value`` is the run's own mean over ``observed_count`` results, and null rather than\n0 when nothing was observed \u2014 \"no data\" and \"measured zero\" are different facts and\nmust stay distinguishable.",
+        "properties": {
+          "direction": {
+            "enum": [
+              "higher_is_better",
+              "lower_is_better",
+              "none"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "observed_count": {
+            "description": "How many results reported a usable value for this score or metric.",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Observed Count",
+            "type": "integer"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "$",
+                  "tok",
+                  "ms",
+                  "count"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run's own mean over observed_count results. Null when nothing was observed, and always for a categorical score or one that stored labels and numbers together.",
+            "title": "Value"
+          },
+          "value_type": {
+            "description": "The scorer's declared kind, else the kind it stored. Every derived metric is numeric.",
+            "enum": [
+              "numeric",
+              "boolean",
+              "categorical"
+            ],
+            "title": "Value Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "direction",
+          "value_type",
+          "observed_count"
+        ],
+        "title": "RunMetricItem",
         "type": "object"
       },
       "ScoreInput": {
@@ -4205,6 +5169,11 @@
             "title": "Cost Details",
             "type": "object"
           },
+          "error_type": {
+            "default": "",
+            "title": "Error Type",
+            "type": "string"
+          },
           "git_source_file": {
             "anyOf": [
               {
@@ -4740,36 +5709,7 @@
           "filters": {
             "description": "Row predicates the measure is evaluated over",
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "field": {
-                  "description": "A span field, e.g. model_name or metadata",
-                  "type": "string"
-                },
-                "key": {
-                  "description": "The map entry to compare; required for the metadata field",
-                  "type": "string"
-                },
-                "op": {
-                  "enum": [
-                    "=",
-                    "contains"
-                  ],
-                  "type": "string"
-                },
-                "value": {
-                  "type": [
-                    "string",
-                    "number"
-                  ]
-                }
-              },
-              "required": [
-                "field",
-                "op",
-                "value"
-              ],
-              "type": "object"
+              "$ref": "#/components/schemas/AlertFilterItemRequest"
             },
             "title": "Filters",
             "type": "array"
@@ -5129,6 +6069,7 @@
                     "enum": [
                       "name",
                       "span_kind",
+                      "error_type",
                       "model_name",
                       "environment",
                       null
@@ -5173,6 +6114,7 @@
                             "name",
                             "span_kind",
                             "status",
+                            "error_type",
                             "model_name",
                             "environment",
                             "is_root",
@@ -5196,6 +6138,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -5212,12 +6155,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -5364,6 +6317,7 @@
                           "enum": [
                             "=",
                             "contains",
+                            "in",
                             ">",
                             ">=",
                             "<",
@@ -5380,12 +6334,22 @@
                             },
                             {
                               "type": "number"
+                            },
+                            {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
                             }
                           ],
                           "title": "Value",
                           "type": [
                             "string",
-                            "number"
+                            "number",
+                            "array"
                           ]
                         }
                       },
@@ -5991,6 +6955,7 @@
             "enum": [
               "=",
               "contains",
+              "in",
               ">",
               ">=",
               "<",
@@ -6007,12 +6972,22 @@
               },
               {
                 "type": "number"
+              },
+              {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
               }
             ],
             "title": "Value",
             "type": [
               "string",
-              "number"
+              "number",
+              "array"
             ]
           }
         },
@@ -6168,15 +7143,35 @@
         "type": "object"
       },
       "WidgetRef": {
-        "description": "The identity of the widget a data read answered, with its dashboard.",
+        "description": "The identity of the widget a data read answered, with its dashboard.\n\n``spec`` is the stored spec the read ran, as ``get_widget`` returns it.",
         "properties": {
           "dashboard_id": {
             "title": "Dashboard Id",
             "type": "string"
           },
+          "dashboard_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dashboard Name"
+          },
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "spec": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec"
           },
           "title": {
             "title": "Title",
@@ -6452,7 +7447,7 @@
         ],
         "summary": "List Alerts",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "List the project's threshold alerts (id, name, rule summary, status, current severity, last evaluation and notification state, creator) with the project's alert capacity. Paginated; search_query matches the alert name. To resolve an alert by name, list here and match its name \u2014 never guess an alert id.",
@@ -6562,7 +7557,7 @@
         ],
         "summary": "Create an alert",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "Create a threshold alert in a project: a measure of the spans view, aggregated over a window and compared to a threshold, with optional row filters and renotify/no-data settings. Strict create, never idempotent: alerts share names freely, so to avoid a duplicate list the project's alerts first and match the name.",
@@ -6694,7 +7689,7 @@
         ],
         "summary": "Delete an alert",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "Permanently delete an alert. An open page is discarded, not resolved (the response says when one was). Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's alerts and matching the name; never delete more than the user named.",
@@ -6798,7 +7793,7 @@
         ],
         "summary": "Get Alert",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "Fetch one alert's full rule by id: view, measure, aggregation, filters, window, threshold, renotify and no-data handling, plus its evaluation state. Resolve the alert id by listing the project's alerts and matching the name \u2014 never guess an id.",
@@ -6909,7 +7904,7 @@
         ],
         "summary": "Edit an alert rule",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "Edit an alert's rule: name, view, measure, aggregation, filters, window, threshold_operator, threshold, renotify, no_data_mode. Fields left out are untouched; the patch is validated against the stored rule, so an aggregation edit must fit the stored measure. Any edit to an evaluated field (everything but name) resets the alert's evaluation state and clears any open page \u2014 the response reports state_reset and page_cleared, and lists the fields that actually changed. To pause or resume, use set_alert_status instead.",
@@ -7037,7 +8032,7 @@
         ],
         "summary": "Pause or resume an alert",
         "tags": [
-          "Alerts (Public)"
+          "Alerts"
         ],
         "x-tool": {
           "description": "Pause (PAUSED) or resume (ACTIVE) an alert without touching its rule \u2014 prefer this over update_alert for pause and resume. Pausing keeps the severity the alert stopped at; resuming is a cold start (evaluation state reset, due now). PARKED is the evaluator's verdict and cannot be requested; pausing a parked alert is a conflict, resume it to run it again. Setting the status the alert already has changes nothing.",
@@ -7124,7 +8119,7 @@
         ],
         "summary": "List Dashboards",
         "tags": [
-          "Dashboards (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "List the project's dashboards (id, name, description, default flag, creator, widget count, timestamps). To resolve a dashboard by name, list here and match its name \u2014 never guess a dashboard id.",
@@ -7224,7 +8219,7 @@
         ],
         "summary": "Create a dashboard",
         "tags": [
-          "Project (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "Create a dashboard in a project (idempotent on the dashboard name within the project); add charts to it with create_widget.",
@@ -7366,7 +8361,7 @@
         ],
         "summary": "Delete a dashboard",
         "tags": [
-          "Project (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "Permanently delete a dashboard together with its widgets. A project's last dashboard cannot be deleted. Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's dashboards and matching the name; never delete more than the user named.",
@@ -7470,7 +8465,7 @@
         ],
         "summary": "Get Dashboard",
         "tags": [
-          "Dashboards (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "Fetch one dashboard with its widgets (id, title, type, query spec, creation time). Resolve the dashboard id by listing the project's dashboards and matching the name \u2014 never guess an id.",
@@ -7591,7 +8586,7 @@
         ],
         "summary": "Edit a dashboard",
         "tags": [
-          "Project (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "Rename a dashboard or change its description. Fields left out are untouched; a null description clears it. Tile layout is not editable here. The response lists the fields that actually changed.",
@@ -7761,12 +8756,655 @@
         ],
         "summary": "Get Dashboard Data",
         "tags": [
-          "Dashboards (Public)"
+          "Dashboards"
         ],
         "x-tool": {
           "description": "Answer a dashboard's query widgets (up to 24) for one window \u2014 the way to say what a dashboard shows, not just what it contains. Resolve the dashboard id with list_dashboards and match its name; never guess an id. Takes a window like run_widget_query (range preset or explicit bounds; neither means the site's default). Widgets come back in the dashboard's order with a status each: ok with rows (a series carries every bucket; any other display is capped at 25 rows, with truncated set), skipped for a trace feed (read those with list_traces and the feed's filters), or error with a reason. Every figure you report must come from these rows, and name the window it was answered for.",
           "enabled": true,
           "name": "get_dashboard_data"
+        }
+      }
+    },
+    "/api/v1/public/dataset-versions/{version_id}": {
+      "get": {
+        "description": "Read an immutable snapshot: the version plus its cases, whole or a page at a time.\n\nPaging is opt-in through `limit`, because the released SDKs pull a version with one\nrequest and never follow `next_cursor`; a default page would silently truncate them.\nA version's case set is unbounded in practice, so any other caller should page.\n`input`/`expected` come back as native JSON values.",
+        "operationId": "get_dataset_version",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Test cases per page. Omit it, with no cursor, to receive the whole version in one response, as an SDK pulling the snapshot it will run does; pass it to page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Test cases per page. Omit it, with no cursor, to receive the whole version in one response, as an SDK pulling the snapshot it will run does; pass it to page.",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetDatasetVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Read one dataset version and a page of its test cases",
+        "tags": [
+          "Offline Eval"
+        ],
+        "x-tool": {
+          "description": "Read one immutable dataset version and its test cases (input, expected, metadata, and trace provenance where the case was captured from one). Always pass limit (for example 20) and follow next_cursor until it is null: without limit the whole version comes back in one response, which can be very large.",
+          "enabled": true,
+          "name": "get_dataset_version"
+        }
+      }
+    },
+    "/api/v1/public/datasets": {
+      "get": {
+        "description": "List datasets, newest first. `next_cursor` is null on the last page.",
+        "operationId": "list_datasets",
+        "parameters": [
+          {
+            "description": "Datasets per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Datasets per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Case-insensitive substring of the name",
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive substring of the name",
+              "title": "Name"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListDatasetsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List the project's evaluation datasets",
+        "tags": [
+          "Offline Eval"
+        ],
+        "x-tool": {
+          "description": "List the project's evaluation datasets, newest first, with each dataset's current published version. Filter by a case-insensitive substring of the name. Use this for discovery before reading a specific dataset.",
+          "enabled": true,
+          "name": "list_datasets"
+        }
+      }
+    },
+    "/api/v1/public/datasets/{dataset_id}": {
+      "get": {
+        "description": "Read one dataset. `current_dataset_version_id` is null until a version is published.",
+        "operationId": "get_dataset",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicDataset"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Read one evaluation dataset",
+        "tags": [
+          "Offline Eval"
+        ],
+        "x-tool": {
+          "description": "Read one evaluation dataset by id: its name, description, key, and current published version. A dataset with no published version has none, and its cases cannot be read until one exists.",
+          "enabled": true,
+          "name": "get_dataset"
+        }
+      }
+    },
+    "/api/v1/public/datasets/{dataset_id}/versions": {
+      "get": {
+        "description": "List versions newest-first, each with its case count and whether it is current.",
+        "operationId": "list_dataset_versions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Versions per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Versions per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListDatasetVersionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List a dataset's published versions",
+        "tags": [
+          "Offline Eval"
+        ],
+        "x-tool": {
+          "description": "List a dataset's published versions, newest first, each with its case count and whether it is the current one. Versions are immutable snapshots: editing a dataset's test cases publishes a new version rather than changing an old one, while renaming a dataset or changing its description publishes nothing.",
+          "enabled": true,
+          "name": "list_dataset_versions"
         }
       }
     },
@@ -7905,7 +9543,7 @@
         ],
         "summary": "List Detectors",
         "tags": [
-          "Detectors (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "List the project's detectors (id, name, template, enabled flag, creation time).",
@@ -8005,7 +9643,7 @@
         ],
         "summary": "Create a detector",
         "tags": [
-          "Project (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project \u2014 idempotent on the detector name within the project. The standard detector types (failure, hallucination, logic, task, safety) have canonical default instructions: pass the matching template id and OMIT prompt to use them. Only supply prompt when the user provides genuinely custom instructions \u2014 a supplied prompt is stored verbatim and overrides the template default.",
@@ -8190,7 +9828,7 @@
         ],
         "summary": "List Findings",
         "tags": [
-          "Detectors (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "List detector findings for the project, optionally filtered by detector (id, name, or template), trace id, or time range.",
@@ -8301,7 +9939,7 @@
         ],
         "summary": "Get Finding",
         "tags": [
-          "Detectors (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Fetch one detector finding by id, with its full analysis detail.",
@@ -8412,7 +10050,7 @@
         ],
         "summary": "Get Finding By Trace",
         "tags": [
-          "Detectors (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Fetch the detector finding attached to a specific trace, if any.",
@@ -8539,7 +10177,7 @@
         ],
         "summary": "Delete a detector",
         "tags": [
-          "Project (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Permanently delete a detector; its existing findings stay readable. Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id by listing the project's detectors and matching the name; never delete more than the user named.",
@@ -8653,7 +10291,7 @@
         ],
         "summary": "Get Detector",
         "tags": [
-          "Detectors (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
@@ -8774,7 +10412,7 @@
         ],
         "summary": "Edit a detector",
         "tags": [
-          "Project (Public)"
+          "Detectors"
         ],
         "x-tool": {
           "description": "Edit a detector: name, prompt, enabled (the pause switch), sample_rate, enable_rca, output_schema, trigger_conditions, or the detection model settings. Send only the fields the user asked to change \u2014 fields left out are untouched, and a null detection_model/detection_provider/detection_source clears it. output_schema and trigger_conditions replace the whole array; [] removes the trigger. The template cannot change. Read the detector first so the proposal names its current values; the response lists the fields that actually changed.",
@@ -8789,6 +10427,206 @@
       }
     },
     "/api/v1/public/evaluation-runs": {
+      "get": {
+        "description": "List evaluation runs, newest first, optionally one evaluation's or one status's.\n\nIdentity and status only: a run's counts and per-scorer means come from `read_run`, so\nlisting stays one query however many runs a page holds. `next_cursor` is null on the\nlast page.",
+        "operationId": "list_evaluation_runs",
+        "parameters": [
+          {
+            "description": "Runs per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Runs per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Only this evaluation's runs",
+            "in": "query",
+            "name": "evaluation_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this evaluation's runs",
+              "title": "Evaluation Id"
+            }
+          },
+          {
+            "description": "Only runs in this status",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "running",
+                    "completed",
+                    "completed_with_errors",
+                    "failed",
+                    "incomplete",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only runs in this status",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEvaluationRunsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List the project's evaluation runs",
+        "tags": [
+          "Offline Eval"
+        ],
+        "x-tool": {
+          "description": "List evaluation runs, newest first. Filter by evaluation_id to see one evaluation's runs, or by status to see only runs in that state. Each row is identity and outcome only: which run it is, what was evaluated, the dataset version it pinned, its status, and when it started and finished. A run's counts and per-scorer means come from get_evaluation_run. Use this to find a run id.",
+          "enabled": true,
+          "name": "list_evaluation_runs"
+        }
+      },
       "post": {
         "description": "Register/start a run. Idempotent on ``client_run_id`` within an evaluation.",
         "operationId": "register_run",
@@ -8881,10 +10719,141 @@
         ],
         "summary": "Register an evaluation run",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "enabled": false
+        }
+      }
+    },
+    "/api/v1/public/evaluation-runs/{run_id}": {
+      "get": {
+        "description": "Read a run's own summary: status, result counts, and per-score and per-metric\nmeans over the run's results.\n\nTyped rather than left to the catch-all so it appears in the published OpenAPI: an\nendpoint a CLI is expected to call must be in the contract the CLI generates from.\nSummary only, so the response is bounded by scorer count rather than case count.\n\nComparing two runs is not part of this read. It is a different question with its own\ntrust rules, and an optional parameter here would be too easily confused with the\nbaseline a run stores at registration.",
+        "operationId": "read_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project, or the run is outside the plan's retention window"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Read an evaluation run's summary",
+        "tags": [
+          "Offline Eval"
+        ],
+        "x-tool": {
+          "description": "Read one evaluation run's summary: its status, result counts, per-scorer scores, and mean cost and duration per case. scored_count, task_error_count and scorer_error_count are null until the run completes. A case is errored or not_scored; passed and failed are older statuses, so passed_count and failed_count are usually 0. Each score and metric carries observed_count, the number of results it was taken over. A numeric score's value is its mean and a boolean score's is its pass rate. A categorical or mixed-type score, or one no result reported, has a null value: it has no mean, and is not a score of 0.",
+          "enabled": true,
+          "name": "get_evaluation_run"
         }
       }
     },
@@ -8992,7 +10961,7 @@
         ],
         "summary": "Complete/finalize an evaluation run",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "enabled": false
@@ -9103,10 +11072,186 @@
         ],
         "summary": "Upsert one test-case result with scores",
         "tags": [
-          "Offline Eval (Public)"
+          "Offline Eval"
         ],
         "x-tool": {
           "enabled": false
+        }
+      }
+    },
+    "/api/v1/public/evaluations": {
+      "get": {
+        "description": "List evaluations, newest first, each with its run count and latest run.\n\n`next_cursor` is null on the last page.",
+        "operationId": "list_evaluations",
+        "parameters": [
+          {
+            "description": "Evaluations per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Evaluations per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor from a previous page",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous page",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Case-insensitive substring of the name",
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive substring of the name",
+              "title": "Name"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEvaluationsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No access to this project"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List the project's evaluations",
+        "tags": [
+          "Offline Eval"
+        ],
+        "x-tool": {
+          "description": "List the project's evaluations, newest first: each one's name, the key an SDK reports it under, the dataset it runs against, how many runs it has, and its latest run. Filter by a case-insensitive substring of the name. An evaluation that has never been run reports a null latest_run. Use this to find an evaluation before listing its runs.",
+          "enabled": true,
+          "name": "list_evaluations"
         }
       }
     },
@@ -9183,7 +11328,7 @@
         ],
         "summary": "List Projects",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "List the projects the logged-in user can access, across workspaces (id, name, workspace). User-credential-only account discovery: use it to resolve the project_id a project-scoped request needs. Optionally filter by workspace_id.",
@@ -9283,7 +11428,7 @@
         ],
         "summary": "Create a project",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "agentHiddenParams": [
@@ -9407,7 +11552,7 @@
         ],
         "summary": "Delete a project",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "Delete a project: it drops out of every list and read and its API keys stop authenticating (its data stays for the retention window). Requires ADMIN in the workspace and a reason (3-500 characters) that is recorded on the audit row.",
@@ -9533,7 +11678,7 @@
         ],
         "summary": "Edit a project",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "agentHiddenParams": [
@@ -9703,7 +11848,7 @@
         ],
         "summary": "List Sessions",
         "tags": [
-          "Sessions (Public)"
+          "Sessions"
         ],
         "x-tool": {
           "description": "List recent sessions (groups of traces sharing a session id) for the project, with trace counts and durations. Search by session id substring.",
@@ -9852,7 +11997,7 @@
         ],
         "summary": "Get Session",
         "tags": [
-          "Sessions (Public)"
+          "Sessions"
         ],
         "x-tool": {
           "description": "Fetch one session with all its traces (ids, names, status, I/O summaries). Use before deep-diving individual traces of a conversation.",
@@ -9994,7 +12139,7 @@
         ],
         "summary": "Run Sql",
         "tags": [
-          "SQL (Public)"
+          "SQL"
         ],
         "x-tool": {
           "description": "Run one read-only SQL query over the project's own spans and traces and return the rows. Use get_sql_schema first to see the columns available; the query may only read the curated spans and traces tables, and results are capped and may be truncated.",
@@ -10111,7 +12256,7 @@
         ],
         "summary": "Get Sql Schema",
         "tags": [
-          "SQL (Public)"
+          "SQL"
         ],
         "x-tool": {
           "description": "List the tables and columns available to run_sql, with their types. Read this before writing a query: it is the whole surface a query may reference.",
@@ -10281,6 +12426,33 @@
                         "additionalProperties": false,
                         "properties": {
                           "field": {
+                            "const": "signal_id",
+                            "title": "Signal ID",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
                             "const": "model_name",
                             "title": "Model",
                             "type": "string"
@@ -10373,6 +12545,36 @@
                           "field": {
                             "const": "status",
                             "title": "Status",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "items": {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "error_type",
+                            "title": "Error type",
                             "type": "string"
                           },
                           "op": {
@@ -10686,7 +12888,7 @@
         ],
         "summary": "List Traces",
         "tags": [
-          "Traces (Public)"
+          "Traces"
         ],
         "x-tool": {
           "description": "List recent traces for the project (newest first). Filter by time range, trace name, user id, or a free-text search across trace/session/user ids and names. Use this for discovery before fetching a specific trace. Structured filters (model, environment, cost, tokens, latency, error count, keyed metadata) are available via the typed filters parameter.",
@@ -10797,7 +12999,7 @@
         ],
         "summary": "Ingest Traces",
         "tags": [
-          "Traces (Public)"
+          "Traces"
         ],
         "x-tool": {
           "enabled": false
@@ -10944,7 +13146,7 @@
         ],
         "summary": "List Trace Filter Values",
         "tags": [
-          "Traces (Public)"
+          "Traces"
         ],
         "x-tool": {
           "description": "Discover the current values of a categorical trace filter field (e.g. model_name, environment) for the project \u2014 use before filtering the trace list by that field.",
@@ -11083,7 +13285,7 @@
         ],
         "summary": "Get Trace",
         "tags": [
-          "Traces (Public)"
+          "Traces"
         ],
         "x-tool": {
           "description": "Fetch one trace with its span tree. Defaults to the lightweight skeleton projection; pass fields=full for per-span input/output/metadata.",
@@ -11222,7 +13424,7 @@
         ],
         "summary": "Export Trace",
         "tags": [
-          "Traces (Public)"
+          "Traces"
         ],
         "x-tool": {
           "description": "Export the complete bundle (trace, spans, git context, manifest) for one trace.",
@@ -11284,7 +13486,7 @@
         ],
         "summary": "Whoami",
         "tags": [
-          "Whoami (Public)"
+          "Whoami"
         ],
         "x-tool": {
           "description": "Identify the project and workspace the current credential belongs to.",
@@ -11386,7 +13588,7 @@
         ],
         "summary": "Create a dashboard widget",
         "tags": [
-          "Project (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Add a widget (title, type, spec) to an existing dashboard. Type \"query\" charts a metric (spec: view/filters/metric/breakdown/display); type \"trace_feed\" lists recent traces (spec: predicate filters + limit). Strict create: every call adds a new widget. The spec schema enumerates the only available views, metrics, filter operators, and display types \u2014 nothing outside it exists. If the user asks for a visualization or option that is not in the schema (for example a display type the enum lacks), say so explicitly and propose the closest available match instead of silently substituting. Pick the view first \u2014 spans and traces expose different fields, and the enums in this schema are the complete field vocabulary for each view. If the user asks for a dimension or metric that exists on neither view, say so and propose the closest available one (for example \"traces by model\" is built on the spans view via model_name).",
@@ -11483,7 +13685,7 @@
         ],
         "summary": "Run Widget Query",
         "tags": [
-          "Dashboards (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Run a widget query and return its rows \u2014 the way to answer a metric question (error counts, p95 latency, cost by model) without a dashboard existing. Takes the same spec shape as create_widget (view, metric, breakdown, display, filters) plus a window: a range preset by the site picker's id (1h, 1d, 7d, 30d, \u2026) or explicit start_time/end_time; neither means the site's default 24-hour window. The response echoes the window it was answered for and says when retention clamped it. A read that happens to be a POST: nothing is written.",
@@ -11615,7 +13817,7 @@
         ],
         "summary": "Delete a dashboard widget",
         "tags": [
-          "Project (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Permanently delete one widget from its dashboard (its layout slot is removed with it). Requires a reason (3-500 characters) stating why \u2014 the user's actual instruction, recorded on the audit row. Resolve the id from the dashboard's detail; never delete more than the user named.",
@@ -11719,7 +13921,7 @@
         ],
         "summary": "Get Widget",
         "tags": [
-          "Dashboards (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Fetch one saved widget's definition by id: its title, type, the query spec exactly as stored (what get_widget_data runs), display config, timestamps, and the id and name of the dashboard it sits on. Resolve a widget id from get_dashboard (which lists a dashboard's widgets) \u2014 never guess an id. For what the widget shows, use get_widget_data.",
@@ -11830,7 +14032,7 @@
         ],
         "summary": "Edit a dashboard widget",
         "tags": [
-          "Project (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Edit a widget's title, spec, or display_config. Fields left out are untouched; a sent spec replaces the whole spec and must be in the dialect of the widget's existing type (query: view/filters/metric/breakdown/display; trace_feed: predicate filters + limit) \u2014 the type itself cannot change. A null display_config resets it. Read the widget's dashboard first so the new spec starts from the current one; the spec schema enumerates the only available views, metrics, filter operators, and display types. The response lists the fields that actually changed.",
@@ -12000,7 +14202,7 @@
         ],
         "summary": "Get Widget Data",
         "tags": [
-          "Dashboards (Public)"
+          "Widgets"
         ],
         "x-tool": {
           "description": "Answer one saved widget for a window \u2014 the way to say what a widget shows without re-sending its spec. Prefer this over run_widget_query whenever the widget already exists on a dashboard; run_widget_query is for a spec that is saved nowhere. Takes a widget id plus a window like run_widget_query (range preset or explicit start_time/end_time; neither means the site's default). The answer carries a status: ok with every row the engine returns (a series comes back whole; no row cap), skipped for a trace feed or legacy detector widget (read those with list_traces and the feed's filters), or error with a reason when the stored spec no longer runs. Every figure you report must come from these rows, and name the window it was answered for \u2014 the response echoes it and says when retention clamped it.",
@@ -12062,7 +14264,7 @@
         ],
         "summary": "List Workspaces",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "List the workspaces the logged-in user belongs to (id, name, role). User-credential-only account discovery: it needs no project_id and is not available to project-scoped API keys.",
@@ -12172,7 +14374,7 @@
         ],
         "summary": "Create a workspace",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "Create a workspace administered by the logged-in user. Idempotent: re-creating a same-named workspace the caller already administers returns it instead of duplicating.",
@@ -12314,7 +14516,7 @@
         ],
         "summary": "Delete a workspace",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "Permanently delete a workspace and everything in it: every project, its access keys, memberships and invites. Requires ADMIN, the workspace's current name typed as confirmation, and a reason (3-500 characters) that is recorded on the audit row. The caller's only workspace cannot be deleted. Not reversible.",
@@ -12440,7 +14642,7 @@
         ],
         "summary": "Rename a workspace",
         "tags": [
-          "Account (Public)"
+          "Account"
         ],
         "x-tool": {
           "description": "Rename a workspace the logged-in user administers. Fields left out are untouched. The response lists the fields that actually changed; a name the caller already uses for another workspace is a conflict.",
