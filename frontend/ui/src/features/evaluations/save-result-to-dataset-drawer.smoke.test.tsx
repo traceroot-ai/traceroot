@@ -50,7 +50,7 @@ import {
 const RESULT = {
   id: "res1",
   input: "Produce a report about Q2 performance",
-  expectedOutput: null,
+  expectedOutput: null as string | null,
   candidateOutput: "Q2 revenue grew 12% QoQ.",
   testCaseId: "case-1",
 };
