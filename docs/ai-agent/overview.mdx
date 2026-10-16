@@ -36,7 +36,7 @@ When debugging issues in your AI applications, the agent provides four core inve
 
 ## Read tools
 
-The agent's tools are generated from the same registry that defines the Public REST API, so a tool call reads exactly what the API returns. The read tools cover:
+The agent's tools are generated from the same registry that defines the Public REST API, so they read the same data. Responses are rewritten for the chat rather than returned verbatim: long fields are truncated and a list read returns one page with its total. The read tools cover:
 
 - **Traces and sessions** — `list_traces`, `list_sessions`, `get_session`
 - **Detectors and findings** — `list_detectors`, `get_detector`, `list_findings`, `get_finding`, `get_finding_by_trace`
