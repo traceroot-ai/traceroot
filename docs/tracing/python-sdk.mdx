@@ -272,6 +272,7 @@ All parameters except `integrations` can be configured via environment variables
 | `TRACEROOT_API_KEY` | (required) | `api_key` | TraceRoot API key for authentication. |
 | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | `host_url` | API endpoint URL. |
 | `TRACEROOT_ENABLED` | `true` | `enabled` | Enable/disable tracing. |
+| `TRACEROOT_ENVIRONMENT` | — | — | Deployment environment tag (e.g. `production`, `staging`). The TypeScript SDK stamps it on every span as `deployment.environment`; the Python SDK does not read it yet. |
 | `TRACEROOT_FLUSH_INTERVAL` | `5.0` | `flush_interval` | Interval in seconds between automatic flushes. |
 | `TRACEROOT_FLUSH_AT` | `100` | `batch_size` | Batch size before flush (note: maps to `batch_size` in `initialize()`). |
 | `TRACEROOT_TIMEOUT` | `30.0` | `timeout` | HTTP request timeout in seconds. |
