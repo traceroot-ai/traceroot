@@ -1,17 +1,22 @@
 """Unit tests for the public whoami endpoint (GET /api/v1/public/whoami)."""
 
+from typing import get_args, get_type_hints
+
 import httpx
+import pytest
 import respx
 from fastapi.testclient import TestClient
 from httpx import Response
 
 from rest.main import app
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import ApiKeyScope, AuthResult, authenticate_api_key
+from rest.schemas.public import WhoamiResponse
+from shared.config import settings
 
 BASE_URL = "http://localhost:3000"
 
 
-def make_identity_auth() -> AuthResult:
+def make_identity_auth(scope=None) -> AuthResult:
     """An AuthResult carrying the resolved identity fields whoami surfaces."""
     return AuthResult(
         project_id="proj-123",
@@ -22,6 +27,7 @@ def make_identity_auth() -> AuthResult:
         workspace_name="My Workspace",
         key_name="CI key",
         key_hint="tr_ab…yz",
+        scope=scope,
     )
 
 
@@ -43,6 +49,211 @@ class TestWhoami:
         assert data["key_name"] == "CI key"
         assert data["key_hint"] == "tr_ab…yz"
 
+    def test_an_https_deployment_does_not_report_its_api_host_as_http(self, monkeypatch):
+        """The scheme survives a proxy that terminates TLS somewhere else.
+
+        Regression: a deployment reachable only over HTTPS answered this route
+        with ``host`` on ``http://`` while reporting ``ui_base_url`` on
+        ``https://`` — one response disagreeing with itself about its own
+        deployment. The cause is that uvicorn trusts ``X-Forwarded-Proto`` only
+        from ``forwarded_allow_ips`` (default ``127.0.0.1``), which a load
+        balancer on another address is not, so ``request.base_url`` falls back
+        to ``http``. A client that stores the reported host then writes a URL
+        that redirects, or fails outright where the redirect is not followed.
+        """
+        monkeypatch.setattr(
+            settings, "traceroot_public_ui_url", "https://staging.example.ai", raising=False
+        )
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("ingest")
+        client = TestClient(app)
+        data = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        ).json()
+        assert data["host"].startswith("https://")
+        assert not data["host"].startswith("http://")
+
+    def test_a_plain_http_deployment_is_left_alone(self, monkeypatch):
+        """No spurious upgrade: a local deployment really is served over HTTP.
+
+        The upgrade is driven by configuration rather than applied blindly, so
+        a deployment whose own UI origin is HTTP keeps the scheme it was
+        reached on. Without this, running against a local stack would hand the
+        command-line tool an ``https`` URL nothing is listening on.
+        """
+        monkeypatch.setattr(
+            settings, "traceroot_public_ui_url", "http://localhost:3000", raising=False
+        )
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("ingest")
+        client = TestClient(app)
+        data = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        ).json()
+        assert data["host"].startswith("http://")
+
+    def test_a_caller_supplied_forwarded_proto_does_not_change_the_reported_host(self, monkeypatch):
+        """The header is not consulted, on purpose.
+
+        Honouring ``X-Forwarded-Proto`` in application code honours it from
+        every caller, including one that reaches this process without passing
+        through the proxy — and nothing here establishes that none can. The
+        scheme is taken from deployment configuration instead, so a caller
+        claiming https against an http deployment is ignored rather than
+        believed.
+        """
+        monkeypatch.setattr(
+            settings, "traceroot_public_ui_url", "http://localhost:3000", raising=False
+        )
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("ingest")
+        client = TestClient(app)
+        data = client.get(
+            "/api/v1/public/whoami",
+            headers={
+                "Authorization": "Bearer tr_secrettoken",
+                "X-Forwarded-Proto": "https",
+            },
+        ).json()
+        assert data["host"].startswith("http://")
+
+    def test_the_api_address_is_preserved_not_replaced_by_the_ui_s(self, monkeypatch):
+        """Only the scheme comes from configuration; the address comes from the request.
+
+        The two halves have different authorities. A self-host serves the API on
+        one port and the UI on another, so the UI origin cannot stand in for the
+        API's address — only the request knows which of a deployment's addresses
+        the client actually reached. Pinning the whole value rather than just
+        the scheme is what catches a regression that took the scheme correctly
+        and then substituted the UI's host and port along with it.
+        """
+        monkeypatch.setattr(
+            settings, "traceroot_public_ui_url", "http://localhost:3000", raising=False
+        )
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("ingest")
+        client = TestClient(app, base_url="http://localhost:8000")
+        data = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        ).json()
+        assert data["host"] == "http://localhost:8000"
+
+    @pytest.mark.parametrize("scope", ["ingest", "admin"])
+    def test_reports_the_keys_scope(self, scope):
+        """A key holder can ask what their key is allowed to do."""
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth(scope)
+        client = TestClient(app)
+        resp = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["key_scope"] == scope
+
+    def test_a_key_predating_scoping_reports_the_scope_it_is_treated_as(self):
+        """A key from before scoping existed answers with what it actually gets.
+
+        Such a key was backfilled to ``admin`` by the migration that added the
+        column, so that is what it is treated as and that is what it reports —
+        not a guess, and not an omission the caller has to interpret.
+        """
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("admin")
+        client = TestClient(app)
+        data = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        ).json()
+        assert data["key_scope"] == "admin"
+
+    def test_the_scope_is_present_even_when_the_credential_carries_none(self):
+        """The field is never absent and never null, whatever reached the route.
+
+        A credential resolved without a scope — an older control plane, which
+        reports no such field — must still produce a well-formed response. It
+        reports the narrow scope, which is what enforcement would decide for it,
+        so the answer a holder gets and the answer a route gives cannot differ.
+        """
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth(None)
+        client = TestClient(app)
+        resp = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["key_scope"] == "ingest"
+
+    @respx.mock
+    def test_scope_survives_the_whole_authentication_path(self):
+        """End to end: what the control plane reports is what whoami answers.
+
+        The tests above override the credential, so they would still pass if the
+        scope never came off the validate response. This one goes through
+        ``authenticate_api_key`` for real against a mocked control plane.
+        """
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "projectId": "proj-123",
+                    "workspaceId": "ws-456",
+                    "billingPlan": "pro",
+                    "ingestionBlocked": False,
+                    "scope": "admin",
+                },
+            )
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr-key"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["key_scope"] == "admin"
+
+    @respx.mock
+    def test_an_older_control_plane_still_yields_a_well_formed_response(self):
+        """A validate response with no scope field is not an error for this route.
+
+        This is the deployment where the control plane predates the field. A
+        current client must keep working against it, so the response is complete
+        and the scope reads as the narrow one.
+        """
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "projectId": "proj-123",
+                    "workspaceId": "ws-456",
+                    "billingPlan": "pro",
+                    "ingestionBlocked": False,
+                },
+            )
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr-key"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["key_scope"] == "ingest"
+
+    def test_reporting_the_scope_needs_no_extra_permission(self):
+        """No new credential and no new route: the same key, the same endpoint.
+
+        A key reads its own scope. If this ever required more than the key that
+        whoami already accepts, a holder could not ask the question the field
+        exists to answer.
+        """
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("ingest")
+        client = TestClient(app)
+        resp = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["key_scope"] == "ingest"
+
     def test_names_hint_and_ui_base_url_present(self):
         """whoami must surface human-readable names, the key hint, and ui_base_url."""
         app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth()
@@ -51,7 +262,14 @@ class TestWhoami:
             "/api/v1/public/whoami",
             headers={"Authorization": "Bearer tr_secrettoken"},
         ).json()
-        for field in ("project_name", "workspace_name", "key_hint", "ui_base_url", "host"):
+        for field in (
+            "project_name",
+            "workspace_name",
+            "key_hint",
+            "key_scope",
+            "ui_base_url",
+            "host",
+        ):
             assert field in data
         assert data["ui_base_url"]  # non-empty
 
@@ -145,3 +363,14 @@ def test_whoami_success_returns_200_with_headers_when_limiter_enabled(monkeypatc
         assert "X-RateLimit-Limit" in resp.headers
     finally:
         app.dependency_overrides.clear()
+
+
+def test_reported_scopes_are_the_auth_layers_scopes():
+    """The response's scope values must be the ones the auth layer resolves.
+
+    ``WhoamiResponse`` spells the two values out rather than importing
+    ``ApiKeyScope``, to keep the schemas module from reaching into a router. That
+    is only safe while the two cannot disagree, which is what this asserts.
+    """
+    reported = get_args(get_type_hints(WhoamiResponse)["key_scope"])
+    assert reported == get_args(ApiKeyScope)
