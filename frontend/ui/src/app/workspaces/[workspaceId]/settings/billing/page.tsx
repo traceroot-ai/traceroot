@@ -6,11 +6,13 @@ import { PlanType } from "@traceroot/core";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
 import { BillingTab } from "@/ee/features/billing/BillingTab";
 import { getWorkspace } from "@/lib/api";
+import { useWorkspaceSettingsAccess } from "@/features/settings/demo-access";
 import { SettingsLayout, WORKSPACE_SETTINGS_TABS } from "@/features/settings/settings-layout";
 
 export default function WorkspaceSettingsBillingPage() {
   const params = useParams();
   const workspaceId = params.workspaceId as string;
+  const access = useWorkspaceSettingsAccess(workspaceId, "billing");
 
   const { data: workspace, isLoading } = useQuery({
     queryKey: ["workspace", workspaceId],
@@ -24,6 +26,7 @@ export default function WorkspaceSettingsBillingPage() {
       <SettingsLayout
         tabs={WORKSPACE_SETTINGS_TABS}
         activeTab="billing"
+        access={access}
         basePath={`/workspaces/${workspaceId}/settings`}
       >
         {isLoading ? (
