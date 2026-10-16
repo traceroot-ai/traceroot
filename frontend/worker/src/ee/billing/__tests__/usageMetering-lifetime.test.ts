@@ -75,7 +75,25 @@ beforeEach(() => {
   vi.stubEnv("STRIPE_SECRET_KEY", "");
   state = workspace();
   counts = { a: usage() };
-  mocks.findMany.mockImplementation(async () => [structuredClone(state)]);
+  mocks.findMany.mockImplementation(async ({ include }) => {
+    const snapshot = structuredClone(state);
+    const where = include.projects.where;
+    snapshot.projects = snapshot.projects.filter((p) =>
+      (where.OR ?? [where]).some(
+        (predicate: {
+          deleteTime?: null;
+          freeQuotaEligible?: boolean;
+          workspace?: { billingPlan: string };
+        }) =>
+          (predicate.deleteTime === undefined || p.deleteTime === predicate.deleteTime) &&
+          (predicate.freeQuotaEligible === undefined ||
+            p.freeQuotaEligible === predicate.freeQuotaEligible) &&
+          (predicate.workspace === undefined ||
+            snapshot.billingPlan === predicate.workspace.billingPlan),
+      ),
+    );
+    return [snapshot];
+  });
   mocks.update.mockImplementation(async ({ data }) => Object.assign(state, data));
   mocks.query.mockImplementation(async ({ projectIds }: { projectIds: string[] }) => {
     const total = usage();
