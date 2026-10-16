@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   traceError: null as unknown,
   traceLoading: false,
   aiPanelOpen: false,
+  detection: undefined as unknown,
+  finding: undefined as unknown,
+  rca: undefined as unknown,
   lastQuery: undefined as { queryKey: unknown[]; queryFn: () => unknown } | undefined,
 }));
 
@@ -39,9 +42,13 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("@/lib/api", () => ({ getTrace: vi.fn() }));
 vi.mock("../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
 vi.mock("@/features/detectors/hooks/use-findings", () => ({
-  useTraceFindings: () => ({ data: undefined }),
-  useRca: () => ({ data: undefined }),
+  useTraceFindings: () => ({ data: mocks.finding ? { findings: [mocks.finding] } : undefined }),
+  useRca: () => ({ data: mocks.rca }),
   useTraceDetectorRuns: () => ({ data: undefined, isLoading: false, error: null }),
+  useTraceDetectionState: () => ({ data: mocks.detection }),
+  // Real predicate, so the test exercises the component's own gating.
+  detectionInFlight: (d: { state?: string } | undefined) =>
+    d?.state === "pending" || d?.state === "deciding",
 }));
 
 // Heavy children + resizable layout — replace with passthroughs so only the
@@ -96,6 +103,9 @@ afterEach(() => {
   mocks.traceError = null;
   mocks.traceLoading = false;
   mocks.aiPanelOpen = false;
+  mocks.detection = undefined;
+  mocks.finding = undefined;
+  mocks.rca = undefined;
 });
 
 describe("TraceViewerPanel layout", () => {
@@ -180,6 +190,32 @@ describe("TraceViewerPanel detectors view", () => {
     expect(screen.getByTestId("ai-panel")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /detectors/i }));
     expect(screen.getByTestId("ai-panel")).toBeTruthy();
+  });
+});
+
+describe("TraceViewerPanel detection indicator", () => {
+  it("shows a Detecting chip while detection is queued", () => {
+    // Evaluation is debounced ~1min, so without this the header sits empty for
+    // that whole time and the page looks idle.
+    mocks.detection = { state: "pending", detectorIds: ["d1"] };
+    renderPanel();
+    expect(screen.getByText("Detecting…")).toBeTruthy();
+  });
+
+  it("hides the chip once the analysis is available", () => {
+    // hasRca means results have landed; the Alert badge speaks for them.
+    mocks.detection = { state: "pending", detectorIds: ["d1"] };
+    mocks.finding = { finding_id: "f1" };
+    mocks.rca = { rca: { sessionId: "s1", status: "done" } };
+    renderPanel();
+    expect(screen.queryByText("Detecting…")).toBeNull();
+    expect(screen.getByRole("button", { name: "Alert" })).toBeTruthy();
+  });
+
+  it("shows no chip when detection is ruled out or unknown", () => {
+    mocks.detection = { state: "sampled_out", detectorIds: [] };
+    renderPanel();
+    expect(screen.queryByText("Detecting…")).toBeNull();
   });
 });
 
