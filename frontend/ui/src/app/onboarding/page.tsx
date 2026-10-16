@@ -28,6 +28,7 @@ import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { CliHandbackStep } from "@/features/onboarding/components/cli-handback-step";
 import { ManualSetupStep } from "@/features/onboarding/components/manual-setup-step";
 import { useProjectTraceWait } from "@/features/onboarding/use-project-trace-wait";
+import { traceUrl } from "@/lib/first-trace";
 import { cn } from "@/lib/utils";
 
 const onboardingSchema = z.object({
@@ -370,6 +371,16 @@ function OnboardingContent() {
     createdProject?.id ?? null,
     session?.user?.id ? { id: session.user.id, email: session.user.email } : undefined,
   );
+
+  // Both ends of a first run finish the same way: the page that was waiting for
+  // the trace opens it. The person's attention is on the terminal they were
+  // just sent to, not on this tab, and the trace is the thing the whole flow
+  // was for — so arriving at it is the completion, not an offer to complete.
+  useEffect(() => {
+    if (traceWait.kind === "found") {
+      router.push(traceUrl(traceWait.found));
+    }
+  }, [traceWait, router]);
 
   const defaultWorkspace = getDefaultWorkspaceName(session?.user?.email);
 
