@@ -1,22 +1,8 @@
-// Single source of truth for the onboarding setup snippets, shared by the AI-tab
-// SetupTabs widget, the Manual-tab CliVerifyCard and the first-run hand-back
-// page, so none of them can drift apart.
+// Single source of truth for the onboarding snippets, shared by the
+// getting-started panel and the first-run hand-back page, so the command one
+// shows cannot drift from the other's.
 
 import { clientEnv } from "@/env.client";
-
-/** Read-only CLI flow: install, authenticate, list traces. */
-export const CLI_COMMANDS = [
-  "npm install -g traceroot-cli",
-  "traceroot login",
-  "traceroot traces list",
-].join("\n");
-
-/** One-prompt instrumentation handoff for any AI coding agent. */
-export const INSTRUMENT_PROMPT =
-  "Install the TraceRoot AI skill from https://github.com/traceroot-ai/traceroot-skills and use it to add tracing to this application with TraceRoot following best practices.";
-
-/** Install the first-party TraceRoot skills into a coding agent. */
-export const SKILLS_COMMAND = "npx skills add traceroot-ai/traceroot-skills";
 
 /** The invocation, before the flags this page is able to fill in. */
 const SETUP_BASE = "npx -y traceroot-cli@latest setup";
@@ -66,8 +52,24 @@ const PLAIN_PROJECT_ID = /^[A-Za-z0-9._-]+$/;
  * hostname or IPv6 literal, and an optional port — which excludes every one of
  * those, and in particular the one character single quotes cannot carry. With
  * that established, `quotedArg` is enough to make the value one word.
+ *
+ * The host class admits `_` alongside the letters, digits, `.` and `-` of a
+ * public domain. It is legal in a URL host, ordinary in container and internal
+ * DNS names (`http://app_internal:3000`), and special to no shell — and
+ * rejecting it is the one thing this check must not do, because a deployment
+ * served under such a name would lose both flags and the bare command would
+ * send its operator to TraceRoot Cloud, which is what this file exists to
+ * prevent.
+ *
+ * It stops there rather than admitting everything single quotes happen to
+ * survive, because the check also answers "could this be a host at all". The
+ * other characters the parser lets through — `&`, `!`, `~`, `+`, `,`, `(`, `{`,
+ * `"` and the four above — reach an origin only by percent-decoding, never by
+ * naming a deployment, so a flag carrying one is noise better dropped. Nothing
+ * excludes whitespace or control characters because nothing has to: the URL
+ * parser refuses a host containing them, so they arrive as a malformed URL.
  */
-const SHELL_SAFE_ORIGIN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d+)?$/;
+const SHELL_SAFE_ORIGIN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)(:\d+)?$/;
 
 /**
  * A value as a single shell word.
