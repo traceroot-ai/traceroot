@@ -17,10 +17,10 @@ To ensure security and defense-in-depth, TraceRoot separates ClickHouse permissi
 | **`sql_gateway_writer`** | `clickhouse-init` | Designated as the `DEFINER` for curated analytical views (`012_create_public_sql_views.sql`). Holds `SELECT` on physical tables. No service authenticates as this user. | `SQL_GATEWAY_WRITER_PASSWORD` (Optional) |
 | **`sql_gateway_ro`** | `clickhouse-init` | The read-only identity used by the `rest` API to execute user SQL queries. Reads curated views only (`spans_public_v1`, `traces_public_v1`). | `CLICKHOUSE_RO_PASSWORD` (Optional / Activation flag) |
 
-<Important>
+<Warning>
 **Application Account Separation**:
 The standard application account (`clickhouse`, set via `CLICKHOUSE_USER`) used by `rest`, `worker`, `billing`, and `detector` **deliberately does not hold access management privileges**. This ensures that any compromised application container cannot create additional database users or escalate privileges.
-</Important>
+</Warning>
 
 ---
 

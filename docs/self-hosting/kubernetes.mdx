@@ -13,8 +13,13 @@ The current stable release is **v1.1.0**.
 
 ### Key Infrastructure Model
 
-- **ClickHouse**: **Deployed by default** inside the chart via an embedded ClickHouse StatefulSet (`clickhouse.deploy: true`). You can optionally disable this if you connect to an external ClickHouse cluster.
+- **ClickHouse**: **Deployed by default** via the Bitnami ClickHouse subchart the chart depends on (`clickhouse.deploy: true`). Set it to `false` and supply `clickhouse.host` to use an external cluster instead.
 - **External Dependencies**: PostgreSQL, Redis, and S3-compatible object storage **must be provided externally** (e.g., AWS RDS PostgreSQL, AWS ElastiCache Redis, AWS S3, or in-cluster operators).
+- **Credentials**: The chart never holds secret values. Every credential is read from a Kubernetes Secret you create, referenced by name through an `existingSecret` value.
+
+<Tip>
+  To provision the AWS infrastructure as well as install this chart, use the [Terraform module](/self-hosting/terraform-aws) — it creates the Secrets, the load balancer and the TLS certificate for you.
+</Tip>
 
 ---
 
@@ -27,78 +32,90 @@ helm repo add traceroot https://traceroot-ai.github.io/traceroot-k8s
 helm repo update
 ```
 
-### 2. Prepare `values.yaml`
+### 2. Create the Credentials Secret
 
-Create a customized `my-values.yaml` file configuring your database endpoints, secrets, and URLs:
-
-```yaml my-values.yaml
-# Global Configuration
-global:
-  appUrl: "https://traceroot.example.com"
-  apiUrl: "https://traceroot.example.com/api/v1"
-  enableBilling: false
-
-# Required Secrets (generate 32-byte hex strings via: openssl rand -hex 32)
-secrets:
-  betterAuthSecret: "<generate-with-openssl-rand-hex-32>"
-  internalApiSecret: "<generate-with-openssl-rand-hex-32>"
-  sqlGatewayBootstrapPassword: "<generate-strong-password>"
-
-# External Database Connections
-postgres:
-  host: "postgres.internal.net"
-  port: 5432
-  database: "traceroot"
-  user: "traceroot"
-  password: "<your-postgres-password>"
-
-redis:
-  url: "redis://redis.internal.net:6379/0"
-  resultUrl: "redis://redis.internal.net:6379/1"
-
-s3:
-  endpoint: "https://s3.amazonaws.com"
-  bucket: "my-traceroot-telemetry"
-  region: "us-east-1"
-  accessKeyId: "<your-aws-access-key-id>"
-  secretAccessKey: "<your-aws-secret-access-key>"
-
-# ClickHouse Configuration
-clickhouse:
-  deploy: true # Deploys bundled ClickHouse server inside the cluster
-  persistence:
-    size: 200Gi
-
-# Ingress Configuration
-ingress:
-  enabled: true
-  className: nginx
-  hosts:
-    - host: traceroot.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-          service: web
-        - path: /api/v1
-          pathType: Prefix
-          service: rest
-  tls:
-    - secretName: traceroot-tls
-      hosts:
-        - traceroot.example.com
-```
-
-### 3. Create TLS Secret (If Ingress TLS is Enabled)
-
-If using Ingress with TLS enabled, create the TLS secret referenced in `my-values.yaml` before running Helm:
+The chart reads credentials from a Secret in the release namespace — named `traceroot` by default. Create it before installing:
 
 ```bash
 kubectl create namespace traceroot --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl create secret tls traceroot-tls \
-  --cert=tls.crt \
-  --key=tls.key \
-  --namespace traceroot
+kubectl create secret generic traceroot \
+  --namespace traceroot \
+  --from-literal=database-url="postgresql://traceroot:<password>@postgres.internal.net:5432/traceroot" \
+  --from-literal=redis-url="redis://redis.internal.net:6379/0" \
+  --from-literal=clickhouse-password="$(openssl rand -hex 32)" \
+  --from-literal=better-auth-secret="$(openssl rand -hex 32)" \
+  --from-literal=internal-api-secret="$(openssl rand -hex 32)" \
+  --from-literal=encryption-key="$(openssl rand -hex 32)"
+```
+
+Enabling the SQL gateway needs two more keys in the same Secret, `clickhouse-writer-password` and `clickhouse-ro-password`.
+
+### 3. Prepare `values.yaml`
+
+Create a `my-values.yaml` with your images, hostname and external endpoints. Every value below exists in the chart's [`values.yaml`](https://github.com/traceroot-ai/traceroot-k8s/blob/main/charts/traceroot/values.yaml), which lists the full set:
+
+```yaml my-values.yaml
+# Public URL of the app. The browser-facing API URL is derived by the chart.
+betterAuth:
+  url: "https://traceroot.example.com"
+
+# Self-hosted: unlock every feature and skip the billing metering cron.
+enableBilling: "false"
+
+# Each service is imaged separately. Pin a git SHA; never deploy "latest".
+web:
+  image:
+    repository: "<registry>/traceroot-web"
+    tag: "sha-abc1234"
+rest:
+  image:
+    repository: "<registry>/traceroot-rest"
+    tag: "sha-abc1234"
+# ...the same shape for worker, billing, detector, agent and both
+# migrations.* images.
+
+# Ingress takes a single hostname. The chart has no tls block: TLS is
+# terminated by the ingress controller, which you configure through
+# ingress.annotations.
+ingress:
+  enabled: true
+  className: alb
+  host: "traceroot.example.com"
+
+# External PostgreSQL. The connection string itself lives in the Secret.
+postgresql:
+  existingSecret: "traceroot"
+  secretKeys:
+    databaseUrl: "database-url"
+
+# External Redis.
+redis:
+  existingSecret: "traceroot"
+  secretKeys:
+    url: "redis-url"
+
+# Object storage. Access is granted to the service account through IRSA, so
+# there are no access keys here.
+s3:
+  bucket: "my-traceroot-telemetry"
+  region: "us-east-1"
+
+# Bundled ClickHouse (Bitnami subchart).
+clickhouse:
+  deploy: true
+  database: default
+  auth:
+    username: default
+    existingSecret: "traceroot"
+    existingSecretKey: "clickhouse-password"
+  persistence:
+    enabled: true
+    size: 200Gi
+
+# Optional: provision the identities the public SQL gateway runs as.
+sqlGateway:
+  enabled: true
 ```
 
 ### 4. Install the Release
@@ -108,7 +125,6 @@ Deploy the Helm chart to your target namespace:
 ```bash
 helm install traceroot traceroot/traceroot \
   --namespace traceroot \
-  --create-namespace \
   -f my-values.yaml
 ```
 
@@ -130,7 +146,7 @@ You should see:
 - `traceroot-worker-*` (Running)
 - `traceroot-detector-*` (Running)
 - `traceroot-agent-*` (Running)
-- `traceroot-clickhouse-0` (Running)
+- the ClickHouse pod from the subchart, when `clickhouse.deploy` is on
 
 ---
 

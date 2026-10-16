@@ -59,7 +59,7 @@ ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ```
 
-<Important>
+<Warning>
 **Runtime Overrides Have No Effect**:
 Setting `NEXT_PUBLIC_APP_URL` or `NEXT_PUBLIC_API_URL` under `environment:` in Docker Compose or at container runtime **does not affect client-side browser requests**.
 
@@ -71,7 +71,7 @@ docker compose -f docker-compose.prod.yml build \
   --build-arg NEXT_PUBLIC_API_URL=https://traceroot.yourcompany.com/api/v1 \
   web
 ```
-</Important>
+</Warning>
 
 ---
 
@@ -101,12 +101,14 @@ docker compose -f docker-compose.prod.yml build \
 If you want the in-app AI assistant, automated root-cause analysis (RCA), or LLM-as-a-judge detectors to work, supply at least one LLM API key:
 
 ```bash .env
-# Anthropic (Claude 3.5 Sonnet / Haiku)
+# Anthropic
 ANTHROPIC_API_KEY=sk-ant-api03-...
 
-# OpenAI (GPT-4o, GPT-4o-mini)
+# OpenAI
 OPENAI_API_KEY=sk-proj-...
 ```
+
+Which models each key unlocks is listed in the console, under workspace settings → Model Providers.
 
 ---
 

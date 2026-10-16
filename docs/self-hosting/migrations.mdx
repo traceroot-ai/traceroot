@@ -20,12 +20,12 @@ In `docker-compose.prod.yml`, migrations are handled by dedicated one-shot conta
               │ healthy                     │ healthy
        ┌──────▼───────┐          ┌──────────▼───────────┐
        │   migrate    │          │   clickhouse-init    │
-       │ (21 Prisma)  │          │ (provision DB users) │
+       │   (Prisma)   │          │ (provision DB users) │
        └──────┬───────┘          └──────────┬───────────┘
               │                             │ exit 0
               │                  ┌──────────▼───────────┐
               │                  │  migrate-clickhouse  │
-              │                  │     (13 Goose)       │
+              │                  │       (Goose)        │
               │                  └──────────┬───────────┘
               │                             │
               └──────────────┬──────────────┘
@@ -46,7 +46,7 @@ Application services gate their start on the migrations they need: `web` and `ag
 - **Service**: `migrate` (using `docker/Dockerfile.web` with target `migrate`).
 - **Tool**: Prisma (`prisma migrate deploy`).
 - **Path**: `frontend/packages/core/prisma/migrations/`
-- **Count**: 21 migrations covering:
+- Applied in order, covering:
   - Initial schema and core tables (`20260413180351_init`)
   - Detectors and sample rates (`add_detectors`, `detector_sample_rate_default`)
   - Slack & GitHub installations
@@ -62,13 +62,13 @@ Application services gate their start on the migrations they need: `web` and `ag
 - **Service**: `migrate-clickhouse` (using `docker/Dockerfile.migrate-clickhouse`).
 - **Tool**: Goose database migration tool (`goose -dir /migrations up`).
 - **Path**: `backend/db/clickhouse/migrations/`
-- **Count**: 13 migrations (`001_create_traces.sql` to `013_add_error_type.sql`) covering:
+- Applied in order from `001_create_traces.sql`, covering:
   - Raw `traces` and `spans` tables
   - Detector run logs and evaluation tables
   - Token breakdown and latency projections
   - Metadata map materialization
   - Curated views for the public SQL gateway (`012_create_public_sql_views.sql`)
-  - Error type categorizations (`013_add_error_type.sql`)
+  - Error type categorizations and signal assignments
 
 ### ClickHouse User Provisioning (`clickhouse-init`)
 
@@ -115,8 +115,7 @@ A healthy ClickHouse migration output will show all versions applied:
 2026/10/02 10:00:01 OK   002_create_spans.sql
 ...
 2026/10/02 10:00:05 OK   012_create_public_sql_views.sql
-2026/10/02 10:00:06 OK   013_add_error_type.sql
-goose: no migrations to run. current version: 13
+goose: no migrations to run. current version: <latest>
 ```
 
 ---

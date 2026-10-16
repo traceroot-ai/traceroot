@@ -95,8 +95,9 @@ make prod-lite
 ```
 
 <Note>
-**`make prod` vs `make prod-lite`**:
-`make prod` launches a live terminal tmux dashboard that requires local `uv` and Python installations. For a standard container-only deployment without local dependencies, use `docker compose -f docker-compose.prod.yml up --build -d` or `make prod-lite`.
+**`make prod-lite` is not the same command**: it runs `up --build` **attached**, so the stack stops when you press Ctrl+C, and it copies `.env.example` to `.env` first if no `.env` exists. Run it before step 3 and `SQL_GATEWAY_BOOTSTRAP_PASSWORD` is still commented out in the generated file, so Compose refuses to start.
+
+**`make prod` vs `make prod-lite`**: `make prod` launches a live terminal tmux dashboard that requires local `uv` and Python installations. For a detached container-only deployment, use `docker compose -f docker-compose.prod.yml up --build -d`.
 </Note>
 
 ---
@@ -128,7 +129,7 @@ traceroot-rest-1                    "python -m backend..."   rest               
 traceroot-worker-1                  "celery -A backend..."   worker               Up
 traceroot-billing-1                 "node dist/index.js"     billing              Up
 traceroot-detector-1                "node dist/index.js"     detector             Up
-traceroot-agent-1                   "uvicorn main:app ..."   agent                Up
+traceroot-agent-1                   "node ee/agent/dist..."  agent                Up
 ```
 
 ---
