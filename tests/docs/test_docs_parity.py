@@ -78,8 +78,10 @@ def test_integrations_overview_parity() -> None:
     # Exclude pages that are not provider cards: internal-models is a general
     # page, and openai-compatible documents a configuration pattern shared by
     # several providers rather than an SDK integration of its own.
+    # typesafe is documented in docs before in-app picker card onboarding.
     docs_integrations.discard("internal-models")
     docs_integrations.discard("openai-compatible")
+    docs_integrations.discard("typesafe")
 
     # In-app picker source
     picker_path = (
@@ -125,6 +127,7 @@ def test_integrations_overview_parity() -> None:
         "typescript-sdk",
         "groq",
         "bedrock",
+        "typesafe",
     }
     unexpected_py = py_mapped - known_docs_or_native
     assert not unexpected_py, (

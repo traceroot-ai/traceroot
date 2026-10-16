@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AlertSeverity, AlertThresholdOperator } from "@traceroot/core";
-import { ALERT_SEVERITY_COLORS, buildAlertBlocks } from "../alert-blocks.ts";
+import {
+  ALERT_SEVERITY_COLORS,
+  buildAlertBlocks,
+  buildAlertClosedBlocks,
+} from "../alert-blocks.ts";
 
 const alertBase = {
   appBaseUrl: "https://app.example.test",
@@ -337,5 +341,65 @@ describe("buildAlertBlocks", () => {
     expect(JSON.parse(new URL(url).searchParams.get("filters")!)).toEqual([
       { field: "name", op: "in", value: ["<!channel> & co"] },
     ]);
+  });
+});
+
+describe("buildAlertClosedBlocks", () => {
+  const closedBase = {
+    appBaseUrl: "https://app.example.test",
+    projectId: "proj_1",
+    alertId: "al_1",
+    name: "Checkout p95 latency",
+    reason: "edited" as const,
+    actor: "Ada" as string | null,
+  };
+
+  it("closes the page under the rule's name, saying who edited it and that it is no recovery", () => {
+    const message = buildAlertClosedBlocks(closedBase);
+    const [header] = message.blocks as any[];
+    const [closed, links] = sectionTexts(message);
+
+    // The same header a recovery carries, so the [ALERT] it answers has its pair.
+    expect(header.text.text).toBe("[OK] Checkout p95 latency");
+    expect(closed).toContain("Rule edited by Ada, previous alert closed.");
+    expect(closed).toContain("announced as a new alert");
+    expect(links).toBe("<https://app.example.test/projects/proj_1/alerts/al_1|View alert>");
+    expect(message.color).toBe(ALERT_SEVERITY_COLORS.OK);
+    expect(message.text).toContain("[OK] Checkout p95 latency");
+    expect(message.text).toContain("Rule edited by Ada");
+
+    const context = (message.blocks as any[]).find((b) => b.type === "context");
+    expect(context.elements[0].text).toBe("Closed by a rule edit, not by a recovery");
+  });
+
+  it("names a resume as one, and drops the name of an account that is gone", () => {
+    const resumed = buildAlertClosedBlocks({ ...closedBase, reason: "resumed" });
+    expect(sectionTexts(resumed)[0]).toContain("Rule resumed by Ada, previous alert closed.");
+    const context = (resumed.blocks as any[]).find((b) => b.type === "context");
+    expect(context.elements[0].text).toBe("Closed by a rule resume, not by a recovery");
+
+    const unnamed = buildAlertClosedBlocks({ ...closedBase, actor: null });
+    expect(sectionTexts(unnamed)[0]).toContain("Rule edited, previous alert closed.");
+  });
+
+  it("keeps the close reason in the fallback text however long the rule's name is", () => {
+    const message = buildAlertClosedBlocks({ ...closedBase, name: "n".repeat(400) });
+
+    // One shared limit would spend itself on the name and cut the only words
+    // that tell a client rendering no blocks this is a close.
+    expect(message.text).toContain("Rule edited by Ada, previous alert closed.");
+    expect(message.text.length).toBeLessThanOrEqual(310);
+  });
+
+  it("escapes the rule's name and the actor's, both of which a user controls", () => {
+    const message = buildAlertClosedBlocks({
+      ...closedBase,
+      name: "<!channel> down",
+      actor: "<!here> & co",
+    });
+
+    expect(sectionTexts(message)[0]).toContain("by &lt;!here&gt; &amp; co,");
+    expect(message.text).not.toContain("<!channel>");
+    expect(message.text).not.toContain("<!here>");
   });
 });

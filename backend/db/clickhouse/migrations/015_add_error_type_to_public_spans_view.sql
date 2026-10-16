@@ -21,8 +21,13 @@
 -- The inner SELECT reads `metadata_map`, which the no-I/O projection does not
 -- carry, so a gateway query grouping by error_type reads the base table. That is
 -- the existing behaviour of this view for every column, not something added here.
+--
+-- DROP + CREATE, not CREATE OR REPLACE: replacing an existing view needs
+-- renameat2(), which EFS does not support.
 
-CREATE OR REPLACE VIEW spans_public_v1
+DROP VIEW IF EXISTS spans_public_v1;
+
+CREATE VIEW spans_public_v1
     DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS
 SELECT
     span_id,
@@ -70,7 +75,9 @@ WHERE source = 'user'
 -- +goose Down
 
 -- Restore the 012 spans view (no error_type), definer clause included.
-CREATE OR REPLACE VIEW spans_public_v1
+DROP VIEW IF EXISTS spans_public_v1;
+
+CREATE VIEW spans_public_v1
     DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS
 SELECT
     span_id,

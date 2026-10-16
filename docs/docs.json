@@ -35,8 +35,16 @@
   },
   "redirects": [
     {
+      "source": "/detectors/get-started",
+      "destination": "/detectors/introduction#how-to-create-a-detector"
+    },
+    {
+      "source": "/detectors/notifications",
+      "destination": "/detectors/introduction#notifications"
+    },
+    {
       "source": "/detectors/alerts",
-      "destination": "/detectors/notifications"
+      "destination": "/detectors/introduction#notifications"
     },
     {
       "source": "/alerts/introduction",
@@ -120,32 +128,22 @@
             ]
           },
           {
-            "group": "AI Agents",
+            "group": "CLI",
             "pages": [
-              "ai-agent/overview",
-              {
-                "group": "Get Started",
-                "pages": [
-                  "ai-agent/github-integration",
-                  "ai-agent/byok"
-                ]
-              },
-              {
-                "group": "Features",
-                "pages": [
-                  "ai-agent/trace-analysis",
-                  "ai-agent/root-cause-analysis",
-                  "ai-agent/pr-creation"
-                ]
-              }
+              "cli/get-started",
+              "cli/sql"
             ]
           },
           {
             "group": "Detectors",
             "pages": [
-              "detectors/introduction",
-              "detectors/get-started",
-              "detectors/notifications"
+              "detectors/introduction"
+            ]
+          },
+          {
+            "group": "Signals",
+            "pages": [
+              "signals/introduction"
             ]
           },
           {
@@ -168,10 +166,24 @@
             ]
           },
           {
-            "group": "CLI",
+            "group": "TraceRoot Agent",
             "pages": [
-              "cli/get-started",
-              "cli/sql"
+              "ai-agent/overview",
+              {
+                "group": "Get Started",
+                "pages": [
+                  "ai-agent/github-integration",
+                  "ai-agent/byok"
+                ]
+              },
+              {
+                "group": "Features",
+                "pages": [
+                  "ai-agent/trace-analysis",
+                  "ai-agent/root-cause-analysis",
+                  "ai-agent/pr-creation"
+                ]
+              }
             ]
           }
         ]
@@ -221,7 +233,8 @@
               "integrations/mistral",
               "integrations/openai",
               "integrations/openai-compatible",
-              "integrations/openrouter"
+              "integrations/openrouter",
+              "integrations/typesafe"
             ]
           },
           {
@@ -229,6 +242,22 @@
             "pages": [
               "integrations/internal-models"
             ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "icon": "square-code",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api-reference/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "api-reference/openapi.json"
           }
         ]
       }

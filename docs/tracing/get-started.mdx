@@ -24,11 +24,18 @@ Create API Keys either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self
 
 ## 3. Set Environment Variables
 
-```bash .env
-TRACEROOT_API_KEY=your-api-key
-TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
-OPENAI_API_KEY=your-openai-api-key
+<Frame caption="Tracing setup: sidebar, Manual tab, API key field, Generate button">
+  <img src="/images/tracing_api_key_v1.png" alt="TraceRoot Tracing page with the Create an API key step highlighted" />
+</Frame>
+
+Neither SDK loads `.env` files automatically; both read the process environment. Export the variables in your shell:
+
+```bash
+export TRACEROOT_API_KEY="your-api-key"
+export TRACEROOT_HOST_URL="https://app.traceroot.ai"  # or your self-hosted URL
 ```
+
+*(If you prefer to use a `.env` file, ensure you load it explicitly in your code as shown in the next step.)*
 
 ## 4. Instrument Your Code
 
@@ -86,8 +93,8 @@ Prefer the terminal? The [TraceRoot CLI](/cli/get-started) lists, inspects, and 
   <Card title="TypeScript SDK" icon="js" href="/tracing/typescript-sdk">
     Full API reference for the TypeScript SDK.
   </Card>
-  <Card title="AI Agent" icon="brain" href="/ai-agent/overview">
-    Auto-debug failing traces with the built-in AI agent.
+  <Card title="TraceRoot Agent" icon="brain" href="/ai-agent/overview">
+    Auto-debug failing traces with the TraceRoot Agent.
   </Card>
   <Card title="CLI" icon="terminal" href="/cli/get-started">
     Read and export your traces from the terminal.
