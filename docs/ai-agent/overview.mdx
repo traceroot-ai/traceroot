@@ -11,23 +11,21 @@ The agent can analyze execution traces, clone production code into sandboxes to 
   <img src="/images/agent_home_v1.png" alt="TraceRoot Home page assistant with three starter prompts and the chat input" />
 </Frame>
 
-## The Home Page & Persistent Chat
+## The Home page & persistent chat
 
 The first item in the TraceRoot project sidebar is **Home**, a full-page AI assistant with starter prompts for common tasks:
 - *"Investigate the most recent errored trace"*
 - *"Summarize today's sessions"*
 - *"What did detector findings flag this week?"*
 
-### Conversation Persistence
+### Conversation persistence
 
 Chat state lives in the app-wide assistant provider, scoped to the project you are in:
 - **Navigates with you**: A conversation started on the Home page survives navigating across different pages (such as Traces, Dashboards, or Detectors) and remains accessible in the right-hand assistant drawer.
 - **Stored sessions**: Conversations are saved as project sessions, allowing you to review past debugging trajectories and findings at any time.
 - **Turn-level trace links**: Assistant responses include a **View trace** button when their trace is available or still uploading; failed trace exports are marked unavailable.
 
----
-
-## Investigative Capabilities
+## Investigative capabilities
 
 When debugging issues in your AI applications, the agent provides four core investigation capabilities:
 
@@ -36,9 +34,17 @@ When debugging issues in your AI applications, the agent provides four core inve
 - **Automated fix PRs** — After diagnosing a failure, the agent can implement a code fix on a new branch and open a GitHub pull request for human review. The agent never pushes directly to your default branch.
 - **Parallel runs** — Launch multiple debugging sessions concurrently to investigate separate traces and failure patterns simultaneously.
 
----
+## Read tools
 
-## Changing Project Resources (Write Actions)
+The agent's tools are generated from the same registry that defines the Public REST API, so a tool call reads exactly what the API returns. The read tools cover:
+
+- **Traces and sessions** — `list_traces`, `list_sessions`, `get_session`
+- **Detectors and findings** — `list_detectors`, `get_detector`, `list_findings`, `get_finding`, `get_finding_by_trace`
+- **Dashboards and widgets** — `list_dashboards`, `get_dashboard`, `get_dashboard_data`, `get_widget`, `get_widget_data`, `run_widget_query`
+- **Alerts** — `list_alerts`, `get_alert`
+- **Evaluations and datasets** — `get_evaluation_run`, `list_datasets`, `get_dataset`, `list_dataset_versions`, `get_dataset_version`
+
+## Changing project resources (write actions)
 
 In addition to querying telemetry, the agent binds **13 write tools** capable of modifying project resources directly through conversation:
 
@@ -49,7 +55,15 @@ In addition to querying telemetry, the agent binds **13 write tools** capable of
 | **Widgets** | Add, modify, or remove query charts and trace feeds | `create_widget`, `update_widget`, `delete_widget` |
 | **Alerts** | Create, reconfigure, delete, or toggle threshold alerts | `create_alert`, `update_alert`, `delete_alert`, `set_alert_status` |
 
-### Scope Boundary: No Workspace or Project Writes
+### Creating a resource that already exists
+
+| Resource | A second create under the same name |
+| :--- | :--- |
+| **Detectors** | Idempotent — the existing detector is returned rather than duplicated. |
+| **Dashboards** | The agent appends `" (2)"` (then `" (3)"`, ...) and reports the name it actually used, so use that name afterwards. The Public REST API is idempotent on the dashboard name instead. |
+| **Widgets** and **alerts** | Strict — every create adds a new one, so list them first to avoid a duplicate. |
+
+### Scope boundary: no workspace or project writes
 
 The agent operates strictly within the project tenancy injected by the active chat session:
 - The agent **cannot create, update, or delete workspaces**.
@@ -57,13 +71,11 @@ The agent operates strictly within the project tenancy injected by the active ch
 
 Administrative changes to workspaces and projects are intentionally restricted to the CLI, Public REST API, and workspace settings.
 
----
-
-## Safety: Interactive Approvals and Timeouts
+## Safety: interactive approvals and timeouts
 
 In an attended chat session, every write the agent proposes pauses for your decision before it runs:
 
-### Confirmation Cards
+### Confirmation cards
 
 Whenever the agent decides to invoke a write tool, execution pauses and presents an interactive **confirmation card** in the chat:
 - **Creates and Updates**: You can choose to **Approve** (execute the change), **Skip** (cancel the change), or **Revise** (provide feedback or changes in natural language so the agent re-proposes the action with adjustments).
@@ -75,13 +87,15 @@ If you skip or decline an action, the agent acknowledges the skip and continues 
   For creates and updates, the confirmation card is a review gate rather than a security control: a session with no user attached to it, such as a system-initiated run, executes them without showing a card. Deletes fail closed instead — with nobody there to approve one, the call is blocked rather than executed.
 </Note>
 
-### 10-Minute Timeout
+### Delete reasons
+
+A delete also carries a reason of 3-500 characters, stating why. The agent passes the instruction you gave it, the reason is stored on the audit row with the deletion, and the call is rejected without one.
+
+### 10-minute timeout
 
 Approval cards will not wait indefinitely. If an approval proposal is left unanswered for **10 minutes**, TraceRoot automatically skips that pending action. No change from the unanswered proposal is applied; earlier approved actions in the same turn remain in effect.
 
----
-
-## Audit Logging
+## Audit logging
 
 Writes executed by the agent are recorded on your workspace's append-only audit trail:
 
@@ -91,7 +105,11 @@ Writes executed by the agent are recorded on your workspace's append-only audit 
 
 The audit row is written after the resource change itself commits, and a failed audit write is logged rather than rolled back — so the trail is append-only but not a guarantee that every write has a row.
 
----
+## Agent traces
+
+The agent is traced like any other application, and a detector finding links to the agent trace of the root-cause run that analysed it (the newest run whose trace has landed).
+
+Agent and detector traces are marked as internal telemetry, so they are excluded from the Traces list, dashboards and filter dropdowns — your own traffic's counts, latencies and costs never include TraceRoot's.
 
 ## Where to start
 
