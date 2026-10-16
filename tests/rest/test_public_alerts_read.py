@@ -60,6 +60,7 @@ SUMMARY_UPSTREAM = {
     "lastErrorAt": None,
     "lastNotifyStatus": None,
     "lastNotifyError": None,
+    "lastNotifySeverity": None,
     "lastNotifyAt": None,
     "createTime": "2026-08-01T00:00:00Z",
     "updateTime": "2026-08-02T00:00:00Z",
@@ -84,6 +85,7 @@ SUMMARY_EXPECTED = {
     "last_error_at": None,
     "last_notify_status": None,
     "last_notify_error": None,
+    "last_notify_severity": None,
     "last_notify_at": None,
     "create_time": "2026-08-01T00:00:00Z",
     "update_time": "2026-08-02T00:00:00Z",
@@ -99,6 +101,9 @@ LIST_BODY = {
             "name": "Error count",
             "threshold": 0.5,
             "severity": "ALERT",
+            "lastNotifyStatus": "FAILED",
+            "lastNotifyError": "no-channel",
+            "lastNotifySeverity": "ALERT",
             "creator": None,
         },
     ],
@@ -114,6 +119,9 @@ LIST_EXPECTED = {
             "name": "Error count",
             "threshold": 0.5,
             "severity": "ALERT",
+            "last_notify_status": "FAILED",
+            "last_notify_error": "no-channel",
+            "last_notify_severity": "ALERT",
             "creator": None,
         },
     ],
@@ -222,6 +230,27 @@ def test_get_alert_returns_the_full_rule():
         "projectId": "proj-A",
         "alertId": "alr-1",
     }
+
+
+@respx.mock
+def test_get_alert_preserves_severity_for_a_replayable_notification_failure():
+    _mock_user_auth()
+    body = {
+        "alert": {
+            **DETAIL_BODY["alert"],
+            "lastNotifyStatus": "FAILED",
+            "lastNotifyError": "no-channel",
+            "lastNotifySeverity": "ALERT",
+        }
+    }
+    _mock_internal(body)
+
+    resp = TestClient(app).get("/api/v1/public/alerts/alr-1?project_id=proj-A", headers=USER_HEADER)
+
+    assert resp.status_code == 200
+    assert resp.json()["last_notify_status"] == "FAILED"
+    assert resp.json()["last_notify_error"] == "no-channel"
+    assert resp.json()["last_notify_severity"] == "ALERT"
 
 
 @respx.mock

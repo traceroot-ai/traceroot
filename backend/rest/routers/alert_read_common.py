@@ -73,6 +73,7 @@ def _summary_fields(alert: Any) -> dict[str, Any]:
         "last_error_at": alert["lastErrorAt"],
         "last_notify_status": alert["lastNotifyStatus"],
         "last_notify_error": alert["lastNotifyError"],
+        "last_notify_severity": alert["lastNotifySeverity"],
         "last_notify_at": alert["lastNotifyAt"],
         "create_time": alert["createTime"],
         "update_time": alert["updateTime"],
