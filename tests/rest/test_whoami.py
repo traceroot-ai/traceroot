@@ -116,6 +116,27 @@ class TestWhoami:
         ).json()
         assert data["host"].startswith("http://")
 
+    def test_the_api_address_is_preserved_not_replaced_by_the_ui_s(self, monkeypatch):
+        """Only the scheme comes from configuration; the address comes from the request.
+
+        The two halves have different authorities. A self-host serves the API on
+        one port and the UI on another, so the UI origin cannot stand in for the
+        API's address — only the request knows which of a deployment's addresses
+        the client actually reached. Pinning the whole value rather than just
+        the scheme is what catches a regression that took the scheme correctly
+        and then substituted the UI's host and port along with it.
+        """
+        monkeypatch.setattr(
+            settings, "traceroot_public_ui_url", "http://localhost:3000", raising=False
+        )
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("ingest")
+        client = TestClient(app, base_url="http://localhost:8000")
+        data = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        ).json()
+        assert data["host"] == "http://localhost:8000"
+
     @pytest.mark.parametrize("scope", ["ingest", "admin"])
     def test_reports_the_keys_scope(self, scope):
         """A key holder can ask what their key is allowed to do."""
