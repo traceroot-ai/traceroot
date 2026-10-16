@@ -19,13 +19,19 @@ on by default and controlled per kind.
    `20260901000001_ai_message_attribution` (in `frontend/packages/core`, with
    `DATABASE_URL` set: `pnpm exec prisma migrate deploy`). Both are additive; no backfill
    of executions is performed.
-3. Agent service env: nothing to set — `AGENT_SELF_TRACE` unset means on (any value
-   other than `1` or `true` turns it off). To stage a rollout, narrow
+3. Configure the agent service env before deploying. `AGENT_SELF_TRACE` unset means
+   on (any value other than `1` or `true` turns it off). To stage a rollout, narrow
    `AGENT_SELF_TRACE_KINDS` and widen it over a few days: `rca` → `rca,followup` →
    `rca,followup,chat`.
    Unset means all kinds; a token that is not one of those three is ignored and warned
    about once in the agent-service log (`[AgentTrace] AGENT_SELF_TRACE_KINDS token`).
-4. Confirm after the first RCA:
+4. Deploy the agent service before the RCA worker, and wait for the agent rollout to
+   finish before starting the worker rollout. The worker records each execution's
+   `trace_status` from the agent's final `trace` SSE frame; an older agent that does not
+   send it makes the new worker record `failed`, even when the RCA completed. The
+   agent-first rollout is safe: an older worker ignores the new frame. Keep this
+   order even with `AGENT_SELF_TRACE=0`: the updated agent still sends `status: "disabled"`.
+5. Confirm after the first RCA:
    `select attempt, trace_status, count(*) from detector_rca_executions
     where started_at > now() - interval '1 hour' group by 1,2` shows `available` and no
    `failed`; the analysed run's Agent Run ID is clickable in the detector runs table.
@@ -46,6 +52,12 @@ on by default and controlled per kind.
   `SELECT source, count(), sum(length(output)) FROM spans
    WHERE ch_create_time > now() - INTERVAL 1 DAY GROUP BY source`.
 - Export failures: agent-service log lines `[AgentTrace] export failed`.
+- Worker deployed first: finish the agent rollout, then check the next RCA's
+  `trace_status` with the query in Enable step 5 (`available` when its flush succeeds,
+  `disabled` when tracing is off). Executions run against the older agent retain
+  `failed`; scope them by the deployment window and check whether their traces landed before
+  treating them as export failures. The missing frame affects the recorded status,
+  not the trace data, and completing the rollout does not repair those existing rows.
 - Cut captures: a span whose recorded input/output was cut to its cap (the root's prompt,
   answer and system prompt; an LLM span's input/output; a tool span's args/result) carries
   `traceroot.truncated = true`; a tool span whose result was withheld because the run's
@@ -72,8 +84,13 @@ on by default and controlled per kind.
 
 ## Rollback
 
-- With the flag off the agent service, worker and REST behave as before emission; the
-  only runtime differences that ship unflagged are the executions table, the
-  `ai_messages.turn_kind` column, the capture policy on persisted tool output, the
-  per-source usage breakdown, and the agent ingest path (unused while emission is off). Reverting the agent-service emit change alone stops emission; the
+- Stop agent emission with `AGENT_SELF_TRACE=0`, keeping the updated agent and worker
+  code deployed. The agent still sends `status: "disabled"` in the `trace` SSE frame,
+  so the worker records `trace_status=disabled` rather than treating a missing frame
+  as `failed`.
+- If the code itself must be reverted, roll back the worker first and wait for its
+  rollout to finish before rolling back the agent. Reverting the agent alone leaves
+  the new worker talking to an older agent that does not send the frame.
+- The executions table, `ai_messages.turn_kind` column, capture policy on persisted
+  tool output, per-source usage breakdown, and agent ingest path ship unflagged. The
   migrations are additive and can stay.

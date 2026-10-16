@@ -8,9 +8,17 @@ import pytest
 
 import rest.openapi_public as openapi_public
 from rest.main import app
-from rest.openapi_public import PUBLIC_PREFIX, _apply_tool_curation, build_public_schema, render
+from rest.openapi_public import (
+    DOCS_SERVERS,
+    PUBLIC_PREFIX,
+    _apply_tool_curation,
+    build_docs_schema,
+    build_public_schema,
+    render,
+)
 
 ARTIFACT = Path(__file__).resolve().parents[2] / "backend" / "rest" / "openapi" / "public.json"
+DOCS_ARTIFACT = Path(__file__).resolve().parents[2] / "docs" / "api-reference" / "openapi.json"
 
 
 def _schema():
@@ -92,6 +100,13 @@ def test_committed_artifact_matches_generated():
     """Drift guard: regenerate with `python scripts/sync_public_openapi.py`."""
     assert ARTIFACT.exists(), f"missing artifact: {ARTIFACT}"
     assert ARTIFACT.read_text(encoding="utf-8") == render(_schema())
+
+
+def test_committed_docs_copy_matches_generated():
+    """Drift guard for the API reference's copy: regenerate with
+    `python scripts/sync_public_openapi.py`."""
+    assert DOCS_ARTIFACT.exists(), f"missing artifact: {DOCS_ARTIFACT}"
+    assert DOCS_ARTIFACT.read_text(encoding="utf-8") == render(build_docs_schema(_schema()))
 
 
 def test_drift_is_detectable():
@@ -1258,3 +1273,69 @@ def test_create_widget_spec_keeps_widget_spec_component_for_parity():
     components = _schema()["components"]["schemas"]
     for name in ("WidgetSpec", "WidgetFilter", "WidgetMetric", "WidgetDisplay"):
         assert name in components
+
+
+# --- API reference (docs copy + grouping) -----------------------------------
+
+
+def test_docs_copy_adds_servers_and_sdk_notes_only():
+    """The docs copy is the public document plus `servers` and the SDK notes;
+    nothing else differs, and the public document itself gains neither."""
+    public = _schema()
+    docs = build_docs_schema(public)
+    assert "servers" not in public
+    assert docs["servers"] == DOCS_SERVERS
+    assert docs["servers"][0]["url"] == "https://app.traceroot.ai"
+
+    stripped = deepcopy(docs)
+    del stripped["servers"]
+    for item in stripped["paths"].values():
+        for op in item.values():
+            op.pop("x-mint", None)
+    assert stripped == public
+
+
+def test_docs_copy_labels_the_sdk_driven_operations():
+    """Every operation hidden from the tool registry is one the SDKs call, and
+    its reference page says so; the ingest page also names its content type."""
+    docs = build_docs_schema(_schema())
+    labelled = {
+        op["operationId"]: op["x-mint"]["content"]
+        for item in docs["paths"].values()
+        for op in item.values()
+        if "x-mint" in op
+    }
+    assert set(labelled) == {"ingest_traces", "register_run", "upsert_result", "complete_run"}
+    for content in labelled.values():
+        assert "SDKs call this endpoint" in content
+    assert "application/x-protobuf" in labelled["ingest_traces"]
+
+
+def test_each_resource_has_one_tag():
+    """The API reference groups operations by tag, so every operation carries
+    exactly one tag and every operation on a resource shares it: a write tagged
+    apart from its reads would split the resource across two groups."""
+    tags_by_resource: dict[str, set[str]] = {}
+    for path, item in _schema()["paths"].items():
+        resource = path.removeprefix(PUBLIC_PREFIX).split("/")[0]
+        for method, op in item.items():
+            if method not in _METHODS:
+                continue
+            assert len(op["tags"]) == 1, (method, path, op["tags"])
+            assert "(Public)" not in op["tags"][0], (method, path)
+            tags_by_resource.setdefault(resource, set()).add(op["tags"][0])
+    split = {r: tags for r, tags in tags_by_resource.items() if len(tags) > 1}
+    assert not split, split
+    # And the groups themselves: unrelated resources must not collapse into one tag.
+    assert {next(iter(tags)) for tags in tags_by_resource.values()} == {
+        "Account",
+        "Alerts",
+        "Dashboards",
+        "Detectors",
+        "Offline Eval",
+        "Sessions",
+        "SQL",
+        "Traces",
+        "Whoami",
+        "Widgets",
+    }

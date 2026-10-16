@@ -283,10 +283,30 @@ class DashboardWidgetItem(BaseModel):
     create_time: datetime
 
 
+class DashboardLayoutItem(BaseModel):
+    """One widget's place on a dashboard's grid, in grid units.
+
+    ``i`` is the widget id; ``x``/``w`` count columns of the twelve-column
+    grid and ``y``/``h`` count rows. A widget with no entry is placed by the
+    dashboard page itself, below everything that has one.
+    """
+
+    i: str
+    x: int
+    y: int
+    w: int
+    h: int
+
+
 class DashboardDetail(DashboardSummary):
-    """One dashboard with its widgets, ordered by creation time."""
+    """One dashboard with its widgets, ordered by creation time.
+
+    ``layout`` is the stored grid placement of the widgets that have one, or
+    None when the dashboard service did not report it.
+    """
 
     widgets: list[DashboardWidgetItem]
+    layout: list[DashboardLayoutItem] | None = None
 
 
 class DashboardWidgetData(BaseModel):
@@ -298,13 +318,15 @@ class DashboardWidgetData(BaseModel):
     is a feed widget (a trace list, not an aggregate — read those with
     ``list_traces`` and the feed's filters); ``error`` carries a short reason
     and no rows — a broken widget, or a query widget past the per-request cap
-    with a reason naming it — so neither fails the whole dashboard.
+    with a reason naming it — so neither fails the whole dashboard. ``spec``
+    is the widget's stored spec whatever the status, so a caller can draw it.
     """
 
     id: str
     title: str
     type: str
     status: Literal["ok", "skipped", "error"]
+    spec: Any | None = None
     columns: list[str] | None = None
     rows: list[list[Any]] | None = None
     meta: dict[str, Any] | None = None
@@ -317,6 +339,8 @@ class DashboardDataResponse(BaseModel):
 
     Widgets keep the dashboard's order. ``window`` is the window they were all
     answered for — the one to name alongside any figure taken from here.
+    ``layout`` is the dashboard's grid placement, as ``get_dashboard`` returns
+    it.
     """
 
     dashboard: DashboardSummary
@@ -325,6 +349,7 @@ class DashboardDataResponse(BaseModel):
     queried: int
     skipped: int
     failed: int
+    layout: list[DashboardLayoutItem] | None = None
 
 
 class WidgetDetail(DashboardWidgetItem):
@@ -343,12 +368,17 @@ class WidgetDetail(DashboardWidgetItem):
 
 
 class WidgetRef(BaseModel):
-    """The identity of the widget a data read answered, with its dashboard."""
+    """The identity of the widget a data read answered, with its dashboard.
+
+    ``spec`` is the stored spec the read ran, as ``get_widget`` returns it.
+    """
 
     id: str
     dashboard_id: str
     title: str
     type: str
+    dashboard_name: str | None = None
+    spec: Any | None = None
 
 
 class WidgetDataResponse(BaseModel):
