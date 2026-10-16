@@ -140,6 +140,17 @@ describe("GET /api/github/token", () => {
       const res = await GET(makeRequest({ workspaceIdQuery: "ws_1" }));
       expect(res.status).toBe(403);
     });
+
+    it("session path requires the MEMBER role, so a viewer cannot mint a token", async () => {
+      requireAuthMock.mockResolvedValue({ user: { id: "u_1" } });
+      requireMembershipMock.mockResolvedValue({
+        error: { status: 403, json: async () => ({ error: "Requires MEMBER role or higher" }) },
+      });
+      const res = await GET(makeRequest({ workspaceIdQuery: "ws_1" }));
+      expect(res.status).toBe(403);
+      expect(requireMembershipMock).toHaveBeenCalledWith("u_1", "ws_1", "MEMBER");
+      expect(getInstallationTokenMock).not.toHaveBeenCalled();
+    });
   });
 
   describe("installation lookup", () => {
