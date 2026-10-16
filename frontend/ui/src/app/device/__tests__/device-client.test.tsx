@@ -34,6 +34,19 @@ vi.mock("@/lib/api/workspaces", () => ({
   getWorkspaces: () => mocks.getWorkspaces(),
 }));
 
+// The approved panel watches for the run's first trace. Nothing in this file is
+// about that watch — see device-client.first-trace.test.tsx — but it must not
+// be left to a real fetch either, or these tests would depend on how jsdom
+// happens to fail one. An account with nowhere to look keeps every assertion
+// here about the phase it is testing.
+vi.mock("@/lib/api/projects", () => ({
+  getProjects: async () => [],
+}));
+
+vi.mock("@/lib/api/traces", () => ({
+  getTraces: async () => ({ data: [], meta: { page: 0, limit: 0, total: 0 } }),
+}));
+
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
     useSession: () => mocks.useSession(),
