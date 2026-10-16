@@ -46,9 +46,7 @@ traceroot sql \
 
 Run `traceroot sql schema` to list the available tables, columns, and ClickHouse types; add `--json` for the machine-readable form. The [CLI repository](https://github.com/traceroot-ai/traceroot-cli#sql-queries) documents installation, authentication, output formats, and the complete flag reference.
 
-<Note>
 The analytical schema carries no span or trace payloads, so prompts and responses cannot be queried here. Read them with `traceroot traces get <trace-id> --fields full --json` or `traceroot traces export <trace-id>`.
-</Note>
 
 ## Worked queries
 

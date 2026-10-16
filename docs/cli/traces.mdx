@@ -15,8 +15,6 @@ List traces for your project, sorted newest first.
 traceroot traces list [options]
 ```
 
-#### Flags
-
 | Flag | Type | Description |
 | :--- | :--- | :--- |
 | `--limit <n>` | number | Maximum number of traces to return (default: `50`, max `200`) |
@@ -25,8 +23,6 @@ traceroot traces list [options]
 | `--to <iso-date>` | string | End of the time range in ISO 8601 format |
 | `--project <id>` | string | Project ID (required when using browser login) |
 | `--json` | boolean | Output raw JSON data |
-
-#### Examples
 
 ```bash
 # List the last 10 traces
@@ -44,21 +40,13 @@ traceroot traces list \
 traceroot traces list --since 24h --json | jq -r '.data[].trace_id'
 ```
 
----
-
 ### `traceroot traces get <trace-id>`
 
-Fetch and display a single trace by ID, showing its span hierarchy, duration breakdown, and deep link to TraceRoot Cloud.
+Fetch and display a single trace by ID, showing its span hierarchy, duration breakdown, and deep link to TraceRoot Cloud. The required `<trace-id>` is the unique 32-character hexadecimal identifier of the trace.
 
 ```bash
 traceroot traces get <trace-id> [options]
 ```
-
-#### Arguments
-
-- `<trace-id>` *(required)*: The unique 32-character hexadecimal identifier of the trace.
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
@@ -66,12 +54,10 @@ traceroot traces get <trace-id> [options]
 | `--project <id>` | string | Project ID (required when using browser login) |
 | `--json` | boolean | Emit the complete trace record as JSON to stdout |
 
-#### Projections
+The projection groups are:
 
-- **`skeleton` (Default)**: Retrieves the span tree hierarchy, operation names, durations, statuses, and service/model identifiers without fetching large input/output payloads. Keeps responses fast and compact.
+- **`skeleton` (default)**: Retrieves the span tree hierarchy, operation names, durations, statuses, and service/model identifiers without fetching large input/output payloads. Keeps responses fast and compact.
 - **`full` (or `--fields io,metadata`)**: Fetches complete span attributes, including raw LLM prompts, completions, tool call arguments, outputs, and custom user attributes.
-
-#### Examples
 
 ```bash
 # View the span tree skeleton
@@ -85,21 +71,13 @@ traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef --json | \
   jq '.spans[] | select(.status == "ERROR") | {name, status_message}'
 ```
 
----
-
 ### `traceroot traces export <trace-id>`
 
-Export an entire trace bundle to a local directory. This is useful for archiving, offline evaluations, sharing reproducible bug reports, or feeding test fixtures into AI coding agents.
+Export an entire trace bundle to a local directory. This is useful for archiving, offline evaluations, sharing reproducible bug reports, or feeding test fixtures into AI coding agents. The required `<trace-id>` is the identifier of the trace to export.
 
 ```bash
 traceroot traces export <trace-id> [options]
 ```
-
-#### Arguments
-
-- `<trace-id>` *(required)*: The trace identifier to export.
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
@@ -107,8 +85,6 @@ traceroot traces export <trace-id> [options]
 | `--force` | boolean | Write into the destination even when it is already non-empty |
 | `--fields <groups>` | string | Projection to export: `full` (default) or `skeleton` |
 | `--project <id>` | string | Project ID (required when using browser login) |
-
-#### Exported Bundle Structure
 
 A trace bundle directory contains four JSON files, plus a fifth when a detector flagged the trace:
 
@@ -120,8 +96,6 @@ trace_99224be337d725fd5e8f2e7b45dc22ef_20261013T094500Z/
 ├── finding.json        # The detector finding — only written when the trace was flagged
 └── manifest.json       # bundle_version, project_id, trace_id, and the file list
 ```
-
-#### Examples
 
 ```bash
 # Export the full trace bundle to a custom directory

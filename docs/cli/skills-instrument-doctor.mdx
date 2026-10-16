@@ -5,17 +5,15 @@ description: AI agent skills integration, codebase instrumentation, and environm
 
 The TraceRoot CLI provides native utilities to integrate TraceRoot capabilities into AI coding assistants (such as Claude Code, Cursor, and Codex), automatically generate instrumentation instructions for your repository, and diagnose setup issues.
 
-## Agent Skills
+## Agent skills
 
 TraceRoot ships two first-party agent skills: `traceroot-instrument-repo`, which teaches an assistant to add TraceRoot tracing to an existing Python or TypeScript app, and `traceroot-quickstart`, a minimal runnable demo that produces one trace. Installing a skill copies bundled static files into the agent's designated directory without network requests or external dependencies.
 
-### Target Directories by Agent
+### Target directories by agent
 
 - **`claude`** (Claude Code): Project-local `.claude/skills/<skill>/`
 - **`codex`** (Codex): Global `$CODEX_HOME/skills/<skill>/` (defaults to `~/.codex/skills/`)
 - **`generic`** (Cursor & others): Project-local `.agents/skills/<skill>/`
-
----
 
 ### `traceroot skills list`
 
@@ -40,8 +38,6 @@ Output is one block per skill — `✓` when it is installed for at least one ag
   Install: traceroot skills install traceroot-quickstart
 ```
 
----
-
 ### `traceroot skills install [skill]`
 
 Install a bundled skill into the appropriate directory for an agent. If run in an interactive terminal without arguments, the CLI prompts you to select a skill and target agent.
@@ -50,15 +46,11 @@ Install a bundled skill into the appropriate directory for an agent. If run in a
 traceroot skills install [skill] [options]
 ```
 
-#### Flags
-
 | Flag | Type | Description |
 | :--- | :--- | :--- |
 | `--agent <agent>` | string | Target agent: `claude`, `codex`, or `generic` |
 | `--force` | boolean | Overwrite existing skill directory if present |
 | `--dry-run` | boolean | Print what files would be copied without writing to disk |
-
-#### Examples
 
 ```bash
 # Interactive installation (prompts for skill and agent)
@@ -74,9 +66,7 @@ traceroot skills install traceroot-quickstart --agent codex --force
 traceroot skills install traceroot-quickstart --agent generic --dry-run
 ```
 
----
-
-## Codebase Instrumentation
+## Codebase instrumentation
 
 ### `traceroot instrument`
 
@@ -88,16 +78,12 @@ When executed interactively without flags, it prompts for the target agent and d
 traceroot instrument [options]
 ```
 
-#### Flags
-
 | Flag | Type | Description |
 | :--- | :--- | :--- |
 | `--agent <agent>` | string | Target assistant (`claude`, `codex`, `generic`) |
 | `--print` | boolean | Print the generated prompt directly to stdout |
 | `--output <path>` | string | File path where the markdown prompt will be written |
 | `--force` | boolean | Overwrite output file if it already exists |
-
-#### Examples
 
 ```bash
 # Print instrumentation prompt directly to terminal
@@ -110,9 +96,7 @@ traceroot instrument --agent codex --output .traceroot/prompts/instrument.md
 traceroot instrument --agent claude --print | claude
 ```
 
----
-
-## System Diagnostics
+## System diagnostics
 
 ### `traceroot doctor`
 
@@ -121,8 +105,6 @@ Run comprehensive diagnostics to verify your CLI configuration, API credentials,
 ```bash
 traceroot doctor [options]
 ```
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |

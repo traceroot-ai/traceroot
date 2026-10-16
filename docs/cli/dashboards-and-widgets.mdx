@@ -27,8 +27,6 @@ cm2k7p9x40000qz8rn3f1i7bd  LLM Performance Overview                false       A
 cm2k8r1a70001qz8rv5g2k4ce  Agent Cost & Errors                     false       Alice    2026-09-20T15:03:19Z  2026-09-28T09:21:02Z  4
 ```
 
----
-
 ### `traceroot dashboards get <id>`
 
 Inspect a dashboard's metadata and the list of widgets it contains.
@@ -41,8 +39,6 @@ traceroot dashboards get <dashboard-id> [options]
 traceroot dashboards get cm2k7p9x40000qz8rn3f1i7bd
 ```
 
----
-
 ### `traceroot dashboards create`
 
 Create a new dashboard.
@@ -50,8 +46,6 @@ Create a new dashboard.
 ```bash
 traceroot dashboards create --from-file <path> [options]
 ```
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
@@ -63,8 +57,6 @@ traceroot dashboards create --from-file <path> [options]
 ```bash
 traceroot dashboards create --name "Production Agent Health" --description "Real-time metrics for customer support agents"
 ```
-
----
 
 ### `traceroot dashboards update <id>`
 
@@ -78,8 +70,6 @@ traceroot dashboards update <dashboard-id> [options]
 traceroot dashboards update cm2k7p9x40000qz8rn3f1i7bd --name "Support Agent V2 Metrics"
 ```
 
----
-
 ### `traceroot dashboards delete <id>`
 
 Permanently delete a dashboard and all widgets associated with it.
@@ -88,8 +78,6 @@ Permanently delete a dashboard and all widgets associated with it.
 traceroot dashboards delete <dashboard-id> --reason <text>
 ```
 
-#### Flags
-
 | Flag | Type | Description |
 | :--- | :--- | :--- |
 | `--reason <text>` | string | *(Required)* Audit justification |
@@ -97,8 +85,6 @@ traceroot dashboards delete <dashboard-id> --reason <text>
 ```bash
 traceroot dashboards delete cm2k7p9x40000qz8rn3f1i7bd --reason "Superseded by global dashboard"
 ```
-
----
 
 ## Widgets
 
@@ -112,8 +98,6 @@ Add a new widget to an existing dashboard.
 traceroot widgets create --from-file <path> [options]
 ```
 
-#### Flags
-
 | Flag | Type | Description |
 | :--- | :--- | :--- |
 | `--from-file <path>` | string | Path to JSON definition |
@@ -121,8 +105,6 @@ traceroot widgets create --from-file <path> [options]
 | `--title <string>` | string | Widget title |
 | `--type <string>` | string | Widget type (`timeseries`, `counter`, `table`, `bar`) |
 | `--spec <json-string>` | string | Query specification defining metrics, dimensions, and filters |
-
-#### Example
 
 Define a widget in `latency_widget.json`:
 
@@ -143,8 +125,6 @@ Define a widget in `latency_widget.json`:
 traceroot widgets create --from-file latency_widget.json
 ```
 
----
-
 ### `traceroot widgets get <id>`
 
 Inspect a saved widget, including its title, type, and exact query specification.
@@ -157,8 +137,6 @@ traceroot widgets get <widget-id>
 traceroot widgets get cm2k7qa1b0002qz8rt6h2j9df
 ```
 
----
-
 ### `traceroot widgets data <id>`
 
 Execute a saved widget's query specification over a specific time window and print the computed results without re-sending the spec.
@@ -166,8 +144,6 @@ Execute a saved widget's query specification over a specific time window and pri
 ```bash
 traceroot widgets data <widget-id> [options]
 ```
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
@@ -181,8 +157,6 @@ traceroot widgets data <widget-id> [options]
 traceroot widgets data cm2k7qa1b0002qz8rt6h2j9df --range 1d
 ```
 
----
-
 ### `traceroot widgets update <id>`
 
 Update a widget's title, query specification, or display settings.
@@ -192,14 +166,12 @@ traceroot widgets update <widget-id> [options]
 ```
 
 <Warning>
-Supplying `--spec` replaces the entire existing query specification.
+  Supplying `--spec` replaces the entire existing query specification.
 </Warning>
 
 ```bash
 traceroot widgets update cm2k7qa1b0002qz8rt6h2j9df --title "Median & P95 Latency"
 ```
-
----
 
 ### `traceroot widgets delete <id>`
 

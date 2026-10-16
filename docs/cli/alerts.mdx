@@ -15,8 +15,6 @@ List all threshold alerts in your project with their status, severity, and evalu
 traceroot alerts list [options]
 ```
 
-#### Flags
-
 | Flag | Type | Description |
 | :--- | :--- | :--- |
 | `--limit <n>` | number | Maximum number of alerts to return |
@@ -32,8 +30,6 @@ traceroot alerts list
 # Search for latency alerts
 traceroot alerts list --search "latency"
 ```
-
----
 
 ### `traceroot alerts get <id>`
 
@@ -57,8 +53,6 @@ Last fired:   2026-10-01T08:15:22Z
 Channels:     Slack (#prod-incidents), PagerDuty
 ```
 
----
-
 ### `traceroot alerts create`
 
 Create a new threshold alert. Like other write operations, alert creation accepts a full rule specification via `--from-file <path>` (or `-` for stdin), allowing flags to override specific fields.
@@ -67,15 +61,11 @@ Create a new threshold alert. Like other write operations, alert creation accept
 traceroot alerts create --from-file <path> [options]
 ```
 
-#### Flags
-
 | Flag | Type | Description |
 | :--- | :--- | :--- |
 | `--from-file <path>` | string | Path to JSON file (or `-` for stdin) defining the alert rule |
 | `--name <string>` | string | Override alert name |
 | `--project <id>` | string | Project ID (required when using browser login) |
-
-#### Example
 
 Create a rule file `alert_rule.json`:
 
@@ -106,15 +96,11 @@ traceroot alerts create --from-file alert_rule.json
 jq '.threshold = 2500' alert_rule.json | traceroot alerts create --from-file -
 ```
 
----
-
 ### `traceroot alerts update <id>`
 
 Update an existing alert. Omitted fields remain unchanged.
 
-<Note>
 Updating an evaluated field (such as `threshold`, `metric`, or `window_minutes`) automatically resets the alert's internal evaluation state window.
-</Note>
 
 ```bash
 traceroot alerts update <alert-id> [options]
@@ -128,8 +114,6 @@ traceroot alerts update cm2k7r3d80003qz8ry4k5m1fg --threshold 3500
 traceroot alerts update cm2k7r3d80003qz8ry4k5m1fg --from-file updated_rule.json
 ```
 
----
-
 ### `traceroot alerts status <id>`
 
 Pause or resume an alert without modifying its underlying rules or notification settings.
@@ -137,8 +121,6 @@ Pause or resume an alert without modifying its underlying rules or notification 
 ```bash
 traceroot alerts status <alert-id> --status <ACTIVE|PAUSED>
 ```
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
@@ -152,8 +134,6 @@ traceroot alerts status cm2k7r3d80003qz8ry4k5m1fg --status PAUSED
 traceroot alerts status cm2k7r3d80003qz8ry4k5m1fg --status ACTIVE
 ```
 
----
-
 ### `traceroot alerts delete <id>`
 
 Permanently delete an alert.
@@ -161,8 +141,6 @@ Permanently delete an alert.
 ```bash
 traceroot alerts delete <alert-id> --reason <text>
 ```
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |

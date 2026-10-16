@@ -7,9 +7,7 @@ Workspaces and projects define the multi-tenant organizational structure of Trac
 - **Workspaces**: Contain users, billing, and global permissions.
 - **Projects**: Contain traces, detectors, alerts, and dashboards. Project API keys (`tr-...`) authenticate directly to a single project.
 
-<Note>
 Workspace and project management commands require **user authentication** via browser login (`traceroot login`).
-</Note>
 
 ## Workspaces
 
@@ -31,8 +29,6 @@ Acme Corp Engineering  ADMIN  3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31
 Personal Workspace     OWNER  b2f47c08-91d6-4e53-a7c1-5048f3b9e216
 ```
 
----
-
 ### `traceroot workspaces create`
 
 Create a new organizational workspace.
@@ -40,8 +36,6 @@ Create a new organizational workspace.
 ```bash
 traceroot workspaces create --from-file <path> [options]
 ```
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
@@ -51,8 +45,6 @@ traceroot workspaces create --from-file <path> [options]
 ```bash
 traceroot workspaces create --name "AI Platform Team"
 ```
-
----
 
 ### `traceroot workspaces update <id>`
 
@@ -66,8 +58,6 @@ traceroot workspaces update <workspace-id> [options]
 traceroot workspaces update 3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31 --name "Core AI Engineering"
 ```
 
----
-
 ### `traceroot workspaces delete <id>`
 
 Permanently delete a workspace and all nested projects, traces, detectors, and alerts. This action is irreversible.
@@ -75,8 +65,6 @@ Permanently delete a workspace and all nested projects, traces, detectors, and a
 ```bash
 traceroot workspaces delete <workspace-id> --name <current-name> --reason <text>
 ```
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
@@ -89,8 +77,6 @@ traceroot workspaces delete 3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31 \
   --reason "Team reorganized under Enterprise workspace"
 ```
 
----
-
 ## Projects
 
 ### `traceroot projects list`
@@ -100,8 +86,6 @@ List the projects you can access across all your workspaces. The value in the `P
 ```bash
 traceroot projects list [options]
 ```
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
@@ -122,8 +106,6 @@ Support Bot     Acme Corp Engineering  fa126572-3d41-4c0e-9a6b-1e8d7c2b5f40
 Coding Copilot  Acme Corp Engineering  7c91b8e4-52a7-4f3d-8b10-9d6e4a1c3f27
 ```
 
----
-
 ### `traceroot projects create`
 
 Create a new project within a workspace.
@@ -131,8 +113,6 @@ Create a new project within a workspace.
 ```bash
 traceroot projects create --from-file <path> [options]
 ```
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
@@ -146,8 +126,6 @@ traceroot projects create \
   --name "Financial Analysis Agent"
 ```
 
----
-
 ### `traceroot projects update <id>`
 
 Update project settings, such as the display name or trace retention policy (requires workspace `ADMIN`).
@@ -155,8 +133,6 @@ Update project settings, such as the display name or trace retention policy (req
 ```bash
 traceroot projects update <project-id> [options]
 ```
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
@@ -169,8 +145,6 @@ traceroot projects update <project-id> [options]
 traceroot projects update fa126572-3d41-4c0e-9a6b-1e8d7c2b5f40 --trace-ttl-days 90
 ```
 
----
-
 ### `traceroot projects delete <id>`
 
 Delete a project (soft delete). The project drops out of lists and reads, its API keys immediately stop authenticating, and its data is retained until the project's trace retention window expires.
@@ -178,8 +152,6 @@ Delete a project (soft delete). The project drops out of lists and reads, its AP
 ```bash
 traceroot projects delete <project-id> --reason <text>
 ```
-
-#### Flags
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
