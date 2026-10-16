@@ -8,7 +8,7 @@ import { authClient } from "@/lib/auth-client";
 import { getWorkspaces } from "@/lib/api/workspaces";
 import type { TraceApiUser } from "@/lib/api/client";
 import type { Workspace } from "@/types/api";
-import { traceUrl } from "./first-trace";
+import { traceUrl } from "@/lib/first-trace";
 import { useFirstTraceWait, type TraceWait } from "./use-first-trace-wait";
 import { resolveSetupNeed, onboardingUrlForSetup, type SetupNeed } from "@/lib/account-setup";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
