@@ -632,7 +632,7 @@ function OnboardingContent() {
                     menu — is a click away. Disabled while a create is in
                     flight, so a sign-out cannot land between the workspace and
                     the project. */}
-                <div className="mt-4 flex justify-center">
+                <div className="mt-4">
                   <AccountLine
                     email={session?.user?.email ?? null}
                     pending={isLoading || isSwitchingAccount}
