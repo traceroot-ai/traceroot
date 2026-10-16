@@ -72,5 +72,5 @@ export async function readWatchedProjects(workspaces: Workspace[]): Promise<Proj
  */
 export function watchOrder(projects: Project[], baseline: TraceBaseline): string[] {
   const ids = projects.map((project) => project.id);
-  return [...ids.filter((id) => baseline.has(id)), ...ids.filter((id) => !baseline.has(id))];
+  return [...ids.filter((id) => !baseline.has(id)), ...ids.filter((id) => baseline.has(id))];
 }
