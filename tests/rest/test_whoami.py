@@ -92,6 +92,30 @@ class TestWhoami:
         ).json()
         assert data["host"].startswith("http://")
 
+    def test_a_caller_supplied_forwarded_proto_does_not_change_the_reported_host(self, monkeypatch):
+        """The header is not consulted, on purpose.
+
+        Honouring ``X-Forwarded-Proto`` in application code honours it from
+        every caller, including one that reaches this process without passing
+        through the proxy — and nothing here establishes that none can. The
+        scheme is taken from deployment configuration instead, so a caller
+        claiming https against an http deployment is ignored rather than
+        believed.
+        """
+        monkeypatch.setattr(
+            settings, "traceroot_public_ui_url", "http://localhost:3000", raising=False
+        )
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth("ingest")
+        client = TestClient(app)
+        data = client.get(
+            "/api/v1/public/whoami",
+            headers={
+                "Authorization": "Bearer tr_secrettoken",
+                "X-Forwarded-Proto": "https",
+            },
+        ).json()
+        assert data["host"].startswith("http://")
+
     @pytest.mark.parametrize("scope", ["ingest", "admin"])
     def test_reports_the_keys_scope(self, scope):
         """A key holder can ask what their key is allowed to do."""
