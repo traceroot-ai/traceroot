@@ -735,6 +735,11 @@ describe("deleteAlert", () => {
     expect(store.has("alert-1")).toBe(false);
     expect(tx.alert.deleteMany).toHaveBeenCalledWith({ where: { id: "alert-1", projectId: "p1" } });
     expect(order).toEqual(["lock", "delete", "outbox", "commit", "audit"]);
+    // The lock has to land before the read: read first, a tick could take the
+    // marker in between and the close would go out twice.
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.alert.findFirst.mock.invocationCallOrder[0],
+    );
     expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         operation: "delete_alert",

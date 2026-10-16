@@ -943,17 +943,21 @@ describe("sendAlertClose", () => {
     expect(alertUpdateMany).not.toHaveBeenCalled();
   });
 
-  it("drops the close of a deleted rule, which has no page left to close", async () => {
+  it("posts an edit's close whose rule was deleted before the job ran", async () => {
+    // The take cleared the marker, so the delete left no outbox row: this job is
+    // the only close the page gets.
     alertFindUnique.mockResolvedValue(null);
     const { sendAlertClose } = await importModule();
     await sendAlertClose(closeJob);
 
-    expect(postMessage).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(buildAlertClosedBlocks).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "edited" }),
+    );
     expect(alertUpdateMany).not.toHaveBeenCalled();
   });
 
   it("posts the close of a deleted rule without looking for the rule", async () => {
-    alertFindUnique.mockResolvedValue(null);
     const { sendAlertClose } = await importModule();
     await sendAlertClose(deletedCloseJob);
 
@@ -963,6 +967,17 @@ describe("sendAlertClose", () => {
     );
     expect(postMessage).toHaveBeenCalledTimes(1);
     expect(alertUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("drops the close of a deleted rule whose project was deleted since", async () => {
+    findUnique.mockResolvedValue(null);
+    const { sendAlertClose } = await importModule();
+    await sendAlertClose(deletedCloseJob);
+
+    expect(findUnique.mock.calls[0][0]).toMatchObject({
+      where: { id: "proj_1", deleteTime: null },
+    });
+    expect(postMessage).not.toHaveBeenCalled();
   });
 
   it("still drops the close of a deleted rule on a channel no retry can reach", async () => {

@@ -514,14 +514,16 @@ export interface AlertDeletedCloseRow {
  * The outbox rows a tick should send, oldest first under the claim's cap. Ids only:
  * the row itself is read by the take, so a close is never sent from a read that
  * another tick's take has since made stale.
+ *
+ * A soft-deleted project's rows are read too. Deletion is soft, so no cascade removes
+ * them, and left out here they would sit in the outbox for good; taken, their close is
+ * dropped at send, where the channel lookup refuses a deleted project.
  */
 export async function readDeletedAlertCloses(): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-    SELECT c.id
-    FROM alert_deleted_closes c
-    -- Deletion is soft, so no cascade fires: a deleted project has no channel to tell.
-    JOIN projects p ON p.id = c.project_id AND p.delete_time IS NULL
-    ORDER BY c.create_time ASC
+    SELECT id
+    FROM alert_deleted_closes
+    ORDER BY create_time ASC
     LIMIT ${ALERT_CLAIM_LIMIT}
   `);
   return rows.map((row) => row.id);

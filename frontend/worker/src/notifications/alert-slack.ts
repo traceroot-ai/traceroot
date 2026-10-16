@@ -496,26 +496,16 @@ async function resolveActor(userId: string): Promise<string | null> {
  *
  * The rule's status is not consulted. Pausing stops a rule from paging; it does not
  * make the page it already sent any less discarded, and a close held for the resume
- * leaves the channel reading an alert nobody is evaluating. Only a rule that is gone
- * has nothing to close, and the close of the delete itself is the one exception: it
- * is not looked up, since no rule is left to find. A channel no retry can reach drops
- * the close, since the page it would close cannot have been delivered through that
- * channel either; a failure a retry may get past is rethrown, and the caller puts the
- * close back once the job's attempts run out.
+ * leaves the channel reading an alert nobody is evaluating. Nor is whether the rule
+ * still exists: a close an edit queued is the only close its page gets when the rule
+ * is deleted before the job runs, since the take already cleared the marker the
+ * delete would have moved to the outbox. A channel no retry can reach drops the close,
+ * since the page it would close cannot have been delivered through that channel
+ * either; a failure a retry may get past is rethrown, and the caller puts the close
+ * back once the job's attempts run out.
  */
 export async function sendAlertClose(job: AlertCloseJob): Promise<void> {
   const tag = `alert=${job.alertId} project=${job.projectId} close=${job.reason}`;
-
-  if (job.reason !== "deleted") {
-    const alert = await prisma.alert.findUnique({
-      where: { id: job.alertId },
-      select: { id: true },
-    });
-    if (alert === null) {
-      logInfo(`slack skip ${tag} reason=alert-deleted`);
-      return;
-    }
-  }
 
   const resolution = await resolveAlertChannel(job.projectId);
   if (!resolution.ok) {

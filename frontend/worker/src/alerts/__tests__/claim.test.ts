@@ -822,15 +822,17 @@ describe("the close of a deleted rule", () => {
     resends: 0,
   };
 
-  it("is read as ids, oldest first, for live projects only, under the claim's cap", async () => {
+  it("is read as ids, oldest first, under the claim's cap", async () => {
     queryRaw.mockResolvedValue([{ id: "c1" }, { id: "c2" }]);
 
     expect(await readDeletedAlertCloses()).toEqual(["c1", "c2"]);
 
     const { sql, values } = queryRaw.mock.calls[0][0];
-    expect(sql).toContain("FROM alert_deleted_closes c");
-    expect(sql).toContain("p.delete_time IS NULL");
-    expect(sql).toContain("ORDER BY c.create_time ASC");
+    expect(sql).toContain("FROM alert_deleted_closes");
+    // A soft-deleted project's rows are taken too, or nothing would ever remove them;
+    // the send drops their close.
+    expect(sql).not.toContain("delete_time");
+    expect(sql).toContain("ORDER BY create_time ASC");
     expect(values).toEqual([ALERT_CLAIM_LIMIT]);
   });
 
