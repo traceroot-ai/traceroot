@@ -44,11 +44,11 @@ traceroot alerts get <alert-id> [options]
 ```
 
 ```bash
-traceroot alerts get alt_1234abcd5678efgh
+traceroot alerts get cm2k7r3d80003qz8ry4k5m1fg
 ```
 
 ```text
-Alert ID:     alt_1234abcd5678efgh
+Alert ID:     cm2k7r3d80003qz8ry4k5m1fg
 Name:         High Error Rate Spike
 Status:       ACTIVE
 Severity:     CRITICAL
@@ -73,7 +73,6 @@ traceroot alerts create --from-file <path> [options]
 | :--- | :--- | :--- |
 | `--from-file <path>` | string | Path to JSON file (or `-` for stdin) defining the alert rule |
 | `--name <string>` | string | Override alert name |
-| `--severity <string>` | string | Override severity level (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) |
 | `--project <id>` | string | Project ID (required when using browser login) |
 
 #### Example
@@ -83,18 +82,20 @@ Create a rule file `alert_rule.json`:
 ```json
 {
   "name": "High P95 Latency Alert",
-  "severity": "HIGH",
-  "metric": "duration_ms",
+  "view": "SPANS",
+  "measure": "latency",
   "aggregation": "p95",
-  "operator": "GREATER_THAN",
+  "window": "5m",
+  "threshold_operator": ">",
   "threshold": 3000,
-  "window_minutes": 5,
-  "filters": {
-    "model_name": "gpt-4o"
-  },
-  "renotify_minutes": 60
+  "filters": [
+    { "field": "model_name", "op": "=", "value": "gpt-4o" }
+  ],
+  "renotify": { "mode": "EVERY", "interval_minutes": 60 }
 }
 ```
+
+`view` is always `SPANS`. `window` is one of `1m`, `5m`, `10m`, `30m`, `1h`, `2h`, and `threshold_operator` one of `>`, `>=`, `<`, `<=`, `=`, `!=`. See [Alert rule reference](/alerts/rule-reference) for every measure, its unit, and the aggregations it accepts. Unknown fields are rejected before the request is sent, so generate the body from the schema rather than by hand.
 
 Create the alert:
 
@@ -121,10 +122,10 @@ traceroot alerts update <alert-id> [options]
 
 ```bash
 # Update threshold using a flag
-traceroot alerts update alt_1234abcd5678efgh --threshold 3500
+traceroot alerts update cm2k7r3d80003qz8ry4k5m1fg --threshold 3500
 
 # Or apply an updated JSON definition
-traceroot alerts update alt_1234abcd5678efgh --from-file updated_rule.json
+traceroot alerts update cm2k7r3d80003qz8ry4k5m1fg --from-file updated_rule.json
 ```
 
 ---
@@ -145,10 +146,10 @@ traceroot alerts status <alert-id> --status <ACTIVE|PAUSED>
 
 ```bash
 # Pause alert during maintenance
-traceroot alerts status alt_1234abcd5678efgh --status PAUSED
+traceroot alerts status cm2k7r3d80003qz8ry4k5m1fg --status PAUSED
 
 # Resume monitoring
-traceroot alerts status alt_1234abcd5678efgh --status ACTIVE
+traceroot alerts status cm2k7r3d80003qz8ry4k5m1fg --status ACTIVE
 ```
 
 ---
@@ -168,5 +169,5 @@ traceroot alerts delete <alert-id> --reason <text>
 | `--reason <text>` | string | *(Required)* Audit justification (3–500 characters) recorded in the audit trail |
 
 ```bash
-traceroot alerts delete alt_1234abcd5678efgh --reason "Consolidated into unified latency alert"
+traceroot alerts delete cm2k7r3d80003qz8ry4k5m1fg --reason "Consolidated into unified latency alert"
 ```

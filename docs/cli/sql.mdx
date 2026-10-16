@@ -15,7 +15,17 @@ Pass a query as one quoted argument, or use `--file <path>` to read it from a fi
 traceroot sql "SELECT count() AS spans FROM spans WHERE span_start_time >= now() - INTERVAL 1 DAY"
 ```
 
-The default output is a table. Use `--csv` for CSV, `--json` for the complete API response, and `--output <file>` to write the selected format to a file.
+The default output is a table, where `NULL` values render as `NULL` and the row count and elapsed time go to stderr so stdout stays pipeable. Use `--csv` for RFC 4180 CSV (nulls become empty cells), `--json` for the complete API response as one line, and `--output <file>` to write the selected format to a file. `--csv` and `--json` cannot be combined.
+
+| Flag | Description |
+| :-- | :-- |
+| `-f, --file <path>` | Read the query from a file instead of a command-line argument |
+| `--param <name=value>` | Bind a value to a `{name:Type}` placeholder (repeatable) |
+| `--max-rows <n>` | Most rows to return; the server lowers it to its own ceiling |
+| `--csv` | Emit CSV instead of a table |
+| `--json` | Emit the full API response as JSON |
+| `--output <file>` | Write the result to a file instead of stdout |
+| `--project <id>` | Project to query; required under a browser login |
 
 ```bash
 traceroot sql \
@@ -34,7 +44,11 @@ traceroot sql \
   --param environment=production
 ```
 
-Run `traceroot sql schema` to list the available tables, columns, and ClickHouse types. The [CLI repository](https://github.com/traceroot-ai/traceroot-cli#sql-queries) documents installation, authentication, output formats, and the complete flag reference.
+Run `traceroot sql schema` to list the available tables, columns, and ClickHouse types; add `--json` for the machine-readable form. The [CLI repository](https://github.com/traceroot-ai/traceroot-cli#sql-queries) documents installation, authentication, output formats, and the complete flag reference.
+
+<Note>
+The analytical schema carries no span or trace payloads, so prompts and responses cannot be queried here. Read them with `traceroot traces get <trace-id> --fields full --json` or `traceroot traces export <trace-id>`.
+</Note>
 
 ## Worked queries
 

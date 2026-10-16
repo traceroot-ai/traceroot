@@ -11,7 +11,7 @@ The following flags are available across all subcommands. Pass them before or af
 
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `--api-key <key>` | string | — | Project API key (`tr_...`) for direct bearer authentication. |
+| `--api-key <key>` | string | — | Project API key (`tr-...`) for direct bearer authentication. |
 | `--host <url>` | string | `https://app.traceroot.ai` | Target API backend URL. |
 | `--auth-host <url>` | string | Value of `--host` | Auth host URL for browser device login and token minting (used in split dev environments). |
 | `--project <id>` | string | — | Project ID to scope operations to (required for user credentials). |
@@ -85,8 +85,15 @@ The CLI reads 12 environment variables to resolve configuration, credentials, pa
 | [`widgets create`](/cli/dashboards-and-widgets#traceroot-widgets-create) | Widgets | Add a query widget to a dashboard (`--from-file`, `--dashboard-id`, `--title`, `--type`, `--spec`). |
 | [`widgets update <id>`](/cli/dashboards-and-widgets#traceroot-widgets-update-id) | Widgets | Update a widget's title, spec, or display settings (`--from-file`). |
 | [`widgets delete <id>`](/cli/dashboards-and-widgets#traceroot-widgets-delete-id) | Widgets | Permanently delete a widget from its dashboard (`--reason`). |
-| [`sql [query]`](/cli/sql#traceroot-sql-query) | Query | Run read-only analytical SQL queries over spans and traces (`--csv`, `--json`, `--output`). |
-| [`sql schema`](/cli/sql#traceroot-sql-schema) | Query | List queryable tables, columns, and data types in the analytical ClickHouse schema. |
+| [`datasets list`](/evals/cli) | Evaluations | List the project's evaluation datasets, newest first (`--limit`, `--name`). |
+| [`datasets get <dataset-id>`](/evals/cli) | Evaluations | Show one dataset and the version its cases are read from. |
+| [`datasets versions list <dataset-id>`](/evals/cli) | Evaluations | List a dataset's published versions with their case counts (`--limit`). |
+| [`datasets versions get <version-id>`](/evals/cli) | Evaluations | Show one version and a page of its cases (`--limit` — 200 by default, up to 1000). |
+| [`evals list`](/evals/cli) | Evaluations | List evaluations with their run count and latest run (`--limit`, `--name`). |
+| [`evals runs list`](/evals/cli) | Evaluations | List evaluation runs, newest first (`--limit`, `--evaluation-id`, `--status`). |
+| [`evals runs get <run-id>`](/evals/cli) | Evaluations | Show one run: counts, per-scorer means, per-case cost and duration, and its URL. |
+| [`sql [query]`](/cli/sql#query-with-the-cli) | Query | Run read-only analytical SQL queries over spans and traces (`--csv`, `--json`, `--output`). |
+| [`sql schema`](/cli/sql#query-with-the-cli) | Query | List queryable tables, columns, and data types in the analytical ClickHouse schema. |
 | [`skills list`](/cli/skills-instrument-doctor#traceroot-skills-list) | Agent | List available first-party skills and their installation status across agents. |
 | [`skills install [skill]`](/cli/skills-instrument-doctor#traceroot-skills-install-skill) | Agent | Install a bundled skill into Claude Code, Codex, or generic agent directories. |
 | [`instrument`](/cli/skills-instrument-doctor#traceroot-instrument) | Tooling | Generate an agent-ready prompt instructing an AI assistant to instrument your codebase. |

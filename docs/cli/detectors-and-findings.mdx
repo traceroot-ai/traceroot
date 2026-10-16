@@ -43,7 +43,7 @@ traceroot detectors get <detector-id> [options]
 ```
 
 ```bash
-traceroot detectors get det_5f8b9e1a2c3d4e5f
+traceroot detectors get cm2k7s5e90004qz8rz7n8p2hj
 ```
 
 ---
@@ -111,7 +111,7 @@ traceroot detectors update <detector-id> [options]
 
 ```bash
 # Disable a detector
-traceroot detectors update det_5f8b9e1a2c3d4e5f --enabled false
+traceroot detectors update cm2k7s5e90004qz8rz7n8p2hj --enabled false
 ```
 
 ---
@@ -131,7 +131,7 @@ traceroot detectors delete <detector-id> --reason <text>
 | `--reason <text>` | string | *(Required)* Audit justification (3–500 characters) |
 
 ```bash
-traceroot detectors delete det_5f8b9e1a2c3d4e5f --reason "Deprecated in favor of combined guardrail detector"
+traceroot detectors delete cm2k7s5e90004qz8rz7n8p2hj --reason "Deprecated in favor of combined guardrail detector"
 ```
 
 ---
@@ -164,7 +164,7 @@ traceroot findings list [options]
 traceroot findings list --since 24h
 
 # List findings for a particular detector
-traceroot findings list --detector det_5f8b9e1a2c3d4e5f --limit 50
+traceroot findings list --detector cm2k7s5e90004qz8rz7n8p2hj --limit 50
 ```
 
 ---
@@ -177,16 +177,16 @@ You must specify either the finding ID as an argument or pass `--trace <id>`.
 
 ```bash
 # Lookup by finding ID
-traceroot findings get fnd_8e7d6c5b4a3f2e1d
+traceroot findings get 8e7d6c5b4a3f2e1d9c0b1a2f3e4d5c6b
 
 # Or lookup findings associated with a trace ID
 traceroot findings get --trace 99224be337d725fd5e8f2e7b45dc22ef
 ```
 
 ```text
-Finding ID:   fnd_8e7d6c5b4a3f2e1d
+Finding ID:   8e7d6c5b4a3f2e1d9c0b1a2f3e4d5c6b
 Severity:     HIGH
-Detector:     SQL Injection Detection (det_5f8b9e1a2c3d4e5f)
+Detector:     SQL Injection Detection (cm2k7s5e90004qz8rz7n8p2hj)
 Trace ID:     99224be337d725fd5e8f2e7b45dc22ef
 Created:      2026-10-01T18:24:12Z
 

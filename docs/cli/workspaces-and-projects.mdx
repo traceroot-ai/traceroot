@@ -5,7 +5,7 @@ description: Manage organizational workspaces and project boundaries
 
 Workspaces and projects define the multi-tenant organizational structure of TraceRoot:
 - **Workspaces**: Contain users, billing, and global permissions.
-- **Projects**: Contain traces, detectors, alerts, and dashboards. Project API keys (`tr_...`) authenticate directly to a single project.
+- **Projects**: Contain traces, detectors, alerts, and dashboards. Project API keys (`tr-...`) authenticate directly to a single project.
 
 <Note>
 Workspace and project management commands require **user authentication** via browser login (`traceroot login`).
@@ -26,9 +26,9 @@ traceroot workspaces list
 ```
 
 ```text
-WORKSPACE ID                           NAME                   ROLE
-wrk_11223344556677889900aabbccddeeff   Acme Corp Engineering  ADMIN
-wrk_aabbccddeeff00112233445566778899   Personal Workspace     OWNER
+NAME                   ROLE   WORKSPACE ID
+Acme Corp Engineering  ADMIN  3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31
+Personal Workspace     OWNER  b2f47c08-91d6-4e53-a7c1-5048f3b9e216
 ```
 
 ---
@@ -63,7 +63,7 @@ traceroot workspaces update <workspace-id> [options]
 ```
 
 ```bash
-traceroot workspaces update wrk_11223344556677889900aabbccddeeff --name "Core AI Engineering"
+traceroot workspaces update 3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31 --name "Core AI Engineering"
 ```
 
 ---
@@ -84,7 +84,7 @@ traceroot workspaces delete <workspace-id> --name <current-name> --reason <text>
 | `--reason <text>` | string | *(Required)* Audit explanation for deletion |
 
 ```bash
-traceroot workspaces delete wrk_11223344556677889900aabbccddeeff \
+traceroot workspaces delete 3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31 \
   --name "Core AI Engineering" \
   --reason "Team reorganized under Enterprise workspace"
 ```
@@ -113,13 +113,13 @@ traceroot projects list [options]
 traceroot projects list
 
 # List projects within a single workspace
-traceroot projects list --workspace-id wrk_11223344556677889900aabbccddeeff
+traceroot projects list --workspace-id 3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31
 ```
 
 ```text
-PROJECT ID                            NAME               WORKSPACE ID
-proj_91a0c8b21e054fbb8b1234567890abcd  Support Bot        wrk_11223344556677889900aabbccddeeff
-proj_09b8f7e6d5c4321a9876543210fedcba  Coding Copilot     wrk_11223344556677889900aabbccddeeff
+NAME            WORKSPACE              PROJECT ID
+Support Bot     Acme Corp Engineering  fa126572-3d41-4c0e-9a6b-1e8d7c2b5f40
+Coding Copilot  Acme Corp Engineering  7c91b8e4-52a7-4f3d-8b10-9d6e4a1c3f27
 ```
 
 ---
@@ -142,7 +142,7 @@ traceroot projects create --from-file <path> [options]
 
 ```bash
 traceroot projects create \
-  --workspace-id wrk_11223344556677889900aabbccddeeff \
+  --workspace-id 3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31 \
   --name "Financial Analysis Agent"
 ```
 
@@ -166,7 +166,7 @@ traceroot projects update <project-id> [options]
 
 ```bash
 # Set retention policy to 90 days
-traceroot projects update proj_91a0c8b21e054fbb8b1234567890abcd --trace-ttl-days 90
+traceroot projects update fa126572-3d41-4c0e-9a6b-1e8d7c2b5f40 --trace-ttl-days 90
 ```
 
 ---
@@ -186,6 +186,6 @@ traceroot projects delete <project-id> --reason <text>
 | `--reason <text>` | string | *(Required)* Justification recorded in the audit log |
 
 ```bash
-traceroot projects delete proj_91a0c8b21e054fbb8b1234567890abcd \
+traceroot projects delete fa126572-3d41-4c0e-9a6b-1e8d7c2b5f40 \
   --reason "Decommissioned experiment"
 ```

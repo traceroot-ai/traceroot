@@ -19,7 +19,7 @@ traceroot traces list [options]
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
-| `--limit <n>` | number | Maximum number of traces to return (default: `20`) |
+| `--limit <n>` | number | Maximum number of traces to return (default: `50`, max `200`) |
 | `--since <duration>` | string | Filter traces within a relative duration (e.g. `1h`, `24h`, `7d`) |
 | `--from <iso-date>` | string | Start of the time range in ISO 8601 format |
 | `--to <iso-date>` | string | End of the time range in ISO 8601 format |
@@ -77,8 +77,8 @@ traceroot traces get <trace-id> [options]
 # View the span tree skeleton
 traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef
 
-# View full span inputs, outputs, and metadata
-traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef --fields full
+# View full span inputs, outputs, and metadata (only emitted with --json)
+traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef --fields full --json
 
 # Extract all error messages within spans using jq
 traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef --json | \
@@ -103,21 +103,22 @@ traceroot traces export <trace-id> [options]
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
-| `--output <dir>` | string | Destination directory where the bundle will be written (default: `./<trace-id>`) |
-| `--force` | boolean | Overwrite the destination directory if it already exists |
+| `--output <dir>` | string | Destination directory for the bundle (default: `./trace_<trace-id>_<timestamp>`) |
+| `--force` | boolean | Write into the destination even when it is already non-empty |
 | `--fields <groups>` | string | Projection to export: `full` (default) or `skeleton` |
 | `--project <id>` | string | Project ID (required when using browser login) |
 
 #### Exported Bundle Structure
 
-A trace bundle directory contains four JSON files:
+A trace bundle directory contains four JSON files, plus a fifth when a detector flagged the trace:
 
 ```text
-my-trace/
+trace_99224be337d725fd5e8f2e7b45dc22ef_20261013T094500Z/
 ├── trace.json          # Root trace metadata, duration, start/end timestamps, tags
 ├── spans.json          # Array of all spans with parent-child relationships and attributes
 ├── git_context.json    # Commit hash, branch, remote repository, and dirty state (if captured)
-└── manifest.json       # Bundle schema version, export timestamp, and checksums
+├── finding.json        # The detector finding — only written when the trace was flagged
+└── manifest.json       # bundle_version, project_id, trace_id, and the file list
 ```
 
 #### Examples
@@ -126,7 +127,7 @@ my-trace/
 # Export the full trace bundle to a custom directory
 traceroot traces export 99224be337d725fd5e8f2e7b45dc22ef --output ./debug-trace
 
-# Overwrite existing bundle folder
+# Write into a directory that already has files in it
 traceroot traces export 99224be337d725fd5e8f2e7b45dc22ef --output ./debug-trace --force
 
 # Export only the skeleton projection

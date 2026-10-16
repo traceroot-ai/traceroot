@@ -7,7 +7,7 @@ The TraceRoot CLI provides native utilities to integrate TraceRoot capabilities 
 
 ## Agent Skills
 
-TraceRoot ships first-party agent skills that teach AI coding assistants how to query traces, debug errors with RCA findings, and run evaluations directly from their prompt interface. Installing a skill copies bundled static files into the agent's designated directory without network requests or external dependencies.
+TraceRoot ships two first-party agent skills: `traceroot-instrument-repo`, which teaches an assistant to add TraceRoot tracing to an existing Python or TypeScript app, and `traceroot-quickstart`, a minimal runnable demo that produces one trace. Installing a skill copies bundled static files into the agent's designated directory without network requests or external dependencies.
 
 ### Target Directories by Agent
 
@@ -25,12 +25,19 @@ List all available first-party skills and their installation status across suppo
 traceroot skills list [options]
 ```
 
+Output is one block per skill — `✓` when it is installed for at least one agent, a dim `-` when it is not:
+
 ```text
-SKILL                      AGENT    INSTALLED  LOCATION
-traceroot-quickstart       claude   yes        .claude/skills/traceroot-quickstart
-traceroot-quickstart       codex    no         ~/.codex/skills/traceroot-quickstart
-traceroot-instrument-repo  claude   yes        .claude/skills/traceroot-instrument-repo
-traceroot-instrument-repo  generic  no         .agents/skills/traceroot-instrument-repo
+✓ traceroot-instrument-repo
+  Add TraceRoot tracing to an existing Python or TypeScript/Node.js app.
+  Best for: production apps, agents, tools, LLM calls, retrieval, external APIs
+  Installed:
+    ✓ Claude Code  .claude/skills/traceroot-instrument-repo
+
+- traceroot-quickstart
+  Minimal runnable demo that produces one TraceRoot trace.
+  Best for: verifying API keys, seeing TraceRoot quickly
+  Install: traceroot skills install traceroot-quickstart
 ```
 
 ---
@@ -125,21 +132,29 @@ traceroot doctor [options]
 traceroot doctor
 ```
 
+Checks are grouped under `Credentials`, `TraceRoot files`, `Agent skills`, `Repo`, and `Runtime env`, each row prefixed with `✓` (pass), `-` (neutral or optional), or `✗` (failure). There is no title line and no summary footer:
+
 ```text
-TraceRoot Diagnostics (v0.4.0)
+Credentials
+  ✓ API key resolved from .traceroot/config.json
+  ✓ Host resolved: https://app.traceroot.ai
+  ✓ API credentials valid
 
-Credentials & Auth:
-  [PASS] Authentication resolves to user: alice@example.com (credentials-file)
-  [PASS] API server reachability (https://app.traceroot.ai) - 48ms
-  [PASS] Active project ID resolved: proj_91a0c8b21e054fbb8b1234567890abcd
+TraceRoot files
+  ✓ Config file present at .traceroot/config.json
+  ✓ Config directory is gitignored
+  ✓ Config file permissions are restrictive (0600)
 
-Environment:
-  [PASS] Node.js version: v20.12.0
-  [PASS] Git repository: clean working tree on main (commit 19290d7)
+Agent skills
+  ✓ Instrumentation skill installed for Claude Code
+  - Quickstart skill not installed
 
-Skills & Integrations:
-  [PASS] .claude/skills/traceroot-quickstart: valid skill manifest
-  [WARN] .agents/skills/traceroot-instrument-repo: outdated version (run traceroot skills install traceroot-instrument-repo --agent generic --force)
+Repo
+  ✓ Node project detected: package.json
+  ✓ TypeScript detected: tsconfig.json
+  ✓ Package manager: pnpm
 
-Result: 6 passed, 1 warning, 0 failures.
+Runtime env
+  - TRACEROOT_API_KEY is not set in this shell
+  - TRACEROOT_HOST_URL is not set in this shell
 ```

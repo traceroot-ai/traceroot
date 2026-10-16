@@ -19,10 +19,12 @@ traceroot dashboards list [options]
 traceroot dashboards list
 ```
 
+`dashboards list` has no custom renderer, so its columns are the response keys in schema order — `ID`, `NAME`, `DESCRIPTION`, `IS DEFAULT`, `CREATOR`, `CREATE TIME`, `UPDATE TIME`, `WIDGET COUNT`:
+
 ```text
-DASHBOARD ID                           NAME                    WIDGETS  UPDATED
-dsh_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6   LLM Performance Overview 6        2026-10-01
-dsh_98f7e6d5c4b3a2019283746554637281   Agent Cost & Errors     4        2026-09-28
+ID                         NAME                      DESCRIPTION  IS DEFAULT  CREATOR  CREATE TIME           UPDATE TIME           WIDGET COUNT
+cm2k7p9x40000qz8rn3f1i7bd  LLM Performance Overview                false       Alice    2026-09-14T08:12:04Z  2026-10-01T11:40:55Z  6
+cm2k8r1a70001qz8rv5g2k4ce  Agent Cost & Errors                     false       Alice    2026-09-20T15:03:19Z  2026-09-28T09:21:02Z  4
 ```
 
 ---
@@ -36,7 +38,7 @@ traceroot dashboards get <dashboard-id> [options]
 ```
 
 ```bash
-traceroot dashboards get dsh_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6
+traceroot dashboards get cm2k7p9x40000qz8rn3f1i7bd
 ```
 
 ---
@@ -73,7 +75,7 @@ traceroot dashboards update <dashboard-id> [options]
 ```
 
 ```bash
-traceroot dashboards update dsh_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6 --name "Support Agent V2 Metrics"
+traceroot dashboards update cm2k7p9x40000qz8rn3f1i7bd --name "Support Agent V2 Metrics"
 ```
 
 ---
@@ -93,7 +95,7 @@ traceroot dashboards delete <dashboard-id> --reason <text>
 | `--reason <text>` | string | *(Required)* Audit justification |
 
 ```bash
-traceroot dashboards delete dsh_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6 --reason "Superseded by global dashboard"
+traceroot dashboards delete cm2k7p9x40000qz8rn3f1i7bd --reason "Superseded by global dashboard"
 ```
 
 ---
@@ -126,7 +128,7 @@ Define a widget in `latency_widget.json`:
 
 ```json
 {
-  "dashboard_id": "dsh_01a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+  "dashboard_id": "cm2k7p9x40000qz8rn3f1i7bd",
   "title": "P95 Latency by Model",
   "type": "timeseries",
   "spec": {
@@ -152,7 +154,7 @@ traceroot widgets get <widget-id>
 ```
 
 ```bash
-traceroot widgets get wdg_abcdef1234567890
+traceroot widgets get cm2k7qa1b0002qz8rt6h2j9df
 ```
 
 ---
@@ -169,14 +171,14 @@ traceroot widgets data <widget-id> [options]
 
 | Flag | Type | Description |
 | :--- | :--- | :--- |
-| `--range <preset>` | string | Time range preset (e.g. `1h`, `24h`, `7d`, `30d`) |
+| `--range <preset>` | string | Time range preset: `30m`, `1h`, `3h`, `6h`, `1d`, `7d`, `14d`, `30d`, `60d`, `90d` |
 | `--start-time <iso>` | string | Custom window start timestamp |
 | `--end-time <iso>` | string | Custom window end timestamp |
 | `--json` | boolean | Output raw aggregated data points as JSON |
 
 ```bash
-# Fetch widget data for the past 24 hours
-traceroot widgets data wdg_abcdef1234567890 --range 24h
+# Fetch widget data for the past day
+traceroot widgets data cm2k7qa1b0002qz8rt6h2j9df --range 1d
 ```
 
 ---
@@ -194,7 +196,7 @@ Supplying `--spec` replaces the entire existing query specification.
 </Warning>
 
 ```bash
-traceroot widgets update wdg_abcdef1234567890 --title "Median & P95 Latency"
+traceroot widgets update cm2k7qa1b0002qz8rt6h2j9df --title "Median & P95 Latency"
 ```
 
 ---
@@ -208,5 +210,5 @@ traceroot widgets delete <widget-id> --reason <text>
 ```
 
 ```bash
-traceroot widgets delete wdg_abcdef1234567890 --reason "No longer tracked"
+traceroot widgets delete cm2k7qa1b0002qz8rt6h2j9df --reason "No longer tracked"
 ```

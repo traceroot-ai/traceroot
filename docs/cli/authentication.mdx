@@ -28,10 +28,10 @@ Before every API request, the CLI automatically exchanges this stored session to
 
 ### Project API Key
 
-To authenticate with a project API key (`tr_...`), pass `--api-key` to `login`:
+To authenticate with a project API key (`tr-<uuid>`), pass `--api-key` to `login`:
 
 ```bash
-traceroot login --api-key tr_your_project_key
+traceroot login --api-key tr-d0a3ee92-659e-4f63-ae11-8ca6f57657e3
 ```
 
 The CLI validates the key with the server, then writes it (`0600`, automatically added to `.gitignore`) to:
@@ -44,7 +44,7 @@ The CLI validates the key with the server, then writes it (`0600`, automatically
 You can also provide your API key via the `TRACEROOT_API_KEY` environment variable or the global `--api-key` flag without writing a file:
 
 ```bash
-export TRACEROOT_API_KEY="tr_your_project_key"
+export TRACEROOT_API_KEY="tr-d0a3ee92-659e-4f63-ae11-8ca6f57657e3"
 
 # In CI or a fresh terminal with no stored browser session:
 traceroot traces list
@@ -84,7 +84,7 @@ To force the CLI to use your API key when a stored session exists:
 
 Understanding project scope depends on your credential type:
 
-- **Project API Keys (`tr_...`)**: The key is tied directly to a single project in TraceRoot. You do not need to specify a project ID for any command.
+- **Project API Keys (`tr-...`)**: The key is tied directly to a single project in TraceRoot. You do not need to specify a project ID for any command.
 - **Browser Login (User Session)**: Identifies you across all workspaces and projects you have access to. Therefore, all project-scoped reads and writes (such as `traces`, `detectors`, `alerts`, `dashboards`) require an explicit project ID.
 
 ### Discovering Projects
@@ -140,16 +140,16 @@ For a browser session:
 Logged in as:  user@example.com
 Credential:    session (browser login)
 Host:          https://app.traceroot.ai
-Project:       proj_91a0c8b21e054fbb8b1234567890abcd (environment (TRACEROOT_PROJECT_ID))
-Workspaces:    Acme Corp Engineering (wrk_11223344556677889900aabbccddeeff)
+Project:       fa126572-3d41-4c0e-9a6b-1e8d7c2b5f40 (environment (TRACEROOT_PROJECT_ID))
+Workspaces:    Acme Corp Engineering (3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31)
 Config source: ~/.config/traceroot/credentials.json
 ```
 
 For an API key:
 ```text
-Workspace:     Acme Corp Engineering (wrk_11223344556677889900aabbccddeeff)
-Project:       Support Bot (proj_91a0c8b21e054fbb8b1234567890abcd)
-API key:       ci-key (tr_live_...9f2a)
+Workspace:     Acme Corp Engineering (3e5a9d12-4b78-4c61-9f20-8a7b6c5d4e31)
+Project:       Support Bot (fa126572-3d41-4c0e-9a6b-1e8d7c2b5f40)
+API key:       ci-key (tr-d0a3-57e3)
 Host:          https://app.traceroot.ai
 UI base URL:   https://app.traceroot.ai
 Config source: environment (TRACEROOT_API_KEY)
