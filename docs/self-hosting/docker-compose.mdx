@@ -40,11 +40,13 @@ You can populate these in `.env` automatically using `openssl`:
 
 ```bash
 # On Linux / macOS:
-sed -i.bak "s/^BETTER_AUTH_SECRET=.*/BETTER_AUTH_SECRET=$(openssl rand -hex 32)/" .env
-sed -i.bak "s/^INTERNAL_API_SECRET=.*/INTERNAL_API_SECRET=$(openssl rand -hex 32)/" .env
-sed -i.bak "s/^# SQL_GATEWAY_BOOTSTRAP_PASSWORD=.*/SQL_GATEWAY_BOOTSTRAP_PASSWORD=$(openssl rand -hex 32)/" .env
+for key in BETTER_AUTH_SECRET INTERNAL_API_SECRET SQL_GATEWAY_BOOTSTRAP_PASSWORD; do
+  sed -i.bak -E "s|^#? *${key}=.*|${key}=$(openssl rand -hex 32)|" .env
+done
 rm -f .env.bak
 ```
+
+`SQL_GATEWAY_BOOTSTRAP_PASSWORD` ships commented out, so the pattern allows a leading `#` and keeps working once that line is uncommented.
 
 Or generate each secret manually using `openssl` and paste unique values into your `.env`:
 

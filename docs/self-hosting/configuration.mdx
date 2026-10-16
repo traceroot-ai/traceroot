@@ -27,11 +27,7 @@ Avoid ampersands (`&`) in `CLICKHOUSE_PASSWORD` — the ClickHouse image inserts
 ENABLE_BILLING: ${ENABLE_BILLING:-true}
 ```
 
-<Warning>
-If you create a custom `.env` file and forget to include `ENABLE_BILLING`, Compose defaults it to `true`.
-</Warning>
-
-When `ENABLE_BILLING` is `true`:
+A custom `.env` that omits `ENABLE_BILLING` therefore gets `true`. When it is `true`:
 - The REST API activates cloud rate limiting (`backend/rest/rate_limit.py`), throttling requests to plan quotas (e.g., 60 req/min).
 - The web console enforces subscription seat and tier checks.
 - Features require Stripe synchronization.
@@ -100,7 +96,7 @@ ANTHROPIC_API_KEY=sk-ant-api03-...
 OPENAI_API_KEY=sk-proj-...
 ```
 
-Which models each key unlocks is listed in the console, under workspace settings → Model Providers.
+The model picker in the AI assistant lists what each key unlocks, grouped as system models.
 
 ## Alerting and detector settings
 

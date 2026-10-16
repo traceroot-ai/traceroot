@@ -32,7 +32,7 @@ If you copy the default example from the module README and enable the SQL gatewa
 enable_sql_gateway requires a traceroot chart that provides the provisioning hooks (1.1.0 or later); 1.0.0 would silently ignore it.
 ```
 
-Always explicitly set `traceroot_helm_chart_version = "1.1.0"` in your Terraform configuration.
+Set `traceroot_helm_chart_version` explicitly; `1.1.1` is the current chart release.
 
 ## Example Terraform configuration
 
@@ -67,7 +67,7 @@ module "traceroot" {
   enable_billing = "false"
 
   # Must be >= 1.1.0 when enable_sql_gateway = true.
-  traceroot_helm_chart_version = "1.1.0"
+  traceroot_helm_chart_version = "1.1.1"
   enable_sql_gateway           = true
 
   # Sizing: Aurora Serverless v2 ACUs and ClickHouse storage.
