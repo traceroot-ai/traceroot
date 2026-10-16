@@ -164,7 +164,7 @@ async function handlePOST(req: NextRequest) {
       console.log("Stripe subscription updated:", {
         id: updatedSub.id,
         status: updatedSub.status,
-        currentPriceId: updatedSub.items.data[0]?.price.id,
+        currentPriceId: findPlanItem(updatedSub.items.data, meteredPriceIds)?.price.id,
       });
 
       // Update database immediately for better UX (webhook will also update, but may be delayed)
