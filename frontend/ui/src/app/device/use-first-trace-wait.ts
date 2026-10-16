@@ -6,11 +6,11 @@ import type { Project, Workspace } from "@/types/api";
 import {
   captureTraceBaseline,
   findFirstTrace,
-  readWatchedProjects,
   retryUnknownBaseline,
   type FirstTrace,
   type TraceBaseline,
-} from "./first-trace";
+} from "@/lib/first-trace";
+import { readWatchedProjects, watchOrder } from "./first-trace";
 
 /**
  * How long between rounds of looking.
@@ -152,7 +152,7 @@ export function useFirstTraceWait(
         return;
       }
 
-      const found = await findFirstTrace(projects, baseline, userRef.current);
+      const found = await findFirstTrace(watchOrder(projects, baseline), baseline, userRef.current);
       if (cancelled) {
         return;
       }

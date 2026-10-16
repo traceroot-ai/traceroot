@@ -16,6 +16,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./first-trace", () => ({
   readWatchedProjects: (...args: unknown[]) => mocks.readWatchedProjects(...args),
+  watchOrder: (projects: { id: string }[]) => projects.map((project) => project.id),
+}));
+
+vi.mock("@/lib/first-trace", () => ({
   captureTraceBaseline: (...args: unknown[]) => mocks.captureTraceBaseline(...args),
   retryUnknownBaseline: (...args: unknown[]) => mocks.retryUnknownBaseline(...args),
   findFirstTrace: (...args: unknown[]) => mocks.findFirstTrace(...args),
@@ -117,7 +121,8 @@ describe("useFirstTraceWait", () => {
     await nextRound();
 
     expect(mocks.retryUnknownBaseline).toHaveBeenCalled();
-    expect(mocks.findFirstTrace).toHaveBeenCalledWith([PROJECT], settled, { id: "u-1" });
+    // The search takes ids, ranked by `watchOrder` before it is called.
+    expect(mocks.findFirstTrace).toHaveBeenCalledWith([PROJECT.id], settled, { id: "u-1" });
   });
 
   it("keeps waiting while no trace has arrived", async () => {
