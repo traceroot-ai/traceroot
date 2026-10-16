@@ -45,7 +45,9 @@ from rest.routers.public.project_write import router as public_project_write_rou
 from rest.routers.public.sessions_read import router as public_sessions_read_router
 from rest.routers.public.sql import SqlBodyLimitMiddleware
 from rest.routers.public.sql import router as public_sql_router
-from rest.routers.public.traces import router as public_traces_router
+from rest.routers.public.traces import (
+    router as public_traces_router,
+)
 from rest.routers.public.traces_read import router as public_traces_read_router
 from rest.routers.public.whoami import router as public_whoami_router
 from rest.routers.public.widgets_query import router as public_widgets_query_router

@@ -91,8 +91,37 @@ def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
 _AGGREGATE_USAGE_OPERATIONS = frozenset({"invoke_agent", "agent_step"})
 
 
+def _format_input_with_system_instructions(input_messages: Any, system_instructions: Any) -> Any:
+    """Combine gen_ai.input.messages with gen_ai.system_instructions if both present."""
+    if system_instructions is None or input_messages is None:
+        return input_messages
+    if isinstance(input_messages, list):
+        sys_msg = {"role": "system", "content": system_instructions}
+        return [sys_msg] + input_messages
+    if isinstance(input_messages, str):
+        try:
+            parsed = json.loads(input_messages)
+            if isinstance(parsed, list):
+                sys_msg = {"role": "system", "content": system_instructions}
+                return json.dumps([sys_msg] + parsed)
+        except (json.JSONDecodeError, TypeError, RecursionError):
+            pass
+        return f"System instructions:\n{system_instructions}\n\n{input_messages}"
+    return input_messages
+
+
 def _span_aggregates_child_usage(
-    scope_name: str | None, span_kind: str, attrs: dict[str, Any]
+    scope_name: str | None,
+    span_kind: SpanKind,
+    attrs: dict[str, Any],
+    span_name: str | None = None,
+    otel_kind: int | str | None = None,
+    trace_has_model_request: bool = False,
+    trace_has_api_spans: bool = False,
+    is_model_request_parent: bool = False,
+    is_server_span_parent: bool = False,
+    has_any_model_request_parents: bool = False,
+    has_any_server_parents: bool = False,
 ) -> bool:
     """Check whether a span restates the token usage of its model-call children.
 
@@ -100,6 +129,14 @@ def _span_aggregates_child_usage(
         scope_name (str | None): Instrumentation scope of the emitting tracer.
         span_kind (str): Span kind already resolved for this span.
         attrs (dict[str, Any]): Span attributes.
+        span_name (str | None): Span name string.
+        otel_kind (int | str | None): OTel span kind.
+        trace_has_model_request (bool): Whether anthropic.model_request is present for this trace.
+        trace_has_api_spans (bool): Whether Claude Platform API spans exist for this trace.
+        is_model_request_parent (bool): Whether this span is the parent of an anthropic.model_request span.
+        is_server_span_parent (bool): Whether this span is the parent of an API SERVER span.
+        has_any_model_request_parents (bool): Whether any model_request span in the batch declared a parent.
+        has_any_server_parents (bool): Whether any server span in the batch declared a parent.
 
     Returns:
         bool: True when the span's token counts duplicate its children's and must
@@ -108,6 +145,44 @@ def _span_aggregates_child_usage(
     operation_name = attrs.get("gen_ai.operation.name")
     if isinstance(operation_name, str) and operation_name.lower() in _AGGREGATE_USAGE_OPERATIONS:
         return True
+
+    # Claude Platform spans:
+    # 1. anthropic.session.turn aggregates child model requests in the turn.
+    # 2. In a session (anthropic.session.id present), only anthropic.model_request
+    #    and anthropic.session.outcome_evaluation report usage; all other spans
+    #    (anthropic.session.turn, anthropic.messages.create, tool spans) aggregate.
+    # 3. For messages.create outside sessions:
+    #    Anthropic's rule is to sum either anthropic.messages.create (SERVER) or its
+    #    anthropic.model_request children, never both. In Claude Platform export,
+    #    anthropic.model_request carries the LLM execution counts and messages.create
+    #    (SERVER) is the endpoint wrapper that duplicates those tokens.
+    #    When model_request child spans are present, the parent messages.create wrapper
+    #    aggregates usage and is suppressed. For SERVER-only exports where no model_request
+    #    child exists, the SERVER span carries the authoritative usage and is retained.
+    #    SDK-only traffic emits CLIENT anthropic.messages.create with no API spans;
+    #    its usage must NOT be suppressed unless API spans are present for that request.
+    s_name = (span_name or str_attr(attrs.get("name")) or "").lower()
+    if s_name:
+        if s_name == "anthropic.session.turn":
+            return True
+        if attrs.get("anthropic.session.id"):
+            if s_name not in ("anthropic.model_request", "anthropic.session.outcome_evaluation"):
+                return True
+        elif s_name == "anthropic.messages.create":
+            if is_model_request_parent:
+                return True
+            if (
+                otel_kind in (2, "SPAN_KIND_SERVER", "2")
+                and trace_has_model_request
+                and not has_any_model_request_parents
+            ):
+                return True
+            if otel_kind in (3, "SPAN_KIND_CLIENT", "3"):
+                if is_server_span_parent or is_model_request_parent:
+                    return True
+                if trace_has_api_spans and not has_any_server_parents:
+                    return True
+
     # Fallback for a wrapper that reaches us without an operation name — an emitter
     # version that stops setting one would otherwise silently resume double-pricing,
     # which nothing else in the pipeline would surface. Narrow on purpose: it costs
@@ -133,6 +208,8 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "openinference.span.kind",
     "session.id",
     "session.user_id",
+    "anthropic.session.",
+    "gen_ai.conversation.",
     "user.id",
     "input.value",
     "output.value",
@@ -178,6 +255,19 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
         if value is not None:
             return value
     return None
+
+
+def first_present_entry(attrs: dict[str, Any], keys: list[str]) -> tuple[str | None, Any]:
+    """Return (key, value) of the first key that is present (not None) in attrs.
+
+    Uses `is not None` rather than truthiness so falsy-but-valid values like
+    empty string, 0, or {} do not fall through to lower-priority keys.
+    """
+    for key in keys:
+        value = attrs.get(key)
+        if value is not None:
+            return key, value
+    return None, None
 
 
 # Upper sanity bound per token field, shared by the manual-usage and instrumentor
@@ -525,14 +615,20 @@ def attributes_to_dict(attributes: list[dict]) -> dict[str, Any]:
     return result
 
 
-def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
+def get_span_kind(
+    attrs: dict[str, Any],
+    otel_kind: int | str | None,
+    span_name: str | None = None,
+) -> str:
     """Determine the span kind from span attributes.
 
-    Uses traceroot.span.type attribute if present, otherwise infers from attributes.
+    Uses traceroot.span.type attribute if present, otherwise infers from attributes
+    and standard span names (e.g., Claude Platform).
 
     Args:
         attrs: Span attributes dict
         otel_kind: OTEL span kind (int or string like "SPAN_KIND_INTERNAL")
+        span_name: Optional span name string (from OTel span name)
 
     Returns:
         One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER", "DECISION"
@@ -562,6 +658,23 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.DECISION
     elif openinference_type == "CHAIN":
         return SpanKind.SPAN
+
+    # Claude Platform span names (anthropic.session.turn, anthropic.model_request, etc.)
+    # Check before model-presence fallback so agent turn spans aren't flipped to LLM.
+    s_name = (span_name or str_attr(attrs.get("name")) or "").lower()
+    if s_name:
+        if s_name == "anthropic.session.turn":
+            return SpanKind.AGENT
+        if s_name in ("anthropic.model_request", "anthropic.messages.create"):
+            return SpanKind.LLM
+        if s_name in ("anthropic.custom_tool_use", "anthropic.mcp_tool_use") or s_name.startswith(
+            "anthropic.tool"
+        ):
+            return SpanKind.TOOL
+        if s_name == "anthropic.session.outcome_evaluation":
+            return SpanKind.EVALUATION
+        if s_name == "anthropic.compaction":
+            return SpanKind.SPAN
 
     # GenAI semconv operation name (pydantic-ai, native OTel GenAI instrumentors)
     operation_name = str_attr(attrs.get("gen_ai.operation.name")).lower()
@@ -601,8 +714,20 @@ def _extract_user_id(attrs: dict[str, Any]) -> str | None:
 
 
 def _extract_session_id(attrs: dict[str, Any]) -> str | None:
-    """Extract session_id from span attributes, checking multiple keys."""
-    return str_or_none(attrs.get("traceroot.trace.session_id") or attrs.get("session.id"))
+    """Extract session_id from span attributes, checking multiple keys.
+
+    Priority:
+    1. traceroot.trace.session_id (TraceRoot SDK explicit)
+    2. session.id (OpenInference)
+    3. anthropic.session.id (Claude Platform Managed Agents)
+    4. gen_ai.conversation.id (GenAI semconv conversation/thread)
+    """
+    return str_or_none(
+        attrs.get("traceroot.trace.session_id")
+        or attrs.get("session.id")
+        or attrs.get("anthropic.session.id")
+        or attrs.get("gen_ai.conversation.id")
+    )
 
 
 def _extract_error_type(otel_span: dict, span_is_error: bool) -> str:
@@ -655,6 +780,8 @@ def transform_otel_to_clickhouse(
     """
     traces: dict[str, dict] = {}  # trace_id -> trace record
     spans: list[dict] = []
+    seen_spans: dict[tuple[str, str], int] = {}  # (trace_id, span_id) -> index in spans
+    estimated_token_spans: set[tuple[str, str]] = set()
 
     # Track user_id/session_id per trace, collected from ANY span
     # Priority: root span values > first child span values
@@ -678,8 +805,34 @@ def transform_otel_to_clickhouse(
     _trace_is_evaluation: set[str] = set()  # any eval-kind span seen for this trace
     _trace_environment: dict[str, str] = {}  # first non-null environment seen
 
+    # Trace-level Claude Platform API span tracking in batch:
+    # Prevents double-counting when model_request or API SERVER spans exist alongside CLIENT wrappers.
+    _trace_has_model_request: set[str] = set()
+    _trace_has_api_spans: set[str] = set()
+    _model_request_parent_span_ids: set[str] = set()
+    _server_parent_span_ids: set[str] = set()
+    span_metadata_map: dict[tuple[str, str], dict[str, Any] | str] = {}
+
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
+    for _rs in resource_spans:
+        for _ss in _rs.get("scopeSpans", []):
+            for _s in _ss.get("spans", []):
+                _tid = decode_otel_id(_s.get("traceId"))
+                if not _tid:
+                    continue
+                _pid = decode_otel_id(_s.get("parentSpanId"))
+                _sname = (_s.get("name") or "").lower()
+                _kind = _s.get("kind")
+                if _sname == "anthropic.model_request":
+                    _trace_has_model_request.add(_tid)
+                    _trace_has_api_spans.add(_tid)
+                    if _pid:
+                        _model_request_parent_span_ids.add(_pid)
+                elif _sname.startswith("anthropic.") and _kind in (2, "SPAN_KIND_SERVER", "2"):
+                    _trace_has_api_spans.add(_tid)
+                    if _pid:
+                        _server_parent_span_ids.add(_pid)
 
     for resource_span in resource_spans:
         # camelCase: scopeSpans
@@ -712,13 +865,21 @@ def transform_otel_to_clickhouse(
 
                 # Determine span kind
                 otel_kind = otel_span.get("kind")
-                span_kind = get_span_kind(span_attrs, otel_kind)
+                span_name_raw = otel_span.get("name")
+                span_kind = get_span_kind(span_attrs, otel_kind, span_name=span_name_raw)
 
                 # Extract span name; for tool spans prefer the actual tool name over
                 # generic instrumentation names like "running tool" (pydantic-ai).
-                span_name = otel_span.get("name", "unknown")
+                span_name = span_name_raw or "unknown"
                 if span_kind == SpanKind.TOOL:
-                    tool_name = span_attrs.get("gen_ai.tool.name") or span_attrs.get("tool.name")
+                    tool_name = (
+                        span_attrs.get("gen_ai.tool.name")
+                        or span_attrs.get("tool.name")
+                        or span_attrs.get("gen_ai.tool.call.name")
+                        or span_attrs.get("anthropic.custom_tool_use.name")
+                        or span_attrs.get("anthropic.mcp_tool_use.name")
+                        or span_attrs.get("anthropic.tool.name")
+                    )
                     if tool_name:
                         # `name` is a non-nullable String on both spans and traces, and
                         # this is the one path that sources it from a caller attribute
@@ -796,17 +957,24 @@ def transform_otel_to_clickhouse(
                 #
                 # Presence checks (`is not None`) rather than truthiness ensure that falsy
                 # but valid values (e.g. empty string) do not fall through to lower-priority keys.
-                span_input = first_present(
+                system_instructions = span_attrs.get("gen_ai.system_instructions")
+                input_key, span_input = first_present_entry(
                     span_attrs,
                     [
                         "traceroot.span.input",  # 1. TraceRoot SDK explicit input
                         "input.value",  # 2. OpenInference normalized input (LLM/chain)
                         "tool.parameters",  # 2. OpenInference tool input (pydantic-ai tool_arguments mapped here)
                         "gen_ai.input.messages",  # 3. GenAI semconv LLM input messages
+                        "gen_ai.system_instructions",  # 3. GenAI semconv system instructions fallback
                         "gen_ai.tool.call.arguments",  # 3. GenAI semconv tool-call arguments
                         "tool_arguments",  # 4. Raw pydantic-ai/Logfire attr before OpenInference normalization
                     ],
                 )
+                if input_key == "gen_ai.input.messages" and system_instructions is not None:
+                    span_input = _format_input_with_system_instructions(
+                        span_input, system_instructions
+                    )
+
                 span_output = first_present(
                     span_attrs,
                     [
@@ -958,7 +1126,17 @@ def transform_otel_to_clickhouse(
                     # keys gated above, moved into the normalized namespace.
                     # Adopting them prices every token twice.
                     aggregate_wrapper = _span_aggregates_child_usage(
-                        scope_name, span_kind, span_attrs
+                        scope_name,
+                        span_kind,
+                        span_attrs,
+                        span_name=span_name_raw,
+                        otel_kind=otel_kind,
+                        trace_has_model_request=trace_id in _trace_has_model_request,
+                        trace_has_api_spans=trace_id in _trace_has_api_spans,
+                        is_model_request_parent=span_id in _model_request_parent_span_ids,
+                        is_server_span_parent=span_id in _server_parent_span_ids,
+                        has_any_model_request_parents=bool(_model_request_parent_span_ids),
+                        has_any_server_parents=bool(_server_parent_span_ids),
                     )
 
                     # Manual usage reported via the SDKs' update-span API
@@ -1118,6 +1296,7 @@ def transform_otel_to_clickhouse(
                             span_record["output_tokens"] = usage["output_tokens"]
                         if usage["total_tokens"] is not None:
                             span_record["total_tokens"] = usage["total_tokens"]
+                            estimated_token_spans.add((trace_id, span_id))
                         if usage["cost"] is not None:
                             span_record["cost"] = usage["cost"]
 
@@ -1143,6 +1322,7 @@ def transform_otel_to_clickhouse(
                     if span_attrs.get(key) is not None
                 }
                 explicit_metadata = span_attrs.get("traceroot.span.metadata")
+                incoming_metadata: dict[str, Any] | str | None = None
                 if explicit_metadata is not None:
                     parsed_explicit = explicit_metadata
                     if isinstance(parsed_explicit, str):
@@ -1151,13 +1331,13 @@ def transform_otel_to_clickhouse(
                         except (TypeError, ValueError):
                             parsed_explicit = None
                     if isinstance(parsed_explicit, dict):
-                        span_record["metadata"] = json.dumps({**parsed_explicit, **span_path_attrs})
+                        incoming_metadata = {**parsed_explicit, **span_path_attrs}
                     elif isinstance(explicit_metadata, str):
                         # Not a JSON object (free-text or a scalar): store it as
                         # given. Nothing to merge into, so this span has no paths.
-                        span_record["metadata"] = explicit_metadata
+                        incoming_metadata = explicit_metadata
                     else:
-                        span_record["metadata"] = json.dumps(explicit_metadata)
+                        incoming_metadata = json.dumps(explicit_metadata)
                 else:
                     # Collect non-internal attributes as metadata. The span-path
                     # attributes are not "known" (they have no dedicated column),
@@ -1168,9 +1348,75 @@ def transform_otel_to_clickhouse(
                         if not _is_known_attribute(k) and v is not None
                     }
                     if extra_attrs:
-                        span_record["metadata"] = json.dumps(extra_attrs)
+                        incoming_metadata = extra_attrs
 
-                spans.append(span_record)
+                span_key = (trace_id, span_id)
+                if span_key in seen_spans:
+                    existing_idx = seen_spans[span_key]
+                    existing = spans[existing_idx]
+                    if end_time and not existing.get("span_end_time"):
+                        existing["span_end_time"] = end_time
+                    if span_record.get("input") and not existing.get("input"):
+                        existing["input"] = span_record["input"]
+                    if span_record.get("output") and not existing.get("output"):
+                        existing["output"] = span_record["output"]
+                    if span_record.get("model_name") and not existing.get("model_name"):
+                        existing["model_name"] = span_record["model_name"]
+                    if incoming_metadata is not None:
+                        if span_key not in span_metadata_map:
+                            span_metadata_map[span_key] = incoming_metadata
+                        else:
+                            prev_meta = span_metadata_map[span_key]
+                            if isinstance(prev_meta, dict) and isinstance(incoming_metadata, dict):
+                                span_metadata_map[span_key] = {**incoming_metadata, **prev_meta}
+                            elif prev_meta is None:
+                                span_metadata_map[span_key] = incoming_metadata
+                    if span_record.get("git_source_file") and not existing.get("git_source_file"):
+                        existing["git_source_file"] = span_record["git_source_file"]
+                    if (
+                        span_record.get("git_source_line") is not None
+                        and existing.get("git_source_line") is None
+                    ):
+                        existing["git_source_line"] = span_record["git_source_line"]
+                    if span_record.get("git_source_function") and not existing.get(
+                        "git_source_function"
+                    ):
+                        existing["git_source_function"] = span_record["git_source_function"]
+                    if span_record.get("status") == SpanStatus.ERROR:
+                        existing["status"] = SpanStatus.ERROR
+                        existing["status_message"] = span_record.get("status_message")
+                        if span_record.get("error_type") and (
+                            not existing.get("error_type")
+                            or existing.get("error_type") == "unknown"
+                            or span_record["error_type"] != "unknown"
+                        ):
+                            existing["error_type"] = span_record["error_type"]
+
+                    incoming_has_reported = "usage_details" in span_record
+                    existing_is_estimated = span_key in estimated_token_spans
+
+                    if span_record.get("total_tokens") is not None:
+                        if existing.get("total_tokens") is None or (
+                            existing_is_estimated and incoming_has_reported
+                        ):
+                            existing["total_tokens"] = span_record["total_tokens"]
+                            existing["input_tokens"] = span_record.get("input_tokens")
+                            existing["output_tokens"] = span_record.get("output_tokens")
+                            if "usage_details" in span_record:
+                                existing["usage_details"] = span_record["usage_details"]
+                            elif "usage_details" in existing and existing_is_estimated:
+                                del existing["usage_details"]
+                            if span_record.get("cost") is not None:
+                                existing["cost"] = span_record["cost"]
+                            if incoming_has_reported:
+                                estimated_token_spans.discard(span_key)
+                    elif span_record.get("cost") is not None and existing.get("cost") is None:
+                        existing["cost"] = span_record["cost"]
+                else:
+                    if incoming_metadata is not None:
+                        span_metadata_map[span_key] = incoming_metadata
+                    seen_spans[span_key] = len(spans)
+                    spans.append(span_record)
 
                 # Collect user_id/session_id from ANY span (not just root)
                 # Priority: root span values overwrite, child span values only set if empty
@@ -1337,5 +1583,14 @@ def transform_otel_to_clickhouse(
                 traces[trace_id]["git_ref"] = attrs["git_ref"]
             if attrs["git_repo"] is not None:
                 traces[trace_id]["git_repo"] = attrs["git_repo"]
+    # Serialize accumulated per-span metadata dictionaries once after deduplication,
+    # preventing quadratic JSON decoding and re-encoding when repeated duplicate spans arrive.
+    for s_key, s_meta in span_metadata_map.items():
+        s_idx = seen_spans.get(s_key)
+        if s_idx is not None and s_meta is not None:
+            if isinstance(s_meta, dict):
+                spans[s_idx]["metadata"] = json.dumps(s_meta)
+            elif isinstance(s_meta, str):
+                spans[s_idx]["metadata"] = s_meta
 
     return list(traces.values()), spans

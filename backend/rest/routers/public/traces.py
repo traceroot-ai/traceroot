@@ -76,27 +76,10 @@ class IngestResponse(BaseModel):
     file_key: str
 
 
-@router.post("", response_model=IngestResponse, operation_id="ingest_traces")
-@limiter.limit(resolve_limit, key_func=key_ingest)
-async def ingest_traces(
-    request: Request,
-    response: Response,
-    auth: IngestAuth,
-):
-    """Ingest OTLP trace data.
+async def _process_trace_ingest(request: Request, auth: IngestAuth) -> str:
+    """Validate, decode, persist to S3, and enqueue async trace processing.
 
-    Accepts OTLP protobuf format only (optionally gzip compressed).
-    Protobuf is converted to camelCase JSON before storage in S3.
-
-    S3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
-
-    Headers:
-        Authorization: Bearer <api_key>
-        Content-Encoding: gzip (optional)
-        Content-Type: application/x-protobuf
-
-    Body:
-        OTLP trace data in protobuf format
+    Returns the S3 key of the stored payload.
     """
     # Check if ingestion is blocked (free plan limit exceeded)
     # This flag is updated hourly by the billing worker
@@ -119,7 +102,7 @@ async def ingest_traces(
         )
     # handle parameters like 'application/x-protobuf; charset=utf-8'
     mime = content_type.split(";", 1)[0].strip().lower()
-    if mime != "application/x-protobuf":
+    if mime not in ("application/x-protobuf", "application/protobuf", "application/octet-stream"):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Content-Type must be application/x-protobuf",
@@ -187,5 +170,30 @@ async def ingest_traces(
         # Log but don't fail the request - S3 has the data, can retry later
         logger.error(f"Failed to enqueue Celery task for {s3_key}: {e}")
 
-    # 7. Return success (async processing happens in background)
+    return s3_key
+
+
+@router.post("", response_model=IngestResponse, operation_id="ingest_traces")
+@limiter.limit(resolve_limit, key_func=key_ingest)
+async def ingest_traces(
+    request: Request,
+    response: Response,
+    auth: IngestAuth,
+):
+    """Ingest OTLP trace data.
+
+    Accepts OTLP protobuf format only (optionally gzip compressed).
+    Protobuf is converted to camelCase JSON before storage in S3.
+
+    S3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
+
+    Headers:
+        Authorization: Bearer <api_key>
+        Content-Encoding: gzip (optional)
+        Content-Type: application/x-protobuf
+
+    Body:
+        OTLP trace data in protobuf format
+    """
+    s3_key = await _process_trace_ingest(request, auth)
     return IngestResponse(status="ok", file_key=s3_key)
