@@ -5,13 +5,11 @@ description: Provision production-grade TraceRoot infrastructure on AWS using Te
 
 The official Terraform module at [traceroot-ai/traceroot-terraform-aws](https://github.com/traceroot-ai/traceroot-terraform-aws) provisions a complete, production-ready AWS environment for TraceRoot, including managed network, database, caching, storage, and EKS resources.
 
----
-
-## Module Version
+## Module version
 
 The current module version is **v1.5.0**.
 
-### Resources Provisioned
+### Resources provisioned
 
 When applied, the module deploys:
 - **VPC & Networking**: Multi-AZ public and private subnets, NAT gateways, route tables, and security groups.
@@ -24,25 +22,19 @@ When applied, the module deploys:
 - **ACM and ALB Ingress**: A certificate and load balancer for the hostname in `domain`.
 - **Helm Release**: Deploys the TraceRoot application chart directly onto the EKS cluster.
 
----
+## Helm chart version precondition
 
-## Critical Configuration: Helm Chart Version Precondition
-
-<Warning>
-**SQL Gateway Precondition Failure**:
 The Terraform module `v1.5.0` defaults `traceroot_helm_chart_version` to `"1.0.0"`. However, enabling the SQL gateway (`enable_sql_gateway = true`) enforces a Terraform precondition requiring chart version **`1.1.0`** or higher, because an older chart would drop the `sqlGateway` values silently.
 
 If you copy the default example from the module README and enable the SQL gateway without overriding the chart version, `terraform plan` will fail with:
+
 ```text
 enable_sql_gateway requires a traceroot chart that provides the provisioning hooks (1.1.0 or later); 1.0.0 would silently ignore it.
 ```
 
-**Always explicitly set `traceroot_helm_chart_version = "1.1.0"` in your Terraform configuration.**
-</Warning>
+Always explicitly set `traceroot_helm_chart_version = "1.1.0"` in your Terraform configuration.
 
----
-
-## Example Terraform Configuration
+## Example Terraform configuration
 
 The module is not published on the Terraform Registry, so reference it by its git source and pin `ref` to a tag. `image_tag` is its only required input; every other variable has a default. Here is a configuration with the SQL gateway enabled:
 
@@ -85,28 +77,24 @@ module "traceroot" {
 }
 ```
 
-<Note>
-  The module **generates** the application's own secrets — session signing, internal API, database, cache and the SQL gateway passwords — with `random_password` and writes them into Kubernetes Secrets, so there are no variables to supply for them. Keys you own, such as GitHub App and LLM provider credentials, are passed as variables. Terraform state therefore holds secret material: use an encrypted remote backend, and never commit `.tfvars` or state files.
-</Note>
+The module **generates** the application's own secrets — session signing, internal API, database, cache and the SQL gateway passwords — with `random_password` and writes them into Kubernetes Secrets, so there are no variables to supply for them. Keys you own, such as GitHub App and LLM provider credentials, are passed as variables. Terraform state therefore holds secret material: use an encrypted remote backend, and never commit `.tfvars` or state files.
 
----
+## Deployment workflow
 
-## Deployment Workflow
-
-### 1. Initialize and Validate
+### 1. Initialize and validate
 
 ```bash
 terraform init
 terraform validate
 ```
 
-### 2. Plan and Review
+### 2. Plan and review
 
 ```bash
 terraform plan -out=tfplan
 ```
 
-### 3. Apply Infrastructure
+### 3. Apply infrastructure
 
 ```bash
 terraform apply tfplan

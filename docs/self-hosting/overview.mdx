@@ -3,15 +3,11 @@ title: Self-Hosting Overview
 description: Architecture, core application services, and deployment models for self-hosted TraceRoot
 ---
 
-TraceRoot is open source and designed to run entirely on your own infrastructure. Self-hosting gives you complete ownership over telemetry data, eliminates multi-tenant rate limits, and allows deployment inside your private VPC or on-premise clusters.
+TraceRoot is open source and the entire stack runs on your own infrastructure: six application services plus PostgreSQL, ClickHouse, Redis, and S3-compatible object storage, all of which you provision, operate, and upgrade yourself. Telemetry stays in the databases you run, there are no multi-tenant rate limits once `ENABLE_BILLING=false` is set, and the stack can run inside a private VPC or an on-premise cluster.
 
-<Note>
-Prefer a managed SaaS solution without infrastructure management? [TraceRoot Cloud](https://app.traceroot.ai) provides zero-maintenance tracing with automated updates.
-</Note>
+Prefer not to run it yourself? [TraceRoot Cloud](https://app.traceroot.ai) is maintained by the TraceRoot team, with no infrastructure to manage.
 
----
-
-## Core Application Services
+## Core application services
 
 TraceRoot is structured as a collection of specialized microservices defined in `docker-compose.prod.yml`:
 
@@ -24,16 +20,14 @@ TraceRoot is structured as a collection of specialized microservices defined in 
 | **`detector`** | _Internal_ | Node.js (BullMQ) | Executes LLM-as-a-judge eval runs, automated RCA, digest summaries, **alert delivery notifications**, and the **once-a-minute threshold alert scheduler**. |
 | **`agent`** | `8100` | Node.js (TypeScript) | Interactive AI agent service executing conversational turns, sandbox actions (via `/var/run/docker.sock`), and multi-tool workspace investigations. |
 
-### Critical Dependency: Alerting Runs in the Detector Service
+### Alerting runs in the detector service
 
 The `detector` service is not only responsible for LLM evaluations—it also powers TraceRoot's alerting engine:
 - It starts five BullMQ worker consumers: `detector run`, `detector RCA`, `detector digest`, `signal assignment`, and `alert notification`.
 - It runs the once-a-minute alert scheduler tick (`startAlertScheduler()`).
 - Setting `ALERTS_SCHEDULER_ENABLED=false` or stopping the `detector` container stops alert evaluations and outbound notifications immediately.
 
----
-
-## Infrastructure Dependencies
+## Infrastructure dependencies
 
 In addition to the six application services, TraceRoot relies on four core infrastructure components:
 
@@ -42,9 +36,7 @@ In addition to the six application services, TraceRoot relies on four core infra
 - **Redis 7+**: In-memory cache and message broker for Celery tasks, BullMQ job queues, and websocket event dispatching.
 - **S3 / MinIO**: Object storage for large trace payloads, eval dataset uploads, and artifacts.
 
----
-
-## Deployment Options
+## Deployment options
 
 Choose the deployment method that fits your operating model:
 
@@ -60,9 +52,7 @@ Choose the deployment method that fits your operating model:
   </Card>
 </CardGroup>
 
----
-
-## Configuration & Administration
+## Configuration and administration
 
 <CardGroup cols={3}>
   <Card title="Configuration" icon="sliders" href="/self-hosting/configuration">

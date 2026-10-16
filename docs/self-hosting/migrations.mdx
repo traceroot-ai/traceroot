@@ -7,41 +7,13 @@ TraceRoot uses a dual-database architecture: PostgreSQL stores application metad
 
 Database migrations for both engines run **automatically** before application services start up.
 
----
+## Migration architecture
 
-## Migration Architecture
-
-In `docker-compose.prod.yml`, migrations are handled by dedicated one-shot container services:
-
-```text
-       ┌──────────────┐          ┌──────────────────────┐
-       │   postgres   │          │      clickhouse      │
-       └──────┬───────┘          └──────────┬───────────┘
-              │ healthy                     │ healthy
-       ┌──────▼───────┐          ┌──────────▼───────────┐
-       │   migrate    │          │   clickhouse-init    │
-       │   (Prisma)   │          │ (provision DB users) │
-       └──────┬───────┘          └──────────┬───────────┘
-              │                             │ exit 0
-              │                  ┌──────────▼───────────┐
-              │                  │  migrate-clickhouse  │
-              │                  │       (Goose)        │
-              │                  └──────────┬───────────┘
-              │                             │
-              └──────────────┬──────────────┘
-                             │ exit 0
-                     ┌───────▼───────┐
-                     │  App Services │
-                     │ (web, rest,   │
-                     │ worker, etc.) │
-                     └───────────────┘
-```
+In `docker-compose.prod.yml`, migrations are handled by dedicated one-shot container services. `migrate` applies the Prisma migrations once `postgres` reports healthy. On the ClickHouse side, `clickhouse-init` provisions the database users once `clickhouse` reports healthy, and `migrate-clickhouse` runs the Goose migrations after it exits `0`.
 
 Application services gate their start on the migrations they need: `web` and `agent` wait only on `migrate`; `worker` waits only on `migrate-clickhouse`; and `rest`, `detector`, and `billing` wait on both completing successfully. Services without the corresponding dependency can boot even if the other engine's migrations fail.
 
----
-
-## 1. PostgreSQL (Prisma Migrations)
+## 1. PostgreSQL (Prisma migrations)
 
 - **Service**: `migrate` (using `docker/Dockerfile.web` with target `migrate`).
 - **Tool**: Prisma (`prisma migrate deploy`).
@@ -55,9 +27,7 @@ Application services gate their start on the migrations they need: `web` and `ag
   - Device codes, JWKS, and OAuth credentials
   - Audit logs and role-based access control (`add_audit_logs`, `support_impersonation`)
 
----
-
-## 2. ClickHouse (Goose Migrations)
+## 2. ClickHouse (Goose migrations)
 
 - **Service**: `migrate-clickhouse` (using `docker/Dockerfile.migrate-clickhouse`).
 - **Tool**: Goose database migration tool (`goose -dir /migrations up`).
@@ -70,16 +40,14 @@ Application services gate their start on the migrations they need: `web` and `ag
   - Curated views for the public SQL gateway (`012_create_public_sql_views.sql`)
   - Error type categorizations and signal assignments
 
-### ClickHouse User Provisioning (`clickhouse-init`)
+### ClickHouse user provisioning (`clickhouse-init`)
 
-Before `migrate-clickhouse` runs, the `clickhouse-init` service provisions necessary SQL Gateway users:
+Before `migrate-clickhouse` runs, the `clickhouse-init` service provisions necessary SQL gateway users:
 1. It connects using the `sql_gateway_bootstrap` account via `SQL_GATEWAY_BOOTSTRAP_PASSWORD`.
 2. It provisions `sql_gateway_writer` as the `DEFINER` for analytical views created in migration `012`.
 3. If `CLICKHOUSE_RO_PASSWORD` is supplied, it provisions `sql_gateway_ro`.
 
----
-
-## How to Verify Migration Success
+## How to verify migration success
 
 To confirm that both migration services completed successfully on your stack:
 
@@ -87,7 +55,7 @@ To confirm that both migration services completed successfully on your stack:
 docker compose -f docker-compose.prod.yml ps -a | grep migrate
 ```
 
-### Expected Output
+### Expected output
 
 Both services should report status **`Exited (0)`**:
 
@@ -96,7 +64,7 @@ traceroot-migrate-1              "/entrypoint.sh ..."    migrate              Ex
 traceroot-migrate-clickhouse-1   "/bin/sh -c '...'"       migrate-clickhouse   Exited (0)
 ```
 
-### Checking Migration Logs
+### Checking migration logs
 
 If an application service fails to start, inspect the migration container logs:
 
@@ -118,15 +86,13 @@ A healthy ClickHouse migration output will show all versions applied:
 goose: no migrations to run. current version: <latest>
 ```
 
----
-
-## Troubleshooting Migration Failures
+## Troubleshooting migration failures
 
 1. **`SQL_GATEWAY_BOOTSTRAP_PASSWORD` missing or incorrect**:
    - `migrate-clickhouse` authenticates using `sql_gateway_bootstrap`. Ensure `SQL_GATEWAY_BOOTSTRAP_PASSWORD` matches between `.env` and `clickhouse`.
 2. **PostgreSQL not ready**:
    - Check `docker compose -f docker-compose.prod.yml logs postgres`.
-3. **Re-running Migrations**:
+3. **Re-running migrations**:
    - Migrations are strictly idempotent. If you upgrade TraceRoot versions, simply run:
      ```bash
      docker compose -f docker-compose.prod.yml up --build -d

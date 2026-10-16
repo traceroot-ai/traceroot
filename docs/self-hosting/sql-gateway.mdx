@@ -5,9 +5,7 @@ description: Configure the ClickHouse SQL Gateway, account hierarchy, and securi
 
 TraceRoot includes a direct analytical SQL Gateway allowing engineers to query historical traces and spans using standard ClickHouse SQL syntax via REST endpoints (`/api/v1/public/sql`) or the TraceRoot CLI.
 
----
-
-## The Three ClickHouse Accounts
+## The three ClickHouse accounts
 
 To ensure security and defense-in-depth, TraceRoot separates ClickHouse permissions across three distinct identities:
 
@@ -17,18 +15,14 @@ To ensure security and defense-in-depth, TraceRoot separates ClickHouse permissi
 | **`sql_gateway_writer`** | `clickhouse-init` | Designated as the `DEFINER` for curated analytical views (`012_create_public_sql_views.sql`). Holds `SELECT` on physical tables. No service authenticates as this user. | `SQL_GATEWAY_WRITER_PASSWORD` (Optional) |
 | **`sql_gateway_ro`** | `clickhouse-init` | The read-only identity used by the `rest` API to execute user SQL queries. Reads curated views only (`spans_public_v1`, `traces_public_v1`). | `CLICKHOUSE_RO_PASSWORD` (Optional / Activation flag) |
 
-<Warning>
-**Application Account Separation**:
-The standard application account (`clickhouse`, set via `CLICKHOUSE_USER`) used by `rest`, `worker`, `billing`, and `detector` **deliberately does not hold access management privileges**. This ensures that any compromised application container cannot create additional database users or escalate privileges.
-</Warning>
+The standard application account (`clickhouse`, set via `CLICKHOUSE_USER`) used by `rest`, `worker`, `billing`, and `detector` deliberately does not hold access management privileges, so a compromised application container cannot create additional database users or escalate privileges.
 
----
-
-## How to Turn the SQL Gateway On
+## How to turn the SQL gateway on
 
 By default, the SQL Gateway is **disabled** on self-hosted instances unless you supply a read-only account password.
 
-### Behavior When `CLICKHOUSE_RO_PASSWORD` is Unset:
+### Behavior when `CLICKHOUSE_RO_PASSWORD` is unset
+
 - `clickhouse-init` logs:
   ```text
   clickhouse-init: CLICKHOUSE_RO_PASSWORD is unset, so the SQL gateway read-only account is not provisioned and any existing one was dropped
@@ -37,7 +31,7 @@ By default, the SQL Gateway is **disabled** on self-hosted instances unless you 
 - On cloud (`ENABLE_BILLING=true`), user SQL queries are rejected immediately with HTTP 500/503.
 - On self-hosted (`ENABLE_BILLING=false`; set it explicitly in `.env`, since `docker-compose.prod.yml` defaults to `true`), the API falls back to the default client with runtime resource limits.
 
-### Enabling the Gateway:
+### Enabling the gateway
 
 1. Open your `.env` file and set `CLICKHOUSE_RO_PASSWORD` (and ensure `ENABLE_BILLING=false` is set):
    ```bash .env
@@ -55,9 +49,7 @@ By default, the SQL Gateway is **disabled** on self-hosted instances unless you 
 
 3. `clickhouse-init` will hash the password, configure the `sql_readonly_profile`, and provision `sql_gateway_ro` with read-only grants on the curated views.
 
----
-
-## Security Caps and Profile Constraints
+## Security caps and profile constraints
 
 When queries run under `sql_gateway_ro`, ClickHouse enforces hard resource constraints via `sql_readonly_profile`:
 
@@ -77,9 +69,7 @@ CREATE SETTINGS PROFILE IF NOT EXISTS sql_readonly_profile SETTINGS
 - **`max_memory_usage = 4 GB`**: Memory limit per query on the ClickHouse server.
 - **`CONST`**: Prevents users from overriding these settings using query parameters or inline session settings.
 
----
-
-## Curated Public Views
+## Curated public views
 
 The SQL gateway exposes curated views rather than raw physical tables:
 

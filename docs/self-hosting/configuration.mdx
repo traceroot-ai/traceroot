@@ -5,9 +5,7 @@ description: Comprehensive reference for required secrets, billing flags, build-
 
 TraceRoot is configured via environment variables. When running with Docker Compose, all configuration is centralized in a single `.env` file at the repository root.
 
----
-
-## Required Secrets
+## Required secrets
 
 Docker Compose checks secrets at load time using variable substitution syntax (`:?`). If any of the following three secrets are empty or unset, Compose will refuse to run:
 
@@ -18,38 +16,37 @@ Docker Compose checks secrets at load time using variable substitution syntax (`
 | **`SQL_GATEWAY_BOOTSTRAP_PASSWORD`** | Password for the ClickHouse `sql_gateway_bootstrap` account. **Mandatory for all stacks**, because ClickHouse migrations run under this account. | `openssl rand -hex 32` |
 
 <Note>
-**Password Character Note**: Avoid ampersands (`&`) in `CLICKHOUSE_PASSWORD` — the ClickHouse image inserts that value unescaped into its generated `users.xml`, and an unescaped `&` breaks XML parsing at container startup. Gateway passwords (`SQL_GATEWAY_BOOTSTRAP_PASSWORD`, `SQL_GATEWAY_WRITER_PASSWORD`, `CLICKHOUSE_RO_PASSWORD`) may contain `&`, since they are read from the environment or sha256-hashed before use.
+Avoid ampersands (`&`) in `CLICKHOUSE_PASSWORD` — the ClickHouse image inserts that value unescaped into its generated `users.xml`, and an unescaped `&` breaks XML parsing at container startup. Gateway passwords (`SQL_GATEWAY_BOOTSTRAP_PASSWORD`, `SQL_GATEWAY_WRITER_PASSWORD`, `CLICKHOUSE_RO_PASSWORD`) may contain `&`, since they are read from the environment or sha256-hashed before use.
 </Note>
 
----
+## Billing and rate limiting (`ENABLE_BILLING`)
 
-## Critical Setting: `ENABLE_BILLING=false`
-
-<Warning>
-**Default Behavior in Compose**:
 `docker-compose.prod.yml` defines the billing flag with a fallback to `true`:
+
 ```yaml
 ENABLE_BILLING: ${ENABLE_BILLING:-true}
 ```
-If you create a custom `.env` file and forget to include `ENABLE_BILLING`, Compose defaults it to **`true`**.
+
+<Warning>
+If you create a custom `.env` file and forget to include `ENABLE_BILLING`, Compose defaults it to `true`.
+</Warning>
 
 When `ENABLE_BILLING` is `true`:
 - The REST API activates cloud rate limiting (`backend/rest/rate_limit.py`), throttling requests to plan quotas (e.g., 60 req/min).
 - The web console enforces subscription seat and tier checks.
 - Features require Stripe synchronization.
 
-**For self-hosted deployments, always explicitly set:**
+For self-hosted deployments, always explicitly set:
+
 ```bash .env
 ENABLE_BILLING=false
 ```
+
 Setting `ENABLE_BILLING=false` completely disables rate limiting, unlocks all features, and bypasses seat gates.
-</Warning>
 
----
+## Client build-time variables (`NEXT_PUBLIC_*`)
 
-## Client Build-Time Variables (`NEXT_PUBLIC_*`)
-
-Next.js inlines all variables prefixed with `NEXT_PUBLIC_` into the static JavaScript bundle **at build time**.
+Next.js inlines all variables prefixed with `NEXT_PUBLIC_` into the static JavaScript bundle at build time.
 
 In `docker/Dockerfile.web`:
 ```dockerfile
@@ -60,10 +57,10 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ```
 
 <Warning>
-**Runtime Overrides Have No Effect**:
-Setting `NEXT_PUBLIC_APP_URL` or `NEXT_PUBLIC_API_URL` under `environment:` in Docker Compose or at container runtime **does not affect client-side browser requests**.
+Setting `NEXT_PUBLIC_APP_URL` or `NEXT_PUBLIC_API_URL` under `environment:` in Docker Compose or at container runtime does not affect client-side browser requests.
+</Warning>
 
-If you are serving TraceRoot on a custom public domain or reverse proxy, you **must rebuild the `web` container** passing the build arguments:
+If you are serving TraceRoot on a custom public domain or reverse proxy, you must rebuild the `web` container passing the build arguments:
 
 ```bash
 docker compose -f docker-compose.prod.yml build \
@@ -71,11 +68,8 @@ docker compose -f docker-compose.prod.yml build \
   --build-arg NEXT_PUBLIC_API_URL=https://traceroot.yourcompany.com/api/v1 \
   web
 ```
-</Warning>
 
----
-
-## Core Infrastructure Variables
+## Core infrastructure variables
 
 | Variable | Default (Local Compose) | Description |
 | :--- | :--- | :--- |
@@ -94,9 +88,7 @@ docker compose -f docker-compose.prod.yml build \
 | `S3_BUCKET_NAME` | `traceroot` | S3 bucket name. |
 | `S3_REGION` | `us-east-1` | S3 AWS region. |
 
----
-
-## AI Model Provider Keys
+## AI model provider keys
 
 If you want the in-app AI assistant, automated root-cause analysis (RCA), or LLM-as-a-judge detectors to work, supply at least one LLM API key:
 
@@ -110,9 +102,7 @@ OPENAI_API_KEY=sk-proj-...
 
 Which models each key unlocks is listed in the console, under workspace settings → Model Providers.
 
----
-
-## Alerting & Detector Settings
+## Alerting and detector settings
 
 The detector service executes both automated evals and the alerting engine:
 
@@ -123,9 +113,7 @@ The detector service executes both automated evals and the alerting engine:
 | `TRACEROOT_SMTP_URL` | _None_ | SMTP connection URL (e.g. `smtp://user:pass@smtp.mailgun.org:587`) for alert notifications. |
 | `TRACEROOT_SMTP_MAIL_FROM` | `noreply@traceroot.ai` | From address on outbound email notifications. |
 
----
-
-## Enterprise Edition (Optional)
+## Enterprise edition (optional)
 
 ```bash .env
 # Enterprise license key unlocking SSO, Audit Logs, and extended RBAC

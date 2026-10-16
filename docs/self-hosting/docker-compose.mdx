@@ -5,27 +5,20 @@ description: Deploy a standalone production TraceRoot stack using Docker Compose
 
 Docker Compose is the fastest way to run TraceRoot on a single virtual machine, bare metal server, or local environment. The stack includes all six application services, background workers, databases, and automatic migration runners.
 
----
-
 ## Prerequisites
 
-- **Docker Engine**: 24.0+ with Docker Compose v2.20+
-- **Hardware Sizing**:
-  - **Minimum**: 4 vCPUs, 8 GB RAM, 30 GB SSD storage
-  - **Recommended (Production)**: 8 vCPUs, 16+ GB RAM, 100+ GB NVMe storage
+You need Docker Engine 24.0+ with Docker Compose v2.20+. The minimum host is 4 vCPUs, 8 GB RAM, and 30 GB of SSD storage; for production, use 8 vCPUs, 16+ GB RAM, and 100+ GB of NVMe storage.
 
----
+## Step-by-step installation
 
-## Step-by-Step Installation
-
-### 1. Clone the Repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
 ```
 
-### 2. Create the Environment File
+### 2. Create the environment file
 
 Copy `.env.example` to `.env`:
 
@@ -33,11 +26,9 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-<Note>
 `.env.example` comes with `ENABLE_BILLING=false` pre-configured. This unlocks all features, disables cloud rate limiting, and bypasses seat restrictions.
-</Note>
 
-### 3. Generate Required Secrets
+### 3. Generate required secrets
 
 `docker-compose.prod.yml` enforces three mandatory secrets. If any of these are empty or missing, Docker Compose will refuse to start:
 
@@ -69,7 +60,7 @@ INTERNAL_API_SECRET=<unique-32-byte-hex-from-openssl>
 SQL_GATEWAY_BOOTSTRAP_PASSWORD=<unique-32-byte-hex-from-openssl>
 ```
 
-### 4. Optional: Configure AI Provider Keys
+### 4. Optional: configure AI provider keys
 
 If you plan to use the AI Agent or automated LLM-as-a-judge detectors, add your API keys to `.env`:
 
@@ -78,9 +69,7 @@ ANTHROPIC_API_KEY=sk-ant-api03-...
 OPENAI_API_KEY=sk-proj-...
 ```
 
----
-
-## Starting the Stack
+## Starting the stack
 
 Run Docker Compose to build images and launch all services in detached mode:
 
@@ -94,15 +83,11 @@ Alternatively, you can use the make target:
 make prod-lite
 ```
 
-<Note>
-**`make prod-lite` is not the same command**: it runs `up --build` **attached**, so the stack stops when you press Ctrl+C, and it copies `.env.example` to `.env` first if no `.env` exists. Run it before step 3 and `SQL_GATEWAY_BOOTSTRAP_PASSWORD` is still commented out in the generated file, so Compose refuses to start.
+`make prod-lite` is not the same command: it runs `up --build` attached, so the stack stops when you press Ctrl+C, and it copies `.env.example` to `.env` first if no `.env` exists. Run it before step 3 and `SQL_GATEWAY_BOOTSTRAP_PASSWORD` is still commented out in the generated file, so Compose refuses to start.
 
-**`make prod` vs `make prod-lite`**: `make prod` launches a live terminal tmux dashboard that requires local `uv` and Python installations. For a detached container-only deployment, use `docker compose -f docker-compose.prod.yml up --build -d`.
-</Note>
+`make prod` launches a live terminal tmux dashboard that requires local `uv` and Python installations. For a detached container-only deployment, use `docker compose -f docker-compose.prod.yml up --build -d`.
 
----
-
-## Verifying the Deployment
+## Verifying the deployment
 
 Inspect the status of all containers:
 
@@ -110,10 +95,7 @@ Inspect the status of all containers:
 docker compose -f docker-compose.prod.yml ps
 ```
 
-Expected output:
-- **Databases** (`postgres`, `clickhouse`, `redis`, `minio`): `Up (healthy)`
-- **Migrations** (`migrate`, `clickhouse-init`, `migrate-clickhouse`): `Exited (0)`
-- **Application Services** (`web`, `rest`, `worker`, `billing`, `detector`, `agent`): `Up`
+The databases (`postgres`, `clickhouse`, `redis`, `minio`) report `Up (healthy)`, the migration services (`migrate`, `clickhouse-init`, `migrate-clickhouse`) report `Exited (0)`, and the application services (`web`, `rest`, `worker`, `billing`, `detector`, `agent`) report `Up`:
 
 ```text
 NAME                                COMMAND                  SERVICE              STATUS
@@ -132,9 +114,7 @@ traceroot-detector-1                "node dist/index.js"     detector           
 traceroot-agent-1                   "node ee/agent/dist..."  agent                Up
 ```
 
----
-
-## Service Endpoints
+## Service endpoints
 
 Once running, access the services on your host machine:
 
@@ -144,17 +124,15 @@ Once running, access the services on your host machine:
 | **REST API** | `http://localhost:8000` | Ingestion, healthchecks, and public endpoints |
 | **MinIO Console** | `http://localhost:9091` | Default credentials: `minio` / `minio-password` (local only; change for production) |
 
----
+## Stopping and updating
 
-## Stopping and Updating
-
-### Stop the Stack
+### Stop the stack
 
 ```bash
 docker compose -f docker-compose.prod.yml down
 ```
 
-### Stop and Wipe All Data Volumes
+### Stop and wipe all data volumes
 
 <Warning>
 This command deletes all persistent database data (PostgreSQL, ClickHouse, Redis, and MinIO storage).
@@ -164,7 +142,7 @@ This command deletes all persistent database data (PostgreSQL, ClickHouse, Redis
 docker compose -f docker-compose.prod.yml down -v
 ```
 
-### Updating to the Latest Version
+### Updating to the latest version
 
 ```bash
 git pull origin main
