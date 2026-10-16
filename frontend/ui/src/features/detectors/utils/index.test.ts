@@ -16,6 +16,7 @@ const baseDetector: Detector = {
   outputSchema: [],
   sampleRate: 50,
   enableRca: true,
+  enableSignals: true,
   detectionModel: "model-a",
   detectionProvider: "provider-a",
   detectionSource: "system",
@@ -33,6 +34,7 @@ describe("detectorToFormValues", () => {
       prompt: "Find slow spans",
       sampleRate: 50,
       enableRca: true,
+      enableSignals: true,
       detectionModel: "model-a",
       detectionProvider: "provider-a",
       detectionSource: "system",
@@ -63,6 +65,9 @@ describe("buildDetectorPatch", () => {
   it("includes only the toggled field", () => {
     const patch = buildDetectorPatch(baseForm, { ...baseForm, enableRca: false });
     expect(patch).toEqual({ enableRca: false });
+    expect(buildDetectorPatch(baseForm, { ...baseForm, enableSignals: false })).toEqual({
+      enableSignals: false,
+    });
   });
 
   it("includes only the edited prompt, leaving enableRca untouched", () => {
@@ -122,6 +127,13 @@ describe("mergeDetectorIntoForm", () => {
 
   it("takes all server values when the form is untouched", () => {
     expect(mergeDetectorIntoForm(baseForm, next, { ...baseForm })).toEqual(next);
+  });
+
+  it("takes the server's signals switch unless the user changed it", () => {
+    const remote = { ...baseForm, enableSignals: false };
+    expect(mergeDetectorIntoForm(baseForm, remote, baseForm).enableSignals).toBe(false);
+    const edited = { ...baseForm, enableSignals: false };
+    expect(mergeDetectorIntoForm(baseForm, baseForm, edited).enableSignals).toBe(false);
   });
 
   it("keeps the user's prompt edit while applying the server's toggle", () => {

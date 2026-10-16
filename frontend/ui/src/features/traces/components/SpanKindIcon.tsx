@@ -18,6 +18,8 @@ export function getSpanKindIcon(kind: string) {
       return DOMAIN_ICONS.agent;
     case "tool":
       return DOMAIN_ICONS.tool;
+    case "decision":
+      return DOMAIN_ICONS.decision;
     case "evaluation":
       return DOMAIN_ICONS.evaluation;
     case "task":
@@ -54,6 +56,10 @@ const SPAN_KIND_COLORS: Record<string, SpanKindColor> = {
   tool: {
     surface: "bg-amber-100 border-amber-300 dark:bg-amber-950/50 dark:border-amber-800",
     glyph: "text-amber-700 dark:text-amber-300",
+  },
+  decision: {
+    surface: "bg-teal-100 border-teal-300 dark:bg-teal-950/50 dark:border-teal-800",
+    glyph: "text-teal-700 dark:text-teal-300",
   },
   span: {
     surface: "bg-slate-100 border-slate-300 dark:bg-slate-800/50 dark:border-slate-700",

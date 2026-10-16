@@ -47,7 +47,7 @@ traceroot.flush()
 | Agent runs | Each `agent.run()` / `agent.run_sync()` / `agent.run_stream()` invocation |
 | Tool calls | Each tool invocation with input arguments and results |
 | LLM calls | Raw completion requests with input messages, output messages, and model name |
-| Tokens & Cost | Input and output token counts per LLM call; cost calculated from model pricing |
+| Tokens & Cost | Input and output token counts; cost when the model ID matches TraceRoot's pricing table |
 | Cache tokens | Cache read and write token counts when reported by the provider |
 | Latency | Duration per agent run and per span |
 
