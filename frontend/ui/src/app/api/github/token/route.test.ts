@@ -24,7 +24,7 @@ vi.mock("next/server", () => ({
 
 const findManyMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
-  Role: { ADMIN: "ADMIN" },
+  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
   prisma: {
     gitHubInstallation: {
       findMany: (...args: unknown[]) => findManyMock(...args),
