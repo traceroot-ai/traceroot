@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CopyButton } from "@/components/ui/copy-button";
 import { cn, formatDate } from "@/lib/utils";
 import type { BackendRun } from "@/features/detectors/hooks/use-findings";
 import { DETECTOR_TH, DETECTOR_TD, IdentifiedBadge, SummaryText } from "./detector-table-cells";
@@ -26,23 +27,45 @@ interface DetectorRunsTableProps {
  * `onOpen` undefined means this id has nothing to open (a run with no
  * self-trace): the cell renders as plain text.
  */
-function IdCell({ id, title, onOpen }: { id: string; title: string; onOpen?: () => void }) {
+function IdCell({
+  id,
+  title,
+  copyTitle,
+  onOpen,
+}: {
+  id: string;
+  title: string;
+  copyTitle?: string;
+  onOpen?: () => void;
+}) {
   return (
     <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
-      {onOpen ? (
-        <button
-          type="button"
-          title={title}
-          onClick={onOpen}
-          className="block max-w-full truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
-        >
-          {id}
-        </button>
-      ) : (
-        <span title={title} className="block max-w-full truncate text-muted-foreground">
-          {id}
-        </span>
-      )}
+      <div className="flex min-w-0 items-center gap-1">
+        {onOpen ? (
+          <button
+            type="button"
+            title={title}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen();
+            }}
+            className="min-w-0 truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
+          >
+            {id}
+          </button>
+        ) : (
+          <span title={title} className="min-w-0 truncate text-muted-foreground">
+            {id}
+          </span>
+        )}
+        {copyTitle && (
+          <CopyButton
+            value={id}
+            className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+            title={copyTitle}
+          />
+        )}
+      </div>
     </td>
   );
 }
@@ -99,9 +122,15 @@ export function DetectorRunsTable({
             <IdCell
               id={run.run_id}
               title={run.run_id}
+              copyTitle="Copy run ID"
               onOpen={run.self_traced ? () => onRunClick(run) : undefined}
             />
-            <IdCell id={run.trace_id} title={run.trace_id} onOpen={() => onTraceClick(run)} />
+            <IdCell
+              id={run.trace_id}
+              title={run.trace_id}
+              copyTitle="Copy trace ID"
+              onOpen={() => onTraceClick(run)}
+            />
             {run.signal_id ? (
               <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
                 <Link
@@ -128,6 +157,7 @@ export function DetectorRunsTable({
               <IdCell
                 id={run.agent_trace_id}
                 title={`${run.agent_trace_id} — open the root cause analysis of this trace`}
+                copyTitle="Copy agent run ID"
                 onOpen={() => onAgentRunClick(run)}
               />
             ) : (
