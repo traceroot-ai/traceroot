@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ADAPTER_CONFIG, ADAPTER_MODELS, type LLMAdapter } from "@traceroot/core";
+import { ADAPTER_CONFIG, ADAPTER_MODELS } from "@traceroot/core";
 
 const mocks = vi.hoisted(() => ({
   getModelProviders: vi.fn(),
@@ -69,9 +69,7 @@ import { ApiError } from "@/lib/api/errors";
 import {
   INLINE_ADAPTERS,
   isInlineConfigurable,
-  keyFieldIntro,
   ModelProviderBlock,
-  SETTINGS_ONLY_ADAPTERS,
   settingsOnlyReason,
   storedKeyCopy,
   unavailableKeyCopy,
@@ -85,11 +83,7 @@ import type { ProviderKeyBinding } from "./integrations";
  */
 const SUGGESTED: ProviderKeyBinding = { kind: "suggested", adapter: INLINE_ADAPTERS[0] };
 
-function renderBlock(
-  workspaceId = "ws-1",
-  providerKey: ProviderKeyBinding = SUGGESTED,
-  stackName = "LangChain & LangGraph",
-) {
+function renderBlock(workspaceId = "ws-1", providerKey: ProviderKeyBinding = SUGGESTED) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -97,11 +91,7 @@ function renderBlock(
     queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <ModelProviderBlock
-          workspaceId={workspaceId}
-          providerKey={providerKey}
-          stackName={stackName}
-        />
+        <ModelProviderBlock workspaceId={workspaceId} providerKey={providerKey} />
       </QueryClientProvider>,
     ),
   };
@@ -115,16 +105,16 @@ const ANTHROPIC: ProviderKeyBinding = { kind: "fixed", adapter: "anthropic" };
  * switched mid-step. One query client across both renders, so a save started
  * under the first binding is still the same mutation after the second.
  */
-function renderSwitchable(binding: ProviderKeyBinding = OPENAI, stackName = "LangChain") {
+function renderSwitchable(binding: ProviderKeyBinding = OPENAI) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  const tree = (next: ProviderKeyBinding, nextStackName: string) => (
+  const tree = (next: ProviderKeyBinding) => (
     <QueryClientProvider client={queryClient}>
-      <ModelProviderBlock workspaceId="ws-1" providerKey={next} stackName={nextStackName} />
+      <ModelProviderBlock workspaceId="ws-1" providerKey={next} />
     </QueryClientProvider>
   );
-  return { queryClient, tree, ...render(tree(binding, stackName)) };
+  return { queryClient, tree, ...render(tree(binding)) };
 }
 
 // The field is named for the provider the stack asks for, so every lookup for
@@ -165,7 +155,6 @@ describe("the adapters offered inline", () => {
       "zai",
       "google",
     ]);
-    expect(SETTINGS_ONLY_ADAPTERS).toEqual(["openrouter", "azure", "amazon-bedrock"]);
     expect(INLINE_ADAPTERS).not.toContain("typesafe");
   });
 
@@ -195,37 +184,6 @@ describe("the adapters offered inline", () => {
     const select = (await screen.findByLabelText("Model provider")) as HTMLSelectElement;
     expect(select.value).toBe("anthropic");
     expect([...select.options].map((o) => o.value)).toEqual(INLINE_ADAPTERS);
-  });
-
-  it("names the adapters that stay in settings", async () => {
-    renderBlock();
-    const labels = SETTINGS_ONLY_ADAPTERS.map((a: LLMAdapter) => ADAPTER_CONFIG[a].label);
-    const note = await screen.findByText(/add those in workspace settings/);
-    for (const label of labels) {
-      expect(note.textContent).toContain(label);
-    }
-  });
-
-  it("gives each of them the reason it is actually excluded for", async () => {
-    renderBlock();
-    const note = await screen.findByText(/add those in workspace settings/);
-
-    // A base URL, and an access-key pair or a default-credentials toggle plus a
-    // region, really are more than a key.
-    expect(note.textContent).toContain(
-      `${ADAPTER_CONFIG.azure.label} and ${ADAPTER_CONFIG["amazon-bedrock"].label} need more than a key`,
-    );
-    // OpenRouter's key is its whole credential — api-key, no base URL. It is
-    // excluded only for shipping no curated catalogue, so claiming it needs
-    // more than a key is false.
-    expect(ADAPTER_CONFIG.openrouter.credentialType).toBe("api-key");
-    expect(ADAPTER_CONFIG.openrouter.requiresBaseUrl).toBe(false);
-    expect(note.textContent).toContain(
-      `${ADAPTER_CONFIG.openrouter.label} needs a model list chosen`,
-    );
-    expect(note.textContent).not.toMatch(
-      new RegExp(`${ADAPTER_CONFIG.openrouter.label}[^—]*more than a key`),
-    );
   });
 });
 
@@ -436,11 +394,7 @@ describe("a cached list this mount has not re-read", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <ModelProviderBlock
-          workspaceId="ws-1"
-          providerKey={SUGGESTED}
-          stackName="LangChain & LangGraph"
-        />
+        <ModelProviderBlock workspaceId="ws-1" providerKey={SUGGESTED} />
       </QueryClientProvider>,
     );
 
@@ -522,9 +476,7 @@ describe("a provider the workspace already has", () => {
     expect(await screen.findByText("sk-ant-...xyz")).toBeTruthy();
     expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
-    expect(
-      screen.getByText(/already had a key of its own, so this step left it as it was/),
-    ).toBeTruthy();
+    expect(screen.getByText(/This was already here, and nothing was changed\./)).toBeTruthy();
     // Not the just-stored confirmation: nothing was written on this mount.
     expect(screen.queryByText(/key verified and saved/i)).toBeNull();
     expect(screen.getByText(/Replace or remove it in/)).toBeTruthy();
@@ -559,8 +511,14 @@ describe("a provider the workspace already has", () => {
     fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
 
     // Named for the provider the user picked, not for the workspace.
-    expect(await screen.findByText(new RegExp(`^${label} key verified and saved\\.`))).toBeTruthy();
-    expect(screen.queryByText(/already had a key of its own/)).toBeNull();
+    expect(
+      await screen.findByText(
+        new RegExp(
+          `^Verified and saved\\. The AI assistant and detectors now run on your own ${label} account\\.`,
+        ),
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/already here/)).toBeNull();
     // And no invitation to add a second one: this step configures one key.
     expect(screen.queryByText(/add another|add a key for another/i)).toBeNull();
   });
@@ -587,10 +545,10 @@ describe("a provider the workspace already has", () => {
     renderBlock();
     expect(await screen.findByText("Turned off")).toBeTruthy();
     expect(
-      screen.getByText(/turned off, so the AI assistant and detectors still run/),
+      screen.getByText(/This key is off, so the AI assistant and detectors still run/),
     ).toBeTruthy();
-    expect(screen.queryByText(/already had a key of its own/)).toBeNull();
-    expect(screen.queryByText(/key verified and saved/i)).toBeNull();
+    expect(screen.queryByText(/already here/)).toBeNull();
+    expect(screen.queryByText(/verified and saved/i)).toBeNull();
     expect(screen.getByText(/Turn it back on in/)).toBeTruthy();
     expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Verify and save" })).toBeNull();
@@ -603,7 +561,7 @@ describe("the line a stored key is reported with", () => {
   it("confirms the save, under the provider's name, when this mount stored the key", () => {
     expect(storedKeyCopy({ usingOwnKey: true, justSavedLabel: "Anthropic", count: 1 })).toEqual({
       state:
-        "Anthropic key verified and saved. The AI assistant, detector screening and root cause analysis now run on your own Anthropic account.",
+        "Verified and saved. The AI assistant and detectors now run on your own Anthropic account.",
       settings: "Replace or remove it in",
     });
   });
@@ -611,14 +569,14 @@ describe("the line a stored key is reported with", () => {
   it("still confirms the save when the provider it was stored for is unknown", () => {
     const { state } = storedKeyCopy({ usingOwnKey: true, justSavedLabel: null, count: 1 });
     expect(state).toBe(
-      "Key verified and saved. The AI assistant, detector screening and root cause analysis now run on your own provider account.",
+      "Verified and saved. The AI assistant and detectors now run on your own account.",
     );
     expect(state).not.toMatch(/already/);
   });
 
   it("says a key that was there at mount was left as it was, in the past tense", () => {
     expect(storedKeyCopy({ usingOwnKey: true, count: 1 })).toEqual({
-      state: "This workspace already had a key of its own, so this step left it as it was.",
+      state: "This was already here, and nothing was changed.",
       settings: "Replace or remove it in",
     });
   });
@@ -629,7 +587,7 @@ describe("the line a stored key is reported with", () => {
     for (const justSavedLabel of ["Anthropic", null, undefined]) {
       expect(storedKeyCopy({ usingOwnKey: false, justSavedLabel, count: 1 })).toEqual({
         state:
-          "This workspace has a key of its own, but it is turned off, so the AI assistant and detectors still run on TraceRoot's models.",
+          "This key is off, so the AI assistant and detectors still run on TraceRoot's models.",
         settings: "Turn it back on in",
       });
     }
@@ -640,12 +598,12 @@ describe("the line a stored key is reported with", () => {
     // elsewhere first can reach it with more than one row on screen, and the
     // singular would then be describing a table that visibly disagrees.
     expect(storedKeyCopy({ usingOwnKey: true, count: 3 })).toEqual({
-      state: "This workspace already had keys of its own, so this step left them as they were.",
+      state: "These were already here, and nothing was changed.",
       settings: "Manage them in",
     });
     expect(storedKeyCopy({ usingOwnKey: false, count: 3 })).toEqual({
       state:
-        "This workspace has keys of its own, but they are all turned off, so the AI assistant and detectors still run on TraceRoot's models.",
+        "All of these are off, so the AI assistant and detectors still run on TraceRoot's models.",
       settings: "Turn one back on in",
     });
   });
@@ -746,14 +704,11 @@ describe("no adapter a pasted key fully configures", () => {
           <fresh.ModelProviderBlock
             workspaceId="ws-1"
             providerKey={{ kind: "suggested", adapter: "anthropic" }}
-            stackName="Agno"
           />
         </QueryClientProvider>,
       );
 
-      expect(
-        await screen.findByText(/Agno runs on Anthropic, and Anthropic needs a model list chosen/),
-      ).toBeTruthy();
+      expect(await screen.findByText(/Anthropic needs a model list chosen/)).toBeTruthy();
       expect(screen.queryByLabelText(/API key$/)).toBeNull();
       expect(screen.queryByLabelText("Model provider")).toBeNull();
       expect(screen.getByRole("link", { name: /Settings/ }).getAttribute("href")).toBe(
@@ -770,27 +725,23 @@ describe("the key the selected stack asks for", () => {
   it("names the field for a provider SDK's own provider, with nothing to switch", async () => {
     // Claude Agent SDK can only call Anthropic. A dropdown over that is a
     // question with one right answer and six wrong ones.
-    renderBlock("ws-1", { kind: "fixed", adapter: "anthropic" }, "Claude Agent SDK");
+    renderBlock("ws-1", { kind: "fixed", adapter: "anthropic" });
     expect(await screen.findByLabelText("Anthropic API key")).toBeTruthy();
     expect(screen.queryByLabelText("Model provider")).toBeNull();
-    expect(
-      screen.getByText(/Claude Agent SDK runs on Anthropic, so this step takes your Anthropic key/),
-    ).toBeTruthy();
   });
 
   it("names the field for the provider a framework's own example calls", async () => {
     // The mapping the panel is built on: a LangChain reader is shown an OpenAI
     // field because LangChain's own example builds ChatOpenAI — not because
     // OpenAI is the default for everything.
-    renderBlock("ws-1", { kind: "suggested", adapter: "openai" }, "LangChain & LangGraph");
+    renderBlock("ws-1", { kind: "suggested", adapter: "openai" });
     expect(await screen.findByLabelText("OpenAI API key")).toBeTruthy();
-    expect(screen.getByText(/its example uses OpenAI/)).toBeTruthy();
     // And here the switch is real, because the framework will take any of them.
     expect(screen.getByLabelText("Model provider")).toBeTruthy();
   });
 
   it("relabels the field when the user switches a suggested provider", async () => {
-    renderBlock("ws-1", { kind: "suggested", adapter: "openai" }, "LangChain & LangGraph");
+    renderBlock("ws-1", { kind: "suggested", adapter: "openai" });
     await screen.findByLabelText("OpenAI API key");
     fireEvent.change(screen.getByLabelText("Model provider"), { target: { value: "google" } });
     expect(screen.getByLabelText("Google Gemini API key")).toBeTruthy();
@@ -799,7 +750,7 @@ describe("the key the selected stack asks for", () => {
 
   it("sends the provider the stack named, not the top-ranked one", async () => {
     // The old default was PROVIDER_PRIORITY[0] — Anthropic — for every stack.
-    renderBlock("ws-1", { kind: "fixed", adapter: "google" }, "Google ADK");
+    renderBlock("ws-1", { kind: "fixed", adapter: "google" });
     await fillKey("sk-google");
     fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
 
@@ -827,7 +778,7 @@ describe("the key the selected stack asks for", () => {
     fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
     expect(await screen.findByText(/Invalid API key/)).toBeTruthy();
 
-    rerender(tree(ANTHROPIC, "Claude Agent SDK"));
+    rerender(tree(ANTHROPIC));
 
     expect(screen.queryByText(/Invalid API key/)).toBeNull();
     expect(screen.getByLabelText("Anthropic API key")).toBeTruthy();
@@ -852,7 +803,7 @@ describe("the key the selected stack asks for", () => {
     fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
     await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
 
-    rerender(tree(ANTHROPIC, "Claude Agent SDK"));
+    rerender(tree(ANTHROPIC));
     const field = (await screen.findByLabelText("Anthropic API key")) as HTMLInputElement;
     fireEvent.change(field, { target: { value: "sk-an-anthropic-key" } });
 
@@ -878,7 +829,7 @@ describe("the key the selected stack asks for", () => {
     fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
     await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
 
-    rerender(tree(ANTHROPIC, "Claude Agent SDK"));
+    rerender(tree(ANTHROPIC));
     const field = (await screen.findByLabelText("Anthropic API key")) as HTMLInputElement;
     fireEvent.change(field, { target: { value: "sk-an-anthropic-key" } });
 
@@ -898,9 +849,9 @@ describe("the key the selected stack asks for", () => {
     // Mistral's integration is MISTRAL_API_KEY throughout and LLMAdapter has no
     // Mistral entry. Nothing in TraceRoot can store that key, so there is no
     // settings tab to send the reader to for it either.
-    renderBlock("ws-1", { kind: "none", provider: "Mistral" }, "Mistral");
+    renderBlock("ws-1", { kind: "none", provider: "Mistral" });
     expect(
-      await screen.findByText(/TraceRoot has no Mistral adapter for your own keys/),
+      await screen.findByText(/TraceRoot has no Mistral adapter, so there is no key to paste/),
     ).toBeTruthy();
     expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.queryByLabelText("Model provider")).toBeNull();
@@ -912,10 +863,8 @@ describe("the key the selected stack asks for", () => {
     // OpenRouter is one of the three the inline rule excludes, and the reason
     // it gives is the clause it actually failed: its key is the whole
     // credential, it just ships no curated model list.
-    renderBlock("ws-1", { kind: "fixed", adapter: "openrouter" }, "OpenRouter");
-    expect(
-      await screen.findByText(/^OpenRouter needs a model list chosen, so it cannot be set up/),
-    ).toBeTruthy();
+    renderBlock("ws-1", { kind: "fixed", adapter: "openrouter" });
+    expect(await screen.findByText(/^OpenRouter needs a model list chosen\./)).toBeTruthy();
     expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.getByRole("link", { name: /Settings/ })).toBeTruthy();
   });
@@ -938,72 +887,46 @@ describe("the key the selected stack asks for", () => {
       ],
     });
 
-    renderBlock("ws-1", { kind: "fixed", adapter: "openai" }, "OpenAI");
+    renderBlock("ws-1", { kind: "fixed", adapter: "openai" });
     expect(await screen.findByText("sk-ant-...xyz")).toBeTruthy();
     expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.queryByText(/add another|add a key for another/i)).toBeNull();
   });
 });
 
-describe("the lines the bound key is introduced with", () => {
-  it("states the provider as a consequence of the stack when it is fixed", () => {
-    expect(keyFieldIntro({ stackName: "OpenAI Agents SDK", kind: "fixed", label: "OpenAI" })).toBe(
-      "Optional. OpenAI Agents SDK runs on OpenAI, so this step takes your OpenAI key: paste it and the AI assistant, detector screening and root cause analysis run on your own OpenAI account instead of TraceRoot's models.",
-    );
-  });
-
-  it("offers it as the example's provider, and says it can be switched", () => {
-    const line = keyFieldIntro({ stackName: "CrewAI", kind: "suggested", label: "OpenAI" });
-    expect(line).toContain("CrewAI calls whichever provider you give it");
-    expect(line).toContain("its example uses OpenAI");
-    expect(line).toContain("switch provider");
-  });
-
-  it("never invites a second key, in either form", () => {
-    for (const kind of ["fixed", "suggested"] as const) {
-      expect(keyFieldIntro({ stackName: "CrewAI", kind, label: "OpenAI" })).not.toMatch(
-        /\badd\b|another|each provider/i,
-      );
-    }
-  });
-
+describe("the only words left around the key field", () => {
   it("sends a provider with no adapter nowhere, and an excluded one to settings", () => {
-    // A framework that calls a provider there is no adapter for: both names
-    // are needed, because they are two different companies.
-    expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" }, "Some Framework")).toEqual({
-      state:
-        "Some Framework calls Mistral, and TraceRoot has no Mistral adapter for your own keys, so there is no Mistral key to paste here. The AI assistant and detectors run on TraceRoot's models.",
+    expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" })).toEqual({
+      state: "TraceRoot has no Mistral adapter, so there is no key to paste here.",
       settings: null,
     });
-    // A framework fixed to a provider this step cannot finish configuring.
-    expect(unavailableKeyCopy({ kind: "fixed", adapter: "azure" }, "Some Framework")).toEqual({
-      state:
-        "Some Framework runs on Azure OpenAI, and Azure OpenAI needs more than a key, so it cannot be set up from here.",
+    expect(unavailableKeyCopy({ kind: "fixed", adapter: "azure" })).toEqual({
+      state: "Azure OpenAI needs more than a key.",
       settings: "Add it in",
     });
   });
 
   it("does not say a provider calls itself", () => {
-    // Both live cases in the catalogue: the entry IS the provider, so the
-    // opening clause would only repeat the name. Mistral is the `none` entry
-    // and OpenRouter the settings-only one, and each is what a customer sees
-    // the moment they pick it.
-    expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" }, "Mistral")).toEqual({
-      state:
-        "TraceRoot has no Mistral adapter for your own keys, so there is no key to paste here. The AI assistant and detectors run on TraceRoot's models.",
+    // Both live cases in the catalogue: the entry IS the provider, so any
+    // sentence that named the stack and then the provider would only repeat
+    // the name. Mistral is the `none` entry and OpenRouter the settings-only
+    // one, and each is what a customer sees the moment they pick it. Neither
+    // line names the stack now, which is how this stays true.
+    expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" })).toEqual({
+      state: "TraceRoot has no Mistral adapter, so there is no key to paste here.",
       settings: null,
     });
-    expect(unavailableKeyCopy({ kind: "fixed", adapter: "openrouter" }, "OpenRouter")).toEqual({
-      state: "OpenRouter needs a model list chosen, so it cannot be set up from here.",
+    expect(unavailableKeyCopy({ kind: "fixed", adapter: "openrouter" })).toEqual({
+      state: "OpenRouter needs a model list chosen.",
       settings: "Add it in",
     });
-    for (const [binding, stack] of [
+    for (const [binding, name] of [
       [{ kind: "none", provider: "Mistral" } as const, "Mistral"],
       [{ kind: "fixed", adapter: "openrouter" } as const, "OpenRouter"],
     ] as const) {
       // No name twice over, in either form.
-      const { state } = unavailableKeyCopy(binding, stack);
-      expect(state.split(stack).length - 1, state).toBe(1);
+      const { state } = unavailableKeyCopy(binding);
+      expect(state.split(name).length - 1, state).toBe(1);
     }
   });
 
