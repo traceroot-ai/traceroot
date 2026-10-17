@@ -5,7 +5,6 @@ import type {
   AlertEmissionRevert,
   AlertFailureRecord,
   AlertCloseTarget,
-  AlertDeletedCloseRow,
   ClaimedAlert,
 } from "../claim.js";
 import type { AlertLastDelivery, AlertRule } from "../rule.js";
@@ -25,9 +24,6 @@ const readStoppedAlertCloses = vi.fn<() => Promise<AlertCloseTarget[]>>();
 const takeAlertPendingClose = vi.fn<(alertId: string) => Promise<AlertPendingClose | null>>();
 const restoreAlertPendingClose =
   vi.fn<(alertId: string, pendingClose: AlertPendingClose) => Promise<boolean>>();
-const readDeletedAlertCloses = vi.fn<() => Promise<string[]>>();
-const takeAlertDeletedClose = vi.fn<(id: string) => Promise<AlertDeletedCloseRow | null>>();
-const restoreAlertDeletedClose = vi.fn<(close: AlertDeletedCloseRow) => Promise<void>>();
 
 // Only the wire call is faked: `isSendableAlertSpec` and the chunk size stay
 // real, so the partition under test is the one the scheduler actually applies.
@@ -41,13 +37,10 @@ vi.mock("../claim.js", () => ({
   claimDueAlerts,
   completeAlertEvaluation,
   parkAlertRule,
-  readDeletedAlertCloses,
   readStoppedAlertCloses,
   recordAlertEvaluationFailure,
-  restoreAlertDeletedClose,
   restoreAlertPendingClose,
   revertAlertEmissionState,
-  takeAlertDeletedClose,
   takeAlertPendingClose,
 }));
 
@@ -139,9 +132,6 @@ beforeEach(() => {
   readStoppedAlertCloses.mockReset().mockResolvedValue([]);
   takeAlertPendingClose.mockReset().mockResolvedValue(null);
   restoreAlertPendingClose.mockReset().mockResolvedValue(true);
-  readDeletedAlertCloses.mockReset().mockResolvedValue([]);
-  takeAlertDeletedClose.mockReset().mockResolvedValue(null);
-  restoreAlertDeletedClose.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -1044,95 +1034,6 @@ describe("runAlertTick — a page an edit or a resume discarded", () => {
     ]);
     release();
     await tick;
-  });
-});
-
-describe("runAlertTick — a page a delete discarded", () => {
-  const deleted = (alertId: string, resends = 0): AlertDeletedCloseRow => ({
-    projectId: "proj-1",
-    alertId,
-    name: `Alert ${alertId}`,
-    actorUserId: "user-1",
-    at: new Date("2026-08-12T10:36:10.000Z"),
-    resends,
-  });
-  /** The row as a mutex: the first take gets it, every later one nothing. */
-  const rowsIn = (...rows: [string, AlertDeletedCloseRow][]) => {
-    const held = new Map(rows);
-    readDeletedAlertCloses.mockResolvedValue([...held.keys()]);
-    takeAlertDeletedClose.mockImplementation(async (id) => {
-      const row = held.get(id) ?? null;
-      held.delete(id);
-      return row;
-    });
-  };
-
-  it("queues the close from the row it took, as a deleted close", async () => {
-    rowsIn(["c1", deleted("gone")]);
-
-    await runAlertTick(NOW);
-
-    expect(takeAlertDeletedClose).toHaveBeenCalledWith("c1");
-    expect(enqueueAlertClose).toHaveBeenCalledTimes(1);
-    expect(enqueueAlertClose).toHaveBeenCalledWith({
-      alertId: "gone",
-      projectId: "proj-1",
-      name: "Alert gone",
-      reason: "deleted",
-      actorUserId: "user-1",
-      at: "2026-08-12T10:36:10.000Z",
-    });
-    expect(restoreAlertDeletedClose).not.toHaveBeenCalled();
-  });
-
-  it("carries the resends a row that was put back has already spent", async () => {
-    rowsIn(["c1", deleted("gone", 2)]);
-
-    await runAlertTick(NOW);
-
-    expect(enqueueAlertClose).toHaveBeenCalledWith(expect.objectContaining({ resends: 2 }));
-  });
-
-  it("sends nothing for a row another tick took first", async () => {
-    readDeletedAlertCloses.mockResolvedValue(["c1"]);
-
-    await runAlertTick(NOW);
-
-    expect(enqueueAlertClose).not.toHaveBeenCalled();
-    expect(restoreAlertDeletedClose).not.toHaveBeenCalled();
-  });
-
-  it("puts the row back when the close cannot be queued", async () => {
-    rowsIn(["c1", deleted("gone")]);
-    enqueueAlertClose.mockRejectedValue(new Error("redis down"));
-
-    await runAlertTick(NOW);
-
-    expect(restoreAlertDeletedClose).toHaveBeenCalledTimes(1);
-    expect(restoreAlertDeletedClose).toHaveBeenCalledWith(deleted("gone"));
-  });
-
-  it("goes on to the next row when one take or one put-back fails", async () => {
-    rowsIn(["c1", deleted("a")], ["c2", deleted("b")], ["c3", deleted("c")]);
-    takeAlertDeletedClose.mockRejectedValueOnce(new Error("pool exhausted"));
-    enqueueAlertClose.mockRejectedValueOnce(new Error("redis down"));
-    restoreAlertDeletedClose.mockRejectedValueOnce(new Error("project gone"));
-
-    await runAlertTick(NOW);
-
-    expect(enqueueAlertClose.mock.calls.map(([close]) => close.alertId)).toEqual(["b", "c"]);
-    expect(restoreAlertDeletedClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("evaluates and sends the rules' own closes when the outbox cannot be read", async () => {
-    readDeletedAlertCloses.mockRejectedValue(new Error("pool exhausted"));
-    claimDueAlerts.mockResolvedValue([claimWith("a")]);
-    evaluateAlerts.mockResolvedValue([breachResult("a")]);
-
-    await runAlertTick(NOW);
-
-    expect(enqueueAlertNotification).toHaveBeenCalledTimes(1);
-    expect(takeAlertDeletedClose).not.toHaveBeenCalled();
   });
 });
 

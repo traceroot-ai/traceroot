@@ -57,9 +57,9 @@ export interface AlertNotificationJob extends Omit<AlertNotification, "windowSta
 }
 
 /**
- * The close of a page an edit, a resume or a delete discarded. It reports on no
- * evaluation, so it carries the marker or outbox row it was taken from instead of a
- * window and an emission claim: that is what a close that reached nobody is put back as.
+ * The close of a page an edit or a resume discarded. It reports on no evaluation, so
+ * it carries the marker it was taken from instead of a window and an emission claim:
+ * that is what a close that reached nobody is put back as.
  */
 export interface AlertCloseJob {
   kind: "close";
@@ -68,7 +68,7 @@ export interface AlertCloseJob {
   name: string;
   reason: AlertCloseReason;
   actorUserId: string;
-  /** ISO, as the marker stores it; for a deleted rule, when it was deleted. */
+  /** ISO, as the marker stores it. */
   at: string;
   /** Delivery cycles already spent on this close, as the marker counts them. */
   resends?: number;

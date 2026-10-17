@@ -172,29 +172,28 @@ model ModelProvider {
 
 // Projects - Container for traces and access keys
 model Project {
-  id                 String               @id @db.VarChar
-  workspaceId        String               @map("workspace_id") @db.VarChar
-  name               String               @db.VarChar
-  traceTtlDays       Int?                 @map("trace_ttl_days")
-  deleteTime         DateTime?            @map("delete_time") @db.Timestamp(6)
-  createTime         DateTime             @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime         DateTime             @default(now()) @map("update_time") @db.Timestamp(6)
+  id           String               @id @db.VarChar
+  workspaceId  String               @map("workspace_id") @db.VarChar
+  name         String               @db.VarChar
+  traceTtlDays Int?                 @map("trace_ttl_days")
+  deleteTime   DateTime?            @map("delete_time") @db.Timestamp(6)
+  createTime   DateTime             @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime   DateTime             @default(now()) @map("update_time") @db.Timestamp(6)
   // Agent model for Step 2 deep analysis — project-scoped, shared across all detectors
-  rcaModel           String?              @map("rca_model") @db.VarChar
-  rcaProvider        String?              @map("rca_provider") @db.VarChar
-  rcaSource          String?              @map("rca_source") @db.VarChar
-  accessKeys         AccessKey[]
-  aiSessions         AISession[]
-  detectors          Detector[]
-  alertConfig        DetectorAlertConfig?
-  detectorRcas       DetectorRca[]
-  signals            Signal[]
-  dashboards         Dashboard[]
-  alerts             Alert[]
-  alertDeletedCloses AlertDeletedClose[]
-  datasets           Dataset[]
-  evaluations        Evaluation[]
-  workspace          Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  rcaModel     String?              @map("rca_model") @db.VarChar
+  rcaProvider  String?              @map("rca_provider") @db.VarChar
+  rcaSource    String?              @map("rca_source") @db.VarChar
+  accessKeys   AccessKey[]
+  aiSessions   AISession[]
+  detectors    Detector[]
+  alertConfig  DetectorAlertConfig?
+  detectorRcas DetectorRca[]
+  signals      Signal[]
+  dashboards   Dashboard[]
+  alerts       Alert[]
+  datasets     Dataset[]
+  evaluations  Evaluation[]
+  workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   // A partial unique index uq_project_workspace_live_name on
   // (workspace_id, name) WHERE delete_time IS NULL backs the idempotent
@@ -1099,26 +1098,6 @@ model Alert {
   // Column order matches the claim query: equality on status, range on nextRunAt.
   @@index([status, nextRunAt], map: "ix_alert_status_next_run_at")
   @@map("alerts")
-}
-
-// The close owed by a rule deleted with its page open. The `pending_close` marker
-// cannot carry it, since the delete takes the row with it, so the delete writes it
-// here in the same transaction and the next tick posts it and removes it. No
-// foreign key on `alertId`: the rule it names is already gone.
-model AlertDeletedClose {
-  id          String   @id @default(cuid()) @db.VarChar
-  projectId   String   @map("project_id") @db.VarChar
-  alertId     String   @map("alert_id") @db.VarChar
-  name        String   @db.VarChar
-  actorUserId String   @map("actor_user_id") @db.VarChar
-  // Delivery cycles already spent on it, as `AlertPendingClose.resends` counts them.
-  resends     Int      @default(0)
-  createTime  DateTime @default(now()) @map("create_time") @db.Timestamp(6)
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@index([projectId], map: "ix_alert_deleted_close_project_id")
-  @@map("alert_deleted_closes")
 }
 
 model Widget {

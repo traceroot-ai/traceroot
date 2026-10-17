@@ -1,16 +1,10 @@
 import { Queue, Worker, type Job } from "bullmq";
-import {
-  ALERT_CLOSE_MAX_RESENDS,
-  decryptKey,
-  hasEntitlement,
-  prisma,
-  type AlertStatus,
-  type PlanType,
-} from "@traceroot/core";
+import { ALERT_CLOSE_MAX_RESENDS, decryptKey, prisma, type AlertStatus } from "@traceroot/core";
 import {
   buildAlertBlocks,
   buildAlertClosedBlocks,
   createSlackClient,
+  resolveAlertChannel,
   type WebClient,
 } from "@traceroot/slack";
 import {
@@ -27,7 +21,6 @@ import {
 } from "../queues/alert-notification-queue.js";
 import {
   recordAlertNotifyOutcome,
-  restoreAlertDeletedClose,
   restoreAlertPendingClose,
   type AlertNotifyOutcome,
   type AlertNotifyStatus,
@@ -181,46 +174,6 @@ async function checkAlertStillSendable(payload: AlertNotificationJob): Promise<A
     return blocked(payload, "SUPERSEDED", "superseded", new Date(emission.evaluatedAt));
   }
   return { ok: true };
-}
-
-interface AlertSlackTarget {
-  channelId: string;
-  encryptedBotToken: string;
-}
-
-type ChannelResolution = { ok: true; target: AlertSlackTarget } | { ok: false; reason: string };
-
-/**
- * A project-level channel overrides the workspace default, matching the detector
- * digest. Every miss carries a reason: a send that quietly does nothing is invisible.
- */
-async function resolveAlertChannel(projectId: string): Promise<ChannelResolution> {
-  // Re-checked here, not just at claim time: a deleted project must not be linked to in Slack.
-  const project = await prisma.project.findUnique({
-    where: { id: projectId, deleteTime: null },
-    select: {
-      alertConfig: { select: { slackChannelId: true } },
-      workspace: {
-        select: {
-          billingPlan: true,
-          slackIntegration: { select: { channelId: true, botToken: true } },
-        },
-      },
-    },
-  });
-  if (!project) return { ok: false, reason: "project-missing" };
-
-  const plan = (project.workspace?.billingPlan ?? "free") as PlanType;
-  if (!hasEntitlement(plan, "slack-integration")) {
-    return { ok: false, reason: `no-entitlement plan=${plan}` };
-  }
-
-  const slack = project.workspace?.slackIntegration ?? null;
-  const channelId = project.alertConfig?.slackChannelId ?? slack?.channelId ?? null;
-  if (!channelId) return { ok: false, reason: "no-channel" };
-  if (!slack?.botToken) return { ok: false, reason: "no-bot-token" };
-
-  return { ok: true, target: { channelId, encryptedBotToken: slack.botToken } };
 }
 
 // Errors Slack recovers from itself. Any other is config or payload: retrying changes nothing.
@@ -430,11 +383,9 @@ export async function sendAlertNotification(payload: AlertNotificationJob): Prom
 
 /**
  * A close whose attempts ran out goes back on the rule for a later tick to send, with
- * one more cycle counted against it; a deleted rule's close has no rule to go back on,
- * so it goes back into the outbox it came from. Past `ALERT_CLOSE_MAX_RESENDS` it is
- * dropped: a channel that has refused it this long is not one another half hour will
- * open, and without the cap the close is re-queued for as long as the outage and the
- * rule last.
+ * one more cycle counted against it. Past `ALERT_CLOSE_MAX_RESENDS` it is dropped: a
+ * channel that has refused it this long is not one another half hour will open, and
+ * without the cap the close is re-queued for as long as the outage and the rule last.
  * Guarded: the caller is already on a path that failed, and the worst a lost restore
  * costs is the unclosed page this job existed to close.
  */
@@ -446,18 +397,6 @@ async function restoreClose(job: AlertCloseJob, reason: string): Promise<void> {
     return;
   }
   try {
-    if (job.reason === "deleted") {
-      await restoreAlertDeletedClose({
-        projectId: job.projectId,
-        alertId: job.alertId,
-        name: job.name,
-        actorUserId: job.actorUserId,
-        at: new Date(job.at),
-        resends,
-      });
-      logInfo(`close put back for a later tick ${tag}`);
-      return;
-    }
     const restored = await restoreAlertPendingClose(job.alertId, {
       reason: job.reason,
       actorUserId: job.actorUserId,
@@ -490,7 +429,7 @@ async function resolveActor(userId: string): Promise<string | null> {
 }
 
 /**
- * Posts the close of a page an edit, a resume or a delete discarded. It leaves the rule's
+ * Posts the close of a page an edit or a resume discarded. It leaves the rule's
  * `lastNotify*` columns alone: they report on the page the rule stands on, which the
  * scheduler reads to decide a redelivery, and a close is about the page before it.
  *
@@ -499,8 +438,8 @@ async function resolveActor(userId: string): Promise<string | null> {
  * leaves the channel reading an alert nobody is evaluating. Nor is whether the rule
  * still exists: a close an edit queued is the only close its page gets when the rule
  * is deleted before the job runs, since the take already cleared the marker the
- * delete would have moved to the outbox. A channel no retry can reach drops the close,
- * since the page it would close cannot have been delivered through that channel
+ * delete reads to decide on a close of its own. A channel no retry can reach drops the
+ * close, since the page it would close cannot have been delivered through that channel
  * either; a failure a retry may get past is rethrown, and the caller puts the close
  * back once the job's attempts run out.
  */
