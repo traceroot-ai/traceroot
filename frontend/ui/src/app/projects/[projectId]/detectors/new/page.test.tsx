@@ -4,12 +4,14 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/re
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { getTemplate } from "@/features/detectors/templates";
 
+import { ApiError } from "@/lib/api/client";
+
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
   selectorProps: null as Record<string, unknown> | null,
   editedConditions: [] as Array<Record<string, unknown>>,
-  createMutationError: null as Error | null,
+  createMutationError: null as (Error & { status?: number }) | null,
   resetMutation: vi.fn(),
 }));
 
@@ -211,7 +213,7 @@ describe("NewDetectorPage — the conditions it submits", () => {
 describe("NewDetectorPage — creation error handling", () => {
   it("displays duplicate name error below name field and clears on edit", async () => {
     const errorMsg = "A detector with this name already exists";
-    mocks.createMutationError = new Error(errorMsg);
+    mocks.createMutationError = new ApiError(409, errorMsg);
     mocks.mutateAsync.mockRejectedValueOnce(mocks.createMutationError);
 
     render(<NewDetectorPage />);
@@ -230,7 +232,7 @@ describe("NewDetectorPage — creation error handling", () => {
 
   it("displays unrelated create errors in footer instead of below name field", () => {
     const errorMsg = "Workspace does not have access to selected model";
-    mocks.createMutationError = new Error(errorMsg);
+    mocks.createMutationError = new ApiError(400, errorMsg);
 
     render(<NewDetectorPage />);
     const nameInput = screen.getByDisplayValue("Failure Detector");

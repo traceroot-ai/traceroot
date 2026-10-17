@@ -25,6 +25,7 @@ import {
 import { SignalsCard } from "@/features/detectors/components/signals-card";
 import { useProject } from "@/features/projects/hooks";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { ApiError } from "@/lib/api/client";
 
 export default function NewDetectorPage() {
   const params = useParams();
@@ -94,9 +95,7 @@ export default function NewDetectorPage() {
   const selectedTemplateDef = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate);
 
   const isDuplicateNameError = Boolean(
-    createMutation.isError &&
-    createMutation.error?.message &&
-    /already exists|already in use/i.test(createMutation.error.message),
+    createMutation.isError && (createMutation.error as ApiError | null)?.status === 409,
   );
 
   // Block Create while a filter row is incomplete (missing value or metadata

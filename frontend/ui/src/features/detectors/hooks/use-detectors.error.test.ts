@@ -101,19 +101,46 @@ describe("useDetectorList error path", () => {
 });
 
 describe("useCreateDetector error path", () => {
-  it("extracts error message from response json on failure", async () => {
+  it("extracts error message from response json on failure and carries HTTP status in ApiError", async () => {
     fetchMock.mockResolvedValue({
       ok: false,
-      status: 400,
+      status: 409,
       json: () => Promise.resolve({ error: "A detector with this name already exists" }),
     });
 
     const { useCreateDetector } = await import("./use-detectors");
     const { result } = renderHook(() => useCreateDetector("proj-1"), { wrapper });
 
-    await expect(result.current.mutateAsync({ name: "Failure Detector" } as any)).rejects.toThrow(
-      "A detector with this name already exists",
-    );
+    let thrown: ApiError | null = null;
+    try {
+      await result.current.mutateAsync({ name: "Failure Detector" } as never);
+    } catch (e) {
+      thrown = e as ApiError;
+    }
+    expect(thrown).toBeInstanceOf(ApiError);
+    expect(thrown?.status).toBe(409);
+    expect(thrown?.message).toBe("A detector with this name already exists");
+  });
+
+  it("ignores non-string detail arrays and falls back to status message", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 422,
+      json: () => Promise.resolve({ detail: [{ loc: ["body", "name"], msg: "field required" }] }),
+    });
+
+    const { useCreateDetector } = await import("./use-detectors");
+    const { result } = renderHook(() => useCreateDetector("proj-1"), { wrapper });
+
+    let thrown: ApiError | null = null;
+    try {
+      await result.current.mutateAsync({ name: "Failure Detector" } as never);
+    } catch (e) {
+      thrown = e as ApiError;
+    }
+    expect(thrown).toBeInstanceOf(ApiError);
+    expect(thrown?.status).toBe(422);
+    expect(thrown?.message).toBe("Failed to create detector: 422");
   });
 
   it("falls back to status message when json parsing fails", async () => {
@@ -126,8 +153,37 @@ describe("useCreateDetector error path", () => {
     const { useCreateDetector } = await import("./use-detectors");
     const { result } = renderHook(() => useCreateDetector("proj-1"), { wrapper });
 
-    await expect(result.current.mutateAsync({ name: "Failure Detector" } as any)).rejects.toThrow(
-      "Failed to create detector: 500",
-    );
+    let thrown: ApiError | null = null;
+    try {
+      await result.current.mutateAsync({ name: "Failure Detector" } as never);
+    } catch (e) {
+      thrown = e as ApiError;
+    }
+    expect(thrown).toBeInstanceOf(ApiError);
+    expect(thrown?.status).toBe(500);
+    expect(thrown?.message).toBe("Failed to create detector: 500");
+  });
+});
+
+describe("useUpdateDetector error path", () => {
+  it("extracts error message and carries HTTP status in ApiError", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: () => Promise.resolve({ error: "A detector with this name already exists" }),
+    });
+
+    const { useUpdateDetector } = await import("./use-detectors");
+    const { result } = renderHook(() => useUpdateDetector("proj-1", "det-1"), { wrapper });
+
+    let thrown: ApiError | null = null;
+    try {
+      await result.current.mutateAsync({ name: "Failure Detector" } as never);
+    } catch (e) {
+      thrown = e as ApiError;
+    }
+    expect(thrown).toBeInstanceOf(ApiError);
+    expect(thrown?.status).toBe(409);
+    expect(thrown?.message).toBe("A detector with this name already exists");
   });
 });

@@ -83,6 +83,16 @@ async function fetchDetector(projectId: string, detectorId: string): Promise<Det
   return data.detector;
 }
 
+function extractErrorMessage(body: unknown, fallback: string): string {
+  if (typeof body === "object" && body !== null) {
+    const b = body as Record<string, unknown>;
+    if (typeof b.error === "string") return b.error;
+    if (typeof b.message === "string") return b.message;
+    if (typeof b.detail === "string") return b.detail;
+  }
+  return fallback;
+}
+
 async function createDetector(projectId: string, input: CreateDetectorInput): Promise<Detector> {
   const res = await fetch(`/api/projects/${projectId}/detectors`, {
     method: "POST",
@@ -91,9 +101,8 @@ async function createDetector(projectId: string, input: CreateDetectorInput): Pr
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(
-      body.error ?? body.detail ?? body.message ?? `Failed to create detector: ${res.status}`,
-    );
+    const message = extractErrorMessage(body, `Failed to create detector: ${res.status}`);
+    throw new ApiError(res.status, message);
   }
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
@@ -122,7 +131,11 @@ async function updateDetector(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to update detector: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const message = extractErrorMessage(body, `Failed to update detector: ${res.status}`);
+    throw new ApiError(res.status, message);
+  }
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
 }
