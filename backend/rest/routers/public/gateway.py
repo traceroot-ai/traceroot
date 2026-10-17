@@ -9,9 +9,14 @@ key authoritatively — no token exchange, no second host to configure.
 This module is deliberately resource-agnostic, so a router that needs the same
 proxying does not copy ~100 lines of it. Anything added here must stay free of
 resource-specific behaviour.
+
+A proxy that concatenates caller-controlled path text onto an internal origin is
+an open reverse proxy, so no caller-supplied segment may be interpolated into
+``subpath`` raw: ``path_segment`` below is what a router runs it through first.
 """
 
 import logging
+import re
 
 import httpx
 from fastapi import HTTPException, Request, Response, status
@@ -47,6 +52,49 @@ _FORWARD_REQUEST_HEADERS = frozenset(
 _MAX_FORWARD_BODY_BYTES = 8 * 1024 * 1024
 
 _GENERIC_UPSTREAM_ERROR = "Request failed"
+
+# One path segment of a forwarded URL: an opaque id, deliberately narrow. No
+# `/`, `%`, `\`, `:` or whitespace can pass, so percent-encoded traversal
+# (`..%2F`, which the ASGI server has already unquoted by the time the route
+# matches), double-encoded traversal (`%252e`, which arrives with a literal `%`),
+# backslash traversal and absolute URLs (`http://…`) are all refused before any
+# URL is built. The eval gateway's `_SEGMENT_RE` is the same class for the same
+# reason.
+_PATH_SEGMENT_RE = re.compile(r"[A-Za-z0-9_.~-]{1,128}")
+
+# Dot-segments match the character class above, so they are excluded by name.
+# Percent-encoding them instead would not do it: `quote("..", safe="")` returns
+# `..` unchanged, because `.` is one of the characters `quote` never escapes.
+_DOT_SEGMENTS = frozenset({".", ".."})
+
+
+def path_segment(value: str) -> str:
+    """Validate one caller-supplied path segment before it is forwarded.
+
+    ``forward`` concatenates its ``subpath`` onto the control-plane origin and
+    httpx then resolves the result, which does two things a router does not
+    intend. A segment of ``..`` is resolved away, so ``api-keys/..`` leaves this
+    process as ``DELETE /api/public`` — a different upstream handler from the one
+    the route names; and a segment carrying ``?`` or ``#`` re-points the
+    forwarded URL's query or truncates its path. The control plane
+    re-authenticates, so neither is privilege escalation, but a request reaching
+    a handler other than the intended one is not a thing to allow on the way to
+    finding that out.
+
+    Args:
+        value (str): The caller-supplied segment, such as a key id.
+
+    Returns:
+        str: ``value`` unchanged, once it is known to be one opaque segment.
+
+    Raises:
+        HTTPException: 404 if it is not. A 404 rather than a 400 keeps the
+            gateway from confirming which internal paths exist, matching the
+            eval gateway's answer to the same input.
+    """
+    if value in _DOT_SEGMENTS or not _PATH_SEGMENT_RE.fullmatch(value):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return value
 
 
 async def _read_capped_body(request: Request) -> bytes:

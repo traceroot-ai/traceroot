@@ -270,9 +270,11 @@ def _app_with(dependency, inner, auth: AuthResult) -> TestClient:
     """A throwaway app whose one route depends on ``dependency``.
 
     The dependencies are exercised on a route of their own rather than on a
-    production one, because no route on this service requires ``admin`` —
-    ``test_public_route_scopes.py`` is what pins that. What is under test here is
-    the dependency's own contract, so the route only has to exist.
+    production one because which production routes require ``admin`` — the three
+    key-management gateways in ``api_keys.py``, and nothing else — is pinned by
+    ``test_public_route_scopes.py``, and because ``require_admin_scope`` has no
+    production route at all yet. What is under test here is the dependency's own
+    contract, so the route only has to exist.
     """
     app = FastAPI()
 

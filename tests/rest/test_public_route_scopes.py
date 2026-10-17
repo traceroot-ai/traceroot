@@ -191,10 +191,11 @@ def test_no_key_reachable_route_is_missing_a_scope_decision():
 def test_user_only_routes_are_unreachable_by_any_key():
     """The administrative routes here refuse a key by credential, not by scope.
 
-    This is why no route on this service requires ``admin``: the project and
-    workspace writes are user-credential-only, so an ``admin`` key is refused
-    there exactly as an ``ingest`` one is. Scope is not what protects them, and a
-    reader of the table above should not conclude that it is.
+    This is why no route besides the key-management gateways requires ``admin``:
+    the project and workspace writes are user-credential-only, so an ``admin``
+    key is refused there exactly as an ``ingest`` one is. Scope is not what
+    protects them, and a reader of the table above should not conclude that it
+    is.
     """
     user_only = [row for row in _actual_route_scopes() if row[2] == "user"]
     assert user_only, "expected the account/project write surface to be user-only"
