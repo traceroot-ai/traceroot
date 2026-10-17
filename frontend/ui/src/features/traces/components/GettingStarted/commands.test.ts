@@ -100,11 +100,26 @@ describe("cliHostFlags", () => {
 });
 
 describe("setupCommand", () => {
+  it("resolves to one exact published CLI, never a tag or a range", async () => {
+    // Three failures in one assertion, and each has happened or is one edit
+    // away. `@latest` is 0.5.0, which has no `setup` subcommand — the line dies
+    // with "unknown command 'setup'" — and is resolved per machine against
+    // npx's cache besides. A `^` range would be the obvious compromise and is
+    // not safe either: `^` is an escape character in Windows `cmd.exe`. And an
+    // exact pin is what makes the flags below printable at all, because an
+    // option a published CLI does not declare is a fatal usage error rather
+    // than something it ignores.
+    const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
+
+    const invocation = setupCommand({ projectId: "proj_1" }).split(" ")[2];
+    expect(invocation).toMatch(/^traceroot-cli@\d+\.\d+\.\d+$/);
+  });
+
   it("names the project the caller already has in hand", async () => {
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@latest setup --project proj_1",
+      "npx -y traceroot-cli@0.6.1 setup --project proj_1",
     );
   });
 
@@ -113,9 +128,9 @@ describe("setupCommand", () => {
     // id no real project has is dropped rather than quoted into the line.
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
-    expect(setupCommand({ projectId: "" })).toBe("npx -y traceroot-cli@latest setup");
+    expect(setupCommand({ projectId: "" })).toBe("npx -y traceroot-cli@0.6.1 setup");
     expect(setupCommand({ projectId: "proj 1; rm -rf ~" })).toBe(
-      "npx -y traceroot-cli@latest setup",
+      "npx -y traceroot-cli@0.6.1 setup",
     );
   });
 
@@ -125,7 +140,7 @@ describe("setupCommand", () => {
     const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@latest setup --project proj_1",
+      "npx -y traceroot-cli@0.6.1 setup --project proj_1",
     );
   });
 
@@ -139,7 +154,7 @@ describe("setupCommand", () => {
     });
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@latest setup --project proj_1 " +
+      "npx -y traceroot-cli@0.6.1 setup --project proj_1 " +
         "--host 'http://localhost:8000' --auth-host 'http://localhost:3000'",
     );
   });
@@ -151,7 +166,7 @@ describe("setupCommand", () => {
     const setupCommand = await setupCommandWith({});
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@latest setup --project proj_1 --host 'http://localhost:3000'",
+      "npx -y traceroot-cli@0.6.1 setup --project proj_1 --host 'http://localhost:3000'",
     );
   });
 
@@ -164,8 +179,81 @@ describe("setupCommand", () => {
     });
 
     expect(setupCommand({ projectId: "proj_1" })).toBe(
-      "npx -y traceroot-cli@latest setup --project proj_1 " +
+      "npx -y traceroot-cli@0.6.1 setup --project proj_1 " +
         "--host 'http://[::1]:8000' --auth-host 'http://[::1]:3000'",
+    );
+  });
+});
+
+describe("setupCommand with a handoff", () => {
+  // Shaped like the mint answers it: `trh_` and 43 base64url characters,
+  // including both of the alphabet's non-alphanumerics.
+  const CODE = "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABC";
+
+  it("carries the code as a bare word, after the project", async () => {
+    // Unquoted on purpose, and the whole line is asserted so the position is
+    // pinned too: base64url is `[A-Za-z0-9_-]`, a strict subset of the class
+    // this file already certifies as safe to print unquoted for the project id,
+    // and none of those characters is special to a shell.
+    const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
+
+    expect(setupCommand({ projectId: "proj_1", handoff: CODE })).toBe(
+      `npx -y traceroot-cli@0.6.1 setup --project proj_1 --handoff ${CODE}`,
+    );
+  });
+
+  it("prints today's working command when there is no code", async () => {
+    // The mint failing must degrade to the status quo, not to a blank step: the
+    // command below is exactly what this page printed before handoffs existed.
+    // It still works — `setup` falls into the device flow and the user approves
+    // it in a second browser page, which is the page this flag exists to avoid
+    // rather than a thing the flow needs.
+    const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
+    const unaided = "npx -y traceroot-cli@0.6.1 setup --project proj_1";
+
+    expect(setupCommand({ projectId: "proj_1" })).toBe(unaided);
+    expect(setupCommand({ projectId: "proj_1", handoff: null })).toBe(unaided);
+    expect(setupCommand({ projectId: "proj_1", handoff: "" })).toBe(unaided);
+  });
+
+  it("keeps the project flag on the line in both cases", async () => {
+    // Not redundant with the two above: `--project` is what makes the *expired*
+    // handoff cheap. The CLI falls back to the device flow and `chooseProject`
+    // resolves from this flag, so dropping it would give the degraded path a
+    // prompt the undegraded path never shows.
+    const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
+
+    expect(setupCommand({ projectId: "proj_1", handoff: CODE })).toContain("--project proj_1");
+    expect(setupCommand({ projectId: "proj_1", handoff: null })).toContain("--project proj_1");
+  });
+
+  it("drops a code a shell would not read as one word", async () => {
+    // Nothing the mint returns should look like this, which is the point: a
+    // value that is not a bare word is not a code this page can print, and the
+    // command without it already works. Quoting it instead would be guessing at
+    // a value whose shape the contract says is impossible.
+    const setupCommand = await setupCommandWith({ appUrl: "https://app.traceroot.ai" });
+
+    for (const handoff of ["trh_a b", "trh_a;rm -rf ~", "trh_a'b", "trh_$(id)", "trh_a`b`"]) {
+      expect(setupCommand({ projectId: "proj_1", handoff })).toBe(
+        "npx -y traceroot-cli@0.6.1 setup --project proj_1",
+      );
+    }
+  });
+
+  it("stays before the host flags on a self-hosted deployment", async () => {
+    // Both halves of the line at once: a deployment that needs `--host` and
+    // `--auth-host` is also the one where the handoff is redeemed against the
+    // auth host, so the flags have to coexist rather than one replacing the
+    // other.
+    const setupCommand = await setupCommandWith({
+      apiUrl: "http://localhost:8000/api/v1",
+      appUrl: "http://localhost:3000",
+    });
+
+    expect(setupCommand({ projectId: "proj_1", handoff: CODE })).toBe(
+      `npx -y traceroot-cli@0.6.1 setup --project proj_1 --handoff ${CODE} ` +
+        "--host 'http://localhost:8000' --auth-host 'http://localhost:3000'",
     );
   });
 });

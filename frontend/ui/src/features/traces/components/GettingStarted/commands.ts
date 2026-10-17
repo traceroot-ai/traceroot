@@ -1,6 +1,8 @@
-// Single source of truth for the onboarding setup snippets, shared by the AI-tab
-// SetupTabs widget, the Manual-tab CliVerifyCard and the first-run hand-back
-// page, so none of them can drift apart.
+// Single source of truth for the onboarding setup snippets, so the places that
+// show them cannot drift apart: `SetupTabs` takes `CLI_COMMANDS`,
+// `INSTRUMENT_PROMPT` and `SKILLS_COMMAND`, and onboarding's hand-back step
+// takes `setupCommand`. (This header used to name a Manual-tab `CliVerifyCard`
+// as a third reader; no such component exists in the tree.)
 
 import { clientEnv } from "@/env.client";
 
@@ -18,8 +20,32 @@ export const INSTRUMENT_PROMPT =
 /** Install the first-party TraceRoot skills into a coding agent. */
 export const SKILLS_COMMAND = "npx skills add traceroot-ai/traceroot-skills";
 
+/**
+ * The published CLI the printed command resolves to.
+ *
+ * An exact pin, and the ordering it encodes is the point: **the version named
+ * here must already be published to npm carrying every flag this file puts on
+ * the line, before this constant names it.** `setupCommand` renders
+ * `--handoff`, and an option the resolved CLI does not declare is not ignored —
+ * commander reports it as a usage error and exits — so a pin that runs ahead of
+ * a release ends someone's sign-up on "unknown option". Bumping this is
+ * therefore the last step of a CLI release, never the first.
+ *
+ * Not `@latest`, which is what this was: `npm view traceroot-cli dist-tags`
+ * answers 0.5.0, a version with no `setup` subcommand at all, so the line this
+ * file prints dies with "unknown command 'setup'" on Cloud today. `@latest` is
+ * also resolved per machine against npx's cache, so even once a good version is
+ * published a warm cache can still hand back an older one, and a rollback
+ * silently re-breaks the page.
+ *
+ * Not a `^` range either, which would otherwise be the compromise: `^` is an
+ * escape character in Windows `cmd.exe`, and this line has to survive being
+ * pasted into whatever shell the reader happens to have open.
+ */
+const SETUP_CLI_VERSION = "0.6.1";
+
 /** The invocation, before the flags this page is able to fill in. */
-const SETUP_BASE = "npx -y traceroot-cli@latest setup";
+const SETUP_BASE = `npx -y traceroot-cli@${SETUP_CLI_VERSION} setup`;
 
 /**
  * The API host `traceroot setup` assumes when it is passed no `--host`.
@@ -45,17 +71,22 @@ const CLI_DEFAULT_HOST = "https://app.traceroot.ai";
 const DEFAULT_APP_ORIGIN = "http://localhost:3000";
 
 /**
- * Project ids the command may carry unquoted.
+ * Values the command may carry unquoted.
  *
- * The id reaches this panel from the URL, and the output is a line someone
- * pastes into their own shell. Quoting it would be the obvious alternative, but
- * a quote cannot survive a value that contains one; omitting the flag for an id
- * no real project has costs a prompt the user can still answer.
+ * Two of the flags below carry a value this file did not author: the project
+ * id, which reaches the panel from the URL, and the handoff code, which reaches
+ * it from the mint. Both end up on a line someone pastes into their own shell.
+ * Quoting would be the obvious alternative, but a quote cannot survive a value
+ * that contains one; omitting a flag whose value is not a bare word costs at
+ * most a prompt the user can still answer, or — for the handoff — the browser
+ * page they would have had anyway.
  *
- * None of `.`, `_` or `-` is special to a shell, so a matching id is safe as a
- * bare word and is rendered as one.
+ * None of `.`, `_` or `-` is special to a shell, so a matching value is safe as
+ * a bare word and is rendered as one. That covers the handoff code without a
+ * second rule: its alphabet is base64url, `[A-Za-z0-9_-]`, which is a strict
+ * subset of this class, and its `trh_` prefix is in the class too.
  */
-const PLAIN_PROJECT_ID = /^[A-Za-z0-9._-]+$/;
+const PLAIN_ARG = /^[A-Za-z0-9._-]+$/;
 
 /**
  * Origins this file is willing to put in the line.
@@ -179,15 +210,41 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
  * unflagged command signs in against the wrong host entirely. See
  * `cliHostFlags` for why that takes two flags and not one.
  *
- * All three are declared on the program rather than on `setup`, and commander
- * accepts a program option after the subcommand name, so they read as part of
- * the one line a user pastes.
+ * The host flags are declared on the program rather than on `setup`, and
+ * commander accepts a program option after the subcommand name, so they read as
+ * part of the one line a user pastes. `--handoff` is declared on `setup`
+ * itself, because a one-shot onboarding credential has no business appearing in
+ * every other subcommand's help.
  */
-export function setupCommand(input: { projectId: string }): string {
+export function setupCommand(input: {
+  projectId: string;
+  /**
+   * A one-time code that signs the terminal in without opening a browser.
+   *
+   * Optional, and null when the mint failed, because the command without it is
+   * the command this page printed before handoffs existed: `setup` finds no
+   * credential, runs the device flow, and the user approves it in a second
+   * browser page. That is a worse flow, not a broken one — which is why a
+   * failure here degrades to it silently rather than reporting anything.
+   */
+  handoff?: string | null;
+}): string {
   const parts = [SETUP_BASE];
 
-  if (PLAIN_PROJECT_ID.test(input.projectId)) {
+  if (PLAIN_ARG.test(input.projectId)) {
     parts.push(`--project ${input.projectId}`);
+  }
+
+  // After `--project`, which stays on the line whether or not this one is
+  // there: the fallback for an expired code is the device flow, and
+  // `chooseProject` reads the flag to resolve without prompting. Dropping it
+  // would give the degraded path a question the undegraded path does not ask.
+  //
+  // Printed bare. The value is base64url behind a `trh_` prefix, which
+  // `PLAIN_ARG` already certifies as shell-safe — and a value that somehow is
+  // not is dropped rather than quoted, leaving the working command above.
+  if (input.handoff && PLAIN_ARG.test(input.handoff)) {
+    parts.push(`--handoff ${input.handoff}`);
   }
 
   const { host, authHost } = cliHostFlags({
