@@ -5,6 +5,7 @@ import { useProject } from "@/features/projects/hooks";
 import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { setupCommand } from "./commands";
+import { SectionLink } from "./SectionLink";
 
 interface AITabProps {
   projectId: string;
@@ -52,14 +53,9 @@ export function AITab({ projectId }: AITabProps) {
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <p className="text-[13px] font-medium text-foreground">Run this in your project</p>
-          <a
-            href="https://traceroot.ai/docs/tracing/get-started"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-          >
+          <SectionLink href="https://traceroot.ai/docs/tracing/get-started">
             View the tracing docs
-          </a>
+          </SectionLink>
         </div>
         <CodeBlock label="bash" value={setupCommand({ projectId })} />
         <p className="text-[12px] text-muted-foreground">

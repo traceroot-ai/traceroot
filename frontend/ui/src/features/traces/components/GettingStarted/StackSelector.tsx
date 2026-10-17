@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
+import { SectionLink } from "./SectionLink";
 import {
   filterIntegrations,
   INTEGRATION_GROUPS,
@@ -67,14 +68,9 @@ export function StackSelector({ selected, onSelect }: StackSelectorProps) {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] font-medium text-foreground">Select your stack</p>
-        <a
-          href="https://github.com/traceroot-ai/traceroot/issues/new"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-        >
+        <SectionLink href="https://github.com/traceroot-ai/traceroot/issues/new">
           Don&apos;t see yours? Request one
-        </a>
+        </SectionLink>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

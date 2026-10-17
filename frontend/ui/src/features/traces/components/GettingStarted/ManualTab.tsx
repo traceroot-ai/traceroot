@@ -7,6 +7,7 @@ import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
+import { SectionLink } from "./SectionLink";
 import { WorkspaceUnavailable } from "./WorkspaceUnavailable";
 import { ALL_LANGS, type IntegrationOption, type Lang } from "./integrations";
 
@@ -105,14 +106,7 @@ export function ManualTab({ projectId, integration }: ManualTabProps) {
           {/* Kept beside the snippet it explains, and it moves with the
               selection: the page the reader needs is the one for the stack
               whose code is on screen. */}
-          <a
-            href={integration.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-          >
-            View {integration.name} docs
-          </a>
+          <SectionLink href={integration.href}>View {integration.name} docs</SectionLink>
         </div>
         <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
         <CodeBlock label={resolvedLang} value={config.initSnippet} language={resolvedLang} />
