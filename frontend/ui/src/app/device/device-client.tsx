@@ -279,13 +279,40 @@ function DeviceContent() {
   // Signed in as the wrong account. Because the code isn't claimed until the user
   // acts (see claimActiveCode), it's still usable by a different account — so
   // carry it back through sign-in and return to consent as the new account,
-  // rather than dropping the flow. Clear activeCode first so signing out doesn't
-  // re-fire the effect's signed-out branch mid-flip (we push the sign-in URL,
-  // with the code in callbackUrl, explicitly below).
+  // rather than dropping the flow.
   async function handleSwitchAccount() {
     const code = activeCode;
+    let cleared: boolean;
+    try {
+      // The client reports an HTTP failure in `error` and rejects only when the
+      // request never completed, so both have to be read before the session can
+      // be called cleared. A rate limit or a proxy error leaves the cookie in
+      // place, and a sign-in reached on a live session hands the browser
+      // straight back here as the same account — the thing this button exists
+      // to undo, now with nothing said about it.
+      const { error } = await authClient.signOut();
+      cleared = !error;
+    } catch {
+      cleared = false;
+    }
+    if (!cleared) {
+      // Its own message rather than the device-error mapper, for the same reason
+      // the workspace load above uses one: nothing is wrong with the code. The
+      // code is deliberately still set — every phase that renders anything is
+      // gated on it, so clearing it before the sign-out is known to have
+      // happened leaves this card with a header over an empty body.
+      setPhase({
+        kind: "error",
+        message:
+          "Could not sign out, so you are still signed in and nothing was approved. Check your connection and try again.",
+        recoverable: true,
+      });
+      return;
+    }
+    // Cleared only once the session is gone, so signing out doesn't re-fire the
+    // effect's signed-out branch mid-flip (we push the sign-in URL, with the
+    // code in callbackUrl, explicitly below).
     setActiveCode(null);
-    await authClient.signOut();
     if (!code) {
       router.push("/auth/sign-in");
       return;
