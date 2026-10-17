@@ -32,5 +32,6 @@ export function useRetention(projectId: string) {
     closePricing,
     workspaceId,
     billingPlan,
+    hasSubscription: !!workspace?.billingSubscriptionId,
   };
 }
