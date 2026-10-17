@@ -125,6 +125,32 @@ async function rounds(count: number) {
   }
 }
 
+/** Document order, so "above" is asserted rather than read off the markup. */
+function isAbove(first: Element, second: Element): boolean {
+  return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
+/**
+ * The block the frame pins to the top of the viewport: the logo, the "Setup"
+ * heading, its description and — since the layout fix — the first-trace line.
+ * Found from the heading rather than by a class, so it is the block the user
+ * sees rather than a selector that happens to match it.
+ */
+function headerBlock(): HTMLElement {
+  const heading = screen.getByRole("heading", { name: "Setup" });
+  return heading.parentElement!.parentElement!;
+}
+
+/** Whichever of the three states the line is currently in. */
+function traceLine(): HTMLElement {
+  const found = screen.queryAllByText(
+    /Waiting for your first trace|Your first trace arrived|Still no trace/,
+  );
+  // One on screen, never two: the steps used to render their own.
+  expect(found).toHaveLength(1);
+  return found[0]!;
+}
+
 /** Mount, create the workspace and project, and settle on the hand-back step. */
 async function reachHandback() {
   render(
@@ -136,6 +162,13 @@ async function reachHandback() {
   );
   await flush();
   fireEvent.click(screen.getByRole("button", { name: "Create" }));
+  await flush();
+}
+
+/** The same, then on to the manual walkthrough. */
+async function reachManual() {
+  await reachHandback();
+  fireEvent.click(screen.getByRole("button", { name: "Set up manually" }));
   await flush();
 }
 
@@ -260,5 +293,117 @@ describe("the hand-back step's first-trace watch", () => {
     await rounds(2);
 
     expect(mocks.getTraces).not.toHaveBeenCalled();
+  });
+});
+
+describe("where the page says the watch stands", () => {
+  it("says it once, in the pinned header, on the hand-back step", async () => {
+    // The user's own ask: the icon, the heading, the description and this line
+    // are one block that does not move, so the line goes up with them rather
+    // than sitting inside whichever step is on screen. Asserted through the DOM
+    // tree and document order — a class name would not have caught the layout
+    // bug this replaced.
+    await reachHandback();
+    await rounds(1);
+
+    const line = traceLine();
+    expect(headerBlock().contains(line)).toBe(true);
+    expect(isAbove(screen.getByRole("heading", { name: "Setup" }), line)).toBe(true);
+    expect(isAbove(line, screen.getByText("Finish setting up in your terminal"))).toBe(true);
+  });
+
+  it("keeps it in that same header when the user switches to the manual step", async () => {
+    // The switch is what moved it before: the step rendered its own copy, so the
+    // line changed place along with everything else on the card.
+    await reachManual();
+    await rounds(1);
+
+    const line = traceLine();
+    expect(headerBlock().contains(line)).toBe(true);
+    expect(isAbove(line, screen.getByText("Set up tracing by hand"))).toBe(true);
+    // And above the walkthrough's own shared top, which used to hold it.
+    expect(isAbove(line, screen.getByText("Select your stack"))).toBe(true);
+    expect(isAbove(line, screen.getByText("Use your own model key"))).toBe(true);
+  });
+
+  it("is the same node across the switch, not a second one somewhere else", async () => {
+    // Both halves of "exactly one": the node survives the step change, and no
+    // step contributes one of its own on either side of it.
+    await reachHandback();
+    await rounds(1);
+    const before = traceLine();
+
+    fireEvent.click(screen.getByRole("button", { name: "Set up manually" }));
+    await flush();
+    expect(traceLine()).toBe(before);
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to the terminal command" }));
+    await flush();
+    expect(traceLine()).toBe(before);
+  });
+
+  it("holds the slot open before there is anything to say in it", async () => {
+    // The line is absent until a project exists. The space it will take is
+    // reserved from the first render, so pressing Create does not step the card
+    // down — the smaller version of the complaint this layout fix is about.
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <OnboardingPage />
+      </QueryClientProvider>,
+    );
+    await flush();
+
+    expect(
+      screen.queryByText(/Waiting for your first trace|Your first trace arrived|Still no trace/),
+    ).toBeNull();
+    const slot = headerBlock().lastElementChild as HTMLElement;
+    expect(slot.className).toContain("min-h-[33px]");
+    expect(slot.childElementCount).toBe(0);
+  });
+
+  it("reports the arrival from the header, with the link to the trace", async () => {
+    await reachHandback();
+    await rounds(1);
+    tracePage = [trace("t-run", "2026-05-01T10:05:00Z")];
+    await rounds(1);
+
+    const line = traceLine();
+    expect(line.textContent).toContain("Your first trace arrived");
+    expect(headerBlock().contains(line)).toBe(true);
+    expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
+      "/projects/proj-1/traces?traceId=t-run",
+    );
+  });
+
+  it("reports the arrival from the header on the manual step too", async () => {
+    await reachManual();
+    await rounds(1);
+    tracePage = [trace("t-manual", "2026-05-01T10:05:00Z")];
+    await rounds(1);
+
+    const line = traceLine();
+    expect(line.textContent).toContain("Your first trace arrived");
+    expect(headerBlock().contains(line)).toBe(true);
+    expect(isAbove(line, screen.getByText("Set up tracing by hand"))).toBe(true);
+    expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
+      "/projects/proj-1/traces?traceId=t-manual",
+    );
+  });
+
+  it("reports an empty wait from the header, on whichever step is open", async () => {
+    await reachManual();
+    for (let elapsed = 0; elapsed < WAIT_BUDGET_MS; elapsed += POLL_INTERVAL_MS) {
+      await rounds(1);
+    }
+
+    const line = traceLine();
+    expect(line.textContent).toContain("Still no trace");
+    expect(headerBlock().contains(line)).toBe(true);
+    expect(isAbove(line, screen.getByText("Set up tracing by hand"))).toBe(true);
+    expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
+      "/projects/proj-1/traces",
+    );
   });
 });

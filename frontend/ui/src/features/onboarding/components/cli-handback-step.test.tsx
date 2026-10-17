@@ -2,7 +2,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
-import type { TraceWait } from "@/lib/hooks/use-trace-wait";
 import { CliHandbackStep } from "./cli-handback-step";
 
 vi.mock("next/link", () => ({
@@ -26,7 +25,6 @@ function renderStep(overrides: Partial<Parameters<typeof CliHandbackStep>[0]> = 
       handoff={null}
       onSetUpManually={onSetUpManually}
       onSkip={onSkip}
-      wait={{ kind: "waiting" }}
       {...overrides}
     />,
   );
@@ -38,7 +36,6 @@ function renderStep(overrides: Partial<Parameters<typeof CliHandbackStep>[0]> = 
         handoff={null}
         onSetUpManually={onSetUpManually}
         onSkip={onSkip}
-        wait={{ kind: "waiting" }}
         {...overrides}
         {...next}
       />,
@@ -94,43 +91,15 @@ describe("CliHandbackStep", () => {
     expect(screen.getByText(/checkout-agent is ready/)).toBeDefined();
   });
 
-  it("says it is watching for the trace the command will produce", () => {
-    // Without this the step gives no sign that anything is listening, so
-    // running the command looks like it leads nowhere.
+  it("leaves the first-trace line to the page", () => {
+    // The page renders it once, in the header above the card, so that it stays
+    // in one place across both steps. A copy here would be a second one on
+    // screen and would move with the step.
     renderStep();
 
-    expect(screen.getByText(/Waiting for your first trace/)).toBeDefined();
-  });
-
-  it("shows the arrived trace without closing the step down", () => {
-    // The page opens the trace; this step only reports it. Until that push
-    // lands the link is the way through, and neither alternative below is
-    // withdrawn — the arrival adds an exit, it does not remove any.
-    const { onSetUpManually, onSkip } = renderStep({
-      wait: { kind: "found", found: { projectId: "proj-1", traceId: "t-1" } },
-    });
-
-    expect(screen.getByText(/Your first trace arrived/)).toBeDefined();
-    expect(screen.getByRole("link", { name: "View it" }).getAttribute("href")).toBe(
-      "/projects/proj-1/traces?traceId=t-1",
-    );
-    // Nothing about the arrival closes the step down.
-    expect(screen.getByRole("button", { name: "Set up manually" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
-    expect(onSetUpManually).not.toHaveBeenCalled();
-    expect(onSkip).not.toHaveBeenCalled();
-  });
-
-  it("says so, and still points somewhere, when no trace turns up", () => {
-    // The outcome the spinner must never settle into. The run is still going
-    // wherever the command was run; only this page has stopped watching.
-    renderStep({ wait: { kind: "gave-up", fallbackUrl: "/projects/proj-1/traces" } });
-
-    expect(screen.getByText(/Still no trace/)).toBeDefined();
-    expect(screen.getByRole("link", { name: "Open your traces" }).getAttribute("href")).toBe(
-      "/projects/proj-1/traces",
-    );
-    expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
+    expect(screen.queryByText(/Waiting for your first trace/)).toBeNull();
+    expect(screen.queryByText(/Your first trace arrived/)).toBeNull();
+    expect(screen.queryByText(/Still no trace/)).toBeNull();
   });
 
   it("carries the handoff code, so the terminal needs no browser page", () => {
@@ -183,28 +152,10 @@ describe("CliHandbackStep", () => {
     expect(shownCommand(container)).toContain("--project proj-1");
   });
 
-  it("keeps the trace line above the command, in every state it has", () => {
-    // The user's own ask, after watching a competitor: the waiting line goes up,
-    // not at the bottom. It is the only line on the step that reports anything
-    // happening, and someone who has pasted the command is watching their
-    // terminal — so when they glance back at this tab it has to be in the part
-    // they see first, not under the thing they have already run.
-    const states: TraceWait[] = [
-      { kind: "waiting" },
-      { kind: "found", found: { projectId: "proj-1", traceId: "t-1" } },
-      { kind: "gave-up", fallbackUrl: "/projects/proj-1/traces" },
-    ];
-    const said = [/Waiting for your first trace/, /Your first trace arrived/, /Still no trace/];
+  it("keeps the command under the line that names the project", () => {
+    const { container } = renderStep();
 
-    states.forEach((wait, index) => {
-      const { container } = renderStep({ wait });
-      const line = screen.getByText(said[index]!);
-      const command = container.querySelector("pre")!;
-
-      expect(isAbove(screen.getByText(/is ready/), line)).toBe(true);
-      expect(isAbove(line, command)).toBe(true);
-      cleanup();
-    });
+    expect(isAbove(screen.getByText(/is ready/), container.querySelector("pre")!)).toBe(true);
   });
 
   it("says where the command has to be run", () => {
