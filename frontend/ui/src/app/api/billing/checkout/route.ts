@@ -51,10 +51,11 @@ class CheckoutCompletedError extends Error {}
 /**
  * Whether Stripe refused this request because the idempotency key is already held
  * by a request with different parameters — which is how a competing checkout for
- * another plan is detected.
+ * another plan is detected. stripe-node sets `type` to the error class name
+ * (`StripeIdempotencyError`) and keeps the API's own type in `rawType`.
  */
 function isIdempotencyConflict(error: unknown) {
-  return (error as { type?: string } | null)?.type === "idempotency_error";
+  return (error as { rawType?: string } | null)?.rawType === "idempotency_error";
 }
 
 // A simultaneous request may have expired the same session first, which is the only

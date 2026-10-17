@@ -1,4 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import Stripe from "stripe";
+
+// Built by the real SDK, so the tests see the same `type` / `rawType` split that
+// stripe-node produces for a key reused with different parameters.
+const idempotencyError = () =>
+  new Stripe.errors.StripeIdempotencyError({
+    type: "idempotency_error",
+    message: "Keys for idempotent requests can only be used with the same parameters...",
+  });
 
 vi.mock("next/server", () => ({
   NextRequest: class {},
@@ -317,9 +326,7 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     // Two admins pick different plans at the same moment. Same key, different
     // parameters, so Stripe rejects the second rather than opening a rival session.
     workspaceFindFirstMock.mockResolvedValue(workspace());
-    checkoutCreateMock.mockRejectedValue(
-      Object.assign(new Error("Keys for idempotent requests..."), { type: "idempotency_error" }),
-    );
+    checkoutCreateMock.mockRejectedValue(idempotencyError());
 
     const res = await POST(makeRequest());
 
@@ -327,8 +334,7 @@ describe("POST /api/billing/checkout — existing subscription", () => {
   });
 
   describe("when the key is held by a checkout for another plan", () => {
-    const keyConflict = () =>
-      Object.assign(new Error("Keys for idempotent requests..."), { type: "idempotency_error" });
+    const keyConflict = idempotencyError;
     // Open sessions for the preflight and the settle step; every session, newest
     // first, for finding the one that holds the key.
     function sessions(open: unknown[], all: unknown[]) {
