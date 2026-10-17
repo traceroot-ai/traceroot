@@ -214,22 +214,28 @@ async function handlePOST(req: NextRequest) {
       // sessions for one workspace could each become a subscription. Keep one open
       // session for the same plan (a double submit or a retry) and expire every other
       // one, including extra same-plan sessions, before returning or opening a new one.
-      let reusableUrl: string | null = null;
+      let reusable: { id: string; url: string } | null = null;
       for await (const openSession of stripe.checkout.sessions.list({
         customer: workspace.billingCustomerId,
         status: "open",
         limit: 100,
       })) {
         if (openSession.metadata?.workspaceId !== workspaceId) continue;
-        if (!reusableUrl && openSession.metadata?.plan === plan && openSession.url) {
-          reusableUrl = openSession.url;
+        if (!reusable && openSession.metadata?.plan === plan && openSession.url) {
+          reusable = { id: openSession.id, url: openSession.url };
           continue;
         }
         await expireCheckoutSession(stripe, openSession.id);
         expiredSessionIds.push(openSession.id);
       }
-      if (reusableUrl) {
-        return NextResponse.json({ url: reusableUrl });
+      if (reusable) {
+        // Another checkout can be paid between the preflight and this listing, the same
+        // window the check after creating a new session closes below.
+        if (await hasLiveSubscription(stripe, workspace.billingCustomerId)) {
+          await expireCheckoutSession(stripe, reusable.id);
+          return alreadySubscribed();
+        }
+        return NextResponse.json({ url: reusable.url });
       }
     }
 
@@ -332,9 +338,12 @@ async function handlePOST(req: NextRequest) {
         // closed (this request may have just expired it), the key is only stale, and
         // Stripe would refuse every other plan on it until it forgets the key 24 hours
         // later. Advance past that session instead, as the chain does for a closed
-        // session it replays.
+        // session it replays. A paid holder is closed too, but only once its
+        // subscription has ended.
         const holder = await newestWorkspaceSession(stripe, customerId, workspaceId);
-        if (holder?.status === "complete") throw new CheckoutCompletedError();
+        if (holder?.status === "complete" && !(await completedSubscriptionEnded(stripe, holder))) {
+          throw new CheckoutCompletedError();
+        }
         const holderOpen = holder?.status === "open" && !expiredSessionIds.includes(holder.id);
         const next = holder ? `${checkoutKey}-after-${holder.id}` : key;
         if (holderOpen || next === key) {

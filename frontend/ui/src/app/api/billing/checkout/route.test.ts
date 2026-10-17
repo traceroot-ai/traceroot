@@ -221,6 +221,20 @@ describe("POST /api/billing/checkout — existing subscription", () => {
     expect(checkoutExpireMock).not.toHaveBeenCalled();
   });
 
+  it("withdraws the open checkout it would hand back when another is paid meanwhile", async () => {
+    workspaceFindFirstMock.mockResolvedValue(workspace());
+    subscriptionsListMock
+      .mockReturnValueOnce([])
+      .mockReturnValue([{ id: "sub_other", status: "active" }]);
+    checkoutListMock.mockReturnValue([openSession("cs_open", "pro")]);
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(409);
+    expect(checkoutExpireMock).toHaveBeenCalledWith("cs_open");
+    expect(checkoutCreateMock).not.toHaveBeenCalled();
+  });
+
   it("expires an open checkout for a different plan before opening the new one", async () => {
     workspaceFindFirstMock.mockResolvedValue(workspace());
     checkoutListMock.mockReturnValue([openSession("cs_starter", "starter")]);
@@ -419,6 +433,43 @@ describe("POST /api/billing/checkout — existing subscription", () => {
 
       expect(res.status).toBe(409);
       expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses when the paid checkout holding the key still has a live subscription", async () => {
+      workspaceFindFirstMock.mockResolvedValue(workspace());
+      sessions(
+        [],
+        [{ ...openSession("cs_pro", "pro"), status: "complete", subscription: "sub_pro" }],
+      );
+      subscriptionsRetrieveMock.mockResolvedValue({ id: "sub_pro", status: "active" });
+      checkoutCreateMock.mockRejectedValue(keyConflict());
+
+      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
+
+      expect(res.status).toBe(409);
+      expect(checkoutCreateMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("moves past a paid checkout whose subscription has since ended", async () => {
+      // Subscribed to Pro, cancelled, and now picking Starter within the day Stripe
+      // keeps the key. The ended subscription must not keep the workspace on 409.
+      workspaceFindFirstMock.mockResolvedValue(workspace());
+      sessions(
+        [],
+        [{ ...openSession("cs_pro", "pro"), status: "complete", subscription: "sub_pro" }],
+      );
+      subscriptionsRetrieveMock.mockResolvedValue({ id: "sub_pro", status: "canceled" });
+      checkoutCreateMock.mockRejectedValueOnce(keyConflict()).mockResolvedValueOnce({
+        id: "cs_starter",
+        status: "open",
+        url: "https://checkout.stripe.test/cs_starter",
+      });
+
+      const res = await POST(makeRequest({ workspaceId: "ws-1", plan: "starter" }));
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/cs_starter" });
+      expect(keys()).toEqual(["workspace-checkout-ws-1", "workspace-checkout-ws-1-after-cs_pro"]);
     });
   });
 
