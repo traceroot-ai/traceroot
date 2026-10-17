@@ -1,8 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
-import { CopyButton } from "./copy-button";
+import { Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function tryParseJson(value: unknown): unknown {
@@ -154,13 +153,20 @@ interface IOSectionProps {
 
 export function IOSection({ label, value }: IOSectionProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [copied, setCopied] = useState(false);
   const parsed = useMemo(() => (value ? deepParseJson(tryParseJson(value)) : null), [value]);
 
   if (!value) return null;
 
   const isJsonObject = typeof parsed === "object" && parsed !== null;
   const isSimpleString = typeof parsed === "string";
-  const copyText = isJsonObject ? JSON.stringify(parsed, null, 2) : String(parsed);
+
+  const handleCopy = () => {
+    const text = isJsonObject ? JSON.stringify(parsed, null, 2) : String(parsed);
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div className="overflow-hidden rounded-md border border-border bg-muted/30">
@@ -173,11 +179,13 @@ export function IOSection({ label, value }: IOSectionProps) {
           {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
           {label}
         </button>
-        <CopyButton
-          value={copyText}
-          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+        <button
+          onClick={handleCopy}
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           title="Copy"
-        />
+        >
+          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+        </button>
       </div>
 
       {/* Content */}
