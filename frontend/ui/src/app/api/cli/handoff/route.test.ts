@@ -5,8 +5,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // has its own coverage in support/route-guard.test.ts. (It matters here: that
 // policy is what stops an impersonating employee minting a handoff, because
 // impersonationDenial refuses every /api/cli/* path.)
+//
+// The mock is the identity, so the policy stays out of the assertions below --
+// but it records what it was handed, because the export still has to be held to
+// it somewhere: route-guard.test.ts's sweep over every cookie-authenticated
+// route export skips `api/cli/` wholesale, so without the check below nothing
+// in the suite would notice this route losing its wrapper.
+const guard = vi.hoisted(() => ({ wrapped: [] as unknown[] }));
 vi.mock("@/lib/support/route-guard", () => ({
-  withImpersonationPolicy: (handler: unknown) => handler,
+  withImpersonationPolicy: (handler: unknown) => {
+    guard.wrapped.push(handler);
+    return handler;
+  },
 }));
 
 const ORIGIN = "https://app.traceroot.ai";
@@ -18,6 +28,10 @@ const mocks = vi.hoisted(() => ({
   deleteMany: vi.fn(),
   create: vi.fn(),
   rateLimitOk: vi.fn((_key: string, _max: number, _windowMs: number) => true),
+  // Which client each cli_handoffs write came through. Both delegate to the
+  // spies above, so this is the only thing that tells a write inside the
+  // transaction from one on the bare client.
+  through: [] as string[],
 }));
 
 vi.mock("@/env", () => ({ env: { BETTER_AUTH_URL: "https://app.traceroot.ai/" } }));
@@ -35,14 +49,26 @@ vi.mock("@traceroot/core", () => ({
     project: { findUnique: (...a: unknown[]) => mocks.project(...a) },
     workspaceMember: { findUnique: (...a: unknown[]) => mocks.membership(...a) },
     cliHandoff: {
-      deleteMany: (...a: unknown[]) => mocks.deleteMany(...a),
-      create: (...a: unknown[]) => mocks.create(...a),
+      deleteMany: (...a: unknown[]) => {
+        mocks.through.push("prisma.deleteMany");
+        return mocks.deleteMany(...a);
+      },
+      create: (...a: unknown[]) => {
+        mocks.through.push("prisma.create");
+        return mocks.create(...a);
+      },
     },
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
         cliHandoff: {
-          deleteMany: (...a: unknown[]) => mocks.deleteMany(...a),
-          create: (...a: unknown[]) => mocks.create(...a),
+          deleteMany: (...a: unknown[]) => {
+            mocks.through.push("tx.deleteMany");
+            return mocks.deleteMany(...a);
+          },
+          create: (...a: unknown[]) => {
+            mocks.through.push("tx.create");
+            return mocks.create(...a);
+          },
         },
       }),
   },
@@ -62,6 +88,7 @@ function request(body: unknown, headers: Record<string, string> = { origin: ORIG
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.through.length = 0;
   mocks.rateLimitOk.mockReturnValue(true);
   mocks.session.mockResolvedValue({
     user: { id: "u1", email: "u@example.com", name: null },
@@ -77,6 +104,16 @@ beforeEach(() => {
 });
 
 describe("POST /api/cli/handoff", () => {
+  it("is exported through the impersonation policy, not as a bare handler", async () => {
+    // The mint is cookie-authenticated, so this wrapper is what stops a support
+    // engineer minting a handoff on a customer's account -- the policy denies
+    // every /api/cli/* path, and an unwrapped export would never ask it. The
+    // mock is the identity, so the exported POST must be the very function the
+    // wrapper was handed.
+    expect(guard.wrapped).toHaveLength(1);
+    expect(POST).toBe(guard.wrapped[0]);
+  });
+
   it("mints a trh_ ticket bound to the user, the project and the issuing tab", async () => {
     const before = Date.now();
     const res = await POST(request({ projectId: "p1" }));
@@ -120,15 +157,7 @@ describe("POST /api/cli/handoff", () => {
   });
 
   it("keeps one live handoff per user: the mint drops the rest in the same transaction", async () => {
-    const order: string[] = [];
-    mocks.deleteMany.mockImplementation(async () => {
-      order.push("delete");
-      return { count: 2 };
-    });
-    mocks.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
-      order.push("create");
-      return { id: "handoff-1", ...data };
-    });
+    mocks.deleteMany.mockResolvedValue({ count: 2 });
 
     await POST(request({ projectId: "p1" }));
 
@@ -137,9 +166,11 @@ describe("POST /api/cli/handoff", () => {
     expect(mocks.deleteMany).toHaveBeenCalledWith({
       where: { userId: "u1", redeemedAt: null },
     });
-    // delete-then-create inside the transaction; the trailing delete is the
-    // expiry sweep, which runs after the mint has committed.
-    expect(order.slice(0, 2)).toEqual(["delete", "create"]);
+    // delete-then-create, both through the transaction's client rather than the
+    // bare one -- a create outside it would leave the delete committed on its
+    // own. The trailing delete is the expiry sweep, which is deliberately not
+    // in the transaction: it runs once the mint has committed.
+    expect(mocks.through).toEqual(["tx.deleteMany", "tx.create", "prisma.deleteMany"]);
   });
 
   it("sweeps long-expired rows after the mint, and still mints if the sweep fails", async () => {
@@ -148,8 +179,9 @@ describe("POST /api/cli/handoff", () => {
     await POST(request({ projectId: "p1" }));
 
     // Nothing prunes the adjacent device_codes table, so this one sweeps itself.
-    // Retention outlives the session a redeemed row minted, so its
-    // redeemedSessionId stays answerable for as long as that session can be used.
+    // The cutoff is a session's whole inactivity window, so a redeemed row
+    // outlives the session it minted unless that session is kept alive by use
+    // (see the retention comment in lib/cli-handoff.ts).
     const sweep = mocks.deleteMany.mock.calls.find(
       (c) => (c[0] as { where: { expiresAt?: unknown } }).where.expiresAt,
     );

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@traceroot/core";
-import { hashHandoffCode } from "@/lib/cli-handoff";
+import { HANDOFF_CODE_PATTERN, hashHandoffCode } from "@/lib/cli-handoff";
 import { createSession } from "@/lib/create-session";
 import { checkMintRateLimit, rateLimitClientKey } from "@/lib/mint-rate-limit";
 import { SESSION_EXPIRES_IN_SECONDS } from "@/lib/session-config";
@@ -28,6 +28,15 @@ const redeemSchema = z.object({ code: z.string().min(1, "code is required") });
 const REDEEM_MAX_PER_WINDOW = 10;
 const REDEEM_WINDOW_MS = 60_000;
 
+// The body this route accepts is one 47-character code, so a kilobyte is already
+// two decimal orders of headroom. Checked before the body is read: the rate
+// limiter bounds how MANY anonymous requests are served, not how large one of
+// them is, so without this a caller inside its budget could still make the web
+// process allocate and hash an arbitrarily long string. A request that declares
+// no length (chunked) is still read in full -- a hard byte ceiling belongs in
+// front of the app, and this is the cheap part of it that lives here.
+const MAX_BODY_BYTES = 1024;
+
 // One response for unknown, expired, already-redeemed and banned alike.
 // Distinguishing them turns this endpoint into an oracle that confirms a
 // guessed or observed code was once real -- information an attacker can act on
@@ -45,6 +54,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "rate limited" }, { status: 429 });
   }
 
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: "request body too large" }, { status: 413 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -54,6 +68,15 @@ export async function POST(request: NextRequest) {
   const parsed = redeemSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  }
+
+  // A value that is not shaped like a minted code cannot be one, so it is
+  // answered with the same 401 the lookup would have produced -- no hash, no
+  // query, and no new response for an attacker to tell apart from a code that
+  // simply does not exist. The shape is public (the CLI prints it), so matching
+  // on it reveals nothing the caller did not already know about its own input.
+  if (!HANDOFF_CODE_PATTERN.test(parsed.data.code)) {
+    return NextResponse.json(INVALID, { status: 401 });
   }
 
   const codeHash = hashHandoffCode(parsed.data.code);

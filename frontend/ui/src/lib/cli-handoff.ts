@@ -29,9 +29,22 @@ export const HANDOFF_TTL_SECONDS = 10 * 60;
 // on that line as a bare word with no quoting.
 const HANDOFF_CODE_PREFIX = "trh_";
 
-// Keep an expired row long enough that the session it minted cannot outlive
-// its own provenance: redeemedSessionId has to stay answerable for as long as
-// that session can still be presented.
+// The exact shape generateHandoffCode produces: the prefix, then the 43
+// unpadded base64url characters 32 bytes encode to. Redemption matches a
+// request against this before it hashes anything or touches the table, so a
+// value that cannot be a minted code costs nothing -- and deriving it from the
+// same prefix and length the generator uses keeps the two from drifting.
+export const HANDOFF_CODE_PATTERN = new RegExp(`^${HANDOFF_CODE_PREFIX}[A-Za-z0-9_-]{43}$`);
+
+// Keep an expired row for as long as the session it minted can survive without
+// being used, so an abandoned handoff's provenance outlasts the credential it
+// issued.
+//
+// A session that stays in use outlives its row: /api/cli/token slides a
+// session's expiry forward on every mint (lib/session-config.ts) and nothing
+// slides this cutoff with it, so a daily CLI user still holds a session months
+// after the handoff row that records where it came from was swept. Provenance
+// here is a best-effort record, not a guarantee for the life of the session.
 const HANDOFF_RETENTION_MS = SESSION_EXPIRES_IN_SECONDS * 1000;
 
 /**

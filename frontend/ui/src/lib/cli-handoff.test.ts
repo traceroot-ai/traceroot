@@ -8,6 +8,7 @@ vi.mock("@traceroot/core", () => ({
 }));
 
 import {
+  HANDOFF_CODE_PATTERN,
   HANDOFF_TTL_SECONDS,
   generateHandoffCode,
   hashHandoffCode,
@@ -29,6 +30,15 @@ describe("generateHandoffCode", () => {
     // looksLikeApiKey is /^tr[_-]/ — it needs `_` or `-` at index 2, and `trh_`
     // has `h` there, so a handoff code can never be read as a project key.
     expect(/^tr[_-]/.test(generateHandoffCode())).toBe(false);
+  });
+
+  it("satisfies the pattern redemption screens with", () => {
+    // The redeem route rejects anything this pattern does not match before it
+    // hashes or queries, so a generator and a pattern that disagreed would
+    // refuse every code the mint hands out.
+    expect(HANDOFF_CODE_PATTERN.test(generateHandoffCode())).toBe(true);
+    expect(HANDOFF_CODE_PATTERN.test("trh_short")).toBe(false);
+    expect(HANDOFF_CODE_PATTERN.test(`trh_${"A".repeat(44)}`)).toBe(false);
   });
 
   it("never repeats", () => {
@@ -64,8 +74,10 @@ describe("pruneExpiredHandoffs", () => {
 
     expect(deleted).toBe(3);
     const where = mocks.deleteMany.mock.calls[0][0].where;
-    // A redeemed row must outlive the session it minted, so redeemedSessionId
-    // stays answerable for as long as that session can be presented.
+    // The cutoff is a session's whole inactivity window, so a row outlives the
+    // session it minted unless that session is kept alive by use -- which
+    // /api/cli/token does, and nothing slides this cutoff with it (see the
+    // retention comment in cli-handoff.ts).
     expect(where.expiresAt.lt.getTime()).toBe(now - SESSION_EXPIRES_IN_SECONDS * 1000);
     // Scoped by expiry alone: a live or recently spent row is never touched.
     expect(Object.keys(where)).toEqual(["expiresAt"]);

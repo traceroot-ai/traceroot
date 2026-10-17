@@ -11,7 +11,7 @@ vi.mock("next/link", () => ({
 }));
 
 // Shaped like the mint answers it: `trh_` and 43 base64url characters.
-const CODE = "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABC";
+const CODE = "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABCXY";
 
 function renderStep(overrides: Partial<Parameters<typeof CliHandbackStep>[0]> = {}) {
   const onSetUpManually = vi.fn();

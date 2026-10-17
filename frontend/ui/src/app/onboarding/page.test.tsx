@@ -146,7 +146,7 @@ const NAME_TAKEN = () => new ApiError(409, "A workspace with this name already e
 // the same P2002 to it).
 const PROJECT_NAME_TAKEN = () => new ApiError(409, "A project with this name already exists");
 // Shaped like POST /api/cli/handoff answers it: `trh_` and 43 base64url chars.
-const HANDOFF_CODE = "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABC";
+const HANDOFF_CODE = "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE";
 // Shaped like that route's GET answers it: live projects only, each carrying the
 // `delete_time` the page checks.
 const LIVE_PROJECT = {

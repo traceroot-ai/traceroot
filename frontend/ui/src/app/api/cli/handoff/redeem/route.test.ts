@@ -35,7 +35,9 @@ type HandoffRow = {
 };
 type SessionRow = Record<string, unknown> & { id: string; token: string };
 
-const store = { handoffs: [] as HandoffRow[], sessions: [] as SessionRow[] };
+// `claims` counts the conditional UPDATE the handler issues, so a test can say
+// "this input reached the table" or "this one did not".
+const store = { handoffs: [] as HandoffRow[], sessions: [] as SessionRow[], claims: 0 };
 
 function client() {
   return {
@@ -48,6 +50,7 @@ function client() {
         where: { codeHash: string; redeemedAt?: null; expiresAt?: { gt: Date } };
         data: { redeemedAt: Date };
       }) => {
+        store.claims += 1;
         let count = 0;
         for (const row of store.handoffs) {
           // Every predicate comes from the handler's own `where`, so dropping
@@ -123,6 +126,7 @@ function seed(overrides: Partial<HandoffRow> = {}) {
 beforeEach(() => {
   store.handoffs = [];
   store.sessions = [];
+  store.claims = 0;
   mocks.sessionCreateGate = null;
   mocks.rateLimitOk.mockReset();
   mocks.rateLimitOk.mockReturnValue(true);
@@ -191,7 +195,7 @@ describe("POST /api/cli/handoff/redeem", () => {
     expect(first.status).toBe(200);
 
     const replay = await POST(request({ code: CODE }));
-    const unknown = await POST(request({ code: "trh_never-existed" }));
+    const unknown = await POST(request({ code: `trh_${"z".repeat(43)}` }));
     expect(replay.status).toBe(unknown.status);
     expect(await replay.json()).toEqual(await unknown.json());
     expect(store.sessions).toHaveLength(1);
@@ -232,9 +236,45 @@ describe("POST /api/cli/handoff/redeem", () => {
   it("never stores the code, so a bad hash cannot be matched by value", async () => {
     const row = seed();
     expect(row.codeHash).not.toContain(CODE);
-    // The lookup is by digest: the raw code reaches no query.
-    const res = await POST(request({ code: CODE.toUpperCase() }));
+    // The lookup is by digest: the raw code reaches no query. Only the random
+    // part is recased, so the value still has the minted shape and is answered
+    // by the claim statement rather than by the format check above it.
+    const res = await POST(request({ code: `trh_${CODE.slice(4).toUpperCase()}` }));
     expect(res.status).toBe(401);
+    expect(store.claims).toBe(1);
+  });
+
+  it("spends no hash and no query on a value that cannot be a minted code", async () => {
+    seed();
+    for (const code of [
+      "trh_short",
+      `trh_${"A".repeat(44)}`,
+      `nope_${"A".repeat(42)}`,
+      `trh_${"A".repeat(42)}+`,
+      `trh_${"A".repeat(100_000)}`,
+    ]) {
+      const res = await POST(request({ code }));
+      // Indistinguishable from a code that never existed: the shortcut saves
+      // the work, not an answer an attacker could tell apart.
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "invalid or expired handoff code" });
+    }
+    expect(store.claims).toBe(0);
+    expect(store.handoffs[0].redeemedAt).toBeNull();
+
+    // A code with the minted shape that is simply unknown still reaches the table.
+    const unknown = await POST(request({ code: `trh_${"z".repeat(43)}` }));
+    expect(unknown.status).toBe(401);
+    expect(store.claims).toBe(1);
+  });
+
+  it("refuses a body larger than the one field it accepts, before reading it", async () => {
+    seed();
+    const res = await POST(request({ code: CODE }, { "content-length": "2048" }));
+    expect(res.status).toBe(413);
+    expect(store.claims).toBe(0);
+    expect(store.handoffs[0].redeemedAt).toBeNull();
+    expect(store.sessions).toHaveLength(0);
   });
 
   it("400s on a missing or malformed body", async () => {

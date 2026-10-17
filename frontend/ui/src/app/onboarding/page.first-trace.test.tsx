@@ -142,7 +142,8 @@ beforeEach(() => {
   mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
   mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
   mocks.createCliHandoff.mockResolvedValue({
-    code: "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABC",
+    // `trh_` and 43 base64url characters, as the mint answers.
+    code: "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE",
     expiresIn: 600,
     expiresAt: "2026-10-17T18:31:00.000Z",
   });

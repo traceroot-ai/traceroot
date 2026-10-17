@@ -188,7 +188,7 @@ describe("setupCommand", () => {
 describe("setupCommand with a handoff", () => {
   // Shaped like the mint answers it: `trh_` and 43 base64url characters,
   // including both of the alphabet's non-alphanumerics.
-  const CODE = "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABC";
+  const CODE = "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE";
 
   it("carries the code as a bare word, after the project", async () => {
     // Unquoted on purpose, and the whole line is asserted so the position is
