@@ -66,6 +66,11 @@ vi.mock("@traceroot/core", () => ({
     },
   }),
   getPlanConfig: () => ({ billingPriceId: "price_pro" }),
+  METERED_PRICE_ENV_VARS: [
+    "STRIPE_PRICE_ID_AI_USAGE",
+    "STRIPE_PRICE_ID_RCA_USAGE",
+    "STRIPE_PRICE_ID_DETECTOR_USAGE",
+  ],
   PlanType: { FREE: "free", STARTER: "starter", PRO: "pro", ENTERPRISE: "enterprise" },
 }));
 
