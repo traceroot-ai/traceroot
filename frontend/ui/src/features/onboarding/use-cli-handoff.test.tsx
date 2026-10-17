@@ -18,7 +18,7 @@ vi.mock("@/lib/api/cli-handoff", () => ({
   createCliHandoff: (projectId: string) => mocks.createCliHandoff(projectId),
 }));
 
-import { HANDOFF_REFRESH_LEAD_MS, useCliHandoff } from "./use-cli-handoff";
+import { HANDOFF_MIN_REFRESH_MS, HANDOFF_REFRESH_LEAD_MS, useCliHandoff } from "./use-cli-handoff";
 
 /** The contracted lifetime: `POST /api/cli/handoff` answers `expiresIn: 600`. */
 const LIFETIME_SECONDS = 600;
@@ -209,5 +209,31 @@ describe("useCliHandoff", () => {
 
     expect(mocks.createCliHandoff).toHaveBeenCalledTimes(1);
     expect(result.current).toBe("trh_unstated");
+  });
+
+  it("will not re-mint faster than the floor when the route states a short life", async () => {
+    // Defensive, like the case above: the contract is `expiresIn: 600`. A
+    // lifetime inside the lead would schedule the replacement almost at once,
+    // and since the route would answer the same short life again, that is a
+    // loop against the endpoint for as long as the tab is open. The floor is
+    // what holds the gap open instead.
+    const UNCLAMPED_GAP_MS = 10_000;
+    // Guards the fixture, not the hook: if the floor ever drops below the gap
+    // the lead alone would leave, the rest of this test stops exercising it.
+    expect(UNCLAMPED_GAP_MS).toBeLessThan(HANDOFF_MIN_REFRESH_MS);
+    const shortLifetimeSeconds = (HANDOFF_REFRESH_LEAD_MS + UNCLAMPED_GAP_MS) / 1000;
+    mocks.createCliHandoff.mockResolvedValue(handoff("trh_short", shortLifetimeSeconds));
+
+    const { result } = renderHook(() => useCliHandoff("proj-1"));
+    await flush();
+    expect(result.current).toBe("trh_short");
+
+    // Well past the moment the lead on its own would have fired, and still
+    // one tick inside the floor.
+    await advance(HANDOFF_MIN_REFRESH_MS - 1);
+    expect(mocks.createCliHandoff).toHaveBeenCalledTimes(1);
+
+    await advance(1);
+    expect(mocks.createCliHandoff).toHaveBeenCalledTimes(2);
   });
 });

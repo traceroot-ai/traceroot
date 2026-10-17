@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The business handler is what is under test; the shared impersonation policy
 // has its own coverage in support/route-guard.test.ts. (It matters here: that
@@ -8,9 +8,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 //
 // The mock is the identity, so the policy stays out of the assertions below --
 // but it records what it was handed, because the export still has to be held to
-// it somewhere: route-guard.test.ts's sweep over every cookie-authenticated
-// route export skips `api/cli/` wholesale, so without the check below nothing
-// in the suite would notice this route losing its wrapper.
+// it somewhere. route-guard.test.ts's sweep over every cookie-authenticated
+// route export does now walk this file (it exempts only the three cli/ routes
+// that take no cookie), but that sweep reads the source for the wrapper's name,
+// which an import alone satisfies. The check below is the behavioural half: it
+// fails if the export stops being the wrapped function.
 const guard = vi.hoisted(() => ({ wrapped: [] as unknown[] }));
 vi.mock("@/lib/support/route-guard", () => ({
   withImpersonationPolicy: (handler: unknown) => {
@@ -85,6 +87,14 @@ function request(body: unknown, headers: Record<string, string> = { origin: ORIG
     },
   } as unknown as Parameters<typeof POST>[0];
 }
+
+afterEach(() => {
+  // The pruning test spies on console.error. mockRestore() at the end of a test
+  // body never runs if an assertion above it fails, and resetAllMocks does not
+  // uninstall a spy -- console.error would stay silenced for the rest of the
+  // file.
+  vi.restoreAllMocks();
+});
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -199,8 +209,10 @@ describe("POST /api/cli/handoff", () => {
     const res = await POST(request({ projectId: "p1" }));
     await new Promise((resolve) => setImmediate(resolve));
     expect(res.status).toBe(200);
-    expect(logged).toHaveBeenCalled();
-    logged.mockRestore();
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("pruning expired handoffs failed"),
+      expect.any(Error),
+    );
   });
 
   it("401s without a session, writing nothing", async () => {

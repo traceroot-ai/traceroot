@@ -37,10 +37,19 @@ const original = {
   expiresAt: new Date(Date.now() + 60000),
   user: { id: "staff", email: "staff@traceroot.ai" },
 };
+// The employee's own request headers. Present on purpose: the session row the
+// start endpoint writes must carry neither of them, and an assertion that the
+// row's ipAddress and userAgent are null proves nothing unless there was
+// something for them to have been filled from.
+const STAFF_HEADERS = new Headers({
+  "x-forwarded-for": "198.51.100.7",
+  "user-agent": "Mozilla/5.0 (staff laptop)",
+});
 function ctx(cookies: Record<string, string> = {}) {
   return {
     context: { secret: "test", createAuthCookie: (name: string) => ({ name }) },
     getSignedCookie: vi.fn(async (name: string) => cookies[name]),
+    headers: STAFF_HEADERS,
     json: (body: unknown) => body,
   };
 }
@@ -133,9 +142,18 @@ it.each(["admin", "support"])(
       body: { userId: target.id, reason: "ticket" },
       setSignedCookie: vi.fn(),
     };
-    await supportPlugin().endpoints.supportStart(context as never);
+    const response = (await supportPlugin().endpoints.supportStart(context as never)) as {
+      success: boolean;
+      expiresAt: Date;
+    };
     const data = create.mock.calls[0][0].data;
     expect(data).toMatchObject({ userId: target.id, impersonatedBy: actor.id });
+    // The customer's Active Sessions list must not show the employee's address
+    // or browser, so the one caller that sets impersonatedBy passes no headers
+    // to createSession. toMatchObject above is permissive and would not notice
+    // them arriving.
+    expect(data.ipAddress).toBeNull();
+    expect(data.userAgent).toBeNull();
     expect(context.setSignedCookie).toHaveBeenCalledWith(
       "support_original",
       `original-token:${data.id}`,
@@ -150,6 +168,11 @@ it.each(["admin", "support"])(
         summary: { reason: "ticket", mode: role === "admin" ? "read-write" : "read-only" },
       }),
     });
+    // One expiry, read back off the created row rather than computed twice: the
+    // audit entry, the cookie and the answer must all name the moment the
+    // session itself ends.
+    expect(audit.mock.calls[0][0].data.expiresAt).toBe(data.expiresAt);
+    expect(response).toEqual({ success: true, expiresAt: data.expiresAt });
     expect(mocks.set).toHaveBeenCalledWith(
       context,
       { session: data, user: { ...target, name: target.email } },

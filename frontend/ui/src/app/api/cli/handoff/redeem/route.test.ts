@@ -36,8 +36,15 @@ type HandoffRow = {
 type SessionRow = Record<string, unknown> & { id: string; token: string };
 
 // `claims` counts the conditional UPDATE the handler issues, so a test can say
-// "this input reached the table" or "this one did not".
-const store = { handoffs: [] as HandoffRow[], sessions: [] as SessionRow[], claims: 0 };
+// "this input reached the table" or "this one did not". `claimedBy` records the
+// value each of those statements matched on, which is how a test can say the
+// raw code never reached a query.
+const store = {
+  handoffs: [] as HandoffRow[],
+  sessions: [] as SessionRow[],
+  claims: 0,
+  claimedBy: [] as string[],
+};
 
 function client() {
   return {
@@ -51,6 +58,7 @@ function client() {
         data: { redeemedAt: Date };
       }) => {
         store.claims += 1;
+        store.claimedBy.push(where.codeHash);
         let count = 0;
         for (const row of store.handoffs) {
           // Every predicate comes from the handler's own `where`, so dropping
@@ -96,7 +104,10 @@ vi.mock("@traceroot/core", () => ({
 import { hashHandoffCode } from "@/lib/cli-handoff";
 import { POST } from "./route";
 
-const CODE = "trh_PeyJ6kO0t4oLZSgTeMuzT6b6gZzaxkXC0GzTA_tUMM8";
+// `trh_` and 43 base64url characters, the shape the mint answers with -- an
+// obvious placeholder rather than a value that could have come from a real
+// mint. The lower-case run matters: the recasing test below depends on it.
+const CODE = "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE";
 
 function request(body: unknown, headers: Record<string, string> = {}) {
   return {
@@ -127,6 +138,7 @@ beforeEach(() => {
   store.handoffs = [];
   store.sessions = [];
   store.claims = 0;
+  store.claimedBy = [];
   mocks.sessionCreateGate = null;
   mocks.rateLimitOk.mockReset();
   mocks.rateLimitOk.mockReturnValue(true);
@@ -235,13 +247,20 @@ describe("POST /api/cli/handoff/redeem", () => {
 
   it("never stores the code, so a bad hash cannot be matched by value", async () => {
     const row = seed();
-    expect(row.codeHash).not.toContain(CODE);
-    // The lookup is by digest: the raw code reaches no query. Only the random
-    // part is recased, so the value still has the minted shape and is answered
-    // by the claim statement rather than by the format check above it.
-    const res = await POST(request({ code: `trh_${CODE.slice(4).toUpperCase()}` }));
+    // Only the random part is recased, so the value still has the minted shape
+    // and is answered by the claim statement rather than by the format check
+    // above it.
+    const recased = `trh_${CODE.slice(4).toUpperCase()}`;
+    const res = await POST(request({ code: recased }));
+
     expect(res.status).toBe(401);
+    // The lookup is by digest: what the claim statement matched on is the hash
+    // of the value sent, never the value. So a code that differs only in case
+    // hashes somewhere else entirely and matches nothing -- there is no stored
+    // copy of the code for it to be compared against.
     expect(store.claims).toBe(1);
+    expect(store.claimedBy).toEqual([hashHandoffCode(recased)]);
+    expect(store.claimedBy[0]).not.toBe(row.codeHash);
   });
 
   it("spends no hash and no query on a value that cannot be a minted code", async () => {
