@@ -2,15 +2,17 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading-state";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
+import { ModelProviderBlock } from "./ModelProviderBlock";
 import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
 
 const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
-  { category: "provider", label: "Model providers" },
+  { category: "provider", label: "Model Providers" },
   { category: "framework", label: "Frameworks" },
 ];
 
@@ -35,7 +37,7 @@ function LangTabs({
             onClick={() => isAvailable && onChange(candidate)}
             disabled={!isAvailable}
             className={cn(
-              "-mb-px border-b-2 px-3 py-1.5 text-xs font-medium transition-colors",
+              "-mb-px border-b-2 px-3 py-1.5 text-[12px] font-medium transition-colors",
               lang === candidate
                 ? "border-foreground text-foreground"
                 : "border-transparent text-muted-foreground",
@@ -50,13 +52,34 @@ function LangTabs({
   );
 }
 
+/**
+ * Stands in for a workspace-scoped step when there is no workspace to scope it
+ * to.
+ *
+ * An errored project fetch is not a loading state: react-query drops
+ * `isLoading` with no data behind it, so rendering either of these steps on
+ * `!isLoading` alone hands it an empty workspace id. That is worse than
+ * nothing. `ModelProviderBlock` disables its own queries on an empty id, reads
+ * the resulting absence of a role as "not an admin", and tells the user — who
+ * may well be the admin — to go and ask one, via a link to
+ * `/workspaces//settings/model-providers` that 404s.
+ */
+function WorkspaceUnavailable() {
+  return (
+    <p className="text-[12px] text-muted-foreground">
+      This project&apos;s workspace could not be loaded, so this step is unavailable. Reload the
+      page to try again.
+    </p>
+  );
+}
+
 interface ManualTabProps {
   projectId: string;
 }
 
 export function ManualTab({ projectId }: ManualTabProps) {
-  const { data: project } = useProject(projectId);
-  const workspaceId = project?.workspace_id ?? "";
+  const { data: project, isLoading: projectLoading } = useProject(projectId);
+  const workspaceId = project?.workspace_id;
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("openai");
   const [lang, setLang] = useState<Lang>("python");
 
@@ -79,24 +102,24 @@ export function ManualTab({ projectId }: ManualTabProps) {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">1. Create an API key</p>
+        <p className="text-[13px] font-medium text-foreground">1. Create an API key</p>
         <ApiKeyBlock projectId={projectId} />
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">2. Install SDK</p>
+        <p className="text-[13px] font-medium text-foreground">2. Install SDK</p>
         <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
         <CodeBlock label="bash" value={config.installCommand} />
       </div>
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-medium text-foreground">3. Select your integration</p>
+          <p className="text-[13px] font-medium text-foreground">3. Select your integration</p>
           <a
             href="https://github.com/traceroot-ai/traceroot/issues/new"
             target="_blank"
             rel="noopener noreferrer"
-            className="shrink-0 text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+            className="shrink-0 text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
           >
             Don&apos;t see yours? Request one
           </a>
@@ -110,7 +133,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
 
           return (
             <div key={group.category} className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">{group.label}</p>
+              <p className="text-[12px] font-medium text-muted-foreground">{group.label}</p>
               <div role="radiogroup" aria-label={group.label} className="flex flex-wrap gap-2">
                 {items.map((integration) => (
                   <IntegrationPickerCard
@@ -129,14 +152,14 @@ export function ManualTab({ projectId }: ManualTabProps) {
           href={selectedIntegration.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-block text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+          className="inline-block text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
         >
           View {selectedIntegration.name} docs
         </a>
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">
+        <p className="text-[13px] font-medium text-foreground">
           4. Initialize TraceRoot for {selectedIntegration.name}
         </p>
         <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
@@ -144,8 +167,25 @@ export function ManualTab({ projectId }: ManualTabProps) {
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">5. External integrations</p>
-        <ExternalIntegrations workspaceId={workspaceId} />
+        <p className="text-[13px] font-medium text-foreground">5. Use your own model key</p>
+        {projectLoading ? (
+          <LoadingState label="Loading model providers..." />
+        ) : workspaceId ? (
+          <ModelProviderBlock workspaceId={workspaceId} />
+        ) : (
+          <WorkspaceUnavailable />
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[13px] font-medium text-foreground">6. External integrations</p>
+        {projectLoading ? (
+          <LoadingState label="Loading integrations..." />
+        ) : workspaceId ? (
+          <ExternalIntegrations workspaceId={workspaceId} />
+        ) : (
+          <WorkspaceUnavailable />
+        )}
       </div>
     </div>
   );

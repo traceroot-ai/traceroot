@@ -97,6 +97,20 @@ describe("cliHostFlags", () => {
       expect(cliHostFlags({ apiUrl: "/api/v1", appUrl })).toEqual({ host: null, authHost: null });
     }
   });
+  it("names a deployment whose hosts carry an underscore", () => {
+    // `_` is legal in a URL host and ordinary in container and internal DNS
+    // names, and it is special to no shell. When the class that vets these
+    // origins excluded it, such a deployment lost both flags and the bare
+    // command the panel then rendered sent the CLI to TraceRoot Cloud.
+    expect(
+      cliHostFlags({ apiUrl: "http://app_internal:8000/api/v1", appUrl: "http://web_1:3000" }),
+    ).toEqual({ host: "http://app_internal:8000", authHost: "http://web_1:3000" });
+    // And on the same-origin default, where the app URL is the only input.
+    expect(cliHostFlags({ apiUrl: "/api/v1", appUrl: "http://app_internal:3000" })).toEqual({
+      host: "http://app_internal:3000",
+      authHost: null,
+    });
+  });
 });
 
 describe("setupCommand", () => {
@@ -255,5 +269,30 @@ describe("setupCommand with a handoff", () => {
       `npx -y traceroot-cli@0.6.1 setup --project proj_1 --handoff ${CODE} ` +
         "--host 'http://localhost:8000' --auth-host 'http://localhost:3000'",
     );
+  });
+  it("points setup at a deployment named the way a container network names it", async () => {
+    // The whole harm in one line: an underscore in the host used to cost both
+    // flags, and the bare command that was left defaults to TraceRoot Cloud,
+    // so a self-hosted operator's sign-in and first traces left their network.
+    const setupCommand = await setupCommandWith({
+      apiUrl: "http://app_internal:8000/api/v1",
+      appUrl: "http://web_1:3000",
+    });
+
+    expect(setupCommand({ projectId: "proj_1" })).toBe(
+      "npx -y traceroot-cli@0.6.1 setup --project proj_1 " +
+        "--host 'http://app_internal:8000' --auth-host 'http://web_1:3000'",
+    );
+  });
+
+  it("never lets a quote reach the line", async () => {
+    // `http://%27.com` parses to `http://'.com`, and a single-quoted word
+    // cannot carry a single quote, so there is no quoting that would make this
+    // origin safe. Dropping the flags keeps it out of the line entirely.
+    const setupCommand = await setupCommandWith({ appUrl: "http://%27.com" });
+    const line = setupCommand({ projectId: "proj_1" });
+
+    expect(line).toBe("npx -y traceroot-cli@0.6.1 setup --project proj_1");
+    expect(line).not.toContain("'");
   });
 });

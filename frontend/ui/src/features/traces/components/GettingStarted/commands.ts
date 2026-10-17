@@ -1,24 +1,8 @@
-// Single source of truth for the onboarding setup snippets, so the places that
-// show them cannot drift apart: `SetupTabs` takes `CLI_COMMANDS`,
-// `INSTRUMENT_PROMPT` and `SKILLS_COMMAND`, and onboarding's hand-back step
-// takes `setupCommand`. (This header used to name a Manual-tab `CliVerifyCard`
-// as a third reader; no such component exists in the tree.)
+// Single source of truth for the onboarding snippets, shared by the
+// getting-started panel and the first-run hand-back page, so the command one
+// shows cannot drift from the other's.
 
 import { clientEnv } from "@/env.client";
-
-/** Read-only CLI flow: install, authenticate, list traces. */
-export const CLI_COMMANDS = [
-  "npm install -g traceroot-cli",
-  "traceroot login",
-  "traceroot traces list",
-].join("\n");
-
-/** One-prompt instrumentation handoff for any AI coding agent. */
-export const INSTRUMENT_PROMPT =
-  "Install the TraceRoot AI skill from https://github.com/traceroot-ai/traceroot-skills and use it to add tracing to this application with TraceRoot following best practices.";
-
-/** Install the first-party TraceRoot skills into a coding agent. */
-export const SKILLS_COMMAND = "npx skills add traceroot-ai/traceroot-skills";
 
 /**
  * The published CLI the printed command resolves to.
@@ -38,9 +22,8 @@ export const SKILLS_COMMAND = "npx skills add traceroot-ai/traceroot-skills";
  * published a warm cache can still hand back an older one, and a rollback
  * silently re-breaks the page.
  *
- * Not a `^` range either, which would otherwise be the compromise: `^` is an
- * escape character in Windows `cmd.exe`, and this line has to survive being
- * pasted into whatever shell the reader happens to have open.
+ * Not a `^` range either: `^` is an escape character in Windows `cmd.exe`, and
+ * this line has to survive being pasted into whatever shell the reader has open.
  */
 const SETUP_CLI_VERSION = "0.6.1";
 
@@ -71,20 +54,17 @@ const CLI_DEFAULT_HOST = "https://app.traceroot.ai";
 const DEFAULT_APP_ORIGIN = "http://localhost:3000";
 
 /**
- * Values the command may carry unquoted.
+ * Project ids the command may carry unquoted.
  *
- * Two of the flags below carry a value this file did not author: the project
- * id, which reaches the panel from the URL, and the handoff code, which reaches
- * it from the mint. Both end up on a line someone pastes into their own shell.
- * Quoting would be the obvious alternative, but a quote cannot survive a value
- * that contains one; omitting a flag whose value is not a bare word costs at
- * most a prompt the user can still answer, or — for the handoff — the browser
- * page they would have had anyway.
+ * The id reaches this panel from the URL, and the output is a line someone
+ * pastes into their own shell. Quoting it would be the obvious alternative, but
+ * a quote cannot survive a value that contains one; omitting the flag for an id
+ * no real project has costs a prompt the user can still answer.
  *
  * None of `.`, `_` or `-` is special to a shell, so a matching value is safe as
  * a bare word and is rendered as one. That covers the handoff code without a
- * second rule: its alphabet is base64url, `[A-Za-z0-9_-]`, which is a strict
- * subset of this class, and its `trh_` prefix is in the class too.
+ * second rule: its alphabet is base64url, `[A-Za-z0-9_-]`, a strict subset of
+ * this class, and its `trh_` prefix is in the class too.
  */
 const PLAIN_ARG = /^[A-Za-z0-9._-]+$/;
 
@@ -97,8 +77,24 @@ const PLAIN_ARG = /^[A-Za-z0-9._-]+$/;
  * hostname or IPv6 literal, and an optional port — which excludes every one of
  * those, and in particular the one character single quotes cannot carry. With
  * that established, `quotedArg` is enough to make the value one word.
+ *
+ * The host class admits `_` alongside the letters, digits, `.` and `-` of a
+ * public domain. It is legal in a URL host, ordinary in container and internal
+ * DNS names (`http://app_internal:3000`), and special to no shell — and
+ * rejecting it is the one thing this check must not do, because a deployment
+ * served under such a name would lose both flags and the bare command would
+ * send its operator to TraceRoot Cloud, which is what this file exists to
+ * prevent.
+ *
+ * It stops there rather than admitting everything single quotes happen to
+ * survive, because the check also answers "could this be a host at all". The
+ * other characters the parser lets through — `&`, `!`, `~`, `+`, `,`, `(`, `{`,
+ * `"` and the four above — reach an origin only by percent-decoding, never by
+ * naming a deployment, so a flag carrying one is noise better dropped. Nothing
+ * excludes whitespace or control characters because nothing has to: the URL
+ * parser refuses a host containing them, so they arrive as a malformed URL.
  */
-const SHELL_SAFE_ORIGIN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d+)?$/;
+const SHELL_SAFE_ORIGIN = /^https?:\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)(:\d+)?$/;
 
 /**
  * A value as a single shell word.
@@ -210,11 +206,9 @@ export function cliHostFlags(input: { apiUrl: string; appUrl: string | undefined
  * unflagged command signs in against the wrong host entirely. See
  * `cliHostFlags` for why that takes two flags and not one.
  *
- * The host flags are declared on the program rather than on `setup`, and
- * commander accepts a program option after the subcommand name, so they read as
- * part of the one line a user pastes. `--handoff` is declared on `setup`
- * itself, because a one-shot onboarding credential has no business appearing in
- * every other subcommand's help.
+ * All three are declared on the program rather than on `setup`, and commander
+ * accepts a program option after the subcommand name, so they read as part of
+ * the one line a user pastes.
  */
 export function setupCommand(input: {
   projectId: string;
@@ -240,9 +234,8 @@ export function setupCommand(input: {
   // `chooseProject` reads the flag to resolve without prompting. Dropping it
   // would give the degraded path a question the undegraded path does not ask.
   //
-  // Printed bare. The value is base64url behind a `trh_` prefix, which
-  // `PLAIN_ARG` already certifies as shell-safe — and a value that somehow is
-  // not is dropped rather than quoted, leaving the working command above.
+  // Printed bare. A value that somehow is not shell-safe is dropped rather than
+  // quoted, leaving the working command above.
   if (input.handoff && PLAIN_ARG.test(input.handoff)) {
     parts.push(`--handoff ${input.handoff}`);
   }
