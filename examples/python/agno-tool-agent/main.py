@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 
 agent = Agent(
-    model=Claude(id="claude-sonnet-4-6"),
+    model=Claude(id="claude-sonnet-5-5"),
     tools=[
         YFinanceTools(),
         DuckDuckGoTools(),

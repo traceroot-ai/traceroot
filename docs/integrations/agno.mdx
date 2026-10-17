@@ -33,7 +33,7 @@ from agno.tools.yfinance import YFinanceTools
 traceroot.initialize(integrations=[Integration.AGNO])
 
 agent = Agent(
-    model=Claude(id="claude-sonnet-4-6"),
+    model=Claude(id="claude-sonnet-5-5"),
     tools=[
         YFinanceTools(),
         DuckDuckGoTools(),
