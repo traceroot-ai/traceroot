@@ -90,6 +90,17 @@ export class DockerExecutor implements Executor {
       const executionId = randomUUID();
       const pidFile = "/tmp/traceroot-exec-" + executionId + ".pid";
       const cancelFile = "/tmp/traceroot-exec-" + executionId + ".cancel";
+      const processGroupCommand = [
+        "setsid --wait sh -c '",
+        "pid_file=$1; ",
+        "cancel_file=$2; ",
+        "command=$3; ",
+        'printf "%s\\n" "$$" > "$pid_file"; ',
+        'if [ -e "$cancel_file" ]; then /bin/kill -KILL -- "-$$" 2>/dev/null || exit 1; fi; ',
+        'exec sh -c "$command"',
+        '\' traceroot-command "$pid_file" "$cancel_file" "$3" &',
+      ].join("");
+
       const wrappedCommand = [
         "pid_file=$1",
         "cancel_file=$2",
@@ -97,14 +108,7 @@ export class DockerExecutor implements Executor {
         '  rm -f "$cancel_file"',
         "  exit 1",
         "fi",
-        "setsid --wait sh -c '" +
-          "pid_file=$1; " +
-          "cancel_file=$2; " +
-          "command=$3; " +
-          'printf "%s\\n" "$$" > "$pid_file"; ' +
-          'if [ -e "$cancel_file" ]; then /bin/kill -KILL -- "-$$" 2>/dev/null || exit 1; fi; ' +
-          'exec sh -c "$command"' +
-          "' traceroot-command \"$pid_file\" \"$cancel_file\" \"$3\" &",
+        processGroupCommand,
         "command_pid=$!",
         'if [ -e "$cancel_file" ]; then',
         '  if [ -s "$pid_file" ]; then',
@@ -226,7 +230,7 @@ export class DockerExecutor implements Executor {
       'while [ "$attempt" -lt 40 ]; do',
       '  if [ -s "$pid_file" ]; then',
       '    command_pid=$(cat "$pid_file")',
-      "    case \"$command_pid\" in",
+      '    case "$command_pid" in',
       '      ""|*[!0-9]*) rm -f "$pid_file" "$cancel_file"; exit 0 ;;',
       "    esac",
       '    /bin/kill -KILL -- "-$command_pid" 2>/dev/null || true',
