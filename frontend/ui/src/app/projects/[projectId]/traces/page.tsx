@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
@@ -19,6 +19,7 @@ import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -123,6 +124,11 @@ export default function TracesPage() {
     },
     { refetchInterval: autoRefresh ? 5000 : false },
   );
+
+  // Every new page of rows, or a new filter/search/time range, starts at the top of
+  // the list. A live-refresh refetch keeps the same query, so it leaves the scroll alone.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(listRef, JSON.stringify([queryOptions, userId]));
 
   const prefetchTraces = usePrefetchTraces(projectId);
 
@@ -310,7 +316,7 @@ export default function TracesPage() {
             </div>
           ) : (
             <div className="flex h-full flex-col">
-              <div className="flex-1 overflow-auto">
+              <div ref={listRef} className="flex-1 overflow-auto">
                 <TraceListTable
                   projectId={projectId}
                   traces={traces}

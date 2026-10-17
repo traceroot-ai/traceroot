@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useLayoutEffect, useState } from "react";
+import { useMemo, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
@@ -15,6 +15,7 @@ import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import {
   formatDate,
@@ -67,6 +68,10 @@ export default function SessionsPage() {
     }),
     [queryOptions],
   );
+
+  // Every new page of rows, or a new search/time range, starts at the top of the list.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(listRef, JSON.stringify(sessionQueryOptions));
 
   useLayoutEffect(() => {
     setHideAiButton(false);
@@ -156,7 +161,7 @@ export default function SessionsPage() {
             </div>
           ) : (
             <div className="flex h-full flex-col">
-              <div className="flex-1 overflow-auto">
+              <div ref={listRef} className="flex-1 overflow-auto">
                 <table className="w-full">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border bg-muted/50">

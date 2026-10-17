@@ -19,6 +19,7 @@ import {
   DEFAULT_ALERT_RENOTIFY,
   DEFAULT_ALERT_RENOTIFY_INTERVAL_MINUTES,
   hasOutstandingAlertPage,
+  parseAlertPendingClose,
   DEFAULT_ALERT_SEVERITY,
   DEFAULT_ALERT_STATUS,
   DEFAULT_ALERT_VIEW,
@@ -144,8 +145,43 @@ describe("the statuses a client may ask for", () => {
   });
 });
 
+describe("parseAlertPendingClose", () => {
+  const marker = { reason: "resumed", actorUserId: "user-1", at: "2026-08-12T10:00:00.000Z" };
+
+  it("reads a stored marker back, dropping anything beyond its three fields", () => {
+    expect(parseAlertPendingClose(marker)).toEqual(marker);
+    expect(parseAlertPendingClose({ ...marker, extra: true })).toEqual(marker);
+  });
+
+  it("keeps a resend count it can read, and drops one it cannot without losing the close", () => {
+    expect(parseAlertPendingClose({ ...marker, resends: 2 })).toEqual({ ...marker, resends: 2 });
+    for (const resends of [0, -1, 1.5, "2", null]) {
+      expect(parseAlertPendingClose({ ...marker, resends })).toEqual(marker);
+    }
+  });
+
+  it("reads no marker, and anything that is not one, as nothing to close", () => {
+    const notMarkers = [
+      null,
+      undefined,
+      "edited",
+      [marker],
+      { ...marker, reason: "deleted" },
+      { ...marker, actorUserId: "" },
+      { ...marker, at: "not a date" },
+      { reason: marker.reason, actorUserId: marker.actorUserId },
+    ];
+    for (const value of notMarkers) expect(parseAlertPendingClose(value)).toBeNull();
+  });
+});
+
 describe("hasOutstandingAlertPage", () => {
   const announced = new Date("2026-08-12T10:00:00.000Z");
+
+  it("reads the timestamp as it arrives over JSON too, for the edit form", () => {
+    const state = { severity: "ALERT", alertedAt: announced.toISOString() };
+    expect(hasOutstandingAlertPage(state)).toBe(true);
+  });
 
   it("reads an announced breach in ALERT or NO_DATA as an open page", () => {
     expect(hasOutstandingAlertPage({ severity: "ALERT", alertedAt: announced })).toBe(true);

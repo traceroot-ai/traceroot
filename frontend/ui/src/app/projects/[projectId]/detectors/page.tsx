@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
@@ -19,6 +19,8 @@ import {
   useDeleteDetector,
 } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useRememberListQuery, withDateWindow } from "@/lib/hooks/use-list-return";
+import { useScrollToTopOnChange } from "@/lib/hooks/use-scroll-to-top-on-change";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -70,6 +72,7 @@ function CountLink({ href, label, value }: { href: string; label: string; value:
 export default function DetectorsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const projectId = params.projectId as string;
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
@@ -87,6 +90,7 @@ export default function DetectorsPage() {
     updateKeyword,
     updateLimit,
     goToPage,
+    clampToTotal,
   } = useListPageState({
     defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
     retentionDays: retention.retentionDays,
@@ -104,11 +108,27 @@ export default function DetectorsPage() {
       extraParams,
     });
 
-  const { data, isLoading, error } = useDetectorList(projectId, {
+  // Remember this page, page size and filters so the detector page's "Detectors"
+  // link returns here. The effective date window is recorded too (it can come from
+  // the stored per-project range, not the URL); the detector page overlays its own.
+  useRememberListQuery(
+    `detectors:${projectId}`,
+    withDateWindow(searchParams.toString(), buildUrl("")),
+  );
+
+  const { data, isLoading, error, isPlaceholderData } = useDetectorList(projectId, {
     page: queryOptions.page,
     limit: queryOptions.limit,
     search_query: queryOptions.search_query,
   });
+
+  // Every new page of rows, or a new search, starts at the top of the list. The time
+  // range only changes the count columns, not which detectors are listed.
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollToTopOnChange(
+    listRef,
+    JSON.stringify([queryOptions.page, queryOptions.limit, queryOptions.search_query]),
+  );
 
   // A count shows only once it has loaded: a dash while loading or when its
   // query failed, never a clickable 0 that is not a real count.
@@ -123,6 +143,14 @@ export default function DetectorsPage() {
   const deleteMutation = useDeleteDetector(projectId);
   const detectors = data?.data ?? [];
   const meta = data?.meta;
+
+  // A delete (or a deep link) can leave the page past the end of the list; pull it back
+  // to the last page with rows. Skipped while the previous query's rows are shown as
+  // placeholder: their total belongs to a different query and would clamp a valid page.
+  useEffect(() => {
+    if (isLoading || isPlaceholderData) return;
+    clampToTotal(meta?.total ?? 0);
+  }, [clampToTotal, meta?.total, isLoading, isPlaceholderData]);
 
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return;
@@ -180,7 +208,7 @@ export default function DetectorsPage() {
         />
 
         {/* Table */}
-        <div className="flex-1 overflow-auto bg-background">
+        <div ref={listRef} className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading detectors..." />
@@ -381,8 +409,8 @@ export default function DetectorsPage() {
 
         {meta && (
           <ListPagination
-            page={meta.page}
-            limit={meta.limit}
+            page={state.page}
+            limit={state.limit}
             total={meta.total}
             onPageChange={goToPage}
             onLimitChange={updateLimit}

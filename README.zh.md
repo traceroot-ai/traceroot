@@ -7,7 +7,7 @@
     </picture>
   </a>
 
-面向 AI Agent 的开源自我改进层
+开源 AI Agent 改进平台
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -29,7 +29,7 @@
 
 ## TraceRoot
 
-TraceRoot 将生产环境中的追踪转化为可执行的反馈与评测，与你的编程 Agent 一起形成自我改进闭环。
+TraceRoot 将生产环境中的追踪转化为可执行的反馈与评测，与你的编程 Agent 一起形成改进闭环。
 
 https://github.com/user-attachments/assets/2ecf21ce-93b3-41cb-8749-e02b77467357
 
