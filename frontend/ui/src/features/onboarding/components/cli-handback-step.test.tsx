@@ -116,7 +116,7 @@ describe("CliHandbackStep", () => {
   it("names the project so the id in the command is checkable", () => {
     renderStep({ projectName: "checkout-agent" });
 
-    expect(screen.getByText(/checkout-agent is ready/)).toBeDefined();
+    expect(screen.getByText(/checkout-agent's code lives/)).toBeDefined();
   });
 
   it("leaves the first-trace line to the page", () => {
@@ -163,7 +163,7 @@ describe("CliHandbackStep", () => {
     expect(command).toContain("--project proj-1");
     // Nothing is said about it: no error, no warning, no second line.
     expect(screen.queryByText(/handoff/i)).toBeNull();
-    expect(screen.getByText(/Run this where your application lives/)).toBeDefined();
+    expect(screen.getByText(/Instruments your repository/)).toBeDefined();
   });
 
   it("swaps in the replacement code the page mints before expiry", () => {
@@ -185,17 +185,25 @@ describe("CliHandbackStep", () => {
   it("keeps the command under the line that names the project", () => {
     const { container } = renderStep();
 
-    expect(isAbove(screen.getByText(/is ready/), container.querySelector("pre")!)).toBe(true);
+    expect(isAbove(screen.getByText(/code lives/), container.querySelector("pre")!)).toBe(true);
   });
 
-  it("says where the command has to be run", () => {
-    // The one fact a reader cannot get from the command itself: it is run
-    // against their checkout, not in the dashboard's terminal-shaped box. A
-    // user who pastes it into the wrong directory gets a key written somewhere
-    // their application will never read.
+  it("says what the command does, and where it has to be run", () => {
+    // Two facts a reader cannot get from a command they have not run. That it
+    // edits their repository is the one that decides whether they paste it at
+    // all, and the step used to print the command without saying it. That it
+    // runs against their checkout rather than in the dashboard's
+    // terminal-shaped box is the other: pasted in the wrong directory it
+    // writes a key somewhere the application will never read it.
     renderStep();
 
-    expect(screen.getByText(/Run this where your application lives/)).toBeDefined();
+    const line = screen.getByText(/Instruments your repository/);
+    expect(line.textContent).toContain("writes the API key into it");
+    expect(line.textContent).toContain("waits for the first trace");
+    expect(line.textContent).toContain("Run it where my-llm-project's code lives");
+    expect(screen.getByRole("link", { name: "View the tracing docs" }).getAttribute("href")).toBe(
+      "https://traceroot.ai/docs/tracing/get-started",
+    );
   });
 
   it("shows no runnable command when this deployment's own origin is unresolvable", async () => {
