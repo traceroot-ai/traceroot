@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   getWorkspaces: vi.fn(),
   getProjects: vi.fn(),
   getTraces: vi.fn(),
+  createCliHandoff: vi.fn(),
   session: {
     data: { user: { id: "user-1", email: "kai@example.com" } },
     isPending: false,
@@ -49,6 +50,12 @@ vi.mock("@/lib/api/projects", () => ({
 vi.mock("@/lib/api/traces", () => ({
   getTraces: (projectId: string, key: string, options: unknown, user: unknown) =>
     mocks.getTraces(projectId, key, options, user),
+}));
+// The hand-back step mints a handoff code for the command it prints. It runs on
+// a timer of its own, which these fake timers would otherwise drive into the
+// network; the code's own schedule is covered in use-cli-handoff.test.tsx.
+vi.mock("@/lib/api/cli-handoff", () => ({
+  createCliHandoff: (projectId: string) => mocks.createCliHandoff(projectId),
 }));
 
 // The manual step embeds the traces page's own walkthrough, whose connected
@@ -134,6 +141,11 @@ beforeEach(() => {
   mocks.getWorkspaces.mockResolvedValue([]);
   mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
   mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+  mocks.createCliHandoff.mockResolvedValue({
+    code: "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABC",
+    expiresIn: 600,
+    expiresAt: "2026-10-17T18:31:00.000Z",
+  });
   tracePage = [];
   mocks.getTraces.mockImplementation(
     async (_projectId: string, _key: string, options: { limit: number }) => ({
@@ -152,6 +164,7 @@ afterEach(() => {
   mocks.getWorkspaces.mockReset();
   mocks.getProjects.mockReset();
   mocks.getTraces.mockReset();
+  mocks.createCliHandoff.mockReset();
 });
 
 describe("the hand-back step's first-trace watch", () => {

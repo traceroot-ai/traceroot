@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   getWorkspaces: vi.fn(),
   getProjects: vi.fn(),
   getTraces: vi.fn(),
+  createCliHandoff: vi.fn(),
   params: new URLSearchParams(),
   signOut: vi.fn(),
   // Carries an id, because the page caches the workspace list per account: a
@@ -116,6 +117,13 @@ import { ApiError } from "@/lib/api/errors";
 vi.mock("@/lib/api/traces", () => ({
   getTraces: mocks.getTraces,
 }));
+// The hand-back step's command carries a one-time code that signs the pasted
+// terminal in, so the step mints one as soon as there is a project. Mocked for
+// the same reason the trace read is: no test here should reach the network to
+// find out what the printed line says.
+vi.mock("@/lib/api/cli-handoff", () => ({
+  createCliHandoff: (projectId: string) => mocks.createCliHandoff(projectId),
+}));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: { workspace_id: "ws-1" } }),
 }));
@@ -137,6 +145,8 @@ const NAME_TAKEN = () => new ApiError(409, "A workspace with this name already e
 // `uq_project_workspace_live_name` refuses the write (see that route, which maps
 // the same P2002 to it).
 const PROJECT_NAME_TAKEN = () => new ApiError(409, "A project with this name already exists");
+// Shaped like POST /api/cli/handoff answers it: `trh_` and 43 base64url chars.
+const HANDOFF_CODE = "trh_abcdefghijklmnopqrstuvwxyz0123456789-_ABC";
 // Shaped like that route's GET answers it: live projects only, each carrying the
 // `delete_time` the page checks.
 const LIVE_PROJECT = {
@@ -228,6 +238,13 @@ beforeEach(() => {
   // otherwise.
   mocks.getWorkspaces.mockResolvedValue([]);
   mocks.getTraces.mockResolvedValue({ data: [], meta: { page: 0, limit: 1, total: 0 } });
+  // What POST /api/cli/handoff answers: `trh_` and 43 base64url characters,
+  // redeemable for ten minutes.
+  mocks.createCliHandoff.mockResolvedValue({
+    code: HANDOFF_CODE,
+    expiresIn: 600,
+    expiresAt: "2026-10-17T18:31:00.000Z",
+  });
   // `{ data, error }` rather than nothing, because that is what the better-auth
   // client resolves with: it reports a failed sign-out in `error` instead of
   // rejecting, so a mock that resolves bare cannot tell the two apart.
@@ -245,6 +262,7 @@ afterEach(() => {
   mocks.createProject.mockReset();
   mocks.getWorkspaces.mockReset();
   mocks.getTraces.mockReset();
+  mocks.createCliHandoff.mockReset();
   mocks.layoutAccess.mockReset();
   mocks.signOut.mockReset();
   mocks.getProjects.mockReset();
@@ -282,6 +300,55 @@ describe("OnboardingPage", () => {
     expect(shownCommand()).toContain("npx -y traceroot-cli@0.6.1 setup");
     expect(shownCommand()).toContain("--project proj-1");
     expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("signs the terminal in through the command rather than a second page", async () => {
+    // The point of the handoff. Without a code on the line, the terminal this
+    // command is pasted into has no credential, so `setup` opens a second
+    // browser page to sign in — for the account that signed in in this one a
+    // moment ago — and both pages then wait for the same first trace. The code
+    // is minted against the project this run just created.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+    await reachHandback();
+
+    await waitFor(() => expect(shownCommand()).toContain(`--handoff ${HANDOFF_CODE}`));
+    expect(mocks.createCliHandoff).toHaveBeenCalledWith("proj-1");
+    // Unquoted, and beside the project flag rather than instead of it.
+    expect(shownCommand()).not.toContain(`'${HANDOFF_CODE}'`);
+    expect(shownCommand()).toContain("--project proj-1");
+  });
+
+  it("prints the working command, and says nothing, when the mint fails", async () => {
+    // A failed mint degrades to the status quo: the command without a handoff
+    // is what this page printed before handoffs existed, and it works — by way
+    // of the second browser page. What it must never degrade to is a blank
+    // step, an error, or a command the user cannot run.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    mocks.createCliHandoff.mockRejectedValue(new ApiError(500, "mint unavailable"));
+    renderPage();
+    await reachHandback();
+
+    expect(shownCommand()).toContain("--project proj-1");
+    expect(shownCommand()).not.toContain("--handoff");
+    expect(screen.queryByText(/handoff/i)).toBeNull();
+    expect(screen.queryByText(/mint unavailable/)).toBeNull();
+    // And the step is still the step: both ways out are still offered.
+    expect(screen.getByRole("button", { name: "Set up manually" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Skip for now" })).toBeDefined();
+  });
+
+  it("mints nothing before there is a project to mint against", async () => {
+    // Nothing to record a handoff against, and a user who abandons the form
+    // has cost the mint nothing.
+    mocks.createWorkspace.mockResolvedValue({ id: "ws-1" });
+    mocks.createProject.mockResolvedValue({ id: "proj-1", name: "my-llm-project" });
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: "Create" }));
+
+    expect(mocks.createCliHandoff).not.toHaveBeenCalled();
   });
 
   it("shows the manual walkthrough as a step of the flow, not a page away from it", async () => {

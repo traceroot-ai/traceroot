@@ -12,6 +12,20 @@ interface CliHandbackStepProps {
   /** Named so the user can see which project the command is about to fill. */
   projectName: string;
   /**
+   * A one-time code that signs the pasted-into terminal in, or null when there
+   * is none to print.
+   *
+   * Null is the ordinary case for the first render — the mint is a round trip —
+   * and the standing case when it failed. Either way the command is rendered
+   * without the flag and nothing is said about it: that command is what this
+   * step printed before handoffs existed, and it works by sending the user
+   * through a second browser page, which is a worse flow rather than a broken
+   * one. The page owns the mint and its refresh; this step only prints what it
+   * is handed, so a replacement arrives here as a new value on an ordinary
+   * re-render.
+   */
+  handoff: string | null;
+  /**
    * "Set up manually" — the walkthrough for someone who would rather not hand
    * their repository to a CLI.
    *
@@ -48,6 +62,13 @@ interface CliHandbackStepProps {
  * approval the CLI is already blocked on, because that terminal is mid-command
  * and does not need to be told to run one.
  *
+ * Which is why the command carries a handoff code. The terminal it is pasted
+ * into holds no credential, so without one `setup` would open a second browser
+ * page to sign in — for the account that signed in in this one a minute ago —
+ * and that page would wait for the same first trace this one is already
+ * watching. The code is how the terminal authenticates with no page at all, and
+ * so how this stays the only page in browser-first onboarding.
+ *
  * Three ways out: run the command, do it by hand, or leave. The two
  * alternatives are deliberately quieter than the command — not hidden, because
  * a user who will not paste a CLI invocation into their shell needs a door, and
@@ -56,6 +77,7 @@ interface CliHandbackStepProps {
 export function CliHandbackStep({
   projectId,
   projectName,
+  handoff,
   onSetUpManually,
   onSkip,
   wait,
@@ -69,7 +91,7 @@ export function CliHandbackStep({
         </p>
       </div>
 
-      <CodeBlock label="terminal" value={setupCommand({ projectId })} />
+      <CodeBlock label="terminal" value={setupCommand({ projectId, handoff })} />
 
       <FirstTraceLine wait={wait} />
 
