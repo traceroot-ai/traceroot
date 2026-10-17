@@ -28,6 +28,7 @@ import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { CliHandbackStep } from "@/features/onboarding/components/cli-handback-step";
 import { ManualSetupStep } from "@/features/onboarding/components/manual-setup-step";
 import { useProjectTraceWait } from "@/features/onboarding/use-project-trace-wait";
+import { useCliHandoff } from "@/features/onboarding/use-cli-handoff";
 import { traceUrl } from "@/lib/first-trace";
 import { cn } from "@/lib/utils";
 
@@ -372,6 +373,19 @@ function OnboardingContent() {
     session?.user?.id ? { id: session.user.id, email: session.user.email } : undefined,
   );
 
+  // The credential that keeps this the only browser page in the flow. Minted
+  // as soon as there is a project, which is the moment the hand-back step first
+  // renders, and replaced shortly before it expires for as long as the tab is
+  // open.
+  //
+  // Started here rather than inside the step for the same reason the watch is:
+  // it belongs to the project this page created, not to whichever of the two
+  // steps is on screen, and a user who takes the manual detour and comes back
+  // should find a live code rather than a fresh round trip. Null while the
+  // first mint is in flight and null if it failed, and the step prints the
+  // command without the flag in both cases — see `useCliHandoff`.
+  const handoff = useCliHandoff(createdProject?.id ?? null);
+
   // Both ends of a first run finish the same way: the page that was waiting for
   // the trace opens it. The person's attention is on the terminal they were
   // just sent to, not on this tab, and the trace is the thing the whole flow
@@ -598,6 +612,7 @@ function OnboardingContent() {
                 <CliHandbackStep
                   projectId={createdProject.id}
                   projectName={createdProject.name}
+                  handoff={handoff}
                   // The instrumentation half of "manually", which is what exists
                   // today: the getting-started panel's manual walkthrough, shown
                   // as a step of this flow rather than navigated to. The provider
