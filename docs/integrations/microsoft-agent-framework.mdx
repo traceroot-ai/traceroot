@@ -7,6 +7,14 @@ Automatically capture agent runs, model calls, and tool executions from [Microso
 
 ## Setup
 
+Install TraceRoot with the Agent Framework extra:
+
+```bash
+pip install "traceroot[agent-framework]" agent-framework-openai
+```
+
+This extra installs the OpenInference instrumentor and requires OpenTelemetry 1.39 or newer.
+
 ```python
 import traceroot
 from traceroot import Integration
@@ -66,7 +74,7 @@ Tools are plain functions — Agent Framework already emits an `execute_tool` sp
 | Tool calls | An `execute_tool` span per tool execution, with arguments |
 | Response | Generated text and tool outputs |
 | Tokens | Input and output token counts |
-| Cost | Calculated from token usage and model pricing |
+| Cost | Calculated when the model ID matches TraceRoot's pricing table |
 | Latency | Request duration |
 
 ## Run the example

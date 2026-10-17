@@ -22,31 +22,42 @@ function cardNames(): string[] {
   return screen.getAllByRole("radio").map((card) => card.textContent ?? "");
 }
 
-function pressTab(label: string) {
-  fireEvent.click(screen.getByRole("tab", { name: label }));
+/**
+ * The group filters. They are toggle buttons rather than ARIA tabs, and they
+ * are the only buttons in here -- the cards are radios and the two requests
+ * are links.
+ */
+function filters(): HTMLElement[] {
+  return screen.getAllByRole("button");
+}
+
+function pressFilter(label: string) {
+  fireEvent.click(screen.getByRole("button", { name: label }));
 }
 
 function search(value: string) {
   fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value } });
 }
 
-describe("the tabs", () => {
-  it("offers All plus one tab per group, with All selected first", () => {
+describe("the group filters", () => {
+  it("offers All plus one filter per group, with All pressed first", () => {
     renderSelector();
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+    expect(filters().map((filter) => filter.textContent)).toEqual([
       "All",
       "Model providers",
       "SDK integrations",
       "Agent frameworks",
     ]);
-    expect(screen.getByRole("tab", { name: "All" }).getAttribute("aria-selected")).toBe("true");
+    // Pressed rather than selected: filtering the list is not choosing from it,
+    // and these control no tabpanel.
+    expect(screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("shows every entry under All, grouped and labelled", () => {
     renderSelector();
     expect(cardNames()).toHaveLength(INTEGRATIONS.length);
     for (const label of ["Model providers", "SDK integrations", "Agent frameworks"]) {
-      // Both the tab and the heading carry the words, so the heading is the
+      // Both the filter and the heading carry the words, so the heading is the
       // second of the two.
       expect(screen.getAllByText(label).length).toBeGreaterThan(1);
     }
@@ -54,19 +65,19 @@ describe("the tabs", () => {
 
   it("shows only the model providers under Model providers", () => {
     renderSelector();
-    pressTab("Model providers");
+    pressFilter("Model providers");
     expect(cardNames()).toEqual(["Anthropic", "Google Gemini", "Mistral", "OpenAI", "OpenRouter"]);
   });
 
   it("shows only the SDKs under SDK integrations", () => {
     renderSelector();
-    pressTab("SDK integrations");
+    pressFilter("SDK integrations");
     expect(cardNames()).toEqual(["DSPy", "LlamaIndex", "pi SDK", "Vercel AI SDK"]);
   });
 
   it("shows only the agent frameworks under Agent frameworks", () => {
     renderSelector();
-    pressTab("Agent frameworks");
+    pressFilter("Agent frameworks");
     expect(cardNames()).toEqual([
       "Agno",
       "AutoGen",
@@ -82,12 +93,12 @@ describe("the tabs", () => {
     ]);
   });
 
-  it("drops the group heading once the tab already says it", () => {
+  it("drops the group heading once the filter already says it", () => {
     renderSelector();
-    pressTab("SDK integrations");
-    // Only the tab is left carrying the words.
+    pressFilter("SDK integrations");
+    // Only the filter is left carrying the words.
     expect(screen.getAllByText("SDK integrations")).toHaveLength(1);
-    expect(screen.queryByText("Agent frameworks")).toBeTruthy(); // still a tab
+    expect(screen.queryByText("Agent frameworks")).toBeTruthy(); // still a filter
     expect(screen.getAllByText("Agent frameworks")).toHaveLength(1);
   });
 });
@@ -100,18 +111,21 @@ describe("the search", () => {
   });
 
   it("finds an entry by a name the card does not show", () => {
-    // "LangGraph" is in the displayed name; "deepagents" is only in the id.
+    // The ids are hyphenated where the displayed names are spaced, so
+    // "langchain-deepagents" matches on the id alone -- "deepagents" and
+    // "langgraph" would both be found by the name on the card and so would
+    // prove nothing about the id.
     renderSelector();
-    search("langgraph");
-    expect(cardNames()).toEqual(["LangChain & LangGraph"]);
+    search("langchain-deepagents");
+    expect(cardNames()).toEqual(["LangChain DeepAgents"]);
   });
 
   it("applies on top of the selected group rather than replacing it", () => {
     renderSelector();
-    pressTab("Model providers");
+    pressFilter("Model providers");
     search("openai");
     expect(cardNames()).toEqual(["OpenAI"]);
-    pressTab("Agent frameworks");
+    pressFilter("Agent frameworks");
     expect(cardNames()).toEqual(["OpenAI Agents SDK"]);
   });
 
@@ -147,7 +161,7 @@ describe("the selection", () => {
     search("mastra");
     expect(cardNames()).toEqual(["Mastra"]);
     expect(onSelect).not.toHaveBeenCalled();
-    pressTab("Model providers");
+    pressFilter("Model providers");
     expect(onSelect).not.toHaveBeenCalled();
   });
 });

@@ -136,7 +136,7 @@ export function createDownloadTracesTool(
           const { dir, spanCount } = r.value;
           lines.push(`✓ ${traceId} → ${dir}/ (${spanCount} spans)`);
           lines.push(`    cat ${dir}/tree.json | jq .`);
-          lines.push(`    grep GENERATION ${dir}/spans.jsonl`);
+          lines.push(`    grep '"span_kind":"LLM"' ${dir}/spans.jsonl`);
         } else {
           lines.push(`✗ ${traceId} — Error: ${r.reason?.message}`);
         }

@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
+import { SectionLink } from "./SectionLink";
 import {
   filterIntegrations,
   INTEGRATION_GROUPS,
@@ -12,7 +13,10 @@ import {
   type IntegrationOption,
 } from "./integrations";
 
-/** "All" first, then the catalogue's own groups in its own order. */
+/**
+ * The group filters: "All" first, then the catalogue's own groups in its own
+ * order.
+ */
 const TABS: { value: IntegrationFilter; label: string }[] = [
   { value: "all", label: "All" },
   ...INTEGRATION_GROUPS.map((group) => ({ value: group.category, label: group.label })),
@@ -31,8 +35,12 @@ interface StackSelectorProps {
  * the agent frameworks somebody arrives looking for by name and the SDKs they
  * would never think to look for under that word. Three groups and a search are
  * two different ways in — browse if you know the shape of what you have, type
- * if you know its name — and either way the answer feeds the install command,
- * the snippet, the docs link and the key field below.
+ * if you know its name — and either way the answer feeds the key field below,
+ * which both routes share, and the install command, the snippet and the docs
+ * link on the manual one. The AI route's own section does not take it: its
+ * single `traceroot setup` line detects the stack in the repository it is run
+ * in rather than taking this page's word for it, and its docs link is the
+ * general tracing guide.
  *
  * Filtering never changes the selection. Someone who picks CrewAI and then
  * types "mastra" to see whether it is supported has not chosen Mastra, and
@@ -60,14 +68,9 @@ export function StackSelector({ selected, onSelect }: StackSelectorProps) {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] font-medium text-foreground">Select your stack</p>
-        <a
-          href="https://github.com/traceroot-ai/traceroot/issues/new"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-        >
+        <SectionLink href="https://github.com/traceroot-ai/traceroot/issues/new">
           Don&apos;t see yours? Request one
-        </a>
+        </SectionLink>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -83,13 +86,20 @@ export function StackSelector({ selected, onSelect }: StackSelectorProps) {
           />
         </div>
 
-        <div role="tablist" aria-label="Integration groups" className="flex flex-wrap gap-1">
+        {/*
+         * Toggle buttons rather than ARIA tabs. These filter the list; they do
+         * not select anything (see above) and there is no tabpanel for them to
+         * control -- the cards below are a radiogroup, which is where the
+         * selection lives. Declaring `tab` would promise a reader arrow-key
+         * navigation and a roving tabIndex that are not here, and would take
+         * away the plain Tab-and-Enter path these already have.
+         */}
+        <div role="group" aria-label="Integration groups" className="flex flex-wrap gap-1">
           {TABS.map((candidate) => (
             <button
               key={candidate.value}
               type="button"
-              role="tab"
-              aria-selected={tab === candidate.value}
+              aria-pressed={tab === candidate.value}
               onClick={() => setTab(candidate.value)}
               className={cn(
                 "rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors",

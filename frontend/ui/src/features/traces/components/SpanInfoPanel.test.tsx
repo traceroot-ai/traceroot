@@ -67,6 +67,7 @@ describe("SpanInfoPanel - Error box source location badges", () => {
       span_end_time: "2026-07-12T12:00:01Z",
       status: SpanStatus.ERROR,
       status_message: "Traceback (most recent call last): ...",
+      error_type: "TimeoutError",
       model_name: "gpt-4o",
       cost: 0.005,
       input_tokens: 150,
@@ -140,6 +141,41 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(errorMessage).toBeTruthy();
     expect(errorMessage.className).toContain("whitespace-pre-wrap");
     expect(errorMessage.className).toContain("break-all");
+  });
+
+  it("renders the error_type chip first in the badge row", () => {
+    render(<SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={mockSelection} />);
+
+    const typeSpan = screen.getByText("TimeoutError");
+    expect(typeSpan.className).toContain("font-mono");
+    const chip = typeSpan.parentElement;
+    expect(chip?.className).toContain("inline-flex");
+    expect(chip?.querySelector("svg")).toBeTruthy();
+    // First chip in the row, ahead of the git badges.
+    expect(chip?.parentElement?.firstElementChild).toBe(chip);
+  });
+
+  it("renders the Error box and chip for an ERROR span with no status message", () => {
+    const selection: TraceSelection = {
+      type: "span",
+      span: { ...mockSelection.span, status_message: null },
+    };
+    render(<SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={selection} />);
+
+    expect(screen.getByText("Error")).toBeTruthy();
+    expect(screen.getByText("TimeoutError")).toBeTruthy();
+    expect(screen.queryByText("Traceback (most recent call last): ...")).toBeNull();
+  });
+
+  it("renders no Error box for an OK span", () => {
+    const selection: TraceSelection = {
+      type: "span",
+      span: { ...mockSelection.span, status: SpanStatus.OK, status_message: null, error_type: "" },
+    };
+    render(<SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={selection} />);
+
+    expect(screen.queryByText("Error")).toBeNull();
+    expect(screen.queryByText("TimeoutError")).toBeNull();
   });
 
   it("renders the model_name pill with its icon", () => {

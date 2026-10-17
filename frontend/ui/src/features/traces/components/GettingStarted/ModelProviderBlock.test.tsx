@@ -8,7 +8,11 @@ const mocks = vi.hoisted(() => ({
   getModelProviders: vi.fn(),
   createModelProvider: vi.fn(),
   testModelProvider: vi.fn(),
-  workspace: { data: undefined as { role: string } | undefined, isLoading: false },
+  workspace: {
+    data: undefined as { role: string } | undefined,
+    isLoading: false,
+    isError: false,
+  },
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -103,6 +107,26 @@ function renderBlock(
   };
 }
 
+const OPENAI: ProviderKeyBinding = { kind: "suggested", adapter: "openai" };
+const ANTHROPIC: ProviderKeyBinding = { kind: "fixed", adapter: "anthropic" };
+
+/**
+ * A block whose binding can change under it, for the tests about a stack
+ * switched mid-step. One query client across both renders, so a save started
+ * under the first binding is still the same mutation after the second.
+ */
+function renderSwitchable(binding: ProviderKeyBinding = OPENAI, stackName = "LangChain") {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const tree = (next: ProviderKeyBinding, nextStackName: string) => (
+    <QueryClientProvider client={queryClient}>
+      <ModelProviderBlock workspaceId="ws-1" providerKey={next} stackName={nextStackName} />
+    </QueryClientProvider>
+  );
+  return { queryClient, tree, ...render(tree(binding, stackName)) };
+}
+
 // The field is named for the provider the stack asks for, so every lookup for
 // it is by suffix rather than by the bare words it used to carry.
 async function fillKey(value = "sk-test-key") {
@@ -117,6 +141,7 @@ beforeEach(() => {
   mocks.createModelProvider.mockResolvedValue({ id: "mp-1" });
   mocks.workspace.data = { role: "ADMIN" };
   mocks.workspace.isLoading = false;
+  mocks.workspace.isError = false;
 });
 
 afterEach(() => {
@@ -667,6 +692,32 @@ describe("a member who cannot write one", () => {
     expect(mocks.testModelProvider).not.toHaveBeenCalled();
     expect(mocks.createModelProvider).not.toHaveBeenCalled();
   });
+
+  it("claims nothing about the reader when the role cannot be read at all", async () => {
+    // An errored read is not a loading state: react-query drops `isLoading`
+    // with no data behind it, so the role gate saw "not an admin" and told
+    // whoever was looking — the workspace's own admin, as likely as not — that
+    // adding a key was someone else's job. Only the list had this branch.
+    mocks.workspace.data = undefined;
+    mocks.workspace.isError = true;
+
+    renderBlock();
+    expect(await screen.findByText(/settings could not be read/)).toBeTruthy();
+    expect(screen.queryByText(/A workspace admin can add one/)).toBeNull();
+    expect(screen.queryByLabelText(/API key$/)).toBeNull();
+  });
+
+  it("keeps the form for an admin whose role outlives a failed refetch", async () => {
+    // react-query keeps the data it has when a background refetch errors, so the
+    // role is still known — failing closed on the error alone would take the
+    // form away from the admin mid-paste for a sentence nobody needed.
+    mocks.workspace.data = { role: "ADMIN" };
+    mocks.workspace.isError = true;
+
+    renderBlock();
+    expect(await screen.findByLabelText(/API key$/)).toBeTruthy();
+    expect(screen.queryByText(/settings could not be read/)).toBeNull();
+  });
 });
 
 describe("no adapter a pasted key fully configures", () => {
@@ -769,37 +820,78 @@ describe("the key the selected stack asks for", () => {
     // Switching stack is switching provider, so the same rule applies as
     // switching it by hand: the key and the error belonged to the old one.
     mocks.testModelProvider.mockResolvedValue({ success: false, error: "Invalid API key" });
-    const openai: ProviderKeyBinding = { kind: "suggested", adapter: "openai" };
-    const anthropic: ProviderKeyBinding = { kind: "fixed", adapter: "anthropic" };
 
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    });
-    const { rerender } = render(
-      <QueryClientProvider client={queryClient}>
-        <ModelProviderBlock workspaceId="ws-1" providerKey={openai} stackName="LangChain" />
-      </QueryClientProvider>,
-    );
+    const { rerender, tree } = renderSwitchable();
 
     const field = await fillKey("sk-an-openai-key");
     fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
     expect(await screen.findByText(/Invalid API key/)).toBeTruthy();
 
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <ModelProviderBlock
-          workspaceId="ws-1"
-          providerKey={anthropic}
-          stackName="Claude Agent SDK"
-        />
-      </QueryClientProvider>,
-    );
+    rerender(tree(ANTHROPIC, "Claude Agent SDK"));
 
     expect(screen.queryByText(/Invalid API key/)).toBeNull();
     expect(screen.getByLabelText("Anthropic API key")).toBeTruthy();
     expect(field.value).toBe("");
     // A provider chosen by hand is dropped with it: the new stack names its own.
     expect(screen.queryByLabelText("Model provider")).toBeNull();
+  });
+
+  it("drops a rejection that arrives after the stack changed under the save", async () => {
+    // The one state the render-time reset cannot reach: a probe already in
+    // flight. Its answer is about the old key and the old provider, so it must
+    // not surface under the new provider's label.
+    let settleProbe!: (result: { success: boolean; error?: string }) => void;
+    mocks.testModelProvider.mockReturnValue(
+      new Promise<{ success: boolean; error?: string }>((resolve) => {
+        settleProbe = resolve;
+      }),
+    );
+
+    const { rerender, tree } = renderSwitchable();
+    await fillKey("sk-an-openai-key");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+
+    rerender(tree(ANTHROPIC, "Claude Agent SDK"));
+    const field = (await screen.findByLabelText("Anthropic API key")) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "sk-an-anthropic-key" } });
+
+    await act(async () => {
+      settleProbe({ success: false, error: "Invalid API key" });
+    });
+
+    expect(screen.queryByText(/Invalid API key/)).toBeNull();
+    expect(field.value).toBe("sk-an-anthropic-key");
+    expect(mocks.createModelProvider).not.toHaveBeenCalled();
+  });
+
+  it("keeps the key typed for the new stack when the old save succeeds late", async () => {
+    let settleProbe!: (result: { success: boolean }) => void;
+    mocks.testModelProvider.mockReturnValue(
+      new Promise<{ success: boolean }>((resolve) => {
+        settleProbe = resolve;
+      }),
+    );
+
+    const { rerender, tree } = renderSwitchable();
+    await fillKey("sk-an-openai-key");
+    fireEvent.click(screen.getByRole("button", { name: "Verify and save" }));
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+
+    rerender(tree(ANTHROPIC, "Claude Agent SDK"));
+    const field = (await screen.findByLabelText("Anthropic API key")) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "sk-an-anthropic-key" } });
+
+    await act(async () => {
+      settleProbe({ success: true });
+    });
+
+    // The save completes for the provider it started under -- that key was
+    // verified and is worth storing -- but the field now holds another
+    // provider's key, and clearing it would throw that away.
+    await waitFor(() => expect(mocks.createModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.createModelProvider.mock.calls[0][1].adapter).toBe("openai");
+    expect(field.value).toBe("sk-an-anthropic-key");
   });
 
   it("says there is no adapter at all rather than offering a field for one", async () => {
@@ -822,7 +914,7 @@ describe("the key the selected stack asks for", () => {
     // credential, it just ships no curated model list.
     renderBlock("ws-1", { kind: "fixed", adapter: "openrouter" }, "OpenRouter");
     expect(
-      await screen.findByText(/OpenRouter runs on OpenRouter, and OpenRouter needs a model list/),
+      await screen.findByText(/^OpenRouter needs a model list chosen, so it cannot be set up/),
     ).toBeTruthy();
     expect(screen.queryByLabelText(/API key$/)).toBeNull();
     expect(screen.getByRole("link", { name: /Settings/ })).toBeTruthy();
@@ -876,16 +968,43 @@ describe("the lines the bound key is introduced with", () => {
   });
 
   it("sends a provider with no adapter nowhere, and an excluded one to settings", () => {
-    expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" }, "Mistral")).toEqual({
+    // A framework that calls a provider there is no adapter for: both names
+    // are needed, because they are two different companies.
+    expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" }, "Some Framework")).toEqual({
       state:
-        "Mistral calls Mistral, and TraceRoot has no Mistral adapter for your own keys, so there is no Mistral key to paste here. The AI assistant and detectors run on TraceRoot's models.",
+        "Some Framework calls Mistral, and TraceRoot has no Mistral adapter for your own keys, so there is no Mistral key to paste here. The AI assistant and detectors run on TraceRoot's models.",
       settings: null,
     });
-    expect(unavailableKeyCopy({ kind: "fixed", adapter: "azure" }, "Azure OpenAI")).toEqual({
+    // A framework fixed to a provider this step cannot finish configuring.
+    expect(unavailableKeyCopy({ kind: "fixed", adapter: "azure" }, "Some Framework")).toEqual({
       state:
-        "Azure OpenAI runs on Azure OpenAI, and Azure OpenAI needs more than a key, so it cannot be set up from here.",
+        "Some Framework runs on Azure OpenAI, and Azure OpenAI needs more than a key, so it cannot be set up from here.",
       settings: "Add it in",
     });
+  });
+
+  it("does not say a provider calls itself", () => {
+    // Both live cases in the catalogue: the entry IS the provider, so the
+    // opening clause would only repeat the name. Mistral is the `none` entry
+    // and OpenRouter the settings-only one, and each is what a customer sees
+    // the moment they pick it.
+    expect(unavailableKeyCopy({ kind: "none", provider: "Mistral" }, "Mistral")).toEqual({
+      state:
+        "TraceRoot has no Mistral adapter for your own keys, so there is no key to paste here. The AI assistant and detectors run on TraceRoot's models.",
+      settings: null,
+    });
+    expect(unavailableKeyCopy({ kind: "fixed", adapter: "openrouter" }, "OpenRouter")).toEqual({
+      state: "OpenRouter needs a model list chosen, so it cannot be set up from here.",
+      settings: "Add it in",
+    });
+    for (const [binding, stack] of [
+      [{ kind: "none", provider: "Mistral" } as const, "Mistral"],
+      [{ kind: "fixed", adapter: "openrouter" } as const, "OpenRouter"],
+    ] as const) {
+      // No name twice over, in either form.
+      const { state } = unavailableKeyCopy(binding, stack);
+      expect(state.split(stack).length - 1, state).toBe(1);
+    }
   });
 
   it("derives each exclusion from the clause the adapter actually fails", () => {
