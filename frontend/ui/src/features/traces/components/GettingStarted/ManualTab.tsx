@@ -9,12 +9,7 @@ import { CodeBlock } from "./CodeBlock";
 import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { ModelProviderBlock } from "./ModelProviderBlock";
-import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
-
-const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
-  { category: "provider", label: "Model Providers" },
-  { category: "framework", label: "Frameworks" },
-];
+import { ALL_LANGS, INTEGRATION_GROUPS, INTEGRATIONS, type Lang } from "./integrations";
 
 function LangTabs({
   lang,
