@@ -31,6 +31,20 @@ function stubSpawn() {
   });
 }
 
+
+/** A spawn stub that remains open until the test cancels it. */
+function stubPendingSpawn() {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    kill: () => void;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = () => queueMicrotask(() => child.emit("close", null, "SIGKILL"));
+  return child;
+}
+
 /** execFile is promisified, so it must call back node-style. */
 function stubExecFile(stdout = "container123\n") {
   execFileMock.mockImplementation((_cmd: string, _args: string[], cb: unknown) => {
@@ -55,6 +69,85 @@ function spawnArgs(): string[][] {
 beforeEach(() => {
   spawnMock.mockReset();
   execFileMock.mockReset();
+});
+
+
+describe("DockerExecutor.exec cancellation", () => {
+  it("runs a command in a unique process group with cancellation marker files", async () => {
+    const executor = await readyExecutor();
+    await executor.exec("sleep 1");
+
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args.join("\n")).toContain("setsid --wait sh -c");
+    expect(args).toContain("sleep 1");
+
+    const pidFile = args.find((arg) => /^\/tmp\/traceroot-exec-.*\.pid$/.test(arg));
+    const cancelFile = args.find((arg) => /^\/tmp\/traceroot-exec-.*\.cancel$/.test(arg));
+    expect(pidFile).toBeDefined();
+    expect(cancelFile).toBeDefined();
+    expect(pidFile!.replace(/\.pid$/, "")).toBe(cancelFile!.replace(/\.cancel$/, ""));
+  });
+
+  it("returns a failed result and terminates the remote process group on abort", async () => {
+    const executor = await readyExecutor();
+    const controller = new AbortController();
+    const pending = executor.exec("sleep 10", { signal: controller.signal });
+    controller.abort();
+
+    await expect(pending).resolves.toMatchObject({
+      stderr: "Command cancelled",
+      code: 1,
+    });
+
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+    const killerArgs = spawnMock.mock.calls[1][1] as string[];
+    expect(killerArgs[0]).toBe("exec");
+    expect(killerArgs.join("\n")).toContain('touch "$cancel_file"');
+    expect(killerArgs.join("\n")).toContain('/bin/kill -KILL -- "-$command_pid"');
+  });
+
+  it("returns a failed result and terminates the remote process group on timeout", async () => {
+    const executor = await readyExecutor();
+    spawnMock.mockImplementationOnce(() => stubPendingSpawn());
+
+    const result = await executor.exec("sleep 10", { timeout: 0.01 });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Command timed out after");
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+    const killerArgs = spawnMock.mock.calls[1][1] as string[];
+    expect(killerArgs.join("\n")).toContain('/bin/kill -KILL -- "-$command_pid"');
+  });
+
+  it("does not report a signal-terminated docker exec as success", async () => {
+    const executor = await readyExecutor();
+    spawnMock.mockImplementationOnce(() => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: () => void;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => {};
+      queueMicrotask(() => child.emit("close", null, "SIGKILL"));
+      return child;
+    });
+
+    const result = await executor.exec("echo hi");
+    expect(result.code).toBe(1);
+  });
+
+  it("keeps the sandbox ready and usable after cancellation", async () => {
+    const executor = await readyExecutor();
+    const controller = new AbortController();
+    const pending = executor.exec("sleep 10", { signal: controller.signal });
+    controller.abort();
+
+    await expect(pending).resolves.toMatchObject({ code: 1 });
+    await expect(executor.exec("echo still usable")).resolves.toMatchObject({ code: 0 });
+    expect(executor.isReady()).toBe(true);
+  });
 });
 
 describe("DockerExecutor.exec env handling", () => {
