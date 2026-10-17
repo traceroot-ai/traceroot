@@ -120,7 +120,9 @@ async function createOrAdoptWorkspace(name: string): Promise<{ id: string; name:
 
 // The project a 409 collided with, when the workspace's own list names it.
 //
-// There is no ownership to establish here, unlike the workspace lookup above.
+// Which row the create collided with is all this answers, unlike the workspace
+// lookup above: whether that row is this attempt's to adopt is settled by the
+// caller, before the lookup is reached at all (see `createOrAdoptProject`).
 // `uq_project_workspace_live_name` is scoped to one workspace, the caller is
 // already a member of that workspace (the route refuses anyone else with a
 // 403), and the listing leaves out soft-deleted rows — which the index also
@@ -149,22 +151,39 @@ function findLiveProjectByName(projects: Project[], name: string): Project | nul
 // regardless, so a 409 that came to mean something else could not adopt
 // anything.
 //
-// In project-only mode the workspace can be a shared one, where the 409 can
-// instead be a teammate's project under the same name. Adopting it is still the
-// better of the two answers: the user is a member of that workspace, the project
-// is the one they asked for by name, and the alternative is a first run that
-// cannot be finished. What this does not recover is an edited name after a lost
-// response — with no id in hand a retry under a different name cannot collide,
-// so it creates a second project and leaves the first unmentioned.
+// `adoptable` is what holds that reasoning to the case it was argued for. A
+// project standing under the submitted name is this attempt's own only where
+// this attempt is also what put the workspace there — a workspace it created,
+// or one it adopted by the same lost-response rule. In project-only mode
+// (`?workspaceId=`) the workspace is one that already existed and can be shared,
+// and the form defaults the project name to `my-llm-project`, so a 409 there is
+// at least as likely to be a teammate's project as anything this sign-up wrote.
+// Adopting that one would report "Project created", hand the CLI's return trip a
+// project belonging to someone else, and send this user's traces into it.
+//
+// So the 409 stands in that mode. It is not the dead end it is on the first
+// screen: the refusal says "A project with this name already exists", and the
+// project name is a field on this form, which the user can change and submit
+// again. Naming the colliding project and offering to use it would be better
+// still, and is a question for whoever designs that prompt rather than something
+// to decide by defaulting to adoption.
+//
+// What this does not recover is an edited name after a lost response — with no
+// id in hand a retry under a different name cannot collide, so it creates a
+// second project and leaves the first unmentioned.
 async function createOrAdoptProject(
   workspaceId: string,
   name: string,
+  adoptable: boolean,
 ): Promise<{ id: string; name: string }> {
   try {
     const project = await createProject(workspaceId, name);
     return { id: project.id, name: project.name };
   } catch (err) {
     if (!(err instanceof ApiError) || err.status !== 409) {
+      throw err;
+    }
+    if (!adoptable) {
       throw err;
     }
     const adopted = findLiveProjectByName(await getProjects(workspaceId), name);
@@ -366,7 +385,9 @@ function OnboardingContent() {
         return;
       }
 
-      const project = await createOrAdoptProject(workspaceId, projectName);
+      // Adoptable only where this attempt is what put the workspace here: in
+      // project-only mode the workspace predates this page and can be shared.
+      const project = await createOrAdoptProject(workspaceId, projectName, !isProjectOnlyMode);
 
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
 

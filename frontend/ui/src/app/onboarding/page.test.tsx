@@ -667,6 +667,26 @@ describe("OnboardingPage", () => {
     );
   });
 
+  it("keeps the collision rather than adopting a project in a workspace it did not make", async () => {
+    // Project-only mode adds a project to a workspace that already existed, and
+    // such a workspace can be shared. With the form defaulting the project name
+    // to `my-llm-project`, a 409 there is at least as likely to be a teammate's
+    // project as a lost response of this user's own — and adopting it would
+    // report success, hand the terminal that project, and send this user's
+    // traces into someone else's.
+    setParams({ workspaceId: "ws-shared", workspaceName: "Example" });
+    mocks.createProject.mockRejectedValue(PROJECT_NAME_TAKEN());
+    mocks.getProjects.mockResolvedValue([LIVE_PROJECT]);
+    renderPage();
+    await clickCreate();
+
+    await waitFor(() =>
+      expect(screen.getByText("A project with this name already exists")).toBeDefined(),
+    );
+    // Not even looked for: the refusal is settled before the listing is read.
+    expect(mocks.getProjects).not.toHaveBeenCalled();
+  });
+
   it("does not go looking for a project when the create failed for another reason", async () => {
     // A 500 says nothing about whether a project exists under this name, and
     // adopting one found anyway would hand the user a project this attempt has
