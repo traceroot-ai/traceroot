@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@traceroot/core";
+import { prisma, type Prisma } from "@traceroot/core";
 import { generateApiKey, getKeyPrefix, hashApiKey } from "@/lib/api-keys";
 import { readLimitedJson } from "@/lib/eval/body";
 import { publicError, requireApiKeyProject } from "@/lib/public-auth";
@@ -37,17 +37,20 @@ const createKeySchema = z.object({
   scope: z.enum(["ingest", "admin"]).optional(),
 });
 
+/** The key metadata both routes read back. Never the secret or its hash. */
+const keyMetadataSelect = {
+  id: true,
+  keyHint: true,
+  name: true,
+  projectId: true,
+  scope: true,
+  expireTime: true,
+  lastUseTime: true,
+  createTime: true,
+} satisfies Prisma.AccessKeySelect;
+
 /** Serialized key metadata. Never includes the secret. */
-function serializeKey(key: {
-  id: string;
-  keyHint: string;
-  name: string | null;
-  projectId: string;
-  scope: string;
-  expireTime: Date | null;
-  lastUseTime: Date | null;
-  createTime: Date;
-}) {
+function serializeKey(key: Prisma.AccessKeyGetPayload<{ select: typeof keyMetadataSelect }>) {
   return {
     id: key.id,
     name: key.name,
@@ -73,16 +76,7 @@ export async function GET(request: NextRequest) {
 
   const keys = await prisma.accessKey.findMany({
     where: { projectId: result.auth.projectId },
-    select: {
-      id: true,
-      keyHint: true,
-      name: true,
-      projectId: true,
-      scope: true,
-      expireTime: true,
-      lastUseTime: true,
-      createTime: true,
-    },
+    select: keyMetadataSelect,
     orderBy: { createTime: "desc" },
   });
 
@@ -144,16 +138,7 @@ export async function POST(request: NextRequest) {
       scope,
       expireTime,
     },
-    select: {
-      id: true,
-      keyHint: true,
-      name: true,
-      projectId: true,
-      scope: true,
-      expireTime: true,
-      lastUseTime: true,
-      createTime: true,
-    },
+    select: keyMetadataSelect,
   });
 
   // `key` is returned exactly once, here. It is never recoverable afterwards —
